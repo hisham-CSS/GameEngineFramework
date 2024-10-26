@@ -2,3 +2,6 @@
 out/
 .vs/
 vcpkg_installed/
+
+# Files
+CMakeSettings.json
