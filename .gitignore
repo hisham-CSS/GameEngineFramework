@@ -1,0 +1,4 @@
+# Directories
+out/
+.vs/
+vcpkg_installed/
