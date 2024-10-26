@@ -12,7 +12,7 @@
 
 namespace MyCoreEngine
 {
-    class ENGINE_API Engine
+    class __declspec(dllexport) Engine
     {
     public:
         void Run();
