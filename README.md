@@ -7,31 +7,30 @@ This project is structured as a modular game engine framework, with **CMake** us
 ## Project Structure
 
 The project is organized as follows:
-```bash
-GameEngineFramework/
-├── Editor/
-│   ├── src/
-│   │   └── EditorApplication.cpp
-│   └── CMakeLists.txt
-├── Engine/
-│   ├── include/
-│   │   └── Engine.h
-│   ├── src/
-│   │   ├── core/
-│   │   │   ├── Application.cpp
-│   │   │   ├── Application.h
-│   │   │   ├── Core.h
-│   │   │   └── Main.h
-│	│	└── renderer/
-│	│		├── window.cpp
-│   │       └── window.h
-│   └── CMakeLists.txt
-├── .gitignore
-├── CMakeLists.txt
-├── LICENSE.txt
-├── README.md
-├── vcpkg.json
-└── vcpkg-configuration.json
+```cmd
+│   .gitignore
+│   CMakeLists.txt
+│   LICENSE.txt
+│   README.md
+│   vcpkg-configuration.json
+│   vcpkg.json
+├───Editor
+│   │   CMakeLists.txt
+│   └───src
+│           EditorApplication.cpp
+├───Engine
+│   │   CMakeLists.txt
+│   ├───include
+│   │       Engine.h
+│   └───src
+│       ├───core
+│       │       Application.cpp
+│       │       Application.h
+│       │       Core.h
+│       │       Main.h
+│       └───renderer
+│               window.cpp
+│               window.h
 ```
 
 ## Dependencies
