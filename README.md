@@ -8,7 +8,6 @@ This project is structured as a modular game engine framework, with **CMake** us
 
 The project is organized as follows:
 
-``
 GameEngineFramework/
 ├── Editor/
 │   ├── src/
@@ -32,8 +31,7 @@ GameEngineFramework/
 ├── LICENSE.txt
 ├── README.md
 ├── vcpkg.json
-├── vcpkg-configuration.json
-└``
+└── vcpkg-configuration.json
 
 ## Dependencies
 - [GLFW](https://www.glfw.org/) - A multi-platform library for OpenGL, OpenGL ES, and Vulkan development
