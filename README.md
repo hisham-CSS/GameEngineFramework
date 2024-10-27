@@ -8,6 +8,7 @@ This project is structured as a modular game engine framework, with **CMake** us
 
 The project is organized as follows:
 ```cmd
+GameEngineFramework
 │   .gitignore
 │   CMakeLists.txt
 │   LICENSE.txt
