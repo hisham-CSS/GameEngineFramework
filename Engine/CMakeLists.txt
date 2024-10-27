@@ -1,9 +1,19 @@
 # Add library target for the engine (this will compile into a DLL)
 add_library(Engine SHARED
-    src/Engine.cpp
     include/Engine.h
-)
+    src/core/Application.cpp
+    src/core/Application.h
+    src/core/Main.h
+    src/core/Core.h
+    src/renderer/window.h 
+    src/renderer/window.cpp)
 
+target_compile_definitions(Engine PRIVATE ENGINE_DLL_EXPORTS)
+
+# CMake is not a package manager so this command doesn't work as a fetch from remote.
+# You have to have the dependancy added before you can find it
+# If VCPKG is installed and used as a global store for your packages in C++ projects - then you can use this to install the dependancy
+# into the project - here we are requiring glfw3.
 find_package(glfw3 CONFIG REQUIRED)
 
 # Publicly include the Engine's `include` folder for other projects (like Editor, Launcher)

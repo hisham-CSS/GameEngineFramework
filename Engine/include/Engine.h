@@ -1,21 +1,7 @@
 #pragma once
 
-#ifdef _WIN32
-    #ifdef ENGINE_DLL_EXPORTS
-        #define ENGINE_API __declspec(dllexport)
-    #else
-        #define ENGINE_API __declspec(dllimport)
-    #endif
-#else
-    #define ENGINE_API
-#endif
-
-namespace MyCoreEngine
-{
-    class __declspec(dllexport) Engine
-    {
-    public:
-        void Run();
-    };
-
-}
+//FOR USE BY ENGINE APPLICATIONS
+#include "../src/core/Core.h"
+#include "../src/core/Application.h"
+#include "../src/core/Main.h"
+#include "../src/renderer/window.h"

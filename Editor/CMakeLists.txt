@@ -1,6 +1,6 @@
 # Add executable target for the editor
 add_executable(Editor
-    Editor.cpp
+    "src/EditorApplication.cpp"
 )
 
 # Link the Engine library to the Editor executable
