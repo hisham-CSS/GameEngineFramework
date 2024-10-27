@@ -77,14 +77,17 @@ The editor application demonstrates the engine's capabilities and provides:
 
 ## Development Status
 
-- [X]  Basic project structure
-- [X] CMake build system integration
-- [X] vcpkg package management
-- [X] GLFW integration
-- [ ]  Basic rendering system
-- [ ]  Input system
-- [ ]  Scene management
-- [ ]  Asset management
+- :white_check_mark: Basic project structure
+- :white_check_mark: CMake build system integration
+- :white_check_mark: vcpkg package management
+- :white_check_mark: GLFW integration
+- :black_square_button: Basic rendering system
+- :black_square_button:  Input system
+- :black_square_button: 3D Projection and Camera
+- :black_square_button: Nvida PhysX wrapper
+- :black_square_button: EnTT implementation
+- :black_square_button:  Scene management
+- :black_square_button:  Asset management
 
 ## Contributing
 
