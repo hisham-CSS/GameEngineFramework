@@ -1,4 +1,4 @@
-# GameEngineFramework
+﻿# GameEngineFramework
 
 ## Project Overview
 
@@ -8,17 +8,43 @@ This project is structured as a modular game engine framework, with **CMake** us
 
 The project is organized as follows:
 
-``plaintext
-/GameEngineFramework
-    /Editor                     # Editor code utilizing the engine API
-        /src                    # Source files for editor implementation
-        /include                # Header files specific to editor functionality
-        CMakeLists.txt          # Editor CMake configuration file
-    /Engine                     # Core engine code
-        /src                    # Source files for engine implementation
-        /include                # Header files for engine API and wrapper interfaces
-        CMakeLists.txt          # Engine CMake configuration file
-    README.md                   # Project documentation (this file)
-    vcpkg-configuration.json    # VCPKG configuration file
-    vcpkg.json                  # VCPKG manifest file - this lists all the dependencies of the project
-    CMakeLists.txt              # Root CMake configuration file``
+``
+GameEngineFramework/
+├── Editor/
+│   ├── src/
+│   │   └── EditorApplication.cpp
+│   └── CMakeLists.txt
+├── Engine/
+│   ├── include/
+│   │   └── Engine.h
+│   ├── src/
+│   │   ├── core/
+│   │   │   ├── Application.cpp
+│   │   │   ├── Application.h
+│   │   │   ├── Core.h
+│   │   │   └── Main.h
+│	│	└── renderer/
+│	│		├── window.cpp
+│   │       └── window.h
+│   └── CMakeLists.txt
+├── .gitignore
+├── CMakeLists.txt
+├── LICENSE.txt
+├── README.md
+├── vcpkg.json
+├── vcpkg-configuration.json
+└``
+
+## Dependencies
+- [GLFW](https://www.glfw.org/) - A multi-platform library for OpenGL, OpenGL ES, and Vulkan development
+- More dependencies will be added as the project grows
+
+## Building the Project
+
+### Prerequisites
+1. [CMake](https://cmake.org/) (version 3.20 or higher)
+2. [vcpkg](https://vcpkg.io/)
+3. A C++ compiler supporting C++17 or later
+
+### Build Steps
+TBD
