@@ -46,4 +46,50 @@ GameEngineFramework
 3. A C++ compiler supporting C++17 or later
 
 ### Build Steps
-TBD
+1. Clone the repository
+```
+git clone https://github.com/hisham-CSS/GameEngineFramework
+cd GameEngineFramework
+```
+2. Configure the project with CMake (make sure that your path-to-vcpkg is configured locally)
+ ```
+ cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=[path-to-vcpkg]/scripts/buildsystems/vcpkg.cmake
+ ```
+3. Build the project
+```
+cmake --build .
+```
+## Project Components
+
+### Engine
+
+The core engine library is built as a DLL and provides:
+
+-   Wrapped GLFW functionality for window management and input handling [WIP]
+-   More features to be added...
+
+### Editor
+
+The editor application demonstrates the engine's capabilities and provides:
+
+-   A window-based application using the Engine's GLFW wrapper
+-   More features to be added...
+
+## Development Status
+
+- [X]  Basic project structure
+- [X] CMake build system integration
+- [X] vcpkg package management
+- [X] GLFW integration
+- [ ]  Basic rendering system
+- [ ]  Input system
+- [ ]  Scene management
+- [ ]  Asset management
+
+## Contributing
+
+Instructions for contributing will be added as the project develops.
+
+## License
+
+MIT License - you are free to use and modify this template.

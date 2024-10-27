@@ -6,6 +6,7 @@ class EditorApplication : public MyCoreEngine::Application
 public:
 	EditorApplication() {}
 	~EditorApplication() {}
+    
     void Initialize() {
         if (!MyCoreEngine::Window::Init()) {
             // Handle error
