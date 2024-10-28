@@ -3,8 +3,12 @@ add_executable(Editor
     "src/EditorApplication.cpp"
 )
 
+find_package(imgui CONFIG REQUIRED)
+
 # Link the Engine library to the Editor executable
-target_link_libraries(Editor PRIVATE Engine)
+target_link_libraries(Editor PRIVATE 
+    Engine
+    imgui::imgui)
 
 # Set different output directories for Debug and Release
 set_target_properties(Editor PROPERTIES
