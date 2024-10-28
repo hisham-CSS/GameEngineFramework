@@ -7,6 +7,7 @@ namespace MyCoreEngine {
         entt::entity entity = m_Registry.create();
         // You could add default components here if needed, e.g., a Transform component
         m_Registry.emplace<Transform>(entity);
+        m_Registry.emplace<MeshComponent>(entity);
         return entity;
     }
 

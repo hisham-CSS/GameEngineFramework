@@ -51,47 +51,12 @@ public:
         }
 
         // Create a test entity
-        //auto entity = m_Scene->CreateEntity();
-        //auto& transform = m_Scene->AddComponent<MyCoreEngine::Transform>(entity);
-        //transform.Position = glm::vec3(0.0f, 0.0f, 0.0f);
+        auto entity = m_Scene->CreateEntity();
     }
 
     void Run() override {
         while (!MyCoreEngine::Window::WindowShouldClose(window)) {
             MyCoreEngine::Renderer::Clear();
-
-            // Begin ImGui Frame
-            MyCoreEngine::GuiLayer::BeginDockspace();
-
-            // ImGui Windows
-            MyCoreEngine::GuiLayer::BeginFrame();
-            ImGui::Begin("Scene Hierarchy");
-            if (ImGui::Button("Create Entity"))
-            {
-                auto entity = m_Scene->CreateEntity();
-                m_Scene->AddComponent<MyCoreEngine::Transform>(entity);
-            }
-            ImGui::End();
-            MyCoreEngine::GuiLayer::EndFrame();
-
-            MyCoreEngine::GuiLayer::BeginFrame();
-            ImGui::Begin("Properties");
-            // Add component editor here
-            ImGui::End();
-            MyCoreEngine::GuiLayer::EndFrame();
-
-            MyCoreEngine::GuiLayer::BeginFrame();
-            ImGui::Begin("Viewport");
-            // Add viewport content here
-            ImGui::End();
-            MyCoreEngine::GuiLayer::EndFrame();
-
-            // Render Scene
-            RenderScene();
-
-            // End ImGui Frame
-            MyCoreEngine::GuiLayer::EndDockspace();
-
             MyCoreEngine::Window::SwapBuffers(window);
             MyCoreEngine::Window::PollEvents();
         }
@@ -104,14 +69,14 @@ public:
     }
 
 private:
-    void RenderScene() {
-        // Iterate through entities with Transform and MeshComponent
-        auto view = m_Scene->GetRegistry().view<MyCoreEngine::Transform, MyCoreEngine::MeshComponent>();
-        for (auto entity : view) {
-            const auto& [transform] = view.get<MyCoreEngine::Transform, MyCoreEngine::MeshComponent>(entity);
-            // Render mesh with transform
-        }
-    }
+    //void RenderScene() {
+    //    // Iterate through entities with Transform and MeshComponent
+    //    auto view = m_Scene->GetRegistry().view<MyCoreEngine::Transform, MyCoreEngine::MeshComponent>();
+    //    for (auto entity : view) {
+    //        const auto& [transform, mesh] = view.get<MyCoreEngine::Transform, MyCoreEngine::MeshComponent>(entity);
+    //        // Render mesh with transform
+    //    }
+    //}
 
     GLFWwindow* window;
     MyCoreEngine::Scene* m_Scene;
