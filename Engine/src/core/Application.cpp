@@ -13,4 +13,8 @@ namespace MyCoreEngine
 	void Application::Run()
 	{
 	}
+
+	void Application::NewFunc()
+	{
+	}
 }
