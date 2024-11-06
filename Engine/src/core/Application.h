@@ -9,6 +9,7 @@ namespace MyCoreEngine
 		Application();
 		virtual ~Application();
 		virtual void Run();
+
 	};
 
 	//defined in other projects
