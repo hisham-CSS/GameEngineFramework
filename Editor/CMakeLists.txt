@@ -1,7 +1,7 @@
 # Add executable target for the editor
 add_executable(Editor
     "src/EditorApplication.cpp"
-)
+    "src/EditorApplication.h")
 
 # Link the Engine library to the Editor executable
 target_link_libraries(Editor PRIVATE Engine)
