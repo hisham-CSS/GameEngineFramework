@@ -6,6 +6,11 @@ add_executable(Editor
     "src/vertex.glsl"
     "src/frag.glsl")
 
+
+find_package(Stb REQUIRED)
+
+target_include_directories(Editor PRIVATE ${Stb_INCLUDE_DIR})
+
 # Link the Engine library to the Editor executable
 target_link_libraries(Editor PRIVATE Engine)
 
