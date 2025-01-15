@@ -4,7 +4,7 @@ add_executable(Editor
     "src/EditorApplication.h" 
     "src/Shader.h"
     "src/vertex.glsl"
-    "src/frag.glsl")
+    "src/frag.glsl" "src/Camera.h")
 
 
 find_package(Stb REQUIRED)
