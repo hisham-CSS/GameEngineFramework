@@ -8,11 +8,13 @@ add_executable(Editor
 
 
 find_package(Stb REQUIRED)
+find_package(glm CONFIG REQUIRED)
 
 target_include_directories(Editor PRIVATE ${Stb_INCLUDE_DIR})
 
 # Link the Engine library to the Editor executable
 target_link_libraries(Editor PRIVATE Engine)
+target_link_libraries(Editor PRIVATE glm::glm)
 
 # Set different output directories for Debug and Release
 set_target_properties(Editor PROPERTIES
