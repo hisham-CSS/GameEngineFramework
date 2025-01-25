@@ -3,17 +3,21 @@ add_executable(Editor
     "src/EditorApplication.cpp"
     "src/EditorApplication.h" 
     "src/Shader.h"
-    "src/Camera.h")
+    "src/Camera.h" 
+    "src/Model.h" 
+    "src/Mesh.h")
 
 
 find_package(Stb REQUIRED)
 find_package(glm CONFIG REQUIRED)
+find_package(assimp CONFIG REQUIRED)
 
 target_include_directories(Editor PRIVATE ${Stb_INCLUDE_DIR})
 
 # Link the Engine library to the Editor executable
 target_link_libraries(Editor PRIVATE Engine)
 target_link_libraries(Editor PRIVATE glm::glm)
+target_link_libraries(Editor PRIVATE assimp::assimp)
 
 # Set different output directories for Debug and Release
 set_target_properties(Editor PROPERTIES
@@ -25,8 +29,8 @@ set_target_properties(Editor PROPERTIES
 add_custom_command(
   TARGET Editor POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_directory
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/ShaderPrograms
-    $<TARGET_FILE_DIR:Editor>/ShaderPrograms)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/Exported
+    $<TARGET_FILE_DIR:Editor>/Exported)
 
 # Optionally add different compile options based on the build configuration
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")

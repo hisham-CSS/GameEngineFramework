@@ -4,7 +4,7 @@ add_library(Engine SHARED
     src/core/Application.cpp
     src/core/Application.h
     src/core/Main.h
-    src/core/Core.h)
+    src/core/Core.h "src/renderer/window.cpp" "src/renderer/window.h")
 
 target_compile_definitions(Engine PRIVATE ENGINE_DLL_EXPORTS)
 

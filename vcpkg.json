@@ -3,6 +3,7 @@
     "glfw3",
     "glad",
     "stb",
-    "glm"
+    "glm",
+    "assimp"
   ]
 }
