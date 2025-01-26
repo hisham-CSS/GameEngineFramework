@@ -3,23 +3,30 @@
 
 #include <glad/glad.h> 
 
+//GLM includes
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+
+//STB Definition
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
+
+//Assimp includes
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 
-#include "Mesh.h"
-#include "Shader.h"
-
+//standard library headers
 #include <string>
 #include <fstream>
 #include <sstream>
 #include <iostream>
 #include <map>
 #include <vector>
+
+//Mesh and shader to help make the model
+#include "Mesh.h"
+#include "Shader.h"
 
 class Model
 {

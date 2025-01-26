@@ -2,22 +2,22 @@
 add_executable(Editor
     "src/EditorApplication.cpp"
     "src/EditorApplication.h" 
-    "src/Shader.h"
-    "src/Camera.h" 
-    "src/Model.h" 
-    "src/Mesh.h")
+    "../Engine/src/core/Shader.h"
+    "../Engine/src/core/Camera.h" 
+    "../Engine/src/core/Model.h" 
+    "../Engine/src/core/Mesh.h")
 
 
-find_package(Stb REQUIRED)
-find_package(glm CONFIG REQUIRED)
-find_package(assimp CONFIG REQUIRED)
+#find_package(Stb REQUIRED)
 
-target_include_directories(Editor PRIVATE ${Stb_INCLUDE_DIR})
+
+
+#target_include_directories(Editor PRIVATE ${Stb_INCLUDE_DIR})
 
 # Link the Engine library to the Editor executable
 target_link_libraries(Editor PRIVATE Engine)
-target_link_libraries(Editor PRIVATE glm::glm)
-target_link_libraries(Editor PRIVATE assimp::assimp)
+
+
 
 # Set different output directories for Debug and Release
 set_target_properties(Editor PROPERTIES

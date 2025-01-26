@@ -1,12 +1,13 @@
+#include <glad/glad.h>
+#include <GLFW/glfw3.h>
 #include <iostream>
+
+#include "Engine.h"
 #include "EditorApplication.h"
-#include "Shader.h"
-#include "Camera.h"
-#include "Model.h"
 
-
-//Global camera
-Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
+// camera
+Camera camera(glm::vec3(0.0f, 10.0f, 0.0f));
+Camera cameraSpy(glm::vec3(0.0f, 10.0f, 0.f));
 
 // settings
 const unsigned int SCR_WIDTH = 1280;
@@ -20,9 +21,6 @@ bool firstMouse = true;
 // timing
 float deltaTime = 0.0f;	// time between current frame and last frame
 float lastFrame = 0.0f;
-
-// lighting
-glm::vec3 lightPos(1.2f, 1.0f, 2.0f);
 
 //due to mismatching function signatures - these functions have to be moved to the global scope of this file and live outside of the EditorApplication class
 void mouse_callback(GLFWwindow* window, double xposIn, double yposIn)
@@ -98,13 +96,37 @@ void EditorApplication::Run()
     // -----------------------------
     glEnable(GL_DEPTH_TEST);
 
+    camera.MovementSpeed = 20.f;
+
     // build and compile our shader zprogram
     // ------------------------------------
     Shader shader("Exported/Shaders/vertex.glsl", "Exported/Shaders/frag.glsl");
 
     //load models
     // -----------
-    Model ourModel("Exported/Model/backpack.obj");
+    Model loadedModel("Exported/Model/backpack.obj");
+
+    Entity ourEntity(loadedModel);
+    ourEntity.transform.setLocalPosition({ 0, 0, 0 });
+    const float scale = 1.0;
+    ourEntity.transform.setLocalScale({ scale, scale, scale });
+
+    {
+        Entity* lastEntity = &ourEntity;
+
+        for (unsigned int x = 0; x < 20; ++x)
+        {
+            for (unsigned int z = 0; z < 20; ++z)
+            {
+                ourEntity.addChild(loadedModel);
+                lastEntity = ourEntity.children.back().get();
+
+                //Set transform values
+                lastEntity->transform.setLocalPosition({ x * 10.f - 100.f,  0.f, z * 10.f - 100.f });
+            }
+        }
+    }
+    ourEntity.updateSelfAndChild();
 
     while (!glfwWindowShouldClose(window)) {
         
@@ -127,16 +149,22 @@ void EditorApplication::Run()
 
         // view/projection transformations
         glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
+        const Frustum camFrustum = createFrustumFromCamera(camera, (float)SCR_WIDTH / (float)SCR_HEIGHT, glm::radians(camera.Zoom), 0.1f, 100.0f);
+
+        cameraSpy.ProcessMouseMovement(2, 0);
+
         glm::mat4 view = camera.GetViewMatrix();
+
         shader.setMat4("projection", projection);
         shader.setMat4("view", view);
 
-        // render the loaded model
-        glm::mat4 model = glm::mat4(1.0f);
-        model = glm::translate(model, glm::vec3(0.0f, 0.0f, 0.0f)); // translate it down so it's at the center of the scene
-        model = glm::scale(model, glm::vec3(1.0f, 1.0f, 1.0f));	// it's a bit too big for our scene, so scale it down
-        shader.setMat4("model", model);
-        ourModel.Draw(shader);
+        // draw our scene graph
+        unsigned int total = 0, display = 0;
+        ourEntity.drawSelfAndChild(camFrustum, shader, display, total);
+        std::cout << "Total process in CPU : " << total << " / Total send to GPU : " << display << std::endl;
+
+        //ourEntity.transform.setLocalRotation({ 0.f, ourEntity.transform.getLocalRotation().y + 20 * deltaTime, 0.f });
+        ourEntity.updateSelfAndChild();
 
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
         // -------------------------------------------------------------------------------

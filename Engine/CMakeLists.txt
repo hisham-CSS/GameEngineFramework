@@ -4,7 +4,12 @@ add_library(Engine SHARED
     src/core/Application.cpp
     src/core/Application.h
     src/core/Main.h
-    src/core/Core.h "src/renderer/window.cpp" "src/renderer/window.h")
+    src/core/Core.h 
+    src/core/Camera.h
+    src/core/Model.h
+    src/core/Mesh.h
+    src/core/Shader.h 
+    src/core/Entity.h)
 
 target_compile_definitions(Engine PRIVATE ENGINE_DLL_EXPORTS)
 
@@ -14,12 +19,18 @@ target_compile_definitions(Engine PRIVATE ENGINE_DLL_EXPORTS)
 # into the project - here we are requiring glfw3.
 find_package(glfw3 CONFIG REQUIRED)
 find_package(glad CONFIG REQUIRED)
+find_package(Stb REQUIRED)
+find_package(assimp CONFIG REQUIRED)
+find_package(glm CONFIG REQUIRED)
 
 # Publicly include the Engine's `include` folder for other projects (like Editor, Launcher)
 target_include_directories(Engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(Engine PRIVATE ${Stb_INCLUDE_DIR})
 
 target_link_libraries(Engine PUBLIC glfw)
 target_link_libraries(Engine PUBLIC glad::glad)
+target_link_libraries(Engine PUBLIC assimp::assimp)
+target_link_libraries(Engine PRIVATE glm::glm)
 
 # Set different output directories for Debug and Release
 set_target_properties(Engine PROPERTIES
