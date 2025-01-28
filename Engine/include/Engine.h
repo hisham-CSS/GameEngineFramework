@@ -9,4 +9,5 @@
 #include "../src/core/Shader.h"
 #include "../src/core/Mesh.h"
 #include "../src/core/Entity.h"
+#include "../src/core/Renderer.h"
 

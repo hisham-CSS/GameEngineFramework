@@ -1,11 +1,7 @@
 # Add executable target for the editor
 add_executable(Editor
     "src/EditorApplication.cpp"
-    "src/EditorApplication.h" 
-    "../Engine/src/core/Shader.h"
-    "../Engine/src/core/Camera.h" 
-    "../Engine/src/core/Model.h" 
-    "../Engine/src/core/Mesh.h")
+    "src/EditorApplication.h" )
 
 
 #find_package(Stb REQUIRED)

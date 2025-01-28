@@ -1,3 +1,5 @@
+#include "Engine.h"
+
 class EditorApplication : public MyCoreEngine::Application
 {
 public:
@@ -8,13 +10,6 @@ public:
 
     void Run() override;
 
-    void HandleShaderError(unsigned int shader);
-
-    void Cleanup();
-
-    void ProcessInput(GLFWwindow* window);
-
 private:
-    GLFWwindow* window;
-
+    Renderer myRenderer;
 };

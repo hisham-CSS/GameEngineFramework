@@ -9,7 +9,8 @@ add_library(Engine SHARED
     src/core/Model.h
     src/core/Mesh.h
     src/core/Shader.h 
-    src/core/Entity.h)
+    src/core/Entity.h
+    src/core/Renderer.h)
 
 target_compile_definitions(Engine PRIVATE ENGINE_DLL_EXPORTS)
 
