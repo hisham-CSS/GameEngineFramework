@@ -10,9 +10,10 @@ add_library(Engine SHARED
     src/core/Mesh.h
     src/core/Shader.h 
     src/core/Entity.h
-    src/core/Renderer.h)
+    src/core/Renderer.h 
+    src/core/Window.h)
 
-target_compile_definitions(Engine PRIVATE ENGINE_DLL_EXPORTS)
+target_compile_definitions(Engine PUBLIC ENGINE_DLL_EXPORTS)
 
 # CMake is not a package manager so this command doesn't work as a fetch from remote.
 # You have to have the dependancy added before you can find it

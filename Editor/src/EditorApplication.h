@@ -3,7 +3,7 @@
 class EditorApplication : public MyCoreEngine::Application
 {
 public:
-    EditorApplication() {}
+    EditorApplication() : myRenderer(1280, 720) {}
     ~EditorApplication() {}
 
     void Initialize();
@@ -11,5 +11,5 @@ public:
     void Run() override;
 
 private:
-    Renderer myRenderer;
+    MyCoreEngine::Renderer myRenderer;
 };

@@ -1,209 +1,160 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <iostream>
+#include "Core.h"
 
 #include "Model.h"
 #include "Shader.h"
+#include "Window.h"
 
-// camera
-Camera camera(glm::vec3(0.0f, 10.0f, 0.0f));
-Camera cameraSpy(glm::vec3(0.0f, 10.0f, 0.f));
-
-// settings
-const unsigned int SCR_WIDTH = 1280;
-const unsigned int SCR_HEIGHT = 720;
-
-// camera
-float lastX = SCR_WIDTH / 2.0f;
-float lastY = SCR_HEIGHT / 2.0f;
-bool firstMouse = true;
-
-// timing
-float deltaTime = 0.0f;	// time between current frame and last frame
-float lastFrame = 0.0f;
-
-//due to mismatching function signatures - these functions have to be moved to the global scope of this file and live outside of the EditorApplication class
-void mouse_callback(GLFWwindow* window, double xposIn, double yposIn)
+namespace MyCoreEngine
 {
-    float xpos = static_cast<float>(xposIn);
-    float ypos = static_cast<float>(yposIn);
+    class ENGINE_API Renderer {
+    public:
+        Renderer(int width, int height)
+            : window_(width, height, "Editor"),
+            camera_(glm::vec3(0.0f, 10.0f, 0.0f)),
+            lastX_(width / 2.0f),
+            lastY_(height / 2.0f),
+            firstMouse_(true),
+            deltaTime_(0.0f),
+            lastFrame_(0.0f)
+        {
+            // Set callbacks – use lambdas or static member functions that retrieve the Renderer pointer
+            GLFWwindow* glfwWindow = window_.getGLFWwindow();
+            glfwSetFramebufferSizeCallback(glfwWindow, framebufferSizeCallback);
+            glfwSetCursorPosCallback(glfwWindow, mouseCallback);
+            glfwSetScrollCallback(glfwWindow, scrollCallback);
+            glfwSetInputMode(glfwWindow, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+            
+            if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
+                throw std::runtime_error("Failed to initialize GLAD");
 
-    if (firstMouse)
-    {
-        lastX = xpos;
-        lastY = ypos;
-        firstMouse = false;
-    }
+            glViewport(0, 0, width, height);
+            glEnable(GL_DEPTH_TEST);
 
-    float xoffset = xpos - lastX;
-    float yoffset = lastY - ypos; // reversed since y-coordinates go from bottom to top
-
-    lastX = xpos;
-    lastY = ypos;
-
-    camera.ProcessMouseMovement(xoffset, yoffset);
-}
-
-void framebuffer_size_callback(GLFWwindow* window, int width, int height)
-{
-    glViewport(0, 0, width, height);
-}
-
-void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
-{
-    camera.ProcessMouseScroll(static_cast<float>(yoffset));
-}
-
-class Renderer
-{
-public:
-    void Init() {
-        glfwInit();
-        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-        glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-
-        window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Editor", NULL, NULL);
-        if (!window) {
-            std::cout << "Failed to create GLFW Window" << std::endl;
-            glfwTerminate();
-            return;
+            // Associate this Renderer instance with the GLFW window
+            glfwSetWindowUserPointer(glfwWindow, this);
         }
 
-        glfwMakeContextCurrent(window);
-        glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
-        glfwSetCursorPosCallback(window, mouse_callback);
-        glfwSetScrollCallback(window, scroll_callback);
+        void run() {
+            // Load resources once during initialization:
+            stbi_set_flip_vertically_on_load(true);
+            Shader shader("Exported/Shaders/vertex.glsl", "Exported/Shaders/frag.glsl");
+            Model loadedModel("Exported/Model/backpack.obj");
 
-        // tell GLFW to capture our mouse
-        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+            // Setup scene (consider moving this to a Scene or EntityManager class)
+            Entity rootEntity(loadedModel);
+            rootEntity.transform.setLocalPosition({ 0.f, 0.f, 0.f });
+            rootEntity.transform.setLocalScale({ 1.f, 1.f, 1.f });
+            for (unsigned int x = 0; x < 20; ++x) {
+                for (unsigned int z = 0; z < 20; ++z) {
+                    rootEntity.addChild(loadedModel);
+                    Entity* child = rootEntity.children.back().get();
+                    child->transform.setLocalPosition({ x * 10.f - 100.f, 0.f, z * 10.f - 100.f });
+                }
+            }
+            rootEntity.updateSelfAndChild();
 
-        if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
-        {
-            std::cout << "Failed to initialize GLAD" << std::endl;
-            return;
-        }
+            // Main render loop
+            while (!window_.shouldClose()) {
+                updateDeltaTime();
+                processInput();
 
-        glViewport(0, 0, SCR_WIDTH, SCR_HEIGHT);
-    };
-    void Update() {
-        if (!window) return;
+                // Clear and draw
+                glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // tell stb_image.h to flip loaded texture's on the y-axis (before loading model).
-        stbi_set_flip_vertically_on_load(true);
+                shader.use();
+                glm::mat4 projection = glm::perspective(glm::radians(camera_.Zoom),
+                    (float)window_.getWidth() / window_.getHeight(),
+                    0.1f, 100.0f);
+                glm::mat4 view = camera_.GetViewMatrix();
+                shader.setMat4("projection", projection);
+                shader.setMat4("view", view);
 
-        // configure global opengl state
-        // -----------------------------
-        glEnable(GL_DEPTH_TEST);
+                // Draw the scene graph (frustum culling, etc. as needed)
+                unsigned int total = 0, display = 0;
+                const Frustum camFrustum = createFrustumFromCamera(camera_,
+                    (float)window_.getWidth() / window_.getHeight(),
+                    glm::radians(camera_.Zoom), 0.1f, 100.0f);
+                rootEntity.drawSelfAndChild(camFrustum, shader, display, total);
+                std::cout << "CPU Processed: " << total << " / GPU Draw Calls: " << display << std::endl;
 
-        camera.MovementSpeed = 20.f;
+                // Update scene if needed
+                rootEntity.updateSelfAndChild();
 
-        // build and compile our shader zprogram
-        // ------------------------------------
-        Shader shader("Exported/Shaders/vertex.glsl", "Exported/Shaders/frag.glsl");
-
-        //load models
-        // -----------
-        Model loadedModel("Exported/Model/backpack.obj");
-
-        Entity ourEntity(loadedModel);
-        ourEntity.transform.setLocalPosition({ 0, 0, 0 });
-        const float scale = 1.0;
-        ourEntity.transform.setLocalScale({ scale, scale, scale });
-
-        Entity* lastEntity = &ourEntity;
-        for (unsigned int x = 0; x < 20; ++x)
-        {
-            for (unsigned int z = 0; z < 20; ++z)
-            {
-                ourEntity.addChild(loadedModel);
-                lastEntity = ourEntity.children.back().get();
-
-                //Set transform values
-                lastEntity->transform.setLocalPosition({ x * 10.f - 100.f,  0.f, z * 10.f - 100.f });
+                window_.swapBuffers();
+                window_.pollEvents();
             }
         }
-        
-        ourEntity.updateSelfAndChild();
 
-        while (!glfwWindowShouldClose(window)) {
+    private:
+        Window window_;
+        Camera camera_;
+        // Optionally, if you have a secondary camera:
+        //Camera cameraSpy_{ glm::vec3(0.0f, 10.0f, 0.0f) };
 
-            // per-frame time logic
-            // --------------------
+        float lastX_, lastY_;
+        bool firstMouse_;
+        float deltaTime_, lastFrame_;
+
+        // Update deltaTime based on glfwGetTime
+        void updateDeltaTime() {
             float currentFrame = static_cast<float>(glfwGetTime());
-            deltaTime = currentFrame - lastFrame;
-            lastFrame = currentFrame;
-
-            //processing input
-            ProcessInput(window);
-
-            // render
-            // ------
-            glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // also clear the depth buffer now!
-
-            // be sure to activate shader when setting uniforms/drawing objects
-            shader.use();
-
-            // view/projection transformations
-            glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
-            const Frustum camFrustum = createFrustumFromCamera(camera, (float)SCR_WIDTH / (float)SCR_HEIGHT, glm::radians(camera.Zoom), 0.1f, 100.0f);
-
-            cameraSpy.ProcessMouseMovement(2, 0);
-
-            glm::mat4 view = camera.GetViewMatrix();
-
-            shader.setMat4("projection", projection);
-            shader.setMat4("view", view);
-
-            // draw our scene graph
-            unsigned int total = 0, display = 0;
-            ourEntity.drawSelfAndChild(camFrustum, shader, display, total);
-            std::cout << "Total process in CPU : " << total << " / Total send to GPU : " << display << std::endl;
-
-            //ourEntity.transform.setLocalRotation({ 0.f, ourEntity.transform.getLocalRotation().y + 20 * deltaTime, 0.f });
-            ourEntity.updateSelfAndChild();
-
-            // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
-            // -------------------------------------------------------------------------------
-            glfwSwapBuffers(window);
-            glfwPollEvents();
+            deltaTime_ = currentFrame - lastFrame_;
+            lastFrame_ = currentFrame;
         }
 
-        glfwTerminate();
-    };
+        // Process input inside the Renderer (could be moved to a separate InputManager)
+        void processInput() {
+            GLFWwindow* glfwWindow = window_.getGLFWwindow();
+            if (glfwGetKey(glfwWindow, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+                glfwSetWindowShouldClose(glfwWindow, true);
+            if (glfwGetKey(glfwWindow, GLFW_KEY_W) == GLFW_PRESS)
+                camera_.ProcessKeyboard(FORWARD, deltaTime_);
+            if (glfwGetKey(glfwWindow, GLFW_KEY_S) == GLFW_PRESS)
+                camera_.ProcessKeyboard(BACKWARD, deltaTime_);
+            if (glfwGetKey(glfwWindow, GLFW_KEY_A) == GLFW_PRESS)
+                camera_.ProcessKeyboard(LEFT, deltaTime_);
+            if (glfwGetKey(glfwWindow, GLFW_KEY_D) == GLFW_PRESS)
+                camera_.ProcessKeyboard(RIGHT, deltaTime_);
+        }
 
-private:
-    void HandleShaderError(unsigned int shader) {
-        int  success;
-        char infoLog[512];
-        glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
+        // --- Static Callback Functions ---
+        // These retrieve the Renderer instance via the GLFW user pointer
 
-        if (!success)
-        {
-            glGetShaderInfoLog(shader, 512, NULL, infoLog);
-            std::cout << "ERROR::SHADER::COMPILATION_FAILED\n" << infoLog << std::endl;
+        static void framebufferSizeCallback(GLFWwindow* window, int width, int height) {
+            glViewport(0, 0, width, height);
+        }
+
+        static void mouseCallback(GLFWwindow* window, double xposIn, double yposIn) {
+            Renderer* renderer = static_cast<Renderer*>(glfwGetWindowUserPointer(window));
+            if (!renderer)
+                return;
+
+            float xpos = static_cast<float>(xposIn);
+            float ypos = static_cast<float>(yposIn);
+
+            if (renderer->firstMouse_) {
+                renderer->lastX_ = xpos;
+                renderer->lastY_ = ypos;
+                renderer->firstMouse_ = false;
+            }
+            float xoffset = xpos - renderer->lastX_;
+            float yoffset = renderer->lastY_ - ypos; // reversed since y-coordinates go from bottom to top
+
+            renderer->lastX_ = xpos;
+            renderer->lastY_ = ypos;
+
+            renderer->camera_.ProcessMouseMovement(xoffset, yoffset);
+        }
+
+        static void scrollCallback(GLFWwindow* window, double /*xoffset*/, double yoffset) {
+            Renderer* renderer = static_cast<Renderer*>(glfwGetWindowUserPointer(window));
+            if (renderer) {
+                renderer->camera_.ProcessMouseScroll(static_cast<float>(yoffset));
+            }
         }
     };
-
-    void Cleanup() {
-        glfwDestroyWindow(window);
-        glfwTerminate();
-    };
-
-    void ProcessInput(GLFWwindow* window) {
-        if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
-            glfwSetWindowShouldClose(window, true);
-
-        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-            camera.ProcessKeyboard(FORWARD, deltaTime);
-        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-            camera.ProcessKeyboard(BACKWARD, deltaTime);
-        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-            camera.ProcessKeyboard(LEFT, deltaTime);
-        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-            camera.ProcessKeyboard(RIGHT, deltaTime);
-    };
-
-    GLFWwindow* window;
 };

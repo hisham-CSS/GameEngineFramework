@@ -1,21 +1,21 @@
 #include "Engine.h"
 #include "EditorApplication.h"
 
-
-void EditorApplication::Initialize() 
+//for the future for any initalization things that are required
+void EditorApplication::Initialize()
 {
-    myRenderer = Renderer();
-    myRenderer.Init();
+
 }
 
-void EditorApplication::Run() 
+void EditorApplication::Run()
 {
-    myRenderer.Update();
+    myRenderer.run();
 }
 
 MyCoreEngine::Application* MyCoreEngine::CreateApplication()
 {
-	EditorApplication* app = new EditorApplication();
+    EditorApplication* app = new EditorApplication();
     app->Initialize();
     return app;
 }
+
