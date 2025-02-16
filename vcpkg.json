@@ -4,6 +4,7 @@
     "glad",
     "stb",
     "glm",
-    "assimp"
+    "assimp",
+    "entt"
   ]
 }

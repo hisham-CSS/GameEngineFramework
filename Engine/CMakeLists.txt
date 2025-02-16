@@ -11,7 +11,9 @@ add_library(Engine SHARED
     src/core/Shader.h 
     src/core/Entity.h
     src/core/Renderer.h 
-    src/core/Window.h)
+    src/core/Window.h  
+    src/core/Components.h 
+    src/core/Scene.h)
 
 target_compile_definitions(Engine PUBLIC ENGINE_DLL_EXPORTS)
 
@@ -24,6 +26,7 @@ find_package(glad CONFIG REQUIRED)
 find_package(Stb REQUIRED)
 find_package(assimp CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
+find_package(EnTT CONFIG REQUIRED)
 
 # Publicly include the Engine's `include` folder for other projects (like Editor, Launcher)
 target_include_directories(Engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -33,7 +36,7 @@ target_link_libraries(Engine PUBLIC glfw)
 target_link_libraries(Engine PUBLIC glad::glad)
 target_link_libraries(Engine PUBLIC assimp::assimp)
 target_link_libraries(Engine PRIVATE glm::glm)
-
+target_link_libraries(Engine PUBLIC EnTT::EnTT)
 # Set different output directories for Debug and Release
 set_target_properties(Engine PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/build/lib/Debug
