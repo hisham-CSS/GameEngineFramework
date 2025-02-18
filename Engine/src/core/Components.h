@@ -7,7 +7,7 @@
 #include "Model.h"
 #include "Camera.h"
 
-struct TransformComponent {
+struct Transform {
     glm::vec3 position{ 0.0f, 0.0f, 0.0f };
     glm::vec3 rotation{ 0.0f, 0.0f, 0.0f }; // Euler angles in degrees
     glm::vec3 scale{ 1.0f, 1.0f, 1.0f };
@@ -53,11 +53,6 @@ struct TransformComponent {
 	}
 };
 
-
-struct ModelComponent {
-    Model* model;  // pointer/reference to your model (ensure proper lifetime management)
-};
-
 struct Plane
 {
 	glm::vec3 normal = { 0.f, 1.f, 0.f }; // unit vector
@@ -91,7 +86,7 @@ struct Frustum
 
 struct BoundingVolume
 {
-	virtual bool isOnFrustum(const Frustum& camFrustum, const TransformComponent& transform) const = 0;
+	virtual bool isOnFrustum(const Frustum& camFrustum, const Transform& transform) const = 0;
 
 	virtual bool isOnOrForwardPlane(const Plane& plane) const = 0;
 
@@ -121,7 +116,7 @@ struct Sphere : public BoundingVolume
 		return plane.getSignedDistanceToPlane(center) > -radius;
 	}
 
-	bool isOnFrustum(const Frustum& camFrustum, const TransformComponent& transform) const final
+	bool isOnFrustum(const Frustum& camFrustum, const Transform& transform) const final
 	{
 		//Get global scale thanks to our transform
 		const glm::vec3 globalScale = transform.getGlobalScale();
@@ -162,7 +157,7 @@ struct SquareAABB : public BoundingVolume
 		return -r <= plane.getSignedDistanceToPlane(center);
 	}
 
-	bool isOnFrustum(const Frustum& camFrustum, const TransformComponent& transform) const final
+	bool isOnFrustum(const Frustum& camFrustum, const Transform& transform) const final
 	{
 		//Get global scale thanks to our transform
 		const glm::vec3 globalCenter{ transform.modelMatrix * glm::vec4(center, 1.f) };
@@ -233,7 +228,7 @@ struct AABB : public BoundingVolume
 		return -r <= plane.getSignedDistanceToPlane(center);
 	}
 
-	bool isOnFrustum(const Frustum& camFrustum, const TransformComponent& transform) const final
+	bool isOnFrustum(const Frustum& camFrustum, const Transform& transform) const final
 	{
 		//Get global scale thanks to our transform
 		const glm::vec3 globalCenter{ transform.modelMatrix * glm::vec4(center, 1.f) };
@@ -323,7 +318,3 @@ Sphere generateSphereBV(const Model& model)
 
 	return Sphere((maxAABB + minAABB) * 0.5f, glm::length(minAABB - maxAABB));
 }
-// For example, using AABB:
-struct BoundingVolumeComponent {
-	AABB aabb;
-};

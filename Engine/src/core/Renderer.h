@@ -50,24 +50,27 @@ namespace MyCoreEngine
             stbi_set_flip_vertically_on_load(true);
             Shader shader("Exported/Shaders/vertex.glsl", "Exported/Shaders/frag.glsl");
             Model loadedModel("Exported/Model/backpack.obj");
-
+            AABB boundingVol = generateAABB(loadedModel);
+            
             // Setup scene
             // TODO: Move this to it's own methods
             Scene scene;
             Entity firstEntity = scene.createEntity();
-            TransformComponent transform;
+            Transform transform;
             transform.position = glm::vec3(0.f, 0.f, 0.f);
-            firstEntity.addComponent<TransformComponent>(transform);
-            firstEntity.addComponent<ModelComponent>(&loadedModel);
+            firstEntity.addComponent<Transform>(transform);
+            firstEntity.addComponent<Model>(loadedModel);
+            firstEntity.addComponent<AABB>(boundingVol);
 
 
             for (unsigned int x = 0; x < 20; ++x) {
                 for (unsigned int z = 0; z < 20; ++z) {
                     Entity newEntity = scene.createEntity();
-                    TransformComponent newTransform;
+                    Transform newTransform;
                     newTransform.position = glm::vec3(x * 10.f - 100.f, 0.f, z * 10.f - 100.f);
-                    newEntity.addComponent<TransformComponent>(newTransform);
-                    newEntity.addComponent<ModelComponent>(&loadedModel);
+                    newEntity.addComponent<Transform>(newTransform);
+                    newEntity.addComponent<Model>(loadedModel);
+                    newEntity.addComponent<AABB>(boundingVol);
                 }
             }
 
@@ -77,9 +80,9 @@ namespace MyCoreEngine
                 processInput();
 
                 // Update transforms (this could be a system that iterates over all TransformComponent instances)
-                auto RegView = scene.registry.view<TransformComponent>();
+                auto RegView = scene.registry.view<Transform>();
                 for (auto entity : RegView) {
-                    auto& t = RegView.get<TransformComponent>(entity);
+                    auto& t = RegView.get<Transform>(entity);
                     if (t.dirty) {
                         t.updateMatrix();
                     }
@@ -103,23 +106,26 @@ namespace MyCoreEngine
                 // TODO: This should be happening in a scene class as well as things like batch
                 // rendering and occlusion culling should be thought about
                 /*unsigned int total = 0, display = 0;
-                const Frustum camFrustum = createFrustumFromCamera(camera_,
-                    (float)window_.getWidth() / window_.getHeight(),
-                    glm::radians(camera_.Zoom), 0.1f, 100.0f);
+                
                 rootEntity.drawSelfAndChild(camFrustum, shader, display, total);
                 std::cout << "CPU Processed: " << total << " / GPU Draw Calls: " << display << std::endl;*/
 
-                
+                const Frustum camFrustum = createFrustumFromCamera(camera_,
+                    (float)window_.getWidth() / window_.getHeight(),
+                    glm::radians(camera_.Zoom), 0.1f, 100.0f);
 
                 // Render all entities with a ModelComponent and TransformComponent.
-                auto renderView = scene.registry.view<ModelComponent, TransformComponent>();
+                auto renderView = scene.registry.view<Model, Transform, AABB>();
                 for (auto entity : renderView) {
-                    auto& modelComp = renderView.get<ModelComponent>(entity);
-                    auto& t = renderView.get<TransformComponent>(entity);
+                    auto& modelComp = renderView.get<Model>(entity);
+                    auto& t = renderView.get<Transform>(entity);
+                    auto& bounds = renderView.get<AABB>(entity);
 
-                    // (Optional) Perform frustum culling here if needed.
-                    shader.setMat4("model", t.modelMatrix);
-                    modelComp.model->Draw(shader);
+                    if (bounds.isOnFrustum(camFrustum, t))
+                    {
+                        shader.setMat4("model", t.modelMatrix);
+                        modelComp.Draw(shader);
+                    }
                 }
 
                 // Update scene if needed
