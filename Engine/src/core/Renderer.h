@@ -102,14 +102,7 @@ namespace MyCoreEngine
                 shader.setMat4("projection", projection);
                 shader.setMat4("view", view);
 
-                // Draw the scene graph
-                // TODO: This should be happening in a scene class as well as things like batch
-                // rendering and occlusion culling should be thought about
-                /*unsigned int total = 0, display = 0;
-                
-                rootEntity.drawSelfAndChild(camFrustum, shader, display, total);
-                std::cout << "CPU Processed: " << total << " / GPU Draw Calls: " << display << std::endl;*/
-
+                unsigned int total = 0, display = 0;
                 const Frustum camFrustum = createFrustumFromCamera(camera_,
                     (float)window_.getWidth() / window_.getHeight(),
                     glm::radians(camera_.Zoom), 0.1f, 100.0f);
@@ -125,11 +118,13 @@ namespace MyCoreEngine
                     {
                         shader.setMat4("model", t.modelMatrix);
                         modelComp.Draw(shader);
+                        display++;
                     }
+                    total++;
                 }
-
-                // Update scene if needed
-                //rootEntity.updateSelfAndChild();
+                
+                std::cout << "CPU Processed: " << total << " / GPU Draw Calls: " << display << std::endl;
+                
 
                 window_.swapBuffers();
                 window_.pollEvents();
