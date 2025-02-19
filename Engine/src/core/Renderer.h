@@ -51,14 +51,8 @@ namespace MyCoreEngine
                 updateDeltaTime();
                 processInput();
 
-                // Update transforms (this could be a system that iterates over all TransformComponent instances)
-                auto RegView = scene.registry.view<Transform>();
-                for (auto entity : RegView) {
-                    auto& t = RegView.get<Transform>(entity);
-                    if (t.dirty) {
-                        t.updateMatrix();
-                    }
-                }
+                // Update transforms (this could be a system that iterates over all Transform instances)
+                scene.UpdateTransforms();
 
                 // Clear and draw
                 glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
@@ -79,21 +73,7 @@ namespace MyCoreEngine
                     (float)window_.getWidth() / window_.getHeight(),
                     glm::radians(camera_.Zoom), 0.1f, 1000.0f);
 
-                // Render all entities with a Model and Transform. AABB is used to check if it needs to be culled
-                auto renderView = scene.registry.view<Model, Transform, AABB>();
-                for (auto entity : renderView) {
-                    auto& model = renderView.get<Model>(entity);
-                    auto& t = renderView.get<Transform>(entity);
-                    auto& bounds = renderView.get<AABB>(entity);
-
-                    if (bounds.isOnFrustum(camFrustum, t))
-                    {
-                        shader.setMat4("model", t.modelMatrix);
-                        model.Draw(shader);
-                        display++;
-                    }
-                    total++;
-                }
+                scene.RenderScene(camFrustum, shader, display, total);
                 
                 std::cout << "CPU Processed: " << total << " / GPU Draw Calls: " << display << std::endl;
                 

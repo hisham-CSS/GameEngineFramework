@@ -18,8 +18,34 @@ namespace MyCoreEngine {
             return Entity(handle, &registry);
         }
 
-        // Optionally, you can provide additional methods to run systems,
-        // update transforms, or render the scene.
+        void UpdateTransforms()
+        {
+            auto RegView = registry.view<Transform>();
+            for (auto entity : RegView) {
+                auto& t = RegView.get<Transform>(entity);
+                if (t.dirty) {
+                    t.updateMatrix();
+                }
+            }
+        }
+
+        void RenderScene(const Frustum& camFrustum, Shader& shader, unsigned int& display, unsigned int& total)
+        {
+            auto renderView = registry.view<Model, Transform, AABB>();
+            for (auto entity : renderView) {
+                auto& model = renderView.get<Model>(entity);
+                auto& t = renderView.get<Transform>(entity);
+                auto& bounds = renderView.get<AABB>(entity);
+
+                if (bounds.isOnFrustum(camFrustum, t))
+                {
+                    shader.setMat4("model", t.modelMatrix);
+                    model.Draw(shader);
+                    display++;
+                }
+                total++;
+            }
+        }
     };
 
 } // namespace MyCoreEngine

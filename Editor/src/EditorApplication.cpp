@@ -4,13 +4,12 @@
 //for the future for any initalization things that are required
 void EditorApplication::Initialize()
 {
-
+    // Load resources once during initialization:
+    stbi_set_flip_vertically_on_load(true);
 }
 
 void EditorApplication::Run()
 {
-    // Load resources once during initialization:
-    stbi_set_flip_vertically_on_load(true);
     Shader shader("Exported/Shaders/vertex.glsl", "Exported/Shaders/frag.glsl");
     Model loadedModel("Exported/Model/backpack.obj");
     AABB boundingVol = generateAABB(loadedModel);
