@@ -45,35 +45,7 @@ namespace MyCoreEngine
             glfwSetWindowUserPointer(glfwWindow, this);
         }
 
-        void run() {
-            // Load resources once during initialization:
-            stbi_set_flip_vertically_on_load(true);
-            Shader shader("Exported/Shaders/vertex.glsl", "Exported/Shaders/frag.glsl");
-            Model loadedModel("Exported/Model/backpack.obj");
-            AABB boundingVol = generateAABB(loadedModel);
-            
-            // Setup scene
-            // TODO: Move this to it's own methods
-            Scene scene;
-            Entity firstEntity = scene.createEntity();
-            Transform transform;
-            transform.position = glm::vec3(0.f, 0.f, 0.f);
-            firstEntity.addComponent<Transform>(transform);
-            firstEntity.addComponent<Model>(loadedModel);
-            firstEntity.addComponent<AABB>(boundingVol);
-
-
-            for (unsigned int x = 0; x < 20; ++x) {
-                for (unsigned int z = 0; z < 20; ++z) {
-                    Entity newEntity = scene.createEntity();
-                    Transform newTransform;
-                    newTransform.position = glm::vec3(x * 10.f - 100.f, 0.f, z * 10.f - 100.f);
-                    newEntity.addComponent<Transform>(newTransform);
-                    newEntity.addComponent<Model>(loadedModel);
-                    newEntity.addComponent<AABB>(boundingVol);
-                }
-            }
-
+        void run(Scene& scene, Shader& shader) {
             // Main render loop
             while (!window_.shouldClose()) {
                 updateDeltaTime();
@@ -97,7 +69,7 @@ namespace MyCoreEngine
                 shader.use();
                 glm::mat4 projection = glm::perspective(glm::radians(camera_.Zoom),
                     (float)window_.getWidth() / window_.getHeight(),
-                    0.1f, 100.0f);
+                    0.1f, 1000.0f);
                 glm::mat4 view = camera_.GetViewMatrix();
                 shader.setMat4("projection", projection);
                 shader.setMat4("view", view);
@@ -105,19 +77,19 @@ namespace MyCoreEngine
                 unsigned int total = 0, display = 0;
                 const Frustum camFrustum = createFrustumFromCamera(camera_,
                     (float)window_.getWidth() / window_.getHeight(),
-                    glm::radians(camera_.Zoom), 0.1f, 100.0f);
+                    glm::radians(camera_.Zoom), 0.1f, 1000.0f);
 
-                // Render all entities with a ModelComponent and TransformComponent.
+                // Render all entities with a Model and Transform. AABB is used to check if it needs to be culled
                 auto renderView = scene.registry.view<Model, Transform, AABB>();
                 for (auto entity : renderView) {
-                    auto& modelComp = renderView.get<Model>(entity);
+                    auto& model = renderView.get<Model>(entity);
                     auto& t = renderView.get<Transform>(entity);
                     auto& bounds = renderView.get<AABB>(entity);
 
                     if (bounds.isOnFrustum(camFrustum, t))
                     {
                         shader.setMat4("model", t.modelMatrix);
-                        modelComp.Draw(shader);
+                        model.Draw(shader);
                         display++;
                     }
                     total++;
