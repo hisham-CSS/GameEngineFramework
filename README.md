@@ -109,6 +109,8 @@ The editor application demonstrates the engine's capabilities and provides:
 - :black_square_button: Editor Debugging tools
 - :black_square_button: Editor Profiling tools
 - :black_square_button: Editor Build system
+- :black_square_button: Advanced rendering features (PBR, Raytracing, etc.)
+- :black_square_button: Rendering Optimizations (Batch rendering, etc.)
 
 ## Contributing
 
