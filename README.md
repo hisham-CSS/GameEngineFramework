@@ -97,12 +97,18 @@ The editor application demonstrates the engine's capabilities and provides:
 - :white_check_mark: vcpkg package management
 - :white_check_mark: GLFW integration
 - :white_check_mark: Basic rendering system
-- :black_square_button:  Input system
 - :white_check_mark: 3D Projection and Camera
-- :black_square_button: Nvida PhysX wrapper
 - :white_check_mark: EnTT implementation
-- :black_square_button:  Scene management
-- :black_square_button:  Asset management
+- :white_check_mark: Scene management
+- :black_square_button: Asset management
+- :black_square_button: Input system
+- :black_square_button: Nvida PhysX wrapper
+- :black_square_button: ImGui integration
+- :black_square_button: Editor UI
+- :black_square_button: Editor Scene management
+- :black_square_button: Editor Debugging tools
+- :black_square_button: Editor Profiling tools
+- :black_square_button: Editor Build system
 
 ## Contributing
 
