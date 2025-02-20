@@ -24,18 +24,30 @@ GameEngineFramework
 │   ├───include
 │   │       Engine.h
 │   └───src
-│       ├───core
-│       │       Application.cpp
-│       │       Application.h
-│       │       Core.h
-│       │       Main.h
-│       └───renderer
-│               window.cpp
-│               window.h
+│       └───core
+│               Application.cpp
+│               Application.h
+│               Camera.h
+│               Components.h
+│               Core.h
+│               Entity.h
+│               Main.h
+│               Mesh.h
+│               Model.h
+│               Renderer.h
+│               Scene.h
+│               Shader.h
+│               Window.h
 ```
 
 ## Dependencies
 - [GLFW](https://www.glfw.org/) - A multi-platform library for OpenGL, OpenGL ES, and Vulkan development
+- [GLAD](https://glad.dav1d.de/) - A library that generates OpenGL loading code
+- [GLM](https://glm.g-truc.net/0.9.9/index.html) - A header-only C++ mathematics library for graphics software based on the OpenGL Shading Language (GLSL) specifications
+- [STB](https://github.com/nothings/stb) - A single-file public domain libraries for C/C++ - For image loading
+- [ASSIMP](https://assimp.org/) - A library to import and export various 3D model formats
+- [EnTT](https://github.com/skypjack/entt) - A header-only, fast and flexible C++ entity-component system
+- [ImGui](https://github.com/ocornut/imgui/tree/docking) - A bloat-free graphical user interface library for C++ - For the editor - using the docking experimental feature
 - More dependencies will be added as the project grows
 
 ## Building the Project
@@ -66,6 +78,9 @@ cmake --build .
 The core engine library is built as a DLL and provides:
 
 -   Wrapped GLFW functionality for window management and input handling [WIP]
+-	Basic rendering with frustum culling. [DONE]
+-	Batch rendering [WIP]
+-	Scene management and Entity-Component-System architecture using EnTT [WIP]
 -   More features to be added...
 
 ### Editor
@@ -81,11 +96,11 @@ The editor application demonstrates the engine's capabilities and provides:
 - :white_check_mark: CMake build system integration
 - :white_check_mark: vcpkg package management
 - :white_check_mark: GLFW integration
-- :black_square_button: Basic rendering system
+- :white_check_mark: Basic rendering system
 - :black_square_button:  Input system
-- :black_square_button: 3D Projection and Camera
+- :white_check_mark: 3D Projection and Camera
 - :black_square_button: Nvida PhysX wrapper
-- :black_square_button: EnTT implementation
+- :white_check_mark: EnTT implementation
 - :black_square_button:  Scene management
 - :black_square_button:  Asset management
 

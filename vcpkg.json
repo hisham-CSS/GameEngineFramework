@@ -5,6 +5,10 @@
     "stb",
     "glm",
     "assimp",
-    "entt"
+    "entt",
+    {
+        "name": "imgui",
+        "features": ["docking-experimental"]
+    }
   ]
 }
