@@ -14,6 +14,7 @@
 #include "Entity.h"
 #include "Scene.h"
 #include "Components.h"
+#include "InputSystem.h"
 
 namespace MyCoreEngine
 {
@@ -22,22 +23,23 @@ namespace MyCoreEngine
         // This syntax is used because this class has member properties that are private but must
         // be initalizalzed immdiately upon constructon of the renderer - particularly the window 
         // and camera properties
-        Renderer(int width, int height) : 
+        Renderer(int width, int height) :
             window_(width, height, "Editor"),
             camera_(glm::vec3(0.0f, 10.0f, 0.0f)),
-            lastX_(width / 2.0f),  // set the inital position to be the middle of the screen
-            lastY_(height / 2.0f), // set the inital position to be the middle of the screen
+            inputSystem_(nullptr),
+            lastX_(width / 2.0f),  // set the initial position to be the middle of the screen
+            lastY_(height / 2.0f), // set the initial position to be the middle of the screen
             firstMouse_(true),
             deltaTime_(0.0f),
             lastFrame_(0.0f)
         {
-            // Set callbacks – use lambdas or static member functions that retrieve the Renderer pointer
+            // Set callbacks - use lambdas or static member functions that retrieve the Renderer pointer
             GLFWwindow* glfwWindow = window_.getGLFWwindow();
             glfwSetFramebufferSizeCallback(glfwWindow, framebufferSizeCallback);
             glfwSetCursorPosCallback(glfwWindow, mouseCallback);
             glfwSetScrollCallback(glfwWindow, scrollCallback);
             glfwSetInputMode(glfwWindow, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-            
+
 
             if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
                 throw std::runtime_error("Failed to initialize GLAD");
@@ -47,13 +49,17 @@ namespace MyCoreEngine
 
             // Associate this Renderer instance with the GLFW window
             glfwSetWindowUserPointer(glfwWindow, this);
+
+            // Initialize the input system now that we have a GLFW window
+            inputSystem_ = InputSystem(glfwWindow);
         }
 
         void run(Scene& scene, Shader& shader) {
             // Main render loop
             while (!window_.shouldClose()) {
                 updateDeltaTime();
-                processInput();
+                // Process input via the input system (handles camera movement and exit)
+                inputSystem_.update(camera_, deltaTime_);
 
                 // Update transforms (this could be a system that iterates over all Transform instances)
                 scene.UpdateTransforms();
@@ -78,9 +84,9 @@ namespace MyCoreEngine
                     glm::radians(camera_.Zoom), 0.1f, 1000.0f);
 
                 scene.RenderScene(camFrustum, shader, display, total);
-                
+
                 std::cout << "CPU Processed: " << total << " / GPU Draw Calls: " << display << std::endl;
-                
+
 
                 window_.swapBuffers();
                 window_.pollEvents();
@@ -89,11 +95,14 @@ namespace MyCoreEngine
 
     private:
         Window window_;
-        
+
         //our inital camera
         Camera camera_;
         // Optionally, if you have a secondary camera:
         //Camera cameraSpy_{ glm::vec3(0.0f, 10.0f, 0.0f) };
+
+        // Input system handles keyboard/mouse polling and updates the camera
+        InputSystem inputSystem_;
 
         //mouse callback variables
         float lastX_, lastY_;

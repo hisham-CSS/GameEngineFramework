@@ -3,17 +3,8 @@ add_executable(Editor
     "src/EditorApplication.cpp"
     "src/EditorApplication.h" )
 
-
-#find_package(Stb REQUIRED)
-
-
-
-#target_include_directories(Editor PRIVATE ${Stb_INCLUDE_DIR})
-
 # Link the Engine library to the Editor executable
 target_link_libraries(Editor PRIVATE Engine)
-
-
 
 # Set different output directories for Debug and Release
 set_target_properties(Editor PROPERTIES
