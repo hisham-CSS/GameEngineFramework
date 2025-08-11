@@ -3,14 +3,15 @@ add_executable(Editor
     src/EditorApplication.cpp
     src/EditorApplication.h
     src/EditorImGuiLayer.cpp
-    src/EditorImGuiLayer.h)
+    src/EditorImGuiLayer.h 
+    src/panels/SceneHierarchyPanel.h "src/panels/SceneHierarchyPanel.cpp" "src/panels/InspectorPanel.h" "src/panels/InspectorPanel.cpp" "src/EditorMain.cpp")
 
 
 find_package(imgui CONFIG REQUIRED)
 
 # Link the Engine library to the Editor executable
-target_link_libraries(Editor PRIVATE imgui::imgui)
 target_link_libraries(Editor PRIVATE Engine)
+target_link_libraries(Editor PRIVATE imgui::imgui)
 
 
 # Set different output directories for Debug and Release
@@ -33,4 +34,4 @@ elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
     target_compile_options(Engine PRIVATE /Zi)
 endif()
 
-target_compile_definitions(Editor PRIVATE MYCE_ENABLE_ENTRY=1)
+#target_compile_definitions(Editor PRIVATE MYCE_ENABLE_ENTRY=1)

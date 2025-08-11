@@ -2,11 +2,8 @@
 #pragma once
 #include "Application.h"
 
-#ifndef MYCE_ENABLE_ENTRY
-#define MYCE_ENABLE_ENTRY 0
-#endif
-
-#if MYCE_ENABLE_ENTRY
+// Default: do not emit main unless explicitly opted in
+#ifdef MYCE_DEFINE_ENTRY
 int main() {
     auto* app = MyCoreEngine::CreateApplication();
     app->Run();

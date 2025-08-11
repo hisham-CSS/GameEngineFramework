@@ -7,6 +7,13 @@
 #include "Model.h"
 #include "Camera.h"
 
+using namespace MyCoreEngine;
+
+struct Name {
+	// keep it tiny; editor can own fancy strings later if needed
+	const char* value = "Entity";
+};
+
 struct Transform {
     glm::vec3 position{ 0.0f, 0.0f, 0.0f };
     glm::vec3 rotation{ 0.0f, 0.0f, 0.0f }; // Euler angles in degrees
@@ -52,6 +59,8 @@ struct Transform {
 		return { glm::length(getRight()), glm::length(getUp()), glm::length(getBackward()) };
 	}
 };
+
+
 
 struct Plane
 {
@@ -262,7 +271,7 @@ struct AABB : public BoundingVolume
 };
 
 
-Frustum createFrustumFromCamera(const Camera& cam, float aspect, float fovY, float zNear, float zFar)
+inline Frustum createFrustumFromCamera(const Camera& cam, float aspect, float fovY, float zNear, float zFar)
 {
 	Frustum     frustum;
 	const float halfVSide = zFar * tanf(fovY * .5f);
@@ -278,13 +287,13 @@ Frustum createFrustumFromCamera(const Camera& cam, float aspect, float fovY, flo
 	return frustum;
 }
 
-AABB generateAABB(const Model& model)
+inline AABB generateAABB(const Model& model)
 {
 	glm::vec3 minAABB = glm::vec3(std::numeric_limits<float>::max());
 	glm::vec3 maxAABB = glm::vec3(std::numeric_limits<float>::min());
-	for (auto&& mesh : model.meshes)
+	for (auto&& mesh : model.Meshes())
 	{
-		for (auto&& vertex : mesh.vertices)
+		for (auto&& vertex : mesh.Vertices())
 		{
 			minAABB.x = std::min(minAABB.x, vertex.Position.x);
 			minAABB.y = std::min(minAABB.y, vertex.Position.y);
@@ -298,13 +307,13 @@ AABB generateAABB(const Model& model)
 	return AABB(minAABB, maxAABB);
 }
 
-Sphere generateSphereBV(const Model& model)
+inline Sphere generateSphereBV(const Model& model)
 {
 	glm::vec3 minAABB = glm::vec3(std::numeric_limits<float>::max());
 	glm::vec3 maxAABB = glm::vec3(std::numeric_limits<float>::min());
-	for (auto&& mesh : model.meshes)
+	for (auto&& mesh : model.Meshes())
 	{
-		for (auto&& vertex : mesh.vertices)
+		for (auto&& vertex : mesh.Vertices())
 		{
 			minAABB.x = std::min(minAABB.x, vertex.Position.x);
 			minAABB.y = std::min(minAABB.y, vertex.Position.y);

@@ -7,7 +7,6 @@ add_library(Engine SHARED
     src/core/Core.h 
     src/core/Camera.h
     src/core/Model.h
-    src/core/Mesh.h
     src/core/Shader.h 
     src/core/Entity.h
     src/core/Renderer.h 
@@ -15,7 +14,11 @@ add_library(Engine SHARED
     src/core/Components.h 
     src/core/Scene.h 
     src/core/Event.h 
-    src/core/EventBus.h )
+    src/core/EventBus.h  
+    src/thirdparty/stb_impl.cpp 
+    src/core/ImageIO.h 
+    src/core/ImageIO.cpp 
+    src/core/Model.cpp)
 
 target_compile_definitions(Engine PUBLIC ENGINE_DLL_EXPORTS)
 
