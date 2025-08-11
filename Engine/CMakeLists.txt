@@ -13,7 +13,7 @@ add_library(Engine SHARED
     src/core/Renderer.h 
     src/core/Window.h  
     src/core/Components.h 
-    src/core/Scene.h)
+    src/core/Scene.h "src/core/Event.h" "src/core/EventBus.h")
 
 target_compile_definitions(Engine PUBLIC ENGINE_DLL_EXPORTS)
 

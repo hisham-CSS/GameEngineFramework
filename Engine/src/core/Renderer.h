@@ -15,50 +15,51 @@
 #include "Scene.h"
 #include "Components.h"
 #include "InputSystem.h"
+#include "Event.h"
+#include "EventBus.h"
+
 
 namespace MyCoreEngine
 {
     class ENGINE_API Renderer {
     public:
-        // This syntax is used because this class has member properties that are private but must
-        // be initalizalzed immdiately upon constructon of the renderer - particularly the window 
-        // and camera properties
-        Renderer(int width, int height) :
-            window_(width, height, "Editor"),
+        Renderer(int width, int height)
+            : window_(width, height, "Editor"),
             camera_(glm::vec3(0.0f, 10.0f, 0.0f)),
-            inputSystem_(nullptr),
-            lastX_(width / 2.0f),  // set the initial position to be the middle of the screen
-            lastY_(height / 2.0f), // set the initial position to be the middle of the screen
+            lastX_(width / 2.0f),
+            lastY_(height / 2.0f),
             firstMouse_(true),
             deltaTime_(0.0f),
             lastFrame_(0.0f)
         {
-            // Set callbacks - use lambdas or static member functions that retrieve the Renderer pointer
             GLFWwindow* glfwWindow = window_.getGLFWwindow();
+
+            // 1) Associate Renderer* with the window BEFORE any callbacks are set
+            glfwSetWindowUserPointer(glfwWindow, this);
+
+            // 2) Now it’s safe to register callbacks
             glfwSetFramebufferSizeCallback(glfwWindow, framebufferSizeCallback);
             glfwSetCursorPosCallback(glfwWindow, mouseCallback);
             glfwSetScrollCallback(glfwWindow, scrollCallback);
-            glfwSetInputMode(glfwWindow, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
+            // 3) Wire input system after we actually have a window
+            inputSystem_.setWindow(glfwWindow);
+
+            glfwSetInputMode(glfwWindow, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
             if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
                 throw std::runtime_error("Failed to initialize GLAD");
 
             glViewport(0, 0, width, height);
             glEnable(GL_DEPTH_TEST);
-
-            // Associate this Renderer instance with the GLFW window
-            glfwSetWindowUserPointer(glfwWindow, this);
-
-            // Initialize the input system now that we have a GLFW window
-            inputSystem_ = InputSystem(glfwWindow);
         }
 
         void run(Scene& scene, Shader& shader) {
             // Main render loop
             while (!window_.shouldClose()) {
                 updateDeltaTime();
-                // Process input via the input system (handles camera movement and exit)
+
+                // Centralised input handling
                 inputSystem_.update(camera_, deltaTime_);
 
                 // Update transforms (this could be a system that iterates over all Transform instances)
@@ -86,7 +87,6 @@ namespace MyCoreEngine
                 scene.RenderScene(camFrustum, shader, display, total);
 
                 std::cout << "CPU Processed: " << total << " / GPU Draw Calls: " << display << std::endl;
-
 
                 window_.swapBuffers();
                 window_.pollEvents();
@@ -118,32 +118,17 @@ namespace MyCoreEngine
             lastFrame_ = currentFrame;
         }
 
-        // Process input inside the Renderer (could be moved to a separate InputManager)
-        void processInput() {
-            GLFWwindow* glfwWindow = window_.getGLFWwindow();
-            if (glfwGetKey(glfwWindow, GLFW_KEY_ESCAPE) == GLFW_PRESS)
-                glfwSetWindowShouldClose(glfwWindow, true);
-            if (glfwGetKey(glfwWindow, GLFW_KEY_W) == GLFW_PRESS)
-                camera_.ProcessKeyboard(FORWARD, deltaTime_);
-            if (glfwGetKey(glfwWindow, GLFW_KEY_S) == GLFW_PRESS)
-                camera_.ProcessKeyboard(BACKWARD, deltaTime_);
-            if (glfwGetKey(glfwWindow, GLFW_KEY_A) == GLFW_PRESS)
-                camera_.ProcessKeyboard(LEFT, deltaTime_);
-            if (glfwGetKey(glfwWindow, GLFW_KEY_D) == GLFW_PRESS)
-                camera_.ProcessKeyboard(RIGHT, deltaTime_);
-        }
-
         // --- Static Callback Functions ---
         // These retrieve the Renderer instance via the GLFW user pointer
 
         static void framebufferSizeCallback(GLFWwindow* window, int width, int height) {
             glViewport(0, 0, width, height);
+            MyCoreEngine::EventBus::Get().publish(MyCoreEngine::WindowResizeEvent{ width, height });
         }
 
         static void mouseCallback(GLFWwindow* window, double xposIn, double yposIn) {
             Renderer* renderer = static_cast<Renderer*>(glfwGetWindowUserPointer(window));
-            if (!renderer)
-                return;
+            if (!renderer) return;
 
             float xpos = static_cast<float>(xposIn);
             float ypos = static_cast<float>(yposIn);
@@ -154,19 +139,25 @@ namespace MyCoreEngine
                 renderer->firstMouse_ = false;
             }
             float xoffset = xpos - renderer->lastX_;
-            float yoffset = renderer->lastY_ - ypos; // reversed since y-coordinates go from bottom to top
+            float yoffset = renderer->lastY_ - ypos;
 
             renderer->lastX_ = xpos;
             renderer->lastY_ = ypos;
 
+            // Existing behaviour
             renderer->camera_.ProcessMouseMovement(xoffset, yoffset);
+
+            // New: publish absolute coordinates to the bus
+            MyCoreEngine::EventBus::Get().publish(MyCoreEngine::MouseMoveEvent{ xpos, ypos });
         }
 
-        static void scrollCallback(GLFWwindow* window, double xoffset, double yoffset) {
+        static void scrollCallback(GLFWwindow* window, double /*xoffset*/, double yoffset) {
             Renderer* renderer = static_cast<Renderer*>(glfwGetWindowUserPointer(window));
             if (renderer) {
                 renderer->camera_.ProcessMouseScroll(static_cast<float>(yoffset));
             }
+            MyCoreEngine::EventBus::Get().publish(MyCoreEngine::MouseScrollEvent{ static_cast<float>(yoffset) });
         }
+
     };
 };
