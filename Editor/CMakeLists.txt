@@ -1,10 +1,17 @@
 # Add executable target for the editor
 add_executable(Editor
-    "src/EditorApplication.cpp"
-    "src/EditorApplication.h" )
+    src/EditorApplication.cpp
+    src/EditorApplication.h
+    src/EditorImGuiLayer.cpp
+    src/EditorImGuiLayer.h)
+
+
+find_package(imgui CONFIG REQUIRED)
 
 # Link the Engine library to the Editor executable
+target_link_libraries(Editor PRIVATE imgui::imgui)
 target_link_libraries(Editor PRIVATE Engine)
+
 
 # Set different output directories for Debug and Release
 set_target_properties(Editor PROPERTIES
@@ -25,3 +32,5 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
     target_compile_options(Engine PRIVATE /Zi)
 endif()
+
+target_compile_definitions(Editor PRIVATE MYCE_ENABLE_ENTRY=1)

@@ -10,3 +10,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED true)
 # Add subdirectories for Engine and Editor
 add_subdirectory(Engine)
 add_subdirectory(Editor)
+
+option(ENABLE_TESTS "Build unit tests" ON)
+
+if(ENABLE_TESTS)
+  enable_testing()
+  add_subdirectory(tests)
+endif()

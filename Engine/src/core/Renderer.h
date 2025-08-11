@@ -1,7 +1,4 @@
-#include "imgui.h"
-#include "imgui_impl_glfw.h"
-#include "imgui_impl_opengl3.h"
-
+#include <functional>
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <iostream>
@@ -59,8 +56,17 @@ namespace MyCoreEngine
             while (!window_.shouldClose()) {
                 updateDeltaTime();
 
-                // Centralised input handling
-                inputSystem_.update(camera_, deltaTime_);
+                // ask UI whether to capture input
+                bool capK = false, capM = false;
+                if (captureFn_) {
+                    auto caps = captureFn_();
+                    capK = caps.first;
+                    capM = caps.second;
+                }
+
+                if (!capK) {
+                    inputSystem_.update(camera_, deltaTime_);
+                }
 
                 // Update transforms (this could be a system that iterates over all Transform instances)
                 scene.UpdateTransforms();
@@ -88,12 +94,33 @@ namespace MyCoreEngine
 
                 std::cout << "CPU Processed: " << total << " / GPU Draw Calls: " << display << std::endl;
 
+                // Let the editor draw its UI (stats, scene panel, etc.)
+                if (uiDraw_) {
+                    uiDraw_(deltaTime_);
+                }
+
                 window_.swapBuffers();
                 window_.pollEvents();
             }
         }
 
+        // Editor injects its UI drawing function. Engine stays ignorant of ImGui panels.
+        using UIDrawFn = std::function<void(float /*deltaTime*/)>;
+
+        void SetUIDraw(UIDrawFn fn) { uiDraw_ = std::move(fn); }
+
+        // Provide a way for the editor to tell us if UI wants to capture input this frame
+        // Return (captureKeyboard, captureMouse)
+        using UICaptureFn = std::function<std::pair<bool, bool>()>;
+        void SetUICaptureProvider(UICaptureFn fn) { captureFn_ = std::move(fn); }
+
+        // Expose the native GLFWwindow* so the Editor can init ImGui
+        GLFWwindow* GetNativeWindow() { return window_.getGLFWwindow(); }
+
     private:
+        UIDrawFn    uiDraw_{};
+        UICaptureFn captureFn_{};
+
         Window window_;
 
         //our inital camera

@@ -1,5 +1,10 @@
+
 #include "Engine.h"
 #include "EditorApplication.h"
+#include "EditorImGuiLayer.h"
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_opengl3.h"
 
 //for the future for any initalization things that are required
 void EditorApplication::Initialize()
@@ -35,6 +40,36 @@ void EditorApplication::Run()
             newEntity.addComponent<AABB>(boundingVol);
         }
     }
+
+    // Init ImGui using the renderer's window
+    EditorImGuiLayer ui;
+    ui.Init(myRenderer.GetNativeWindow());
+
+    // Provide capture flags to the renderer so it can skip WASD when UI is focused
+    myRenderer.SetUICaptureProvider([&ui]() -> std::pair<bool, bool> {
+        return { ui.WantCaptureKeyboard(), ui.WantCaptureMouse() };
+    });
+
+    // Provide the editor UI to draw each frame
+    myRenderer.SetUIDraw([&ui, /*&scene,*/ this](float dt) {
+        ui.BeginFrame();
+
+        // Stats
+        ImGui::Begin("Stats", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+        ImGui::Text("dt: %.3f ms (%.1f FPS)", dt * 1000.f, dt > 0.f ? 1.f / dt : 0.f);
+        static bool showScene = true;
+        ImGui::Checkbox("Show Scene Panel", &showScene);
+        ImGui::End();
+
+        if (showScene) {
+            ImGui::Begin("Scene");
+            ImGui::Text("Entities: (hook count here)");
+            ImGui::End();
+        }
+
+        ui.EndFrame();
+    });
+
     myRenderer.run(scene, shader);
 }
 

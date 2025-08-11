@@ -11,4 +11,6 @@
 #include "../src/core/Entity.h"
 #include "../src/core/Renderer.h"
 #include "../src/core/Scene.h"
+#include "../src/core/Event.h"
+#include "../src/core/EventBus.h"
 

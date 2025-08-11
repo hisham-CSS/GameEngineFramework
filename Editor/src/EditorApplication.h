@@ -1,3 +1,4 @@
+#pragma once
 #include "Engine.h"
 
 class EditorApplication : public MyCoreEngine::Application

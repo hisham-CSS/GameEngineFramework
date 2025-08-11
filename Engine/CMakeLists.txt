@@ -13,7 +13,9 @@ add_library(Engine SHARED
     src/core/Renderer.h 
     src/core/Window.h  
     src/core/Components.h 
-    src/core/Scene.h "src/core/Event.h" "src/core/EventBus.h")
+    src/core/Scene.h 
+    src/core/Event.h 
+    src/core/EventBus.h )
 
 target_compile_definitions(Engine PUBLIC ENGINE_DLL_EXPORTS)
 
@@ -27,7 +29,6 @@ find_package(Stb REQUIRED)
 find_package(assimp CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
 find_package(EnTT CONFIG REQUIRED)
-find_package(imgui CONFIG REQUIRED)
 
 # Publicly include the Engine's `include` folder for other projects (like Editor, Launcher)
 target_include_directories(Engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -38,7 +39,6 @@ target_link_libraries(Engine PUBLIC glad::glad)
 target_link_libraries(Engine PUBLIC assimp::assimp)
 target_link_libraries(Engine PRIVATE glm::glm)
 target_link_libraries(Engine PUBLIC EnTT::EnTT)
-target_link_libraries(Engine PRIVATE imgui::imgui)
 
 # Set different output directories for Debug and Release
 set_target_properties(Engine PROPERTIES
