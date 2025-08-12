@@ -70,49 +70,41 @@ void EditorApplication::Initialize()
 void EditorApplication::Run() {
     using namespace MyCoreEngine;
 
-    Scene  scene;
-    Shader shader("Exported/Shaders/vertex.glsl",
-        "Exported/Shaders/frag.glsl");
+    Scene scene;
 
-    // Register the context-ready hook BEFORE run()
-    // This fires once, right after GLAD has successfully initialized.
     myRenderer.SetOnContextReady([this, &scene]() {
-        // a) Initialize ImGui now (context is current, GLAD is loaded)
-        EditorImGuiLayer ui;   // static ensures it outlives the lambda frame
-        ui.Init(myRenderer.GetNativeWindow());
+        // GL context + GLAD are ready here
+        ui_.Init(myRenderer.GetNativeWindow());
 
-        // b) Provide capture flags so renderer can skip input when UI has focus
-        myRenderer.SetUICaptureProvider([&ui] {
-            return std::pair{ ui.WantCaptureKeyboard(), ui.WantCaptureMouse() };
+
+        // SAFE: capture 'this' (EditorApplication) whose lifetime spans the run loop
+        myRenderer.SetUICaptureProvider([this] {
+            return std::pair<bool, bool>{
+                ui_.WantCaptureKeyboard(),
+                    ui_.WantCaptureMouse()
+            };
         });
 
-        // c) Create any GL resources here (safe): models, textures, framebuffers, etc.
-        // Example (optional):
-        // myRenderer.EnqueueModel("Assets/Models/sponza/sponza.obj");
-
-        // d) Provide per-frame UI
-        myRenderer.SetUIDraw([&](float dt) {
-            ui.BeginFrame();
+        myRenderer.SetUIDraw([this, &scene](float dt) {
+            ui_.BeginFrame();
 
             ImGui::Begin("Stats", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
             ImGui::Text("dt: %.3f ms (%.1f FPS)", dt * 1000.f, dt > 0.f ? 1.f / dt : 0.f);
             ImGui::End();
 
-            // Panels (these assume you created members or locals as needed)
-            static SceneHierarchyPanel hierarchy;
-            static InspectorPanel      inspector;
-            static entt::entity        selected = entt::null;
+            if (hierarchy_.Draw(scene.registry, selected_)) { /* optional */ }
+            inspector_.Draw(scene.registry, selected_);
 
-            if (hierarchy.Draw(scene.registry, selected)) {
-                // selection changed hooks (optional)
-            }
-            inspector.Draw(scene.registry, selected);
-
-            ui.EndFrame();
+            ui_.EndFrame();
         });
     });
 
-    // Hand control to the renderer (will call the ready hook internally)
+    // Make GL ready before creating any GL objects (Shaders, Models)
+    myRenderer.InitGL();
+
+    Shader shader("Exported/Shaders/vertex.glsl",
+        "Exported/Shaders/frag.glsl");
+
     myRenderer.run(scene, shader);
 }
 

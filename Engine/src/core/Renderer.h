@@ -45,6 +45,10 @@ namespace MyCoreEngine {
             pendingModels_.emplace_back(std::move(path));
         }
 
+        // public:
+        void InitGL(); // new: loads GLAD and fires OnContextReady once
+
+
     private:
         // Window / timing
         Window window_;

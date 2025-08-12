@@ -39,6 +39,11 @@ namespace MyCoreEngine {
         }
     }
 
+    void Renderer::InitGL() {
+        setupGL_();
+        loadPendingModels_();   // safe now
+    }
+
     void Renderer::loadPendingModels_() {
         for (const auto& path : pendingModels_) {
             auto m = Model(path);
@@ -48,12 +53,7 @@ namespace MyCoreEngine {
     }
 
     void Renderer::run(Scene& scene, Shader& shader) {
-        // Initialize GL (context is already current from Window)
-        setupGL_();
-
-        // If Editor queued models before run(), load them now (GL is ready)
-        loadPendingModels_();
-
+        // GL is expected to be initialized already via InitGL()
         while (!window_.shouldClose()) {
             updateDeltaTime_();
 

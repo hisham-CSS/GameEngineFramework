@@ -19,7 +19,9 @@ add_library(Engine SHARED
     src/thirdparty/stb_impl.cpp 
     src/core/ImageIO.h 
     src/core/ImageIO.cpp 
-    src/core/Model.cpp "src/core/Shader.cpp")
+    src/core/Model.cpp 
+    src/core/Shader.cpp 
+    src/core/Camera.cpp)
 
 target_compile_definitions(Engine PUBLIC ENGINE_DLL_EXPORTS)
 

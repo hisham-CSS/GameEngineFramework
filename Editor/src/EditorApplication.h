@@ -1,5 +1,6 @@
 #pragma once
 #include "Engine.h"
+#include "EditorImGuiLayer.h"
 #include "panels/SceneHierarchyPanel.h"
 #include "panels/InspectorPanel.h"
 
@@ -15,8 +16,8 @@ public:
 
 private:
     MyCoreEngine::Renderer myRenderer;
-    entt::entity selected_ = entt::null;
-    // Panels
-    SceneHierarchyPanel* hierarchy_ = nullptr;
-    InspectorPanel* inspector_ = nullptr;
+    EditorImGuiLayer ui_;                 // <-- persistent member
+    SceneHierarchyPanel hierarchy_;
+    InspectorPanel      inspector_;
+    entt::entity        selected_ = entt::null;
 };
