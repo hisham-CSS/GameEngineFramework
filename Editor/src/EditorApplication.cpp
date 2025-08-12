@@ -1,13 +1,11 @@
-﻿#pragma once
-#include "Engine.h"
-#include "EditorApplication.h"
-#include "EditorImGuiLayer.h"
+﻿#include "EditorApplication.h"
 
+#include "Engine.h"                 // Renderer/Scene/Shader headers aggregated or include individually
+#include "EditorImGuiLayer.h"
+#include "panels/SceneHierarchyPanel.h"
+#include "panels/InspectorPanel.h"
 
 #include "imgui.h"
-#include "imgui_impl_glfw.h"
-#include "imgui_impl_opengl3.h"
-#include <glm/glm.hpp>
 
 // Helper: create a couple of entities for testing
 static void CreateSampleScene(MyCoreEngine::Scene& scene) {
@@ -39,7 +37,7 @@ static void CreateSampleScene(MyCoreEngine::Scene& scene) {
     // scene.registry.emplace<ModelComponent>(e1, ModelComponent{/*...*/});
     // scene.registry.emplace<ModelComponent>(e2, ModelComponent{/*...*/});
 
-    Model loadedModel("Exported/Model/backpack.obj");
+    /*Model loadedModel("Exported/Model/backpack.obj");
     AABB boundingVol = generateAABB(loadedModel);
     
     Entity firstEntity = scene.createEntity();
@@ -59,7 +57,7 @@ static void CreateSampleScene(MyCoreEngine::Scene& scene) {
             newEntity.addComponent<Model>(loadedModel);
             newEntity.addComponent<AABB>(boundingVol);
         }
-    }
+    }*/
 }
 
 //for the future for any initalization things that are required
@@ -72,53 +70,50 @@ void EditorApplication::Initialize()
 void EditorApplication::Run() {
     using namespace MyCoreEngine;
 
-    // 1) Build a simple scene
-    Scene scene;
-    CreateSampleScene(scene);
-
-    // 2) Load a shader (adjust paths to match your repo)
+    Scene  scene;
     Shader shader("Exported/Shaders/vertex.glsl",
         "Exported/Shaders/frag.glsl");
-    
 
-    // 3) Initialize editor-side ImGui with the renderer’s GLFW window
-    EditorImGuiLayer ui;
-    ui.Init(myRenderer.GetNativeWindow());
+    // Register the context-ready hook BEFORE run()
+    // This fires once, right after GLAD has successfully initialized.
+    myRenderer.SetOnContextReady([this, &scene]() {
+        // a) Initialize ImGui now (context is current, GLAD is loaded)
+        EditorImGuiLayer ui;   // static ensures it outlives the lambda frame
+        ui.Init(myRenderer.GetNativeWindow());
 
-    // 4) Panels and selection state
-    SceneHierarchyPanel hierarchy;
-    InspectorPanel inspector;
-    entt::entity selected = entt::null;
+        // b) Provide capture flags so renderer can skip input when UI has focus
+        myRenderer.SetUICaptureProvider([&ui] {
+            return std::pair{ ui.WantCaptureKeyboard(), ui.WantCaptureMouse() };
+        });
 
-    // 5) Let the renderer know when ImGui wants to capture input
-    myRenderer.SetUICaptureProvider([&ui]() -> std::pair<bool, bool> {
-        return { ui.WantCaptureKeyboard(), ui.WantCaptureMouse() };
+        // c) Create any GL resources here (safe): models, textures, framebuffers, etc.
+        // Example (optional):
+        // myRenderer.EnqueueModel("Assets/Models/sponza/sponza.obj");
+
+        // d) Provide per-frame UI
+        myRenderer.SetUIDraw([&](float dt) {
+            ui.BeginFrame();
+
+            ImGui::Begin("Stats", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+            ImGui::Text("dt: %.3f ms (%.1f FPS)", dt * 1000.f, dt > 0.f ? 1.f / dt : 0.f);
+            ImGui::End();
+
+            // Panels (these assume you created members or locals as needed)
+            static SceneHierarchyPanel hierarchy;
+            static InspectorPanel      inspector;
+            static entt::entity        selected = entt::null;
+
+            if (hierarchy.Draw(scene.registry, selected)) {
+                // selection changed hooks (optional)
+            }
+            inspector.Draw(scene.registry, selected);
+
+            ui.EndFrame();
+        });
     });
 
-    // 6) Provide the per-frame UI callback (ImGui lives entirely here)
-    myRenderer.SetUIDraw([&](float dt) {
-        ui.BeginFrame();
-
-        // Stats (keep it tiny and useful)
-        ImGui::Begin("Stats", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
-        ImGui::Text("dt: %.3f ms (%.1f FPS)", dt * 1000.f, (dt > 0.f ? 1.f / dt : 0.f));
-        ImGui::End();
-
-        // Scene hierarchy + inspector
-        if (hierarchy.Draw(scene.registry, selected)) {
-            // selection changed → optional hooks here (e.g., focus camera)
-        }
-        inspector.Draw(scene.registry, selected);
-
-        ui.EndFrame(); // does ImGui::Render and OpenGL backend draw
-    });
-
-    // 7) Hand off control to the renderer’s main loop
-    //    (Renderer will: compute deltaTime, handle input unless UI captures,
-    //     update transforms, draw 3D scene, then call your UI callback)
+    // Hand control to the renderer (will call the ready hook internally)
     myRenderer.run(scene, shader);
-
-    // 8) Cleanup handled by destructors (ui.Shutdown() called in ~EditorImGuiLayer)
 }
 
 MyCoreEngine::Application* MyCoreEngine::CreateApplication()

@@ -6,7 +6,7 @@
 class EditorApplication : public MyCoreEngine::Application
 {
 public:
-    EditorApplication() : myRenderer(1280, 720) {}
+    EditorApplication() : myRenderer(1280, 720, "Cat Splat Engine") {}
     ~EditorApplication() {}
 
     void Initialize();

@@ -1,5 +1,4 @@
 #pragma once
-#include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <iostream>
 #include "Core.h"
@@ -37,6 +36,8 @@ namespace MyCoreEngine
         GLFWwindow* getGLFWwindow() const { return window_; }
         int getWidth() const { return width_; }
         int getHeight() const { return height_; }
+		float getAspectRatio() const { return static_cast<float>(width_) / static_cast<float>(height_); }
+		void getFramebufferSize(int& width, int& height) const { glfwGetFramebufferSize(window_, &width, &height); }
 
         // Optional: Wrap the poll/swap functions
         void pollEvents() { glfwPollEvents(); }

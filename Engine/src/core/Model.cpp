@@ -8,6 +8,8 @@
 #include "stb_image.h"   // declarations only; implementation is in stb_image_impl.cpp
 #include <iostream>
 
+#include <glad/glad.h>
+
 namespace MyCoreEngine {
 
 // ---- Mesh ----

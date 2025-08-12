@@ -5,6 +5,7 @@
 #include "Core.h"
 #include "Entity.h"
 #include "Components.h"
+#include "Shader.h"
 
 namespace MyCoreEngine {
 

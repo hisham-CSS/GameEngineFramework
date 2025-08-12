@@ -35,3 +35,4 @@ elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
 endif()
 
 #target_compile_definitions(Editor PRIVATE MYCE_ENABLE_ENTRY=1)
+target_compile_definitions(Editor PRIVATE GLFW_INCLUDE_NONE)

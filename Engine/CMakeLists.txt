@@ -10,6 +10,7 @@ add_library(Engine SHARED
     src/core/Shader.h 
     src/core/Entity.h
     src/core/Renderer.h 
+    src/core/Renderer.cpp
     src/core/Window.h  
     src/core/Components.h 
     src/core/Scene.h 
@@ -18,7 +19,7 @@ add_library(Engine SHARED
     src/thirdparty/stb_impl.cpp 
     src/core/ImageIO.h 
     src/core/ImageIO.cpp 
-    src/core/Model.cpp)
+    src/core/Model.cpp "src/core/Shader.cpp")
 
 target_compile_definitions(Engine PUBLIC ENGINE_DLL_EXPORTS)
 
@@ -59,3 +60,7 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
     target_compile_options(Engine PRIVATE /Zi)
 endif()
+
+
+# Engine CMakeLists.txt
+target_compile_definitions(Engine PRIVATE GLFW_INCLUDE_NONE)
