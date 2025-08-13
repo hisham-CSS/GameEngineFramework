@@ -44,17 +44,9 @@ namespace MyCoreEngine {
 
     void Renderer::InitGL() {
         setupGL_();
-        loadPendingModels_();   // safe now
         glfwSetWindowUserPointer(window_.getGLFWwindow(), this);
         glfwSetScrollCallback(window_.getGLFWwindow(), &Renderer::ScrollThunk_);
         glfwSetFramebufferSizeCallback(window_.getGLFWwindow(), &Renderer::FramebufferSizeThunk_);
-    }
-
-    void Renderer::loadPendingModels_() {
-        for (const auto& path : pendingModels_) {
-            models_.emplace_back(std::make_unique<Model>(path));
-        }
-        pendingModels_.clear();
     }
 
     void Renderer::run(Scene& scene, Shader& shader) {
@@ -96,11 +88,6 @@ namespace MyCoreEngine {
                 glm::radians(camera_.Zoom), 0.1f, 1000.0f);
 
             scene.RenderScene(camFrustum, shader, camera_, display, total);
-
-            // Render any models owned by the renderer (optional convenience)
-            for (auto& m : models_) {
-                m->Draw(shader);
-            }
 
             // Editor UI (after 3D draw)
             if (uiDraw_) uiDraw_(deltaTime_);

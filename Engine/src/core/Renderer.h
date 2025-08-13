@@ -49,11 +49,6 @@ namespace MyCoreEngine {
         using OnContextReadyFn = std::function<void()>;
         void SetOnContextReady(OnContextReadyFn fn) { onReady_ = std::move(fn); }
 
-        // Optional: simple model enqueue (Renderer creates them after GL init)
-        void EnqueueModel(std::string path) {
-            pendingModels_.emplace_back(std::move(path));
-        }
-
         // public:
         void InitGL(); // new: loads GLAD and fires OnContextReady once
 
@@ -74,10 +69,6 @@ namespace MyCoreEngine {
         OnContextReadyFn onReady_{};
         bool           readyFired_ = false;
 
-        // Simple model list (optional convenience)
-        std::vector<std::string>               pendingModels_;
-        std::vector<std::unique_ptr<Model>>    models_;
-
         // mouse-look state
         bool rotating_ = false;
         bool firstMouse_ = true;
@@ -96,7 +87,6 @@ namespace MyCoreEngine {
         // helpers
         void updateDeltaTime_();
         void setupGL_();           // creates GL state + fires OnContextReady once
-        void loadPendingModels_(); // safe only after setupGL_ ran
     };
 
 } // namespace MyCoreEngine
