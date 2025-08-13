@@ -46,8 +46,7 @@ namespace MyCoreEngine {
 
     void Renderer::loadPendingModels_() {
         for (const auto& path : pendingModels_) {
-            auto m = Model(path);
-            models_.push_back(std::move(m));
+            models_.emplace_back(std::make_unique<Model>(path));
         }
         pendingModels_.clear();
     }
@@ -92,8 +91,8 @@ namespace MyCoreEngine {
             scene.RenderScene(camFrustum, shader, display, total);
 
             // Render any models owned by the renderer (optional convenience)
-            for (auto m : models_) {
-                m.Draw(shader);
+            for (auto& m : models_) {
+                m->Draw(shader);
             }
 
             // Editor UI (after 3D draw)

@@ -3,6 +3,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <array>
+#include <memory>
 
 #include "Model.h"
 #include "Camera.h"
@@ -12,6 +13,10 @@ using namespace MyCoreEngine;
 struct Name {
 	// keep it tiny; editor can own fancy strings later if needed
 	const char* value = "Entity";
+};
+
+struct ModelComponent {
+	std::shared_ptr<MyCoreEngine::Model> model; // shared handle to GPU-ready model
 };
 
 struct Transform {

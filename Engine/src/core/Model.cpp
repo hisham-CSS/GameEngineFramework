@@ -1,14 +1,22 @@
 #include "Model.h"
 #include "Shader.h"
 
-#include <assimp/Importer.hpp>
-#include <assimp/scene.h>
-#include <assimp/postprocess.h>
+#include <algorithm>
 
 #include "stb_image.h"   // declarations only; implementation is in stb_image_impl.cpp
 #include <iostream>
 
 #include <glad/glad.h>
+
+#include <cstdio>
+#include <GLFW/glfw3.h>
+#define MLOG(...) std::printf("[Model] " __VA_ARGS__), std::printf("\n")
+
+
+static std::string normPath(std::string p) {
+    std::replace(p.begin(), p.end(), '\\', '/');
+    return p;
+}
 
 namespace MyCoreEngine {
 
@@ -84,6 +92,16 @@ void Model::Draw(Shader& shader) {
 }
 
 void Model::loadModel(const std::string& path) {
+
+    // crude global cap to catch broken assets/debug builds
+    size_t totalTexLoads = 0;
+    auto guardedLoad = [&](const std::string& file) {
+        if (++totalTexLoads > 2048) { /* log + bail */ return 0u; }
+        return getOrLoadTexture(file, directory_);
+    };
+
+    MLOG("loadModel begin: %s", path.c_str());
+
     Assimp::Importer importer;
     const ::aiScene* scene = importer.ReadFile(path,
         aiProcess_Triangulate |
@@ -92,14 +110,15 @@ void Model::loadModel(const std::string& path) {
         aiProcess_FlipUVs);
 
     if (!scene || (scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) || !scene->mRootNode) {
-        std::cerr << "ASSIMP error: " << importer.GetErrorString() << "\n";
+        MLOG("Assimp error: %s", importer.GetErrorString());
         return;
     }
 
-    // compute directory
     directory_ = path.substr(0, path.find_last_of("/\\"));
+    MLOG("scene meshes=%u materials=%u", scene->mNumMeshes, scene->mNumMaterials);
 
     processNode(scene->mRootNode, scene);
+    MLOG("loadModel end: meshes_=%zu", meshes_.size());
 }
 
 void Model::processNode(::aiNode* node, const ::aiScene* scene) {
@@ -138,16 +157,21 @@ Mesh Model::processMesh(::aiMesh* mesh, const ::aiScene* scene) {
             indices.push_back(face.mIndices[j]);
     }
 
-    if (mesh->mMaterialIndex >= 0) {
+    if (mesh && mesh->mMaterialIndex < scene->mNumMaterials) {
         ::aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];
-        auto diffuse  = loadMaterialTextures(material, aiTextureType_DIFFUSE,  "texture_diffuse");
+
+        // Only read however many the material actually has; cache prevents duplicates
+        auto diffuse = loadMaterialTextures(material, aiTextureType_DIFFUSE, "texture_diffuse");
         auto specular = loadMaterialTextures(material, aiTextureType_SPECULAR, "texture_specular");
-        auto normal   = loadMaterialTextures(material, aiTextureType_HEIGHT,   "texture_normal");
-        auto height   = loadMaterialTextures(material, aiTextureType_AMBIENT,  "texture_height");
-        textures.insert(textures.end(), diffuse.begin(),  diffuse.end());
+        // Many assets store normals as aiTextureType_NORMALS, not HEIGHT:
+        auto normals = loadMaterialTextures(material, aiTextureType_NORMALS, "texture_normal");
+        // If your asset uses HEIGHT for normals, keep this too (harmless if count==0):
+        auto height = loadMaterialTextures(material, aiTextureType_HEIGHT, "texture_normal");
+
+        textures.insert(textures.end(), diffuse.begin(), diffuse.end());
         textures.insert(textures.end(), specular.begin(), specular.end());
-        textures.insert(textures.end(), normal.begin(),   normal.end());
-        textures.insert(textures.end(), height.begin(),   height.end());
+        textures.insert(textures.end(), normals.begin(), normals.end());
+        textures.insert(textures.end(), height.begin(), height.end());
     }
 
     return Mesh(vertices, indices, textures);
@@ -170,37 +194,94 @@ std::vector<Texture> Model::loadMaterialTextures(::aiMaterial* mat, int type, co
 unsigned int Model::TextureFromFile(const char* path, const std::string& directory, bool /*gamma*/) {
     std::string filename = path;
     if (!directory.empty()) {
-        char sep =
 #ifdef _WIN32
-            '\\';
+        const char sep = '\\';
 #else
-            '/';
+        const char sep = '/';
 #endif
         if (path[0] != '/' && path[0] != '\\')
             filename = directory + sep + filename;
     }
 
-    unsigned int id;
-    glGenTextures(1, &id);
-
-    int w, h, comp;
-    stbi_set_flip_vertically_on_load(1);
-    unsigned char* data = stbi_load(filename.c_str(), &w, &h, &comp, 0);
-    if (data) {
-        GLenum fmt = (comp == 1) ? GL_RED : (comp == 3) ? GL_RGB : GL_RGBA;
-        glBindTexture(GL_TEXTURE_2D, id);
-        glTexImage2D(GL_TEXTURE_2D, 0, fmt, w, h, 0, fmt, GL_UNSIGNED_BYTE, data);
-        glGenerateMipmap(GL_TEXTURE_2D);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        stbi_image_free(data);
-    } else {
-        std::cerr << "Texture failed to load at: " << filename << "\n";
-        stbi_image_free(data);
+    // Guard GL readiness just in case
+    if (glfwGetCurrentContext() == nullptr || !glad_glGenTextures) {
+        MLOG("GL not ready when loading texture: %s", filename.c_str());
+        return 0;
     }
+
+    int w = 0, h = 0, c = 0;
+    stbi_set_flip_vertically_on_load(1);
+    unsigned char* data = stbi_load(filename.c_str(), &w, &h, &c, 4);
+    if (!data) {
+        MLOG("stbi_load failed: %s", filename.c_str());
+        return 0;
+    }
+
+    unsigned int tex = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    stbi_image_free(data);
+
+    MLOG("texture OK: %s (%dx%d)", filename.c_str(), w, h);
+    return tex;
+}
+
+unsigned int Model::getOrLoadTexture(const std::string& file,
+    const std::string& directory)
+{
+    std::string full = file;
+    if (!directory.empty()) {
+        if (full.empty() || (full[0] != '/' && full[0] != '\\')) {
+#ifdef _WIN32
+            full = directory + "\\" + full;
+#else
+            full = directory + "/" + full;
+#endif
+        }
+    }
+    full = normPath(full);
+
+    // cache hit?
+    auto it = textureCache_.find(full);
+    if (it != textureCache_.end())
+        return it->second;
+
+    // miss -> load once
+    unsigned int id = TextureFromFile(full.c_str(), /*directory ignored because full is absolute*/"", false);
+    textureCache_[full] = id;
     return id;
+}
+
+std::vector<Texture> Model::loadMaterialTextures(::aiMaterial* mat,
+    aiTextureType type,
+    const std::string& typeName)
+{
+    std::vector<Texture> textures;
+    if (!mat) return textures;
+
+    const unsigned int count = mat->GetTextureCount(type);
+    for (unsigned int i = 0; i < count; ++i) {
+        ::aiString str;
+        if (mat->GetTexture(type, i, &str) != AI_SUCCESS) continue;
+
+        // Assimp gives relative path in most cases
+        std::string file = normPath(std::string(str.C_Str()));
+        unsigned int id = getOrLoadTexture(file, directory_);
+
+        Texture tex{};
+        tex.id = id;
+        tex.type = typeName;
+        tex.path = file;
+        textures.push_back(tex);
+    }
+    return textures;
 }
 
 } // namespace MyCoreEngine

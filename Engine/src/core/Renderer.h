@@ -22,6 +22,15 @@ namespace MyCoreEngine {
     public:
         Renderer(int width, int height, const char* title);
 
+
+        // prevent copying (vector<unique_ptr<...>> cannot be copied)
+        Renderer(const Renderer&) = delete;
+        Renderer& operator=(const Renderer&) = delete;
+
+        // simplest: also prevent moves for now (unless you really need them)
+        Renderer(Renderer&&) noexcept = delete;
+        Renderer& operator=(Renderer&&) noexcept = delete;
+
         // Main loop
         void run(Scene& scene, Shader& shader);
 
@@ -67,7 +76,7 @@ namespace MyCoreEngine {
 
         // Simple model list (optional convenience)
         std::vector<std::string>               pendingModels_;
-        std::vector<Model>    models_;
+        std::vector<std::unique_ptr<Model>>    models_;
 
         // helpers
         void updateDeltaTime_();

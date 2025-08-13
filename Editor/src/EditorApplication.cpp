@@ -105,6 +105,29 @@ void EditorApplication::Run() {
     Shader shader("Exported/Shaders/vertex.glsl",
         "Exported/Shaders/frag.glsl");
 
+    assert(glfwGetCurrentContext() != nullptr);
+    // ---- Create the model once, share it across entities ----
+    auto modelHandle = std::make_shared<MyCoreEngine::Model>("Exported/Model/backpack.obj");
+    AABB localBV = generateAABB(*modelHandle); // if you still use local-space AABB
+    
+    {
+        Entity firstEntity = scene.createEntity();
+        Transform t{};
+        t.position = glm::vec3(0.f, 0.f, 0.f);
+        firstEntity.addComponent<Transform>(t);
+        firstEntity.addComponent<ModelComponent>(ModelComponent{ modelHandle });
+    }
+    
+    for (unsigned int x = 0; x < 20; ++x) {
+        for (unsigned int z = 0; z < 20; ++z) {
+            Entity e = scene.createEntity();
+            Transform t{};
+            t.position = glm::vec3(x * 10.f - 100.f, 0.f, z * 10.f - 100.f);
+            e.addComponent<Transform>(t);
+            e.addComponent<ModelComponent>(ModelComponent{ modelHandle });
+        }
+    }
+
     myRenderer.run(scene, shader);
 }
 

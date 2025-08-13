@@ -1,6 +1,11 @@
 #pragma once
 #include "Core.h"
 
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
+
+#include <unordered_map>
 #include <glm/glm.hpp>
 #include <string>
 #include <vector>
@@ -56,6 +61,14 @@ namespace MyCoreEngine {
     class ENGINE_API Model {
     public:
         explicit Model(const std::string& path, bool gamma = false);
+        
+        // ECS-friendly: forbid copies (GL objects & internal state are not copy-safe)
+        Model(const Model&) = delete;
+        Model & operator=(const Model&) = delete;
+        // Allow moves
+        Model(Model&&) noexcept = default;
+        Model & operator=(Model&&) noexcept = default;
+        
         void Draw(Shader& shader);
         const std::vector<Mesh>& Meshes() const { return meshes_; }
 
@@ -63,6 +76,15 @@ namespace MyCoreEngine {
         std::vector<Mesh> meshes_;
         std::string       directory_;
         bool              gammaCorrection_ = false;
+        // file path -> GL texture id
+        std::unordered_map<std::string, unsigned int> textureCache_;
+
+        std::vector<Texture> loadMaterialTextures(::aiMaterial* mat,
+            aiTextureType type,
+            const std::string& typeName);
+
+        // small helper: returns cached texture id if exists, otherwise loads and caches it
+        unsigned int getOrLoadTexture(const std::string& file, const std::string& directory);
 
         void loadModel(const std::string& path);
         void processNode(::aiNode* node, const ::aiScene* scene);

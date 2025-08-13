@@ -32,16 +32,16 @@ namespace MyCoreEngine {
 
         void RenderScene(const Frustum& camFrustum, Shader& shader, unsigned int& display, unsigned int& total)
         {
-            auto renderView = registry.view<Model, Transform, AABB>();
+            auto renderView = registry.view<ModelComponent, Transform, AABB>();
             for (auto entity : renderView) {
-                auto& model = renderView.get<Model>(entity);
+                auto& mc = renderView.get<ModelComponent>(entity);
                 auto& t = renderView.get<Transform>(entity);
                 auto& bounds = renderView.get<AABB>(entity);
 
                 if (bounds.isOnFrustum(camFrustum, t))
                 {
                     shader.setMat4("model", t.modelMatrix);
-                    model.Draw(shader);
+                    mc.model->Draw(shader);
                     display++;
                 }
                 total++;
