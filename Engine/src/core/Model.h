@@ -88,26 +88,17 @@ namespace MyCoreEngine {
     private:
         std::vector<Mesh> meshes_;
         std::string       directory_;
-        bool              gammaCorrection_ = false;
-        // file path -> GL texture id
-        std::unordered_map<std::string, unsigned int> textureCache_;
 
-        std::vector<Texture> loadMaterialTextures(::aiMaterial* mat,
-            aiTextureType type,
-            const std::string& typeName);
+        // Global cache keyed by (normalized path + “|srgb/|lin”)
+        static std::unordered_map<std::string, unsigned int> sTextureCache_;
 
-        // small helper: returns cached texture id if exists, otherwise loads and caches it
-        unsigned int getOrLoadTexture(const std::string& file, const std::string& directory);
-
+        //Model and Material Helpers
         void loadModel(const std::string& path);
         void processNode(::aiNode* node, const ::aiScene* scene);
         Mesh processMesh(::aiMesh* mesh, const ::aiScene* scene);
+        std::vector<Texture> loadMaterialTextures(::aiMaterial* mat, aiTextureType type, const std::string& typeName);
         static unsigned int TextureFromFile(const char* path, const std::string& directory, bool isSRGB);
-
-        
         static std::string makeTexKey_(const std::string & file, const std::string & directory, bool isSRGB);
         static unsigned int getOrLoadTexture_(const std::string & file, const std::string & directory, bool isSRGB);
     };
-
-    static std::unordered_map<std::string, unsigned int> sTextureCache_;
 } // namespace MyCoreEngine
