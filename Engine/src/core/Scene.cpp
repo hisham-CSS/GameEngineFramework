@@ -25,7 +25,7 @@ void Scene::UpdateTransforms()
 
 // Renderer calls this; we keep signature identical.
 // Now builds a draw list with frustum culling, sorts, then batches by texture key.
-void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, unsigned int& display, unsigned int& total)
+void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camera, unsigned int& display, unsigned int& total)
 {
     display = 0; total = 0;
     RenderStats stats{}; // local accumulator for this frame
@@ -52,7 +52,7 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, unsigned int&
             di.texKey = mesh.TextureSignature();
             di.mesh = &mesh;
             di.model = t.modelMatrix;
-            di.depth = 0.0f; // TODO: set from camera if available
+            di.depth = glm::dot(glm::vec3(di.model[3]) - camera.Position, camera.Front);
             items_.push_back(di);
         }
     }
@@ -60,12 +60,12 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, unsigned int&
 
     // 2) Sort: primarily by texKey to minimize texture/VAO rebinds
     // (If you later add camera depth, sort by {depth asc, texKey asc})
-    std::sort(items_.begin(), items_.end(),
+    std::sort(items_.begin(), items_.end(), 
         [](const DrawItem& a, const DrawItem& b) {
-        if (a.texKey != b.texKey) return a.texKey < b.texKey;
-        return (uintptr_t)a.mesh < (uintptr_t)b.mesh; // stable tiebreaker
-    });
-
+            if (a.texKey != b.texKey) return a.texKey < b.texKey;              // bucket by textures
+            if (a.mesh != b.mesh)   return (uintptr_t)a.mesh < (uintptr_t)b.mesh; // group identical VAOs
+            return a.depth < b.depth;                                           // front-to-back within a mesh
+        });
     ensureInstanceBuffer_();
     shader.setInt("uUseInstancing", 0);
 

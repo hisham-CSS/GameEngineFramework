@@ -45,7 +45,7 @@ namespace MyCoreEngine {
         void UpdateTransforms();
         // Renderer calls this; we keep signature identical.
         // Now builds a draw list with frustum culling, sorts, then batches by texture key.
-        void RenderScene(const Frustum& camFrustum, Shader& shader, unsigned int& display, unsigned int& total);
+        void RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camera, unsigned int& display, unsigned int& total);
 
         // Toggle instancing at runtime
         void SetInstancingEnabled(bool enabled) { instancingEnabled_ = enabled; }

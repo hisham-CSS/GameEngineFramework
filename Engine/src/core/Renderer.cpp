@@ -82,7 +82,7 @@ namespace MyCoreEngine {
             // Basic camera matrices
             glm::mat4 projection = glm::perspective(glm::radians(camera_.Zoom),
                 window_.getAspectRatio(),
-                0.1f, 100.0f);
+                0.1f, 1000.0f);
             glm::mat4 view = camera_.GetViewMatrix();
 
             shader.use();
@@ -95,7 +95,7 @@ namespace MyCoreEngine {
                 (float)window_.getWidth() / window_.getHeight(),
                 glm::radians(camera_.Zoom), 0.1f, 1000.0f);
 
-            scene.RenderScene(camFrustum, shader, display, total);
+            scene.RenderScene(camFrustum, shader, camera_, display, total);
 
             // Render any models owned by the renderer (optional convenience)
             for (auto& m : models_) {
