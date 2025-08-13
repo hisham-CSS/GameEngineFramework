@@ -42,6 +42,8 @@ namespace MyCoreEngine {
     void Renderer::InitGL() {
         setupGL_();
         loadPendingModels_();   // safe now
+        glfwSetWindowUserPointer(window_.getGLFWwindow(), this);
+        glfwSetScrollCallback(window_.getGLFWwindow(), &Renderer::ScrollThunk_);
     }
 
     void Renderer::loadPendingModels_() {
@@ -141,6 +143,17 @@ namespace MyCoreEngine {
             }
             firstMouse_ = true; // reset when not rotating
         }
+    }
+
+    void Renderer::ScrollThunk_(GLFWwindow* w, double /*xoff*/, double yoff) {
+        if (auto* self = static_cast<Renderer*>(glfwGetWindowUserPointer(w))) {
+            self->onScroll_(yoff);
+        }
+    }
+
+    void Renderer::onScroll_(double yoff) {
+        // If you want to respect UI capture, you can check captureFn_ here
+        camera_.ProcessMouseScroll(static_cast<float>(yoff));
     }
 
 } // namespace MyCoreEngine
