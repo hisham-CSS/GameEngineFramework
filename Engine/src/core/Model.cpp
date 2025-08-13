@@ -94,6 +94,12 @@ uint64_t Mesh::TextureSignature() const {
 
 unsigned int Mesh::IndexCount() const { return static_cast<unsigned int>(indices_.size()); }
 unsigned int Mesh::VAO() const { return VAO_; } // whatever your VAO member is named
+void Mesh::IssueDrawInstanced(GLsizei instanceCount) const {
+    glDrawElementsInstanced(GL_TRIANGLES,
+        static_cast<GLsizei>(indices_.size()),
+        GL_UNSIGNED_INT, 0,
+        instanceCount);
+}
 
 void Mesh::BindForDraw(MyCoreEngine::Shader& shader) const {
     // Copy your existing texture-bind logic from Mesh::Draw(...) but DO NOT call glDrawElements.

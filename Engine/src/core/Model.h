@@ -1,4 +1,6 @@
 #pragma once
+
+
 #include "Core.h"
 
 #include <assimp/Importer.hpp>
@@ -15,6 +17,8 @@ struct aiNode;
 struct aiScene;
 struct aiMesh;
 struct aiMaterial;
+
+typedef int GLsizei;
 
 namespace MyCoreEngine {
 
@@ -54,6 +58,7 @@ namespace MyCoreEngine {
         // split draw into bind vs issue
         void BindForDraw(MyCoreEngine::Shader& shader) const; // bind textures + VAO (no draw)
         void IssueDraw() const;                               // just glDrawElements
+        void IssueDrawInstanced(GLsizei instanceCount) const;
 
     private:
         std::vector<Vertex>       vertices_;

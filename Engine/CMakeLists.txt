@@ -23,7 +23,8 @@ add_library(Engine SHARED
     src/core/Shader.cpp 
     src/core/Camera.cpp 
     src/core/AssetManager.h 
-    src/core/AssetManager.cpp)
+    src/core/AssetManager.cpp
+    src/core/Scene.cpp)
 
 target_compile_definitions(Engine PUBLIC ENGINE_DLL_EXPORTS)
 

@@ -28,6 +28,9 @@ namespace MyCoreEngine {
             throw std::runtime_error("Failed to initialize GLAD");
         }
         glEnable(GL_DEPTH_TEST);
+        glEnable(GL_CULL_FACE);
+        glCullFace(GL_BACK);
+        glFrontFace(GL_CCW);
 
         int w, h;
         window_.getFramebufferSize(w, h);
@@ -44,6 +47,7 @@ namespace MyCoreEngine {
         loadPendingModels_();   // safe now
         glfwSetWindowUserPointer(window_.getGLFWwindow(), this);
         glfwSetScrollCallback(window_.getGLFWwindow(), &Renderer::ScrollThunk_);
+        glfwSetFramebufferSizeCallback(window_.getGLFWwindow(), &Renderer::FramebufferSizeThunk_);
     }
 
     void Renderer::loadPendingModels_() {
@@ -154,6 +158,17 @@ namespace MyCoreEngine {
     void Renderer::onScroll_(double yoff) {
         // If you want to respect UI capture, you can check captureFn_ here
         camera_.ProcessMouseScroll(static_cast<float>(yoff));
+    }
+
+    void Renderer::FramebufferSizeThunk_(GLFWwindow * w, int width, int height) {
+       if (auto* self = static_cast<Renderer*>(glfwGetWindowUserPointer(w))) {
+           self->onFramebufferSize_(width, height);
+        }
+    }
+    void Renderer::onFramebufferSize_(int width, int height) {
+        // Prevent GL errors on minimization
+        if (width <= 0 || height <= 0) return;
+            glViewport(0, 0, width, height);
     }
 
 } // namespace MyCoreEngine

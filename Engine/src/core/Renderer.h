@@ -89,6 +89,10 @@ namespace MyCoreEngine {
         static void ScrollThunk_(GLFWwindow* w, double /*xoff*/, double yoff);
         void onScroll_(double yoff);
 
+        // framebuffer resize -> update viewport
+        static void FramebufferSizeThunk_(GLFWwindow* w, int width, int height);
+        void onFramebufferSize_(int width, int height);
+
         // helpers
         void updateDeltaTime_();
         void setupGL_();           // creates GL state + fires OnContextReady once
