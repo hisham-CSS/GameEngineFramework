@@ -101,13 +101,14 @@ void EditorApplication::Run() {
 
     // Make GL ready before creating any GL objects (Shaders, Models)
     myRenderer.InitGL();
+    assets_ = std::make_unique<AssetManager>(); // create after GL is ready
 
     Shader shader("Exported/Shaders/vertex.glsl",
         "Exported/Shaders/frag.glsl");
 
     assert(glfwGetCurrentContext() != nullptr);
-    // ---- Create the model once, share it across entities ----
-    auto modelHandle = std::make_shared<MyCoreEngine::Model>("Exported/Model/backpack.obj");
+    // --- Load or reuse a model by path ---
+    auto modelHandle = assets_->GetModel("Exported/Model/backpack.obj");  // shared
     AABB localBV = generateAABB(*modelHandle); // if you still use local-space AABB
     
     {

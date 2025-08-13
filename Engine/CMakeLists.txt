@@ -21,7 +21,9 @@ add_library(Engine SHARED
     src/core/ImageIO.cpp 
     src/core/Model.cpp 
     src/core/Shader.cpp 
-    src/core/Camera.cpp)
+    src/core/Camera.cpp 
+    src/core/AssetManager.h 
+    src/core/AssetManager.cpp)
 
 target_compile_definitions(Engine PUBLIC ENGINE_DLL_EXPORTS)
 

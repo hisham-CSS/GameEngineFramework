@@ -20,4 +20,7 @@ private:
     SceneHierarchyPanel hierarchy_;
     InspectorPanel      inspector_;
     entt::entity        selected_ = entt::null;
+
+
+    std::unique_ptr<MyCoreEngine::AssetManager> assets_;
 };
