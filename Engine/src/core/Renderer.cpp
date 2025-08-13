@@ -64,6 +64,7 @@ namespace MyCoreEngine {
             if (!capK) {
                 input_.update(camera_, deltaTime_);
             }
+            if (!capM) handleMouseLook_(capM);
 
             // Update scene data (transforms etc.)
             scene.UpdateTransforms();
@@ -100,6 +101,45 @@ namespace MyCoreEngine {
 
             window_.swapBuffers();
             window_.pollEvents();
+        }
+    }
+
+    void Renderer::handleMouseLook_(bool uiWantsMouse) {
+        GLFWwindow* win = window_.getGLFWwindow();
+        if (!win) return;
+
+        const int rmb = glfwGetMouseButton(win, GLFW_MOUSE_BUTTON_RIGHT);
+
+        if (!uiWantsMouse && rmb == GLFW_PRESS) {
+            if (!rotating_) {
+                rotating_ = true;
+                firstMouse_ = true;
+                glfwSetInputMode(win, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+            }
+
+            double xpos, ypos;
+            glfwGetCursorPos(win, &xpos, &ypos);
+
+            if (firstMouse_) {
+                lastX_ = xpos; lastY_ = ypos;
+                firstMouse_ = false;
+                return;
+            }
+
+            // Note: yaw increases with +x, pitch increases with -y
+            float xoffset = static_cast<float>(xpos - lastX_);
+            float yoffset = static_cast<float>(lastY_ - ypos);
+
+            lastX_ = xpos; lastY_ = ypos;
+
+            camera_.ProcessMouseMovement(xoffset, yoffset, true);
+        }
+        else {
+            if (rotating_) {
+                rotating_ = false;
+                glfwSetInputMode(win, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+            }
+            firstMouse_ = true; // reset when not rotating
         }
     }
 

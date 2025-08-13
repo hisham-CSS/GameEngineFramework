@@ -116,6 +116,7 @@ void EditorApplication::Run() {
         t.position = glm::vec3(0.f, 0.f, 0.f);
         firstEntity.addComponent<Transform>(t);
         firstEntity.addComponent<ModelComponent>(ModelComponent{ modelHandle });
+		firstEntity.addComponent<AABB>(localBV); // if you still use local-space AABB
     }
     
     for (unsigned int x = 0; x < 20; ++x) {
@@ -125,6 +126,7 @@ void EditorApplication::Run() {
             t.position = glm::vec3(x * 10.f - 100.f, 0.f, z * 10.f - 100.f);
             e.addComponent<Transform>(t);
             e.addComponent<ModelComponent>(ModelComponent{ modelHandle });
+			e.addComponent<AABB>(localBV); // if you still use local-space AABB
         }
     }
 

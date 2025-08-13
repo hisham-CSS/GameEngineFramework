@@ -78,6 +78,17 @@ namespace MyCoreEngine {
         std::vector<std::string>               pendingModels_;
         std::vector<std::unique_ptr<Model>>    models_;
 
+        // mouse-look state
+        bool rotating_ = false;
+        bool firstMouse_ = true;
+        double lastX_ = 0.0;
+        double lastY_ = 0.0;
+
+        void handleMouseLook_(bool uiWantsMouse);   // new
+        // (optional) wheel zoom callback hook
+        static void ScrollThunk_(GLFWwindow* w, double /*xoff*/, double yoff);
+        void onScroll_(double yoff);
+
         // helpers
         void updateDeltaTime_();
         void setupGL_();           // creates GL state + fires OnContextReady once
