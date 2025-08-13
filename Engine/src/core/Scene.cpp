@@ -28,6 +28,7 @@ void Scene::UpdateTransforms()
 void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, unsigned int& display, unsigned int& total)
 {
     display = 0; total = 0;
+    RenderStats stats{}; // local accumulator for this frame
     items_.clear();
     items_.reserve(1024);
 
@@ -38,8 +39,10 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, unsigned int&
         auto& t = view.get<Transform>(entity);
         auto& bounds = view.get<AABB>(entity);
         total++;
+        stats.entitiesTotal++;
+
         if (!mc.model) continue;
-        if (!bounds.isOnFrustum(camFrustum, t)) continue;
+        if (!bounds.isOnFrustum(camFrustum, t)) { stats.culled++; continue; }
 
         // Push one DrawItem per mesh in the model
         // Depth is optional (kept 0.0 here). If you later expose camera pos/dir via Frustum,
@@ -53,6 +56,8 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, unsigned int&
             items_.push_back(di);
         }
     }
+    stats.itemsBuilt = static_cast<unsigned>(items_.size());
+
     // 2) Sort: primarily by texKey to minimize texture/VAO rebinds
     // (If you later add camera depth, sort by {depth asc, texKey asc})
     std::sort(items_.begin(), items_.end(),
@@ -76,10 +81,13 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, unsigned int&
             mesh->BindForDraw(shader);
             currentKey = key;
             currentMesh = mesh;
+            stats.textureBinds++;
+            stats.vaoBinds++; // BindForDraw set VAO
         }
         else if (mesh != currentMesh) {
             glBindVertexArray(mesh->VAO());
             currentMesh = mesh;
+            stats.vaoBinds++;
         }
 
         // count consecutive items with same key+mesh
@@ -91,7 +99,7 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, unsigned int&
         }
         const std::size_t runCount = runEnd - runStart;
 
-        if (runCount >= 2) {
+        if (instancingEnabled_ && runCount >= 2) {
             // upload instance matrices
             glBindBuffer(GL_ARRAY_BUFFER, instanceVBO_);
             glBufferData(GL_ARRAY_BUFFER, runCount * sizeof(glm::mat4), nullptr, GL_STREAM_DRAW);
@@ -110,6 +118,9 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, unsigned int&
 
             i = runEnd;
             display += static_cast<unsigned>(runCount);
+            stats.instancedDraws++;
+            stats.instances += static_cast<unsigned>(runCount);
+            stats.submitted += static_cast<unsigned>(runCount);
         }
         else {
             // single draw (exactly your old path)
@@ -117,12 +128,16 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, unsigned int&
             mesh->IssueDraw();
             ++i;
             ++display;
+            stats.draws++;
+            stats.submitted++;
         }
     }
 
     // tidy
     glBindVertexArray(0);
     glActiveTexture(GL_TEXTURE0);
+
+    lastStats_ = stats; // publish render stats for the last frame
 }
 
 void Scene::ensureInstanceBuffer_() {

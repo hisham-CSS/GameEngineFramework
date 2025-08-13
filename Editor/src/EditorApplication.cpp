@@ -90,6 +90,28 @@ void EditorApplication::Run() {
 
             ImGui::Begin("Stats", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
             ImGui::Text("dt: %.3f ms (%.1f FPS)", dt * 1000.f, dt > 0.f ? 1.f / dt : 0.f);
+            
+            // You already show FPS/delta; add our counters:
+            const auto& rs = scene.GetRenderStats();
+            ImGui::Text("Draws:            %u", rs.draws);
+            ImGui::Text("Instanced draws:  %u", rs.instancedDraws);
+            ImGui::Text("Instances:        %u", rs.instances);
+            ImGui::Separator();
+            ImGui::Text("Texture binds:    %u", rs.textureBinds);
+            ImGui::Text("VAO binds:        %u", rs.vaoBinds);
+            ImGui::Separator();
+            ImGui::Text("Built items:      %u", rs.itemsBuilt);
+            ImGui::Text("Culled:           %u", rs.culled);
+            ImGui::Text("Submitted:        %u", rs.submitted);
+            
+            unsigned totalCalls = rs.draws + rs.instancedDraws;
+            ImGui::Text("GPU draw calls:   %u", totalCalls);
+            
+            bool inst = scene.GetInstancingEnabled();
+            if (ImGui::Checkbox("Enable instancing", &inst)) {
+                scene.SetInstancingEnabled(inst);
+            }
+
             ImGui::End();
 
             if (hierarchy_.Draw(scene.registry, selected_)) { /* optional */ }
