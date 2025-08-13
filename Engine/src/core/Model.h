@@ -102,9 +102,12 @@ namespace MyCoreEngine {
         void loadModel(const std::string& path);
         void processNode(::aiNode* node, const ::aiScene* scene);
         Mesh processMesh(::aiMesh* mesh, const ::aiScene* scene);
-        std::vector<Texture> loadMaterialTextures(::aiMaterial* mat, int type, const std::string& typeName);
+        static unsigned int TextureFromFile(const char* path, const std::string& directory, bool isSRGB);
 
-        static unsigned int TextureFromFile(const char* path, const std::string& directory, bool gamma);
+        
+        static std::string makeTexKey_(const std::string & file, const std::string & directory, bool isSRGB);
+        static unsigned int getOrLoadTexture_(const std::string & file, const std::string & directory, bool isSRGB);
     };
 
+    static std::unordered_map<std::string, unsigned int> sTextureCache_;
 } // namespace MyCoreEngine

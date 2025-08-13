@@ -219,21 +219,7 @@ Mesh Model::processMesh(::aiMesh* mesh, const ::aiScene* scene) {
     return Mesh(vertices, indices, textures);
 }
 
-std::vector<Texture> Model::loadMaterialTextures(::aiMaterial* mat, int type, const std::string& typeName) {
-    std::vector<Texture> textures;
-    for (unsigned int i = 0; i < mat->GetTextureCount((::aiTextureType)type); i++) {
-        ::aiString str;
-        mat->GetTexture((::aiTextureType)type, i, &str);
-        Texture tex{};
-        tex.id   = TextureFromFile(str.C_Str(), directory_, false);
-        tex.type = typeName;
-        tex.path = str.C_Str();
-        textures.push_back(tex);
-    }
-    return textures;
-}
-
-unsigned int Model::TextureFromFile(const char* path, const std::string& directory, bool /*gamma*/) {
+unsigned int Model::TextureFromFile(const char* path, const std::string& directory, bool isSRGB) {
     std::string filename = path;
     if (!directory.empty()) {
 #ifdef _WIN32
@@ -260,9 +246,11 @@ unsigned int Model::TextureFromFile(const char* path, const std::string& directo
     }
 
     unsigned int tex = 0;
+    const GLint internalFormat = isSRGB ? GL_SRGB8_ALPHA8 : GL_RGBA8;
+
     glGenTextures(1, &tex);
     glBindTexture(GL_TEXTURE_2D, tex);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+    glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
     glGenerateMipmap(GL_TEXTURE_2D);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
@@ -315,7 +303,11 @@ std::vector<Texture> Model::loadMaterialTextures(::aiMaterial* mat,
 
         // Assimp gives relative path in most cases
         std::string file = normPath(std::string(str.C_Str()));
-        unsigned int id = getOrLoadTexture(file, directory_);
+        // Albedo-like maps should be uploaded as sRGB:
+        const bool isSRGB = (typeName == "texture_diffuse" ||
+            typeName == "albedo" ||
+            typeName == "basecolor");
+        unsigned int id = getOrLoadTexture_(file, directory_, isSRGB);
 
         Texture tex{};
         tex.id = id;
@@ -324,6 +316,36 @@ std::vector<Texture> Model::loadMaterialTextures(::aiMaterial* mat,
         textures.push_back(tex);
     }
     return textures;
+}
+
+std::string Model::makeTexKey_(const std::string& file,
+    const std::string& directory,
+    bool isSRGB)
+{
+    // normalize once; key must be unique per (path + color space)
+    std::string key = directory;
+    if (!key.empty() && key.back() != '/' && key.back() != '\\') key.push_back('/');
+    key += file;
+    for (auto& c : key) if (c == '\\') c = '/';
+    key += isSRGB ? "|srgb" : "|lin";
+    return key;
+}
+
+unsigned int Model::getOrLoadTexture_(const std::string& file,
+    const std::string& directory,
+    bool isSRGB)
+{
+    const std::string key = makeTexKey_(file, directory, isSRGB);
+    auto it = sTextureCache_.find(key);
+    if (it != sTextureCache_.end())
+        return it->second;
+
+    unsigned int id = TextureFromFile(file.c_str(), directory, isSRGB);
+
+    // Only log when we actually loaded it:
+    // (your existing "[Model] texture OK" logging can stay in TextureFromFile)
+    sTextureCache_.emplace(key, id);
+    return id;
 }
 
 } // namespace MyCoreEngine

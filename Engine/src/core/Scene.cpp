@@ -151,7 +151,7 @@ void Scene::bindInstanceAttribs_() const {
     for (int i = 0; i < 4; ++i) {
         GLuint loc = 3 + i; // 3,4,5,6
         glEnableVertexAttribArray(loc);
-        glVertexAttribPointer(loc, 4, GL_FLOAT, GL_FALSE, stride, (void*)(i * vec4sz));
+        glVertexAttribPointer(loc, 4, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(i * vec4sz));
         glVertexAttribDivisor(loc, 1);
     }
 }

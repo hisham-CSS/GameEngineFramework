@@ -31,6 +31,7 @@ namespace MyCoreEngine {
         glEnable(GL_CULL_FACE);
         glCullFace(GL_BACK);
         glFrontFace(GL_CCW);
+        glEnable(GL_FRAMEBUFFER_SRGB); // linear -> sRGB on writes to default framebuffer
 
         int w, h;
         window_.getFramebufferSize(w, h);
