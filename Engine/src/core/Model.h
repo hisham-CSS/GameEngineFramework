@@ -46,6 +46,14 @@ namespace MyCoreEngine {
 
         void Draw(Shader& shader) const;
         const std::vector<Vertex>& Vertices() const { return vertices_; }
+        unsigned int IndexCount() const;
+        unsigned int VAO() const;          // returns VAO_ (your VAO handle)
+        // Pack up to first 4 texture ids into a 64-bit signature for bucketing
+        uint64_t TextureSignature() const;
+
+        // split draw into bind vs issue
+        void BindForDraw(MyCoreEngine::Shader& shader) const; // bind textures + VAO (no draw)
+        void IssueDraw() const;                               // just glDrawElements
 
     private:
         std::vector<Vertex>       vertices_;

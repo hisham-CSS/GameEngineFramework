@@ -81,6 +81,42 @@ void Mesh::Draw(Shader& shader) const {
     glActiveTexture(GL_TEXTURE0);
 }
 
+uint64_t Mesh::TextureSignature() const {
+    auto idAt = [&](size_t i)->uint16_t {
+        return i < textures_.size() ? (uint16_t)(textures_[i].id & 0xFFFFu) : 0u;
+    };
+    // [t0,t1,t2,t3] -> 64-bit key
+    return (uint64_t)idAt(0)
+        | ((uint64_t)idAt(1) << 16)
+        | ((uint64_t)idAt(2) << 32)
+        | ((uint64_t)idAt(3) << 48);
+}
+
+unsigned int Mesh::IndexCount() const { return static_cast<unsigned int>(indices_.size()); }
+unsigned int Mesh::VAO() const { return VAO_; } // whatever your VAO member is named
+
+void Mesh::BindForDraw(MyCoreEngine::Shader& shader) const {
+    // Copy your existing texture-bind logic from Mesh::Draw(...) but DO NOT call glDrawElements.
+    unsigned int diffuseNr = 1, specularNr = 1, normalNr = 1, heightNr = 1;
+    for (unsigned int i = 0; i < textures_.size(); i++) {
+        glActiveTexture(GL_TEXTURE0 + i);
+        std::string name = textures_[i].type;
+        std::string number;
+        if (name == "texture_diffuse")  number = std::to_string(diffuseNr++);
+        else if (name == "texture_specular") number = std::to_string(specularNr++);
+        else if (name == "texture_normal")   number = std::to_string(normalNr++);
+        else if (name == "texture_height")   number = std::to_string(heightNr++);
+        shader.setInt((name + number).c_str(), i);
+        glBindTexture(GL_TEXTURE_2D, textures_[i].id);
+    }
+    glActiveTexture(GL_TEXTURE0);
+    glBindVertexArray(VAO_);
+}
+
+void Mesh::IssueDraw() const {
+    glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(indices_.size()), GL_UNSIGNED_INT, 0);
+}
+
 // ---- Model ----
 Model::Model(const std::string& path, bool gamma)
 : gammaCorrection_(gamma) {
