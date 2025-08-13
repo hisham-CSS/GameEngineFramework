@@ -25,9 +25,8 @@ void Scene::UpdateTransforms()
 
 // Renderer calls this; we keep signature identical.
 // Now builds a draw list with frustum culling, sorts, then batches by texture key.
-void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camera, unsigned int& display, unsigned int& total)
+void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camera)
 {
-    display = 0; total = 0;
     RenderStats stats{}; // local accumulator for this frame
     items_.clear();
     items_.reserve(1024);
@@ -38,7 +37,6 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
         auto& mc = view.get<ModelComponent>(entity);
         auto& t = view.get<Transform>(entity);
         auto& bounds = view.get<AABB>(entity);
-        total++;
         stats.entitiesTotal++;
 
         if (!mc.model) continue;
@@ -117,7 +115,6 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
             shader.setInt("uUseInstancing", 0);
 
             i = runEnd;
-            display += static_cast<unsigned>(runCount);
             stats.instancedDraws++;
             stats.instances += static_cast<unsigned>(runCount);
             stats.submitted += static_cast<unsigned>(runCount);
@@ -127,7 +124,6 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
             shader.setMat4("model", items_[i].model);
             mesh->IssueDraw();
             ++i;
-            ++display;
             stats.draws++;
             stats.submitted++;
         }

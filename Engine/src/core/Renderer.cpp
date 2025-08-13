@@ -82,12 +82,11 @@ namespace MyCoreEngine {
             shader.setMat4("view", view);
 
             // Render your ECS/scene content
-            unsigned int total = 0, display = 0;
             const Frustum camFrustum = createFrustumFromCamera(camera_,
                 (float)window_.getWidth() / window_.getHeight(),
                 glm::radians(camera_.Zoom), 0.1f, 1000.0f);
 
-            scene.RenderScene(camFrustum, shader, camera_, display, total);
+            scene.RenderScene(camFrustum, shader, camera_);
 
             // Editor UI (after 3D draw)
             if (uiDraw_) uiDraw_(deltaTime_);
