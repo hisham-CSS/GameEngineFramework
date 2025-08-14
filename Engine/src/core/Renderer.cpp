@@ -33,6 +33,23 @@ namespace MyCoreEngine {
         glFrontFace(GL_CCW);
         glEnable(GL_FRAMEBUFFER_SRGB); // linear -> sRGB on writes to default framebuffer
 
+        // Shadow map setup
+        glGenFramebuffers(1, &shadowFBO_);
+        glGenTextures(1, &shadowDepthTex_);
+        glBindTexture(GL_TEXTURE_2D, shadowDepthTex_);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, shadowSize_, shadowSize_, 0,
+            GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO_);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, shadowDepthTex_, 0);
+        glDrawBuffer(GL_NONE);
+        glReadBuffer(GL_NONE);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
         int w, h;
         window_.getFramebufferSize(w, h);
         glViewport(0, 0, w, h);
@@ -78,9 +95,40 @@ namespace MyCoreEngine {
                 0.1f, 1000.0f);
             glm::mat4 view = camera_.GetViewMatrix();
 
+            // --- Step 2: build light view-projection (directional) ---
+            // Center the light frustum near the camera (simple version)
+            glm::vec3 center = camera_.Position;
+            glm::vec3 lightPos = center - sunDir_ * 150.0f;
+            glm::mat4 lightView = glm::lookAt(lightPos, center, glm::vec3(0, 1, 0));
+            glm::mat4 lightProj = glm::ortho(-sunOrthoHalf_, sunOrthoHalf_,
+            -sunOrthoHalf_, sunOrthoHalf_,
+            sunNear_, sunFar_);
+            lightViewProj_ = lightProj * lightView;
+            
+            // Lazy-create the shadow depth shader after GL is ready
+            if (!shadowDepthShader_) {
+                shadowDepthShader_ = std::make_unique<Shader>(
+                "shadow_depth_vert.glsl",
+                "shadow_depth_frag.glsl");
+            }
+            // --- Shadow depth pass ---
+            glViewport(0, 0, shadowSize_, shadowSize_);
+            glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO_);
+            glClear(GL_DEPTH_BUFFER_BIT);
+            glCullFace(GL_FRONT); // optional: reduce peter-panning
+            scene.RenderShadowDepth(*shadowDepthShader_, lightViewProj_);
+            glCullFace(GL_BACK);
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            
+            int w, h;
+            window_.getFramebufferSize(w, h);
+            glViewport(0, 0, w, h);   // <-- restore main viewport
+
+            // Restore main viewport
             shader.use();
             shader.setMat4("projection", projection);
             shader.setMat4("view", view);
+            shader.setMat4("uLightVP", lightViewProj_); // Step 4: provide to main shader
 
             // Bind IBL only if provided; these are global, not per-mesh
             if (iblIrradiance_ && iblPrefiltered_ && iblBRDFLUT_) {
@@ -102,6 +150,11 @@ namespace MyCoreEngine {
                 // Safe defaults: shader will ignore IBL if uUseIBL == 0
                 shader.setFloat("uPrefilterMipCount", 0.0f);
             }
+
+            // --- Step 4: bind shadow map for the main pass ---
+            glActiveTexture(GL_TEXTURE8);
+            glBindTexture(GL_TEXTURE_2D, shadowDepthTex_);
+            shader.setInt("uShadowMap", 8);
 
             // Render your ECS/scene content
             const Frustum camFrustum = createFrustumFromCamera(camera_,

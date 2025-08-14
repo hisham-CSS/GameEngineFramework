@@ -69,6 +69,20 @@ namespace MyCoreEngine {
         unsigned int iblBRDFLUT_ = 0;
         float        iblPrefilterMipCount_ = 0.0f;
 
+        // Shadow resources
+        GLuint shadowFBO_ = 0;
+        GLuint shadowDepthTex_ = 0;
+        int    shadowSize_ = 2048;
+
+        // Light (editor already exposes dir/intensity; add projection span)
+        glm::vec3 sunDir_ = glm::normalize(glm::vec3(-0.3f, -1.0f, -0.2f));
+        float     sunOrthoHalf_ = 100.0f;   // view volume half-extent
+        float     sunNear_ = 1.0f;
+        float     sunFar_ = 300.0f;
+        glm::mat4 lightViewProj_{ 1.0f };
+        // Shadow pass shader (depth-only)
+        std::unique_ptr<Shader> shadowDepthShader_;
+
         // Camera & input
         Camera      camera_{ glm::vec3(0.0f, 0.0f, 3.0f) };
         InputSystem input_;

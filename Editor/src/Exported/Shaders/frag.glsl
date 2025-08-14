@@ -6,9 +6,11 @@ in VS_OUT {
     vec3 worldPos;
 } fs_in;
 
+/* NEW */
+in vec4 vShadowPos;
+
 out vec4 FragColor;
 
-// Existing
 uniform sampler2D diffuseMap;
 uniform sampler2D normalMap;
 uniform sampler2D metallicMap;
@@ -17,65 +19,73 @@ uniform sampler2D aoMap;
 uniform int uHasNormalMap;
 uniform int uNormalMapEnabled;
 
-// NEW: PBR toggle + params
-uniform int  uUsePBR;                // 0 = old lambert, 1 = PBR
-uniform vec3 uCamPos;                // camera world position
-uniform vec3 uLightDir;              // directional light (world, pointing FROM light) e.g. normalize(vec3(0.3,-1,0.2))
-uniform vec3 uLightColor;            // light color (linear)
-uniform float uLightIntensity;       // scalar intensity
-uniform float uMetallic;             // 0..1
-uniform float uRoughness;            // 0..1
-uniform float uAO;                   // 0..1
+uniform int  uUsePBR;
+uniform vec3 uCamPos;
+uniform vec3 uLightDir;
+uniform vec3 uLightColor;
+uniform float uLightIntensity;
+uniform float uMetallic;
+uniform float uRoughness;
+uniform float uAO;
 
-// presence & toggles
 uniform int uHasMetallicMap;
 uniform int uHasRoughnessMap;
 uniform int uHasAOMap;
 
-uniform int uUseMetallicMap;   // UI toggle 0/1
-uniform int uUseRoughnessMap;  // UI toggle 0/1
-uniform int uUseAOMap;         // UI toggle 0/1
+uniform int uUseMetallicMap;
+uniform int uUseRoughnessMap;
+uniform int uUseAOMap;
 
-// IBL samplers (bound per-frame, not per-mesh)
-uniform samplerCube irradianceMap;   // diffuse
-uniform samplerCube prefilteredMap;  // specular (with mip chain)
-uniform sampler2D  brdfLUT;          // 2D LUT
-uniform int   uUseIBL;               // 0/1 global toggle
-uniform float uIBLIntensity;         // scalar multiplier
-uniform float uPrefilterMipCount;    // prefilteredMap mip count (max level)
+/* IBL */
+uniform samplerCube irradianceMap;
+uniform samplerCube prefilteredMap;
+uniform sampler2D  brdfLUT;
+uniform int   uUseIBL;
+uniform float uIBLIntensity;
+uniform float uPrefilterMipCount;
 
-uniform vec3 uBaseColor;   // factor (tints albedo, or used alone if no albedo map)
-uniform vec3 uEmissive;    // added at the end
+uniform vec3 uBaseColor;
+uniform vec3 uEmissive;
 
-// --- helpers (GGX/Smith/Schlick) ---
+/* NEW: shadow map */
+uniform sampler2D uShadowMap;
+
+/* --- helpers --- */
 float saturate(float x) { return clamp(x, 0.0, 1.0); }
 
-float D_GGX(float NdotH, float a)
-{
+float D_GGX(float NdotH, float a) {
     float a2 = a * a;
     float d = (NdotH * NdotH) * (a2 - 1.0) + 1.0;
     return a2 / (3.14159265 * d * d + 1e-7);
 }
+float G_SchlickGGX(float NdotV, float k) { return NdotV / (NdotV * (1.0 - k) + k + 1e-7); }
+float G_Smith(float NdotV, float NdotL, float k) { return G_SchlickGGX(NdotV, k) * G_SchlickGGX(NdotL, k); }
+vec3  F_Schlick(vec3 F0, float VdotH) { float f = pow(1.0 - VdotH, 5.0); return F0 + (1.0 - F0) * f; }
 
-float G_SchlickGGX(float NdotV, float k)
+/* NEW: 3x3 PCF with slope-scale bias */
+float shadowFactor(vec4 shadowPos, vec3 N, vec3 L)
 {
-    return NdotV / (NdotV * (1.0 - k) + k + 1e-7);
-}
+    vec3 proj = shadowPos.xyz / max(shadowPos.w, 1e-5);
+    proj = proj * 0.5 + 0.5;
 
-float G_Smith(float NdotV, float NdotL, float k)
-{
-    return G_SchlickGGX(NdotV, k) * G_SchlickGGX(NdotL, k);
-}
+    if (proj.z > 1.0 || proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0)
+        return 1.0;
 
-vec3 F_Schlick(vec3 F0, float VdotH)
-{
-    float f = pow(1.0 - VdotH, 5.0);
-    return F0 + (1.0 - F0) * f;
+    float NdL  = max(dot(N, -L), 0.0);
+    float bias = max(0.002 * (1.0 - NdL), 0.0005);
+
+    float texel = 1.0 / float(textureSize(uShadowMap, 0).x);
+    float sum = 0.0;
+    for (int y = -1; y <= 1; ++y)
+    for (int x = -1; x <= 1; ++x) {
+        float closest = texture(uShadowMap, proj.xy + vec2(x,y) * texel).r;
+        sum += (proj.z - bias) <= closest ? 1.0 : 0.0;
+    }
+    return sum / 9.0;
 }
 
 vec3 getNormal()
 {
-    // geometric normal from VS:
     vec3 N = normalize(fs_in.TBN[2]);
     if (uNormalMapEnabled == 1 && uHasNormalMap == 1) {
         vec3 n_tan = texture(normalMap, fs_in.uv).xyz * 2.0 - 1.0;
@@ -86,14 +96,12 @@ vec3 getNormal()
 
 void main()
 {
-    vec3 albedo = texture(diffuseMap, fs_in.uv).rgb; // sampled in linear
-    albedo *= uBaseColor;                            // allow tint; if no texture, baseColor acts as solid color if you want:
-                                                     // (Optionally: detect has/no map and set albedo = uBaseColor)
+    vec3 albedo = texture(diffuseMap, fs_in.uv).rgb;
+    albedo *= uBaseColor;
 
     vec3 N = getNormal();
     vec3 V = normalize(uCamPos - fs_in.worldPos);
 
-    // simple legacy lambert fallback (kept for A/B)
     if (uUsePBR == 0) {
         vec3 L = normalize(-uLightDir);
         float ndl = max(dot(N, L), 0.0);
@@ -102,22 +110,13 @@ void main()
         return;
     }
 
-    // --- Minimal Cook–Torrance (directional light only) ---
-    float metallic  = (uUseMetallicMap == 1 && uHasMetallicMap == 1)
-    ? texture(metallicMap,  fs_in.uv).r
-    : uMetallic;
-
-    float roughness = (uUseRoughnessMap == 1 && uHasRoughnessMap == 1)
-    ? texture(roughnessMap, fs_in.uv).r
-    : uRoughness;
-    roughness = clamp(roughness, 0.045, 1.0); // avoid 0
-
-    float ao = (uUseAOMap == 1 && uHasAOMap == 1)
-    ? texture(aoMap, fs_in.uv).r
-    : uAO;
+    float metallic  = (uUseMetallicMap == 1 && uHasMetallicMap == 1) ? texture(metallicMap,  fs_in.uv).r : uMetallic;
+    float roughness = (uUseRoughnessMap == 1 && uHasRoughnessMap == 1) ? texture(roughnessMap, fs_in.uv).r : uRoughness;
+    roughness = clamp(roughness, 0.045, 1.0);
+    float ao       = (uUseAOMap == 1 && uHasAOMap == 1) ? texture(aoMap, fs_in.uv).r : uAO;
     ao = saturate(ao);
 
-    vec3  L  = normalize(-uLightDir);          // light direction towards surface
+    vec3  L  = normalize(-uLightDir);
     vec3  H  = normalize(V + L);
 
     float NdotV = max(dot(N, V), 0.0);
@@ -125,54 +124,47 @@ void main()
     float NdotH = max(dot(N, H), 0.0);
     float VdotH = max(dot(V, H), 0.0);
 
-    // Fresnel reflectance at normal incidence
     vec3 F0 = mix(vec3(0.04), albedo, metallic);
-
     float a = roughness;
-    float k = (a + 1.0);
-    k = (k * k) / 8.0; // Schlick-GGX geometry term factor
+    float k = (a + 1.0); k = (k * k) / 8.0;
 
     float  D = D_GGX(NdotH, a);
     float  G = G_Smith(NdotV, NdotL, k);
     vec3   F = F_Schlick(F0, VdotH);
 
-    vec3 numerator   = F * (D * G);
-    float denom      = 4.0 * max(NdotV, 1e-4) * max(NdotL, 1e-4);
-    vec3 specular    = numerator / max(denom, 1e-4);
+    vec3 numerator = F * (D * G);
+    float denom    = 4.0 * max(NdotV, 1e-4) * max(NdotL, 1e-4);
+    vec3 specular  = numerator / max(denom, 1e-4);
 
     vec3 kd = (1.0 - F) * (1.0 - metallic);
     vec3 diffuse = kd * albedo / 3.14159265;
 
     vec3 Lo = (diffuse + specular) * uLightColor * uLightIntensity * NdotL;
 
-    // ambient (AO only for now; IBL later)
+    // IBL/ambient (unchanged)
     vec3 ambient;
     if (uUseIBL == 1) {
-    // kS, kD per microfacet lore
-    vec3 F0 = mix(vec3(0.04), albedo, metallic);
-    float NdotV = max(dot(N, V), 0.0);
-    vec3  F = F_Schlick(F0, NdotV);
-    vec3  kS = F;
-    vec3  kD = (1.0 - kS) * (1.0 - metallic);
-
-    // Diffuse IBL
-    vec3 irradiance = texture(irradianceMap, N).rgb;
-    vec3 diffuseIBL = irradiance * albedo;
-
-    // Specular IBL
-    vec3 R = reflect(-V, N);
-    float mip = roughness * uPrefilterMipCount; // simple mapping
-    vec3 prefiltered = textureLod(prefilteredMap, R, mip).rgb;
-    vec2 brdf = texture(brdfLUT, vec2(NdotV, roughness)).rg;
-    vec3 specularIBL = prefiltered * (F * brdf.x + brdf.y);
-
-    ambient = (kD * diffuseIBL + specularIBL) * ao * uIBLIntensity;
+        vec3 F0a = mix(vec3(0.04), albedo, metallic);
+        float NdotVa = max(dot(N, V), 0.0);
+        vec3  Fa = F_Schlick(F0a, NdotVa);
+        vec3  kS = Fa;
+        vec3  kD = (1.0 - kS) * (1.0 - metallic);
+        vec3 irradiance = texture(irradianceMap, N).rgb;
+        vec3 diffuseIBL = irradiance * albedo;
+        vec3 R = reflect(-V, N);
+        float mip = roughness * uPrefilterMipCount;
+        vec3 prefiltered = textureLod(prefilteredMap, R, mip).rgb;
+        vec2 brdf = texture(brdfLUT, vec2(NdotVa, roughness)).rg;
+        vec3 specularIBL = prefiltered * (Fa * brdf.x + brdf.y);
+        ambient = (kD * diffuseIBL + specularIBL) * ao * uIBLIntensity;
     } else {
-    ambient = 0.03 * albedo * ao;
+        ambient = 0.03 * albedo * ao;
     }
 
-    vec3 color = ambient + Lo;
-    color += uEmissive; // simple emissive add (can scale later)
+    /* NEW: apply shadow only to direct light */
+    float shadow = shadowFactor(vShadowPos, N, L);
+    vec3 color = ambient + shadow * Lo;
+    color += uEmissive;
 
     FragColor = vec4(color, 1.0);
 }

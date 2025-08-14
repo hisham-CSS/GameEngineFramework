@@ -212,3 +212,22 @@ void Scene::bindInstanceAttribs_() const {
         glVertexAttribDivisor(loc, 1);
     }
 }
+
+// Depth-only traversal for directional shadow map
+void Scene::RenderShadowDepth(Shader & shadowShader, const glm::mat4 & lightVP)
+{
+    shadowShader.use();
+    shadowShader.setMat4("uLightVP", lightVP);
+    
+    auto view = registry.view<ModelComponent, Transform, AABB>();
+    for (auto entity : view) {
+        auto& mc = view.get<ModelComponent>(entity);
+        auto& t = view.get<Transform>(entity);
+        if (!mc.model) continue;
+            for (const auto& mesh : mc.model->Meshes()) {
+                shadowShader.setMat4("model", t.modelMatrix);
+                // No material/texture binds; just draw geometry
+                mesh.IssueDraw();
+            }
+    }
+}

@@ -50,6 +50,9 @@ namespace MyCoreEngine {
         // Now builds a draw list with frustum culling, sorts, then batches by texture key.
         void RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camera);
 
+        // Depth-only shadow pass (directional)
+        void RenderShadowDepth(Shader & shadowShader, const glm::mat4 & lightVP);
+
         // Toggle instancing at runtime
         void SetInstancingEnabled(bool enabled) { instancingEnabled_ = enabled; }
         bool GetInstancingEnabled() const { return instancingEnabled_; }
