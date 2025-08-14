@@ -53,6 +53,8 @@ namespace MyCoreEngine {
         
         // Read-only stats for the last frame
         const RenderStats &GetRenderStats() const { return lastStats_; }
+        bool GetNormalMapEnabled() const { return normalMapEnabled_; }
+        void SetNormalMapEnabled(bool v) { normalMapEnabled_ = v; }
          
      private:
          std::vector<DrawItem> items_;
@@ -63,6 +65,7 @@ namespace MyCoreEngine {
 
          bool instancingEnabled_ = true;
          RenderStats lastStats_;
+         bool normalMapEnabled_ = true;
     };
 
 } // namespace MyCoreEngine

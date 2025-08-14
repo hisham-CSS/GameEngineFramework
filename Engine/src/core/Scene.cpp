@@ -67,6 +67,8 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
     ensureInstanceBuffer_();
     shader.setInt("uUseInstancing", 0);
 
+    shader.setInt("uNormalMapEnabled", normalMapEnabled_ ? 1 : 0);
+
     uint64_t currentKey = ~0ull;
     const Mesh* currentMesh = nullptr;
 
@@ -149,7 +151,7 @@ void Scene::bindInstanceAttribs_() const {
     const GLsizei vec4sz = sizeof(glm::vec4);
 
     for (int i = 0; i < 4; ++i) {
-        GLuint loc = 3 + i; // 3,4,5,6
+        GLuint loc = 8 + i; // 8,9,10,11
         glEnableVertexAttribArray(loc);
         glVertexAttribPointer(loc, 4, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(i * vec4sz));
         glVertexAttribDivisor(loc, 1);

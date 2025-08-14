@@ -95,19 +95,31 @@ namespace MyCoreEngine {
             instanceCount);
     }
     void Mesh::BindForDraw(MyCoreEngine::Shader& shader) const {
-        // Copy your existing texture-bind logic from Mesh::Draw(...) but DO NOT call glDrawElements.
-        unsigned int diffuseNr = 1, specularNr = 1, normalNr = 1, heightNr = 1;
-        for (unsigned int i = 0; i < textures_.size(); i++) {
-            glActiveTexture(GL_TEXTURE0 + i);
-            std::string name = textures_[i].type;
-            std::string number;
-            if (name == "texture_diffuse")  number = std::to_string(diffuseNr++);
-            else if (name == "texture_specular") number = std::to_string(specularNr++);
-            else if (name == "texture_normal")   number = std::to_string(normalNr++);
-            else if (name == "texture_height")   number = std::to_string(heightNr++);
-            shader.setInt((name + number).c_str(), i);
-            glBindTexture(GL_TEXTURE_2D, textures_[i].id);
+        // --- Find first diffuse & first normal ---
+        unsigned int diffuseId = 0, normalId = 0;
+        for (const auto& t : textures_) {
+            if (!diffuseId && (t.type == "texture_diffuse" || t.type == "albedo" || t.type == "basecolor"))
+                diffuseId = t.id;
+            if (!normalId && (t.type == "texture_normal" || t.type == "normal" || t.type == "normalmap"))
+                normalId = t.id;
+            if (diffuseId && normalId) break;
         }
+
+        // --- Bind fixed texture units ---
+        // diffuse -> unit 0
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, diffuseId ? diffuseId : 0);
+        shader.setInt("diffuseMap", 0);
+
+        // normal -> unit 1 (if present)
+        const bool hasNormal = (normalId != 0);
+        if (hasNormal) {
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, normalId);
+            shader.setInt("normalMap", 1);
+        }
+        shader.setInt("uHasNormalMap", hasNormal ? 1 : 0);
+
         glActiveTexture(GL_TEXTURE0);
         glBindVertexArray(VAO_);
     }

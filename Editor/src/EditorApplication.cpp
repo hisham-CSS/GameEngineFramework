@@ -112,6 +112,11 @@ void EditorApplication::Run() {
                 scene.SetInstancingEnabled(inst);
             }
 
+            bool nm = scene.GetNormalMapEnabled();
+            if (ImGui::Checkbox("Enable normal mapping", &nm)) {
+                scene.SetNormalMapEnabled(nm);
+            }
+
             ImGui::End();
 
             if (hierarchy_.Draw(scene.registry, selected_)) { /* optional */ }
