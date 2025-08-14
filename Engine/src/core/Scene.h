@@ -67,6 +67,12 @@ namespace MyCoreEngine {
         glm::vec3& LightDir() { return lightDir_; }     // editable
         glm::vec3& LightColor() { return lightColor_; }
         float& LightIntensity() { return lightIntensity_; }
+        bool GetMetallicMapEnabled()  const { return metallicMapEnabled_; }
+        bool GetRoughnessMapEnabled() const { return roughnessMapEnabled_; }
+        bool GetAOMapEnabled()        const { return aoMapEnabled_; }
+        void SetMetallicMapEnabled(bool v) { metallicMapEnabled_ = v; }
+        void SetRoughnessMapEnabled(bool v) { roughnessMapEnabled_ = v; }
+        void SetAOMapEnabled(bool v) { aoMapEnabled_ = v; }
 
      private:
          std::vector<DrawItem> items_;
@@ -86,6 +92,9 @@ namespace MyCoreEngine {
          glm::vec3 lightDir_ = glm::normalize(glm::vec3(0.3f, -1.0f, 0.2f));
          glm::vec3 lightColor_ = glm::vec3(1.0f);
          float     lightIntensity_ = 3.0f;
+         bool metallicMapEnabled_ = true;
+         bool roughnessMapEnabled_ = true;
+         bool aoMapEnabled_ = true;
     };
 
 } // namespace MyCoreEngine

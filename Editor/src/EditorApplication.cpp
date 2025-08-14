@@ -91,7 +91,6 @@ void EditorApplication::Run() {
             ImGui::Begin("Stats", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
             ImGui::Text("dt: %.3f ms (%.1f FPS)", dt * 1000.f, dt > 0.f ? 1.f / dt : 0.f);
             
-            // You already show FPS/delta; add our counters:
             const auto& rs = scene.GetRenderStats();
             ImGui::Text("Draws:            %u", rs.draws);
             ImGui::Text("Instanced draws:  %u", rs.instancedDraws);
@@ -129,8 +128,16 @@ void EditorApplication::Run() {
             if (ImGui::SliderFloat("Metallic", &metallic, 0.0f, 1.0f)) scene.SetMetallic(metallic);
             if (ImGui::SliderFloat("Roughness", &roughness, 0.0f, 1.0f)) scene.SetRoughness(roughness);
             if (ImGui::SliderFloat("AO", &ao, 0.0f, 1.0f)) scene.SetAO(ao);
+            
+            bool enMetal = scene.GetMetallicMapEnabled();
+            bool enRough = scene.GetRoughnessMapEnabled();
+            bool enAO = scene.GetAOMapEnabled();
 
-            // Light controls (optional but handy)
+            if (ImGui::Checkbox("Use Metallic Map", &enMetal))  scene.SetMetallicMapEnabled(enMetal);
+            if (ImGui::Checkbox("Use Roughness Map", &enRough)) scene.SetRoughnessMapEnabled(enRough);
+            if (ImGui::Checkbox("Use AO Map", &enAO))           scene.SetAOMapEnabled(enAO);
+
+            // Light controls
             auto& Ld = scene.LightDir();
             auto& Lc = scene.LightColor();
             auto& Li = scene.LightIntensity();
@@ -142,6 +149,7 @@ void EditorApplication::Run() {
             ImGui::End();
 
             if (hierarchy_.Draw(scene.registry, selected_)) { /* optional */ }
+            
             inspector_.Draw(scene.registry, selected_);
 
             ui_.EndFrame();

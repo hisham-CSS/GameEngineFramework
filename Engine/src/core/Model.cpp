@@ -120,6 +120,50 @@ namespace MyCoreEngine {
         }
         shader.setInt("uHasNormalMap", hasNormal ? 1 : 0);
 
+        // --- Metallic / Roughness / AO maps: bind to fixed slots if present ---
+        // Common names we may see via Assimp importers:
+        static auto isMetal = [](const std::string& t) {
+            return t == "texture_metallic" || t == "metallic" || t == "metalness";
+        };
+        static auto isRough = [](const std::string& t) {
+            return t == "texture_roughness" || t == "roughness" || t == "diffuse_roughness";
+        };
+        static auto isAO = [](const std::string& t) {
+            return t == "texture_ambient" || t == "ao" || t == "occlusion" || t == "ambient_occlusion";
+        };
+
+        unsigned int metalId = 0, roughId = 0, aoId = 0;
+        for (const auto& t : textures_) {
+            if (!metalId && isMetal(t.type)) metalId = t.id;
+            if (!roughId && isRough(t.type)) roughId = t.id;
+            if (!aoId && isAO(t.type))    aoId = t.id;
+            if (metalId && roughId && aoId) break;
+        }
+
+        // metallic -> unit 2
+        if (metalId) {
+            glActiveTexture(GL_TEXTURE2);
+            glBindTexture(GL_TEXTURE_2D, metalId);
+        }
+        // roughness -> unit 3
+        if (roughId) {
+            glActiveTexture(GL_TEXTURE3);
+            glBindTexture(GL_TEXTURE_2D, roughId);
+        }
+        // ao -> unit 4
+        if (aoId) {
+            glActiveTexture(GL_TEXTURE4);
+            glBindTexture(GL_TEXTURE_2D, aoId);
+        }
+
+        // tell the shader
+        shader.setInt("metallicMap", 2);
+        shader.setInt("roughnessMap", 3);
+        shader.setInt("aoMap", 4);
+        shader.setInt("uHasMetallicMap", metalId ? 1 : 0);
+        shader.setInt("uHasRoughnessMap", roughId ? 1 : 0);
+        shader.setInt("uHasAOMap", aoId ? 1 : 0);
+
         glActiveTexture(GL_TEXTURE0);
         glBindVertexArray(VAO_);
     }

@@ -75,6 +75,10 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
     shader.setVec3("uLightDir", lightDir_);
     shader.setVec3("uLightColor", lightColor_);
     shader.setFloat("uLightIntensity", lightIntensity_);
+    shader.setInt("uUseMetallicMap", metallicMapEnabled_ ? 1 : 0);
+    shader.setInt("uUseRoughnessMap", roughnessMapEnabled_ ? 1 : 0);
+    shader.setInt("uUseAOMap", aoMapEnabled_ ? 1 : 0);
+
 
     shader.setInt("uNormalMapEnabled", normalMapEnabled_ ? 1 : 0);
 

@@ -11,6 +11,9 @@ out vec4 FragColor;
 // Existing
 uniform sampler2D diffuseMap;
 uniform sampler2D normalMap;
+uniform sampler2D metallicMap;
+uniform sampler2D roughnessMap;
+uniform sampler2D aoMap;
 uniform int uHasNormalMap;
 uniform int uNormalMapEnabled;
 
@@ -23,6 +26,15 @@ uniform float uLightIntensity;       // scalar intensity
 uniform float uMetallic;             // 0..1
 uniform float uRoughness;            // 0..1
 uniform float uAO;                   // 0..1
+
+// presence & toggles
+uniform int uHasMetallicMap;
+uniform int uHasRoughnessMap;
+uniform int uHasAOMap;
+
+uniform int uUseMetallicMap;   // UI toggle 0/1
+uniform int uUseRoughnessMap;  // UI toggle 0/1
+uniform int uUseAOMap;         // UI toggle 0/1
 
 // --- helpers (GGX/Smith/Schlick) ---
 float saturate(float x) { return clamp(x, 0.0, 1.0); }
@@ -78,9 +90,19 @@ void main()
     }
 
     // --- Minimal Cook–Torrance (directional light only) ---
-    float metallic  = saturate(uMetallic);
-    float roughness = clamp(uRoughness, 0.045, 1.0); // avoid 0
-    float ao        = saturate(uAO);
+    float metallic  = (uUseMetallicMap == 1 && uHasMetallicMap == 1)
+    ? texture(metallicMap,  fs_in.uv).r
+    : uMetallic;
+
+    float roughness = (uUseRoughnessMap == 1 && uHasRoughnessMap == 1)
+    ? texture(roughnessMap, fs_in.uv).r
+    : uRoughness;
+    roughness = clamp(roughness, 0.045, 1.0); // avoid 0
+
+    float ao = (uUseAOMap == 1 && uHasAOMap == 1)
+    ? texture(aoMap, fs_in.uv).r
+    : uAO;
+    ao = saturate(ao);
 
     vec3  L  = normalize(-uLightDir);          // light direction towards surface
     vec3  H  = normalize(V + L);
