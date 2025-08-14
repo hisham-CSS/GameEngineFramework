@@ -137,6 +137,16 @@ void EditorApplication::Run() {
             if (ImGui::Checkbox("Use Roughness Map", &enRough)) scene.SetRoughnessMapEnabled(enRough);
             if (ImGui::Checkbox("Use AO Map", &enAO))           scene.SetAOMapEnabled(enAO);
 
+            bool ibl = scene.GetIBLEnabled();
+            if (ImGui::Checkbox("Enable IBL", &ibl)) {
+                scene.SetIBLEnabled(ibl);
+            }
+
+            float iblInt = scene.GetIBLIntensity();
+            if (ImGui::SliderFloat("IBL Intensity", &iblInt, 0.0f, 4.0f)) {
+                scene.SetIBLIntensity(iblInt);
+            }
+
             // Light controls
             auto& Ld = scene.LightDir();
             auto& Lc = scene.LightColor();

@@ -36,6 +36,17 @@ uniform int uUseMetallicMap;   // UI toggle 0/1
 uniform int uUseRoughnessMap;  // UI toggle 0/1
 uniform int uUseAOMap;         // UI toggle 0/1
 
+// IBL samplers (bound per-frame, not per-mesh)
+uniform samplerCube irradianceMap;   // diffuse
+uniform samplerCube prefilteredMap;  // specular (with mip chain)
+uniform sampler2D  brdfLUT;          // 2D LUT
+uniform int   uUseIBL;               // 0/1 global toggle
+uniform float uIBLIntensity;         // scalar multiplier
+uniform float uPrefilterMipCount;    // prefilteredMap mip count (max level)
+
+uniform vec3 uBaseColor;   // factor (tints albedo, or used alone if no albedo map)
+uniform vec3 uEmissive;    // added at the end
+
 // --- helpers (GGX/Smith/Schlick) ---
 float saturate(float x) { return clamp(x, 0.0, 1.0); }
 
@@ -75,7 +86,9 @@ vec3 getNormal()
 
 void main()
 {
-    vec3 albedo = texture(diffuseMap, fs_in.uv).rgb; // already linear due to sRGB texture upload
+    vec3 albedo = texture(diffuseMap, fs_in.uv).rgb; // sampled in linear
+    albedo *= uBaseColor;                            // allow tint; if no texture, baseColor acts as solid color if you want:
+                                                     // (Optionally: detect has/no map and set albedo = uBaseColor)
 
     vec3 N = getNormal();
     vec3 V = normalize(uCamPos - fs_in.worldPos);
@@ -133,8 +146,33 @@ void main()
     vec3 Lo = (diffuse + specular) * uLightColor * uLightIntensity * NdotL;
 
     // ambient (AO only for now; IBL later)
-    vec3 ambient = 0.03 * albedo * ao;
+    vec3 ambient;
+    if (uUseIBL == 1) {
+    // kS, kD per microfacet lore
+    vec3 F0 = mix(vec3(0.04), albedo, metallic);
+    float NdotV = max(dot(N, V), 0.0);
+    vec3  F = F_Schlick(F0, NdotV);
+    vec3  kS = F;
+    vec3  kD = (1.0 - kS) * (1.0 - metallic);
+
+    // Diffuse IBL
+    vec3 irradiance = texture(irradianceMap, N).rgb;
+    vec3 diffuseIBL = irradiance * albedo;
+
+    // Specular IBL
+    vec3 R = reflect(-V, N);
+    float mip = roughness * uPrefilterMipCount; // simple mapping
+    vec3 prefiltered = textureLod(prefilteredMap, R, mip).rgb;
+    vec2 brdf = texture(brdfLUT, vec2(NdotV, roughness)).rg;
+    vec3 specularIBL = prefiltered * (F * brdf.x + brdf.y);
+
+    ambient = (kD * diffuseIBL + specularIBL) * ao * uIBLIntensity;
+    } else {
+    ambient = 0.03 * albedo * ao;
+    }
 
     vec3 color = ambient + Lo;
+    color += uEmissive; // simple emissive add (can scale later)
+
     FragColor = vec4(color, 1.0);
 }

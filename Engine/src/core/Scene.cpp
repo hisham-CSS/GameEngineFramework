@@ -78,7 +78,8 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
     shader.setInt("uUseMetallicMap", metallicMapEnabled_ ? 1 : 0);
     shader.setInt("uUseRoughnessMap", roughnessMapEnabled_ ? 1 : 0);
     shader.setInt("uUseAOMap", aoMapEnabled_ ? 1 : 0);
-
+    shader.setInt("uUseIBL", iblEnabled_ ? 1 : 0);
+    shader.setFloat("uIBLIntensity", iblIntensity_);
 
     shader.setInt("uNormalMapEnabled", normalMapEnabled_ ? 1 : 0);
 

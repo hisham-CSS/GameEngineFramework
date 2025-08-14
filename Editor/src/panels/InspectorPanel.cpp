@@ -34,6 +34,39 @@ void InspectorPanel::Draw(entt::registry& reg, entt::entity selected) {
         else {
             ImGui::TextUnformatted("Transform: <none>");
         }
+
+        // --- Materials ---
+        if (auto* mc = reg.try_get<ModelComponent>(selected)) {
+            if (mc->model) {
+                const auto& mats = mc->model->Materials();
+                if (!mats.empty() && ImGui::CollapsingHeader("Materials", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    for (size_t i = 0; i < mats.size(); ++i) {
+                        auto& mat = mats[i];
+                        ImGui::PushID((int)i);
+                        if (ImGui::TreeNode("Mat", "Material %d", (int)i + 1)) {
+                            float base[3] = { mat->baseColor.r, mat->baseColor.g, mat->baseColor.b };
+                            if (ImGui::ColorEdit3("Base Color", base)) mat->baseColor = { base[0], base[1], base[2] };
+                            float emi[3] = { mat->emissive.r,  mat->emissive.g,  mat->emissive.b };
+                            if (ImGui::ColorEdit3("Emissive", emi))  mat->emissive = { emi[0], emi[1], emi[2] };
+                            ImGui::SliderFloat("Metallic", &mat->metallic, 0.0f, 1.0f);
+                            ImGui::SliderFloat("Roughness", &mat->roughness, 0.0f, 1.0f);
+                            ImGui::SliderFloat("AO", &mat->ao, 0.0f, 1.0f);
+
+                            ImGui::SeparatorText("Textures");
+                            ImGui::Text("Albedo:    %s", mat->hasAlbedo() ? "yes" : "no");
+                            ImGui::Text("Normal:    %s", mat->hasNormal() ? "yes" : "no");
+                            ImGui::Text("Metallic:  %s", mat->hasMetallic() ? "yes" : "no");
+                            ImGui::Text("Roughness: %s", mat->hasRoughness() ? "yes" : "no");
+                            ImGui::Text("AO:        %s", mat->hasAO() ? "yes" : "no");
+                            ImGui::Text("Emissive:  %s", mat->hasEmissive() ? "yes" : "no");
+
+                            ImGui::TreePop();
+                        }
+                        ImGui::PopID();
+                    }
+                }
+            }
+        }
     }
     ImGui::End();
 }

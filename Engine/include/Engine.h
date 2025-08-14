@@ -15,4 +15,5 @@
 #include "../src/core/EventBus.h"
 #include "../src/core/ImageIO.h"
 #include "../src/core/AssetManager.h"
+#include "../src/core/Material.h"
 

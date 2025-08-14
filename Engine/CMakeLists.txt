@@ -24,7 +24,7 @@ add_library(Engine SHARED
     src/core/Camera.cpp 
     src/core/AssetManager.h 
     src/core/AssetManager.cpp
-    src/core/Scene.cpp)
+    src/core/Scene.cpp "src/core/Material.h")
 
 target_compile_definitions(Engine PUBLIC ENGINE_DLL_EXPORTS)
 

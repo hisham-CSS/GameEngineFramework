@@ -1,6 +1,6 @@
 #pragma once
 
-
+#include "Material.h"
 #include "Core.h"
 
 #include <assimp/Importer.hpp>
@@ -59,15 +59,18 @@ namespace MyCoreEngine {
         void BindForDraw(MyCoreEngine::Shader& shader) const; // bind textures + VAO (no draw)
         void IssueDraw() const;                               // just glDrawElements
         void IssueDrawInstanced(GLsizei instanceCount) const;
+        void SetMaterial(const MyCoreEngine::MaterialHandle& m) { material_ = m; }
+        const MyCoreEngine::MaterialHandle& GetMaterial() const { return material_; }
 
     private:
         std::vector<Vertex>       vertices_;
         std::vector<unsigned int> indices_;
         std::vector<Texture>      textures_;
-
+        MyCoreEngine::MaterialHandle material_; // optional
         unsigned int VAO_ = 0, VBO_ = 0, EBO_ = 0;
 
         void setupMesh();
+        
     };
 
     // ----- Model -----
@@ -84,6 +87,7 @@ namespace MyCoreEngine {
         
         void Draw(Shader& shader);
         const std::vector<Mesh>& Meshes() const { return meshes_; }
+        const std::vector<MyCoreEngine::MaterialHandle>& Materials() const { return materials_; }
 
     private:
         std::vector<Mesh> meshes_;
@@ -92,6 +96,8 @@ namespace MyCoreEngine {
         // Global cache keyed by (normalized path + “|srgb/|lin”)
         static std::unordered_map<std::string, unsigned int> sTextureCache_;
 
+        std::vector<MyCoreEngine::MaterialHandle> materials_; // size = scene->mNumMaterials
+
         //Model and Material Helpers
         void loadModel(const std::string& path);
         void processNode(::aiNode* node, const ::aiScene* scene);
@@ -99,6 +105,10 @@ namespace MyCoreEngine {
         std::vector<Texture> loadMaterialTextures(::aiMaterial* mat, aiTextureType type, const std::string& typeName);
         static unsigned int TextureFromFile(const char* path, const std::string& directory, bool isSRGB);
         static std::string makeTexKey_(const std::string & file, const std::string & directory, bool isSRGB);
-        static unsigned int getOrLoadTexture_(const std::string & file, const std::string & directory, bool isSRGB);
+        unsigned int getOrLoadTexture_(const std::string & file, const std::string & directory, bool isSRGB);
+        // NEW: convenience that looks up a texture on an aiMaterial then calls the path-based loader.
+        // Tries 'primary' first, then 'fallback'. Returns 0 if none found.
+        unsigned int getOrLoadTexture_(aiMaterial* mat, aiTextureType primary, aiTextureType fallback, bool isSRGB);
+        static unsigned findTexId(const std::vector<Texture>& texList, std::initializer_list<const char*> names);
     };
 } // namespace MyCoreEngine

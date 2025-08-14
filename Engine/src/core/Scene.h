@@ -73,6 +73,11 @@ namespace MyCoreEngine {
         void SetMetallicMapEnabled(bool v) { metallicMapEnabled_ = v; }
         void SetRoughnessMapEnabled(bool v) { roughnessMapEnabled_ = v; }
         void SetAOMapEnabled(bool v) { aoMapEnabled_ = v; }
+        bool  GetIBLEnabled() const { return iblEnabled_; }
+        void  SetIBLEnabled(bool v) { iblEnabled_ = v; }
+        float GetIBLIntensity() const { return iblIntensity_; }
+        void  SetIBLIntensity(float v) { iblIntensity_ = std::max(0.0f, v); }
+
 
      private:
          std::vector<DrawItem> items_;
@@ -95,6 +100,8 @@ namespace MyCoreEngine {
          bool metallicMapEnabled_ = true;
          bool roughnessMapEnabled_ = true;
          bool aoMapEnabled_ = true;
+         bool  iblEnabled_ = true;
+         float iblIntensity_ = 1.0f;
     };
 
 } // namespace MyCoreEngine

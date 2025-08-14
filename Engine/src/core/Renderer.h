@@ -52,12 +52,22 @@ namespace MyCoreEngine {
         // public:
         void InitGL(); // new: loads GLAD and fires OnContextReady once
 
+        // public API:
+        void SetIBLTextures(unsigned int irradianceCube,
+            unsigned int prefilteredCube,
+            unsigned int brdfLUT2D,
+            float prefilteredMipCount);
 
     private:
         // Window / timing
         Window window_;
         float  deltaTime_ = 0.0f;
         float  lastFrame_ = 0.0f;
+
+        unsigned int iblIrradiance_ = 0; // GL texture ids (0 = not set)
+        unsigned int iblPrefiltered_ = 0;
+        unsigned int iblBRDFLUT_ = 0;
+        float        iblPrefilterMipCount_ = 0.0f;
 
         // Camera & input
         Camera      camera_{ glm::vec3(0.0f, 0.0f, 3.0f) };

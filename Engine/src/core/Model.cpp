@@ -95,6 +95,57 @@ namespace MyCoreEngine {
             instanceCount);
     }
     void Mesh::BindForDraw(MyCoreEngine::Shader& shader) const {
+
+        if (material_) {
+            // Per-material scalar uniforms (override scene defaults)
+            shader.setVec3("uBaseColor", material_->baseColor);
+            shader.setVec3("uEmissive", material_->emissive);
+            shader.setFloat("uMetallic", material_->metallic);
+            shader.setFloat("uRoughness", material_->roughness);
+            shader.setFloat("uAO", material_->ao);
+            // Fixed units: 0 albedo, 1 normal, 2 metal, 3 rough, 4 ao, 5 emissive (optional)
+            // Albedo
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, material_->albedoTex);
+            shader.setInt("diffuseMap", 0); // your shader uses this name
+            // Normal
+            const bool hasNormal = material_->hasNormal();
+            if (hasNormal) {
+                glActiveTexture(GL_TEXTURE1);
+                glBindTexture(GL_TEXTURE_2D, material_->normalTex);
+                shader.setInt("normalMap", 1);
+            }
+            shader.setInt("uHasNormalMap", hasNormal ? 1 : 0);
+
+            // MR/A
+            if (material_->hasMetallic()) {
+                glActiveTexture(GL_TEXTURE2);
+                glBindTexture(GL_TEXTURE_2D, material_->metallicTex);
+                shader.setInt("metallicMap", 2);
+            }
+            if (material_->hasRoughness()) {
+                glActiveTexture(GL_TEXTURE3);
+                glBindTexture(GL_TEXTURE_2D, material_->roughnessTex);
+                shader.setInt("roughnessMap", 3);
+            }
+            if (material_->hasAO()) {
+                glActiveTexture(GL_TEXTURE4);
+                glBindTexture(GL_TEXTURE_2D, material_->aoTex);
+                shader.setInt("aoMap", 4);
+            }
+            shader.setInt("uHasMetallicMap", material_->hasMetallic() ? 1 : 0);
+            shader.setInt("uHasRoughnessMap", material_->hasRoughness() ? 1 : 0);
+            shader.setInt("uHasAOMap", material_->hasAO() ? 1 : 0);
+
+            // Scalars fallback (shader already uses uMetallic/uRoughness/uAO set per-frame;
+            // baseColor/emissive we can set per-draw here if you want)
+            // If you want baseColor as a factor, add a uniform and set it here.
+
+            glActiveTexture(GL_TEXTURE0);
+            glBindVertexArray(VAO_);
+            return;
+        }
+
         // --- Find first diffuse & first normal ---
         unsigned int diffuseId = 0, normalId = 0;
         for (const auto& t : textures_) {
@@ -196,6 +247,39 @@ namespace MyCoreEngine {
         directory_ = path.substr(0, path.find_last_of("/\\"));
         MLOG("scene meshes=%u materials=%u", scene->mNumMeshes, scene->mNumMaterials);
 
+        materials_.clear();
+        materials_.resize(scene->mNumMaterials);
+
+        for (unsigned i = 0; i < scene->mNumMaterials; ++i) {
+            aiMaterial* aim = scene->mMaterials[i];
+            auto mat = std::make_shared<MyCoreEngine::Material>();
+
+            // Optional: read base color / emissive from aiMaterial if present
+            aiColor3D col;
+            if (AI_SUCCESS == aim->Get(AI_MATKEY_COLOR_DIFFUSE, col)) {
+                mat->baseColor = { col.r, col.g, col.b };
+            }
+            if (AI_SUCCESS == aim->Get(AI_MATKEY_COLOR_EMISSIVE, col)) {
+                mat->emissive = { col.r, col.g, col.b };
+            }
+            float f;
+            if (AI_SUCCESS == aim->Get(AI_MATKEY_METALLIC_FACTOR, f))  mat->metallic = std::clamp(f, 0.f, 1.f);
+            if (AI_SUCCESS == aim->Get(AI_MATKEY_ROUGHNESS_FACTOR, f)) mat->roughness = std::clamp(f, 0.f, 1.f);
+            if (AI_SUCCESS == aim->Get(AI_MATKEY_REFLECTIVITY, f)) {/*optional*/ }
+
+            // Load textures using your cache (linear formats for MR/A/normal, sRGB for albedo/emissive)
+            mat->albedoTex = getOrLoadTexture_(aim, aiTextureType_BASE_COLOR, aiTextureType_DIFFUSE, /*srgb=*/true);
+            mat->normalTex = getOrLoadTexture_(aim, aiTextureType_NORMALS, aiTextureType_HEIGHT,   /*srgb=*/false);
+            mat->metallicTex = getOrLoadTexture_(aim, aiTextureType_METALNESS, aiTextureType_UNKNOWN,  /*srgb=*/false);
+            mat->roughnessTex = getOrLoadTexture_(aim, aiTextureType_DIFFUSE_ROUGHNESS, aiTextureType_UNKNOWN, /*srgb=*/false);
+            mat->aoTex = getOrLoadTexture_(aim, aiTextureType_AMBIENT_OCCLUSION, aiTextureType_AMBIENT, /*srgb=*/false);
+            mat->emissiveTex = getOrLoadTexture_(aim, aiTextureType_EMISSIVE, aiTextureType_EMISSIVE, /*srgb=*/true);
+
+            materials_[i] = std::move(mat);
+        }
+
+        
+
         processNode(scene->mRootNode, scene);
         MLOG("loadModel end: meshes_=%zu", meshes_.size());
     }
@@ -212,6 +296,7 @@ namespace MyCoreEngine {
         std::vector<Vertex> vertices;
         std::vector<unsigned int> indices;
         std::vector<Texture> textures;
+        Mesh newMesh;
 
         vertices.reserve(mesh->mNumVertices);
         for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
@@ -233,25 +318,42 @@ namespace MyCoreEngine {
             for (unsigned int j = 0; j < face.mNumIndices; j++)
                 indices.push_back(face.mIndices[j]);
         }
-
-        if (mesh && mesh->mMaterialIndex < scene->mNumMaterials) {
-            ::aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];
-
-            // Only read however many the material actually has; cache prevents duplicates
-            auto diffuse = loadMaterialTextures(material, aiTextureType_DIFFUSE, "texture_diffuse");
-            auto specular = loadMaterialTextures(material, aiTextureType_SPECULAR, "texture_specular");
-            // Many assets store normals as aiTextureType_NORMALS, not HEIGHT:
-            auto normals = loadMaterialTextures(material, aiTextureType_NORMALS, "texture_normal");
-            // If your asset uses HEIGHT for normals, keep this too (harmless if count==0):
-            auto height = loadMaterialTextures(material, aiTextureType_HEIGHT, "texture_normal");
-
-            textures.insert(textures.end(), diffuse.begin(), diffuse.end());
-            textures.insert(textures.end(), specular.begin(), specular.end());
-            textures.insert(textures.end(), normals.begin(), normals.end());
-            textures.insert(textures.end(), height.begin(), height.end());
+        newMesh = Mesh(vertices, indices, textures);
+        unsigned idx = mesh->mMaterialIndex;
+        if (idx < materials_.size() && materials_[idx]) {
+            newMesh.SetMaterial(materials_[idx]);        // << share the same Material object
         }
 
-        return Mesh(vertices, indices, textures);
+        //if (mesh && mesh->mMaterialIndex < scene->mNumMaterials) {
+        //    ::aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];
+
+        //    // Only read however many the material actually has; cache prevents duplicates
+        //    auto diffuse = loadMaterialTextures(material, aiTextureType_DIFFUSE, "texture_diffuse");
+        //    auto specular = loadMaterialTextures(material, aiTextureType_SPECULAR, "texture_specular");
+        //    // Many assets store normals as aiTextureType_NORMALS, not HEIGHT:
+        //    auto normals = loadMaterialTextures(material, aiTextureType_NORMALS, "texture_normal");
+        //    // If your asset uses HEIGHT for normals, keep this too (harmless if count==0):
+        //    auto height = loadMaterialTextures(material, aiTextureType_HEIGHT, "texture_normal");
+
+        //    textures.insert(textures.end(), diffuse.begin(), diffuse.end());
+        //    textures.insert(textures.end(), specular.begin(), specular.end());
+        //    textures.insert(textures.end(), normals.begin(), normals.end());
+        //    textures.insert(textures.end(), height.begin(), height.end());
+
+        //    MaterialHandle mat = std::make_shared<Material>();
+        //    // Set textures using your cache outputs:
+        //    mat->albedoTex = findTexId(textures, { "texture_diffuse","albedo","basecolor" });
+        //    mat->normalTex = findTexId(textures, { "texture_normal","normal","normalmap" });
+        //    mat->metallicTex = findTexId(textures, { "texture_metallic","metallic","metalness" });
+        //    mat->roughnessTex = findTexId(textures, { "texture_roughness","roughness" });
+        //    mat->aoTex = findTexId(textures, { "texture_ambient","ao","ambient_occlusion" });
+        //    // Optional scalars if present via Assimp material properties (safe defaults otherwise)
+        //    // mat->metallic = ...; mat->roughness = ...; mat->ao = ...;
+        //    newMesh = Mesh(vertices, indices, textures);
+        //    newMesh.SetMaterial(mat);
+        //}
+
+        return newMesh;
     }
     unsigned int Model::TextureFromFile(const char* path, const std::string& directory, bool isSRGB) {
         std::string filename = path;
@@ -346,7 +448,36 @@ namespace MyCoreEngine {
         sTextureCache_.emplace(key, id);
         return id;
     }
+    unsigned int Model::getOrLoadTexture_(aiMaterial* mat, aiTextureType primary, aiTextureType fallback, bool isSRGB)
+    {
+        if (!mat) return 0;
 
+        aiString str;
+        // Try primary slot first
+        if (mat->GetTexture(primary, 0, &str) == AI_SUCCESS && str.length > 0) {
+            const std::string file = normPath(std::string(str.C_Str()));
+            return getOrLoadTexture_(file, directory_, isSRGB);
+        }
+        // Fallback slot if primary is empty
+        if (fallback != aiTextureType_UNKNOWN &&
+            mat->GetTexture(fallback, 0, &str) == AI_SUCCESS && str.length > 0)
+        {
+            const std::string file = normPath(std::string(str.C_Str()));
+            return getOrLoadTexture_(file, directory_, isSRGB);
+        }
+
+        return 0; // no texture declared on this material for these types
+    }
+    unsigned Model::findTexId(const std::vector<Texture>& texList,
+        std::initializer_list<const char*> names)
+    {
+        for (auto& t : texList) {
+            for (auto* n : names) {
+                if (t.type == n) return t.id;
+            }
+        }
+        return 0;
+    }
     std::unordered_map<std::string, unsigned int> Model::sTextureCache_;
 } // namespace MyCoreEngine
 

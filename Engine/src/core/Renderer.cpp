@@ -82,6 +82,27 @@ namespace MyCoreEngine {
             shader.setMat4("projection", projection);
             shader.setMat4("view", view);
 
+            // Bind IBL only if provided; these are global, not per-mesh
+            if (iblIrradiance_ && iblPrefiltered_ && iblBRDFLUT_) {
+                glActiveTexture(GL_TEXTURE5);
+                glBindTexture(GL_TEXTURE_CUBE_MAP, iblIrradiance_);
+                shader.setInt("irradianceMap", 5);
+
+                glActiveTexture(GL_TEXTURE6);
+                glBindTexture(GL_TEXTURE_CUBE_MAP, iblPrefiltered_);
+                shader.setInt("prefilteredMap", 6);
+
+                glActiveTexture(GL_TEXTURE7);
+                glBindTexture(GL_TEXTURE_2D, iblBRDFLUT_);
+                shader.setInt("brdfLUT", 7);
+
+                shader.setFloat("uPrefilterMipCount", iblPrefilterMipCount_);
+            }
+            else {
+                // Safe defaults: shader will ignore IBL if uUseIBL == 0
+                shader.setFloat("uPrefilterMipCount", 0.0f);
+            }
+
             // Render your ECS/scene content
             const Frustum camFrustum = createFrustumFromCamera(camera_,
                 (float)window_.getWidth() / window_.getHeight(),
@@ -156,6 +177,13 @@ namespace MyCoreEngine {
         // Prevent GL errors on minimization
         if (width <= 0 || height <= 0) return;
             glViewport(0, 0, width, height);
+    }
+
+    void Renderer::SetIBLTextures(unsigned int irr, unsigned int pre, unsigned int lut, float mipCount) {
+        iblIrradiance_ = irr;
+        iblPrefiltered_ = pre;
+        iblBRDFLUT_ = lut;
+        iblPrefilterMipCount_ = mipCount;
     }
 
 } // namespace MyCoreEngine
