@@ -117,6 +117,28 @@ void EditorApplication::Run() {
                 scene.SetNormalMapEnabled(nm);
             }
 
+            bool pbr = scene.GetPBREnabled();
+            if (ImGui::Checkbox("Enable PBR (Cook-Torrance)", &pbr)) {
+                scene.SetPBREnabled(pbr);
+            }
+
+            // Material sliders
+            float metallic = scene.GetMetallic();
+            float roughness = scene.GetRoughness();
+            float ao = scene.GetAO();
+            if (ImGui::SliderFloat("Metallic", &metallic, 0.0f, 1.0f)) scene.SetMetallic(metallic);
+            if (ImGui::SliderFloat("Roughness", &roughness, 0.0f, 1.0f)) scene.SetRoughness(roughness);
+            if (ImGui::SliderFloat("AO", &ao, 0.0f, 1.0f)) scene.SetAO(ao);
+
+            // Light controls (optional but handy)
+            auto& Ld = scene.LightDir();
+            auto& Lc = scene.LightColor();
+            auto& Li = scene.LightIntensity();
+            ImGui::SeparatorText("Light");
+            ImGui::DragFloat3("Dir", &Ld.x, 0.01f);
+            ImGui::ColorEdit3("Color", &Lc.x);
+            ImGui::SliderFloat("Intensity", &Li, 0.0f, 10.0f);
+
             ImGui::End();
 
             if (hierarchy_.Draw(scene.registry, selected_)) { /* optional */ }

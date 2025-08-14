@@ -27,6 +27,7 @@ void Scene::UpdateTransforms()
 // Now builds a draw list with frustum culling, sorts, then batches by texture key.
 void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camera)
 {
+    shader.setVec3("uCamPos", camera.Position);
     RenderStats stats{}; // local accumulator for this frame
     items_.clear();
     items_.reserve(1024);
@@ -66,6 +67,14 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
         });
     ensureInstanceBuffer_();
     shader.setInt("uUseInstancing", 0);
+
+    shader.setInt("uUsePBR", pbrEnabled_ ? 1 : 0);
+    shader.setFloat("uMetallic", metallic_);
+    shader.setFloat("uRoughness", roughness_);
+    shader.setFloat("uAO", ao_);
+    shader.setVec3("uLightDir", lightDir_);
+    shader.setVec3("uLightColor", lightColor_);
+    shader.setFloat("uLightIntensity", lightIntensity_);
 
     shader.setInt("uNormalMapEnabled", normalMapEnabled_ ? 1 : 0);
 

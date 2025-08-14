@@ -55,7 +55,19 @@ namespace MyCoreEngine {
         const RenderStats &GetRenderStats() const { return lastStats_; }
         bool GetNormalMapEnabled() const { return normalMapEnabled_; }
         void SetNormalMapEnabled(bool v) { normalMapEnabled_ = v; }
-         
+        
+        bool  GetPBREnabled() const { return pbrEnabled_; }
+        void  SetPBREnabled(bool v) { pbrEnabled_ = v; }
+        float GetMetallic()  const { return metallic_; }
+        float GetRoughness() const { return roughness_; }
+        float GetAO()        const { return ao_; }
+        void  SetMetallic(float v) { metallic_ = std::clamp(v, 0.f, 1.f); }
+        void  SetRoughness(float v) { roughness_ = std::clamp(v, 0.f, 1.f); }
+        void  SetAO(float v) { ao_ = std::clamp(v, 0.f, 1.f); }
+        glm::vec3& LightDir() { return lightDir_; }     // editable
+        glm::vec3& LightColor() { return lightColor_; }
+        float& LightIntensity() { return lightIntensity_; }
+
      private:
          std::vector<DrawItem> items_;
          // private:
@@ -66,6 +78,14 @@ namespace MyCoreEngine {
          bool instancingEnabled_ = true;
          RenderStats lastStats_;
          bool normalMapEnabled_ = true;
+
+         bool  pbrEnabled_ = true;
+         float metallic_ = 0.0f;
+         float roughness_ = 0.5f;
+         float ao_ = 1.0f;
+         glm::vec3 lightDir_ = glm::normalize(glm::vec3(0.3f, -1.0f, 0.2f));
+         glm::vec3 lightColor_ = glm::vec3(1.0f);
+         float     lightIntensity_ = 3.0f;
     };
 
 } // namespace MyCoreEngine
