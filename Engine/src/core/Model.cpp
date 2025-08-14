@@ -218,6 +218,37 @@ namespace MyCoreEngine {
         glActiveTexture(GL_TEXTURE0);
         glBindVertexArray(VAO_);
     }
+    void Mesh::BindForDrawWith(MyCoreEngine::Shader& shader, const MyCoreEngine::Material& m) const
+    {
+        // Per-material scalar uniforms
+        shader.setVec3("uBaseColor", m.baseColor);
+        shader.setVec3("uEmissive", m.emissive);
+        shader.setFloat("uMetallic", m.metallic);
+        shader.setFloat("uRoughness", m.roughness);
+        shader.setFloat("uAO", m.ao);
+
+        // Textures: identical layout to your existing BindForDraw(...)
+        // 0: albedo (sRGB), 1: normal (linear), 2: metallic, 3: roughness, 4: AO, 5: emissive (optional)
+        const bool hasNormal = (m.normalTex != 0);
+        const bool hasMetallic = (m.metallicTex != 0);
+        const bool hasRoughness = (m.roughnessTex != 0);
+        const bool hasAO = (m.aoTex != 0);
+
+        glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, m.albedoTex);    shader.setInt("diffuseMap", 0);
+        if (hasNormal) { glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, m.normalTex);    shader.setInt("normalMap", 1); }
+        if (hasMetallic) { glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, m.metallicTex);  shader.setInt("metallicMap", 2); }
+        if (hasRoughness) { glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, m.roughnessTex); shader.setInt("roughnessMap", 3); }
+        if (hasAO) { glActiveTexture(GL_TEXTURE4); glBindTexture(GL_TEXTURE_2D, m.aoTex);        shader.setInt("aoMap", 4); }
+
+        shader.setInt("uHasNormalMap", hasNormal ? 1 : 0);
+        shader.setInt("uHasMetallicMap", hasMetallic ? 1 : 0);
+        shader.setInt("uHasRoughnessMap", hasRoughness ? 1 : 0);
+        shader.setInt("uHasAOMap", hasAO ? 1 : 0);
+
+        glBindVertexArray(VAO_);
+        glActiveTexture(GL_TEXTURE0);
+    }
+
     void Mesh::IssueDraw() const {
         glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(indices_.size()), GL_UNSIGNED_INT, 0);
     }

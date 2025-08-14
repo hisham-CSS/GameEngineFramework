@@ -5,20 +5,23 @@
 #include <vector>
 #include <algorithm>
 #include <cstdint>
-#include "Core.h"
+
 #include "Entity.h"
 #include "Components.h"
 #include "Shader.h"
+#include "Model.h"
+#include "Scene.h"
 
 //forward declaration of glad unit
 typedef unsigned int GLuint;
 
 // Batched draw item (opaque)
 struct DrawItem {
-    uint64_t texKey;
-    const MyCoreEngine::Mesh* mesh;
-    glm::mat4 model;
-    float depth;
+    uint64_t texKey = 0;
+    const Mesh* mesh = nullptr;
+    glm::mat4 model{ 1.0f };
+    float     depth = 0.0f;
+    entt::entity entity = entt::null;  // producer entity (for material overrides)
 };
 
 
@@ -85,6 +88,11 @@ namespace MyCoreEngine {
          GLuint instanceVBO_ = 0;
          void ensureInstanceBuffer_();
          void bindInstanceAttribs_() const; // sets attribs 3..6 + divisors on current VAO
+
+         // Choose material (override -> shared) for an item and bind it for drawing
+         const Material * chooseMaterial_(entt::entity e, const Mesh & mesh) const;
+         void bindMaterialForItem_(const DrawItem & di, Shader & shader) const;
+         static uint64_t texKeyFromMaterial_(const Material & m);
 
          bool instancingEnabled_ = true;
          RenderStats lastStats_;

@@ -7,6 +7,7 @@
 
 #include "Model.h"
 #include "Camera.h"
+#include "Material.h"
 
 using namespace MyCoreEngine;
 
@@ -17,6 +18,11 @@ struct Name {
 
 struct ModelComponent {
 	std::shared_ptr<MyCoreEngine::Model> model; // shared handle to GPU-ready model
+};
+
+// Map "material slot index" -> override MaterialHandle
+struct MaterialOverrides {
+	std::unordered_map<size_t, MyCoreEngine::MaterialHandle> byIndex;
 };
 
 struct Transform {

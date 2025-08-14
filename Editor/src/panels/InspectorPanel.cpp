@@ -40,10 +40,13 @@ void InspectorPanel::Draw(entt::registry& reg, entt::entity selected) {
             if (mc->model) {
                 const auto& mats = mc->model->Materials();
                 if (!mats.empty() && ImGui::CollapsingHeader("Materials", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    // fetch existing overrides (if any)
+                    auto * overrides = reg.try_get<MaterialOverrides>(selected);
                     for (size_t i = 0; i < mats.size(); ++i) {
-                        auto& mat = mats[i];
+                        //auto& mat = mats[i];
+                        auto& shared = mats[i];
                         ImGui::PushID((int)i);
-                        if (ImGui::TreeNode("Mat", "Material %d", (int)i + 1)) {
+                        /*if (ImGui::TreeNode("Mat", "Material %d", (int)i + 1)) {
                             float base[3] = { mat->baseColor.r, mat->baseColor.g, mat->baseColor.b };
                             if (ImGui::ColorEdit3("Base Color", base)) mat->baseColor = { base[0], base[1], base[2] };
                             float emi[3] = { mat->emissive.r,  mat->emissive.g,  mat->emissive.b };
@@ -58,8 +61,61 @@ void InspectorPanel::Draw(entt::registry& reg, entt::entity selected) {
                             ImGui::Text("Metallic:  %s", mat->hasMetallic() ? "yes" : "no");
                             ImGui::Text("Roughness: %s", mat->hasRoughness() ? "yes" : "no");
                             ImGui::Text("AO:        %s", mat->hasAO() ? "yes" : "no");
-                            ImGui::Text("Emissive:  %s", mat->hasEmissive() ? "yes" : "no");
-
+                            ImGui::Text("Emissive:  %s", mat->hasEmissive() ? "yes" : "no");*/
+                        if (ImGui::TreeNode("Mat", "Material %d", (int)i + 1)) {
+                            MyCoreEngine::Material * editing = nullptr;
+                            bool isOverride = false;
+                            if (overrides) {
+                                auto it = overrides->byIndex.find(i);
+                                if (it != overrides->byIndex.end() && it->second) {
+                                    editing = it->second.get();
+                                    isOverride = true;
+                                }
+                            }
+                            if (!editing) {
+                            // show shared summary + button to make unique
+                                ImGui::TextDisabled("(shared)");
+                                float base[3] = { shared->baseColor.r, shared->baseColor.g, shared->baseColor.b };
+                                ImGui::ColorEdit3("Base Color", base, ImGuiColorEditFlags_NoPicker | ImGuiColorEditFlags_NoInputs);
+                                float emi[3] = { shared->emissive.r,  shared->emissive.g,  shared->emissive.b };
+                                ImGui::ColorEdit3("Emissive", emi, ImGuiColorEditFlags_NoPicker | ImGuiColorEditFlags_NoInputs);
+                                ImGui::SliderFloat("Metallic", &shared->metallic, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_NoInput);
+                                ImGui::SliderFloat("Roughness", &shared->roughness, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_NoInput);
+                                ImGui::SliderFloat("AO", &shared->ao, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_NoInput);
+                                if (ImGui::Button("Make unique for this entity")) {
+                                    if (!overrides) {
+                                        overrides = &reg.emplace<MaterialOverrides>(selected);
+                                    }
+                                    auto clone = std::make_shared<MyCoreEngine::Material>(*shared);
+                                    overrides->byIndex[i] = clone;
+                                    editing = clone.get();
+                                    isOverride = true;
+                                }
+                            }
+                            if (editing) {
+                                ImGui::TextDisabled("(override)");
+                                float base[3] = { editing->baseColor.r, editing->baseColor.g, editing->baseColor.b };
+                                if (ImGui::ColorEdit3("Base Color", base)) editing->baseColor = { base[0], base[1], base[2] };
+                                float emi[3] = { editing->emissive.r,  editing->emissive.g,  editing->emissive.b };
+                                if (ImGui::ColorEdit3("Emissive", emi))  editing->emissive = { emi[0], emi[1], emi[2] };
+                                ImGui::SliderFloat("Metallic", &editing->metallic, 0.0f, 1.0f);
+                                ImGui::SliderFloat("Roughness", &editing->roughness, 0.0f, 1.0f);
+                                ImGui::SliderFloat("AO", &editing->ao, 0.0f, 1.0f);
+                                if (ImGui::Button("Revert to shared")) {
+                                    overrides->byIndex.erase(i);
+                                    if (overrides->byIndex.empty()) reg.remove<MaterialOverrides>(selected);
+                                    editing = nullptr;
+                                    isOverride = false;
+                                }
+                            }
+                            ImGui::SeparatorText("Textures");
+                            const MyCoreEngine::Material * src = editing ? editing : shared.get();
+                            ImGui::Text("Albedo:    %s", src->hasAlbedo() ? "yes" : "no");
+                            ImGui::Text("Normal:    %s", src->hasNormal() ? "yes" : "no");
+                            ImGui::Text("Metallic:  %s", src->hasMetallic() ? "yes" : "no");
+                            ImGui::Text("Roughness: %s", src->hasRoughness() ? "yes" : "no");
+                            ImGui::Text("AO:        %s", src->hasAO() ? "yes" : "no");
+                            ImGui::Text("Emissive:  %s", src->hasEmissive() ? "yes" : "no");
                             ImGui::TreePop();
                         }
                         ImGui::PopID();
@@ -69,4 +125,4 @@ void InspectorPanel::Draw(entt::registry& reg, entt::entity selected) {
         }
     }
     ImGui::End();
-}
+};

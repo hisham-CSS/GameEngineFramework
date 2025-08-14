@@ -3,9 +3,41 @@
 #include <vector>
 #include <algorithm>
 #include <GLFW/glfw3.h>
-
-
 #include "Scene.h"
+
+
+// Simple FNV-1a hash of the material’s bound texture ids
+static uint64_t fnv1a64_(uint64_t h, uint32_t v) { h ^= v; return h * 1099511628211ull; }
+uint64_t Scene::texKeyFromMaterial_(const Material & m) {
+    uint64_t h = 1469598103934665603ull;
+    h = fnv1a64_(h, m.albedoTex);
+    h = fnv1a64_(h, m.normalTex);
+    h = fnv1a64_(h, m.metallicTex);
+    h = fnv1a64_(h, m.roughnessTex);
+    h = fnv1a64_(h, m.aoTex);
+    return h;    
+}
+
+const Material * Scene::chooseMaterial_(entt::entity e, const Mesh & mesh) const {
+    if (registry.any_of<MaterialOverrides>(e)) {
+        const auto & ov = registry.get<MaterialOverrides>(e);
+        const size_t idx = mesh.MaterialIndex();
+        if (auto it = ov.byIndex.find(idx); it != ov.byIndex.end() && it->second) {
+            return it->second.get();
+        }
+    }
+    return mesh.GetMaterial().get(); // shared fallback (may be null)
+}
+
+void Scene::bindMaterialForItem_(const DrawItem & di, Shader & shader) const {
+    const Material * mat = chooseMaterial_(di.entity, *di.mesh);
+    if (mat) {
+        di.mesh->BindForDrawWith(shader, *mat);
+    }
+    else {
+        di.mesh->BindForDraw(shader); // legacy path (no material)
+    }
+}
 
 Entity Scene::createEntity() {
     entt::entity handle = registry.create();
@@ -44,14 +76,20 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
         if (!bounds.isOnFrustum(camFrustum, t)) { stats.culled++; continue; }
 
         // Push one DrawItem per mesh in the model
-        // Depth is optional (kept 0.0 here). If you later expose camera pos/dir via Frustum,
-        // you can compute front-to-back ordering.
         for (const auto& mesh : mc.model->Meshes()) {
             DrawItem di;
-            di.texKey = mesh.TextureSignature();
+            di.entity = entity;
             di.mesh = &mesh;
             di.model = t.modelMatrix;
             di.depth = glm::dot(glm::vec3(di.model[3]) - camera.Position, camera.Front);
+            // Batch key is derived from the material actually used by this entity
+            if (const Material* m = chooseMaterial_(entity, mesh)) {
+                di.texKey = texKeyFromMaterial_(*m);
+            }
+            else {
+            // Fallback: keep old key if no material (rare)
+                di.texKey = mesh.TextureSignature();
+            }
             items_.push_back(di);
         }
     }
@@ -92,7 +130,7 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
 
         // bind textures+VAO bucket
         if (key != currentKey) {
-            mesh->BindForDraw(shader);
+            bindMaterialForItem_(items_[i], shader);
             currentKey = key;
             currentMesh = mesh;
             stats.textureBinds++;
@@ -138,7 +176,10 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
         else {
             // single draw (exactly your old path)
             shader.setMat4("model", items_[i].model);
-            mesh->IssueDraw();
+            // Single draw: bind chosen material for this item (needed if the last bucket’s material differs)
+            bindMaterialForItem_(items_[i], shader);
+            shader.setMat4("model", items_[i].model);
+            items_[i].mesh->IssueDraw();
             ++i;
             stats.draws++;
             stats.submitted++;

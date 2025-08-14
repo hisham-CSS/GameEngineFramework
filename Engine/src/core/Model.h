@@ -57,16 +57,19 @@ namespace MyCoreEngine {
 
         // split draw into bind vs issue
         void BindForDraw(MyCoreEngine::Shader& shader) const; // bind textures + VAO (no draw)
+        void BindForDrawWith(MyCoreEngine::Shader& shader, const MyCoreEngine::Material& mat) const;
         void IssueDraw() const;                               // just glDrawElements
         void IssueDrawInstanced(GLsizei instanceCount) const;
         void SetMaterial(const MyCoreEngine::MaterialHandle& m) { material_ = m; }
         const MyCoreEngine::MaterialHandle& GetMaterial() const { return material_; }
+        size_t MaterialIndex() const { return materialIndex_; }
 
     private:
         std::vector<Vertex>       vertices_;
         std::vector<unsigned int> indices_;
         std::vector<Texture>      textures_;
         MyCoreEngine::MaterialHandle material_; // optional
+        size_t materialIndex_ = 0;
         unsigned int VAO_ = 0, VBO_ = 0, EBO_ = 0;
 
         void setupMesh();
