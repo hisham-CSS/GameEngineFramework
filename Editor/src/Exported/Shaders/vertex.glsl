@@ -13,8 +13,10 @@ uniform mat4 view;
 uniform mat4 projection;
 uniform int  uUseInstancing; // 0/1
 
-uniform mat4 uLightVP;
-out vec4 vShadowPos;
+uniform mat4 uLightVP[3];
+// NEW: shadow
+out vec4 vShadowPos[3];
+out float vViewZ;  
 
 out VS_OUT {
     vec2 uv;
@@ -31,8 +33,10 @@ void main()
     gl_Position = projection * view * wpos;
     vs_out.worldPos = wpos.xyz;
 
-    // Transform to light clip space for shadow mapping
-    vShadowPos = uLightVP * M * vec4(aPos, 1.0);
+    // light clip positions per-cascade
+    vShadowPos[0] = uLightVP[0] * wpos;
+    vShadowPos[1] = uLightVP[1] * wpos;
+    vShadowPos[2] = uLightVP[2] * wpos;
 
     // Build TBN in world space (assumes uniform scales; good enough for now)
     mat3 M3 = mat3(M);

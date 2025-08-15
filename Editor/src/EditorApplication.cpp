@@ -88,73 +88,123 @@ void EditorApplication::Run() {
         myRenderer.SetUIDraw([this, &scene](float dt) {
             ui_.BeginFrame();
 
-            ImGui::Begin("Stats", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
-            ImGui::Text("dt: %.3f ms (%.1f FPS)", dt * 1000.f, dt > 0.f ? 1.f / dt : 0.f);
-            
             const auto& rs = scene.GetRenderStats();
-            ImGui::Text("Draws:            %u", rs.draws);
-            ImGui::Text("Instanced draws:  %u", rs.instancedDraws);
-            ImGui::Text("Instances:        %u", rs.instances);
-            ImGui::Separator();
-            ImGui::Text("Texture binds:    %u", rs.textureBinds);
-            ImGui::Text("VAO binds:        %u", rs.vaoBinds);
-            ImGui::Separator();
-            ImGui::Text("Built items:      %u", rs.itemsBuilt);
-            ImGui::Text("Culled:           %u", rs.culled);
-            ImGui::Text("Submitted:        %u", rs.submitted);
+            ImGui::Begin("Information", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+            if (ImGui::CollapsingHeader("Rendering Stats", ImGuiTreeNodeFlags_None)) {
+                ImGui::Text("dt: %.3f ms (%.1f FPS)", dt * 1000.f, dt > 0.f ? 1.f / dt : 0.f);
+                ImGui::Text("Cascades: %d, res: %d", myRenderer.getCascadeCount(), myRenderer.getCascadeResolution());
+                for (int i = 0; i < myRenderer.getCascadeCount(); ++i) {
+                    ImGui::Text("Split[%d] = %.3f (view-space)", i, myRenderer.debugCascadeSplit(i));
+                }
+                ImGui::Text("Draws:            %u", rs.draws);
+                ImGui::Text("Instanced draws:  %u", rs.instancedDraws);
+                ImGui::Text("Instances:        %u", rs.instances);
+                ImGui::Separator();
+                ImGui::Text("Texture binds:    %u", rs.textureBinds);
+                ImGui::Text("VAO binds:        %u", rs.vaoBinds);
+                ImGui::Separator();
+                ImGui::Text("Built items:      %u", rs.itemsBuilt);
+                ImGui::Text("Culled:           %u", rs.culled);
+                ImGui::Text("Submitted:        %u", rs.submitted);
+                
+                unsigned totalCalls = rs.draws + rs.instancedDraws;
+                ImGui::Text("GPU draw calls:   %u", totalCalls);
+            }
             
-            unsigned totalCalls = rs.draws + rs.instancedDraws;
-            ImGui::Text("GPU draw calls:   %u", totalCalls);
             
-            bool inst = scene.GetInstancingEnabled();
-            if (ImGui::Checkbox("Enable instancing", &inst)) {
-                scene.SetInstancingEnabled(inst);
-            }
+            if (ImGui::CollapsingHeader("Rendering Toggles", ImGuiTreeNodeFlags_None)) {
+                bool inst = scene.GetInstancingEnabled();
+                if (ImGui::Checkbox("Enable instancing", &inst)) {
+                    scene.SetInstancingEnabled(inst);
+                }
 
-            bool nm = scene.GetNormalMapEnabled();
-            if (ImGui::Checkbox("Enable normal mapping", &nm)) {
-                scene.SetNormalMapEnabled(nm);
-            }
+                bool nm = scene.GetNormalMapEnabled();
+                if (ImGui::Checkbox("Enable normal mapping", &nm)) {
+                    scene.SetNormalMapEnabled(nm);
+                }
 
-            bool pbr = scene.GetPBREnabled();
-            if (ImGui::Checkbox("Enable PBR (Cook-Torrance)", &pbr)) {
-                scene.SetPBREnabled(pbr);
+                bool pbr = scene.GetPBREnabled();
+                if (ImGui::Checkbox("Enable PBR (Cook-Torrance)", &pbr)) {
+                    scene.SetPBREnabled(pbr);
+                }
             }
+            // ---- Sun / Shadow frustum controls ----
+            if (ImGui::CollapsingHeader("Sun / Shadows", ImGuiTreeNodeFlags_None)) {
+                // Sun direction (normalized)
+                glm::vec3 dir = myRenderer.sunDir();
+                if (ImGui::DragFloat3("Sun dir", &dir.x, 0.01f, -1.0f, 1.0f)) {
+                    if (glm::length(dir) > 1e-6f) dir = glm::normalize(dir);
+                    myRenderer.setSunDir(dir);
+                }
+                float half = myRenderer.sunOrthoHalf();
+                float sNear = myRenderer.sunNear();
+                float sFar = myRenderer.sunFar();
+                ImGui::SliderFloat("Sun ortho half", &half, 5.f, 200.f);
+                ImGui::SliderFloat("Sun near", &sNear, 0.1f, 50.f);
+                ImGui::SliderFloat("Sun far", &sFar, 50.f, 500.f);
+                myRenderer.setSunOrthoHalf(half);
+                myRenderer.setSunNearFar(sNear, sFar);
+
+                if (ImGui::CollapsingHeader("CSM", ImGuiTreeNodeFlags_None)) {
+                    int res = myRenderer.cascadeResolution();
+                    if (ImGui::SliderInt("Cascade res", &res, 512, 4096)) myRenderer.setCascadeResolution(res);
+                    float lam = myRenderer.cascadeLambda();
+                    if (ImGui::SliderFloat("Split lambda", &lam, 0.f, 1.f)) myRenderer.setCascadeLambda(lam);
+                    ImGui::Text("Split Z: %.2f / %.2f / %.2f", myRenderer.debugCascadeSplit(0),
+                        myRenderer.debugCascadeSplit(1),
+                        myRenderer.debugCascadeSplit(2));
+                }
+            }
+            
 
             // Material sliders
-            float metallic = scene.GetMetallic();
-            float roughness = scene.GetRoughness();
-            float ao = scene.GetAO();
-            if (ImGui::SliderFloat("Metallic", &metallic, 0.0f, 1.0f)) scene.SetMetallic(metallic);
-            if (ImGui::SliderFloat("Roughness", &roughness, 0.0f, 1.0f)) scene.SetRoughness(roughness);
-            if (ImGui::SliderFloat("AO", &ao, 0.0f, 1.0f)) scene.SetAO(ao);
+            if (ImGui::CollapsingHeader("Materials", ImGuiTreeNodeFlags_None)) {
+                float metallic = scene.GetMetallic();
+                float roughness = scene.GetRoughness();
+                float ao = scene.GetAO();
+                if (ImGui::SliderFloat("Metallic", &metallic, 0.0f, 1.0f)) scene.SetMetallic(metallic);
+                if (ImGui::SliderFloat("Roughness", &roughness, 0.0f, 1.0f)) scene.SetRoughness(roughness);
+                if (ImGui::SliderFloat("AO", &ao, 0.0f, 1.0f)) scene.SetAO(ao);
+                bool enMetal = scene.GetMetallicMapEnabled();
+                bool enRough = scene.GetRoughnessMapEnabled();
+                bool enAO = scene.GetAOMapEnabled();
+
+                if (ImGui::Checkbox("Use Metallic Map", &enMetal))  scene.SetMetallicMapEnabled(enMetal);
+                if (ImGui::Checkbox("Use Roughness Map", &enRough)) scene.SetRoughnessMapEnabled(enRough);
+                if (ImGui::Checkbox("Use AO Map", &enAO))           scene.SetAOMapEnabled(enAO);
+            }
+
+
+            if (ImGui::CollapsingHeader("IBL/HDR", ImGuiTreeNodeFlags_None)) {
+                bool ibl = scene.GetIBLEnabled();
+                if (ImGui::Checkbox("Enable IBL", &ibl)) {
+                    scene.SetIBLEnabled(ibl);
+                }
+
+                float iblInt = scene.GetIBLIntensity();
+                if (ImGui::SliderFloat("IBL Intensity", &iblInt, 0.0f, 4.0f)) {
+                    scene.SetIBLIntensity(iblInt);
+                }
+
+                // ---- HDR exposure ----
+                float exposure = myRenderer.exposure();
+                ImGui::SliderFloat("Exposure", &exposure, 0.2f, 5.0f);
+                myRenderer.setExposure(exposure);
+            }
+
             
-            bool enMetal = scene.GetMetallicMapEnabled();
-            bool enRough = scene.GetRoughnessMapEnabled();
-            bool enAO = scene.GetAOMapEnabled();
 
-            if (ImGui::Checkbox("Use Metallic Map", &enMetal))  scene.SetMetallicMapEnabled(enMetal);
-            if (ImGui::Checkbox("Use Roughness Map", &enRough)) scene.SetRoughnessMapEnabled(enRough);
-            if (ImGui::Checkbox("Use AO Map", &enAO))           scene.SetAOMapEnabled(enAO);
-
-            bool ibl = scene.GetIBLEnabled();
-            if (ImGui::Checkbox("Enable IBL", &ibl)) {
-                scene.SetIBLEnabled(ibl);
+            if (ImGui::CollapsingHeader("Lights", ImGuiTreeNodeFlags_None)) {
+                // Light controls
+                auto& Ld = scene.LightDir();
+                auto& Lc = scene.LightColor();
+                auto& Li = scene.LightIntensity();
+                ImGui::SeparatorText("Light");
+                ImGui::DragFloat3("Dir", &Ld.x, 0.01f);
+                ImGui::ColorEdit3("Color", &Lc.x);
+                ImGui::SliderFloat("Intensity", &Li, 0.0f, 10.0f);
             }
-
-            float iblInt = scene.GetIBLIntensity();
-            if (ImGui::SliderFloat("IBL Intensity", &iblInt, 0.0f, 4.0f)) {
-                scene.SetIBLIntensity(iblInt);
-            }
-
-            // Light controls
-            auto& Ld = scene.LightDir();
-            auto& Lc = scene.LightColor();
-            auto& Li = scene.LightIntensity();
-            ImGui::SeparatorText("Light");
-            ImGui::DragFloat3("Dir", &Ld.x, 0.01f);
-            ImGui::ColorEdit3("Color", &Lc.x);
-            ImGui::SliderFloat("Intensity", &Li, 0.0f, 10.0f);
+            
 
             ImGui::End();
 

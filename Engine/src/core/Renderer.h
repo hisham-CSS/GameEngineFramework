@@ -58,6 +58,27 @@ namespace MyCoreEngine {
             unsigned int brdfLUT2D,
             float prefilteredMipCount);
 
+        // Sun / shadows
+        glm::vec3 sunDir() const { return sunDir_; }
+        void setSunDir(const glm::vec3 & d) { sunDir_ = glm::normalize(d); }
+        float sunOrthoHalf() const { return sunOrthoHalf_; }
+        void setSunOrthoHalf(float h) { sunOrthoHalf_ = std::max(0.1f, h); }
+        float sunNear() const { return sunNear_; }
+        float sunFar()  const { return sunFar_; }
+        void setSunNearFar(float n, float f) { sunNear_ = n; sunFar_ = std::max(n + 1.f, f); }
+        float exposure() const { return exposure_; }
+        void setExposure(float e) { exposure_ = std::max(0.01f, e); }
+
+        float cascadeLambda() const { return csmLambda_; }
+        void  setCascadeLambda(float v) { csmLambda_ = glm::clamp(v, 0.0f, 1.0f); }
+        int   cascadeResolution() const { return csmRes_; }
+        void  setCascadeResolution(int r) { csmRes_ = std::max(512, r); }
+        int  getCascadeCount() const { return kCascadeCount_; }
+        int  getCascadeResolution() const { return csmRes_; }
+        float debugCascadeSplit(int i) const {
+            return (i >= 0 && i < kCascadeCount_) ? csmSplits_[i] : 0.0f;
+        }
+
     private:
         // Window / timing
         Window window_;
@@ -82,6 +103,19 @@ namespace MyCoreEngine {
         glm::mat4 lightViewProj_{ 1.0f };
         // Shadow pass shader (depth-only)
         std::unique_ptr<Shader> shadowDepthShader_;
+
+        glm::mat4 lastCamViewProj_ = glm::mat4(1.0f);
+        glm::vec3 lastSunDir_ = glm::vec3(0, -1, 0);
+        float     updateThreshold_ = 0.002f;   // tweak
+
+        bool needShadowUpdate_(const glm::mat4& camVP, const glm::vec3& sunDir) const {
+            float dSun = glm::length(sunDir - lastSunDir_);
+            float dCam = glm::length(glm::vec4(camVP[0][0] - lastCamViewProj_[0][0],
+                camVP[1][1] - lastCamViewProj_[1][1],
+                camVP[2][2] - lastCamViewProj_[2][2],
+                camVP[3][3] - lastCamViewProj_[3][3]));
+            return (dSun > 1e-5f) || (dCam > updateThreshold_);
+        }
 
         // HDR resources
         GLuint hdrFBO_ = 0;
@@ -126,6 +160,29 @@ namespace MyCoreEngine {
         // helpers
         void updateDeltaTime_();
         void setupGL_();           // creates GL state + fires OnContextReady once
+        void recreateHDR_(int w, int h);
+
+
+        // --- CSM (3 cascades) ---
+        static constexpr int kCascadeCount_ = 3;
+        GLuint csmFBO_[kCascadeCount_] = { 0,0,0 };
+        GLuint csmDepth_[kCascadeCount_] = { 0,0,0 };
+        int    csmRes_ = 2048;
+        float  csmLambda_ = 0.7f;            // 0=uniform, 1=log
+        float  csmSplits_[kCascadeCount_] = { 0,0,0 }; // view-space distances (end of each split)
+        glm::mat4 csmLightVP_[kCascadeCount_];       // matrices for each split
+        int  shadowUpdateRate_ = 1;  // 1 = every frame, 2 = every other frame, etc.
+        int  frameIndex_ = 0;
+        void setShadowUpdateRate(int n) { shadowUpdateRate_ = std::max(1, n); }
+
+        void computeCSMSplits_(float camNear, float camFar);
+        void computeCSMMatrix_(int idx,
+            const glm::mat4 & camView,
+            const glm::mat4 & camProj,
+            float splitNear, float splitFar,
+            const glm::vec3 & sunDir,
+            glm::mat4 & outLightVP);
+        void renderCSMShadowPass_(const glm::mat4 & camView, const glm::mat4 & camProj, Scene &scene);
     };
 
 } // namespace MyCoreEngine

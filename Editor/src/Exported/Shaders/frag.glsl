@@ -7,9 +7,13 @@ in VS_OUT {
 } fs_in;
 
 /* NEW */
-in vec4 vShadowPos;
+in vec4  vShadowPos[3];
+in float vViewZ;
 
 out vec4 FragColor;
+
+uniform sampler2D uShadowCascade[3];
+uniform float     uCSMSplits[3];
 
 uniform sampler2D diffuseMap;
 uniform sampler2D normalMap;
@@ -79,6 +83,26 @@ float shadowFactor(vec4 shadowPos, vec3 N, vec3 L)
     for (int y = -1; y <= 1; ++y)
     for (int x = -1; x <= 1; ++x) {
         float closest = texture(uShadowMap, proj.xy + vec2(x,y) * texel).r;
+        sum += (proj.z - bias) <= closest ? 1.0 : 0.0;
+    }
+    return sum / 9.0;
+}
+float shadowPCF(sampler2D smap, vec4 shadowPos, vec3 N, vec3 L)
+{
+    vec3 proj = shadowPos.xyz / max(shadowPos.w, 1e-5);
+    proj = proj * 0.5 + 0.5;
+
+    if (proj.z > 1.0 || proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0)
+        return 1.0;
+
+    float NdL  = max(dot(N, -L), 0.0);
+    float bias = max(0.002 * (1.0 - NdL), 0.0005);
+
+    float texel = 1.0 / float(textureSize(smap, 0).x);
+    float sum = 0.0;
+    for (int y = -1; y <= 1; ++y)
+    for (int x = -1; x <= 1; ++x) {
+        float closest = texture(smap, proj.xy + vec2(x,y) * texel).r;
         sum += (proj.z - bias) <= closest ? 1.0 : 0.0;
     }
     return sum / 9.0;
@@ -162,7 +186,11 @@ void main()
     }
 
     /* NEW: apply shadow only to direct light */
-    float shadow = shadowFactor(vShadowPos, N, L);
+    int cidx = 0;
+    if (vViewZ > uCSMSplits[0]) cidx = 1;
+    if (vViewZ > uCSMSplits[1]) cidx = 2;
+
+    float shadow = shadowPCF(uShadowCascade[cidx], vShadowPos[cidx], N, L);
     vec3 color = ambient + shadow * Lo;
     color += uEmissive;
 
