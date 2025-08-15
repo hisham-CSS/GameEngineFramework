@@ -83,6 +83,21 @@ namespace MyCoreEngine {
         // Shadow pass shader (depth-only)
         std::unique_ptr<Shader> shadowDepthShader_;
 
+        // HDR resources
+        GLuint hdrFBO_ = 0;
+        GLuint hdrColorTex_ = 0;
+        GLuint hdrDepthRBO_ = 0;
+
+        // Fullscreen quad
+        GLuint fsQuadVAO_ = 0;
+        GLuint fsQuadVBO_ = 0;
+
+        // Tonemap shader
+        std::unique_ptr<Shader> tonemapShader_;
+
+        // Exposure control (you can surface this in the editor)
+        float exposure_ = 1.0f;
+
         // Camera & input
         Camera      camera_{ glm::vec3(0.0f, 0.0f, 3.0f) };
         InputSystem input_;

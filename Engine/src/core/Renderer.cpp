@@ -31,7 +31,7 @@ namespace MyCoreEngine {
         glEnable(GL_CULL_FACE);
         glCullFace(GL_BACK);
         glFrontFace(GL_CCW);
-        glEnable(GL_FRAMEBUFFER_SRGB); // linear -> sRGB on writes to default framebuffer
+        //glEnable(GL_FRAMEBUFFER_SRGB); // linear -> sRGB on writes to default framebuffer
 
         // Shadow map setup
         glGenFramebuffers(1, &shadowFBO_);
@@ -49,6 +49,57 @@ namespace MyCoreEngine {
         glDrawBuffer(GL_NONE);
         glReadBuffer(GL_NONE);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+		// HDR textures (IBL)
+        // --- HDR FBO ---
+        int fbw, fbh;
+        window_.getFramebufferSize(fbw, fbh);
+
+        glGenFramebuffers(1, &hdrFBO_);
+        glBindFramebuffer(GL_FRAMEBUFFER, hdrFBO_);
+
+        // 16-bit float color
+        glGenTextures(1, &hdrColorTex_);
+        glBindTexture(GL_TEXTURE_2D, hdrColorTex_);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, fbw, fbh, 0, GL_RGBA, GL_FLOAT, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+        // depth renderbuffer
+        glGenRenderbuffers(1, &hdrDepthRBO_);
+        glBindRenderbuffer(GL_RENDERBUFFER, hdrDepthRBO_);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, fbw, fbh);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, hdrColorTex_, 0);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, hdrDepthRBO_);
+
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            // log: HDR FBO incomplete
+        }
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        // --- Fullscreen quad (NDC) ---
+        float quad[6 * 4] = {
+            //  pos        uv
+               -1.f, -1.f, 0.f, 0.f,
+                1.f, -1.f, 1.f, 0.f,
+                1.f,  1.f, 1.f, 1.f,
+               -1.f, -1.f, 0.f, 0.f,
+                1.f,  1.f, 1.f, 1.f,
+               -1.f,  1.f, 0.f, 1.f
+        };
+        glGenVertexArrays(1, &fsQuadVAO_);
+        glGenBuffers(1, &fsQuadVBO_);
+        glBindVertexArray(fsQuadVAO_);
+        glBindBuffer(GL_ARRAY_BUFFER, fsQuadVBO_);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_STATIC_DRAW);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+        glBindVertexArray(0);
+
+        // Tonemap shader (lazy create is also fine; doing it here keeps run() clean)
+        tonemapShader_ = std::make_unique<Shader>("Exported/Shaders/tonemap_vert.glsl", "Exported/Shaders/tonemap_frag.glsl");
 
         int w, h;
         window_.getFramebufferSize(w, h);
@@ -108,8 +159,8 @@ namespace MyCoreEngine {
             // Lazy-create the shadow depth shader after GL is ready
             if (!shadowDepthShader_) {
                 shadowDepthShader_ = std::make_unique<Shader>(
-                "shadow_depth_vert.glsl",
-                "shadow_depth_frag.glsl");
+                "Exported/Shaders/shadow_depth_vert.glsl",
+                "Exported/Shaders/shadow_depth_frag.glsl");
             }
             // --- Shadow depth pass ---
             glViewport(0, 0, shadowSize_, shadowSize_);
@@ -123,6 +174,10 @@ namespace MyCoreEngine {
             int w, h;
             window_.getFramebufferSize(w, h);
             glViewport(0, 0, w, h);   // <-- restore main viewport
+            // 1) Render scene into HDR FBO
+            glBindFramebuffer(GL_FRAMEBUFFER, hdrFBO_);
+            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
             // Restore main viewport
             shader.use();
@@ -162,6 +217,25 @@ namespace MyCoreEngine {
                 glm::radians(camera_.Zoom), 0.1f, 1000.0f);
 
             scene.RenderScene(camFrustum, shader, camera_);
+
+            // Tonemap to default framebuffer
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glViewport(0, 0, w, h);
+            glDisable(GL_DEPTH_TEST); // fullscreen pass
+
+            tonemapShader_->use();
+            tonemapShader_->setFloat("uExposure", exposure_);
+            // If you want to toggle between ACES/Reinhard/None, add a uniform switch too.
+
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, hdrColorTex_);
+            tonemapShader_->setInt("uHDRColor", 0);
+
+            glBindVertexArray(fsQuadVAO_);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+            glBindVertexArray(0);
+
+            glEnable(GL_DEPTH_TEST);
 
             // Editor UI (after 3D draw)
             if (uiDraw_) uiDraw_(deltaTime_);

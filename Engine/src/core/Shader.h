@@ -15,7 +15,11 @@ namespace MyCoreEngine
         Shader(const char* vertexPath, const char* fragmentPath);
 
         unsigned int ID = 0;
-        // activate the shader
+        // activate the 
+        // 
+        // 
+        // 
+        // 
         // ------------------------------------------------------------------------
         void use() const;
         // utility uniform functions

@@ -169,8 +169,7 @@ void EditorApplication::Run() {
     // Make GL ready before creating any GL objects (Shaders, Models)
     myRenderer.InitGL();
     assets_ = std::make_unique<AssetManager>(); // create after GL is ready
-
-    Shader shader("Exported/Shaders/vertex.glsl",
+    std::unique_ptr<Shader> shader = std::make_unique<Shader>("Exported/Shaders/vertex.glsl",
         "Exported/Shaders/frag.glsl");
 
     assert(glfwGetCurrentContext() != nullptr);
@@ -198,7 +197,7 @@ void EditorApplication::Run() {
         }
     }
 
-    myRenderer.run(scene, shader);
+    myRenderer.run(scene, *shader);
 }
 
 MyCoreEngine::Application* MyCoreEngine::CreateApplication()

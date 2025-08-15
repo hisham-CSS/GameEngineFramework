@@ -15,7 +15,8 @@ namespace MyCoreEngine {
         // Scalar params (used when map missing / disabled)
         glm::vec3 baseColor = glm::vec3(1.0f);
         float metallic = 0.0f;
-        float roughness = 0.5f;   // clamped >= ~0.045 in shader
+        float roughness = 0.5f;   // clamped >= ~0.045 in 
+
         float ao = 1.0f;
         glm::vec3 emissive = glm::vec3(0.0f);
 
