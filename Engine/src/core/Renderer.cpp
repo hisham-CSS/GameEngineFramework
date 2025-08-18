@@ -9,6 +9,11 @@
 
 namespace MyCoreEngine {
 
+    static inline float degBetween(const glm::vec3& a, const glm::vec3& b) {
+        float d = glm::clamp(glm::dot(glm::normalize(a), glm::normalize(b)), -1.0f, 1.0f);
+        return glm::degrees(acosf(d));
+    }
+
     Renderer::Renderer(int width, int height, const char* title)
         : window_(width, height, title),
         input_(window_.getGLFWwindow())
@@ -33,24 +38,23 @@ namespace MyCoreEngine {
         glFrontFace(GL_CCW);
         //glEnable(GL_FRAMEBUFFER_SRGB); // linear -> sRGB on writes to default framebuffer
 
-        // Shadow map setup
-        glGenFramebuffers(1, &shadowFBO_);
-        glGenTextures(1, &shadowDepthTex_);
-        glBindTexture(GL_TEXTURE_2D, shadowDepthTex_);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, shadowSize_, shadowSize_, 0,
-            GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        // --- Shadow array (CSM) ---
+        glGenTextures(1, &shadowArrayTex_);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, shadowArrayTex_);
+        glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_DEPTH_COMPONENT24,
+            shadowSize_, shadowSize_, kCascades,
+            0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+        const float border[4] = { 1,1,1,1 };
+        glTexParameterfv(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_BORDER_COLOR, border);
 
-        glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO_);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, shadowDepthTex_, 0);
-        glDrawBuffer(GL_NONE);
-        glReadBuffer(GL_NONE);
+        glGenFramebuffers(1, &shadowFBO_);
 
         // --- CSM depth textures ---
-        for (int i = 0; i < kCascadeCount_; ++i) {
+        for (int i = 0; i < kCascades; ++i) {
             glGenFramebuffers(1, &csmFBO_[i]);
             glBindFramebuffer(GL_FRAMEBUFFER, csmFBO_[i]);
             glGenTextures(1, &csmDepth_[i]);
@@ -184,11 +188,17 @@ namespace MyCoreEngine {
                 0.1f, 1000.0f);
             const glm::mat4 camView = camera_.GetViewMatrix();
 
-            glm::mat4 camVP = camProj * camView;
-            if (needShadowUpdate_(camVP, sunDir_) && (frameIndex_++ % shadowUpdateRate_) == 0) {
-                renderCSMShadowPass_(camView, camProj, scene);
-                lastCamViewProj_ = camVP;
-                lastSunDir_ = sunDir_;
+            // Example inside your frame loop:
+            const glm::mat4 camVP = camProj * camView;
+            const bool cameraOrSunMovedEnough = needShadowUpdate_(camVP, sunDir_); // if you already have this
+            const bool shouldRebuild =
+                shadowParamsDirty_ ||
+                cameraOrSunMovedEnough; // AND optionally your frame-rate throttle
+
+            // --- CSM update gate ---
+            updateCSMDirty_(camera_);                // set csmDataDirty_ if moved/rotated enough
+            if (rebuildCSM_(camera_)) {              // also consumes shadowParamsDirty_
+                renderCSM_(scene, camera_);          // render into cascades only when rebuilt
             }
             
             int w, h;
@@ -379,8 +389,8 @@ namespace MyCoreEngine {
 
     void Renderer::computeCSMSplits_(float camNear, float camFar) {
         // Practical split scheme
-        for (int i = 0; i < kCascadeCount_; ++i) {
-            float si = float(i + 1) / float(kCascadeCount_);
+        for (int i = 0; i < kCascades; ++i) {
+            float si = float(i + 1) / float(kCascades);
             float logSplit = camNear * std::pow(camFar / camNear, si);
             float uniSplit = camNear + (camFar - camNear) * si;
             csmSplits_[i] = glm::mix(uniSplit, logSplit, csmLambda_);
@@ -456,29 +466,249 @@ namespace MyCoreEngine {
         outLightVP = lightProj * lightView;
     }
 
-    // --- Renders all cascades into csmDepth_[i] using the existing depth-only path.
-    void Renderer::renderCSMShadowPass_(const glm::mat4& camView, const glm::mat4& camProj, Scene &scene)
+    //// --- Renders all cascades into csmDepth_[i] using the existing depth-only path.
+    //void Renderer::renderCSMShadowPass_(const glm::mat4& camView, const glm::mat4& camProj, Scene &scene)
+    //{
+    //    // 1) compute split distances (view-space)
+    //    // NOTE: near/far must match your camera’s real values used to build camProj
+    //    const float camNear = 0.1f;      // keep in sync with your perspective() in run()
+    //    const float camFar = 1000.0f;
+    //    computeCSMSplits_(camNear, camFar);
+
+    //    // 2) per-cascade matrix and render
+    //    for (int i = 0; i < kCascadeCount_; ++i) {
+    //        float splitNear = (i == 0) ? camNear : csmSplits_[i - 1];
+    //        float splitFar = csmSplits_[i];
+
+    //        computeCSMMatrix_(i, camView, camProj, splitNear, splitFar, sunDir_, csmLightVP_[i]);
+
+    //        glViewport(0, 0, csmRes_, csmRes_);
+    //        glBindFramebuffer(GL_FRAMEBUFFER, csmFBO_[i]);
+    //        glClear(GL_DEPTH_BUFFER_BIT);
+    //        glCullFace(GL_FRONT); // optional to reduce peter-panning
+    //        scene.RenderShadowDepth(*shadowDepthShader_, csmLightVP_[i]); // same call you already use
+    //        glCullFace(GL_BACK);
+    //        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    //    }
+    //}
+
+    void Renderer::updateCSMDirty_(const Camera& cam)
     {
+        glm::vec3 pos = cam.Position;
+        glm::vec3 fwd = cam.Front;
+
+        if (glm::distance(pos, lastCamPos_) > csmRebuildPosEps_ * csmRebuildPosEps_
+            || degBetween(fwd, lastCamFwd_) > csmRebuildAngEps_) {
+            csmDataDirty_ = true;
+            lastCamPos_ = pos;
+            lastCamFwd_ = fwd;
+        }
+
+        // If any sun/frustum param changed, also rebuild
+        if (shadowParamsDirty_) {
+            csmDataDirty_ = true;
+            shadowParamsDirty_ = false; // consume
+        }
+    }
+
+    // Build cascade splits in view space and lightVP_ matrices.
+    // Returns true if rebuilt.
+    bool Renderer::rebuildCSM_(const Camera& cam)
+    {
+        if (!csmEnabled_) return false;
+        if (!csmDataDirty_) return false;
+        csmDataDirty_ = false;
+
         // 1) compute split distances (view-space)
         // NOTE: near/far must match your camera’s real values used to build camProj
         const float camNear = 0.1f;      // keep in sync with your perspective() in run()
         const float camFar = 1000.0f;
-        computeCSMSplits_(camNear, camFar);
 
-        // 2) per-cascade matrix and render
-        for (int i = 0; i < kCascadeCount_; ++i) {
-            float splitNear = (i == 0) ? camNear : csmSplits_[i - 1];
-            float splitFar = csmSplits_[i];
-
-            computeCSMMatrix_(i, camView, camProj, splitNear, splitFar, sunDir_, csmLightVP_[i]);
-
-            glViewport(0, 0, csmRes_, csmRes_);
-            glBindFramebuffer(GL_FRAMEBUFFER, csmFBO_[i]);
-            glClear(GL_DEPTH_BUFFER_BIT);
-            glCullFace(GL_FRONT); // optional to reduce peter-panning
-            scene.RenderShadowDepth(*shadowDepthShader_, csmLightVP_[i]); // same call you already use
-            glCullFace(GL_BACK);
-            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        splitZ_[0] = camNear;
+        splitZ_[kCascades] = camFar;
+        for (int i = 1; i < kCascades; ++i) {
+            float u = float(i) / float(kCascades);
+            float log = camNear * powf(camFar / camNear, u);
+            float uni = camNear + (camFar - camNear) * u;
+            splitZ_[i] = glm::mix(uni, log, splitLambda_);
         }
+
+        // For each cascade: compute 8 frustum corners in world for [splitZ_[i], splitZ_[i+1]]
+        const glm::mat4 V = cam.GetViewMatrix();
+        const glm::mat4 Pn = getCameraPerspectiveMatrix(cam);    // your camera can already build this; otherwise use your projection helper
+
+        // We need inverse view-projection for corners
+        auto invVP = glm::inverse(Pn * V);
+
+        auto frustumSliceCornersWS = [&](float zNear, float zFar)
+        {
+            // NDC corners z in [0..1] for depth, adjust if you use OpenGL [-1..1] NDC
+            const glm::vec3 ndc[8] = {
+                {-1,-1, 0}, {+1,-1, 0}, {+1,+1, 0}, {-1,+1, 0},   // near
+                {-1,-1, 1}, {+1,-1, 1}, {+1,+1, 1}, {-1,+1, 1}    // far
+            };
+            glm::vec3 ws[8];
+            // Remap z-plane to slice depth in view space by projecting planes:
+            // Simpler: build a proj for this slice; practical shortcut:
+            // Convert ndc to clip, multiply by invVP, perspective divide
+            // then rescale along view ray to reach the desired z (view-space).
+            for (int i = 0; i < 8; ++i) {
+                glm::vec4 p = invVP * glm::vec4(ndc[i], 1.0f);
+                p /= p.w;
+                ws[i] = glm::vec3(p);
+            }
+            return std::array<glm::vec3, 8>{ ws[0], ws[1], ws[2], ws[3], ws[4], ws[5], ws[6], ws[7] };
+        };
+
+        // Light view matrix from sunDir
+        const glm::vec3 up = glm::vec3(0, 1, 0);
+        const glm::vec3 dir = glm::normalize(sunDir_);
+
+        for (int i = 0; i < kCascades; ++i) {
+            const float aspect = window_.getAspectRatio();
+            glm::mat4 sliceProj = glm::perspective(glm::radians(cam.Zoom), aspect,
+                splitZ_[i], splitZ_[i + 1]);
+            glm::mat4 invSliceVP = glm::inverse(sliceProj * V);
+
+            // NDC cube corners (OpenGL: z in [-1,1])
+            const glm::vec3 ndc[8] = {
+                {-1,-1,-1},{+1,-1,-1},{+1,+1,-1},{-1,+1,-1},
+                {-1,-1,+1},{+1,-1,+1},{+1,+1,+1},{-1,+1,+1}
+            };
+            std::array<glm::vec3, 8> corners;
+            for (int k = 0; k < 8; ++k) {
+                glm::vec4 w = invSliceVP * glm::vec4(ndc[k], 1.0f);
+                corners[k] = glm::vec3(w) / w.w; // world-space corner for this slice
+            }
+
+            // Center of slice (average corners)
+            glm::vec3 center(0);
+            for (auto& c : corners) center += c;
+            center *= (1.0f / 8.0f);
+
+            glm::mat4 lightView = glm::lookAt(center - dir * sunOrthoHalf_, center, up);
+
+            // Project corners into light space to find ortho extents
+            float minX = +FLT_MAX, maxX = -FLT_MAX;
+            float minY = +FLT_MAX, maxY = -FLT_MAX;
+            float minZ = +FLT_MAX, maxZ = -FLT_MAX;
+            for (auto& c : corners) {
+                glm::vec4 p = lightView * glm::vec4(c, 1.0f);
+                minX = std::min(minX, p.x); maxX = std::max(maxX, p.x);
+                minY = std::min(minY, p.y); maxY = std::max(maxY, p.y);
+                minZ = std::min(minZ, p.z); maxZ = std::max(maxZ, p.z);
+            }
+
+            // Pad a little to avoid edge swimming
+            const float pad = 5.0f;
+            minX -= pad; maxX += pad;
+            minY -= pad; maxY += pad;
+
+            // Depth range (towards light positive or negative depends on your lookAt; match your depth shader)
+            // We clamp with sunNear_/sunFar_ as user sliders
+            minZ = std::min(minZ, -sunFar_); // note sign depending on your conventions
+            maxZ = std::max(maxZ, -sunNear_);
+
+            // after minX/minY/maxX/maxY computed for a cascade
+            const float worldPerTexelX = (maxX - minX) / float(csmRes_);
+            const float worldPerTexelY = (maxY - minY) / float(csmRes_);
+
+            minX = std::floor(minX / worldPerTexelX) * worldPerTexelX;
+            maxX = std::floor(maxX / worldPerTexelX) * worldPerTexelX;
+            minY = std::floor(minY / worldPerTexelY) * worldPerTexelY;
+            maxY = std::floor(maxY / worldPerTexelY) * worldPerTexelY;
+
+            glm::mat4 lightProj = glm::ortho(minX, maxX, minY, maxY, minZ, maxZ);
+            csmLightVP_[i] = lightProj * lightView;
+        }
+
+        return true;
+    }
+
+    glm::mat4 Renderer::getCameraPerspectiveMatrix(const Camera& cam)
+    {
+        return glm::perspective(glm::radians(cam.Zoom),
+            window_.getAspectRatio(),
+            0.1f, 1000.0f);
+    }
+
+    void Renderer::renderCSM_(Scene& scene, const Camera& cam)
+    {
+        if (!csmEnabled_) return;       // your UI toggle
+        ensureCSM_();                       // create FBO/textures on first use
+
+		++frameIndex_;               // increment frame index for throttling
+
+        // Rebuild splits & light VP if camera or sun params changed
+        if (shadowParamsDirty_) {
+            rebuildCSM_(cam);               // you already wrote this
+            shadowParamsDirty_ = false;
+        }
+
+        glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO_);
+        glViewport(0, 0, csmRes_, csmRes_);
+        glEnable(GL_DEPTH_TEST);
+
+        // depth-only
+        glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+        // reduce peter-panning
+        //glCullFace(GL_FRONT);
+
+        glCullFace(GL_BACK); 
+        glEnable(GL_POLYGON_OFFSET_FILL); 
+        glPolygonOffset(2.0f, 4.0f);
+
+        shadowDepthShader_.get()->use();                  // your shadow depth shader
+        shadowDepthShader_.get()->setInt("uUseInstancing", 0);
+
+        for (int i = 0; i < 3; ++i) {
+            if ((frameIndex_ & ((1 << i) - 1)) != 0) continue; // skip some cascades
+            // render this cascade
+
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                GL_TEXTURE_2D, csmDepth_[i], 0);
+            // No color attachments
+            glDrawBuffer(GL_NONE);
+            glReadBuffer(GL_NONE);
+
+            glClear(GL_DEPTH_BUFFER_BIT);
+
+            scene.RenderDepthCascade(*shadowDepthShader_, csmLightVP_[i], splitZ_[i], splitZ_[i + 1], cam.GetViewMatrix());
+
+        }
+
+        // restore state
+        glCullFace(GL_BACK);
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+
+    void Renderer::ensureCSM_()
+    {
+        if (shadowFBO_ == 0) {
+            glGenFramebuffers(1, &shadowFBO_);
+        }
+
+        // Create/resize depth textures
+        for (int i = 0; i < 3; ++i) {
+            if (csmDepth_[i] == 0) {
+                glGenTextures(1, &csmDepth_[i]);
+                glBindTexture(GL_TEXTURE_2D, csmDepth_[i]);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, csmRes_, csmRes_, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, nullptr);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+                const float border[4] = { 1.f,1.f,1.f,1.f };
+                glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, border);
+            }
+            else {
+                // Optional: detect resize (if shadowSize_ changed) and reallocate
+                // glBindTexture(GL_TEXTURE_2D, csmDepth_[i]);
+                // glTexImage2D(… shadowSize_ …);
+            }
+        }
+
+        glBindTexture(GL_TEXTURE_2D, 0);
     }
 } // namespace MyCoreEngine

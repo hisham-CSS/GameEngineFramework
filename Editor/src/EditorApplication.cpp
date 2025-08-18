@@ -143,7 +143,13 @@ void EditorApplication::Run() {
                 ImGui::SliderFloat("Sun near", &sNear, 0.1f, 50.f);
                 ImGui::SliderFloat("Sun far", &sFar, 50.f, 500.f);
                 myRenderer.setSunOrthoHalf(half);
-                myRenderer.setSunNearFar(sNear, sFar);
+                myRenderer.setSunNear(sNear);
+				myRenderer.setSunFar(sFar);
+
+                ImGui::Separator();
+                ImGui::Text("Applied:");
+                ImGui::Text("dir = (%.3f, %.3f, %.3f)", myRenderer.sunDir().x, myRenderer.sunDir().y, myRenderer.sunDir().z);
+                ImGui::Text("orthoHalf=%.1f  near=%.2f  far=%.2f", myRenderer.sunOrthoHalf(), myRenderer.sunNear(), myRenderer.sunFar());
 
                 if (ImGui::CollapsingHeader("CSM", ImGuiTreeNodeFlags_None)) {
                     int res = myRenderer.cascadeResolution();

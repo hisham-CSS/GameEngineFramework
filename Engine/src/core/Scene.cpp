@@ -231,3 +231,156 @@ void Scene::RenderShadowDepth(Shader & shadowShader, const glm::mat4 & lightVP)
             }
     }
 }
+
+void Scene::RenderDepth(Shader& prog, const glm::mat4& lightVP)
+{
+    items_.clear();
+    items_.reserve(1024);
+
+    // use AABB view and cull per-cascade
+    auto view = registry.view<ModelComponent, Transform, AABB>();
+    for (auto e : view) {
+        const auto& mc = view.get<ModelComponent>(e);
+        const auto& t = view.get<Transform>(e);
+        const auto& b = view.get<AABB>(e);
+        if (!mc.model) continue;
+        if (!aabbIntersectsLightFrustum(lightVP, b, t.modelMatrix)) continue;
+
+        for (const auto& m : mc.model->Meshes()) {
+            DrawItem di; di.mesh = &m; di.model = t.modelMatrix;
+            items_.push_back(di);
+        }
+    }
+    // sort by mesh so we can instance consecutive items
+    std::sort(items_.begin(), items_.end(),
+        [](const DrawItem& a, const DrawItem& b) { return a.mesh < b.mesh; });
+
+    ensureInstanceBuffer_();
+    prog.setInt("uUseInstancing", 0);
+
+    for (size_t i = 0; i < items_.size();) {
+        const Mesh* mesh = items_[i].mesh;
+        size_t j = i + 1;
+        while (j < items_.size() && items_[j].mesh == mesh) ++j;
+        const size_t run = j - i;
+
+        glBindVertexArray(mesh->VAO());
+
+        if (run >= 2) {
+            glBindBuffer(GL_ARRAY_BUFFER, instanceVBO_);
+            glBufferData(GL_ARRAY_BUFFER, run * sizeof(glm::mat4), nullptr, GL_STREAM_DRAW);
+            if (void* p = glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY)) {
+                auto* mats = static_cast<glm::mat4*>(p);
+                for (size_t k = 0; k < run; ++k) mats[k] = items_[i + k].model;
+                glUnmapBuffer(GL_ARRAY_BUFFER);
+            }
+            bindInstanceAttribs_();
+            prog.setInt("uUseInstancing", 1);
+            prog.setMat4("uLightVP", lightVP);
+            mesh->IssueDrawInstanced((GLsizei)run);
+            prog.setInt("uUseInstancing", 0);
+        }
+        else {
+            prog.setMat4("uLightVP", lightVP);
+            prog.setMat4("model", items_[i].model);
+            mesh->IssueDraw();
+        }
+
+        i = j;
+    }
+
+    glBindVertexArray(0);
+}
+
+void Scene::RenderDepthCascade(Shader& prog, const glm::mat4& lightVP, float splitNear, float splitFar, const glm::mat4& camView)
+{
+    items_.clear();
+    items_.reserve(1024);
+
+    auto view = registry.view<ModelComponent, Transform, AABB>();
+    for (auto e : view) {
+        const auto& mc = view.get<ModelComponent>(e);
+        const auto& t = view.get<Transform>(e);
+        const auto& b = view.get<AABB>(e);
+        if (!mc.model) continue;
+
+        // quick camera-space Z test
+        glm::vec3 center = (b.min + b.max) * 0.5f;
+        glm::vec4 vc = camView * t.modelMatrix * glm::vec4(center, 1.0f);
+        float r = glm::length(b.max - center); // loose radius
+        float vz = -vc.z; // camera looks -Z in view space
+
+        if (vz + r < splitNear || vz - r > splitFar) continue; // outside slice
+
+        // then the precise light-frustum test
+        if (!aabbIntersectsLightFrustum(lightVP, b, t.modelMatrix)) continue;
+
+        for (const auto& m : mc.model->Meshes()) {
+            DrawItem di; di.mesh = &m; di.model = t.modelMatrix;
+            items_.push_back(di);
+        }
+    }
+
+    // sort by mesh so we can instance consecutive items
+    std::sort(items_.begin(), items_.end(),
+        [](const DrawItem& a, const DrawItem& b) { return a.mesh < b.mesh; });
+
+    ensureInstanceBuffer_();
+    prog.setInt("uUseInstancing", 0);
+
+    for (size_t i = 0; i < items_.size();) {
+        const Mesh* mesh = items_[i].mesh;
+        size_t j = i + 1;
+        while (j < items_.size() && items_[j].mesh == mesh) ++j;
+        const size_t run = j - i;
+
+        glBindVertexArray(mesh->VAO());
+
+        if (run >= 2) {
+            glBindBuffer(GL_ARRAY_BUFFER, instanceVBO_);
+            glBufferData(GL_ARRAY_BUFFER, run * sizeof(glm::mat4), nullptr, GL_STREAM_DRAW);
+            if (void* p = glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY)) {
+                auto* mats = static_cast<glm::mat4*>(p);
+                for (size_t k = 0; k < run; ++k) mats[k] = items_[i + k].model;
+                glUnmapBuffer(GL_ARRAY_BUFFER);
+            }
+            bindInstanceAttribs_();
+            prog.setInt("uUseInstancing", 1);
+            prog.setMat4("uLightVP", lightVP);
+            mesh->IssueDrawInstanced((GLsizei)run);
+            prog.setInt("uUseInstancing", 0);
+        }
+        else {
+            prog.setMat4("uLightVP", lightVP);
+            prog.setMat4("model", items_[i].model);
+            mesh->IssueDraw();
+        }
+
+        i = j;
+    }
+
+    glBindVertexArray(0);
+}
+bool Scene::aabbIntersectsLightFrustum(const glm::mat4& lightVP, const AABB& aabb, const glm::mat4& model)
+{
+    // 8 corners in local space
+    const glm::vec3 mn = aabb.min, mx = aabb.max;
+    glm::vec3 c[8] = {
+        {mn.x,mn.y,mn.z},{mx.x,mn.y,mn.z},{mn.x,mx.y,mn.z},{mx.x,mx.y,mn.z},
+        {mn.x,mn.y,mx.z},{mx.x,mn.y,mx.z},{mn.x,mx.y,mx.z},{mx.x,mx.y,mx.z}
+    };
+
+    int outside[6] = { 0,0,0,0,0,0 };
+    for (int i = 0; i < 8; ++i) {
+        glm::vec4 wc = model * glm::vec4(c[i], 1.0f);
+        glm::vec4 cc = lightVP * wc; // clip
+        // test vs clip planes: -w<=x<=w, -w<=y<=w, -w<=z<=w
+        if (cc.x < -cc.w) outside[0]++; if (cc.x > cc.w)  outside[1]++;
+        if (cc.y < -cc.w) outside[2]++; if (cc.y > cc.w)  outside[3]++;
+        if (cc.z < -cc.w) outside[4]++; if (cc.z > cc.w)  outside[5]++;
+    }
+    for (int p = 0; p < 6; ++p) if (outside[p] == 8) return false; // fully outside
+    return true;
+}
+
+

@@ -83,7 +83,9 @@ namespace MyCoreEngine {
         void  SetIBLEnabled(bool v) { iblEnabled_ = v; }
         float GetIBLIntensity() const { return iblIntensity_; }
         void  SetIBLIntensity(float v) { iblIntensity_ = std::max(0.0f, v); }
-
+        // add a forward-only method (public)
+        void RenderDepth(class Shader& depthProg, const glm::mat4& lightVP);
+        void RenderDepthCascade(Shader& prog, const glm::mat4& lightVP, float splitNear, float splitFar, const glm::mat4& camView);
 
      private:
          std::vector<DrawItem> items_;
@@ -93,6 +95,8 @@ namespace MyCoreEngine {
          void bindInstanceAttribs_() const; // sets attribs 3..6 + divisors on current VAO
 
          // Choose material (override -> shared) for an item and bind it for drawing
+         bool Scene::aabbIntersectsLightFrustum(const glm::mat4& lightVP, const AABB& aabb, const glm::mat4& model);
+         
          const Material * chooseMaterial_(entt::entity e, const Mesh & mesh) const;
          void bindMaterialForItem_(const DrawItem & di, Shader & shader) const;
          static uint64_t texKeyFromMaterial_(const Material & m);

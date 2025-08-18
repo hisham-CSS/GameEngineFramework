@@ -7,6 +7,8 @@
 #include <functional>
 
 #include <glm/glm.hpp>
+#include <glm/gtc/epsilon.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <GLFW/glfw3.h>
 
 #include "Window.h"
@@ -58,26 +60,37 @@ namespace MyCoreEngine {
             unsigned int brdfLUT2D,
             float prefilteredMipCount);
 
-        // Sun / shadows
-        glm::vec3 sunDir() const { return sunDir_; }
-        void setSunDir(const glm::vec3 & d) { sunDir_ = glm::normalize(d); }
-        float sunOrthoHalf() const { return sunOrthoHalf_; }
-        void setSunOrthoHalf(float h) { sunOrthoHalf_ = std::max(0.1f, h); }
-        float sunNear() const { return sunNear_; }
-        float sunFar()  const { return sunFar_; }
-        void setSunNearFar(float n, float f) { sunNear_ = n; sunFar_ = std::max(n + 1.f, f); }
+        // Light exposure
         float exposure() const { return exposure_; }
         void setExposure(float e) { exposure_ = std::max(0.01f, e); }
+        
+        // Sun / shadows
+        glm::vec3 sunDir() const { return sunDir_; }
+        float sunOrthoHalf() const { return sunOrthoHalf_; }
+        float sunNear() const { return sunNear_; }
+        float sunFar()  const { return sunFar_; }
+
+        
+
+        // Setters used by the Editor UI
+        void setSunDir(const glm::vec3& d) {
+            glm::vec3 n = (glm::length(d) > 1e-6f) ? glm::normalize(d) : glm::vec3(0, -1, 0);
+            if (glm::any(glm::epsilonNotEqual(n, sunDir_, 1e-6f))) {
+                sunDir_ = n;
+                shadowParamsDirty_ = true;
+            }
+        }
+        void setSunOrthoHalf(float v) { if (v != sunOrthoHalf_) { sunOrthoHalf_ = v; shadowParamsDirty_ = true; } }
+        void setSunNear(float v) { if (v != sunNear_) { sunNear_ = v;     shadowParamsDirty_ = true; } }
+        void setSunFar(float v) { if (v != sunFar_) { sunFar_ = v;     shadowParamsDirty_ = true; } }
 
         float cascadeLambda() const { return csmLambda_; }
         void  setCascadeLambda(float v) { csmLambda_ = glm::clamp(v, 0.0f, 1.0f); }
         int   cascadeResolution() const { return csmRes_; }
         void  setCascadeResolution(int r) { csmRes_ = std::max(512, r); }
-        int  getCascadeCount() const { return kCascadeCount_; }
+        int  getCascadeCount() const { return kCascades; }
         int  getCascadeResolution() const { return csmRes_; }
-        float debugCascadeSplit(int i) const {
-            return (i >= 0 && i < kCascadeCount_) ? csmSplits_[i] : 0.0f;
-        }
+        float debugCascadeSplit(int i) const { return splitZ_[i + 1]; }
 
     private:
         // Window / timing
@@ -91,15 +104,38 @@ namespace MyCoreEngine {
         float        iblPrefilterMipCount_ = 0.0f;
 
         // Shadow resources
-        GLuint shadowFBO_ = 0;
         GLuint shadowDepthTex_ = 0;
-        int    shadowSize_ = 2048;
+
+        // === Shadows / CSM ===
+        static constexpr int kCascades = 4;
+
+        int   shadowSize_ = 2048;           // ImGui slider if you like
+        float splitLambda_ = 0.6f;           // 0=uniform, 1=logarithmic
+        bool  csmEnabled_ = true;
 
         // Light (editor already exposes dir/intensity; add projection span)
-        glm::vec3 sunDir_ = glm::normalize(glm::vec3(-0.3f, -1.0f, -0.2f));
-        float     sunOrthoHalf_ = 100.0f;   // view volume half-extent
+        glm::vec3 sunDir_ = glm::vec3(-0.282f, -0.941f, 0.188f);
+        float     sunOrthoHalf_ = 100.0f;
         float     sunNear_ = 1.0f;
         float     sunFar_ = 300.0f;
+
+        // A simple dirty bit that forces shadow pass to re-render
+        bool shadowParamsDirty_ = true;
+        bool csmDataDirty_ = true;           // set when camera moves/rotates beyond a threshold
+
+        float     splitZ_[kCascades + 1];           // view-space distances [near, …, far]
+
+        // GL objects
+        GLuint shadowArrayTex_ = 0;                 // GL_TEXTURE_2D_ARRAY, depth-only
+        GLuint shadowFBO_ = 0;
+
+        // Optional threshold to avoid rebuilding on tiny camera jitters
+        float csmRebuildPosEps_ = 0.05f;            // meters
+        float csmRebuildAngEps_ = 0.5f;             // degrees
+        glm::vec3 lastCamPos_ = {};
+        glm::vec3 lastCamFwd_ = {};
+        // === Shadows / CSM ===
+
         glm::mat4 lightViewProj_{ 1.0f };
         // Shadow pass shader (depth-only)
         std::unique_ptr<Shader> shadowDepthShader_;
@@ -164,25 +200,24 @@ namespace MyCoreEngine {
 
 
         // --- CSM (3 cascades) ---
-        static constexpr int kCascadeCount_ = 3;
-        GLuint csmFBO_[kCascadeCount_] = { 0,0,0 };
-        GLuint csmDepth_[kCascadeCount_] = { 0,0,0 };
+        GLuint csmFBO_[kCascades] = { 0,0,0 };
+        GLuint csmDepth_[kCascades] = { 0,0,0 };
         int    csmRes_ = 2048;
         float  csmLambda_ = 0.7f;            // 0=uniform, 1=log
-        float  csmSplits_[kCascadeCount_] = { 0,0,0 }; // view-space distances (end of each split)
-        glm::mat4 csmLightVP_[kCascadeCount_];       // matrices for each split
+        float  csmSplits_[kCascades] = { 0,0,0 }; // view-space distances (end of each split)
+        glm::mat4 csmLightVP_[kCascades];       // matrices for each split
         int  shadowUpdateRate_ = 1;  // 1 = every frame, 2 = every other frame, etc.
         int  frameIndex_ = 0;
         void setShadowUpdateRate(int n) { shadowUpdateRate_ = std::max(1, n); }
 
         void computeCSMSplits_(float camNear, float camFar);
-        void computeCSMMatrix_(int idx,
-            const glm::mat4 & camView,
-            const glm::mat4 & camProj,
-            float splitNear, float splitFar,
-            const glm::vec3 & sunDir,
-            glm::mat4 & outLightVP);
+        void computeCSMMatrix_(int idx, const glm::mat4 & camView, const glm::mat4 & camProj, float splitNear, float splitFar, const glm::vec3 & sunDir, glm::mat4 & outLightVP);
         void renderCSMShadowPass_(const glm::mat4 & camView, const glm::mat4 & camProj, Scene &scene);
+		void updateCSMDirty_(const Camera& cam);
+		bool rebuildCSM_(const Camera& cam);
+        glm::mat4 Renderer::getCameraPerspectiveMatrix(const Camera& cam);
+        void renderCSM_(Scene& scene, const Camera& cam);
+        void ensureCSM_();
     };
 
 } // namespace MyCoreEngine
