@@ -54,6 +54,8 @@ uniform mat4 uLightVP[3];
 uniform sampler2D uShadowCascade[3];
 uniform float uCSMSplits[3];   // view-space distances (end of each split)
 // -------------------------------------------
+// debug mode
+uniform int uCSMDebug;   // 0=off, 1=cascade index, 2=shadow factor, 3=light depth
 
 // GGX helpers
 float saturate(float x) { return clamp(x, 0.0, 1.0); }
@@ -88,7 +90,7 @@ float sampleShadow(int ci, vec4 lightClip, vec3 N, vec3 L)
         return 1.0;
 
     // slope-scale bias
-    float NdL  = max(dot(N, -L), 0.0);
+    float NdL  = max(dot(N, L), 0.0);
     float bias = max(0.002 * (1.0 - NdL), 0.0005);
 
     float texel = 1.0 / float(textureSize(uShadowCascade[ci], 0).x);
@@ -100,6 +102,55 @@ float sampleShadow(int ci, vec4 lightClip, vec3 N, vec3 L)
     }
     return sum / 9.0;
 }
+
+// Common helpers
+//vec4 toLightClip(int ci, vec3 worldPos) {
+//    return uLightVP[ci] * vec4(worldPos, 1.0);
+//}
+//vec3 toLightUVZ(vec4 clip) {
+//    vec3 p = clip.xyz / max(clip.w, 1e-6);  // NDC [-1,1]
+//    return p * 0.5 + 0.5;                   // UVZ in [0,1]
+//}
+//
+//// ---- Debug: Projected UV (works for you already)
+//vec3 debug_projectedUV(int ci, vec3 worldPos) {
+//    vec3 uvz = toLightUVZ(toLightClip(ci, worldPos));
+//    return vec3(uvz.xy, 0.0); // visualize UV as color
+//}
+//
+//// ---- Debug: Light depth (what the fragment’s light-space depth is)
+//float debug_lightDepth(int ci, vec3 worldPos) {
+//    vec3 uvz = toLightUVZ(toLightClip(ci, worldPos));
+//    return clamp(uvz.z, 0.0, 1.0);
+//}
+//
+//// ---- Debug: Sampled depth (what’s stored in the depth texture)
+//float debug_sampledDepth(int ci, vec3 worldPos) {
+//    vec3 uvz = toLightUVZ(toLightClip(ci, worldPos));
+//    if (uvz.x < 0.0 || uvz.x > 1.0 || uvz.y < 0.0 || uvz.y > 1.0)
+//        return 1.0; // outside => white
+//    return texture(uShadowCascade[ci], uvz.xy).r;
+//}
+//
+//// ---- Final shadow factor (PCF) – unchanged in spirit, just tidy
+//float csmShadowFactor(int ci, vec3 worldPos, vec3 N, vec3 L) {
+//    vec3 uvz = toLightUVZ(toLightClip(ci, worldPos));
+//    // outside the light frustum => fully lit
+//    if (uvz.x<0.0 || uvz.x>1.0 || uvz.y<0.0 || uvz.y>1.0 || uvz.z>1.0)
+//        return 1.0;
+//
+//    float NdL  = max(dot(N, -L), 0.0);
+//    float bias = max(0.002*(1.0 - NdL), 0.0005);
+//
+//    float texel = 1.0 / float(textureSize(uShadowCascade[ci], 0).x);
+//    float sum = 0.0;
+//    for (int y=-1; y<=1; ++y)
+//    for (int x=-1; x<=1; ++x) {
+//        float d = texture(uShadowCascade[ci], uvz.xy + vec2(x,y)*texel).r;
+//        sum += (uvz.z - bias) <= d ? 1.0 : 0.0;
+//    }
+//    return sum / 9.0;
+//}
 
 void main()
 {
@@ -117,6 +168,42 @@ void main()
 
     // light-space position for the chosen cascade
     vec4 lightClip = uLightVP[ci] * vec4(fs_in.worldPos, 1.0);
+
+    vec3 proj = lightClip.xyz / max(lightClip.w, 1e-6);
+    proj = proj * 0.5 + 0.5; // [0,1] in XY and Z
+
+    // --- CSM debug views (return early) ---
+    if (uCSMDebug == 1) {
+        // color by cascade index
+        vec3 cc = (ci == 0) ? vec3(1.0, 0.2, 0.2)
+                : (ci == 1) ? vec3(0.2, 1.0, 0.2)
+                             : vec3(0.2, 0.5, 1.0);
+        FragColor = vec4(cc, 1.0);
+        return;
+    }
+    if (uCSMDebug == 2) {
+        // show shadow factor (white=lit, dark=shadowed)
+        float shadow = (uShadowsOn == 1) ? sampleShadow(ci, lightClip, N, normalize(-uLightDir)) : 1.0;
+        FragColor = vec4(vec3(shadow), 1.0);
+        return;
+    }
+    if (uCSMDebug == 3) {
+        // visualize light-space depth 0..1
+        float ndcZ = clamp(lightClip.z / lightClip.w * 0.5 + 0.5, 0.0, 1.0);
+        FragColor = vec4(vec3(ndcZ), 1.0);
+        return;
+    }
+    // 4 = sampled depth, 5 = projected UV (red if outside)
+    if (uCSMDebug == 4) {
+        float dtex = texture(uShadowCascade[ci], proj.xy).r;
+        FragColor = vec4(vec3(dtex), 1.0);
+        return;
+    }
+    if (uCSMDebug == 5) {
+        bool o = (proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0);
+        FragColor = o ? vec4(1,0,0,1) : vec4(proj.xy, 0.0, 1.0); // UV heatmap; red=outside
+        return;
+    }
 
     if (uUsePBR == 0) {
         float ndl = max(dot(N, L), 0.0);

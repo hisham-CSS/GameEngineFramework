@@ -87,10 +87,12 @@ namespace MyCoreEngine {
         float cascadeLambda() const { return csmLambda_; }
         void  setCascadeLambda(float v) { csmLambda_ = glm::clamp(v, 0.0f, 1.0f); }
         int   cascadeResolution() const { return csmRes_; }
-        void  setCascadeResolution(int r) { csmRes_ = std::max(512, r); }
         int  getCascadeCount() const { return kCascades; }
         int  getCascadeResolution() const { return csmRes_; }
         float debugCascadeSplit(int i) const { return splitZ_[i + 1]; }
+        void setCascadeResolution(int r);
+        int  csmDebugMode() const { return csmDebugMode_; }
+        void setCSMDebugMode(int m) { csmDebugMode_ = glm::clamp(m, 0, 5); }
 
     private:
         // Window / timing
@@ -199,7 +201,7 @@ namespace MyCoreEngine {
         void recreateHDR_(int w, int h);
 
 
-        // --- CSM (3 cascades) ---
+        // --- CSM (4 cascades) ---
         GLuint csmFBO_[kCascades] = { 0,0,0,0 };
         GLuint csmDepth_[kCascades] = { 0,0,0,0 };
         int    csmRes_ = 2048;
@@ -209,6 +211,8 @@ namespace MyCoreEngine {
         glm::mat4 csmLightVP_[kCascades];
         int  shadowUpdateRate_ = 1;
         int  frameIndex_ = 0;
+        int  csmDebugMode_ = 0; // 0=off
+
         void setShadowUpdateRate(int n) { shadowUpdateRate_ = std::max(1, n); }
 
         void computeCSMSplits_(float camNear, float camFar);
@@ -219,6 +223,7 @@ namespace MyCoreEngine {
         glm::mat4 Renderer::getCameraPerspectiveMatrix(const Camera& cam);
         void renderCSM_(Scene& scene, const Camera& cam);
         void ensureCSM_();
+        
     };
 
 } // namespace MyCoreEngine

@@ -151,7 +151,22 @@ void EditorApplication::Run() {
                 ImGui::Text("dir = (%.3f, %.3f, %.3f)", myRenderer.sunDir().x, myRenderer.sunDir().y, myRenderer.sunDir().z);
                 ImGui::Text("orthoHalf=%.1f  near=%.2f  far=%.2f", myRenderer.sunOrthoHalf(), myRenderer.sunNear(), myRenderer.sunFar());
 
+
+
                 if (ImGui::CollapsingHeader("CSM", ImGuiTreeNodeFlags_None)) {
+                    static const char* kModes[] = { "Off", "Cascade index", "Shadow factor", "Light depth", "Sampled depth", "Projected UV"};
+                    int dbg = myRenderer.csmDebugMode();
+                    if (ImGui::Combo("CSM Debug", &dbg, kModes, IM_ARRAYSIZE(kModes))) {
+                        myRenderer.setCSMDebugMode(dbg);
+                    }
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(?)");
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                        "Off: normal shading\n"
+                        "Cascade index: colors by split (0/1/2)\n"
+                        "Shadow factor: PCF result (white=lit)\n"
+                        "Light depth: light-space depth 0..1");
+                    
                     int res = myRenderer.cascadeResolution();
                     if (ImGui::SliderInt("Cascade res", &res, 512, 4096)) myRenderer.setCascadeResolution(res);
                     float lam = myRenderer.cascadeLambda();
