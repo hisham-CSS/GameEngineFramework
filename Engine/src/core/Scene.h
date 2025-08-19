@@ -24,6 +24,8 @@ struct DrawItem {
     entt::entity entity = entt::null;  // producer entity (for material overrides)
 };
 
+// Tag component: add to an entity to skip it from shadow maps.
+struct NoShadow {};
 
 namespace MyCoreEngine {
     struct RenderStats {

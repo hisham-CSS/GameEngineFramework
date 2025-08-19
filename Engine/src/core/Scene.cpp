@@ -224,6 +224,7 @@ void Scene::RenderShadowDepth(Shader & shadowShader, const glm::mat4 & lightVP)
         auto& mc = view.get<ModelComponent>(entity);
         auto& t = view.get<Transform>(entity);
         if (!mc.model) continue;
+        if (registry.any_of<NoShadow>(entity)) continue;
             for (const auto& mesh : mc.model->Meshes()) {
                 shadowShader.setMat4("model", t.modelMatrix);
                 // No material/texture binds; just draw geometry
@@ -244,6 +245,7 @@ void Scene::RenderDepth(Shader& prog, const glm::mat4& lightVP)
         const auto& t = view.get<Transform>(e);
         const auto& b = view.get<AABB>(e);
         if (!mc.model) continue;
+        if (registry.any_of<NoShadow>(e)) continue;
         if (!aabbIntersectsLightFrustum(lightVP, b, t.modelMatrix)) continue;
 
         for (const auto& m : mc.model->Meshes()) {
@@ -303,6 +305,7 @@ void Scene::RenderDepthCascade(Shader& prog, const glm::mat4& lightVP, float spl
         const auto& t = view.get<Transform>(e);
         const auto& b = view.get<AABB>(e);
         if (!mc.model) continue;
+        if (registry.any_of<NoShadow>(e)) continue;
 
         // quick camera-space Z test
         glm::vec3 center = (b.min + b.max) * 0.5f;

@@ -126,7 +126,7 @@ namespace MyCoreEngine {
         float     splitZ_[kCascades + 1];           // view-space distances [near, …, far]
 
         // GL objects
-        GLuint shadowArrayTex_ = 0;                 // GL_TEXTURE_2D_ARRAY, depth-only
+        //GLuint shadowArrayTex_ = 0;                 // GL_TEXTURE_2D_ARRAY, depth-only
         GLuint shadowFBO_ = 0;
 
         // Optional threshold to avoid rebuilding on tiny camera jitters
@@ -200,13 +200,14 @@ namespace MyCoreEngine {
 
 
         // --- CSM (3 cascades) ---
-        GLuint csmFBO_[kCascades] = { 0,0,0 };
-        GLuint csmDepth_[kCascades] = { 0,0,0 };
+        GLuint csmFBO_[kCascades] = { 0,0,0,0 };
+        GLuint csmDepth_[kCascades] = { 0,0,0,0 };
         int    csmRes_ = 2048;
-        float  csmLambda_ = 0.7f;            // 0=uniform, 1=log
-        float  csmSplits_[kCascades] = { 0,0,0 }; // view-space distances (end of each split)
-        glm::mat4 csmLightVP_[kCascades];       // matrices for each split
-        int  shadowUpdateRate_ = 1;  // 1 = every frame, 2 = every other frame, etc.
+        int    csmResPer_[kCascades] = { 0,0,0,0 }; // NEW: per-cascade resolution
+        float  csmLambda_ = 0.7f;
+        float  csmSplits_[kCascades] = { 0,0,0,0 };
+        glm::mat4 csmLightVP_[kCascades];
+        int  shadowUpdateRate_ = 1;
         int  frameIndex_ = 0;
         void setShadowUpdateRate(int n) { shadowUpdateRate_ = std::max(1, n); }
 

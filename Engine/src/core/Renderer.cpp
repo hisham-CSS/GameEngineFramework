@@ -38,20 +38,20 @@ namespace MyCoreEngine {
         glFrontFace(GL_CCW);
         //glEnable(GL_FRAMEBUFFER_SRGB); // linear -> sRGB on writes to default framebuffer
 
-        // --- Shadow array (CSM) ---
-        glGenTextures(1, &shadowArrayTex_);
-        glBindTexture(GL_TEXTURE_2D_ARRAY, shadowArrayTex_);
-        glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_DEPTH_COMPONENT24,
-            shadowSize_, shadowSize_, kCascades,
-            0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
-        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-        const float border[4] = { 1,1,1,1 };
-        glTexParameterfv(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_BORDER_COLOR, border);
+        //// --- Shadow array (CSM) ---
+        //glGenTextures(1, &shadowArrayTex_);
+        //glBindTexture(GL_TEXTURE_2D_ARRAY, shadowArrayTex_);
+        //glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_DEPTH_COMPONENT24,
+        //    shadowSize_, shadowSize_, kCascades,
+        //    0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+        //glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        //glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        //glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+        //glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+        //const float border[4] = { 1,1,1,1 };
+        //glTexParameterfv(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_BORDER_COLOR, border);
 
-        glGenFramebuffers(1, &shadowFBO_);
+        //glGenFramebuffers(1, &shadowFBO_);
 
         // --- CSM depth textures ---
         for (int i = 0; i < kCascades; ++i) {
@@ -663,17 +663,17 @@ namespace MyCoreEngine {
 
         for (int i = 0; i < 3; ++i) {
             if ((frameIndex_ & ((1 << i) - 1)) != 0) continue; // skip some cascades
-            // render this cascade
 
+
+            glViewport(0, 0, csmResPer_[i], csmResPer_[i]); // NEW: per-cascade size
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
                 GL_TEXTURE_2D, csmDepth_[i], 0);
-            // No color attachments
             glDrawBuffer(GL_NONE);
             glReadBuffer(GL_NONE);
 
             glClear(GL_DEPTH_BUFFER_BIT);
-
-            scene.RenderDepthCascade(*shadowDepthShader_, csmLightVP_[i], splitZ_[i], splitZ_[i + 1], cam.GetViewMatrix());
+            scene.RenderDepthCascade(*shadowDepthShader_, csmLightVP_[i],
+                splitZ_[i], splitZ_[i + 1], cam.GetViewMatrix());
 
         }
 
@@ -681,20 +681,34 @@ namespace MyCoreEngine {
         glCullFace(GL_BACK);
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glDisable(GL_POLYGON_OFFSET_FILL); // restore
     }
 
     void Renderer::ensureCSM_()
     {
-        if (shadowFBO_ == 0) {
+        if (shadowFBO_ == 0)
             glGenFramebuffers(1, &shadowFBO_);
-        }
 
-        // Create/resize depth textures
-        for (int i = 0; i < 3; ++i) {
-            if (csmDepth_[i] == 0) {
-                glGenTextures(1, &csmDepth_[i]);
+        // Desired per-cascade sizes: 1x, 1/2x, 1/4x, (unused 4th kept coherent)
+        const int desired[4] = {
+            csmRes_,
+            std::max(512, csmRes_ / 2),
+            std::max(512, csmRes_ / 4),
+            std::max(512, csmRes_ / 4)
+        };
+
+        for (int i = 0; i < 3; ++i) { // you currently use 3 cascades
+            const int want = desired[i];
+            if (csmDepth_[i] == 0 || csmResPer_[i] != want) {
+                csmResPer_[i] = want;
+
+                if (csmDepth_[i] == 0)
+                    glGenTextures(1, &csmDepth_[i]);
+
                 glBindTexture(GL_TEXTURE_2D, csmDepth_[i]);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, csmRes_, csmRes_, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, nullptr);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24,
+                    csmResPer_[i], csmResPer_[i], 0,
+                    GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, nullptr);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
@@ -702,13 +716,7 @@ namespace MyCoreEngine {
                 const float border[4] = { 1.f,1.f,1.f,1.f };
                 glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, border);
             }
-            else {
-                // Optional: detect resize (if shadowSize_ changed) and reallocate
-                // glBindTexture(GL_TEXTURE_2D, csmDepth_[i]);
-                // glTexImage2D(… shadowSize_ …);
-            }
         }
-
         glBindTexture(GL_TEXTURE_2D, 0);
     }
 } // namespace MyCoreEngine
