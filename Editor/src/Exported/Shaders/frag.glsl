@@ -50,9 +50,13 @@ uniform vec3 uBaseColor;
 uniform vec3 uEmissive;
 
 // -------- CSM uniforms (3 cascades) --------
-uniform mat4 uLightVP[3];
-uniform sampler2D uShadowCascade[3];
-uniform float uCSMSplits[3];   // view-space distances (end of each split)
+uniform mat4 uLightVP[4];
+uniform sampler2D uShadowCascade[4];
+uniform float uCSMSplits[4];   // view-space distances (end of each split)
+
+uniform int   uCascadeKernel[4];   // e.g. {1,2,3,4}  => 1x1, 3x3, 5x5, 7x7
+uniform float uSplitBlend;         // world-space meters to blend across splits
+
 // -------------------------------------------
 // debug mode
 uniform int uCSMDebug;   // 0=off, 1=cascade index, 2=shadow factor, 3=light depth
@@ -78,6 +82,37 @@ vec3 getNormal()
         N = normalize(fs_in.TBN * n_tan);
     }
     return N;
+}
+
+// --- return [0..1] shadow factor for a specific cascade index ---
+float pcfShadowCascade(int ci, vec4 lightClip, vec3 N, vec3 L)
+{
+    // project to [0,1]
+    vec3 uvz = lightClip.xyz / max(lightClip.w, 1e-6);
+    uvz = uvz * 0.5 + 0.5;
+
+    // fully lit when outside the cascade rect or past far plane
+    if (uvz.z > 1.0 || uvz.x < 0.0 || uvz.x > 1.0 || uvz.y < 0.0 || uvz.y > 1.0)
+        return 1.0;
+
+    float NdL  = max(dot(N, L), 0.0);
+    // bias = texel-size term + small slope term
+    float texel = 1.0 / float(textureSize(uShadowCascade[ci], 0).x);
+    float bias  = max(1.5 * texel, 0.0005) + (1.0 - NdL) * 0.001;
+
+    int   r   = max(uCascadeKernel[ci], 0);   // radius in texels
+    vec2  step = vec2(texel);
+
+    float sum = 0.0;
+    float w   = 0.0;
+    // Box PCF; (optional) swap to Poisson if you prefer
+    for (int y = -r; y <= r; ++y)
+    for (int x = -r; x <= r; ++x) {
+        float d = texture(uShadowCascade[ci], uvz.xy + vec2(x,y)*step).r;
+        sum += (uvz.z - bias <= d) ? 1.0 : 0.0;
+        w   += 1.0;
+    }
+    return (w > 0.0) ? (sum / w) : 1.0;
 }
 
 // --- 3x3 PCF sampling against the addressed cascade texture ---
@@ -168,7 +203,7 @@ void main()
     float viewZ = -(view * vec4(fs_in.worldPos, 1.0)).z;   // OpenGL view space: forward is -Z
     int ci = (viewZ <= uCSMSplits[0]) ? 0
            : (viewZ <= uCSMSplits[1]) ? 1
-           : 2;
+           : (viewZ <= uCSMSplits[2]) ? 2 : 3;
 
     // light-space position for the chosen cascade
     vec4 lightClip = uLightVP[ci] * vec4(fs_in.worldPos, 1.0);
@@ -187,7 +222,7 @@ void main()
     }
     if (uCSMDebug == 2) {
         // show shadow factor (white=lit, dark=shadowed)
-        float shadow = (uShadowsOn == 1) ? sampleShadow(ci, lightClip, N, normalize(-uLightDir)) : 1.0;
+        float shadow = (uShadowsOn == 1) ? pcfShadowCascade(ci, lightClip, N, normalize(-uLightDir)) : 1.0;
         FragColor = vec4(vec3(shadow), 1.0);
         return;
     }
@@ -211,7 +246,7 @@ void main()
 
     if (uUsePBR == 0) {
         float ndl = max(dot(N, L), 0.0);
-        float sh  = sampleShadow(ci, lightClip, N, L);
+        float sh  = pcfShadowCascade(ci, lightClip, N, L);
         vec3 color = albedo * (0.05 + sh * uLightColor * uLightIntensity * ndl);
         FragColor = vec4(color, 1.0);
         return;
@@ -242,7 +277,32 @@ void main()
     vec3 diffuse = kd * albedo / 3.14159265;
 
     // shadow only modulates the direct term
-    float shadow = (uShadowsOn == 1) ? sampleShadow(ci, lightClip, N, L) : 1.0;
+    float shadow = (uShadowsOn == 1) ? pcfShadowCascade(ci, lightClip, N, L) : 1.0;
+
+    // Blend across split planes using a world-space band uSplitBlend (meters).
+    if (uSplitBlend > 0.0) {
+    // Far edge: blend with next cascade
+    if (ci < 2) {
+        float s = uCSMSplits[ci]; // far plane of current slice (view-space)
+        float t = smoothstep(s - uSplitBlend, s + uSplitBlend, viewZ);
+        if (t > 0.0) {
+            vec4 lcNext = uLightVP[ci+1] * vec4(fs_in.worldPos, 1.0);
+            float shadowNext = pcfShadowCascade(ci+1, lcNext, N, L);
+            shadow = mix(shadow, shadowNext, t);
+        }
+    }
+    // Near edge: (optional) blend with previous cascade
+    if (ci > 0) {
+        float sPrev = uCSMSplits[ci-1];
+        float t2 = 1.0 - smoothstep(sPrev - uSplitBlend, sPrev + uSplitBlend, viewZ);
+        if (t2 < 1.0) {
+            vec4 lcPrev = uLightVP[ci-1] * vec4(fs_in.worldPos, 1.0);
+            float shadowPrev = pcfShadowCascade(ci-1, lcPrev, N, L);
+            shadow = mix(shadowPrev, shadow, t2);
+            }
+        }
+    }
+
     vec3 Lo = shadow * (diffuse + specular) * uLightColor * uLightIntensity * NdotL;
 
     // IBL

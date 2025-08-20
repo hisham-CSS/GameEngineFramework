@@ -184,13 +184,20 @@ namespace MyCoreEngine {
             shader.setMat4("projection", projection);
             shader.setMat4("view", view);
 			shader.setInt("uShadowsOn", csmEnabled_ ? 1 : 0);
+
+            shader.setFloat("uSplitBlend", splitBlend_);
+            
             // cascades: matrices + distances
             shader.setMat4("uLightVP[0]", csmLightVP_[0]);
             shader.setMat4("uLightVP[1]", csmLightVP_[1]);
             shader.setMat4("uLightVP[2]", csmLightVP_[2]);
+			shader.setMat4("uLightVP[3]", csmLightVP_[3]);
+            
             shader.setFloat("uCSMSplits[0]", csmSplits_[0]);
             shader.setFloat("uCSMSplits[1]", csmSplits_[1]);
             shader.setFloat("uCSMSplits[2]", csmSplits_[2]);
+			shader.setFloat("uCSMSplits[3]", csmSplits_[3]);
+
             shader.setInt("uCSMDebug", csmDebugMode_);
 
             shader.setFloat("uCascadeTexel[0]", 1.0f / float(csmResPer_[0]));

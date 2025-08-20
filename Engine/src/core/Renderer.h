@@ -24,7 +24,6 @@ namespace MyCoreEngine {
     public:
         Renderer(int width, int height, const char* title);
 
-
         // prevent copying (vector<unique_ptr<...>> cannot be copied)
         Renderer(const Renderer&) = delete;
         Renderer& operator=(const Renderer&) = delete;
@@ -85,25 +84,25 @@ namespace MyCoreEngine {
         void setSunFar(float v) { if (v != sunFar_) { sunFar_ = v;     shadowParamsDirty_ = true; } }
 
         float cascadeLambda() const { return csmLambda_; }
-        void  setCascadeLambda(float v) { csmLambda_ = glm::clamp(v, 0.0f, 1.0f); }
-        int   cascadeResolution() const { return csmRes_; }
-        int  getCascadeCount() const { return kCascades; }
-        int  getCascadeResolution() const { return csmRes_; }
+        void setCascadeLambda(float v) { csmLambda_ = glm::clamp(v, 0.0f, 1.0f); }
+        int cascadeResolution() const { return csmRes_; }
+        int getCascadeCount() const { return kCascades; }
+        int getCascadeResolution() const { return csmRes_; }
         float debugCascadeSplit(int i) const { return splitZ_[i + 1]; }
         void setCascadeResolution(int r);
-        int  csmDebugMode() const { return csmDebugMode_; }
+        int csmDebugMode() const { return csmDebugMode_; }
         void setCSMDebugMode(int m) { csmDebugMode_ = glm::clamp(m, 0, 5); }
 
     private:
         // Window / timing
         Window window_;
-        float  deltaTime_ = 0.0f;
-        float  lastFrame_ = 0.0f;
+        float deltaTime_ = 0.0f;
+        float lastFrame_ = 0.0f;
 
         unsigned int iblIrradiance_ = 0; // GL texture ids (0 = not set)
         unsigned int iblPrefiltered_ = 0;
         unsigned int iblBRDFLUT_ = 0;
-        float        iblPrefilterMipCount_ = 0.0f;
+        float iblPrefilterMipCount_ = 0.0f;
 
         // Shadow resources
         GLuint shadowDepthTex_ = 0;
@@ -111,15 +110,16 @@ namespace MyCoreEngine {
         // === Shadows / CSM ===
         static constexpr int kCascades = 4;
 
-        int   shadowSize_ = 2048;           // ImGui slider if you like
+        int shadowSize_ = 2048;           // ImGui slider if you like
         float splitLambda_ = 0.6f;           // 0=uniform, 1=logarithmic
-        bool  csmEnabled_ = true;
+        float splitBlend_ = 20.0f; // meters; expose in your UI if you like
+        bool csmEnabled_ = true;
 
         // Light (editor already exposes dir/intensity; add projection span)
         glm::vec3 sunDir_ = glm::vec3(-0.282f, -0.941f, 0.188f);
-        float     sunOrthoHalf_ = 100.0f;
-        float     sunNear_ = 1.0f;
-        float     sunFar_ = 300.0f;
+        float sunOrthoHalf_ = 100.0f;
+        float sunNear_ = 1.0f;
+        float sunFar_ = 300.0f;
 
         // A simple dirty bit that forces shadow pass to re-render
         bool shadowParamsDirty_ = true;
@@ -135,8 +135,8 @@ namespace MyCoreEngine {
         float csmRebuildAngEps_ = 0.5f;             // degrees
         glm::vec3 lastCamPos_ = {};
         glm::vec3 lastCamFwd_ = {};
+        
         // === Shadows / CSM ===
-
         glm::mat4 lightViewProj_{ 1.0f };
 
         // Shadow pass shader (depth-only)
@@ -200,18 +200,17 @@ namespace MyCoreEngine {
         void setupGL_();           // creates GL state + fires OnContextReady once
         void recreateHDR_(int w, int h);
 
-
         // --- CSM (4 cascades) ---
         std::array<GLuint, kCascades> csmFBO_ = { 0,0,0,0 };
         GLuint csmDepth_[kCascades] = { 0,0,0,0 };
-        int    csmRes_ = 2048;
-        int    csmResPer_[kCascades] = { 0,0,0,0 }; // NEW: per-cascade resolution
-        float  csmLambda_ = 0.7f;
-        float  csmSplits_[kCascades] = { 0,0,0,0 };
+        int csmRes_ = 2048;
+        int csmResPer_[kCascades] = { 0,0,0,0 }; // NEW: per-cascade resolution
+        float csmLambda_ = 0.7f;
+        float csmSplits_[kCascades] = { 0,0,0,0 };
         std::array<glm::mat4, kCascades> csmLightVP_ = { 0, 0, 0, 0 };
-        int  shadowUpdateRate_ = 1;
-        int  frameIndex_ = 0;
-        int  csmDebugMode_ = 0; // 0=off
+        int shadowUpdateRate_ = 1;
+        int frameIndex_ = 0;
+        int csmDebugMode_ = 0; // 0=off
 
         void setShadowUpdateRate(int n) { shadowUpdateRate_ = std::max(1, n); }
 
