@@ -24,7 +24,16 @@ add_library(Engine SHARED
     src/core/Camera.cpp 
     src/core/AssetManager.h 
     src/core/AssetManager.cpp
-    src/core/Scene.cpp "src/core/Material.h")
+    src/core/Scene.cpp 
+    src/core/Material.h 
+    src/render/IRenderPass.h 
+    src/render/passes/ForwardOpaquePass.h 
+    src/render/passes/ShadowCSMPass.h 
+    src/render/passes/TonemapPass.h 
+    src/render/RenderPipeline.h 
+    src/render/passes/ShadowCSMPass.cpp 
+    src/render/passes/ForwardOpaquePass.cpp 
+    src/render/passes/TonemapPass.cpp)
 
 target_compile_definitions(Engine PUBLIC ENGINE_DLL_EXPORTS)
 

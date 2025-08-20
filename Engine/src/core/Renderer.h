@@ -17,6 +17,7 @@
 #include "Shader.h"
 #include "InputSystem.h"
 #include "Model.h"
+#include "../render/RenderPipeline.h"
 
 namespace MyCoreEngine {
 
@@ -94,6 +95,11 @@ namespace MyCoreEngine {
         void setCSMDebugMode(int m) { csmDebugMode_ = glm::clamp(m, 0, 5); }
 
     private:
+
+        PassContext passCtx_;
+        RenderPipeline pipeline_;
+        uint64_t frameIndex_ = 0;
+
         // Window / timing
         Window window_;
         float deltaTime_ = 0.0f;
@@ -209,7 +215,7 @@ namespace MyCoreEngine {
         float csmSplits_[kCascades] = { 0,0,0,0 };
         std::array<glm::mat4, kCascades> csmLightVP_ = { 0, 0, 0, 0 };
         int shadowUpdateRate_ = 1;
-        int frameIndex_ = 0;
+        //int frameIndex_ = 0;
         int csmDebugMode_ = 0; // 0=off
 
         void setShadowUpdateRate(int n) { shadowUpdateRate_ = std::max(1, n); }

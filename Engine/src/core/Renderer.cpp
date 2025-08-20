@@ -2,6 +2,11 @@
 
 #include "Renderer.h"
 #include "Window.h"
+#include "../render/passes/ForwardOpaquePass.h"
+#include "../render/passes/ShadowCSMPass.h"
+#include "../render/passes/TonemapPass.h"
+
+
 #include <stdexcept>
 
 
@@ -96,6 +101,13 @@ namespace MyCoreEngine {
         window_.getFramebufferSize(w, h);
         glViewport(0, 0, w, h);
 
+        passCtx_.defaultFBO = 0;
+        passCtx_.hdrFBO = hdrFBO_;
+        passCtx_.hdrColorTex = hdrColorTex_;
+        passCtx_.hdrDepthRBO = hdrDepthRBO_;
+        passCtx_.fsQuadVAO = fsQuadVAO_;
+        passCtx_.tonemapShader = tonemapShader_.get();
+
         if (!readyFired_ && onReady_) {
             onReady_();          // Editor initializes ImGui and creates GL objects here
             readyFired_ = true;
@@ -111,8 +123,29 @@ namespace MyCoreEngine {
 
     void Renderer::run(Scene& scene, Shader& shader) {
         // GL is expected to be initialized already via InitGL()
+
+        // Build a 3-pass default pipeline (CSM -> Forward -> Tonemap)
+        auto& csm = pipeline_.add<ShadowCSMPass>(4, csmRes_);
+        auto& fwd = pipeline_.add<ForwardOpaquePass>(shader);  // 'shader' is your forward shader
+        auto& ton = pipeline_.add<TonemapPass>();
+        pipeline_.setup(passCtx_);
+
         while (!window_.shouldClose()) {
             updateDeltaTime_();
+
+            FrameParams fp;
+            fp.view = camera_.GetViewMatrix();
+            fp.proj = glm::perspective(glm::radians(camera_.Zoom), window_.getAspectRatio(), 0.1f, 1000.0f);
+            fp.deltaTime = deltaTime_;
+            fp.frameIndex = ++frameIndex_;
+            int w, h; window_.getFramebufferSize(w, h);
+            fp.viewportW = w; fp.viewportH = h;
+
+            // keep passCtx_ in sync with per-frame globals you already tweak
+            passCtx_.sunDir = sunDir_;
+            passCtx_.exposure = exposure_;
+
+            pipeline_.executeAll(passCtx_, scene, camera_, fp);
 
             bool capK = false, capM = false;
             if (captureFn_) {
@@ -171,7 +204,7 @@ namespace MyCoreEngine {
                 renderCSM_(scene, camera_);          // render into cascades only when rebuilt
             }
             
-            int w, h;
+            //int w, h;
             window_.getFramebufferSize(w, h);
             glViewport(0, 0, w, h);   // <-- restore main viewport
             // 1) Render scene into HDR FBO
