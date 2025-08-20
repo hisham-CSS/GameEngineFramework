@@ -63,14 +63,14 @@ namespace MyCoreEngine {
         // Light exposure
         float exposure() const { return exposure_; }
         void setExposure(float e) { exposure_ = std::max(0.01f, e); }
-        
+
         // Sun / shadows
         glm::vec3 sunDir() const { return sunDir_; }
         float sunOrthoHalf() const { return sunOrthoHalf_; }
         float sunNear() const { return sunNear_; }
         float sunFar()  const { return sunFar_; }
 
-        
+
 
         // Setters used by the Editor UI
         void setSunDir(const glm::vec3& d) {
@@ -125,10 +125,9 @@ namespace MyCoreEngine {
         bool shadowParamsDirty_ = true;
         bool csmDataDirty_ = true;           // set when camera moves/rotates beyond a threshold
 
-        float     splitZ_[kCascades + 1];           // view-space distances [near, …, far]
+        std::array<float, kCascades + 1> splitZ_ = { 0, 0, 0, 0, 0 };           // view-space distances [near, …, far]
 
         // GL objects
-        //GLuint shadowArrayTex_ = 0;                 // GL_TEXTURE_2D_ARRAY, depth-only
         GLuint shadowFBO_ = 0;
 
         // Optional threshold to avoid rebuilding on tiny camera jitters
@@ -139,6 +138,7 @@ namespace MyCoreEngine {
         // === Shadows / CSM ===
 
         glm::mat4 lightViewProj_{ 1.0f };
+
         // Shadow pass shader (depth-only)
         std::unique_ptr<Shader> shadowDepthShader_;
 
@@ -202,13 +202,13 @@ namespace MyCoreEngine {
 
 
         // --- CSM (4 cascades) ---
-        GLuint csmFBO_[kCascades] = { 0,0,0,0 };
+        std::array<GLuint, kCascades> csmFBO_ = { 0,0,0,0 };
         GLuint csmDepth_[kCascades] = { 0,0,0,0 };
         int    csmRes_ = 2048;
         int    csmResPer_[kCascades] = { 0,0,0,0 }; // NEW: per-cascade resolution
         float  csmLambda_ = 0.7f;
         float  csmSplits_[kCascades] = { 0,0,0,0 };
-        glm::mat4 csmLightVP_[kCascades];
+        std::array<glm::mat4, kCascades> csmLightVP_ = { 0, 0, 0, 0 };
         int  shadowUpdateRate_ = 1;
         int  frameIndex_ = 0;
         int  csmDebugMode_ = 0; // 0=off

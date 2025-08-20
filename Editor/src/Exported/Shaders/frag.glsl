@@ -57,6 +57,8 @@ uniform float uCSMSplits[3];   // view-space distances (end of each split)
 // debug mode
 uniform int uCSMDebug;   // 0=off, 1=cascade index, 2=shadow factor, 3=light depth
 
+uniform float uCascadeTexel[4];
+
 // GGX helpers
 float saturate(float x) { return clamp(x, 0.0, 1.0); }
 float D_GGX(float NdotH, float a) {
@@ -91,9 +93,11 @@ float sampleShadow(int ci, vec4 lightClip, vec3 N, vec3 L)
 
     // slope-scale bias
     float NdL  = max(dot(N, L), 0.0);
-    float bias = max(0.002 * (1.0 - NdL), 0.0005);
+    //float bias = max(0.002 * (1.0 - NdL), 0.0005);
+    float bias = max(1.5 * uCascadeTexel[ci], 0.0005) + (1.0 - NdL) * 0.001;
+    vec2 texel = vec2(uCascadeTexel[ci]);
 
-    float texel = 1.0 / float(textureSize(uShadowCascade[ci], 0).x);
+    //float texel = 1.0 / float(textureSize(uShadowCascade[ci], 0).x);
     float sum = 0.0;
     for (int y = -1; y <= 1; ++y)
     for (int x = -1; x <= 1; ++x) {
