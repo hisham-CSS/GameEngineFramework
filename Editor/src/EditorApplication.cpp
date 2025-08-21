@@ -7,59 +7,6 @@
 
 #include "imgui.h"
 
-// Helper: create a couple of entities for testing
-static void CreateSampleScene(MyCoreEngine::Scene& scene) {
-    using namespace MyCoreEngine;
-//
-//    // Entity 1
-//    entt::entity e1 = scene.registry.create();
-//    scene.registry.emplace<Transform>(e1, Transform{
-//        /*position*/ {0.f, 0.f, 0.f},
-//        /*rotation*/ {0.f, 0.f, 0.f},
-//        /*scale*/    {1.f, 1.f, 1.f},
-//        /*dirty*/    true
-//        });
-//#ifdef NAME_COMPONENT_ENABLED
-//    scene.registry.emplace<Name>(e1, Name{ "Cube A" });
-//#endif
-//
-//    // Entity 2
-//    entt::entity e2 = scene.registry.create();
-//    scene.registry.emplace<Transform>(e2, Transform{
-//        {2.f, 0.f, 0.f}, {0.f, 0.f, 0.f}, {1.f, 1.f, 1.f}, true
-//        });
-//#ifdef NAME_COMPONENT_ENABLED
-//    scene.registry.emplace<Name>(e2, Name{ "Cube B" });
-//#endif
-
-    // If you have a Model component in your ECS, attach it here.
-    // Otherwise skip; your Scene::RenderScene likely renders via a stored list.
-    // scene.registry.emplace<ModelComponent>(e1, ModelComponent{/*...*/});
-    // scene.registry.emplace<ModelComponent>(e2, ModelComponent{/*...*/});
-
-    /*Model loadedModel("Exported/Model/backpack.obj");
-    AABB boundingVol = generateAABB(loadedModel);
-    
-    Entity firstEntity = scene.createEntity();
-    Transform transform;
-    transform.position = glm::vec3(0.f, 0.f, 0.f);
-    firstEntity.addComponent<Transform>(transform);
-    firstEntity.addComponent<Model>(loadedModel);
-    firstEntity.addComponent<AABB>(boundingVol);
-
-
-    for (unsigned int x = 0; x < 20; ++x) {
-        for (unsigned int z = 0; z < 20; ++z) {
-            Entity newEntity = scene.createEntity();
-            Transform newTransform;
-            newTransform.position = glm::vec3(x * 10.f - 100.f, 0.f, z * 10.f - 100.f);
-            newEntity.addComponent<Transform>(newTransform);
-            newEntity.addComponent<Model>(loadedModel);
-            newEntity.addComponent<AABB>(boundingVol);
-        }
-    }*/
-}
-
 //for the future for any initalization things that are required
 void EditorApplication::Initialize()
 {
@@ -92,10 +39,7 @@ void EditorApplication::Run() {
             ImGui::Begin("Information", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
             if (ImGui::CollapsingHeader("Rendering Stats", ImGuiTreeNodeFlags_None)) {
                 ImGui::Text("dt: %.3f ms (%.1f FPS)", dt * 1000.f, dt > 0.f ? 1.f / dt : 0.f);
-                ImGui::Text("Cascades: %d, res: %d", myRenderer.getCascadeCount(), myRenderer.getCascadeResolution());
-                for (int i = 0; i < myRenderer.getCascadeCount(); ++i) {
-                    ImGui::Text("Split[%d] = %.3f (view-space)", i, myRenderer.debugCascadeSplit(i));
-                }
+                ImGui::Text("Cascades: %d, res: %d", myRenderer.getCSMNumCascades(), myRenderer.getCSMBaseResolution());
                 ImGui::Text("Draws:            %u", rs.draws);
                 ImGui::Text("Instanced draws:  %u", rs.instancedDraws);
                 ImGui::Text("Instances:        %u", rs.instances);
@@ -129,31 +73,48 @@ void EditorApplication::Run() {
                 }
             }
             // ---- Sun / Shadow frustum controls ----
-            if (ImGui::CollapsingHeader("Sun / Shadows", ImGuiTreeNodeFlags_None)) {
+            if (ImGui::CollapsingHeader("Sun / Shadows Controls", ImGuiTreeNodeFlags_None)) {
                 // Sun direction (normalized)
+
+                bool on = myRenderer.getCSMEnabled();
+                if (ImGui::Checkbox("CSM Enabled", &on)) myRenderer.setCSMEnabled(on);
+
                 glm::vec3 dir = myRenderer.sunDir();
                 if (ImGui::DragFloat3("Sun dir", &dir.x, 0.01f, -1.0f, 1.0f)) {
                     if (glm::length(dir) > 1e-6f) dir = glm::normalize(dir);
                     myRenderer.setSunDir(dir);
                 }
-                float half = myRenderer.sunOrthoHalf();
-                float sNear = myRenderer.sunNear();
-                float sFar = myRenderer.sunFar();
-                ImGui::SliderFloat("Sun ortho half", &half, 5.f, 200.f);
-                ImGui::SliderFloat("Sun near", &sNear, 0.1f, 50.f);
-                ImGui::SliderFloat("Sun far", &sFar, 50.f, 500.f);
-                myRenderer.setSunOrthoHalf(half);
-                myRenderer.setSunNear(sNear);
-				myRenderer.setSunFar(sFar);
+                float pad = myRenderer.getCSMCascadePadding();
+                float sNear = myRenderer.getCSMDepthMargin();
+				float sFar = myRenderer.getCSMMaxShadowDistance();
+                if (ImGui::SliderFloat("Cascade Padding", &pad, 0, 50.f)) myRenderer.setCSMCascadePadding(pad);
+				if (ImGui::SliderFloat("Shadow Depth Margin", &sNear, 0.0f, 50.f)) myRenderer.setCSMDepthMargin(sNear);
+				if (ImGui::SliderFloat("Max Shadow Distance", &sFar, 10.f, 2000.f)) myRenderer.setCSMMaxShadowDistance(sFar);
 
-                ImGui::Separator();
-                ImGui::Text("Applied:");
-                ImGui::Text("dir = (%.3f, %.3f, %.3f)", myRenderer.sunDir().x, myRenderer.sunDir().y, myRenderer.sunDir().z);
-                ImGui::Text("orthoHalf=%.1f  near=%.2f  far=%.2f", myRenderer.sunOrthoHalf(), myRenderer.sunNear(), myRenderer.sunFar());
+                int res = myRenderer.getCSMBaseResolution();
+                if (ImGui::SliderInt("CSM Base Resolution", &res, 512, 4096)) myRenderer.setCSMBaseResolution(res);
+
+                int casc = myRenderer.getCSMNumCascades();
+                if (ImGui::SliderInt("Cascades", &casc, 1, 4)) myRenderer.setCSMNumCascades(casc);
+
+                float lambda = myRenderer.getCSMLambda();
+                if (ImGui::SliderFloat("CSM Lambda", &lambda, 0.f, 1.f)) myRenderer.setCSMLambda(lambda);
+
+                float posEps, angEps; myRenderer.getCSMEpsilons(posEps, angEps);
+                if (ImGui::SliderFloat("CSM Pos Epsilon (m)", &posEps, 0.f, 0.5f) ||
+                    ImGui::SliderFloat("CSM Ang Epsilon (deg)", &angEps, 0.f, 5.f)) {
+                    myRenderer.setCSMEpsilons(posEps, angEps);
+                }
+
+                int budget = myRenderer.getCSMCascadeBudget();
+                if (ImGui::SliderInt("Cascade Budget", &budget, 0, 4)) myRenderer.setCSMCascadeBudget(budget);
+                // 0 = update all cascades when movement happens
+
+                // Force one-off refresh button:
+                if (ImGui::Button("Force Rebuild CSM")) myRenderer.forceCSMUpdate();
 
 
-
-                if (ImGui::CollapsingHeader("CSM", ImGuiTreeNodeFlags_None)) {
+                if (ImGui::CollapsingHeader("CSM Debug", ImGuiTreeNodeFlags_None)) {
                     static const char* kModes[] = { "Off", "Cascade index", "Shadow factor", "Light depth", "Sampled depth", "Projected UV"};
                     int dbg = myRenderer.csmDebugMode();
                     if (ImGui::Combo("CSM Debug", &dbg, kModes, IM_ARRAYSIZE(kModes))) {
@@ -166,14 +127,6 @@ void EditorApplication::Run() {
                         "Cascade index: colors by split (0/1/2)\n"
                         "Shadow factor: PCF result (white=lit)\n"
                         "Light depth: light-space depth 0..1");
-                    
-                    int res = myRenderer.cascadeResolution();
-                    if (ImGui::SliderInt("Cascade res", &res, 512, 4096)) myRenderer.setCascadeResolution(res);
-                    float lam = myRenderer.cascadeLambda();
-                    if (ImGui::SliderFloat("Split lambda", &lam, 0.f, 1.f)) myRenderer.setCascadeLambda(lam);
-                    ImGui::Text("Split Z: %.2f / %.2f / %.2f", myRenderer.debugCascadeSplit(0),
-                        myRenderer.debugCascadeSplit(1),
-                        myRenderer.debugCascadeSplit(2));
                 }
             }
             

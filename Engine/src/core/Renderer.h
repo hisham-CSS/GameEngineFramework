@@ -18,6 +18,7 @@
 #include "InputSystem.h"
 #include "Model.h"
 #include "../render/RenderPipeline.h"
+#include "../render/passes/ShadowCSMPass.h"
 
 namespace MyCoreEngine {
 
@@ -55,10 +56,7 @@ namespace MyCoreEngine {
         void InitGL(); // new: loads GLAD and fires OnContextReady once
 
         // public API:
-        void SetIBLTextures(unsigned int irradianceCube,
-            unsigned int prefilteredCube,
-            unsigned int brdfLUT2D,
-            float prefilteredMipCount);
+        void SetIBLTextures(unsigned int irradianceCube, unsigned int prefilteredCube, unsigned int brdfLUT2D, float prefilteredMipCount);
 
         // Light exposure
         float exposure() const { return exposure_; }
@@ -66,11 +64,6 @@ namespace MyCoreEngine {
 
         // Sun / shadows
         glm::vec3 sunDir() const { return sunDir_; }
-        float sunOrthoHalf() const { return sunOrthoHalf_; }
-        float sunNear() const { return sunNear_; }
-        float sunFar()  const { return sunFar_; }
-
-
 
         // Setters used by the Editor UI
         void setSunDir(const glm::vec3& d) {
@@ -80,30 +73,62 @@ namespace MyCoreEngine {
                 shadowParamsDirty_ = true;
             }
         }
-        void setSunOrthoHalf(float v) { if (v != sunOrthoHalf_) { sunOrthoHalf_ = v; shadowParamsDirty_ = true; } }
-        void setSunNear(float v) { if (v != sunNear_) { sunNear_ = v;     shadowParamsDirty_ = true; } }
-        void setSunFar(float v) { if (v != sunFar_) { sunFar_ = v;     shadowParamsDirty_ = true; } }
 
-        float cascadeLambda() const { return csmLambda_; }
-        void setCascadeLambda(float v) { csmLambda_ = glm::clamp(v, 0.0f, 1.0f); }
-        int cascadeResolution() const { return csmRes_; }
-        int getCascadeCount() const { return kCascades; }
-        int getCascadeResolution() const { return csmRes_; }
-        float debugCascadeSplit(int i) const { return splitZ_[i + 1]; }
-        void setCascadeResolution(int r);
+        //int cascadeResolution() const { return csmRes_; }
+        //int getCascadeCount() const { return kCascades; }
+        //int getCascadeResolution() const { return csmRes_; }
+        //float debugCascadeSplit(int i) const { return splitZ_[i + 1]; }
         int csmDebugMode() const { return csmDebugMode_; }
         void setCSMDebugMode(int m) { csmDebugMode_ = glm::clamp(m, 0, 5); }
 
+
+        // --- Editor: directional light rotation (Unity-style) ---
+        // If enabled, renderer computes sunDir_ from yaw/pitch every frame.
+        void  setUseSunYawPitch(bool e);
+        bool  getUseSunYawPitch() const;
+        void  setSunYawPitchDegrees(float yawDeg, float pitchDeg); // yaw=around +Y, pitch=look up/down
+        void  getSunYawPitchDegrees(float& yawDeg, float& pitchDeg) const;
+
+        // -------- Editor wrappers for CSM controls --------
+        // (These let your existing editor panels keep calling into Renderer.)
+        bool  getCSMEnabled() const;
+        void  setCSMEnabled(bool e);
+        
+        float getCSMMaxShadowDistance() const;
+        void  setCSMMaxShadowDistance(float d);
+        float getCSMCascadePadding() const;
+        void  setCSMCascadePadding(float m);
+        float getCSMDepthMargin() const;
+        void  setCSMDepthMargin(float m);
+
+        float getCSMLambda() const;
+        void  setCSMLambda(float v);
+        int   getCSMBaseResolution() const;
+        void  setCSMBaseResolution(int r);
+        int   getCSMNumCascades() const;
+        void  setCSMNumCascades(int n);
+        ShadowCSMPass::UpdatePolicy getCSMUpdatePolicy() const;
+        void  setCSMUpdatePolicy(ShadowCSMPass::UpdatePolicy p);
+        int   getCSMCascadeBudget() const;
+        void  setCSMCascadeBudget(int n);
+        void  getCSMEpsilons(float& posMeters, float& angDegrees) const;
+        void  setCSMEpsilons(float posMeters, float angDegrees);
+        void  forceCSMUpdate(); // manual refresh
+
+        const CSMSnapshot & getCSMSnapshot() const; // for debug UI
+
     private:
-
-        PassContext passCtx_;
-        RenderPipeline pipeline_;
-        uint64_t frameIndex_ = 0;
-
         // Window / timing
         Window window_;
         float deltaTime_ = 0.0f;
         float lastFrame_ = 0.0f;
+        uint64_t frameIndex_ = 0;
+
+        PassContext passCtx_{};
+        RenderPipeline pipeline_;
+        ShadowCSMPass* csmPass_ = nullptr; // optional raw ptr for quick access
+        CSMSnapshot nullSnap_{};             // fallback for getCSMSnapshot()
+        
 
         unsigned int iblIrradiance_ = 0; // GL texture ids (0 = not set)
         unsigned int iblPrefiltered_ = 0;
@@ -114,52 +139,14 @@ namespace MyCoreEngine {
         GLuint shadowDepthTex_ = 0;
 
         // === Shadows / CSM ===
-        static constexpr int kCascades = 4;
-
-        int shadowSize_ = 2048;           // ImGui slider if you like
-        float splitLambda_ = 0.6f;           // 0=uniform, 1=logarithmic
         float splitBlend_ = 20.0f; // meters; expose in your UI if you like
-        bool csmEnabled_ = true;
+
 
         // Light (editor already exposes dir/intensity; add projection span)
         glm::vec3 sunDir_ = glm::vec3(-0.282f, -0.941f, 0.188f);
-        float sunOrthoHalf_ = 100.0f;
-        float sunNear_ = 1.0f;
-        float sunFar_ = 300.0f;
 
         // A simple dirty bit that forces shadow pass to re-render
         bool shadowParamsDirty_ = true;
-        bool csmDataDirty_ = true;           // set when camera moves/rotates beyond a threshold
-
-        std::array<float, kCascades + 1> splitZ_ = { 0, 0, 0, 0, 0 };           // view-space distances [near, …, far]
-
-        // GL objects
-        GLuint shadowFBO_ = 0;
-
-        // Optional threshold to avoid rebuilding on tiny camera jitters
-        float csmRebuildPosEps_ = 0.05f;            // meters
-        float csmRebuildAngEps_ = 0.5f;             // degrees
-        glm::vec3 lastCamPos_ = {};
-        glm::vec3 lastCamFwd_ = {};
-        
-        // === Shadows / CSM ===
-        glm::mat4 lightViewProj_{ 1.0f };
-
-        // Shadow pass shader (depth-only)
-        std::unique_ptr<Shader> shadowDepthShader_;
-
-        glm::mat4 lastCamViewProj_ = glm::mat4(1.0f);
-        glm::vec3 lastSunDir_ = glm::vec3(0, -1, 0);
-        float     updateThreshold_ = 0.002f;   // tweak
-
-        bool needShadowUpdate_(const glm::mat4& camVP, const glm::vec3& sunDir) const {
-            float dSun = glm::length(sunDir - lastSunDir_);
-            float dCam = glm::length(glm::vec4(camVP[0][0] - lastCamViewProj_[0][0],
-                camVP[1][1] - lastCamViewProj_[1][1],
-                camVP[2][2] - lastCamViewProj_[2][2],
-                camVP[3][3] - lastCamViewProj_[3][3]));
-            return (dSun > 1e-5f) || (dCam > updateThreshold_);
-        }
 
         // HDR resources
         GLuint hdrFBO_ = 0;
@@ -207,29 +194,13 @@ namespace MyCoreEngine {
         void recreateHDR_(int w, int h);
 
         // --- CSM (4 cascades) ---
-        std::array<GLuint, kCascades> csmFBO_ = { 0,0,0,0 };
-        GLuint csmDepth_[kCascades] = { 0,0,0,0 };
-        int csmRes_ = 2048;
-        int csmResPer_[kCascades] = { 0,0,0,0 }; // NEW: per-cascade resolution
-        float csmLambda_ = 0.7f;
-        float csmSplits_[kCascades] = { 0,0,0,0 };
-        std::array<glm::mat4, kCascades> csmLightVP_ = { 0, 0, 0, 0 };
-        int shadowUpdateRate_ = 1;
-        //int frameIndex_ = 0;
+        //int csmRes_ = 2048;
         int csmDebugMode_ = 0; // 0=off
 
-        void setShadowUpdateRate(int n) { shadowUpdateRate_ = std::max(1, n); }
-
-        void computeCSMSplits_(float camNear, float camFar);
-        void computeCSMMatrix_(int idx, const glm::mat4 & camView, const glm::mat4 & camProj, float splitNear, float splitFar, const glm::vec3 & sunDir, glm::mat4 & outLightVP);
-        void renderCSMShadowPass_(const glm::mat4 & camView, const glm::mat4 & camProj, Scene &scene);
-		void updateCSMDirty_(const Camera& cam);
-		bool rebuildCSM_(const Camera& cam);
         glm::mat4 Renderer::getCameraPerspectiveMatrix(const Camera& cam);
-        void renderCSM_(Scene& scene, const Camera& cam);
-        void ensureCSM_();
-        
+
+        // Directional light rotation control (optional)
+        bool  useSunYawPitch_ = true;
+        float sunYawDeg_ = -30.0f, sunPitchDeg_ = 50.0f; // Unity-like defaults
     };
-
 } // namespace MyCoreEngine
-

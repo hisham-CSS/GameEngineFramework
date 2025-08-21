@@ -3,7 +3,6 @@
 #include "Renderer.h"
 #include "Window.h"
 #include "../render/passes/ForwardOpaquePass.h"
-#include "../render/passes/ShadowCSMPass.h"
 #include "../render/passes/TonemapPass.h"
 
 
@@ -11,12 +10,27 @@
 
 
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/geometric.hpp> // normalize, dot
 
 namespace MyCoreEngine {
 
     static inline float degBetween(const glm::vec3& a, const glm::vec3& b) {
         float d = glm::clamp(glm::dot(glm::normalize(a), glm::normalize(b)), -1.0f, 1.0f);
         return glm::degrees(acosf(d));
+    }
+
+    static inline glm::vec3 dirFromYawPitch(float yawDeg, float pitchDeg) {
+        const float yaw = glm::radians(yawDeg);
+        const float pitch = glm::radians(pitchDeg);
+        // Right-handed: +Y up, -Z forward (typical view)
+        const float cy = cosf(yaw), sy = sinf(yaw);
+        const float cp = cosf(pitch), sp = sinf(pitch);
+        // Point roughly towards (-Z) when yaw=pitch=0
+        glm::vec3 d;
+        d.x = sy * cp;
+        d.y = -sp;
+        d.z = -cy * cp;
+        return glm::normalize(d);
     }
 
     Renderer::Renderer(int width, int height, const char* title)
@@ -41,10 +55,6 @@ namespace MyCoreEngine {
         glEnable(GL_CULL_FACE);
         glCullFace(GL_BACK);
         glFrontFace(GL_CCW);
-
-        // CSM resources are created in ensureCSM_()
-        glGenFramebuffers(1, &shadowFBO_);
-
 
 		// HDR textures (IBL)
         // --- HDR FBO ---
@@ -107,6 +117,20 @@ namespace MyCoreEngine {
         passCtx_.hdrDepthRBO = hdrDepthRBO_;
         passCtx_.fsQuadVAO = fsQuadVAO_;
         passCtx_.tonemapShader = tonemapShader_.get();
+        passCtx_.exposure = exposure_;
+
+        if (!csmPass_) {
+            csmPass_ = &pipeline_.add<ShadowCSMPass>(/*cascades*/4, /*baseRes*/2048);
+            pipeline_.setup(passCtx_);
+            csmPass_->setUpdatePolicy(ShadowCSMPass::UpdatePolicy::CameraOrSunMoved);
+            csmPass_->setCascadeUpdateBudget(1);
+            // seed defaults so Editor sliders reflect reality
+            csmPass_->setNumCascades(4);
+            csmPass_->setLambda(0.7f);
+            csmPass_->setEpsilons(0.05f /*meters*/, 0.5f /*degrees*/);
+            csmPass_->setEnabled(true);
+            // base resolution already set from ctor via csmRes_
+        }
 
         if (!readyFired_ && onReady_) {
             onReady_();          // Editor initializes ImGui and creates GL objects here
@@ -123,29 +147,8 @@ namespace MyCoreEngine {
 
     void Renderer::run(Scene& scene, Shader& shader) {
         // GL is expected to be initialized already via InitGL()
-
-        // Build a 3-pass default pipeline (CSM -> Forward -> Tonemap)
-        auto& csm = pipeline_.add<ShadowCSMPass>(4, csmRes_);
-        auto& fwd = pipeline_.add<ForwardOpaquePass>(shader);  // 'shader' is your forward shader
-        auto& ton = pipeline_.add<TonemapPass>();
-        pipeline_.setup(passCtx_);
-
         while (!window_.shouldClose()) {
             updateDeltaTime_();
-
-            FrameParams fp;
-            fp.view = camera_.GetViewMatrix();
-            fp.proj = glm::perspective(glm::radians(camera_.Zoom), window_.getAspectRatio(), 0.1f, 1000.0f);
-            fp.deltaTime = deltaTime_;
-            fp.frameIndex = ++frameIndex_;
-            int w, h; window_.getFramebufferSize(w, h);
-            fp.viewportW = w; fp.viewportH = h;
-
-            // keep passCtx_ in sync with per-frame globals you already tweak
-            passCtx_.sunDir = sunDir_;
-            passCtx_.exposure = exposure_;
-
-            pipeline_.executeAll(passCtx_, scene, camera_, fp);
 
             bool capK = false, capM = false;
             if (captureFn_) {
@@ -170,42 +173,26 @@ namespace MyCoreEngine {
                 0.1f, 1000.0f);
             glm::mat4 view = camera_.GetViewMatrix();
 
-            // --- Step 2: build light view-projection (directional) ---
-            // Center the light frustum near the camera (simple version)
-            glm::vec3 center = camera_.Position;
-            glm::vec3 lightPos = center - sunDir_ * 150.0f;
-            glm::mat4 lightView = glm::lookAt(lightPos, center, glm::vec3(0, 1, 0));
-            glm::mat4 lightProj = glm::ortho(-sunOrthoHalf_, sunOrthoHalf_,
-            -sunOrthoHalf_, sunOrthoHalf_,
-            sunNear_, sunFar_);
-            lightViewProj_ = lightProj * lightView;
-            
-            // --- CSM shadow pass (replaces single shadow pass) ---
-            if (!shadowDepthShader_) {
-                shadowDepthShader_ = std::make_unique<Shader>(
-                    "Exported/Shaders/shadow_depth_vert.glsl",
-                    "Exported/Shaders/shadow_depth_frag.glsl");
-            }
-            const glm::mat4 camProj = glm::perspective(glm::radians(camera_.Zoom),
-                window_.getAspectRatio(),
-                0.1f, 1000.0f);
-            const glm::mat4 camView = camera_.GetViewMatrix();
+            FrameParams fp;
+            fp.view = view;
+            fp.proj = projection;
+            fp.deltaTime = deltaTime_;
+            fp.frameIndex = ++frameIndex_;
+            int w, h; window_.getFramebufferSize(w, h);
+            fp.viewportW = w; fp.viewportH = h;
 
-            // Example inside your frame loop:
-            const glm::mat4 camVP = camProj * camView;
-            const bool cameraOrSunMovedEnough = needShadowUpdate_(camVP, sunDir_); // if you already have this
-            const bool shouldRebuild =
-                shadowParamsDirty_ ||
-                cameraOrSunMovedEnough; // AND optionally your frame-rate throttle
-
-            // --- CSM update gate ---
-            updateCSMDirty_(camera_);                // set csmDataDirty_ if moved/rotated enough
-            if (rebuildCSM_(camera_)) {              // also consumes shadowParamsDirty_
-                renderCSM_(scene, camera_);          // render into cascades only when rebuilt
+            if (useSunYawPitch_) {
+                sunDir_ = dirFromYawPitch(sunYawDeg_, sunPitchDeg_);
             }
-            
-            //int w, h;
-            window_.getFramebufferSize(w, h);
+
+            // keep passCtx_ in sync with per-frame globals you already tweak
+            passCtx_.sunDir = sunDir_;
+            passCtx_.exposure = exposure_;
+
+            pipeline_.executeAll(passCtx_, scene, camera_, fp);
+
+
+            //window_.getFramebufferSize(w, h);
             glViewport(0, 0, w, h);   // <-- restore main viewport
             // 1) Render scene into HDR FBO
             glBindFramebuffer(GL_FRAMEBUFFER, hdrFBO_);
@@ -216,41 +203,33 @@ namespace MyCoreEngine {
             shader.use();
             shader.setMat4("projection", projection);
             shader.setMat4("view", view);
-			shader.setInt("uShadowsOn", csmEnabled_ ? 1 : 0);
+			shader.setInt("uShadowsOn", passCtx_.csm.enabled ? 1 : 0);
 
             shader.setFloat("uSplitBlend", splitBlend_);
             
             // cascades: matrices + distances
-            shader.setMat4("uLightVP[0]", csmLightVP_[0]);
-            shader.setMat4("uLightVP[1]", csmLightVP_[1]);
-            shader.setMat4("uLightVP[2]", csmLightVP_[2]);
-			shader.setMat4("uLightVP[3]", csmLightVP_[3]);
-            
-            shader.setFloat("uCSMSplits[0]", csmSplits_[0]);
-            shader.setFloat("uCSMSplits[1]", csmSplits_[1]);
-            shader.setFloat("uCSMSplits[2]", csmSplits_[2]);
-			shader.setFloat("uCSMSplits[3]", csmSplits_[3]);
-
             shader.setInt("uCSMDebug", csmDebugMode_);
 
-            shader.setFloat("uCascadeTexel[0]", 1.0f / float(csmResPer_[0]));
-            shader.setFloat("uCascadeTexel[1]", 1.0f / float(csmResPer_[1]));
-            shader.setFloat("uCascadeTexel[2]", 1.0f / float(csmResPer_[2]));
-			shader.setFloat("uCascadeTexel[3]", 1.0f / float(csmResPer_[3]));
+            shader.setMat4("uLightVP[0]", passCtx_.csm.lightVP[0]);
+            shader.setMat4("uLightVP[1]", passCtx_.csm.lightVP[1]);
+            shader.setMat4("uLightVP[2]", passCtx_.csm.lightVP[2]);
+            shader.setMat4("uLightVP[3]", passCtx_.csm.lightVP[3]);
+
+            shader.setFloat("uCSMSplits[0]", passCtx_.csm.splitFar[0]);
+            shader.setFloat("uCSMSplits[1]", passCtx_.csm.splitFar[1]);
+            shader.setFloat("uCSMSplits[2]", passCtx_.csm.splitFar[2]);
+            shader.setFloat("uCSMSplits[3]", passCtx_.csm.splitFar[3]);
+
+            shader.setFloat("uCascadeTexel[0]", 1.0f / float(passCtx_.csm.resPer[0]));
+            shader.setFloat("uCascadeTexel[1]", 1.0f / float(passCtx_.csm.resPer[1]));
+            shader.setFloat("uCascadeTexel[2]", 1.0f / float(passCtx_.csm.resPer[2]));
+            shader.setFloat("uCascadeTexel[3]", 1.0f / float(passCtx_.csm.resPer[3]));
 
 
             // bind cascade depth maps to 8/9/10
-            glActiveTexture(GL_TEXTURE8);
-            glBindTexture(GL_TEXTURE_2D, csmDepth_[0]);
-            shader.setInt("uShadowCascade[0]", 8);
-
-            glActiveTexture(GL_TEXTURE9);
-            glBindTexture(GL_TEXTURE_2D, csmDepth_[1]);
-            shader.setInt("uShadowCascade[1]", 9);
-
-            glActiveTexture(GL_TEXTURE10);
-            glBindTexture(GL_TEXTURE_2D, csmDepth_[2]);
-            shader.setInt("uShadowCascade[2]", 10);
+            glActiveTexture(GL_TEXTURE8);  glBindTexture(GL_TEXTURE_2D, passCtx_.csm.depthTex[0]); shader.setInt("uShadowCascade[0]", 8);
+            glActiveTexture(GL_TEXTURE9);  glBindTexture(GL_TEXTURE_2D, passCtx_.csm.depthTex[1]); shader.setInt("uShadowCascade[1]", 9);
+            glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, passCtx_.csm.depthTex[2]); shader.setInt("uShadowCascade[2]", 10);
 
             // Bind IBL only if provided; these are global, not per-mesh
             if (iblIrradiance_ && iblPrefiltered_ && iblBRDFLUT_) {
@@ -401,16 +380,6 @@ namespace MyCoreEngine {
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
-    void Renderer::computeCSMSplits_(float camNear, float camFar) {
-        // Practical split scheme
-        for (int i = 0; i < kCascades; ++i) {
-            float si = float(i + 1) / float(kCascades);
-            float logSplit = camNear * std::pow(camFar / camNear, si);
-            float uniSplit = camNear + (camFar - camNear) * si;
-            csmSplits_[i] = glm::mix(uniSplit, logSplit, csmLambda_);
-        }
-    }
-
     static void frustumCornersViewSpace(const glm::mat4& invProj, float nz, float fz, std::array<glm::vec3, 8>& out)
     {
         // NDC cube corners
@@ -429,279 +398,89 @@ namespace MyCoreEngine {
         // we’ll actually compute corners by directly inverting (proj for (nz,fz)) below in computeCSMMatrix_.
     }
 
-    void Renderer::computeCSMMatrix_(int idx,
-        const glm::mat4& camView,
-        const glm::mat4& camProj,
-        float splitNear, float splitFar,
-        const glm::vec3& sunDir,
-        glm::mat4& outLightVP)
-    {
-        // Build a projection for the slice and invert it to get the 8 view-space corners.
-        glm::mat4 sliceProj = glm::perspectiveFovRH_NO(
-            /*fovY*/ 2.f * atan(1.f / camProj[1][1]), float(window_.getWidth()), float(window_.getHeight()), splitNear, splitFar);
-        glm::mat4 invSliceProj = glm::inverse(sliceProj);
-
-        std::array<glm::vec3, 8> corners;
-        // corners in VIEW space
-        int k = 0;
-        for (int z = 0; z < 2; ++z)
-            for (int y = 0; y < 2; ++y)
-                for (int x = 0; x < 2; ++x)
-                {
-                    glm::vec4 ndc = glm::vec4(x ? 1.f : -1.f, y ? 1.f : -1.f, z ? 1.f : -1.f, 1.f);
-                    glm::vec4 v = invSliceProj * ndc;
-                    v /= v.w;
-                    corners[k++] = glm::vec3(v);
-                }
-
-        // Transform to WORLD
-        glm::mat4 invView = glm::inverse(camView);
-        for (auto& c : corners) c = glm::vec3(invView * glm::vec4(c, 1.0));
-
-        // Light view matrix from sun direction (position far along direction).
-        glm::vec3 center(0);
-        for (auto& c : corners) center += c; center *= (1.f / 8.f);
-        glm::vec3 lightPos = center - sunDir * 200.f; // pull back “sun”
-        glm::mat4 lightView = glm::lookAtRH(lightPos, center, glm::vec3(0, 1, 0));
-
-        // Find AABB of slice in light space
-        glm::vec3 minB(1e9f), maxB(-1e9f);
-        for (auto& c : corners) {
-            glm::vec3 lc = glm::vec3(lightView * glm::vec4(c, 1.0));
-            minB = glm::min(minB, lc);
-            maxB = glm::max(maxB, lc);
-        }
-
-        // Optional pad to reduce shimmering
-        const float pad = 5.f;
-        minB -= pad; maxB += pad;
-
-        glm::mat4 lightProj = glm::orthoRH_NO(minB.x, maxB.x, minB.y, maxB.y, -maxB.z - 500.f, -minB.z + 500.f);
-        outLightVP = lightProj * lightView;
-    }
-
-    void Renderer::updateCSMDirty_(const Camera& cam)
-    {
-        glm::vec3 pos = cam.Position;
-        glm::vec3 fwd = cam.Front;
-
-        if (glm::distance(pos, lastCamPos_) > csmRebuildPosEps_ * csmRebuildPosEps_
-            || degBetween(fwd, lastCamFwd_) > csmRebuildAngEps_) {
-            csmDataDirty_ = true;
-            lastCamPos_ = pos;
-            lastCamFwd_ = fwd;
-        }
-
-        // If any sun/frustum param changed, also rebuild
-        if (shadowParamsDirty_) {
-            csmDataDirty_ = true;
-            shadowParamsDirty_ = false; // consume
-        }
-    }
-
-    bool Renderer::rebuildCSM_(const Camera& cam)
-    {
-        if (!csmEnabled_) return false;
-        if (!csmDataDirty_) return false;
-        csmDataDirty_ = false;
-
-        // camera planes must match your perspective() in run()
-        const float camNear = 0.1f;
-        const float camFar = 1000.0f;
-
-        // split distances (view-space)
-        splitZ_[0] = camNear;
-        splitZ_[kCascades] = camFar;
-        for (int i = 1; i < kCascades; ++i) {
-            float u = float(i) / float(kCascades);
-            float log = camNear * powf(camFar / camNear, u);
-            float uni = camNear + (camFar - camNear) * u;
-            splitZ_[i] = glm::mix(uni, log, csmLambda_);
-        }
-        for (int i = 0; i < kCascades; ++i)
-            csmSplits_[i] = splitZ_[i + 1]; // shader reads the far of each slice
-
-        const glm::mat4 V = cam.GetViewMatrix();
-        const float aspect = window_.getAspectRatio();
-
-        const glm::vec3 up = { 0,1,0 };
-        const glm::vec3 dir = glm::normalize(sunDir_);
-
-        for (int i = 0; i < kCascades; ++i) {
-            // world-space corners of this slice
-            glm::mat4 sliceProj = glm::perspective(glm::radians(cam.Zoom), aspect,
-                splitZ_[i], splitZ_[i + 1]);
-            glm::mat4 invSliceVP = glm::inverse(sliceProj * V);
-
-            const glm::vec3 ndc[8] = {
-                {-1,-1,-1},{+1,-1,-1},{+1,+1,-1},{-1,+1,-1},
-                {-1,-1,+1},{+1,-1,+1},{+1,+1,+1},{-1,+1,+1}
-            };
-            std::array<glm::vec3, 8> corners;
-            for (int k = 0; k < 8; ++k) {
-                glm::vec4 w = invSliceVP * glm::vec4(ndc[k], 1.0f);
-                corners[k] = glm::vec3(w) / w.w;
-            }
-
-            // center
-            glm::vec3 center(0);
-            for (auto& c : corners) center += c;
-            center *= 1.0f / 8.0f;
-
-            // light view (right-handed, OpenGL-style)
-            glm::mat4 lightView = glm::lookAt(center - dir * sunOrthoHalf_, center, up);
-
-            // extents in light-space
-            float minX = +FLT_MAX, maxX = -FLT_MAX, minY = +FLT_MAX, maxY = -FLT_MAX, minZ = +FLT_MAX, maxZ = -FLT_MAX;
-            for (auto& c : corners) {
-                glm::vec3 lp = glm::vec3(lightView * glm::vec4(c, 1.0));
-                minX = std::min(minX, lp.x); maxX = std::max(maxX, lp.x);
-                minY = std::min(minY, lp.y); maxY = std::max(maxY, lp.y);
-                minZ = std::min(minZ, lp.z); maxZ = std::max(maxZ, lp.z);
-            }
-
-            // Convert light-space z (where forward is -Z) to positive near/far distances.
-            float zNear = -maxZ;   // distance to the plane closer to the light
-            float zFar = -minZ;   // distance to the plane farther from the light
-            const float zPad = 5.0f;
-            zNear = std::max(0.001f, zNear - zPad);
-            zFar = zFar + zPad;
-
-            // pad XY a little + texel snap (stabilize)
-            const float pad = 5.0f;
-            minX -= pad; maxX += pad;  minY -= pad; maxY += pad;
-
-            const float worldPerTexelX = (maxX - minX) / float(csmResPer_[i] ? csmResPer_[i] : csmRes_);
-            const float worldPerTexelY = (maxY - minY) / float(csmResPer_[i] ? csmResPer_[i] : csmRes_);
-            minX = std::floor(minX / worldPerTexelX) * worldPerTexelX;
-            maxX = std::floor(maxX / worldPerTexelX) * worldPerTexelX;
-            minY = std::floor(minY / worldPerTexelY) * worldPerTexelY;
-            maxY = std::floor(maxY / worldPerTexelY) * worldPerTexelY;
-
-            // IMPORTANT: use zNear/zFar (positive distances) and the RH/NO variant to match GL.
-            glm::mat4 lightProj = glm::orthoRH_NO(minX, maxX, minY, maxY, zNear, zFar);
-            csmLightVP_[i] = lightProj * lightView;
-        }
-
-        return true;
-    }
-
     glm::mat4 Renderer::getCameraPerspectiveMatrix(const Camera& cam)
     {
         return glm::perspective(glm::radians(cam.Zoom),
             window_.getAspectRatio(),
             0.1f, 1000.0f);
     }
-
-    void Renderer::renderCSM_(Scene& scene, const Camera& cam)
-    {
-        if (!csmEnabled_) return;       // your UI toggle
-        ensureCSM_();                       // create FBO/textures on first use
-
-		++frameIndex_;               // increment frame index for throttling
-
-        // Rebuild splits & light VP if camera or sun params changed
-        if (shadowParamsDirty_) {
-            rebuildCSM_(cam);               // you already wrote this
-            shadowParamsDirty_ = false;
-        }
-
-        glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO_);
-        glViewport(0, 0, csmRes_, csmRes_);
-        glEnable(GL_DEPTH_TEST);
-
-        // depth-only
-        glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-        glDisable(GL_BLEND);                 // NEW: blending off
-        glDepthMask(GL_TRUE);                // NEW: ensure depth WRITES are enabled
-        glDepthFunc(GL_LESS);                // NEW: standard depth func
-
-		// NOTE: you can also use GL_FRONT for cull face to reduce peter-panning
-        glEnable(GL_CULL_FACE);
-        glCullFace(GL_FRONT);
-        glEnable(GL_POLYGON_OFFSET_FILL); 
-        glPolygonOffset(2.0f, 4.0f);
-
-        shadowDepthShader_.get()->use();                  // your shadow depth shader
-        shadowDepthShader_.get()->setInt("uUseInstancing", 0);
-
-        for (int i = 0; i < kCascades; ++i) {
-            if ((frameIndex_ & ((1 << i) - 1)) != 0) continue; // skip some cascades
-
-
-            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-                GL_TEXTURE_2D, csmDepth_[i], 0);
-            glViewport(0, 0, csmResPer_[i], csmResPer_[i]); // NEW: per-cascade size
-            glDrawBuffer(GL_NONE);
-            glReadBuffer(GL_NONE);
-
-#ifndef NDEBUG
-            GLenum fb = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-            if (fb != GL_FRAMEBUFFER_COMPLETE) {
-                // Replace with your logging/assert mechanism
-                fprintf(stderr, "Shadow FBO incomplete for cascade %d (0x%04x)\n", i, fb);
-            }
-#endif
-
-            glClear(GL_DEPTH_BUFFER_BIT);
-            scene.RenderDepthCascade(*shadowDepthShader_, csmLightVP_[i],
-                splitZ_[i], splitZ_[i + 1], cam.GetViewMatrix());
-
-        }
-
-        // restore state
-        glDisable(GL_POLYGON_OFFSET_FILL); // restore
-        glCullFace(GL_BACK);
-        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    
+    // -------- Editor wrapper implementations --------
+    bool Renderer::getCSMEnabled() const {
+        return csmPass_ ? csmPass_->enabled() : false;
+    }
+    void Renderer::setCSMEnabled(bool e) {
+        if (csmPass_) csmPass_->setEnabled(e);
+    }
+    float Renderer::getCSMMaxShadowDistance() const {
+        return csmPass_ ? csmPass_->maxShadowDistance() : 1000.f;
+    }
+    void Renderer::setCSMMaxShadowDistance(float d) {
+        if (csmPass_) csmPass_->setMaxShadowDistance(d);
+    }
+    float Renderer::getCSMCascadePadding() const {
+        return csmPass_ ? csmPass_->cascadePaddingMeters() : 0.0f;
+    }
+    void Renderer::setCSMCascadePadding(float m) {
+        if (csmPass_) csmPass_->setCascadePaddingMeters(m);
+    }
+    float Renderer::getCSMDepthMargin() const {
+        return csmPass_ ? csmPass_->depthMarginMeters() : 5.0f;
+    }
+    void Renderer::setCSMDepthMargin(float m) {
+        if (csmPass_) csmPass_->setDepthMarginMeters(m);
+    }
+    float Renderer::getCSMLambda() const {
+        return csmPass_ ? csmPass_->lambda() : 0.7f;
+    }
+    void Renderer::setCSMLambda(float v) {
+        if (csmPass_) csmPass_->setLambda(v);
+    }
+    int Renderer::getCSMBaseResolution() const {
+        return csmPass_ ? csmPass_->baseResolution() : 2048;
+    }
+    void Renderer::setCSMBaseResolution(int r) {
+        if (csmPass_) csmPass_->setBaseResolution(r);
+    }
+    int Renderer::getCSMNumCascades() const {
+        return csmPass_ ? csmPass_->numCascades() : 4;
+    }
+    void Renderer::setCSMNumCascades(int n) {
+        if (csmPass_) csmPass_->setNumCascades(n);
+    }
+    ShadowCSMPass::UpdatePolicy Renderer::getCSMUpdatePolicy() const {
+        return csmPass_ ? csmPass_->updatePolicy() : ShadowCSMPass::UpdatePolicy::CameraOrSunMoved;
+    }
+    void Renderer::setCSMUpdatePolicy(ShadowCSMPass::UpdatePolicy p) {
+        if (csmPass_) csmPass_->setUpdatePolicy(p);
+    }
+    int Renderer::getCSMCascadeBudget() const {
+        return csmPass_ ? csmPass_->cascadeUpdateBudget() : 0;
+    }
+    void Renderer::setCSMCascadeBudget(int n) {
+        if (csmPass_) csmPass_->setCascadeUpdateBudget(n);
+    }
+    void Renderer::getCSMEpsilons(float& posMeters, float& angDegrees) const {
+        if (csmPass_) csmPass_->getEpsilons(posMeters, angDegrees);
+        else { posMeters = 0.05f; angDegrees = 0.5f; }
+    }
+    void Renderer::setCSMEpsilons(float posMeters, float angDegrees) {
+        if (csmPass_) csmPass_->setEpsilons(posMeters, angDegrees);
+    }
+    void Renderer::forceCSMUpdate() {
+        if (csmPass_) csmPass_->forceUpdate();
+    }
+    const CSMSnapshot & Renderer::getCSMSnapshot() const {
+        return csmPass_ ? csmPass_->snapshot() : nullSnap_;
     }
 
-    void Renderer::ensureCSM_()
-    {
-        if (shadowFBO_ == 0)
-            glGenFramebuffers(1, &shadowFBO_);
-
-        // Desired per-cascade sizes: 1x, 1/2x, 1/4x, (unused 4th kept coherent)
-        const int desired[4] = {
-            csmRes_,
-            std::max(512, csmRes_ / 2),
-            std::max(512, csmRes_ / 4),
-            std::max(512, csmRes_ / 4)
-        };
-
-        for (int i = 0; i < kCascades; ++i) { // you currently use 3 cascades
-            const int want = desired[i];
-            if (csmDepth_[i] == 0 || csmResPer_[i] != want) {
-                csmResPer_[i] = want;
-
-                if (csmDepth_[i] == 0)
-                    glGenTextures(1, &csmDepth_[i]);
-
-                glBindTexture(GL_TEXTURE_2D, csmDepth_[i]);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24,
-                    csmResPer_[i], csmResPer_[i], 0,
-                    GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, nullptr);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-                const float border[4] = { 1.f,1.f,1.f,1.f };
-                glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, border);
-            }
-        }
-        glBindTexture(GL_TEXTURE_2D, 0);
+    // --- Editor: directional light rotation control ---
+    void Renderer::setUseSunYawPitch(bool e) { useSunYawPitch_ = e; }
+    bool Renderer::getUseSunYawPitch() const { return useSunYawPitch_; }
+    void Renderer::setSunYawPitchDegrees(float yawDeg, float pitchDeg) {
+        sunYawDeg_ = yawDeg; sunPitchDeg_ = pitchDeg;
     }
-
-    void Renderer::setCascadeResolution(int r) {
-        r = std::max(512, r);
-        if (csmRes_ != r) {
-            csmRes_ = r;
-            // force re-create of cascade textures next shadow pass
-            for (int i = 0; i < kCascades; ++i) {
-                if (csmDepth_[i]) { glDeleteTextures(1, &csmDepth_[i]); csmDepth_[i] = 0; }
-            }
-            shadowParamsDirty_ = true;  // trigger rebuild
-        }
+    void Renderer::getSunYawPitchDegrees(float& yawDeg, float& pitchDeg) const {
+        yawDeg = sunYawDeg_; pitchDeg = sunPitchDeg_;
     }
 } // namespace MyCoreEngine

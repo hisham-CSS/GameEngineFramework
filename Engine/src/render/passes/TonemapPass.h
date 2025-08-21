@@ -2,7 +2,7 @@
 #pragma once
 #include "../IRenderPass.h"
 
-class TonemapPass : public IRenderPass {
+class TonemapPass final : public IRenderPass {
 public:
     const char* name() const override { return "Tonemap"; }
     void setup(PassContext&) override {}

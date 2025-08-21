@@ -2,7 +2,7 @@
 #pragma once
 #include "../IRenderPass.h"
 
-class ForwardOpaquePass : public IRenderPass {
+class ForwardOpaquePass final : public IRenderPass {
 public:
     // Renderer (or Editor) gives the compiled forward shader you already pass to run()
     explicit ForwardOpaquePass(Shader& forward) : forward_(&forward) {}
