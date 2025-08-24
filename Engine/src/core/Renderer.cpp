@@ -147,6 +147,7 @@ namespace MyCoreEngine {
 
     void Renderer::run(Scene& scene, Shader& shader) {
         // GL is expected to be initialized already via InitGL()
+
         while (!window_.shouldClose()) {
             updateDeltaTime_();
 
@@ -206,30 +207,72 @@ namespace MyCoreEngine {
 			shader.setInt("uShadowsOn", passCtx_.csm.enabled ? 1 : 0);
 
             shader.setFloat("uSplitBlend", splitBlend_);
-            
-            // cascades: matrices + distances
+
             shader.setInt("uCSMDebug", csmDebugMode_);
+            
+            // ---- CSM uniforms & bindings (dynamic count) ----
+            const int csmCount = passCtx_.csm.cascades;      // 1..4
+            const int baseUnit = 8;                          // reserve 8..11
+            // (Optional if your shader exposes it; safe to set even if unused)
+            shader.setInt("uCascadeCount", csmCount);
+            shader.setFloat("uCamNear", 0.1f);
+            shader.setFloat("uCamFar", getCSMMaxShadowDistance()); // or cached value
+            
+            // matrices, split distances, texel size per cascade
+            for (int i = 0; i < csmCount; ++i) {
+            // uLightVP[i]
+                {
+                    char name[32];
+                    snprintf(name, sizeof(name), "uLightVP[%d]", i);
+                    shader.setMat4(name, passCtx_.csm.lightVP[i]);
+                }
+                // uCSMSplits[i]
+                {
+                    char name[32];
+                    snprintf(name, sizeof(name), "uCSMSplits[%d]", i);
+                    shader.setFloat(name, passCtx_.csm.splitFar[i]);
+                }
+                // uCascadeTexel[i] = 1/res
+                {
+                    char name[32];
+                    snprintf(name, sizeof(name), "uCascadeTexel[%d]", i);
+                    shader.setFloat(name, 1.0f / float(passCtx_.csm.resPer[i] > 0 ? passCtx_.csm.resPer[i] : 1));
+                }   
+            }
+            
+            // bind N shadow maps to texture units baseUnit..baseUnit+N-1
+            for (int i = 0; i < csmCount; ++i) {
+                const int unit = baseUnit + i;
+                glActiveTexture(GL_TEXTURE0 + unit);
+                glBindTexture(GL_TEXTURE_2D, passCtx_.csm.depthTex[i]);
+                char name[32];
+                snprintf(name, sizeof(name), "uShadowCascade[%d]", i);
+                shader.setInt(name, unit);
+            }
+            
+            //// cascades: matrices + distances
+            //shader.setInt("uCSMDebug", csmDebugMode_);
 
-            shader.setMat4("uLightVP[0]", passCtx_.csm.lightVP[0]);
-            shader.setMat4("uLightVP[1]", passCtx_.csm.lightVP[1]);
-            shader.setMat4("uLightVP[2]", passCtx_.csm.lightVP[2]);
-            shader.setMat4("uLightVP[3]", passCtx_.csm.lightVP[3]);
+            //shader.setMat4("uLightVP[0]", passCtx_.csm.lightVP[0]);
+            //shader.setMat4("uLightVP[1]", passCtx_.csm.lightVP[1]);
+            //shader.setMat4("uLightVP[2]", passCtx_.csm.lightVP[2]);
+            //shader.setMat4("uLightVP[3]", passCtx_.csm.lightVP[3]);
 
-            shader.setFloat("uCSMSplits[0]", passCtx_.csm.splitFar[0]);
-            shader.setFloat("uCSMSplits[1]", passCtx_.csm.splitFar[1]);
-            shader.setFloat("uCSMSplits[2]", passCtx_.csm.splitFar[2]);
-            shader.setFloat("uCSMSplits[3]", passCtx_.csm.splitFar[3]);
+            //shader.setFloat("uCSMSplits[0]", passCtx_.csm.splitFar[0]);
+            //shader.setFloat("uCSMSplits[1]", passCtx_.csm.splitFar[1]);
+            //shader.setFloat("uCSMSplits[2]", passCtx_.csm.splitFar[2]);
+            //shader.setFloat("uCSMSplits[3]", passCtx_.csm.splitFar[3]);
 
-            shader.setFloat("uCascadeTexel[0]", 1.0f / float(passCtx_.csm.resPer[0]));
-            shader.setFloat("uCascadeTexel[1]", 1.0f / float(passCtx_.csm.resPer[1]));
-            shader.setFloat("uCascadeTexel[2]", 1.0f / float(passCtx_.csm.resPer[2]));
-            shader.setFloat("uCascadeTexel[3]", 1.0f / float(passCtx_.csm.resPer[3]));
+            //shader.setFloat("uCascadeTexel[0]", 1.0f / float(passCtx_.csm.resPer[0]));
+            //shader.setFloat("uCascadeTexel[1]", 1.0f / float(passCtx_.csm.resPer[1]));
+            //shader.setFloat("uCascadeTexel[2]", 1.0f / float(passCtx_.csm.resPer[2]));
+            //shader.setFloat("uCascadeTexel[3]", 1.0f / float(passCtx_.csm.resPer[3]));
 
 
-            // bind cascade depth maps to 8/9/10
-            glActiveTexture(GL_TEXTURE8);  glBindTexture(GL_TEXTURE_2D, passCtx_.csm.depthTex[0]); shader.setInt("uShadowCascade[0]", 8);
-            glActiveTexture(GL_TEXTURE9);  glBindTexture(GL_TEXTURE_2D, passCtx_.csm.depthTex[1]); shader.setInt("uShadowCascade[1]", 9);
-            glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, passCtx_.csm.depthTex[2]); shader.setInt("uShadowCascade[2]", 10);
+            //// bind cascade depth maps to 8/9/10
+            //glActiveTexture(GL_TEXTURE8);  glBindTexture(GL_TEXTURE_2D, passCtx_.csm.depthTex[0]); shader.setInt("uShadowCascade[0]", 8);
+            //glActiveTexture(GL_TEXTURE9);  glBindTexture(GL_TEXTURE_2D, passCtx_.csm.depthTex[1]); shader.setInt("uShadowCascade[1]", 9);
+            //glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, passCtx_.csm.depthTex[2]); shader.setInt("uShadowCascade[2]", 10);
 
             // Bind IBL only if provided; these are global, not per-mesh
             if (iblIrradiance_ && iblPrefiltered_ && iblBRDFLUT_) {
@@ -466,6 +509,24 @@ namespace MyCoreEngine {
     }
     void Renderer::setCSMEpsilons(float posMeters, float angDegrees) {
         if (csmPass_) csmPass_->setEpsilons(posMeters, angDegrees);
+    }
+    float Renderer::getCSMSlopeDepthBias() const {
+        return csmPass_ ? csmPass_->slopeDepthBias() : 2.0f;
+    }
+    void Renderer::setCSMSlopeDepthBias(float v) {
+        if (csmPass_) csmPass_->setSlopeDepthBias(v);
+    }
+    float Renderer::getCSMConstantDepthBias() const {
+        return csmPass_ ? csmPass_->constantDepthBias() : 4.0f;
+    }
+    void Renderer::setCSMConstantDepthBias(float v) {
+        if (csmPass_) csmPass_->setConstantDepthBias(v);
+    }
+    void Renderer::setCSMCullFrontFaces(bool on) {
+        if (csmPass_) csmPass_->setCullFrontFaces(on);
+    }
+    bool Renderer::getCSMCullFrontFaces() const {
+        return csmPass_ ? csmPass_->cullFrontFaces() : true;
     }
     void Renderer::forceCSMUpdate() {
         if (csmPass_) csmPass_->forceUpdate();

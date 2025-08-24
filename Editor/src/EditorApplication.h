@@ -14,6 +14,18 @@ public:
 
     void Run() override;
 
+    void DrawLightControls(MyCoreEngine::Scene& scene);
+
+    void DrawIBLHDRControls(MyCoreEngine::Scene& scene);
+
+    void DrawMaterialControls(MyCoreEngine::Scene& scene);
+
+    void DrawSunShadowControls(MyCoreEngine::Scene& scene);
+
+    void DrawRenderingToggles(MyCoreEngine::Scene& scene);
+
+    void DrawInformationPanel(const MyCoreEngine::Scene& scene, float dt);
+
 private:
     MyCoreEngine::Renderer myRenderer;
     EditorImGuiLayer ui_;                 // <-- persistent member

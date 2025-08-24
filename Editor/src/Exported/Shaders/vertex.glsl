@@ -13,12 +13,13 @@ uniform mat4 view;
 uniform mat4 projection;
 uniform int  uUseInstancing; // 0/1
 
-uniform mat4 uLightVP[3];
+uniform mat4 uLightVP[4];
 
 out VS_OUT {
-    vec2 uv;
-    mat3 TBN;              // to fragment
-    vec3 worldPos;         // keep if your lighting needs it
+    vec2  uv;
+    mat3  TBN;              // to fragment
+    vec3  worldPos;         // keep if your lighting needs it
+    float viewDepth;
 } vs_out;
 
 void main()
@@ -26,7 +27,8 @@ void main()
     mat4 M = (uUseInstancing == 1) ? iModel : model;
 
     vec4 wpos = M * vec4(aPos, 1.0);
-    gl_Position = projection * view * wpos;
+    vec4 viewPos  = view * wpos;
+    gl_Position = projection * viewPos;
 
     // TBN in world space
     mat3 M3 = mat3(M);
@@ -38,4 +40,5 @@ void main()
 
     vs_out.uv = aTex;
     vs_out.worldPos = wpos.xyz;
+    vs_out.viewDepth = -viewPos.z;  
 }

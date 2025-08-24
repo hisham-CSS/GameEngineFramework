@@ -23,9 +23,17 @@ public:
         Manual             // render only if markDirty_() was called
     };
 
+    enum class SplitMode { 
+        Fixed, 
+        Lambda 
+    };
+
     // Editor toggles
     void setEnabled(bool e) { enabled_ = e; }
     void setLambda(float v);             // 0..1, mirrors csmLambda_
+    void setCSMLambda(float l) { lambda_ = glm::clamp(l, 0.0f, 1.0f); splitMode_ = SplitMode::Lambda; markDirty_(); }
+    void setSplitMode(SplitMode m) { splitMode_ = m; markDirty_(); }
+    
     void setBaseResolution(int r);       // recreates textures next frame
     void setNumCascades(int n) { cascades_ = std::clamp(n, 1, kMaxCascades); markDirty_(); }
 
@@ -34,13 +42,13 @@ public:
     void setCascadeUpdateBudget(int n) { budgetPerFrame_ = n; }
 
     void setMaxShadowDistance(float d) { maxShadowDistance_ = std::max(1.f, d); markDirty_(); }
-    void setCascadePaddingMeters(float m) { cascadePaddingMeters_ = std::max(0.f, m); }
-    void setDepthMarginMeters(float m) { depthMarginMeters_ = std::max(0.f, m); }
+    void setCascadePaddingMeters(float m) { cascadePaddingMeters_ = std::max(0.f, m); markDirty_(); }
+    void setDepthMarginMeters(float m) { depthMarginMeters_ = std::max(0.f, m); markDirty_(); }
 
     // Depth-bias / culling controls
-    void setSlopeDepthBias(float slope) { slopeBias_ = std::max(0.f, slope); }
-    void setConstantDepthBias(float constant) { constBias_ = std::max(0.f, constant); }
-    void setCullFrontFaces(bool on) { cullFrontFaces_ = on; }
+    void setSlopeDepthBias(float slope) { slopeBias_ = std::max(0.f, slope); markDirty_(); }
+    void setConstantDepthBias(float constant) { constBias_ = std::max(0.f, constant); markDirty_(); }
+    void setCullFrontFaces(bool on) { cullFrontFaces_ = on; markDirty_(); }
 
     void setEpsilons(float posMeters, float angDegrees) {
         posEps_ = std::max(0.f, posMeters);
@@ -81,17 +89,23 @@ private:
     float constBias_{ 4.0f };             // glPolygonOffset units
     bool  cullFrontFaces_{ true };
 
+    // allocation tracking
+    int   allocBaseRes_{ 0 };
+    int   allocCascades_{ 0 };
+
     // throttle/dirty
-    uint64_t frameIndex_{ 0 };
-    bool     shadowParamsDirty_{ true };
-    float    posEps_{ 0.05f }, angEps_{ 0.5f };
-    glm::vec3 lastCamPos_{}, lastCamFwd_{};
-    glm::vec3 lastSunDir_{ 0,-1,0 };
-    float     lastAspect_{ -1.f };
-    float     lastFovDeg_{ -1.f };
+    uint64_t     frameIndex_{ 0 };
+    bool         shadowParamsDirty_{ true }; 
+    bool         forceFullUpdateOnce_{ true };
+    float        posEps_{ 0.05f }, angEps_{ 0.5f };
+    glm::vec3    lastCamPos_{}, lastCamFwd_{};
+    glm::vec3    lastSunDir_{ 0,-1,0 };
+    float        lastAspect_{ -1.f };
+    float        lastFovDeg_{ -1.f };
     UpdatePolicy policy_{ UpdatePolicy::CameraOrSunMoved };
-    int       budgetPerFrame_{ 0 };   // 0 == unlimited
-    int       nextCascade_{ 0 };      // round-robin pointer
+    SplitMode    splitMode_{ SplitMode::Fixed };
+    int          budgetPerFrame_{ 0 };   // 0 == unlimited
+    int          nextCascade_{ 0 };      // round-robin pointer
 
     // GL
     unsigned shadowFBO_{ 0 };
@@ -108,7 +122,7 @@ private:
     // helpers
     void ensureTargets_();
     bool rebuild_(const Camera& cam, float aspect);
-    void markDirty_() { shadowParamsDirty_ = true; }
+    void markDirty_() { shadowParamsDirty_ = true; forceFullUpdateOnce_ = true; nextCascade_ = 0; }
 
     // published to PassContext for other passes to read
     CSMSnapshot snap_{};

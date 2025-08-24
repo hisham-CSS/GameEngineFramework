@@ -101,6 +101,15 @@ namespace MyCoreEngine {
         float getCSMDepthMargin() const;
         void  setCSMDepthMargin(float m);
 
+        // Bias/cull
+        float getCSMSlopeDepthBias() const;
+        void  setCSMSlopeDepthBias(float v);
+        float getCSMConstantDepthBias() const;
+        void  setCSMConstantDepthBias(float v);
+        void  setCSMCullFrontFaces(bool on);
+        bool  getCSMCullFrontFaces() const;
+
+
         float getCSMLambda() const;
         void  setCSMLambda(float v);
         int   getCSMBaseResolution() const;

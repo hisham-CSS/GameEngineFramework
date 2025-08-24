@@ -1,8 +1,9 @@
-// Engine/src/render/passes/ShadowCSMPass.cpp
+﻿// Engine/src/render/passes/ShadowCSMPass.cpp
 #include "ShadowCSMPass.h"
 #include <glad/glad.h>
 #include <cfloat>
 #include <cmath>
+#include <cstring>
 
 ShadowCSMPass::ShadowCSMPass(int cascades, int baseRes)
     : cascades_(cascades), baseRes_(baseRes) {
@@ -18,56 +19,123 @@ void ShadowCSMPass::setup(PassContext& ctx) {
 }
 
 void ShadowCSMPass::ensureTargets_() {
-    if (shadowFBO_ == 0) glGenFramebuffers(1, &shadowFBO_);
+    // Reallocate if baseRes_ or cascade count changed.
+    if (!shadowFBO_) glGenFramebuffers(1, &shadowFBO_);
 
-    // desired per-cascade sizes = 1x, 1/2x, 1/4x, (keep 4th coherent)
-    const int desired[4] = {
-        baseRes_, std::max(512, baseRes_ / 2),
-        std::max(512, baseRes_ / 4), std::max(512, baseRes_ / 4)
-    };
-
-    for (int i = 0; i < cascades_; ++i) {
-        const int want = desired[i];
-        if (depth_[i] == 0 || resPer_[i] != want) {
-            if (resPer_[i] != want) {
-                resPer_[i] = want;
-                if (depth_[i] == 0) glGenTextures(1, &depth_[i]);
-                glBindTexture(GL_TEXTURE_2D, depth_[i]);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24,
-                    resPer_[i], resPer_[i], 0,
-                    GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, nullptr);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-                const float border[4] = { 1.f,1.f,1.f,1.f };
-                glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, border);
+    const bool needRealloc = (allocBaseRes_ != baseRes_) || (allocCascades_ != cascades_);
+    // We keep all cascades at the same resolution == baseRes_ (simple, matches your UI).
+    for (int i = 0; i < kMaxCascades; ++i) {
+        const int desired = (i < cascades_) ? baseRes_ : 0;
+        if (desired <= 0) {
+            // disable unused cascade slot
+            if (depth_[i]) {
+                glDeleteTextures(1, &depth_[i]);
+                depth_[i] = 0;
             }
+            resPer_[i] = 0;
+            continue;
+        }
+        if (!depth_[i]) {
+            glGenTextures(1, &depth_[i]);
+        }
+        // (Re)define storage when first time or when resolution changed
+        if (needRealloc || resPer_[i] != desired) {
+            glBindTexture(GL_TEXTURE_2D, depth_[i]);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, desired, desired, 0,
+            GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, nullptr);
+            // Keep your previous params (PCF works with LINEAR + compare mode)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+            resPer_[i] = desired;
+            // After resize, force a clean rebuild + full redraw starting from cascade 0
+            shadowParamsDirty_ = true;
+            forceFullUpdateOnce_ = true;
+            nextCascade_ = 0;
         }
     }
-    glBindTexture(GL_TEXTURE_2D, 0);
+    allocBaseRes_ = baseRes_;
+    allocCascades_ = cascades_;
 }
 
 bool ShadowCSMPass::rebuild_(const Camera& cam, float aspect) {
-    // this is your Renderer::rebuildCSM_ adapted to use lambda_ and aspect
-    // near/far must match your camera proj in forward
-    constexpr float camNear = 0.1f;
-    const float camFar = maxShadowDistance_;
 
-    // splits
-    splitZ_[0] = camNear;
-    splitZ_[cascades_] = camFar;
-    for (int i = 1; i < cascades_; ++i) {
-        float u = float(i) / float(cascades_);
-        float log = camNear * powf(camFar / camNear, u);
-        float uni = camNear + (camFar - camNear) * u;
-        splitZ_[i] = glm::mix(uni, log, lambda_);
+    const float n = 0.1f; // camera near; keep in sync with forward
+    const float f = std::max(n + 1e-3f, maxShadowDistance_);
+    const float eps = 1e-3f; // strictly increasing guard
+    
+    splitZ_[0] = n;
+    if (splitMode_ == SplitMode::Fixed) {
+        // simple, reliable: fixed ratios (feel free to tweak)
+        // for 4 cascades these are ~{5%, 15%, 40%, 100%} of max distance
+        static const float kDefaultRatios[4] = { 0.05f, 0.15f, 0.40f, 1.0f };
+        for (int i = 1; i < cascades_; ++i) {
+            float r = kDefaultRatios[std::min(i, 3)];
+            float d = glm::clamp(n + r * (f - n), n + eps, f - eps);
+            if (d <= splitZ_[i - 1] + eps) d = splitZ_[i - 1] + eps;
+            splitZ_[i] = d;
+        }
+        splitZ_[cascades_] = f;
     }
-    for (int i = 0; i < cascades_; ++i) splitFar_[i] = splitZ_[i + 1];
+    else { // Lambda (PSSM) with safeguards; works for λ∈[0,1]
+        const float lam = glm::clamp(lambda_, 0.0f, 1.0f);
+        for (int i = 1; i < cascades_; ++i) {
+            const float si = float(i) / float(cascades_);
+            const float logd = n * std::pow(f / n, si);
+            const float lind = n + (f - n) * si;
+            float d = glm::mix(lind, logd, lam);
+            d = glm::clamp(d, n + eps, f - eps);
+            if (d <= splitZ_[i - 1] + eps) d = splitZ_[i - 1] + eps;
+            splitZ_[i] = d;
+        }
+        splitZ_[cascades_] = f;
+    }
 
-    // lightVP_ computed in execute (needs sunDir); splits are enough here
+
+    //// Keep near in sync with your forward camera. Far is editor-controlled.
+    //const float n = 0.1f;
+    //const float f = std::max(n + 1e-3f, maxShadowDistance_);
+    //const float eps = 1e-3f; // strictly increasing guard
+    //
+    //splitZ_[0] = n;
+    //for (int i = 1; i < cascades_; ++i) {
+    //    const float si = float(i) / float(cascades_);
+    //    const float logd = n * std::pow(f / n, si);
+    //    const float lind = n + (f - n) * si;
+    //    float d = glm::mix(lind, logd, lambda_);
+    //    d = glm::clamp(d, n + eps, f - eps);
+    //    // enforce strictly increasing
+    //    if (d <= splitZ_[i - 1] + eps) d = splitZ_[i - 1] + eps;
+    //        splitZ_[i] = d;
+    //    }
+    //splitZ_[cascades_] = f;
+    //
+    
+    for (int i = 0; i < cascades_; ++i) {
+        splitFar_[i] = splitZ_[i + 1];   // publish to forward as FAR distances
+    }
     return true;
+    //// this is your Renderer::rebuildCSM_ adapted to use lambda_ and aspect
+    //// near/far must match your camera proj in forward
+    //constexpr float camNear = 0.1f;
+    //const float camFar = maxShadowDistance_;
+
+    //// splits
+    //splitZ_[0] = camNear;
+    //splitZ_[cascades_] = camFar;
+    //for (int i = 1; i < cascades_; ++i) {
+    //    float u = float(i) / float(cascades_);
+    //    float log = camNear * powf(camFar / camNear, u);
+    //    float uni = camNear + (camFar - camNear) * u;
+    //    splitZ_[i] = glm::mix(uni, log, lambda_);
+    //}
+    //for (int i = 0; i < cascades_; ++i) splitFar_[i] = splitZ_[i + 1];
+
+    //// lightVP_ computed in execute (needs sunDir); splits are enough here
+    //return true;
 }
 
 
@@ -105,6 +173,10 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
     else { // Manual
         moved = shadowParamsDirty_;
     }
+
+    // Any dirty setting must refresh even if the camera didn’t move:
+    moved = moved || shadowParamsDirty_;
+
     // If nothing changed, publish last snapshot and skip GPU work
     if (!moved) {
         ctx.csm.enabled = true;
@@ -130,10 +202,14 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
     const glm::mat4 V = cam.GetViewMatrix();
 
     // Decide how many cascades to refresh (round-robin)
-    const int toUpdate = (budgetPerFrame_ <= 0) ? cascades_ : std::min(budgetPerFrame_, cascades_);
+    int toUpdate = (budgetPerFrame_ <= 0) ? cascades_ : std::min(budgetPerFrame_, cascades_);
+    if (forceFullUpdateOnce_) toUpdate = cascades_; // settings changed -> redraw all
+
     int updated = 0;
     for (int k = 0; k < cascades_ && updated < toUpdate; ++k) {
-        const int i = (nextCascade_ + k) % cascades_;        // slice frustum corners (world)
+        const int i = (nextCascade_ + k) % cascades_;        
+        
+        // slice frustum corners (world)
         glm::mat4 sliceProj = glm::perspective(glm::radians(cam.Zoom), aspect, splitZ_[i], splitZ_[i + 1]);
         glm::mat4 invSliceVP = glm::inverse(sliceProj * V);
 
@@ -151,7 +227,10 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
         for (auto& c : corners) center += c;
         center *= 1.0f / 8.0f;
 
-        glm::mat4 lightView = glm::lookAt(center - sunDir * 100.0f, center, glm::vec3(0, 1, 0));
+        //glm::mat4 lightView = glm::lookAt(center - sunDir * 100.0f, center, glm::vec3(0, 1, 0));
+        // Robust "up" to avoid flips when sunDir ~ world up
+        glm::vec3 upCand = (std::abs(sunDir.y) > 0.95f) ? glm::vec3(0, 0, 1) : glm::vec3(0, 1, 0);
+        glm::mat4 lightView = glm::lookAt(center - sunDir * 100.0f, center, upCand);
 
         float minX = +FLT_MAX, maxX = -FLT_MAX, minY = +FLT_MAX, maxY = -FLT_MAX, minZ = +FLT_MAX, maxZ = -FLT_MAX;
         for (auto& c : corners) {
@@ -160,22 +239,35 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
             minY = std::min(minY, lp.y); maxY = std::max(maxY, lp.y);
             minZ = std::min(minZ, lp.z); maxZ = std::max(maxZ, lp.z);
         }
-        //float zNear = std::max(0.001f, -maxZ - 5.0f);
-        //float zFar = (-minZ) + 5.0f;
-
-        // replace the hardcoded 5.0f margins with editor-configurable values
+        // z range + configurable margins
         float zNear = std::max(0.001f, -maxZ - depthMarginMeters_);
         float zFar = (-minZ) + depthMarginMeters_;
         
-        // XY padding to tighten/loosen each cascade box in world units
+        // XY padding (before snapping)
         minX -= cascadePaddingMeters_; maxX += cascadePaddingMeters_;
         minY -= cascadePaddingMeters_; maxY += cascadePaddingMeters_;
-
-        // texel snapping
-        float wptx = (maxX - minX) / float(resPer_[i] ? resPer_[i] : baseRes_);
-        float wpty = (maxY - minY) / float(resPer_[i] ? resPer_[i] : baseRes_);
-        minX = std::floor(minX / wptx) * wptx; maxX = std::floor(maxX / wptx) * wptx;
-        minY = std::floor(minY / wpty) * wpty; maxY = std::floor(maxY / wpty) * wpty;
+        
+        // ----- stable texel snapping (CENTER snap) -----
+        // keep width/height constant, snap only the center to the texel grid
+        const int res = (resPer_[i] > 0) ? resPer_[i] : baseRes_;
+        const float width = (maxX - minX);
+        const float height = (maxY - minY);
+        const float texX = width / float(res);
+        const float texY = height / float(res);
+        
+        // current center in light space
+        float cx = 0.5f * (minX + maxX);
+        float cy = 0.5f * (minY + maxY);
+        
+        // snap center to texel-sized steps
+        cx = std::floor(cx / texX) * texX;
+        cy = std::floor(cy / texY) * texY;
+        
+        // rebuild bounds around snapped center with SAME extent
+        minX = cx - width * 0.5f;
+        maxX = cx + width * 0.5f;
+        minY = cy - height * 0.5f;
+        maxY = cy + height * 0.5f;
 
         glm::mat4 lightProj = glm::orthoRH_NO(minX, maxX, minY, maxY, zNear, zFar);
         lightVP_[i] = lightProj * lightView;
@@ -191,9 +283,9 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
     glDepthMask(GL_TRUE);
     glDepthFunc(GL_LESS);
     glEnable(GL_CULL_FACE);
-    glCullFace(GL_FRONT);
+    glCullFace(cullFrontFaces_ ? GL_FRONT : GL_BACK);
     glEnable(GL_POLYGON_OFFSET_FILL);
-    glPolygonOffset(2.0f, 4.0f);
+    glPolygonOffset(slopeBias_, constBias_);
 
     depthProg_->use();
     depthProg_->setInt("uUseInstancing", 0);
@@ -232,7 +324,10 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
         ctx.csm.depthTex[i] = depth_[i];
         ctx.csm.resPer[i] = resPer_[i];
     }
-    return true;
+    
+    shadowParamsDirty_ = false;
+    forceFullUpdateOnce_ = false;
+    return (updated > 0);
 }
 
 void ShadowCSMPass::setLambda(float v) {
