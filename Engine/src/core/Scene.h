@@ -50,7 +50,7 @@ namespace MyCoreEngine {
         void UpdateTransforms();
         // Renderer calls this; we keep signature identical.
         // Now builds a draw list with frustum culling, sorts, then batches by texture key.
-        void RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camera);
+        virtual void RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camera);
 
         // Depth-only shadow pass (directional)
         void RenderShadowDepth(Shader & shadowShader, const glm::mat4 & lightVP);
@@ -86,8 +86,8 @@ namespace MyCoreEngine {
         float GetIBLIntensity() const { return iblIntensity_; }
         void  SetIBLIntensity(float v) { iblIntensity_ = std::max(0.0f, v); }
         // add a forward-only method (public)
-        void RenderDepth(class Shader& depthProg, const glm::mat4& lightVP);
-        void RenderDepthCascade(Shader& prog, const glm::mat4& lightVP, float splitNear, float splitFar, const glm::mat4& camView);
+        virtual void RenderDepth(class Shader& depthProg, const glm::mat4& lightVP);
+        virtual void RenderDepthCascade(Shader& prog, const glm::mat4& lightVP, float splitNear, float splitFar, const glm::mat4& camView);
 
      private:
          std::vector<DrawItem> items_;

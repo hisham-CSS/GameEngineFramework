@@ -3,7 +3,7 @@
 #include "../IRenderPass.h"
 #include <memory>
 
-class ShadowCSMPass final : public IRenderPass {
+class ENGINE_API ShadowCSMPass final : public IRenderPass {
 
 public:
     ShadowCSMPass(int cascades = 4, int baseRes = 2048);
@@ -106,6 +106,7 @@ private:
     SplitMode    splitMode_{ SplitMode::Fixed };
     int          budgetPerFrame_{ 0 };   // 0 == unlimited
     int          nextCascade_{ 0 };      // round-robin pointer
+    int          lastUpdatedCount_{ 0 };  // for tests only
 
     // GL
     unsigned shadowFBO_{ 0 };
@@ -126,4 +127,28 @@ private:
 
     // published to PassContext for other passes to read
     CSMSnapshot snap_{};
+
+    #ifdef UNIT_TEST
+    public:
+    struct DebugSnapshot {
+        int cascades;
+        float splitFar[4];
+        glm::mat4 lightVP[4];
+        int  resPer[4];
+        unsigned depthTex[4];
+        int lastUpdatedCount;   
+    };
+    DebugSnapshot getDebugSnapshot() const {
+        DebugSnapshot s{};
+        s.cascades = cascades_;
+        for (int i = 0; i < kMaxCascades; ++i) {
+            s.splitFar[i] = splitFar_[i];
+            s.lightVP[i] = lightVP_[i];
+            s.resPer[i] = resPer_[i];
+            s.depthTex[i] = depth_[i];
+        }
+        s.lastUpdatedCount = lastUpdatedCount_;
+        return s;
+    }
+    #endif
 };

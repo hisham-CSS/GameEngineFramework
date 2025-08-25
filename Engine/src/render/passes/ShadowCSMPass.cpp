@@ -288,6 +288,11 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
     
     shadowParamsDirty_ = false;
     forceFullUpdateOnce_ = false;
+
+    #ifdef UNIT_TEST
+        lastUpdatedCount_ = updated;
+    #endif
+
     return (updated > 0);
 }
 
