@@ -17,4 +17,5 @@
 #include "../src/core/AssetManager.h"
 #include "../src/core/Material.h"
 #include "../src/core/GLInit.h"
+#include "../src/render/CSMSplits.h"
 

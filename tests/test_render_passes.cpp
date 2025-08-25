@@ -12,6 +12,72 @@
 using namespace MyCoreEngine;
 
 namespace {
+    // ---------- small helpers ----------
+    static uint32_t fnv1a_32(const uint8_t * data, size_t n) {
+        uint32_t h = 2166136261u;
+        for (size_t i = 0; i < n; ++i) { h ^= data[i]; h *= 16777619u; }
+        return h;
+    }
+    // Read a GL_DEPTH_COMPONENT texture into a buffer and return a quantized hash.
+    // We quantize float depth to 16-bit to reduce tiny driver/precision jitters.
+    static uint32_t hashDepthTexture(GLuint tex, int w, int h) {
+        std::vector<float> buf(w * h, 0.0f);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glGetTexImage(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, GL_FLOAT, buf.data());
+        std::vector<uint8_t> q(2 * w * h); // 16-bit per sample
+        for (int i = 0; i < w * h; ++i) {
+            float f = buf[i];
+            if (!(f == f)) f = 1.0f;                 // NaN → 1.0
+            f = std::min(std::max(f, 0.0f), 1.0f);   // clamp
+            uint16_t v = (uint16_t)std::lround(f * 65535.0f);
+            q[2 * i + 0] = (uint8_t)(v & 0xFF);
+            q[2 * i + 1] = (uint8_t)(v >> 8);
+        }
+        return fnv1a_32(q.data(), q.size());
+    }
+    // Minimal scene that draws a 2-tri quad with position attribute @ location 0.
+    // It sets uLightVP and uModel for the provided depth shader.
+    struct MiniDepthScene : public Scene {
+        GLuint vao = 0, vbo = 0;
+        glm::mat4 model = glm::mat4(1.0f);
+        bool ready = false;
+    
+        void ensureGeo_() {
+            if (ready) return;
+            // Quad in XZ plane (CCW), centered at origin.
+            const float verts[] = {
+                -0.5f, 0.0f, -0.5f,
+                0.5f, 0.0f, -0.5f,
+                0.5f, 0.0f,  0.5f,
+                -0.5f, 0.0f, -0.5f,
+                0.5f, 0.0f,  0.5f,
+                -0.5f, 0.0f,  0.5f,
+            };
+            glGenVertexArrays(1, &vao);
+            glGenBuffers(1, &vbo);
+            glBindVertexArray(vao);
+            glBindBuffer(GL_ARRAY_BUFFER, vbo);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
+            glEnableVertexAttribArray(0);
+            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+            glBindVertexArray(0);
+            ready = true;
+        }
+
+        void RenderDepthCascade(Shader & depthProg, const glm::mat4 & lightVP, float /*sliceNear*/, float /*sliceFar*/, const glm::mat4& /*camView*/) override
+        {
+            ensureGeo_();
+            depthProg.use();
+            depthProg.setMat4("uLightVP", lightVP);
+            depthProg.setMat4("model", model);
+			depthProg.setInt("uUseInstancing", 0);
+            glBindVertexArray(vao);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+            glBindVertexArray(0);
+        }
+        void RenderScene(const Frustum&, Shader&, Camera&) override {}
+    };
+
     struct GLFixture : ::testing::Test {
         static GLFWwindow* win;
         static void SetUpTestSuite() {
@@ -232,7 +298,9 @@ TEST_F(GLFixture, ForwardBinds_DepthTextures_ToUnits) {
 
     ShadowCSMPass csm; 
 	csm.setup(ctx);
-    csm.setNumCascades(3); csm.setBaseResolution(512); csm.setCascadeUpdateBudget(0);
+    csm.setNumCascades(3); 
+    csm.setBaseResolution(512); 
+    csm.setCascadeUpdateBudget(0);
     Camera cam; cam.Position = { 0,1,3 }; cam.Front = glm::normalize(glm::vec3(0, -0.2f, -1)); cam.Zoom = 60.f;
     FrameParams fp{}; fp.view = cam.GetViewMatrix();
     fp.proj = glm::perspective(glm::radians(cam.Zoom), 1.0f, 0.1f, 1000.0f);
@@ -252,6 +320,7 @@ TEST_F(GLFixture, ForwardBinds_DepthTextures_ToUnits) {
         ctx.csm.resPer[i] = snap.resPer[i];
     }
     ctx.splitBlend = 0.0f; ctx.csmDebug = 0;
+	ctx.tonemapShader = &dummy;
 
     ForwardOpaquePass fwd(mainShader);
     fwd.setup(ctx);
@@ -265,4 +334,100 @@ TEST_F(GLFixture, ForwardBinds_DepthTextures_ToUnits) {
         glGetIntegerv(GL_TEXTURE_BINDING_2D, &bound);
         EXPECT_EQ((GLuint)bound, ctx.csm.depthTex[i]) << "Unit " << unit << " not bound to cascade " << i;
     }
+}
+
+// ---------- NEW: deterministic depth hash ----------
+TEST_F(GLFixture, ShadowDepth_DeterministicHashAndSensitivity) {
+    PassContext ctx{}; GLFixture::makeHDR(ctx, 64, 64);
+    
+    // One cascade for simplicity; tiny map for determinism/speed.
+    ShadowCSMPass csm;
+	csm.setup(ctx);
+    csm.setUpdatePolicy(ShadowCSMPass::UpdatePolicy::Always); // don't rely on motion detection
+    csm.setNumCascades(1);
+    csm.setCascadeUpdateBudget(0);
+    csm.setBaseResolution(128);
+    csm.setMaxShadowDistance(6.0f);
+    csm.setCascadePaddingMeters(0.0f);
+    csm.setDepthMarginMeters(2.0f);
+    csm.setConstantDepthBias(0.0f);
+    csm.setSlopeDepthBias(0.0f); // avoid offset-related variability if available
+    csm.setCullFrontFaces(true);
+    
+    Camera cam;
+    cam.Position = { 0, 1.2f, 3.0f };
+    cam.Front = glm::normalize(glm::vec3(0.0f, -0.2f, -1.0f));
+    cam.Zoom = 45.0f; // narrower FOV -> tighter slice -> smaller texels
+    
+    FrameParams fp{};
+    fp.view = cam.GetViewMatrix();
+    fp.proj = glm::perspective(glm::radians(cam.Zoom), 1.0f, 0.1f, 100.0f);
+    fp.viewportW = 64; fp.viewportH = 64;
+    
+    ctx.sunDir = glm::normalize(glm::vec3(-0.3f, -1.0f, -0.2f));
+    
+    MiniDepthScene scene;
+    scene.model = glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, 0)); // centered quad
+    
+    ASSERT_TRUE(csm.execute(ctx, scene, cam, fp));
+    auto snap1 = csm.getDebugSnapshot();
+    ASSERT_EQ(snap1.cascades, 1);
+    uint32_t h1 = hashDepthTexture(snap1.depthTex[0], 128, 128);
+    // Ensure at least one depth sample is < 1.0 (something rendered)
+    {
+        std::vector<float> buf(128 * 128, 1.0f);
+        glBindTexture(GL_TEXTURE_2D, snap1.depthTex[0]);
+        glGetTexImage(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, GL_FLOAT, buf.data());
+        bool anyHit = false;
+        for (float v : buf) { if (v < 0.9999f) { anyHit = true; break; } }
+        ASSERT_TRUE(anyHit) << "Nothing rendered into the depth map – check shader uniform names";
+    }
+    // Re-run with identical inputs → hash must match
+    ASSERT_TRUE(csm.execute(ctx, scene, cam, fp));
+    auto snap2 = csm.getDebugSnapshot();
+    uint32_t h2 = hashDepthTexture(snap2.depthTex[0], 128, 128);
+    EXPECT_EQ(h1, h2) << "Depth should be deterministic for identical inputs";
+    
+    // Move geometry a lot so it definitely crosses texels
+    scene.model = glm::translate(glm::mat4(1.0f), glm::vec3(4.0f, 0.0f, 0.0f));
+    ASSERT_TRUE(csm.execute(ctx, scene, cam, fp));
+    auto snap3 = csm.getDebugSnapshot();
+    uint32_t h3 = hashDepthTexture(snap3.depthTex[0], 128, 128);
+    EXPECT_NE(h1, h3) << "Depth should react to model movement";
+}
+
+// ---------- NEW: tonemap smoke test ----------
+TEST_F(GLFixture, Tonemap_WritesToDefaultFBO) {
+    PassContext ctx{}; GLFixture::makeHDR(ctx, 64, 64);
+    
+    // Compile tonemap shader (same paths the engine uses)
+    Shader tonemap("Exported/Shaders/tonemap_vert.glsl", "Exported/Shaders/tonemap_frag.glsl");
+    ctx.tonemapShader = &tonemap;
+    ctx.exposure = 1.0f;
+    
+    // Prefill HDR color attachment with a bright solid so tonemap has input.
+    glBindFramebuffer(GL_FRAMEBUFFER, ctx.hdrFBO);
+    glViewport(0, 0, 64, 64);
+    glDisable(GL_DEPTH_TEST);
+    glClearColor(2.0f, 1.5f, 0.5f, 1.0f); // >1 in HDR
+    glClear(GL_COLOR_BUFFER_BIT);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glViewport(0, 0, 64, 64);
+    
+    // Fullscreen quad VAO was created by makeHDR; defaultFBO=0
+    TonemapPass pass;
+    pass.setup(ctx);
+    
+    // Execute and then read back a pixel from default FBO
+    NullScene scene;
+    Camera cam;
+    FrameParams fp{}; fp.viewportW = 64; fp.viewportH = 64;
+    
+    ASSERT_TRUE(pass.execute(ctx, scene, cam, fp));
+    
+    std::array<uint8_t, 4> px{ 0,0,0,0 };
+    glReadPixels(0, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+    // Expect non-black output (tonemap should write something)
+    int sum = int(px[0]) + int(px[1]) + int(px[2]);
+    EXPECT_GT(sum, 0) << "TonemapPass failed to write to default framebuffer";
 }

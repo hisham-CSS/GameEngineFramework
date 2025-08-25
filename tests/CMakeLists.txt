@@ -33,7 +33,7 @@ target_link_libraries(test_input_system_glfw PRIVATE
 )
 add_test(NAME TestInputSystemGlfw COMMAND $<TARGET_FILE:test_input_system_glfw>)
 
-# InputSystem Integration test
+# Render Passes test
 add_executable(test_render_passes test_render_passes.cpp)
 target_compile_definitions(test_render_passes PRIVATE UNIT_TEST=1)
 target_link_libraries(test_render_passes PRIVATE
@@ -41,6 +41,12 @@ target_link_libraries(test_render_passes PRIVATE
   GTest::gtest_main
 )
  add_test(NAME test_render_passes COMMAND $<TARGET_FILE:test_render_passes>)
+
+# --- CPU-only split tests (no GL) ---
+add_executable(test_splits test_splits.cpp)
+target_link_libraries(test_splits PRIVATE Engine GTest::gtest_main)
+
+add_test(NAME test_splits COMMAND $<TARGET_FILE:test_splits>)
 
 #Ensures the Engine library is copied to the test output directory
 add_custom_command(TARGET test_event_bus POST_BUILD

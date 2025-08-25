@@ -4,6 +4,7 @@
 #include <cfloat>
 #include <cmath>
 #include <cstring>
+#include "../CSMSplits.h"
 
 ShadowCSMPass::ShadowCSMPass(int cascades, int baseRes)
     : cascades_(cascades), baseRes_(baseRes) {
@@ -80,19 +81,33 @@ bool ShadowCSMPass::rebuild_(const Camera& cam, float aspect) {
         }
         splitZ_[cascades_] = f;
     }
-    else { // Lambda (PSSM) with safeguards; works for λ∈[0,1]
+    else { // Lambda (PSSM) using shared CPU helper; λ∈[0,1]
         const float lam = glm::clamp(lambda_, 0.0f, 1.0f);
-        for (int i = 1; i < cascades_; ++i) {
-            const float si = float(i) / float(cascades_);
-            const float logd = n * std::pow(f / n, si);
-            const float lind = n + (f - n) * si;
-            float d = glm::mix(lind, logd, lam);
-            d = glm::clamp(d, n + eps, f - eps);
-            if (d <= splitZ_[i - 1] + eps) d = splitZ_[i - 1] + eps;
-            splitZ_[i] = d;
+        const auto Z = MyCoreEngine::ComputeCSMSplits(n, f, cascades_, lam);
+        // copy results
+        for (int i = 0; i <= cascades_; ++i) {
+            splitZ_[i] = Z[i];    
         }
-        splitZ_[cascades_] = f;
+        // enforce strictly-increasing (guard float noise)
+        for (int i = 1; i <= cascades_; ++i) {
+            if (splitZ_[i] <= splitZ_[i - 1] + eps)
+                splitZ_[i] = splitZ_[i - 1] + eps;
+        }
     }
+
+    //else { // Lambda (PSSM) with safeguards; works for λ∈[0,1]
+    //    const float lam = glm::clamp(lambda_, 0.0f, 1.0f);
+    //    for (int i = 1; i < cascades_; ++i) {
+    //        const float si = float(i) / float(cascades_);
+    //        const float logd = n * std::pow(f / n, si);
+    //        const float lind = n + (f - n) * si;
+    //        float d = glm::mix(lind, logd, lam);
+    //        d = glm::clamp(d, n + eps, f - eps);
+    //        if (d <= splitZ_[i - 1] + eps) d = splitZ_[i - 1] + eps;
+    //        splitZ_[i] = d;
+    //    }
+    //    splitZ_[cascades_] = f;
+    //}
     for (int i = 0; i < cascades_; ++i) {
         splitFar_[i] = splitZ_[i + 1];   // publish to forward as FAR distances
     }

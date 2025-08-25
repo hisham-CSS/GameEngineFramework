@@ -33,7 +33,7 @@ add_library(Engine SHARED
     src/render/RenderPipeline.h 
     src/render/passes/ShadowCSMPass.cpp 
     src/render/passes/ForwardOpaquePass.cpp 
-    src/render/passes/TonemapPass.cpp "src/core/GLInit.h" "src/core/GLInit.cpp")
+    src/render/passes/TonemapPass.cpp "src/core/GLInit.h" "src/core/GLInit.cpp" "src/render/CSMSplits.h")
 
 target_compile_definitions(Engine PUBLIC ENGINE_DLL_EXPORTS)
 
