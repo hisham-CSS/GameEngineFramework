@@ -29,6 +29,14 @@ struct CSMSnapshot {
     bool enabled{ false };
 };
 
+// IBL bindings (optional)
+struct IBLSnapshot {
+    unsigned int irradiance = 0;     // GL texture (cube)
+    unsigned int prefiltered = 0;    // GL texture (cube)
+    unsigned int brdfLUT = 0;        // GL texture (2D)
+    float mipCount = 0.0f;
+};
+
 // Things the renderer already owns & sets up each frame.
 struct PassContext {
     // GL targets
@@ -47,8 +55,13 @@ struct PassContext {
     glm::vec3 sunDir{ 0.f, -1.f, 0.f };
     float exposure{ 1.0f };
 
+    // forward pass helpers (set per frame by Renderer)
+    float splitBlend = 0.0f;     // meters; cascade cross-fade band
+    int   csmDebug = 0;        // 0=off, >0 = modes in your shader
+
     // Shadow data (produced by ShadowCSMPass; consumed by Forward pass)
     CSMSnapshot csm{};
+	IBLSnapshot ibl{};
 };
 
 struct IRenderPass {

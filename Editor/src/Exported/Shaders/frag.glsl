@@ -55,8 +55,7 @@ uniform mat4 uLightVP[4];
 uniform sampler2D uShadowCascade[4];
 uniform float uCSMSplits[4];   // view-space distances (end of each split)
 uniform int   uCascadeCount;
-uniform float uCamNear;   // 0.1
-uniform float uCamFar;    // matches ShadowCSMPass::maxShadowDistance()
+
 uniform float uShadowBiasConst;   // in light clip depth units (start with ~0.001–0.01)
 uniform float uShadowBiasSlope;   // scales with (1 - dot(N,L))
 
@@ -108,11 +107,6 @@ vec3 getNormal()
     return N;
 }
 
-float linearizeDepth(float z01) {
-    // z01 is gl_FragCoord.z in [0,1]
-    float n = uCamNear, f = uCamFar;
-    return (2.0 * n * f) / (f + n - (2.0 * z01 - 1.0) * (f - n));
-}
 
 // --- return [0..1] shadow factor for a specific cascade index ---
 float pcfShadowCascade(int ci, vec4 lightClip, vec3 N, vec3 L)
@@ -316,3 +310,12 @@ void main()
     vec3 color = ambient + Lo + uEmissive;
     FragColor = vec4(color, 1.0);
 }
+
+// old helper: linearize depth from [0,1] back to view-space meters
+//uniform float uCamNear;   // 0.1
+//uniform float uCamFar;    // matches ShadowCSMPass::maxShadowDistance()
+//float linearizeDepth(float z01) {
+//    // z01 is gl_FragCoord.z in [0,1]
+//    float n = uCamNear, f = uCamFar;
+//    return (2.0 * n * f) / (f + n - (2.0 * z01 - 1.0) * (f - n));
+//}

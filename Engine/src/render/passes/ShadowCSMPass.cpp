@@ -93,49 +93,10 @@ bool ShadowCSMPass::rebuild_(const Camera& cam, float aspect) {
         }
         splitZ_[cascades_] = f;
     }
-
-
-    //// Keep near in sync with your forward camera. Far is editor-controlled.
-    //const float n = 0.1f;
-    //const float f = std::max(n + 1e-3f, maxShadowDistance_);
-    //const float eps = 1e-3f; // strictly increasing guard
-    //
-    //splitZ_[0] = n;
-    //for (int i = 1; i < cascades_; ++i) {
-    //    const float si = float(i) / float(cascades_);
-    //    const float logd = n * std::pow(f / n, si);
-    //    const float lind = n + (f - n) * si;
-    //    float d = glm::mix(lind, logd, lambda_);
-    //    d = glm::clamp(d, n + eps, f - eps);
-    //    // enforce strictly increasing
-    //    if (d <= splitZ_[i - 1] + eps) d = splitZ_[i - 1] + eps;
-    //        splitZ_[i] = d;
-    //    }
-    //splitZ_[cascades_] = f;
-    //
-    
     for (int i = 0; i < cascades_; ++i) {
         splitFar_[i] = splitZ_[i + 1];   // publish to forward as FAR distances
     }
     return true;
-    //// this is your Renderer::rebuildCSM_ adapted to use lambda_ and aspect
-    //// near/far must match your camera proj in forward
-    //constexpr float camNear = 0.1f;
-    //const float camFar = maxShadowDistance_;
-
-    //// splits
-    //splitZ_[0] = camNear;
-    //splitZ_[cascades_] = camFar;
-    //for (int i = 1; i < cascades_; ++i) {
-    //    float u = float(i) / float(cascades_);
-    //    float log = camNear * powf(camFar / camNear, u);
-    //    float uni = camNear + (camFar - camNear) * u;
-    //    splitZ_[i] = glm::mix(uni, log, lambda_);
-    //}
-    //for (int i = 0; i < cascades_; ++i) splitFar_[i] = splitZ_[i + 1];
-
-    //// lightVP_ computed in execute (needs sunDir); splits are enough here
-    //return true;
 }
 
 

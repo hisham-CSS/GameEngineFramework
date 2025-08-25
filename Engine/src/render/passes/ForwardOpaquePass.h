@@ -5,7 +5,7 @@
 class ForwardOpaquePass final : public IRenderPass {
 public:
     // Renderer (or Editor) gives the compiled forward shader you already pass to run()
-    explicit ForwardOpaquePass(Shader& forward) : forward_(&forward) {}
+    explicit ForwardOpaquePass(Shader& shader) : shader_(&shader) {}
     const char* name() const override { return "ForwardOpaque"; }
 
     void setup(PassContext&) override {};
@@ -13,5 +13,6 @@ public:
     bool execute(PassContext&, MyCoreEngine::Scene&, Camera&, const FrameParams&) override;
 
 private:
-    Shader* forward_; // not owned
+    Shader* shader_; // not owned
+    static constexpr int kBaseUnit = 8; // uShadowCascade[] start at texture unit 8
 };

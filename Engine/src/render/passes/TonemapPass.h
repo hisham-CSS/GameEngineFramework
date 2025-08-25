@@ -7,5 +7,5 @@ public:
     const char* name() const override { return "Tonemap"; }
     void setup(PassContext&) override {}
     void resize(PassContext&, int, int) override {}
-    bool execute(PassContext&, MyCoreEngine::Scene&, Camera&, const FrameParams&) override;
+    bool execute(PassContext& ctx, Scene& scene, Camera& camera, const FrameParams & fp) override;
 };

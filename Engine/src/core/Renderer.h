@@ -19,6 +19,8 @@
 #include "Model.h"
 #include "../render/RenderPipeline.h"
 #include "../render/passes/ShadowCSMPass.h"
+#include "../render/passes/TonemapPass.h"
+#include "../render/passes/ForwardOpaquePass.h"
 
 namespace MyCoreEngine {
 
@@ -136,6 +138,9 @@ namespace MyCoreEngine {
         PassContext passCtx_{};
         RenderPipeline pipeline_;
         ShadowCSMPass* csmPass_ = nullptr; // optional raw ptr for quick access
+        ForwardOpaquePass* forwardPass_ = nullptr;
+        TonemapPass* tonemapPass_ = nullptr;
+        
         CSMSnapshot nullSnap_{};             // fallback for getCSMSnapshot()
         
 
