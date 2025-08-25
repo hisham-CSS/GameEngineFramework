@@ -2,121 +2,112 @@
 
 ## Project Overview
 
-This project is structured as a modular game engine framework, with **CMake** used for builds and **vcpkg** for external package management. The framework includes an `Engine` project, which is compiled as a DLL with wrappers around external libraries. The `Editor` project uses the `Engine` API and its wrappers to implement features and leverage game engine libraries efficiently.
+This project is a modular, high-performance game engine framework built with modern C++17. It features a clean architecture with a separate Engine (DLL) and Editor, a sophisticated rendering pipeline with advanced features, and a professional development environment using CMake and vcpkg.
+
+## Key Features
+
+- **Modern C++17 Architecture**: Clean, modular design with a separate Engine and Editor.
+- **Advanced Rendering Pipeline**: Sophisticated rendering system with modern graphics features.
+- **Entity-Component-System (ECS)**: High-performance scene management with EnTT.
+- **Functional Editor**: ImGui-based editor with core panels for scene management and inspection.
+- **Professional Build System**: CMake and vcpkg for easy building and dependency management.
+- **Comprehensive Testing**: Unit tests for core systems to ensure stability.
 
 ## Project Structure
 
-The project is organized as follows:
-```cmd
-GameEngineFramework
-│   .gitignore
-│   CMakeLists.txt
-│   LICENSE.txt
-│   README.md
-│   vcpkg-configuration.json
-│   vcpkg.json
-├───Editor
-│   │   CMakeLists.txt
-│   └───src
-│           EditorApplication.cpp
-├───Engine
-│   │   CMakeLists.txt
-│   ├───include
-│   │       Engine.h
-│   └───src
-│       └───core
-│               Application.cpp
-│               Application.h
-│               Camera.h
-│               Components.h
-│               Core.h
-│               Entity.h
-│               Main.h
-│               Mesh.h
-│               Model.h
-│               Renderer.h
-│               Scene.h
-│               
-.h
-│               Window.h
+```
+GameEngineFramework/
+├── Editor/         # Editor application (ImGui)
+├── Engine/         # Core engine (DLL)
+├── tests/          # Unit tests
+├── .gitignore
+├── CMakeLists.txt
+├── LICENSE.txt
+├── README.md
+├── vcpkg.json
+└── vcpkg-configuration.json
 ```
 
+## Core Engine Systems
+
+- **Application Framework**: Main application loop and window management.
+- **Asset Management**: System for loading and managing assets.
+- **Camera System**: 3D camera with projection and view controls.
+- **ECS (EnTT)**: High-performance entity-component-system.
+- **Event System**: Event-driven architecture with a central event bus.
+- **Input System**: GLFW-based input handling.
+- **Material System**: Material management for rendering.
+- **Model & Mesh**: 3D model and mesh loading/handling.
+- **Scene Management**: Scene graph and object hierarchy.
+- **Shader System**: Shader loading and management.
+
+## Advanced Rendering System
+
+- **Modular Render Pass Architecture**: Clean, extensible design with an `IRenderPass` interface.
+- **Forward Rendering Pipeline**: Modern forward rendering implementation.
+- **Cascading Shadow Maps (CSM)**: Advanced shadow mapping for large, dynamic scenes.
+- **HDR Rendering & Tone Mapping**: High-dynamic-range rendering with a tone mapping pass.
+- **Modern OpenGL**: Proper use of modern OpenGL features (framebuffers, vertex arrays, etc.).
+
+## Editor
+
+- **ImGui Integration**: Modern, immediate-mode GUI.
+- **Scene Hierarchy Panel**: View and manage scene objects.
+- **Inspector Panel**: View and edit component properties.
+- **Docking Support**: Flexible window layout.
+
 ## Dependencies
-- [GLFW](https://www.glfw.org/) - A multi-platform library for OpenGL, OpenGL ES, and Vulkan development
-- [GLAD](https://glad.dav1d.de/) - A library that generates OpenGL loading code
-- [GLM](https://glm.g-truc.net/0.9.9/index.html) - A header-only C++ mathematics library for graphics software based on the OpenGL Shading Language (GLSL) specifications
-- [STB](https://github.com/nothings/stb) - A single-file public domain libraries for C/C++ - For image loading
-- [ASSIMP](https://assimp.org/) - A library to import and export various 3D model formats
-- [EnTT](https://github.com/skypjack/entt) - A header-only, fast and flexible C++ entity-component system
-- [ImGui](https://github.com/ocornut/imgui/tree/docking) - A bloat-free graphical user interface library for C++ - For the editor - using the docking experimental feature
-- More dependencies will be added as the project grows
+
+- **GLFW**: Window and input management.
+- **GLAD**: OpenGL loading.
+- **GLM**: Mathematics library.
+- **STB**: Image loading.
+- **ASSIMP**: 3D model loading.
+- **EnTT**: Entity-component-system.
+- **ImGui**: Editor GUI.
 
 ## Building the Project
 
 ### Prerequisites
-1. [CMake](https://cmake.org/) (version 3.20 or higher)
-2. [vcpkg](https://vcpkg.io/)
-3. A C++ compiler supporting C++17 or later
+
+1.  **CMake** (version 3.20 or higher)
+2.  **vcpkg**
+3.  **C++17 Compiler**
 
 ### Build Steps
-1. Clone the repository
-```
-git clone https://github.com/hisham-CSS/GameEngineFramework
-cd GameEngineFramework
-```
-2. Configure the project with CMake (make sure that your path-to-vcpkg is configured locally)
- ```
- cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=[path-to-vcpkg]/scripts/buildsystems/vcpkg.cmake
- ```
-3. Build the project
-```
-cmake --build .
-```
-## Project Components
 
-### Engine
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/hisham-CSS/GameEngineFramework
+    cd GameEngineFramework
+    ```
 
-The core engine library is built as a DLL and provides:
+2.  **Configure with CMake:**
+    ```bash
+    cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=[path-to-vcpkg]/scripts/buildsystems/vcpkg.cmake
+    ```
 
--   Wrapped GLFW functionality for window management and input handling [WIP]
--	Basic rendering with frustum culling. [DONE]
--	Batch rendering [WIP]
--	Scene management and Entity-Component-System architecture using EnTT [WIP]
--   More features to be added...
-
-### Editor
-
-The editor application demonstrates the engine's capabilities and provides:
-
--   A window-based application using the Engine's GLFW wrapper
--   More features to be added...
+3.  **Build the project:**
+    ```bash
+    cmake --build build
+    ```
 
 ## Development Status
 
-- :white_check_mark: Basic project structure
-- :white_check_mark: CMake build system integration
-- :white_check_mark: vcpkg package management
-- :white_check_mark: GLFW integration
-- :white_check_mark: Basic rendering system
-- :white_check_mark: 3D Projection and Camera
-- :white_check_mark: EnTT implementation
-- :white_check_mark: Scene management
-- :black_square_button: Asset management
-- :black_square_button: Input system
-- :black_square_button: Nvida PhysX wrapper
-- :black_square_button: ImGui integration
-- :black_square_button: Editor UI
-- :black_square_button: Editor Scene management
-- :black_square_button: Editor Debugging tools
-- :black_square_button: Editor Profiling tools
-- :black_square_button: Editor Build system
-- :black_square_button: Advanced rendering features (PBR, Raytracing, etc.)
-- :black_square_button: Rendering Optimizations (Batch rendering, etc.)
+- ✅ **Core Engine Architecture**: Complete
+- ✅ **Rendering Pipeline**: Complete
+- ✅ **Editor Framework**: Complete
+- ✅ **Build System**: Complete
+- ✅ **Testing Infrastructure**: In Progress
+- 🔲 **Physics Integration**: Planned
+- 🔲 **Animation System**: Planned
+- 🔲 **Audio System**: Planned
+- 🔲 **Scripting System**: Planned
 
 ## Contributing
 
-Instructions for contributing will be added as the project develops.
+Contributions are welcome! Please open an issue or pull request to discuss any changes.
 
 ## License
 
-MIT License - you are free to use and modify this template.
+This project is licensed under the MIT License. See the [LICENSE.txt](LICENSE.txt) file for details.
