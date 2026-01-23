@@ -42,6 +42,43 @@ target_link_libraries(test_render_passes PRIVATE
 )
  add_test(NAME test_render_passes COMMAND $<TARGET_FILE:test_render_passes>)
 
+# Scene Details test
+add_executable(test_scene_details test_scene_details.cpp)
+target_link_libraries(test_scene_details PRIVATE Engine GTest::gtest_main)
+add_test(NAME test_scene_details COMMAND $<TARGET_FILE:test_scene_details>)
+
+add_custom_command(
+  TARGET test_scene_details POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_SOURCE_DIR}/Editor/src/Exported
+    $<TARGET_FILE_DIR:test_scene_details>/Exported)
+# Copy Runtime Dependencies for test_scene_details
+add_custom_command(TARGET test_scene_details POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    $<TARGET_FILE:Engine>
+    $<TARGET_FILE_DIR:test_scene_details>)
+
+# We need to find Assimp/Poly2Tri DLLs. 
+# Since we use Vcpkg, they are usually in the same bin dir as Engine.dll *before* copy?
+# Or we can ask CMake to find them if they are imported targets.
+# But "assimp::assimp" might be static or shared.
+# A robust way for Vcpkg is to look in the bin folder of the installed triplet?
+# Or simpler: copy them from the folder where Engine.dll was built.
+# "${CMAKE_BINARY_DIR}/bin" or similar.
+# Let's try copying from the directory of Engine target.
+add_custom_command(TARGET test_scene_details POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "$<TARGET_FILE_DIR:Engine>/assimp-vc143-mtd.dll"
+    "$<TARGET_FILE_DIR:Engine>/poly2tri.dll"
+    "$<TARGET_FILE_DIR:Engine>/zlibd1.dll"
+    "$<TARGET_FILE_DIR:Engine>/minizip.dll"
+    "$<TARGET_FILE_DIR:Engine>/pugixml.dll" 
+    $<TARGET_FILE_DIR:test_scene_details>
+    # Note: Using explicit filenames is brittle but Vcpkg changes them rarely.
+    # A generic copy *.dll would be better but CMake copy_directory is recursive/folder-based.
+    # We can try to assume they are next to Engine.dll.
+)
+
 # --- CPU-only split tests (no GL) ---
 add_executable(test_splits test_splits.cpp)
 target_link_libraries(test_splits PRIVATE Engine GTest::gtest_main)

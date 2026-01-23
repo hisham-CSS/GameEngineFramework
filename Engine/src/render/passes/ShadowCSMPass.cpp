@@ -266,24 +266,57 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
     depthProg_->use();
     depthProg_->setInt("uUseInstancing", 0);
 
+    // Prepare cascade parameters
+    // Note: We need to map from our "updated" list back to the actual cascades.
+    // BUT RenderShadowsCombined processes ALL provided cascades.
+    // If we only want to update SOME, we should passed only those.
+    // HOWEVER, RenderShadowsCombined assumes sequential buckets 0..N.
+    // If we only pass "Cascade 3", it will be bucket 0.
+    // This is fine as long as our callback maps bucket index -> actual cascade index.
+    
+    struct BatchEntry {
+        int actualIndex;
+        Scene::CascadeParam param;
+    };
+    std::vector<BatchEntry> batch;
+    batch.reserve(updated);
+    std::vector<Scene::CascadeParam> params;
+    params.reserve(updated);
+
     for (int k = 0; k < updated; ++k) {
         const int i = (nextCascade_ - updated + k + cascades_) % cascades_;
+        Scene::CascadeParam p;
+        p.lightVP = lightVP_[i];
+        p.splitNear = splitZ_[i];
+        p.splitFar = splitZ_[i + 1]; // splitZ is [0..cascades]
+        p.viewMatrix = cam.GetViewMatrix();
+        
+        BatchEntry be; be.actualIndex = i; be.param = p;
+        batch.push_back(be);
+        params.push_back(p);
+    }
 
+    // Callback to bind target
+    auto preDraw = [&](int bucketIndex) {
+        if (bucketIndex < 0 || bucketIndex >= (int)batch.size()) return;
+        int i = batch[bucketIndex].actualIndex;
+        
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depth_[i], 0);
         glViewport(0, 0, resPer_[i], resPer_[i]);
         glDrawBuffer(GL_NONE);
         glReadBuffer(GL_NONE);
-
-#ifndef NDEBUG
-        GLenum fb = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-        if (fb != GL_FRAMEBUFFER_COMPLETE) {
-            fprintf(stderr, "Shadow FBO incomplete for cascade %d (0x%04x)\n", i, fb);
-        }
-#endif
+        
+        // Check FBO? In release we skip.
+        // Clear depth
         glClear(GL_DEPTH_BUFFER_BIT);
-        scene.RenderDepthCascade(*depthProg_, lightVP_[i], splitZ_[i], splitZ_[i + 1], cam.GetViewMatrix());
-        // you already have this overload: Scene::RenderDepthCascade(...). :contentReference[oaicite:0]{index=0}
-    }
+    };
+
+    // Execute combined pass
+    scene.RenderShadowsCombined(*depthProg_, params, preDraw);
+
+    // you already have this overload: Scene::RenderDepthCascade(...). :contentReference[oaicite:0]{index=0}
+    // removed old loop
+
 
     // restore state
     glDisable(GL_POLYGON_OFFSET_FILL);

@@ -89,8 +89,22 @@ namespace MyCoreEngine {
         virtual void RenderDepth(class Shader& depthProg, const glm::mat4& lightVP);
         virtual void RenderDepthCascade(Shader& prog, const glm::mat4& lightVP, float splitNear, float splitFar, const glm::mat4& camView);
 
+#include <functional>
+
+        struct CascadeParam {
+            glm::mat4 lightVP;
+            float splitNear;
+            float splitFar;
+            glm::mat4 viewMatrix; // camera view matrix to check splitZ
+        };
+        // Culls and buckets entities for all cascades in one go.
+        // preDrawCallback(index) is called before drawing the bucket for cascade 'index', allowing FBO/Viewport switches.
+        virtual void RenderShadowsCombined(Shader& shadowShader, const std::vector<CascadeParam>& cascades, std::function<void(int)> preDrawCallback = nullptr);
+
      private:
          std::vector<DrawItem> items_;
+         // Reusable storage for shadow items per cascade (up to 4)
+         std::vector<DrawItem> shadowCascadeItems_[4];
          // private:
          GLuint instanceVBO_ = 0;
          void ensureInstanceBuffer_();

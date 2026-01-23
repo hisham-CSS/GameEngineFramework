@@ -75,6 +75,24 @@ namespace {
             glDrawArrays(GL_TRIANGLES, 0, 6);
             glBindVertexArray(0);
         }
+        // Override the batched path too, so new ShadowCSMPass works
+        void RenderShadowsCombined(Shader& shadowShader, const std::vector<CascadeParam>& cascades, std::function<void(int)> preDrawCallback) override
+        {
+            ensureGeo_();
+            shadowShader.use();
+            shadowShader.setInt("uUseInstancing", 0);
+            glBindVertexArray(vao);
+
+            for (size_t i = 0; i < cascades.size(); ++i) {
+                // IMPORTANT: The pass calls us with logic that expects us to invoke the callback for target binding
+                if (preDrawCallback) preDrawCallback((int)i);
+
+                shadowShader.setMat4("uLightVP", cascades[i].lightVP);
+                shadowShader.setMat4("model", model);
+                glDrawArrays(GL_TRIANGLES, 0, 6);
+            }
+            glBindVertexArray(0);
+        }
         void RenderScene(const Frustum&, Shader&, Camera&) override {}
     };
 

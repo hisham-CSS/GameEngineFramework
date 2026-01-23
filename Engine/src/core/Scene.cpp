@@ -216,6 +216,8 @@ void Scene::bindInstanceAttribs_() const {
 // Depth-only traversal for directional shadow map
 void Scene::RenderShadowDepth(Shader & shadowShader, const glm::mat4 & lightVP)
 {
+    // ... (keeps legacy single-pass logic if needed, or we could redirect to Combined with 1 cascade, 
+    // but the single render-depth is usually for non-CSM shadows or simple spots. keeping as is.)
     shadowShader.use();
     shadowShader.setMat4("uLightVP", lightVP);
     
@@ -231,6 +233,123 @@ void Scene::RenderShadowDepth(Shader & shadowShader, const glm::mat4 & lightVP)
                 mesh.IssueDraw();
             }
     }
+}
+
+void Scene::RenderShadowsCombined(Shader& shadowShader, const std::vector<CascadeParam>& cascades, std::function<void(int)> preDrawCallback)
+{
+    size_t numCascades = cascades.size();
+    if (numCascades > 4) numCascades = 4;
+    
+    // 1. Clear buckets
+    for (size_t i = 0; i < numCascades; ++i) {
+        shadowCascadeItems_[i].clear();
+        // pre-allocate reasonable size if empty
+        if (shadowCascadeItems_[i].capacity() < 512) shadowCascadeItems_[i].reserve(1024);
+    }
+
+    // 2. Iterate entities once
+    auto view = registry.view<ModelComponent, Transform, AABB>();
+    for (auto e : view) {
+        const auto& mc = view.get<ModelComponent>(e);
+        if (!mc.model) continue;
+        if (registry.any_of<NoShadow>(e)) continue;
+
+        const auto& t = view.get<Transform>(e);
+        const auto& b = view.get<AABB>(e);
+
+        // Precompute view-space depth range for this object once
+        // (Assuming all cascades share the same camera View, which is true for CSM)
+        // If cascades have different views (e.g. multiple distinct lights), we can't share this Z check easily.
+        // For standard CSM, 'viewMatrix' is the player camera view.
+        // We use the first cascade's view matrix as they should be identical.
+        float minVz = 0.f, maxVz = 0.f;
+        if (numCascades > 0) {
+            // Rough approximation: center Z +/- radius
+            glm::vec3 center = (b.min + b.max) * 0.5f;
+            glm::vec4 vc = cascades[0].viewMatrix * t.modelMatrix * glm::vec4(center, 1.0f);
+            float r = glm::length(b.max - center);
+            float vz = -vc.z; // camera looks down -Z
+            minVz = vz - r; 
+            maxVz = vz + r;
+        }
+
+        // Test against each cascade
+        for (size_t c = 0; c < numCascades; ++c) {
+            const auto& p = cascades[c];
+            
+            // 2a. Z-slice cull
+            // object's [minVz, maxVz] must overlap (splitNear, splitFar]
+            if (maxVz < p.splitNear || minVz > p.splitFar) continue;
+
+            // 2b. Frustum cull (Light Space)
+            if (!aabbIntersectsLightFrustum(p.lightVP, b, t.modelMatrix)) continue;
+
+            // 2c. Add to bucket
+            for (const auto& m : mc.model->Meshes()) {
+                DrawItem di; 
+                di.mesh = &m; 
+                di.model = t.modelMatrix;
+                shadowCascadeItems_[c].push_back(di);
+            }
+        }
+    }
+
+    // 3. Draw each bucket
+    ensureInstanceBuffer_();
+    shadowShader.use();
+    shadowShader.setInt("uUseInstancing", 0);
+
+    // Save/Restore state if needed? (We assume caller sets global render states)
+
+    for (size_t c = 0; c < numCascades; ++c) {
+        auto& bucket = shadowCascadeItems_[c];
+        if (bucket.empty()) continue;
+
+        // NEW: Callback to bind FBO/Viewport for this cascade
+        if (preDrawCallback) {
+            preDrawCallback((int)c);
+        }
+
+        // Set cascade-specific uniform
+        shadowShader.setMat4("uLightVP", cascades[c].lightVP);
+
+        // Sort by mesh for instancing
+        std::sort(bucket.begin(), bucket.end(),
+            [](const DrawItem& a, const DrawItem& b) { return a.mesh < b.mesh; });
+
+        // Instanced draw loop
+        for (size_t i = 0; i < bucket.size();) {
+            const Mesh* mesh = bucket[i].mesh;
+            size_t j = i + 1;
+            while (j < bucket.size() && bucket[j].mesh == mesh) ++j;
+            const size_t run = j - i;
+
+            glBindVertexArray(mesh->VAO());
+
+            if (run >= 2) {
+                glBindBuffer(GL_ARRAY_BUFFER, instanceVBO_);
+                glBufferData(GL_ARRAY_BUFFER, run * sizeof(glm::mat4), nullptr, GL_STREAM_DRAW);
+                
+                // map buffer logic
+                if (void* p = glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY)) {
+                    auto* mats = static_cast<glm::mat4*>(p);
+                    for (size_t k = 0; k < run; ++k) mats[k] = bucket[i + k].model;
+                    glUnmapBuffer(GL_ARRAY_BUFFER);
+                }
+
+                bindInstanceAttribs_();
+                shadowShader.setInt("uUseInstancing", 1);
+                mesh->IssueDrawInstanced((GLsizei)run);
+                shadowShader.setInt("uUseInstancing", 0);
+            }
+            else {
+                shadowShader.setMat4("model", bucket[i].model);
+                mesh->IssueDraw();
+            }
+            i = j;
+        }
+    }
+    glBindVertexArray(0);
 }
 
 void Scene::RenderDepth(Shader& prog, const glm::mat4& lightVP)
@@ -296,73 +415,14 @@ void Scene::RenderDepth(Shader& prog, const glm::mat4& lightVP)
 
 void Scene::RenderDepthCascade(Shader& prog, const glm::mat4& lightVP, float splitNear, float splitFar, const glm::mat4& camView)
 {
-    items_.clear();
-    items_.reserve(1024);
-
-    auto view = registry.view<ModelComponent, Transform, AABB>();
-    for (auto e : view) {
-        const auto& mc = view.get<ModelComponent>(e);
-        const auto& t = view.get<Transform>(e);
-        const auto& b = view.get<AABB>(e);
-        if (!mc.model) continue;
-        if (registry.any_of<NoShadow>(e)) continue;
-
-        // quick camera-space Z test
-        glm::vec3 center = (b.min + b.max) * 0.5f;
-        glm::vec4 vc = camView * t.modelMatrix * glm::vec4(center, 1.0f);
-        float r = glm::length(b.max - center); // loose radius
-        float vz = -vc.z; // camera looks -Z in view space
-
-        if (vz + r < splitNear || vz - r > splitFar) continue; // outside slice
-
-        // then the precise light-frustum test
-        if (!aabbIntersectsLightFrustum(lightVP, b, t.modelMatrix)) continue;
-
-        for (const auto& m : mc.model->Meshes()) {
-            DrawItem di; di.mesh = &m; di.model = t.modelMatrix;
-            items_.push_back(di);
-        }
-    }
-
-    // sort by mesh so we can instance consecutive items
-    std::sort(items_.begin(), items_.end(),
-        [](const DrawItem& a, const DrawItem& b) { return a.mesh < b.mesh; });
-
-    ensureInstanceBuffer_();
-    prog.setInt("uUseInstancing", 0);
-
-    for (size_t i = 0; i < items_.size();) {
-        const Mesh* mesh = items_[i].mesh;
-        size_t j = i + 1;
-        while (j < items_.size() && items_[j].mesh == mesh) ++j;
-        const size_t run = j - i;
-
-        glBindVertexArray(mesh->VAO());
-
-        if (run >= 2) {
-            glBindBuffer(GL_ARRAY_BUFFER, instanceVBO_);
-            glBufferData(GL_ARRAY_BUFFER, run * sizeof(glm::mat4), nullptr, GL_STREAM_DRAW);
-            if (void* p = glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY)) {
-                auto* mats = static_cast<glm::mat4*>(p);
-                for (size_t k = 0; k < run; ++k) mats[k] = items_[i + k].model;
-                glUnmapBuffer(GL_ARRAY_BUFFER);
-            }
-            bindInstanceAttribs_();
-            prog.setInt("uUseInstancing", 1);
-            prog.setMat4("uLightVP", lightVP);
-            mesh->IssueDrawInstanced((GLsizei)run);
-            prog.setInt("uUseInstancing", 0);
-        }
-        else {
-            prog.setMat4("uLightVP", lightVP);
-            prog.setMat4("model", items_[i].model);
-            mesh->IssueDraw();
-        }
-
-        i = j;
-    }
-
-    glBindVertexArray(0);
+    // Legacy single-cascade call: wrap and forward
+    CascadeParam p;
+    p.lightVP = lightVP;
+    p.splitNear = splitNear;
+    p.splitFar = splitFar;
+    p.viewMatrix = camView;
+    std::vector<CascadeParam> list = { p };
+    RenderShadowsCombined(prog, list);
 }
 bool Scene::aabbIntersectsLightFrustum(const glm::mat4& lightVP, const AABB& aabb, const glm::mat4& model)
 {
