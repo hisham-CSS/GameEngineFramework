@@ -29,6 +29,8 @@ add_library(Engine SHARED
     src/core/SceneSerializer.h
     src/core/SceneSerializer.cpp
     src/core/FixedTimestep.h
+    src/core/InputMap.h
+    src/core/InputMap.cpp
     src/render/IRenderPass.h 
     src/render/passes/ForwardOpaquePass.h 
     src/render/passes/ShadowCSMPass.h 

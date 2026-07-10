@@ -32,6 +32,9 @@ full audit + roadmap in [docs/ENGINE_AUDIT_2026-07.md](docs/ENGINE_AUDIT_2026-07
   scene with no editor dependencies (defaults to `Exported/scene.json`).
 - **Game update hooks**: fixed-timestep tick (default 60 Hz, accumulator with
   spiral-of-death guard) plus a per-frame variable update, with time scale and pause.
+- **Input action maps**: named actions/axes with rebindable keyboard, mouse-button, and
+  gamepad bindings (stick deadzone included). WASD + gamepad sticks fly the camera by
+  default; games query `renderer.input()` by name.
 - **Unit tests**: GoogleTest suite covering CSM split math, shadow stability, render-pass
   wiring, scene serialization round-trips, and input/event basics.
 

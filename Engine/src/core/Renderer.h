@@ -16,7 +16,7 @@
 #include "Camera.h"
 #include "Scene.h"
 #include "Shader.h"
-#include "InputSystem.h"
+#include "InputMap.h"
 #include "Model.h"
 #include "FixedTimestep.h"
 #include "../render/RenderPipeline.h"
@@ -69,9 +69,14 @@ namespace MyCoreEngine {
         void  setPaused(bool p) { paused_ = p; }
         bool  paused() const { return paused_; }
 
-        // Editor-provided capture flags (so InputSystem can be skipped when UI is focused)
+        // Editor-provided capture flags (so game input is skipped when UI is focused)
         using UICaptureFn = std::function<std::pair<bool, bool>()>;
         void SetUICaptureProvider(UICaptureFn fn) { captureFn_ = std::move(fn); }
+
+        // Named action/axis input. Default bindings: WASD + gamepad left stick
+        // drive MoveForward/MoveRight, right stick drives LookX/LookY, ESC =
+        // "Quit". Games and the editor can query and rebind freely.
+        InputMap& input() { return input_; }
 
         // Fires once, right after GLAD is initialized and the context is ready.
         using OnContextReadyFn = std::function<void()>;
@@ -225,7 +230,7 @@ namespace MyCoreEngine {
 
         // Camera & input
         Camera      camera_{ glm::vec3(0.0f, 0.0f, 3.0f) };
-        InputSystem input_;
+        InputMap    input_;
 
         // UI hooks
         UIDrawFn       uiDraw_{};

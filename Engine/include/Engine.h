@@ -18,6 +18,7 @@
 #include "../src/core/Material.h"
 #include "../src/core/SceneSerializer.h"
 #include "../src/core/FixedTimestep.h"
+#include "../src/core/InputMap.h"
 #include "../src/core/GLInit.h"
 #include "../src/render/CSMSplits.h"
 

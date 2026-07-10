@@ -34,11 +34,20 @@ namespace MyCoreEngine {
     }
 
     Renderer::Renderer(int width, int height, const char* title)
-        : window_(width, height, title),
-        input_(window_.getGLFWwindow())
+        : window_(width, height, title)
     {
         // GLFW window is created here and context is current on this thread,
         // but GLAD is not loaded yet. Do not create GL resources here.
+
+        // Default fly-camera bindings; apps can rebind via input().
+        input_.bindAxisKeys("MoveForward", GLFW_KEY_W, GLFW_KEY_S);
+        input_.bindAxisKeys("MoveRight", GLFW_KEY_D, GLFW_KEY_A);
+        input_.bindGamepadAxis("MoveForward", GLFW_GAMEPAD_AXIS_LEFT_Y, /*inverted=*/true);
+        input_.bindGamepadAxis("MoveRight", GLFW_GAMEPAD_AXIS_LEFT_X);
+        input_.bindGamepadAxis("LookX", GLFW_GAMEPAD_AXIS_RIGHT_X);
+        input_.bindGamepadAxis("LookY", GLFW_GAMEPAD_AXIS_RIGHT_Y, /*inverted=*/true);
+        input_.bindKey("Quit", GLFW_KEY_ESCAPE);
+        input_.bindGamepadButton("Quit", GLFW_GAMEPAD_BUTTON_BACK);
     }
 
     Renderer::~Renderer() {
@@ -187,8 +196,24 @@ namespace MyCoreEngine {
                 auto caps = captureFn_();
                 capK = caps.first; capM = caps.second;
             }
+            // Poll every frame so edge states stay coherent; only APPLY the
+            // default camera/quit behavior when the UI isn't capturing keys.
+            input_.update(window_.getGLFWwindow());
             if (!capK) {
-                input_.update(camera_, deltaTime_);
+                if (input_.wasPressed("Quit")) {
+                    glfwSetWindowShouldClose(window_.getGLFWwindow(), true);
+                }
+                const float move = camera_.MovementSpeed * deltaTime_;
+                camera_.Position += camera_.Front * (input_.axis("MoveForward") * move);
+                camera_.Position += camera_.Right * (input_.axis("MoveRight") * move);
+
+                const float lookX = input_.axis("LookX");
+                const float lookY = input_.axis("LookY");
+                if (lookX != 0.f || lookY != 0.f) {
+                    // ~120 deg/s at full stick deflection (sensitivity 0.1 applies inside)
+                    const float padLook = 1200.f * deltaTime_;
+                    camera_.ProcessMouseMovement(lookX * padLook, lookY * padLook);
+                }
             }
             if (!capM) handleMouseLook_(capM);
 

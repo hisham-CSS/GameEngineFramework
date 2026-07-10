@@ -14,6 +14,8 @@ public:
 
     void Run() override;
 
+    void DrawInputPanel();
+
     void DrawTimeControls();
 
     void DrawScenePersistence(MyCoreEngine::Scene& scene);

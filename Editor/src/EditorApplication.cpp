@@ -41,6 +41,7 @@ void EditorApplication::Run() {
         //rendering window
         DrawScenePersistence(scene);
         DrawTimeControls();
+        DrawInputPanel();
         DrawRenderingToggles(scene);
         DrawLightControls(scene);
         DrawSunShadowControls(scene);
@@ -118,6 +119,19 @@ void EditorApplication::Run() {
     });
 
     myRenderer.run(scene, *shader);
+}
+
+void EditorApplication::DrawInputPanel()
+{
+    if (!ImGui::CollapsingHeader("Input", ImGuiTreeNodeFlags_None)) return;
+
+    auto& in = myRenderer.input();
+    ImGui::Text("Gamepad: %s", in.gamepadConnected() ? "connected" : "not connected");
+    ImGui::Text("MoveForward: %+.2f", in.axis("MoveForward"));
+    ImGui::Text("MoveRight:   %+.2f", in.axis("MoveRight"));
+    ImGui::Text("Look X/Y:    %+.2f / %+.2f", in.axis("LookX"), in.axis("LookY"));
+    ImGui::TextDisabled("Defaults: WASD + left stick move, right stick looks,");
+    ImGui::TextDisabled("ESC / Back quits. Rebind via Renderer::input().");
 }
 
 void EditorApplication::DrawTimeControls()
