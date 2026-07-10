@@ -192,6 +192,16 @@ namespace MyCoreEngine {
             }
             if (!capM) handleMouseLook_(capM);
 
+            // Game update: fixed steps (simulation) then per-frame variable step.
+            // Camera/editor input above deliberately ignores pause/time scale.
+            const float gameDt = paused_ ? 0.f : deltaTime_ * timeScale_;
+            if (fixedUpdate_) {
+                fixedStep_.advance(gameDt, fixedUpdate_);
+            }
+            if (update_ && gameDt > 0.f) {
+                update_(gameDt);
+            }
+
             // Update scene data (transforms etc.)
             scene.UpdateTransforms();
 

@@ -30,6 +30,8 @@ full audit + roadmap in [docs/ENGINE_AUDIT_2026-07.md](docs/ENGINE_AUDIT_2026-07
   by asset path, material overrides, flags) plus scene lighting/shading settings.
 - **Standalone Player**: `Player.exe [scene.json]` boots the engine and runs a serialized
   scene with no editor dependencies (defaults to `Exported/scene.json`).
+- **Game update hooks**: fixed-timestep tick (default 60 Hz, accumulator with
+  spiral-of-death guard) plus a per-frame variable update, with time scale and pause.
 - **Unit tests**: GoogleTest suite covering CSM split math, shadow stability, render-pass
   wiring, scene serialization round-trips, and input/event basics.
 

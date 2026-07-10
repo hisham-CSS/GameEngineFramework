@@ -40,6 +40,7 @@ void EditorApplication::Run() {
             
         //rendering window
         DrawScenePersistence(scene);
+        DrawTimeControls();
         DrawRenderingToggles(scene);
         DrawLightControls(scene);
         DrawSunShadowControls(scene);
@@ -68,6 +69,7 @@ void EditorApplication::Run() {
     
     {
         Entity firstEntity = scene.createEntity();
+        firstEntity.addComponent<Name>(Name{ "Hero" });
         Transform t{};
         t.position = glm::vec3(0.f, 0.f, 0.f);
         firstEntity.addComponent<Transform>(t);
@@ -90,6 +92,7 @@ void EditorApplication::Run() {
     {
         auto groundHandle = assets_->GetModel("Exported/Model/plane.obj");
         Entity ground = scene.createEntity();
+        ground.addComponent<Name>(Name{ "Ground" });
         Transform t{};
         t.position = glm::vec3(0.f, -3.f, 0.f);
         t.scale = glm::vec3(300.f, 1.f, 300.f);
@@ -101,7 +104,34 @@ void EditorApplication::Run() {
         scene.registry.emplace<NoShadow>(ground);
     }
 
+    // Demo gameplay on the fixed tick: spin every entity named "Hero".
+    // (Real games will hang systems/scripts off this hook — see roadmap P3-9.)
+    myRenderer.SetFixedUpdate([&scene](float fixedDt) {
+        auto view = scene.registry.view<Name, Transform>();
+        for (auto e : view) {
+            if (view.get<Name>(e).value != "Hero") continue;
+            auto& t = view.get<Transform>(e);
+            t.rotation.y += 45.f * fixedDt; // deg/sec, framerate-independent
+            if (t.rotation.y >= 360.f) t.rotation.y -= 360.f;
+            t.dirty = true;
+        }
+    });
+
     myRenderer.run(scene, *shader);
+}
+
+void EditorApplication::DrawTimeControls()
+{
+    if (!ImGui::CollapsingHeader("Time", ImGuiTreeNodeFlags_None)) return;
+
+    bool paused = myRenderer.paused();
+    if (ImGui::Checkbox("Paused", &paused)) myRenderer.setPaused(paused);
+
+    float scale = myRenderer.timeScale();
+    if (ImGui::SliderFloat("Time Scale", &scale, 0.f, 4.f)) myRenderer.setTimeScale(scale);
+
+    float hz = myRenderer.fixedTimestepHz();
+    if (ImGui::SliderFloat("Fixed Tick (Hz)", &hz, 15.f, 240.f, "%.0f")) myRenderer.setFixedTimestepHz(hz);
 }
 
 void EditorApplication::DrawScenePersistence(MyCoreEngine::Scene& scene)

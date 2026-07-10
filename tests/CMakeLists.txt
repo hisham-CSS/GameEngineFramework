@@ -87,6 +87,14 @@ add_custom_command(TARGET test_scene_serializer POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     $<TARGET_FILE:Engine> $<TARGET_FILE_DIR:test_scene_serializer>)
 
+# --- Fixed-timestep accumulator (CPU only, no GL) ---
+add_executable(test_fixed_timestep test_fixed_timestep.cpp)
+target_link_libraries(test_fixed_timestep PRIVATE Engine GTest::gtest_main)
+add_test(NAME test_fixed_timestep COMMAND $<TARGET_FILE:test_fixed_timestep>)
+add_custom_command(TARGET test_fixed_timestep POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    $<TARGET_FILE:Engine> $<TARGET_FILE_DIR:test_fixed_timestep>)
+
 # --- CPU-only split tests (no GL) ---
 add_executable(test_splits test_splits.cpp)
 target_link_libraries(test_splits PRIVATE Engine GTest::gtest_main)

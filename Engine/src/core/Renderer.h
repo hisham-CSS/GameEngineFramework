@@ -18,6 +18,7 @@
 #include "Shader.h"
 #include "InputSystem.h"
 #include "Model.h"
+#include "FixedTimestep.h"
 #include "../render/RenderPipeline.h"
 #include "../render/passes/ShadowCSMPass.h"
 #include "../render/passes/TonemapPass.h"
@@ -47,6 +48,26 @@ namespace MyCoreEngine {
         // Editor-provided UI draw (called each frame after 3D draw)
         using UIDrawFn = std::function<void(float /*deltaTime*/)>;
         void SetUIDraw(UIDrawFn fn) { uiDraw_ = std::move(fn); }
+
+        // --- Game update hooks ---
+        // FixedUpdate runs at a fixed rate (default 60 Hz) via an accumulator:
+        // 0..N calls per frame, always with the same dt. Put simulation /
+        // gameplay / future physics here. Update runs once per rendered frame
+        // with the (time-scaled) variable dt. Both run before UpdateTransforms,
+        // so Transform edits (+ dirty flag) are picked up the same frame.
+        using UpdateFn = std::function<void(float /*dt*/)>;
+        void SetUpdate(UpdateFn fn) { update_ = std::move(fn); }
+        void SetFixedUpdate(UpdateFn fn) { fixedUpdate_ = std::move(fn); }
+
+        void  setFixedTimestepHz(float hz) { fixedStep_.setStep(1.f / std::max(1.f, hz)); }
+        float fixedTimestepHz() const { return 1.f / fixedStep_.step(); }
+        // Fraction of a fixed step not yet simulated (for render interpolation).
+        float fixedAlpha() const { return fixedStep_.alpha(); }
+
+        void  setTimeScale(float s) { timeScale_ = std::max(0.f, s); }
+        float timeScale() const { return timeScale_; }
+        void  setPaused(bool p) { paused_ = p; }
+        bool  paused() const { return paused_; }
 
         // Editor-provided capture flags (so InputSystem can be skipped when UI is focused)
         using UICaptureFn = std::function<std::pair<bool, bool>()>;
@@ -211,6 +232,13 @@ namespace MyCoreEngine {
         UICaptureFn    captureFn_{};
         OnContextReadyFn onReady_{};
         bool           readyFired_ = false;
+
+        // Game update hooks + fixed-step state
+        UpdateFn      update_{};
+        UpdateFn      fixedUpdate_{};
+        FixedTimestep fixedStep_{ 1.f / 60.f };
+        float         timeScale_ = 1.0f;
+        bool          paused_ = false;
 
         // mouse-look state
         bool rotating_ = false;
