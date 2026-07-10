@@ -25,3 +25,7 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
     target_compile_options(Player PRIVATE /Zi)
 endif()
+
+# --- Packaging: the standalone game bundle ---
+install(TARGETS Player RUNTIME DESTINATION .)
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/Editor/src/Exported/ DESTINATION Exported)

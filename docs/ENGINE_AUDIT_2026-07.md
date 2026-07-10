@@ -193,7 +193,7 @@ Phased so each phase ends in something usable. Effort: S ≤ 1 day, M = days, L 
 | P1-1 | **Scene serialization** (JSON via nlohmann or cereal): Transform, ModelComponent (by asset path), MaterialOverrides, Name, lights, render settings | L | **Done 2026-07-10** — `SceneSerializer` (JSON v1), editor Save/Load panel, 4 round-trip tests |
 | P1-2 | **Game update tick**: fixed-timestep accumulator + variable render, separate from editor | M | Where gameplay/physics/scripts will live |
 | P1-3 | **Standalone Player target**: loads a serialized scene, no ImGui/editor deps | M | **Done 2026-07-10** — `Player.exe [scene.json]`, shares bin dir + Exported/ with Editor |
-| P1-4 | **Packaging**: CMake `install()` + CPack (or script) bundling exe + DLLs + assets | S–M | "Ship a build" becomes one command |
+| P1-4 | **Packaging**: CMake `install()` + CPack (or script) bundling exe + DLLs + assets | S–M | **Done 2026-07-10** — `cpack -G ZIP` → `CatSplatGame-0.1.0-win64.zip` (vcpkg applocal-on-install handles the DLL closure) |
 | P1-5 | Decompose the `Renderer` God object: Application owns loop/window/input; Renderer renders | M–L | Do alongside P1-2; keeps future systems sane |
 | P1-6 | Logging + assertions (spdlog or minimal homegrown) | S | Prereq for debugging everything above |
 | P1-7 | Input action/axis mapping + gamepad (GLFW gamepad API); retire or wire the EventBus | M | Games need rebindable input |

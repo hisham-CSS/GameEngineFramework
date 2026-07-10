@@ -82,3 +82,8 @@ endif()
 
 # Engine CMakeLists.txt
 target_compile_definitions(Engine PRIVATE GLFW_INCLUDE_NONE)
+
+# Ship the engine DLL at the package root, next to Player.exe. With
+# X_VCPKG_APPLOCAL_DEPS_INSTALL, vcpkg also deploys Engine.dll's own DLL
+# dependency closure (assimp, glfw3, zlib, ...) into the same directory.
+install(TARGETS Engine RUNTIME DESTINATION .)

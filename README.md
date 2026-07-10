@@ -35,7 +35,8 @@ full audit + roadmap in [docs/ENGINE_AUDIT_2026-07.md](docs/ENGINE_AUDIT_2026-07
 
 ## Current Limitations (Honest Edition)
 
-- **No packaging/export** — no install/CPack step yet; distribution means zipping the bin dir.
+- **No project system** — window size, startup camera, and renderer defaults are hardcoded;
+  there is no per-game settings file yet.
 - **Editor is renderer-focused** — no viewport panel, gizmos, entity create/delete UI, undo,
   asset browser, or play mode yet. Docking is not enabled.
 - **Single directional light** — no point/spot lights or additional shadow casters.
@@ -92,6 +93,16 @@ player — both executables share the same output directory.
 
 Tests: `ctest --test-dir build` (or run the `test_*` executables in `build/tests`).
 
+### Shipping a build
+
+```bash
+cd build && cpack -G ZIP
+```
+
+Produces `CatSplatGame-<version>-win64.zip` containing `Player.exe`, `Engine.dll`, all
+third-party DLLs, and the `Exported/` assets + scene — a self-contained game bundle.
+(`cmake --install build --prefix <dir>` stages the same layout to a directory.)
+
 ## Development Status
 
 - ✅ **Rendering pipeline (opaque + CSM + HDR + PBR/IBL)**: Working, actively tuned
@@ -100,7 +111,7 @@ Tests: `ctest --test-dir build` (or run the `test_*` executables in `build/tests
 - 🔨 **Testing**: CSM/render passes covered; most other systems untested
 - ✅ **Scene serialization (save/load)**: Working (versioned JSON, editor Save/Load panel)
 - ✅ **Standalone player**: Working (`Player.exe [scene.json]`)
-- 🔲 **Packaging/export (install/CPack)**: Not started
+- ✅ **Packaging/export**: Working (`cpack -G ZIP` → self-contained game bundle)
 - 🔲 **Physics integration**: Planned (Jolt)
 - 🔲 **Animation system**: Planned
 - 🔲 **Audio system**: Planned
