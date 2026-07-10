@@ -249,7 +249,7 @@ namespace MyCoreEngine {
         if (csmPass_) csmPass_->setEnabled(e);
     }
     float Renderer::getCSMMaxShadowDistance() const {
-        return csmPass_ ? csmPass_->maxShadowDistance() : 1000.f;
+        return csmPass_ ? csmPass_->maxShadowDistance() : 200.f;
     }
     void Renderer::setCSMMaxShadowDistance(float d) {
         if (csmPass_) csmPass_->setMaxShadowDistance(d);

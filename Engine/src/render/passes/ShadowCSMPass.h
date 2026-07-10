@@ -46,6 +46,12 @@ public:
     void setCascadePaddingMeters(float m) { cascadePaddingMeters_ = std::max(0.f, m); markDirty_(); }
     void setDepthMarginMeters(float m) { depthMarginMeters_ = std::max(0.f, m); markDirty_(); }
 
+    // Fraction of each cascade's radius kept as movement margin. Larger =
+    // rarer (cheaper) cascade re-renders while the camera moves, at slightly
+    // lower effective shadow resolution.
+    void  setUpdateMarginFraction(float f) { updateMarginFrac_ = std::clamp(f, 0.02f, 0.5f); markDirty_(); }
+    float updateMarginFraction() const { return updateMarginFrac_; }
+
     // Depth-bias / culling controls
     void setSlopeDepthBias(float slope) { slopeBias_ = std::max(0.f, slope); markDirty_(); }
     void setConstantDepthBias(float constant) { constBias_ = std::max(0.f, constant); markDirty_(); }
@@ -83,7 +89,10 @@ private:
     int   baseRes_{ 2048 };
     float lambda_{ 0.7f };
     float splitBlendMeters_{ 20.f }; // not used here, but preserved for parity
-    float maxShadowDistance_{ 1000.f };   // replaces fixed camFar for CSM splits
+    // Sane default for medium scenes; was 1000, which made the far cascade's
+    // light frustum swallow every caster in the scene (cost) and spread its
+    // texels absurdly thin (quality). Editor slider raises it when needed.
+    float maxShadowDistance_{ 200.f };
     float cascadePaddingMeters_{ 0.0f };  // grow/shrink XY extents per cascade
     float depthMarginMeters_{ 5.0f };     // replaces hardcoded �5.0f on Z
     float slopeBias_{ 2.0f };             // glPolygonOffset factor
@@ -96,18 +105,24 @@ private:
 
     // throttle/dirty
     uint64_t     frameIndex_{ 0 };
-    bool         shadowParamsDirty_{ true }; 
+    bool         shadowParamsDirty_{ true };
     bool         forceFullUpdateOnce_{ true };
-    float        posEps_{ 0.05f }, angEps_{ 0.5f };
-    glm::vec3    lastCamPos_{}, lastCamFwd_{};
+    float        posEps_{ 0.05f }, angEps_{ 0.5f }; // angEps_ gates sun changes; posEps_ superseded by margins
     glm::vec3    lastSunDir_{ 0,-1,0 };
     float        lastAspect_{ -1.f };
     float        lastFovDeg_{ -1.f };
     UpdatePolicy policy_{ UpdatePolicy::CameraOrSunMoved };
     SplitMode    splitMode_{ SplitMode::Fixed };
-    int          budgetPerFrame_{ 0 };   // 0 == unlimited
-    int          nextCascade_{ 0 };      // round-robin pointer
+    int          budgetPerFrame_{ 0 };   // 0 == update all stale cascades
     int          lastUpdatedCount_{ 0 };  // for tests only
+
+    // Per-cascade cached coverage (movement-proportional update cadence):
+    // a cascade is re-rendered only when the slice center drifts past the
+    // movement margin baked into its extent at render time.
+    std::array<glm::vec3, kMaxCascades> renderedCenter_{};
+    std::array<float, kMaxCascades> renderedMargin_{ {0,0,0,0} };
+    std::array<bool, kMaxCascades> cascadeValid_{ {false,false,false,false} };
+    float updateMarginFrac_{ 0.15f };
 
     // GL
     unsigned shadowFBO_{ 0 };
@@ -125,7 +140,7 @@ private:
     // helpers
     void ensureTargets_();
     bool rebuild_(const Camera& cam, float aspect);
-    void markDirty_() { shadowParamsDirty_ = true; forceFullUpdateOnce_ = true; nextCascade_ = 0; }
+    void markDirty_() { shadowParamsDirty_ = true; forceFullUpdateOnce_ = true; }
 
     // published to PassContext for other passes to read
     CSMSnapshot snap_{};

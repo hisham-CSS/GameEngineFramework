@@ -61,10 +61,9 @@ void ShadowCSMPass::ensureTargets_() {
             // texture through a non-shadow sampler is undefined behavior).
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
             resPer_[i] = desired;
-            // After resize, force a clean rebuild + full redraw starting from cascade 0
+            // After resize, force a clean rebuild + full redraw
             shadowParamsDirty_ = true;
             forceFullUpdateOnce_ = true;
-            nextCascade_ = 0;
             fboChecked_ = false;
         }
     }
@@ -133,38 +132,51 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
     ensureTargets_();
     ++frameIndex_;
 
-    // --- movement & config change detection ---
+    // --- global invalidation: sun/fov/aspect/settings affect every cascade ---
     const glm::vec3 pos = cam.Position;
-    const glm::vec3 fwd = cam.Front;
+    const glm::vec3 fwd = glm::normalize(cam.Front);
     const glm::vec3 sun = glm::normalize(ctx.sunDir);
     const float     aspect = (fp.viewportH > 0) ? float(fp.viewportW) / float(fp.viewportH) : 1.777f;
     const float     fovDeg = cam.Zoom;
-    
-    const glm::vec3 dp = pos - lastCamPos_;
-    const float posMoved2 = glm::dot(dp, dp);
-    const float fwdDot = glm::clamp(glm::dot(glm::normalize(fwd), glm::normalize(lastCamFwd_)), -1.f, 1.f);
-    const float fwdDeg = glm::degrees(std::acos(fwdDot));
-    const float sunDot = glm::clamp(glm::dot(glm::normalize(sun), glm::normalize(lastSunDir_)), -1.f, 1.f);
+
+    const float sunDot = glm::clamp(glm::dot(sun, glm::normalize(lastSunDir_)), -1.f, 1.f);
     const float sunDeg = glm::degrees(std::acos(sunDot));
     const bool  aspectChanged = (std::abs(aspect - lastAspect_) > 1e-4f);
     const bool  fovChanged = (std::abs(fovDeg - lastFovDeg_) > 1e-3f);
-    
-    bool moved = false;
-    if (policy_ == UpdatePolicy::Always) {
-        moved = true;
-    }
-    else if (policy_ == UpdatePolicy::CameraOrSunMoved) {
-        moved = (posMoved2 > posEps_ * posEps_) || (fwdDeg > angEps_) || (sunDeg > angEps_) || aspectChanged || fovChanged;
-    }
-    else { // Manual
-        moved = shadowParamsDirty_;
+
+    if (shadowParamsDirty_ || forceFullUpdateOnce_ || (sunDeg > angEps_) || aspectChanged || fovChanged) {
+        rebuild_(cam, aspect); // splits depend on fov/aspect/settings
+        for (auto& v : cascadeValid_) v = false;
+        lastSunDir_ = sun; lastAspect_ = aspect; lastFovDeg_ = fovDeg;
+        shadowParamsDirty_ = false;
+        forceFullUpdateOnce_ = false;
     }
 
-    // Any dirty setting must refresh even if the camera didn’t move:
-    moved = moved || shadowParamsDirty_;
+    // --- per-cascade update decisions (movement-proportional cadence) ---
+    // Each rendered cascade covers its slice PLUS a movement margin, so it
+    // stays valid until the slice center drifts past that margin. Near
+    // cascades update often but are cheap (small light frustum = few
+    // casters); far cascades are expensive but update rarely. Deferred
+    // cascades keep their published lightVP/depth-map pair consistent and
+    // still cover the current slice, so nothing pops or shimmers.
+    int needIdx[kMaxCascades] = {};
+    int needCount = 0;
+    for (int i = 0; i < cascades_; ++i) {
+        const glm::vec3 sliceCenter = pos + fwd * (0.5f * (splitZ_[i] + splitZ_[i + 1]));
+        bool needs = !cascadeValid_[i];
+        if (!needs && policy_ == UpdatePolicy::Always) needs = true;
+        if (!needs && policy_ == UpdatePolicy::CameraOrSunMoved) {
+            needs = glm::length(sliceCenter - renderedCenter_[i]) > renderedMargin_[i];
+        }
+        // Manual: only global invalidation (markDirty_) refreshes
+        if (needs) needIdx[needCount++] = i;
+    }
 
-    // If nothing changed, publish last snapshot and skip GPU work
-    if (!moved) {
+    // Optional cap (opt-in extra amortization; nearest cascades first).
+    const int toUpdate = (budgetPerFrame_ > 0) ? std::min(budgetPerFrame_, needCount) : needCount;
+
+    // Nothing stale: publish the still-valid snapshot and skip all GPU work.
+    if (toUpdate == 0) {
         ctx.csm.enabled = true;
         ctx.csm.cascades = cascades_;
         for (int i = 0; i < kMaxCascades; ++i) {
@@ -175,26 +187,13 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
         }
         return false;
     }
-    
-    // Update caches
-    lastCamPos_ = pos; lastCamFwd_ = fwd; lastSunDir_ = sun; lastAspect_ = aspect; lastFovDeg_ = fovDeg;
-    shadowParamsDirty_ = false;
 
-    // recompute splits whenever FOV/aspect/near/far changed
-    rebuild_(cam, aspect);
-
-    // Build per-cascade light VP using your stabilized ortho code
     const glm::vec3 sunDir = sun;
     const glm::mat4 V = cam.GetViewMatrix();
 
-    // Decide how many cascades to refresh (round-robin)
-    int toUpdate = (budgetPerFrame_ <= 0) ? cascades_ : std::min(budgetPerFrame_, cascades_);
-    if (forceFullUpdateOnce_) toUpdate = cascades_; // settings changed -> redraw all
+    for (int k = 0; k < toUpdate; ++k) {
+        const int i = needIdx[k];
 
-    int updated = 0;
-    for (int k = 0; k < cascades_ && updated < toUpdate; ++k) {
-        const int i = (nextCascade_ + k) % cascades_;        
-        
         // slice frustum corners (world)
         glm::mat4 sliceProj = glm::perspective(glm::radians(cam.Zoom), aspect, splitZ_[i], splitZ_[i + 1]);
         glm::mat4 invSliceVP = glm::inverse(sliceProj * V);
@@ -223,16 +222,21 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
         radius = std::ceil(radius * 16.f) / 16.f; // quantize away FP noise
         radius += cascadePaddingMeters_;
 
+        // Movement margin: extra coverage so this cascade stays valid while
+        // the camera moves, deferring the next (expensive) re-render.
+        const float margin = std::max(1.0f, updateMarginFrac_ * radius);
+        const float extent = radius + margin; // ortho half-size incl. margin
+
         // Robust "up" to avoid flips when sunDir ~ world up
         glm::vec3 upCand = (std::abs(sunDir.y) > 0.95f) ? glm::vec3(0, 0, 1) : glm::vec3(0, 1, 0);
-        const float backup = radius + depthMarginMeters_; // eye distance behind the slice
+        const float backup = extent + depthMarginMeters_; // eye distance behind the slice
         glm::mat4 lightView = glm::lookAt(center - sunDir * backup, center, upCand);
 
         // Constant square extent; casters closer to the light than zNear are
         // handled by GL_DEPTH_CLAMP (pancaking) during the depth render.
         const float zNear = 0.01f;
-        const float zFar = backup + radius + depthMarginMeters_;
-        glm::mat4 lightProj = glm::orthoRH_NO(-radius, radius, -radius, radius, zNear, zFar);
+        const float zFar = backup + extent + depthMarginMeters_;
+        glm::mat4 lightProj = glm::orthoRH_NO(-extent, extent, -extent, extent, zNear, zFar);
 
         // ----- texel snap: nudge the projection so the world origin lands on
         // a texel corner. With a constant extent the texel size is constant,
@@ -246,9 +250,11 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
         glm::vec2 snapOffset = (rounded - originTexels) / halfRes; // clip-space nudge
         glm::mat4 snap = glm::translate(glm::mat4(1.f), glm::vec3(snapOffset, 0.f));
         lightVP_[i] = snap * shadowMat;
-		++updated;
+
+        renderedCenter_[i] = center;
+        renderedMargin_[i] = margin;
+        cascadeValid_[i] = true;
     }
-    nextCascade_ = (nextCascade_ + updated) % cascades_;
 
     // render depth per cascade (your renderCSM_ body)
     glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO_);
@@ -282,18 +288,18 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
         Scene::CascadeParam param;
     };
     std::vector<BatchEntry> batch;
-    batch.reserve(updated);
+    batch.reserve(toUpdate);
     std::vector<Scene::CascadeParam> params;
-    params.reserve(updated);
+    params.reserve(toUpdate);
 
-    for (int k = 0; k < updated; ++k) {
-        const int i = (nextCascade_ - updated + k + cascades_) % cascades_;
+    for (int k = 0; k < toUpdate; ++k) {
+        const int i = needIdx[k];
         Scene::CascadeParam p;
         p.lightVP = lightVP_[i];
         p.splitNear = splitZ_[i];
         p.splitFar = splitZ_[i + 1]; // splitZ is [0..cascades]
-        p.viewMatrix = cam.GetViewMatrix();
-        
+        p.viewMatrix = V;
+
         BatchEntry be; be.actualIndex = i; be.param = p;
         batch.push_back(be);
         params.push_back(p);
@@ -346,14 +352,11 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
         ctx.csm.resPer[i] = resPer_[i];
     }
     
-    shadowParamsDirty_ = false;
-    forceFullUpdateOnce_ = false;
-
     #ifdef UNIT_TEST
-        lastUpdatedCount_ = updated;
+        lastUpdatedCount_ = toUpdate;
     #endif
 
-    return (updated > 0);
+    return (toUpdate > 0);
 }
 
 void ShadowCSMPass::setLambda(float v) {
