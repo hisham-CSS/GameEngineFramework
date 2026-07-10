@@ -190,7 +190,7 @@ Phased so each phase ends in something usable. Effort: S ≤ 1 day, M = days, L 
 ### Phase 1 — Make it a game engine (persistence, player, loop) — the shipping gate
 | # | Item | Effort | Notes |
 |---|---|---|---|
-| P1-1 | **Scene serialization** (JSON via nlohmann or cereal): Transform, ModelComponent (by asset path), MaterialOverrides, Name, lights, render settings | L | Single biggest blocker; add round-trip tests |
+| P1-1 | **Scene serialization** (JSON via nlohmann or cereal): Transform, ModelComponent (by asset path), MaterialOverrides, Name, lights, render settings | L | **Done 2026-07-10** — `SceneSerializer` (JSON v1), editor Save/Load panel, 4 round-trip tests |
 | P1-2 | **Game update tick**: fixed-timestep accumulator + variable render, separate from editor | M | Where gameplay/physics/scripts will live |
 | P1-3 | **Standalone Player target**: loads a serialized scene, no ImGui/editor deps | M | Second exe, links Engine only |
 | P1-4 | **Packaging**: CMake `install()` + CPack (or script) bundling exe + DLLs + assets | S–M | "Ship a build" becomes one command |

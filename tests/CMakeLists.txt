@@ -78,6 +78,14 @@ add_custom_command(TARGET test_scene_details POST_BUILD
     # the generator expressions keep this copy working in both configs.
 )
 
+# --- Scene serialization round-trip (CPU only, no GL) ---
+add_executable(test_scene_serializer test_scene_serializer.cpp)
+target_link_libraries(test_scene_serializer PRIVATE Engine GTest::gtest_main)
+add_test(NAME test_scene_serializer COMMAND $<TARGET_FILE:test_scene_serializer>)
+add_custom_command(TARGET test_scene_serializer POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    $<TARGET_FILE:Engine> $<TARGET_FILE_DIR:test_scene_serializer>)
+
 # --- CPU-only split tests (no GL) ---
 add_executable(test_splits test_splits.cpp)
 target_link_libraries(test_splits PRIVATE Engine GTest::gtest_main)

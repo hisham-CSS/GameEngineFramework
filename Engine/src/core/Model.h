@@ -97,10 +97,13 @@ namespace MyCoreEngine {
         void Draw(Shader& shader);
         const std::vector<Mesh>& Meshes() const { return meshes_; }
         const std::vector<MyCoreEngine::MaterialHandle>& Materials() const { return materials_; }
+        // Path this model was loaded from (normalized) — used by serialization
+        const std::string& SourcePath() const { return sourcePath_; }
 
     private:
         std::vector<Mesh> meshes_;
         std::string       directory_;
+        std::string       sourcePath_;
 
         // Global cache keyed by (normalized path + �|srgb/|lin�)
         static std::unordered_map<std::string, unsigned int> sTextureCache_;

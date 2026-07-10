@@ -14,6 +14,8 @@ public:
 
     void Run() override;
 
+    void DrawScenePersistence(MyCoreEngine::Scene& scene);
+
     void DrawLightControls(MyCoreEngine::Scene& scene);
 
     void DrawIBLHDRControls(MyCoreEngine::Scene& scene);

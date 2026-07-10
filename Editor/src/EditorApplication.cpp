@@ -39,6 +39,7 @@ void EditorApplication::Run() {
         DrawInformationPanel(scene, dt);
             
         //rendering window
+        DrawScenePersistence(scene);
         DrawRenderingToggles(scene);
         DrawLightControls(scene);
         DrawSunShadowControls(scene);
@@ -101,6 +102,33 @@ void EditorApplication::Run() {
     }
 
     myRenderer.run(scene, *shader);
+}
+
+void EditorApplication::DrawScenePersistence(MyCoreEngine::Scene& scene)
+{
+    if (!ImGui::CollapsingHeader("Scene", ImGuiTreeNodeFlags_None)) return;
+
+    static char scenePath[260] = "Exported/scene.json";
+    static std::string lastStatus;
+    ImGui::InputText("Scene file", scenePath, sizeof(scenePath));
+
+    MyCoreEngine::SceneSerializer serializer(scene, *assets_);
+    if (ImGui::Button("Save Scene")) {
+        lastStatus = serializer.Save(scenePath)
+            ? std::string("Saved to ") + scenePath
+            : std::string("Save FAILED (see console)");
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Load Scene")) {
+        if (serializer.Load(scenePath)) {
+            selected_ = entt::null; // old entity handles are invalid after a load
+            lastStatus = std::string("Loaded ") + scenePath;
+        }
+        else {
+            lastStatus = "Load FAILED (see console)";
+        }
+    }
+    if (!lastStatus.empty()) ImGui::TextDisabled("%s", lastStatus.c_str());
 }
 
 void EditorApplication::DrawLightControls(MyCoreEngine::Scene& scene)

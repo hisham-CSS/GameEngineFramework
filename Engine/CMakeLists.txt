@@ -22,10 +22,12 @@ add_library(Engine SHARED
     src/core/Model.cpp 
     src/core/Shader.cpp 
     src/core/Camera.cpp 
-    src/core/AssetManager.h 
+    src/core/AssetManager.h
     src/core/AssetManager.cpp
-    src/core/Scene.cpp 
-    src/core/Material.h 
+    src/core/Scene.cpp
+    src/core/Material.h
+    src/core/SceneSerializer.h
+    src/core/SceneSerializer.cpp
     src/render/IRenderPass.h 
     src/render/passes/ForwardOpaquePass.h 
     src/render/passes/ShadowCSMPass.h 
@@ -47,6 +49,7 @@ find_package(Stb REQUIRED)
 find_package(assimp CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
 find_package(EnTT CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 
 # Publicly include the Engine's `include` folder for other projects (like Editor, Launcher)
 target_include_directories(Engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -57,6 +60,7 @@ target_link_libraries(Engine PUBLIC glad::glad)
 target_link_libraries(Engine PUBLIC assimp::assimp)
 target_link_libraries(Engine PRIVATE glm::glm)
 target_link_libraries(Engine PUBLIC EnTT::EnTT)
+target_link_libraries(Engine PRIVATE nlohmann_json::nlohmann_json)
 
 # Set different output directories for Debug and Release
 set_target_properties(Engine PROPERTIES

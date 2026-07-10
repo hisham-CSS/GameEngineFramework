@@ -291,7 +291,8 @@ namespace MyCoreEngine {
     }
 
     // ---- Model ----
-    Model::Model(const std::string& path, bool gamma) {
+    Model::Model(const std::string& path, bool gamma)
+        : sourcePath_(normPath(path)) {
         loadModel(path);
     }
     void Model::Draw(Shader& shader) {
