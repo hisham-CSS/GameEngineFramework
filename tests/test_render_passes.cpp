@@ -307,6 +307,49 @@ TEST_F(GLFixture, ShadowCenterSnap_StableAcrossResChange) {
     EXPECT_NEAR(height0, height1, std::max(texY0, texY1) * 2.0f);
 }
 
+// Cascade ortho extents must not change when the camera merely rotates: the
+// slice's bounding sphere is rigid geometry. A box fit to the corners resizes
+// with orientation, which resizes the texel grid every update and defeats
+// snapping (visible shimmer while the camera moves).
+TEST_F(GLFixture, ShadowExtents_StableUnderCameraRotation) {
+    PassContext ctx{}; GLFixture::makeHDR(ctx);
+    ShadowCSMPass pass;
+    pass.setup(ctx);
+    pass.setNumCascades(4);
+    pass.setCascadeUpdateBudget(0);
+    pass.setBaseResolution(1024);
+    pass.setMaxShadowDistance(150.f);
+    pass.setUpdatePolicy(ShadowCSMPass::UpdatePolicy::Always);
+
+    Camera cam; cam.Position = { 0,1,4 }; cam.Front = glm::normalize(glm::vec3(0, -0.2f, -1)); cam.Zoom = 60.f;
+    FrameParams fp{}; fp.view = cam.GetViewMatrix();
+    fp.proj = glm::perspective(glm::radians(cam.Zoom), 1.0f, 0.1f, 1000.0f);
+    fp.viewportW = 64; fp.viewportH = 64;
+    NullScene scene;
+    ctx.sunDir = glm::normalize(glm::vec3(-0.2f, -1.0f, -0.1f));
+
+    pass.execute(ctx, scene, cam, fp);
+    auto a = pass.getDebugSnapshot();
+
+    // rotate the camera ~40 degrees around Y (position unchanged)
+    cam.Front = glm::normalize(glm::vec3(0.6f, -0.2f, -0.8f));
+    fp.view = cam.GetViewMatrix();
+    pass.execute(ctx, scene, cam, fp);
+    auto b = pass.getDebugSnapshot();
+
+    // Extract the ortho scales from the VP: its upper-left 3x3 is S * R with
+    // R orthonormal (the light view rotation), so row lengths give S.
+    auto rowLen = [](const glm::mat4& M, int r) {
+        return glm::length(glm::vec3(M[0][r], M[1][r], M[2][r]));
+    };
+    for (int i = 0; i < a.cascades; ++i) {
+        const float sxA = rowLen(a.lightVP[i], 0), sxB = rowLen(b.lightVP[i], 0);
+        const float syA = rowLen(a.lightVP[i], 1), syB = rowLen(b.lightVP[i], 1);
+        EXPECT_NEAR(sxA, sxB, sxA * 1e-3f) << "cascade " << i << " X extent changed on rotation";
+        EXPECT_NEAR(syA, syB, syA * 1e-3f) << "cascade " << i << " Y extent changed on rotation";
+    }
+}
+
 TEST_F(GLFixture, ForwardBinds_DepthTextures_ToUnits) {
     PassContext ctx{}; GLFixture::makeHDR(ctx);
     // stub tonemap shader so Forward pass can set other uniforms; not used here

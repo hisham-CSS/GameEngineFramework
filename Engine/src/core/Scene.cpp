@@ -263,31 +263,16 @@ void Scene::RenderShadowsCombined(Shader& shadowShader, const std::vector<Cascad
         const auto& t = view.get<Transform>(e);
         const auto& b = view.get<AABB>(e);
 
-        // Precompute view-space depth range for this object once
-        // (Assuming all cascades share the same camera View, which is true for CSM)
-        // If cascades have different views (e.g. multiple distinct lights), we can't share this Z check easily.
-        // For standard CSM, 'viewMatrix' is the player camera view.
-        // We use the first cascade's view matrix as they should be identical.
-        float minVz = 0.f, maxVz = 0.f;
-        if (numCascades > 0) {
-            // Rough approximation: center Z +/- radius
-            glm::vec3 center = (b.min + b.max) * 0.5f;
-            glm::vec4 vc = cascades[0].viewMatrix * t.modelMatrix * glm::vec4(center, 1.0f);
-            float r = glm::length(b.max - center);
-            float vz = -vc.z; // camera looks down -Z
-            minVz = vz - r; 
-            maxVz = vz + r;
-        }
-
-        // Test against each cascade
+        // Test against each cascade.
+        // NOTE: casters are culled against the LIGHT frustum only. Culling by
+        // the camera's Z-slice is wrong for casters — an object outside the
+        // slice (behind the camera, off to the side) can still cast a shadow
+        // INTO the slice, and dropping it makes shadows pop as the camera
+        // moves. Receiver-side slice selection happens in the shader.
         for (size_t c = 0; c < numCascades; ++c) {
             const auto& p = cascades[c];
-            
-            // 2a. Z-slice cull
-            // object's [minVz, maxVz] must overlap (splitNear, splitFar]
-            if (maxVz < p.splitNear || minVz > p.splitFar) continue;
 
-            // 2b. Frustum cull (Light Space)
+            // Frustum cull (Light Space)
             if (!aabbIntersectsLightFrustum(p.lightVP, b, t.modelMatrix)) continue;
 
             // 2c. Add to bucket

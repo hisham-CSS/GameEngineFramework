@@ -213,50 +213,39 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
         for (auto& c : corners) center += c;
         center *= 1.0f / 8.0f;
 
-        //glm::mat4 lightView = glm::lookAt(center - sunDir * 100.0f, center, glm::vec3(0, 1, 0));
+        // ----- stable fit: bounding SPHERE of the slice -----
+        // The radius depends only on FOV/aspect/split distances (the slice is
+        // rigid geometry), NOT on camera position/orientation. A box fit to
+        // the corners changes size as the camera turns, which resizes the
+        // texel grid every update and makes snapping useless (shimmer).
+        float radius = 0.f;
+        for (auto& c : corners) radius = std::max(radius, glm::length(c - center));
+        radius = std::ceil(radius * 16.f) / 16.f; // quantize away FP noise
+        radius += cascadePaddingMeters_;
+
         // Robust "up" to avoid flips when sunDir ~ world up
         glm::vec3 upCand = (std::abs(sunDir.y) > 0.95f) ? glm::vec3(0, 0, 1) : glm::vec3(0, 1, 0);
-        glm::mat4 lightView = glm::lookAt(center - sunDir * 100.0f, center, upCand);
+        const float backup = radius + depthMarginMeters_; // eye distance behind the slice
+        glm::mat4 lightView = glm::lookAt(center - sunDir * backup, center, upCand);
 
-        float minX = +FLT_MAX, maxX = -FLT_MAX, minY = +FLT_MAX, maxY = -FLT_MAX, minZ = +FLT_MAX, maxZ = -FLT_MAX;
-        for (auto& c : corners) {
-            glm::vec3 lp = glm::vec3(lightView * glm::vec4(c, 1.0));
-            minX = std::min(minX, lp.x); maxX = std::max(maxX, lp.x);
-            minY = std::min(minY, lp.y); maxY = std::max(maxY, lp.y);
-            minZ = std::min(minZ, lp.z); maxZ = std::max(maxZ, lp.z);
-        }
-        // z range + configurable margins
-        float zNear = std::max(0.001f, -maxZ - depthMarginMeters_);
-        float zFar = (-minZ) + depthMarginMeters_;
-        
-        // XY padding (before snapping)
-        minX -= cascadePaddingMeters_; maxX += cascadePaddingMeters_;
-        minY -= cascadePaddingMeters_; maxY += cascadePaddingMeters_;
-        
-        // ----- stable texel snapping (CENTER snap) -----
-        // keep width/height constant, snap only the center to the texel grid
+        // Constant square extent; casters closer to the light than zNear are
+        // handled by GL_DEPTH_CLAMP (pancaking) during the depth render.
+        const float zNear = 0.01f;
+        const float zFar = backup + radius + depthMarginMeters_;
+        glm::mat4 lightProj = glm::orthoRH_NO(-radius, radius, -radius, radius, zNear, zFar);
+
+        // ----- texel snap: nudge the projection so the world origin lands on
+        // a texel corner. With a constant extent the texel size is constant,
+        // so translation-only camera movement shifts the map by whole texels.
         const int res = (resPer_[i] > 0) ? resPer_[i] : baseRes_;
-        const float width = (maxX - minX);
-        const float height = (maxY - minY);
-        const float texX = width / float(res);
-        const float texY = height / float(res);
-        
-        // current center in light space
-        float cx = 0.5f * (minX + maxX);
-        float cy = 0.5f * (minY + maxY);
-        
-        // snap center to texel-sized steps
-        cx = std::floor(cx / texX) * texX;
-        cy = std::floor(cy / texY) * texY;
-        
-        // rebuild bounds around snapped center with SAME extent
-        minX = cx - width * 0.5f;
-        maxX = cx + width * 0.5f;
-        minY = cy - height * 0.5f;
-        maxY = cy + height * 0.5f;
-
-        glm::mat4 lightProj = glm::orthoRH_NO(minX, maxX, minY, maxY, zNear, zFar);
-        lightVP_[i] = lightProj * lightView;
+        glm::mat4 shadowMat = lightProj * lightView;
+        glm::vec4 origin = shadowMat * glm::vec4(0.f, 0.f, 0.f, 1.f); // w == 1 for ortho
+        const float halfRes = float(res) * 0.5f;
+        glm::vec2 originTexels = glm::vec2(origin) * halfRes;
+        glm::vec2 rounded = glm::round(originTexels);
+        glm::vec2 snapOffset = (rounded - originTexels) / halfRes; // clip-space nudge
+        glm::mat4 snap = glm::translate(glm::mat4(1.f), glm::vec3(snapOffset, 0.f));
+        lightVP_[i] = snap * shadowMat;
 		++updated;
     }
     nextCascade_ = (nextCascade_ + updated) % cascades_;
@@ -272,6 +261,10 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
     glCullFace(cullFrontFaces_ ? GL_FRONT : GL_BACK);
     glEnable(GL_POLYGON_OFFSET_FILL);
     glPolygonOffset(slopeBias_, constBias_);
+    // Pancake casters that sit between the light and the ortho near plane
+    // onto the near plane instead of clipping them away (their shadows must
+    // still land in the slice).
+    glEnable(GL_DEPTH_CLAMP);
 
     depthProg_->use();
     depthProg_->setInt("uUseInstancing", 0);
@@ -337,6 +330,7 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
 
 
     // restore state
+    glDisable(GL_DEPTH_CLAMP);
     glDisable(GL_POLYGON_OFFSET_FILL);
     glCullFace(GL_BACK);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);

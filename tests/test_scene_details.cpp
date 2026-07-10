@@ -134,11 +134,14 @@ TEST_F(SceneFixture, RenderShadowsCombined_CullsByZ) {
     EXPECT_EQ(calls[1], 1);
 }
 
-TEST_F(SceneFixture, RenderShadowsCombined_RespectsSplits) {
+// Casters must be culled by the LIGHT frustum only. An object outside a
+// cascade's camera Z-slice still casts into it, so the old Z-slice caster
+// cull produced pop-in/out during camera movement (removed 2026-07).
+TEST_F(SceneFixture, RenderShadowsCombined_CullsByLightFrustum) {
     TestableScene scene;
     auto model = std::make_shared<Model>("dummy.obj");
 
-    // Entity at Z = -10
+    // Entity near the origin
     auto eA = scene.createEntity();
     eA.addComponent<Transform>().position = glm::vec3(0, 0, -10);
     eA.addComponent<ModelComponent>().model = model;
@@ -146,20 +149,19 @@ TEST_F(SceneFixture, RenderShadowsCombined_RespectsSplits) {
     eA.addComponent<AABB>(b);
     scene.UpdateTransforms();
 
-    // Cascade 0: [0, 5] -> Entity is at 10 (depth). Should NOT be here.
-    // Cascade 1: [5, 15] -> Entity is at 10. Should be here.
-    
     std::vector<Scene::CascadeParam> params(2);
-    glm::mat4 hugeOrtho = glm::ortho(-1000.f, 1000.f, -1000.f, 1000.f, -1000.f, 1000.f);
-    
-    params[0].lightVP = hugeOrtho;
+
+    // Cascade 0: tiny ortho window centered 500 units away -> caster outside
+    params[0].lightVP = glm::ortho(-1.f, 1.f, -1.f, 1.f, -1.f, 1.f)
+        * glm::translate(glm::mat4(1.f), glm::vec3(-500.f, 0.f, 0.f));
     params[0].splitNear = 0.f;
-    params[0].splitFar = 5.f;
+    params[0].splitFar = 5.f; // must be ignored for caster culling
     params[0].viewMatrix = glm::identity<glm::mat4>();
 
-    params[1].lightVP = hugeOrtho;
-    params[1].splitNear = 5.f;
-    params[1].splitFar = 15.f;
+    // Cascade 1: huge ortho covering the caster
+    params[1].lightVP = glm::ortho(-1000.f, 1000.f, -1000.f, 1000.f, -1000.f, 1000.f);
+    params[1].splitNear = 900.f; // way past the caster's camera depth:
+    params[1].splitFar = 999.f;  // must NOT exclude it (it can cast into the slice)
     params[1].viewMatrix = glm::identity<glm::mat4>();
 
     Shader shader("Exported/Shaders/shadow_depth_vert.glsl", "Exported/Shaders/shadow_depth_frag.glsl");
@@ -169,6 +171,6 @@ TEST_F(SceneFixture, RenderShadowsCombined_RespectsSplits) {
         calls[i]++;
     });
 
-    EXPECT_EQ(calls[0], 0) << "Entity at Z=10 included in [0, 5] cascade";
-    EXPECT_EQ(calls[1], 1) << "Entity at Z=10 NOT included in [5, 15] cascade";
+    EXPECT_EQ(calls[0], 0) << "caster outside cascade 0's light frustum was drawn";
+    EXPECT_EQ(calls[1], 1) << "caster inside cascade 1's light frustum was Z-slice culled";
 }

@@ -114,7 +114,11 @@ namespace MyCoreEngine {
             csmPass_ = &pipeline_.add<ShadowCSMPass>(/*cascades*/4, /*baseRes*/2048);
             pipeline_.setup(passCtx_);
             csmPass_->setUpdatePolicy(ShadowCSMPass::UpdatePolicy::CameraOrSunMoved);
-            csmPass_->setCascadeUpdateBudget(1);
+            // Update ALL cascades whenever an update triggers. Round-robin
+            // amortization (budget >= 1) leaves stale cascades whose light
+            // matrices no longer cover the current slice -> shadows pop while
+            // the camera moves. Opt back in via setCSMCascadeBudget if needed.
+            csmPass_->setCascadeUpdateBudget(0);
             // seed defaults so Editor sliders reflect reality
             csmPass_->setNumCascades(4);
             csmPass_->setLambda(0.7f);
