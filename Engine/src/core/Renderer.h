@@ -28,6 +28,7 @@ namespace MyCoreEngine {
     class ENGINE_API Renderer {
     public:
         Renderer(int width, int height, const char* title);
+        ~Renderer(); // frees HDR + fullscreen-quad GL resources (window_ outlives them)
 
         // prevent copying (vector<unique_ptr<...>> cannot be copied)
         Renderer(const Renderer&) = delete;
@@ -64,6 +65,10 @@ namespace MyCoreEngine {
         // Light exposure
         float exposure() const { return exposure_; }
         void setExposure(float e) { exposure_ = std::max(0.01f, e); }
+
+        // Present pacing (default on: tear-free, predictable frame times)
+        void setVSync(bool on);
+        bool vsyncEnabled() const { return vsync_; }
 
         // Sun / shadows
         glm::vec3 sunDir() const { return sunDir_; }
@@ -194,6 +199,8 @@ namespace MyCoreEngine {
 
         // Exposure control (you can surface this in the editor)
         float exposure_ = 1.0f;
+
+        bool vsync_ = true;
 
         // Camera & input
         Camera      camera_{ glm::vec3(0.0f, 0.0f, 3.0f) };

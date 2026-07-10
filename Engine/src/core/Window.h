@@ -36,7 +36,14 @@ namespace MyCoreEngine
         GLFWwindow* getGLFWwindow() const { return window_; }
         int getWidth() const { return width_; }
         int getHeight() const { return height_; }
-		float getAspectRatio() const { return static_cast<float>(width_) / static_cast<float>(height_); }
+        // Query live framebuffer size: width_/height_ are creation-time values and
+        // would go stale after a resize (stretched image, disagrees with culling).
+        float getAspectRatio() const {
+            int w = 0, h = 0;
+            glfwGetFramebufferSize(window_, &w, &h);
+            if (w <= 0 || h <= 0) return static_cast<float>(width_) / static_cast<float>(height_); // minimized
+            return static_cast<float>(w) / static_cast<float>(h);
+        }
 		void getFramebufferSize(int& width, int& height) const { glfwGetFramebufferSize(window_, &width, &height); }
 
         // Optional: Wrap the poll/swap functions

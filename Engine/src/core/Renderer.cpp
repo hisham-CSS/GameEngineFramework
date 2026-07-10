@@ -41,10 +41,28 @@ namespace MyCoreEngine {
         // but GLAD is not loaded yet. Do not create GL resources here.
     }
 
+    Renderer::~Renderer() {
+        // window_ is declared first, so it (and the GL context) is destroyed
+        // after these members — the deletes below run with a live context.
+        if (fsQuadVBO_) glDeleteBuffers(1, &fsQuadVBO_);
+        if (fsQuadVAO_) glDeleteVertexArrays(1, &fsQuadVAO_);
+        if (hdrDepthRBO_) glDeleteRenderbuffers(1, &hdrDepthRBO_);
+        if (hdrColorTex_) glDeleteTextures(1, &hdrColorTex_);
+        if (hdrFBO_) glDeleteFramebuffers(1, &hdrFBO_);
+    }
+
     void Renderer::updateDeltaTime_() {
         float currentFrame = static_cast<float>(glfwGetTime());
-        deltaTime_ = currentFrame - lastFrame_;
+        // Clamp so a stall (debugger break, window drag, load hitch) doesn't
+        // produce a giant step that teleports the camera / future physics.
+        deltaTime_ = glm::clamp(currentFrame - lastFrame_, 0.0f, 0.1f);
         lastFrame_ = currentFrame;
+    }
+
+    void Renderer::setVSync(bool on) {
+        vsync_ = on;
+        // context is current on the main thread for the app's lifetime
+        glfwSwapInterval(on ? 1 : 0);
     }
 
     void Renderer::setupGL_() {
@@ -55,6 +73,8 @@ namespace MyCoreEngine {
         glEnable(GL_CULL_FACE);
         glCullFace(GL_BACK);
         glFrontFace(GL_CCW);
+
+        glfwSwapInterval(vsync_ ? 1 : 0);
 
 		// HDR textures (IBL)
         // --- HDR FBO ---
@@ -78,8 +98,8 @@ namespace MyCoreEngine {
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, hdrColorTex_, 0);
         glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, hdrDepthRBO_);
 
-        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-            // log: HDR FBO incomplete
+        if (const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER); status != GL_FRAMEBUFFER_COMPLETE) {
+            std::cerr << "ERROR::HDR FBO incomplete, status 0x" << std::hex << status << std::dec << std::endl;
         }
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
@@ -316,7 +336,9 @@ namespace MyCoreEngine {
         glBindRenderbuffer(GL_RENDERBUFFER, hdrDepthRBO_);
         glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, w, h);
         glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, hdrDepthRBO_);
-        // leave bound check optional (we assume previous setup succeeded)
+        if (const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER); status != GL_FRAMEBUFFER_COMPLETE) {
+            std::cerr << "ERROR::HDR FBO incomplete after resize, status 0x" << std::hex << status << std::dec << std::endl;
+        }
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 

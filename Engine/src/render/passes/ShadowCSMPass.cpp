@@ -4,10 +4,18 @@
 #include <cfloat>
 #include <cmath>
 #include <cstring>
+#include <iostream>
 #include "../CSMSplits.h"
 
 ShadowCSMPass::ShadowCSMPass(int cascades, int baseRes)
     : cascades_(cascades), baseRes_(baseRes) {
+}
+
+ShadowCSMPass::~ShadowCSMPass() {
+    for (auto& tex : depth_) {
+        if (tex) glDeleteTextures(1, &tex);
+    }
+    if (shadowFBO_) glDeleteFramebuffers(1, &shadowFBO_);
 }
 
 void ShadowCSMPass::setup(PassContext& ctx) {
@@ -57,6 +65,7 @@ void ShadowCSMPass::ensureTargets_() {
             shadowParamsDirty_ = true;
             forceFullUpdateOnce_ = true;
             nextCascade_ = 0;
+            fboChecked_ = false;
         }
     }
     allocBaseRes_ = baseRes_;
@@ -306,8 +315,16 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
         glViewport(0, 0, resPer_[i], resPer_[i]);
         glDrawBuffer(GL_NONE);
         glReadBuffer(GL_NONE);
-        
-        // Check FBO? In release we skip.
+
+        // One-shot completeness check after each (re)allocation
+        if (!fboChecked_) {
+            const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+            if (status != GL_FRAMEBUFFER_COMPLETE) {
+                std::cerr << "ERROR::CSM shadow FBO incomplete, status 0x"
+                          << std::hex << status << std::dec << std::endl;
+            }
+            fboChecked_ = true;
+        }
         // Clear depth
         glClear(GL_DEPTH_BUFFER_BIT);
     };

@@ -3,6 +3,8 @@
 #include "imgui.h"
 #include "Engine.h"
 
+#include <cstdio>
+
 static bool DragFloat3(const char* label, float v[3], float speed = 0.1f) {
     return ImGui::DragFloat3(label, v, speed);
 }
@@ -16,7 +18,11 @@ void InspectorPanel::Draw(entt::registry& reg, entt::entity selected) {
         }
 
         if (auto* name = reg.try_get<Name>(selected)) {
-            ImGui::InputText("Name", const_cast<char*>(name->value), 0); // simple const-char* is not editable; keep display only or move to std::string if you prefer
+            char buf[128];
+            snprintf(buf, sizeof(buf), "%s", name->value.c_str());
+            if (ImGui::InputText("Name", buf, sizeof(buf))) {
+                name->value = buf;
+            }
             ImGui::Text("ID: %u", (uint32_t)selected);
         }
         else {

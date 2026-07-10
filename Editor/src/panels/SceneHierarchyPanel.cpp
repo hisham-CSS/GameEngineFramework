@@ -4,7 +4,7 @@
 #include "Engine.h" // for Name, Transform, etc.
 
 static const char* GetEntityLabel(entt::registry& reg, entt::entity e) {
-    if (reg.try_get<Name>(e)) return reg.get<Name>(e).value;
+    if (auto* n = reg.try_get<Name>(e)) return n->value.c_str();
     return "(Entity)";
 }
 

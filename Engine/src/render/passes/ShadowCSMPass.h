@@ -7,6 +7,7 @@ class ENGINE_API ShadowCSMPass final : public IRenderPass {
 
 public:
     ShadowCSMPass(int cascades = 4, int baseRes = 2048);
+    ~ShadowCSMPass() override;
     const char* name() const override { return "ShadowCSM"; }
 
     void setup(PassContext&) override;                     // create FBO, depth tex, shader
@@ -78,13 +79,13 @@ public:
 private:
     static constexpr int kMaxCascades = 4;
     bool  enabled_{ true };
-    int   cascades_{ 4 };           // you use 3–4
+    int   cascades_{ 4 };           // you use 3ï¿½4
     int   baseRes_{ 2048 };
     float lambda_{ 0.7f };
     float splitBlendMeters_{ 20.f }; // not used here, but preserved for parity
     float maxShadowDistance_{ 1000.f };   // replaces fixed camFar for CSM splits
     float cascadePaddingMeters_{ 0.0f };  // grow/shrink XY extents per cascade
-    float depthMarginMeters_{ 5.0f };     // replaces hardcoded ±5.0f on Z
+    float depthMarginMeters_{ 5.0f };     // replaces hardcoded ï¿½5.0f on Z
     float slopeBias_{ 2.0f };             // glPolygonOffset factor
     float constBias_{ 4.0f };             // glPolygonOffset units
     bool  cullFrontFaces_{ true };
@@ -112,6 +113,7 @@ private:
     unsigned shadowFBO_{ 0 };
     std::array<unsigned, kMaxCascades> depth_{ {0,0,0,0} };
     std::array<int, kMaxCascades> resPer_{ {0,0,0,0} };
+    bool fboChecked_{ false }; // one-shot completeness check after (re)alloc
 
     // data for forward
     std::array<float, kMaxCascades + 1> splitZ_{ {0,0,0,0,0} };

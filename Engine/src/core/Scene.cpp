@@ -18,6 +18,12 @@ uint64_t Scene::texKeyFromMaterial_(const Material & m) {
     return h;    
 }
 
+Scene::~Scene() {
+    if (instanceVBO_ && glfwGetCurrentContext()) {
+        glDeleteBuffers(1, &instanceVBO_);
+    }
+}
+
 const Material * Scene::chooseMaterial_(entt::entity e, const Mesh & mesh) const {
     if (registry.any_of<MaterialOverrides>(e)) {
         const auto & ov = registry.get<MaterialOverrides>(e);

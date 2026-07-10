@@ -4,6 +4,7 @@
 
 #include <array>
 #include <memory>
+#include <string>
 
 #include "Model.h"
 #include "Camera.h"
@@ -12,8 +13,8 @@
 using namespace MyCoreEngine;
 
 struct Name {
-	// keep it tiny; editor can own fancy strings later if needed
-	const char* value = "Entity";
+	// std::string so the editor can edit it and serialization can round-trip it
+	std::string value = "Entity";
 };
 
 struct ModelComponent {
@@ -305,7 +306,9 @@ inline Frustum createFrustumFromCamera(const Camera& cam, float aspect, float fo
 inline AABB generateAABB(const Model& model)
 {
 	glm::vec3 minAABB = glm::vec3(std::numeric_limits<float>::max());
-	glm::vec3 maxAABB = glm::vec3(std::numeric_limits<float>::min());
+	// lowest(), not min(): min() is the smallest POSITIVE float, which breaks
+	// the max-reduction for meshes whose vertices are all negative on an axis
+	glm::vec3 maxAABB = glm::vec3(std::numeric_limits<float>::lowest());
 	for (auto&& mesh : model.Meshes())
 	{
 		for (auto&& vertex : mesh.Vertices())
@@ -325,7 +328,7 @@ inline AABB generateAABB(const Model& model)
 inline Sphere generateSphereBV(const Model& model)
 {
 	glm::vec3 minAABB = glm::vec3(std::numeric_limits<float>::max());
-	glm::vec3 maxAABB = glm::vec3(std::numeric_limits<float>::min());
+	glm::vec3 maxAABB = glm::vec3(std::numeric_limits<float>::lowest());
 	for (auto&& mesh : model.Meshes())
 	{
 		for (auto&& vertex : mesh.Vertices())
@@ -340,5 +343,6 @@ inline Sphere generateSphereBV(const Model& model)
 		}
 	}
 
-	return Sphere((maxAABB + minAABB) * 0.5f, glm::length(minAABB - maxAABB));
+	// radius = half the diagonal; the full diagonal made spheres ~2x too big
+	return Sphere((maxAABB + minAABB) * 0.5f, glm::length(maxAABB - minAABB) * 0.5f);
 }

@@ -6,6 +6,7 @@
 #include <fstream>
 #include <sstream>
 #include <iostream>
+#include <unordered_map>
 
 namespace MyCoreEngine
 {
@@ -13,16 +14,21 @@ namespace MyCoreEngine
     public:
         // constructor generates the shader on the fly
         Shader(const char* vertexPath, const char* fragmentPath);
+        ~Shader();
+
+        // GL program handles can't be shared; allow moves, forbid copies
+        Shader(const Shader&) = delete;
+        Shader& operator=(const Shader&) = delete;
+        Shader(Shader&& other) noexcept;
+        Shader& operator=(Shader&& other) noexcept;
 
         unsigned int ID = 0;
-        // activate the 
-        // 
-        // 
-        // 
-        // 
-        // ------------------------------------------------------------------------
+
+        // false when a file failed to read or a stage failed to compile/link
+        bool isValid() const { return valid_; }
+
         void use() const;
-        // utility uniform functions
+        // utility uniform functions (locations cached per name)
         // ------------------------------------------------------------------------
         void setBool(const std::string& name, bool value) const;
         // ------------------------------------------------------------------------
@@ -45,8 +51,14 @@ namespace MyCoreEngine
         // ------------------------------------------------------------------------
         void setMat4(const std::string& name, const glm::mat4& mat) const;
     private:
+        // cached glGetUniformLocation (driver lookups are expensive per frame)
+        int loc_(const std::string& name) const;
+
         // utility function for checking shader compilation/linking errors.
         // ------------------------------------------------------------------------
         void checkCompileErrors(unsigned int shader, std::string type);
+
+        mutable std::unordered_map<std::string, int> locations_;
+        bool valid_ = true;
     };
 }

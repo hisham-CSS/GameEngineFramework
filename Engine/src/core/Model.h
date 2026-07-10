@@ -47,6 +47,12 @@ namespace MyCoreEngine {
         Mesh(const std::vector<Vertex>& vertices,
             const std::vector<unsigned int>& indices,
             const std::vector<Texture>& textures);
+        // Owns VAO/VBO/EBO (textures are shared via the global cache): move-only
+        ~Mesh();
+        Mesh(const Mesh&) = delete;
+        Mesh& operator=(const Mesh&) = delete;
+        Mesh(Mesh&& other) noexcept;
+        Mesh& operator=(Mesh&& other) noexcept;
 
         void Draw(Shader& shader) const;
         const std::vector<Vertex>& Vertices() const { return vertices_; }
@@ -96,7 +102,7 @@ namespace MyCoreEngine {
         std::vector<Mesh> meshes_;
         std::string       directory_;
 
-        // Global cache keyed by (normalized path + “|srgb/|lin”)
+        // Global cache keyed by (normalized path + ï¿½|srgb/|linï¿½)
         static std::unordered_map<std::string, unsigned int> sTextureCache_;
 
         std::vector<MyCoreEngine::MaterialHandle> materials_; // size = scene->mNumMaterials

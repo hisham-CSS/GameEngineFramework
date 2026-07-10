@@ -44,6 +44,8 @@ namespace MyCoreEngine {
     public:
         entt::registry registry;
 
+        virtual ~Scene(); // frees instanceVBO_
+
         // Create a new entity and return the wrapper.
         Entity createEntity();
 

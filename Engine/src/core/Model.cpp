@@ -25,6 +25,43 @@ namespace MyCoreEngine {
     : vertices_(vertices), indices_(indices), textures_(textures) {
         setupMesh();
     }
+
+    Mesh::~Mesh() {
+        // texture ids are shared via the global cache; only buffers are owned here.
+        // Guard: if the GL context is already gone (late static teardown), skip.
+        if (!glfwGetCurrentContext()) return;
+        if (EBO_) glDeleteBuffers(1, &EBO_);
+        if (VBO_) glDeleteBuffers(1, &VBO_);
+        if (VAO_) glDeleteVertexArrays(1, &VAO_);
+    }
+
+    Mesh::Mesh(Mesh&& other) noexcept
+        : vertices_(std::move(other.vertices_)),
+          indices_(std::move(other.indices_)),
+          textures_(std::move(other.textures_)),
+          material_(std::move(other.material_)),
+          materialIndex_(other.materialIndex_),
+          VAO_(other.VAO_), VBO_(other.VBO_), EBO_(other.EBO_) {
+        other.VAO_ = other.VBO_ = other.EBO_ = 0;
+    }
+
+    Mesh& Mesh::operator=(Mesh&& other) noexcept {
+        if (this != &other) {
+            if (glfwGetCurrentContext()) {
+                if (EBO_) glDeleteBuffers(1, &EBO_);
+                if (VBO_) glDeleteBuffers(1, &VBO_);
+                if (VAO_) glDeleteVertexArrays(1, &VAO_);
+            }
+            vertices_ = std::move(other.vertices_);
+            indices_ = std::move(other.indices_);
+            textures_ = std::move(other.textures_);
+            material_ = std::move(other.material_);
+            materialIndex_ = other.materialIndex_;
+            VAO_ = other.VAO_; VBO_ = other.VBO_; EBO_ = other.EBO_;
+            other.VAO_ = other.VBO_ = other.EBO_ = 0;
+        }
+        return *this;
+    }
     void Mesh::setupMesh() {
         glGenVertexArrays(1, &VAO_);
         glGenBuffers(1, &VBO_);
@@ -271,8 +308,9 @@ namespace MyCoreEngine {
             aiProcess_FlipUVs);
 
         if (!scene || (scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) || !scene->mRootNode) {
-            MLOG("Assimp error: %s", importer.GetErrorString());
-            return;
+            std::cerr << "ERROR::MODEL::LOAD_FAILED '" << path << "': "
+                      << importer.GetErrorString() << std::endl;
+            return; // model stays empty; downstream AABBs will be degenerate
         }
 
         directory_ = path.substr(0, path.find_last_of("/\\"));

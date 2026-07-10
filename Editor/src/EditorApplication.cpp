@@ -259,6 +259,10 @@ void EditorApplication::DrawRenderingToggles(MyCoreEngine::Scene& scene)
 {
     if (!ImGui::CollapsingHeader("Rendering Toggles", ImGuiTreeNodeFlags_None)) return;
 
+    bool vsync = myRenderer.vsyncEnabled();
+    if (ImGui::Checkbox("VSync", &vsync)) myRenderer.setVSync(vsync);
+    ImGui::SameLine(); ImGui::TextDisabled("(off = uncapped, for benchmarking)");
+
     bool inst = scene.GetInstancingEnabled();
     if (ImGui::Checkbox("Enable instancing", &inst)) scene.SetInstancingEnabled(inst);
 
