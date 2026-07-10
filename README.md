@@ -24,15 +24,18 @@ full audit + roadmap in [docs/ENGINE_AUDIT_2026-07.md](docs/ENGINE_AUDIT_2026-07
   instancing (the demo scene draws ~7,600 mesh instances in ~80 draw calls).
 - **ECS scene**: EnTT-based registry with Transform/Model/Material components.
 - **Asset loading**: assimp model import with texture caching and by-path deduplication.
-- **Editor**: ImGui panels for scene hierarchy, transform/material inspection, and deep
-  renderer tuning (lighting, shadows, IBL/HDR, rendering toggles, live render stats).
+- **Editor**: ImGui panels for scene hierarchy, transform/material inspection, scene
+  save/load, and deep renderer tuning (lighting, shadows, IBL/HDR, toggles, live stats).
+- **Scene serialization**: versioned JSON save/load of entities (name, transform, model
+  by asset path, material overrides, flags) plus scene lighting/shading settings.
+- **Standalone Player**: `Player.exe [scene.json]` boots the engine and runs a serialized
+  scene with no editor dependencies (defaults to `Exported/scene.json`).
 - **Unit tests**: GoogleTest suite covering CSM split math, shadow stability, render-pass
-  wiring, and input/event basics.
+  wiring, scene serialization round-trips, and input/event basics.
 
 ## Current Limitations (Honest Edition)
 
-- **No scene serialization** — scenes are constructed in code; there is no save/load yet.
-- **No standalone player or packaging** — the Editor is currently the only way to run a scene.
+- **No packaging/export** — no install/CPack step yet; distribution means zipping the bin dir.
 - **Editor is renderer-focused** — no viewport panel, gizmos, entity create/delete UI, undo,
   asset browser, or play mode yet. Docking is not enabled.
 - **Single directional light** — no point/spot lights or additional shadow casters.
@@ -47,6 +50,7 @@ full audit + roadmap in [docs/ENGINE_AUDIT_2026-07.md](docs/ENGINE_AUDIT_2026-07
 GameEngineFramework/
 ├── Editor/         # Editor application (ImGui) + Exported/ shaders & sample assets
 ├── Engine/         # Core engine (DLL): core systems + render passes
+├── Player/         # Standalone player (loads a scene.json, no editor UI)
 ├── docs/           # Audit and roadmap documentation
 ├── tests/          # GoogleTest unit tests
 ├── CMakeLists.txt
@@ -81,8 +85,10 @@ cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=[path-to-vcpkg]/scripts/buildsystems/
 cmake --build build
 ```
 
-Run the Editor from its output directory (assets are loaded by relative path):
-`build/build/bin/<Config>/Editor.exe`.
+Run the Editor or Player from their output directory (assets are loaded by relative path):
+`build/build/bin/<Config>/Editor.exe` or `build/build/bin/<Config>/Player.exe [scene.json]`.
+Scenes saved in the editor (default `Exported/scene.json`) are immediately runnable in the
+player — both executables share the same output directory.
 
 Tests: `ctest --test-dir build` (or run the `test_*` executables in `build/tests`).
 
@@ -92,8 +98,9 @@ Tests: `ctest --test-dir build` (or run the `test_*` executables in `build/tests
 - ✅ **Build system (CMake + vcpkg)**: Working
 - 🔨 **Editor**: Renderer tuning panels working; scene authoring tools not started
 - 🔨 **Testing**: CSM/render passes covered; most other systems untested
-- 🔲 **Scene serialization (save/load)**: Not started — top roadmap priority
-- 🔲 **Standalone player & packaging**: Not started
+- ✅ **Scene serialization (save/load)**: Working (versioned JSON, editor Save/Load panel)
+- ✅ **Standalone player**: Working (`Player.exe [scene.json]`)
+- 🔲 **Packaging/export (install/CPack)**: Not started
 - 🔲 **Physics integration**: Planned (Jolt)
 - 🔲 **Animation system**: Planned
 - 🔲 **Audio system**: Planned

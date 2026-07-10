@@ -1,0 +1,8070 @@
+{
+  "entities": [
+    {
+      "model": "Exported/Model/plane.obj",
+      "noShadow": true,
+      "transform": {
+        "position": [
+          0.0,
+          -3.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          300.0,
+          1.0,
+          300.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          90.0,
+          0.0,
+          90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          90.0,
+          0.0,
+          80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          90.0,
+          0.0,
+          70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          90.0,
+          0.0,
+          60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          90.0,
+          0.0,
+          50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          90.0,
+          0.0,
+          40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          90.0,
+          0.0,
+          30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          90.0,
+          0.0,
+          20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          90.0,
+          0.0,
+          10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          90.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          90.0,
+          0.0,
+          -10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          90.0,
+          0.0,
+          -20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          90.0,
+          0.0,
+          -30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          90.0,
+          0.0,
+          -40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          90.0,
+          0.0,
+          -50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          90.0,
+          0.0,
+          -60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          90.0,
+          0.0,
+          -70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          90.0,
+          0.0,
+          -80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          90.0,
+          0.0,
+          -90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          90.0,
+          0.0,
+          -100.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          80.0,
+          0.0,
+          90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          80.0,
+          0.0,
+          80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          80.0,
+          0.0,
+          70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          80.0,
+          0.0,
+          60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          80.0,
+          0.0,
+          50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          80.0,
+          0.0,
+          40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          80.0,
+          0.0,
+          30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          80.0,
+          0.0,
+          20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          80.0,
+          0.0,
+          10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          80.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          80.0,
+          0.0,
+          -10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          80.0,
+          0.0,
+          -20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          80.0,
+          0.0,
+          -30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          80.0,
+          0.0,
+          -40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          80.0,
+          0.0,
+          -50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          80.0,
+          0.0,
+          -60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          80.0,
+          0.0,
+          -70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          80.0,
+          0.0,
+          -80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          80.0,
+          0.0,
+          -90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          80.0,
+          0.0,
+          -100.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          70.0,
+          0.0,
+          90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          70.0,
+          0.0,
+          80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          70.0,
+          0.0,
+          70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          70.0,
+          0.0,
+          60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          70.0,
+          0.0,
+          50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          70.0,
+          0.0,
+          40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          70.0,
+          0.0,
+          30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          70.0,
+          0.0,
+          20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          70.0,
+          0.0,
+          10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          70.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          70.0,
+          0.0,
+          -10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          70.0,
+          0.0,
+          -20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          70.0,
+          0.0,
+          -30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          70.0,
+          0.0,
+          -40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          70.0,
+          0.0,
+          -50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          70.0,
+          0.0,
+          -60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          70.0,
+          0.0,
+          -70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          70.0,
+          0.0,
+          -80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          70.0,
+          0.0,
+          -90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          70.0,
+          0.0,
+          -100.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          60.0,
+          0.0,
+          90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          60.0,
+          0.0,
+          80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          60.0,
+          0.0,
+          70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          60.0,
+          0.0,
+          60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          60.0,
+          0.0,
+          50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          60.0,
+          0.0,
+          40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          60.0,
+          0.0,
+          30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          60.0,
+          0.0,
+          20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          60.0,
+          0.0,
+          10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          60.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          60.0,
+          0.0,
+          -10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          60.0,
+          0.0,
+          -20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          60.0,
+          0.0,
+          -30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          60.0,
+          0.0,
+          -40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          60.0,
+          0.0,
+          -50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          60.0,
+          0.0,
+          -60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          60.0,
+          0.0,
+          -70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          60.0,
+          0.0,
+          -80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          60.0,
+          0.0,
+          -90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          60.0,
+          0.0,
+          -100.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          50.0,
+          0.0,
+          90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          50.0,
+          0.0,
+          80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          50.0,
+          0.0,
+          70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          50.0,
+          0.0,
+          60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          50.0,
+          0.0,
+          50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          50.0,
+          0.0,
+          40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          50.0,
+          0.0,
+          30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          50.0,
+          0.0,
+          20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          50.0,
+          0.0,
+          10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          50.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          50.0,
+          0.0,
+          -10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          50.0,
+          0.0,
+          -20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          50.0,
+          0.0,
+          -30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          50.0,
+          0.0,
+          -40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          50.0,
+          0.0,
+          -50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          50.0,
+          0.0,
+          -60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          50.0,
+          0.0,
+          -70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          50.0,
+          0.0,
+          -80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          50.0,
+          0.0,
+          -90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          50.0,
+          0.0,
+          -100.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          40.0,
+          0.0,
+          90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          40.0,
+          0.0,
+          80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          40.0,
+          0.0,
+          70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          40.0,
+          0.0,
+          60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          40.0,
+          0.0,
+          50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          40.0,
+          0.0,
+          40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          40.0,
+          0.0,
+          30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          40.0,
+          0.0,
+          20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          40.0,
+          0.0,
+          10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          40.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          40.0,
+          0.0,
+          -10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          40.0,
+          0.0,
+          -20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          40.0,
+          0.0,
+          -30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          40.0,
+          0.0,
+          -40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          40.0,
+          0.0,
+          -50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          40.0,
+          0.0,
+          -60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          40.0,
+          0.0,
+          -70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          40.0,
+          0.0,
+          -80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          40.0,
+          0.0,
+          -90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          40.0,
+          0.0,
+          -100.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          30.0,
+          0.0,
+          90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          30.0,
+          0.0,
+          80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          30.0,
+          0.0,
+          70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          30.0,
+          0.0,
+          60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          30.0,
+          0.0,
+          50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          30.0,
+          0.0,
+          40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          30.0,
+          0.0,
+          30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          30.0,
+          0.0,
+          20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          30.0,
+          0.0,
+          10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          30.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          30.0,
+          0.0,
+          -10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          30.0,
+          0.0,
+          -20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          30.0,
+          0.0,
+          -30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          30.0,
+          0.0,
+          -40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          30.0,
+          0.0,
+          -50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          30.0,
+          0.0,
+          -60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          30.0,
+          0.0,
+          -70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          30.0,
+          0.0,
+          -80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          30.0,
+          0.0,
+          -90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          30.0,
+          0.0,
+          -100.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          20.0,
+          0.0,
+          90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          20.0,
+          0.0,
+          80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          20.0,
+          0.0,
+          70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          20.0,
+          0.0,
+          60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          20.0,
+          0.0,
+          50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          20.0,
+          0.0,
+          40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          20.0,
+          0.0,
+          30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          20.0,
+          0.0,
+          20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          20.0,
+          0.0,
+          10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          20.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          20.0,
+          0.0,
+          -10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          20.0,
+          0.0,
+          -20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          20.0,
+          0.0,
+          -30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          20.0,
+          0.0,
+          -40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          20.0,
+          0.0,
+          -50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          20.0,
+          0.0,
+          -60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          20.0,
+          0.0,
+          -70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          20.0,
+          0.0,
+          -80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          20.0,
+          0.0,
+          -90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          20.0,
+          0.0,
+          -100.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          10.0,
+          0.0,
+          90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          10.0,
+          0.0,
+          80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          10.0,
+          0.0,
+          70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          10.0,
+          0.0,
+          60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          10.0,
+          0.0,
+          50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          10.0,
+          0.0,
+          40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          10.0,
+          0.0,
+          30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          10.0,
+          0.0,
+          20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          10.0,
+          0.0,
+          10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          10.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          10.0,
+          0.0,
+          -10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          10.0,
+          0.0,
+          -20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          10.0,
+          0.0,
+          -30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          10.0,
+          0.0,
+          -40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          10.0,
+          0.0,
+          -50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          10.0,
+          0.0,
+          -60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          10.0,
+          0.0,
+          -70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          10.0,
+          0.0,
+          -80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          10.0,
+          0.0,
+          -90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          10.0,
+          0.0,
+          -100.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          -10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          -20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          -30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          -40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          -50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          -60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          -70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          -80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          -90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          -100.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -10.0,
+          0.0,
+          90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -10.0,
+          0.0,
+          80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -10.0,
+          0.0,
+          70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -10.0,
+          0.0,
+          60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -10.0,
+          0.0,
+          50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -10.0,
+          0.0,
+          40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -10.0,
+          0.0,
+          30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -10.0,
+          0.0,
+          20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -10.0,
+          0.0,
+          10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -10.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -10.0,
+          0.0,
+          -10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -10.0,
+          0.0,
+          -20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -10.0,
+          0.0,
+          -30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -10.0,
+          0.0,
+          -40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -10.0,
+          0.0,
+          -50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -10.0,
+          0.0,
+          -60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -10.0,
+          0.0,
+          -70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -10.0,
+          0.0,
+          -80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -10.0,
+          0.0,
+          -90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -10.0,
+          0.0,
+          -100.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -20.0,
+          0.0,
+          90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -20.0,
+          0.0,
+          80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -20.0,
+          0.0,
+          70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -20.0,
+          0.0,
+          60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -20.0,
+          0.0,
+          50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -20.0,
+          0.0,
+          40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -20.0,
+          0.0,
+          30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -20.0,
+          0.0,
+          20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -20.0,
+          0.0,
+          10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -20.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -20.0,
+          0.0,
+          -10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -20.0,
+          0.0,
+          -20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -20.0,
+          0.0,
+          -30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -20.0,
+          0.0,
+          -40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -20.0,
+          0.0,
+          -50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -20.0,
+          0.0,
+          -60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -20.0,
+          0.0,
+          -70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -20.0,
+          0.0,
+          -80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -20.0,
+          0.0,
+          -90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -20.0,
+          0.0,
+          -100.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -30.0,
+          0.0,
+          90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -30.0,
+          0.0,
+          80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -30.0,
+          0.0,
+          70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -30.0,
+          0.0,
+          60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -30.0,
+          0.0,
+          50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -30.0,
+          0.0,
+          40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -30.0,
+          0.0,
+          30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -30.0,
+          0.0,
+          20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -30.0,
+          0.0,
+          10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -30.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -30.0,
+          0.0,
+          -10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -30.0,
+          0.0,
+          -20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -30.0,
+          0.0,
+          -30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -30.0,
+          0.0,
+          -40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -30.0,
+          0.0,
+          -50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -30.0,
+          0.0,
+          -60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -30.0,
+          0.0,
+          -70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -30.0,
+          0.0,
+          -80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -30.0,
+          0.0,
+          -90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -30.0,
+          0.0,
+          -100.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -40.0,
+          0.0,
+          90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -40.0,
+          0.0,
+          80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -40.0,
+          0.0,
+          70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -40.0,
+          0.0,
+          60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -40.0,
+          0.0,
+          50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -40.0,
+          0.0,
+          40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -40.0,
+          0.0,
+          30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -40.0,
+          0.0,
+          20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -40.0,
+          0.0,
+          10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -40.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -40.0,
+          0.0,
+          -10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -40.0,
+          0.0,
+          -20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -40.0,
+          0.0,
+          -30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -40.0,
+          0.0,
+          -40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -40.0,
+          0.0,
+          -50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -40.0,
+          0.0,
+          -60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -40.0,
+          0.0,
+          -70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -40.0,
+          0.0,
+          -80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -40.0,
+          0.0,
+          -90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -40.0,
+          0.0,
+          -100.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -50.0,
+          0.0,
+          90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -50.0,
+          0.0,
+          80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -50.0,
+          0.0,
+          70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -50.0,
+          0.0,
+          60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -50.0,
+          0.0,
+          50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -50.0,
+          0.0,
+          40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -50.0,
+          0.0,
+          30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -50.0,
+          0.0,
+          20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -50.0,
+          0.0,
+          10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -50.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -50.0,
+          0.0,
+          -10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -50.0,
+          0.0,
+          -20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -50.0,
+          0.0,
+          -30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -50.0,
+          0.0,
+          -40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -50.0,
+          0.0,
+          -50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -50.0,
+          0.0,
+          -60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -50.0,
+          0.0,
+          -70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -50.0,
+          0.0,
+          -80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -50.0,
+          0.0,
+          -90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -50.0,
+          0.0,
+          -100.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -60.0,
+          0.0,
+          90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -60.0,
+          0.0,
+          80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -60.0,
+          0.0,
+          70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -60.0,
+          0.0,
+          60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -60.0,
+          0.0,
+          50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -60.0,
+          0.0,
+          40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -60.0,
+          0.0,
+          30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -60.0,
+          0.0,
+          20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -60.0,
+          0.0,
+          10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -60.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -60.0,
+          0.0,
+          -10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -60.0,
+          0.0,
+          -20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -60.0,
+          0.0,
+          -30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -60.0,
+          0.0,
+          -40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -60.0,
+          0.0,
+          -50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -60.0,
+          0.0,
+          -60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -60.0,
+          0.0,
+          -70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -60.0,
+          0.0,
+          -80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -60.0,
+          0.0,
+          -90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -60.0,
+          0.0,
+          -100.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -70.0,
+          0.0,
+          90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -70.0,
+          0.0,
+          80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -70.0,
+          0.0,
+          70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -70.0,
+          0.0,
+          60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -70.0,
+          0.0,
+          50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -70.0,
+          0.0,
+          40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -70.0,
+          0.0,
+          30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -70.0,
+          0.0,
+          20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -70.0,
+          0.0,
+          10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -70.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -70.0,
+          0.0,
+          -10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -70.0,
+          0.0,
+          -20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -70.0,
+          0.0,
+          -30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -70.0,
+          0.0,
+          -40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -70.0,
+          0.0,
+          -50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -70.0,
+          0.0,
+          -60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -70.0,
+          0.0,
+          -70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -70.0,
+          0.0,
+          -80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -70.0,
+          0.0,
+          -90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -70.0,
+          0.0,
+          -100.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -80.0,
+          0.0,
+          90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -80.0,
+          0.0,
+          80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -80.0,
+          0.0,
+          70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -80.0,
+          0.0,
+          60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -80.0,
+          0.0,
+          50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -80.0,
+          0.0,
+          40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -80.0,
+          0.0,
+          30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -80.0,
+          0.0,
+          20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -80.0,
+          0.0,
+          10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -80.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -80.0,
+          0.0,
+          -10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -80.0,
+          0.0,
+          -20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -80.0,
+          0.0,
+          -30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -80.0,
+          0.0,
+          -40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -80.0,
+          0.0,
+          -50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -80.0,
+          0.0,
+          -60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -80.0,
+          0.0,
+          -70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -80.0,
+          0.0,
+          -80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -80.0,
+          0.0,
+          -90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -80.0,
+          0.0,
+          -100.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -90.0,
+          0.0,
+          90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -90.0,
+          0.0,
+          80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -90.0,
+          0.0,
+          70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -90.0,
+          0.0,
+          60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -90.0,
+          0.0,
+          50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -90.0,
+          0.0,
+          40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -90.0,
+          0.0,
+          30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -90.0,
+          0.0,
+          20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -90.0,
+          0.0,
+          10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -90.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -90.0,
+          0.0,
+          -10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -90.0,
+          0.0,
+          -20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -90.0,
+          0.0,
+          -30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -90.0,
+          0.0,
+          -40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -90.0,
+          0.0,
+          -50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -90.0,
+          0.0,
+          -60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -90.0,
+          0.0,
+          -70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -90.0,
+          0.0,
+          -80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -90.0,
+          0.0,
+          -90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -90.0,
+          0.0,
+          -100.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -100.0,
+          0.0,
+          90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -100.0,
+          0.0,
+          80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -100.0,
+          0.0,
+          70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -100.0,
+          0.0,
+          60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -100.0,
+          0.0,
+          50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -100.0,
+          0.0,
+          40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -100.0,
+          0.0,
+          30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -100.0,
+          0.0,
+          20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -100.0,
+          0.0,
+          10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -100.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -100.0,
+          0.0,
+          -10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -100.0,
+          0.0,
+          -20.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -100.0,
+          0.0,
+          -30.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -100.0,
+          0.0,
+          -40.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -100.0,
+          0.0,
+          -50.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -100.0,
+          0.0,
+          -60.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -100.0,
+          0.0,
+          -70.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -100.0,
+          0.0,
+          -80.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -100.0,
+          0.0,
+          -90.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          -100.0,
+          0.0,
+          -100.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "model": "Exported/Model/backpack.obj",
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    }
+  ],
+  "settings": {
+    "ao": 1.0,
+    "aoMapEnabled": true,
+    "iblEnabled": true,
+    "iblIntensity": 1.0,
+    "instancingEnabled": true,
+    "lightColor": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "lightDir": [
+      0.28221628069877625,
+      -0.9407208561897278,
+      0.18814417719841003
+    ],
+    "lightIntensity": 3.0,
+    "metallic": 0.0,
+    "metallicMapEnabled": true,
+    "normalMapEnabled": true,
+    "pbrEnabled": true,
+    "roughness": 0.5,
+    "roughnessMapEnabled": true
+  },
+  "version": 1
+}

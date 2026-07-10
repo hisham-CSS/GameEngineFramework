@@ -7,9 +7,10 @@ project(GameEngineFramework)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED true)
 
-# Add subdirectories for Engine and Editor
+# Add subdirectories for Engine, Editor, and the standalone Player
 add_subdirectory(Engine)
 add_subdirectory(Editor)
+add_subdirectory(Player)
 
 option(ENABLE_TESTS "Build unit tests" ON)
 
