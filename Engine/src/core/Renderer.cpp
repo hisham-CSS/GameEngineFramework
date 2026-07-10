@@ -1,7 +1,6 @@
 ﻿#include <glad/glad.h>
 
 #include "Renderer.h"
-#include "Window.h"
 #include "../render/passes/ForwardOpaquePass.h"
 #include "../render/passes/TonemapPass.h"
 
@@ -33,26 +32,10 @@ namespace MyCoreEngine {
         return glm::normalize(d);
     }
 
-    Renderer::Renderer(int width, int height, const char* title)
-        : window_(width, height, title)
-    {
-        // GLFW window is created here and context is current on this thread,
-        // but GLAD is not loaded yet. Do not create GL resources here.
-
-        // Default fly-camera bindings; apps can rebind via input().
-        input_.bindAxisKeys("MoveForward", GLFW_KEY_W, GLFW_KEY_S);
-        input_.bindAxisKeys("MoveRight", GLFW_KEY_D, GLFW_KEY_A);
-        input_.bindGamepadAxis("MoveForward", GLFW_GAMEPAD_AXIS_LEFT_Y, /*inverted=*/true);
-        input_.bindGamepadAxis("MoveRight", GLFW_GAMEPAD_AXIS_LEFT_X);
-        input_.bindGamepadAxis("LookX", GLFW_GAMEPAD_AXIS_RIGHT_X);
-        input_.bindGamepadAxis("LookY", GLFW_GAMEPAD_AXIS_RIGHT_Y, /*inverted=*/true);
-        input_.bindKey("Quit", GLFW_KEY_ESCAPE);
-        input_.bindGamepadButton("Quit", GLFW_GAMEPAD_BUTTON_BACK);
-    }
-
     Renderer::~Renderer() {
-        // window_ is declared first, so it (and the GL context) is destroyed
-        // after these members — the deletes below run with a live context.
+        // Application declares its Window before this Renderer, so the GL
+        // context is destroyed after us — the deletes below run with a live
+        // context.
         if (fsQuadVBO_) glDeleteBuffers(1, &fsQuadVBO_);
         if (fsQuadVAO_) glDeleteVertexArrays(1, &fsQuadVAO_);
         if (hdrDepthRBO_) glDeleteRenderbuffers(1, &hdrDepthRBO_);
@@ -60,35 +43,16 @@ namespace MyCoreEngine {
         if (hdrFBO_) glDeleteFramebuffers(1, &hdrFBO_);
     }
 
-    void Renderer::updateDeltaTime_() {
-        float currentFrame = static_cast<float>(glfwGetTime());
-        // Clamp so a stall (debugger break, window drag, load hitch) doesn't
-        // produce a giant step that teleports the camera / future physics.
-        deltaTime_ = glm::clamp(currentFrame - lastFrame_, 0.0f, 0.1f);
-        lastFrame_ = currentFrame;
-    }
-
-    void Renderer::setVSync(bool on) {
-        vsync_ = on;
-        // context is current on the main thread for the app's lifetime
-        glfwSwapInterval(on ? 1 : 0);
-    }
-
-    void Renderer::setupGL_() {
-        if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-            throw std::runtime_error("Failed to initialize GLAD");
-        }
+    void Renderer::Setup(int fbWidth, int fbHeight) {
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_CULL_FACE);
         glCullFace(GL_BACK);
         glFrontFace(GL_CCW);
 
-        glfwSwapInterval(vsync_ ? 1 : 0);
-
 		// HDR textures (IBL)
         // --- HDR FBO ---
-        int fbw, fbh;
-        window_.getFramebufferSize(fbw, fbh);
+        const int fbw = std::max(1, fbWidth);
+        const int fbh = std::max(1, fbHeight);
 
         glGenFramebuffers(1, &hdrFBO_);
         glBindFramebuffer(GL_FRAMEBUFFER, hdrFBO_);
@@ -133,12 +97,10 @@ namespace MyCoreEngine {
         glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
         glBindVertexArray(0);
 
-        // Tonemap shader (lazy create is also fine; doing it here keeps run() clean)
+        // Tonemap shader (lazy create is also fine; doing it here keeps RenderFrame clean)
         tonemapShader_ = std::make_unique<Shader>("Exported/Shaders/tonemap_vert.glsl", "Exported/Shaders/tonemap_frag.glsl");
 
-        int w, h;
-        window_.getFramebufferSize(w, h);
-        glViewport(0, 0, w, h);
+        glViewport(0, 0, fbw, fbh);
 
         passCtx_.defaultFBO = 0;
         passCtx_.hdrFBO = hdrFBO_;
@@ -161,186 +123,66 @@ namespace MyCoreEngine {
             // base resolution already set from ctor via csmRes_
         }
 
-        if (!readyFired_ && onReady_) {
-            onReady_();          // Editor initializes ImGui and creates GL objects here
-            readyFired_ = true;
-        }
     }
 
-    void Renderer::InitGL() {
-        setupGL_();
-        glfwSetWindowUserPointer(window_.getGLFWwindow(), this);
-        glfwSetScrollCallback(window_.getGLFWwindow(), &Renderer::ScrollThunk_);
-        glfwSetFramebufferSizeCallback(window_.getGLFWwindow(), &Renderer::FramebufferSizeThunk_);
-    }
-
-    void Renderer::run(Scene& scene, Shader& shader) {
-        // GL is expected to be initialized already via InitGL()
-
-        // ensure forward & tonemap passes exist (CSM was added in setupGL_)
+    void Renderer::RenderFrame(Scene& scene, Shader& shader, Camera& camera,
+                               int fbWidth, int fbHeight, float deltaTime) {
+        // ensure forward & tonemap passes exist (CSM was added in Setup)
         if (!forwardPass_) {
             forwardPass_ = &pipeline_.add<ForwardOpaquePass>(shader);
+            pipeline_.setup(passCtx_); // idempotent
         }
         if (!tonemapPass_) {
             tonemapPass_ = &pipeline_.add<TonemapPass>();
+            pipeline_.setup(passCtx_);
         }
-        
-        // setup() is idempotent; safe to call again if needed
-        pipeline_.setup(passCtx_);
 
-        while (!window_.shouldClose()) {
-            updateDeltaTime_();
+        // Clear screen
+        glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-            bool capK = false, capM = false;
-            if (captureFn_) {
-                auto caps = captureFn_();
-                capK = caps.first; capM = caps.second;
-            }
-            // Poll every frame so edge states stay coherent; only APPLY the
-            // default camera/quit behavior when the UI isn't capturing keys.
-            input_.update(window_.getGLFWwindow());
-            if (!capK) {
-                if (input_.wasPressed("Quit")) {
-                    glfwSetWindowShouldClose(window_.getGLFWwindow(), true);
-                }
-                const float move = camera_.MovementSpeed * deltaTime_;
-                camera_.Position += camera_.Front * (input_.axis("MoveForward") * move);
-                camera_.Position += camera_.Right * (input_.axis("MoveRight") * move);
+        // per-frame matrices
+        const float aspect = (fbHeight > 0) ? float(fbWidth) / float(fbHeight) : 1.0f;
+        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), aspect, 0.1f, 1000.0f);
+        glm::mat4 view = camera.GetViewMatrix();
 
-                const float lookX = input_.axis("LookX");
-                const float lookY = input_.axis("LookY");
-                if (lookX != 0.f || lookY != 0.f) {
-                    // ~120 deg/s at full stick deflection (sensitivity 0.1 applies inside)
-                    const float padLook = 1200.f * deltaTime_;
-                    camera_.ProcessMouseMovement(lookX * padLook, lookY * padLook);
-                }
-            }
-            if (!capM) handleMouseLook_(capM);
+        // per-frame params
+        FrameParams fp;
+        fp.view = view;
+        fp.proj = projection;
+        fp.deltaTime = deltaTime;
+        fp.frameIndex = ++frameIndex_;
+        fp.viewportW = fbWidth;
+        fp.viewportH = fbHeight;
 
-            // Game update: fixed steps (simulation) then per-frame variable step.
-            // Camera/editor input above deliberately ignores pause/time scale.
-            const float gameDt = paused_ ? 0.f : deltaTime_ * timeScale_;
-            if (fixedUpdate_) {
-                fixedStep_.advance(gameDt, fixedUpdate_);
-            }
-            if (update_ && gameDt > 0.f) {
-                update_(gameDt);
-            }
-
-            // Update scene data (transforms etc.)
-            scene.UpdateTransforms();
-
-			// Clear screen
-            glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-			// per-frame matrices
-            glm::mat4 projection = glm::perspective(glm::radians(camera_.Zoom), window_.getAspectRatio(), 0.1f, 1000.0f);
-            glm::mat4 view = camera_.GetViewMatrix();
-
-			// per-frame params
-            FrameParams fp;
-            fp.view = view;
-            fp.proj = projection;
-            fp.deltaTime = deltaTime_;
-            fp.frameIndex = ++frameIndex_;
-
-			// viewport size (could have changed due to resize)
-            int w, h; 
-            window_.getFramebufferSize(w, h);
-            fp.viewportW = w; 
-            fp.viewportH = h;
-
-			// Update CSM if needed
-            if (useSunYawPitch_) {
-                sunDir_ = dirFromYawPitch(sunYawDeg_, sunPitchDeg_);
-            }
-
-            // keep passCtx_ in sync with per-frame globals you already tweak
-            passCtx_.sunDir = sunDir_;
-            passCtx_.exposure = exposure_;
-
-            // per-frame knobs for passes
-            passCtx_.splitBlend = splitBlend_;
-            passCtx_.csmDebug = csmDebugMode_;
-            passCtx_.shadowBiasConst = shadowBiasConst_;
-            passCtx_.shadowBiasSlope = shadowBiasSlope_;
-            passCtx_.cascadeKernel = cascadeKernel_;
-            passCtx_.ibl.irradiance = iblIrradiance_;
-            passCtx_.ibl.prefiltered = iblPrefiltered_;
-            passCtx_.ibl.brdfLUT = iblBRDFLUT_;
-            passCtx_.ibl.mipCount = iblPrefilterMipCount_;
-            
-            // execute the whole pipeline (CSM → forward → tonemap)
-            pipeline_.executeAll(passCtx_, scene, camera_, fp);
-
-            // Editor UI (after 3D draw)
-            if (uiDraw_) uiDraw_(deltaTime_);
-
-            window_.swapBuffers();
-            window_.pollEvents();
+        // Update CSM if needed
+        if (useSunYawPitch_) {
+            sunDir_ = dirFromYawPitch(sunYawDeg_, sunPitchDeg_);
         }
+
+        // keep passCtx_ in sync with per-frame globals you already tweak
+        passCtx_.sunDir = sunDir_;
+        passCtx_.exposure = exposure_;
+
+        // per-frame knobs for passes
+        passCtx_.splitBlend = splitBlend_;
+        passCtx_.csmDebug = csmDebugMode_;
+        passCtx_.shadowBiasConst = shadowBiasConst_;
+        passCtx_.shadowBiasSlope = shadowBiasSlope_;
+        passCtx_.cascadeKernel = cascadeKernel_;
+        passCtx_.ibl.irradiance = iblIrradiance_;
+        passCtx_.ibl.prefiltered = iblPrefiltered_;
+        passCtx_.ibl.brdfLUT = iblBRDFLUT_;
+        passCtx_.ibl.mipCount = iblPrefilterMipCount_;
+
+        // execute the whole pipeline (CSM → forward → tonemap)
+        pipeline_.executeAll(passCtx_, scene, camera, fp);
     }
 
-    void Renderer::handleMouseLook_(bool uiWantsMouse) {
-        GLFWwindow* win = window_.getGLFWwindow();
-        if (!win) return;
-
-        const int rmb = glfwGetMouseButton(win, GLFW_MOUSE_BUTTON_RIGHT);
-
-        if (!uiWantsMouse && rmb == GLFW_PRESS) {
-            if (!rotating_) {
-                rotating_ = true;
-                firstMouse_ = true;
-                glfwSetInputMode(win, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-            }
-
-            double xpos, ypos;
-            glfwGetCursorPos(win, &xpos, &ypos);
-
-            if (firstMouse_) {
-                lastX_ = xpos; lastY_ = ypos;
-                firstMouse_ = false;
-                return;
-            }
-
-            // Note: yaw increases with +x, pitch increases with -y
-            float xoffset = static_cast<float>(xpos - lastX_);
-            float yoffset = static_cast<float>(lastY_ - ypos);
-
-            lastX_ = xpos; lastY_ = ypos;
-
-            camera_.ProcessMouseMovement(xoffset, yoffset, true);
-        }
-        else {
-            if (rotating_) {
-                rotating_ = false;
-                glfwSetInputMode(win, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-            }
-            firstMouse_ = true; // reset when not rotating
-        }
-    }
-
-    void Renderer::ScrollThunk_(GLFWwindow* w, double /*xoff*/, double yoff) {
-        if (auto* self = static_cast<Renderer*>(glfwGetWindowUserPointer(w))) {
-            self->onScroll_(yoff);
-        }
-    }
-
-    void Renderer::onScroll_(double yoff) {
-        // If you want to respect UI capture, you can check captureFn_ here
-        camera_.ProcessMouseScroll(static_cast<float>(yoff));
-    }
-
-    void Renderer::FramebufferSizeThunk_(GLFWwindow * w, int width, int height) {
-       if (auto* self = static_cast<Renderer*>(glfwGetWindowUserPointer(w))) {
-           self->onFramebufferSize_(width, height);
-        }
-    }
-    void Renderer::onFramebufferSize_(int width, int height) {
+    void Renderer::OnFramebufferResize(int width, int height) {
         // Prevent GL errors on minimization
         if (width <= 0 || height <= 0) return;
-            
+
         glViewport(0, 0, width, height);
         if (hdrFBO_) recreateHDR_(width, height);
     }
@@ -395,13 +237,6 @@ namespace MyCoreEngine {
         // we’ll actually compute corners by directly inverting (proj for (nz,fz)) below in computeCSMMatrix_.
     }
 
-    glm::mat4 Renderer::getCameraPerspectiveMatrix(const Camera& cam)
-    {
-        return glm::perspective(glm::radians(cam.Zoom),
-            window_.getAspectRatio(),
-            0.1f, 1000.0f);
-    }
-    
     // -------- Editor wrapper implementations --------
     bool Renderer::getCSMEnabled() const {
         return csmPass_ ? csmPass_->enabled() : false;

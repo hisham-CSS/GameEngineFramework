@@ -16,12 +16,12 @@ extern "C" {
 
 class PlayerApplication : public MyCoreEngine::Application {
 public:
-    PlayerApplication() : renderer_(1280, 720, "Cat Splat Player") {}
+    PlayerApplication() : Application(1280, 720, "Cat Splat Player") {}
 
     void Run() override {
         using namespace MyCoreEngine;
 
-        renderer_.InitGL();
+        InitGL();
 
         AssetManager assets;
         Shader shader("Exported/Shaders/vertex.glsl", "Exported/Shaders/frag.glsl");
@@ -44,11 +44,8 @@ public:
             return;
         }
 
-        renderer_.run(scene, shader); // ESC or window close exits
+        RunLoop(scene, shader); // ESC or window close exits
     }
-
-private:
-    MyCoreEngine::Renderer renderer_;
 };
 
 MyCoreEngine::Application* MyCoreEngine::CreateApplication() {

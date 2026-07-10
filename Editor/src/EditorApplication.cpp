@@ -19,13 +19,13 @@ void EditorApplication::Run() {
 
     Scene scene;
 
-    myRenderer.SetOnContextReady([this, &scene]() {
+    SetOnContextReady([this, &scene]() {
         // GL context + GLAD are ready here
-        ui_.Init(myRenderer.GetNativeWindow());
+        ui_.Init(GetNativeWindow());
 
 
         // SAFE: capture 'this' (EditorApplication) whose lifetime spans the run loop
-        myRenderer.SetUICaptureProvider([this] {
+        SetUICaptureProvider([this] {
             return std::pair<bool, bool>{
                 ui_.WantCaptureKeyboard(),
                     ui_.WantCaptureMouse()
@@ -33,7 +33,7 @@ void EditorApplication::Run() {
         });
     });
 
-    myRenderer.SetUIDraw([this, &scene](float dt) {
+    SetUIDraw([this, &scene](float dt) {
         ui_.BeginFrame();
         //Information Panel
         DrawInformationPanel(scene, dt);
@@ -58,7 +58,7 @@ void EditorApplication::Run() {
     });
 
     // Make GL ready before creating any GL objects (Shaders, Models)
-    myRenderer.InitGL();
+    InitGL();
     assets_ = std::make_unique<AssetManager>(); // create after GL is ready
     std::unique_ptr<Shader> shader = std::make_unique<Shader>("Exported/Shaders/vertex.glsl",
         "Exported/Shaders/frag.glsl");
@@ -107,7 +107,7 @@ void EditorApplication::Run() {
 
     // Demo gameplay on the fixed tick: spin every entity named "Hero".
     // (Real games will hang systems/scripts off this hook — see roadmap P3-9.)
-    myRenderer.SetFixedUpdate([&scene](float fixedDt) {
+    SetFixedUpdate([&scene](float fixedDt) {
         auto view = scene.registry.view<Name, Transform>();
         for (auto e : view) {
             if (view.get<Name>(e).value != "Hero") continue;
@@ -118,34 +118,34 @@ void EditorApplication::Run() {
         }
     });
 
-    myRenderer.run(scene, *shader);
+    RunLoop(scene, *shader);
 }
 
 void EditorApplication::DrawInputPanel()
 {
     if (!ImGui::CollapsingHeader("Input", ImGuiTreeNodeFlags_None)) return;
 
-    auto& in = myRenderer.input();
+    auto& in = input();
     ImGui::Text("Gamepad: %s", in.gamepadConnected() ? "connected" : "not connected");
     ImGui::Text("MoveForward: %+.2f", in.axis("MoveForward"));
     ImGui::Text("MoveRight:   %+.2f", in.axis("MoveRight"));
     ImGui::Text("Look X/Y:    %+.2f / %+.2f", in.axis("LookX"), in.axis("LookY"));
     ImGui::TextDisabled("Defaults: WASD + left stick move, right stick looks,");
-    ImGui::TextDisabled("ESC / Back quits. Rebind via Renderer::input().");
+    ImGui::TextDisabled("ESC / Back quits. Rebind via Application::input().");
 }
 
 void EditorApplication::DrawTimeControls()
 {
     if (!ImGui::CollapsingHeader("Time", ImGuiTreeNodeFlags_None)) return;
 
-    bool paused = myRenderer.paused();
-    if (ImGui::Checkbox("Paused", &paused)) myRenderer.setPaused(paused);
+    bool isPaused = paused();
+    if (ImGui::Checkbox("Paused", &isPaused)) setPaused(isPaused);
 
-    float scale = myRenderer.timeScale();
-    if (ImGui::SliderFloat("Time Scale", &scale, 0.f, 4.f)) myRenderer.setTimeScale(scale);
+    float scale = timeScale();
+    if (ImGui::SliderFloat("Time Scale", &scale, 0.f, 4.f)) setTimeScale(scale);
 
-    float hz = myRenderer.fixedTimestepHz();
-    if (ImGui::SliderFloat("Fixed Tick (Hz)", &hz, 15.f, 240.f, "%.0f")) myRenderer.setFixedTimestepHz(hz);
+    float hz = fixedTimestepHz();
+    if (ImGui::SliderFloat("Fixed Tick (Hz)", &hz, 15.f, 240.f, "%.0f")) setFixedTimestepHz(hz);
 }
 
 void EditorApplication::DrawScenePersistence(MyCoreEngine::Scene& scene)
@@ -197,8 +197,8 @@ void EditorApplication::DrawIBLHDRControls(MyCoreEngine::Scene& scene)
     float iblInt = scene.GetIBLIntensity();
     if (ImGui::SliderFloat("IBL Intensity", &iblInt, 0.0f, 4.0f)) scene.SetIBLIntensity(iblInt);
 
-    float exposure = myRenderer.exposure();
-    if (ImGui::SliderFloat("Exposure", &exposure, 0.2f, 5.0f)) myRenderer.setExposure(exposure);
+    float exposure = renderer().exposure();
+    if (ImGui::SliderFloat("Exposure", &exposure, 0.2f, 5.0f)) renderer().setExposure(exposure);
 }
 
 void EditorApplication::DrawMaterialControls(MyCoreEngine::Scene& scene)
@@ -224,96 +224,96 @@ void EditorApplication::DrawSunShadowControls(MyCoreEngine::Scene& scene)
     // --- Directional light (Unity-style) ---
     ImGui::SeparatorText("Directional Light");
 
-    bool useYawPitch = myRenderer.getUseSunYawPitch();
-    if (ImGui::Checkbox("Rotate Sun (Yaw/Pitch)", &useYawPitch)) myRenderer.setUseSunYawPitch(useYawPitch);
+    bool useYawPitch = renderer().getUseSunYawPitch();
+    if (ImGui::Checkbox("Rotate Sun (Yaw/Pitch)", &useYawPitch)) renderer().setUseSunYawPitch(useYawPitch);
 
     if (useYawPitch) {
-        float yaw, pitch; myRenderer.getSunYawPitchDegrees(yaw, pitch);
+        float yaw, pitch; renderer().getSunYawPitchDegrees(yaw, pitch);
         if (ImGui::SliderFloat("Yaw", &yaw, -180.f, 180.f) ||
             ImGui::SliderFloat("Pitch", &pitch, -89.f, 89.f)) {
-            myRenderer.setSunYawPitchDegrees(yaw, pitch);
+            renderer().setSunYawPitchDegrees(yaw, pitch);
         }
     }
     else {
-        glm::vec3 dir = myRenderer.sunDir();
+        glm::vec3 dir = renderer().sunDir();
         if (ImGui::DragFloat3("Sun dir", &dir.x, 0.01f, -1.0f, 1.0f)) {
             if (glm::length(dir) > 1e-6f) dir = glm::normalize(dir);
-            myRenderer.setSunDir(dir);
+            renderer().setSunDir(dir);
         }
     }
 
     // Optionally sync scene shading light with sun
     bool useSunForShading = true;
     if (ImGui::Checkbox("Use Sun Dir for Shading Light", &useSunForShading)) {
-        if (useSunForShading) scene.LightDir() = myRenderer.sunDir();
+        if (useSunForShading) scene.LightDir() = renderer().sunDir();
     }
-    //if (useSunForShading) scene.LightDir() = myRenderer.sunDir();
+    //if (useSunForShading) scene.LightDir() = renderer().sunDir();
     // --- CSM Controls ---
     ImGui::SeparatorText("Cascaded Shadows");
 
-    bool on = myRenderer.getCSMEnabled();
-    if (ImGui::Checkbox("CSM Enabled", &on)) myRenderer.setCSMEnabled(on);
+    bool on = renderer().getCSMEnabled();
+    if (ImGui::Checkbox("CSM Enabled", &on)) renderer().setCSMEnabled(on);
 
-    int casc = myRenderer.getCSMNumCascades();
-    if (ImGui::SliderInt("Cascades", &casc, 1, 4)) myRenderer.setCSMNumCascades(casc);
+    int casc = renderer().getCSMNumCascades();
+    if (ImGui::SliderInt("Cascades", &casc, 1, 4)) renderer().setCSMNumCascades(casc);
 
-    int res = myRenderer.getCSMBaseResolution();
-    if (ImGui::SliderInt("Base Resolution", &res, 512, 4096)) myRenderer.setCSMBaseResolution(res);
+    int res = renderer().getCSMBaseResolution();
+    if (ImGui::SliderInt("Base Resolution", &res, 512, 4096)) renderer().setCSMBaseResolution(res);
 
-    float lambda = myRenderer.getCSMLambda();
-    if (ImGui::SliderFloat("Split Lambda", &lambda, 0.f, 1.f)) myRenderer.setCSMLambda(lambda);
+    float lambda = renderer().getCSMLambda();
+    if (ImGui::SliderFloat("Split Lambda", &lambda, 0.f, 1.f)) renderer().setCSMLambda(lambda);
 
-    float maxDist = myRenderer.getCSMMaxShadowDistance();
-    if (ImGui::SliderFloat("Max Shadow Distance", &maxDist, 10.f, 2000.f)) myRenderer.setCSMMaxShadowDistance(maxDist);
+    float maxDist = renderer().getCSMMaxShadowDistance();
+    if (ImGui::SliderFloat("Max Shadow Distance", &maxDist, 10.f, 2000.f)) renderer().setCSMMaxShadowDistance(maxDist);
 
-    float pad = myRenderer.getCSMCascadePadding();
-    if (ImGui::SliderFloat("Cascade Padding (m)", &pad, 0.f, 50.f)) myRenderer.setCSMCascadePadding(pad);
+    float pad = renderer().getCSMCascadePadding();
+    if (ImGui::SliderFloat("Cascade Padding (m)", &pad, 0.f, 50.f)) renderer().setCSMCascadePadding(pad);
 
-    float margin = myRenderer.getCSMDepthMargin();
-    if (ImGui::SliderFloat("Depth Margin (m)", &margin, 0.f, 50.f)) myRenderer.setCSMDepthMargin(margin);
+    float margin = renderer().getCSMDepthMargin();
+    if (ImGui::SliderFloat("Depth Margin (m)", &margin, 0.f, 50.f)) renderer().setCSMDepthMargin(margin);
 
-    float posEps, angEps; myRenderer.getCSMEpsilons(posEps, angEps);
+    float posEps, angEps; renderer().getCSMEpsilons(posEps, angEps);
     if (ImGui::SliderFloat("Stability Pos Epsilon (m)", &posEps, 0.f, 0.5f) ||
         ImGui::SliderFloat("Stability Ang Epsilon (deg)", &angEps, 0.f, 5.f)) {
-        myRenderer.setCSMEpsilons(posEps, angEps);
+        renderer().setCSMEpsilons(posEps, angEps);
     }
 
-    int budget = myRenderer.getCSMCascadeBudget();
-    if (ImGui::SliderInt("Update Budget (cascades/frame)", &budget, 0, casc)) myRenderer.setCSMCascadeBudget(budget);
+    int budget = renderer().getCSMCascadeBudget();
+    if (ImGui::SliderInt("Update Budget (cascades/frame)", &budget, 0, casc)) renderer().setCSMCascadeBudget(budget);
     ImGui::SameLine(); ImGui::TextDisabled("(0 = all)");
 
     // Bias / culling
     ImGui::SeparatorText("Shadow Acne Controls");
-    float slope = myRenderer.getCSMSlopeDepthBias();
-    float cbias = myRenderer.getCSMConstantDepthBias();
-    bool cullFront = myRenderer.getCSMCullFrontFaces();
+    float slope = renderer().getCSMSlopeDepthBias();
+    float cbias = renderer().getCSMConstantDepthBias();
+    bool cullFront = renderer().getCSMCullFrontFaces();
 
-    if (ImGui::SliderFloat("Slope Depth Bias", &slope, 0.f, 8.f)) myRenderer.setCSMSlopeDepthBias(slope);
-    if (ImGui::SliderFloat("Constant Depth Bias", &cbias, 0.f, 16.f)) myRenderer.setCSMConstantDepthBias(cbias);
-    if (ImGui::Checkbox("Cull Front Faces", &cullFront)) myRenderer.setCSMCullFrontFaces(cullFront);
+    if (ImGui::SliderFloat("Slope Depth Bias", &slope, 0.f, 8.f)) renderer().setCSMSlopeDepthBias(slope);
+    if (ImGui::SliderFloat("Constant Depth Bias", &cbias, 0.f, 16.f)) renderer().setCSMConstantDepthBias(cbias);
+    if (ImGui::Checkbox("Cull Front Faces", &cullFront)) renderer().setCSMCullFrontFaces(cullFront);
 
     ImGui::SeparatorText("Shadow Filtering (PCF)");
-    float rbc = myRenderer.getShadowBiasConst();
-    if (ImGui::SliderFloat("Receiver Bias Const (texels)", &rbc, 0.f, 8.f)) myRenderer.setShadowBiasConst(rbc);
-    float rbs = myRenderer.getShadowBiasSlope();
-    if (ImGui::SliderFloat("Receiver Bias Slope (texels)", &rbs, 0.f, 8.f)) myRenderer.setShadowBiasSlope(rbs);
+    float rbc = renderer().getShadowBiasConst();
+    if (ImGui::SliderFloat("Receiver Bias Const (texels)", &rbc, 0.f, 8.f)) renderer().setShadowBiasConst(rbc);
+    float rbs = renderer().getShadowBiasSlope();
+    if (ImGui::SliderFloat("Receiver Bias Slope (texels)", &rbs, 0.f, 8.f)) renderer().setShadowBiasSlope(rbs);
     static const char* kKernelLabels[4] = {
         "PCF Radius (cascade 0)", "PCF Radius (cascade 1)",
         "PCF Radius (cascade 2)", "PCF Radius (cascade 3)"
     };
     for (int i = 0; i < casc && i < 4; ++i) {
-        int r = myRenderer.getCascadeKernel(i);
-        if (ImGui::SliderInt(kKernelLabels[i], &r, 0, 4)) myRenderer.setCascadeKernel(i, r);
+        int r = renderer().getCascadeKernel(i);
+        if (ImGui::SliderInt(kKernelLabels[i], &r, 0, 4)) renderer().setCascadeKernel(i, r);
     }
 
-    if (ImGui::Button("Force Rebuild CSM")) myRenderer.forceCSMUpdate();
+    if (ImGui::Button("Force Rebuild CSM")) renderer().forceCSMUpdate();
     // Debug
     if (ImGui::CollapsingHeader("CSM Debug", ImGuiTreeNodeFlags_None)) {
         static const char* kModes[] = {
             "Off", "Cascade index", "Shadow factor", "Light depth", "Sampled depth", "Projected UV"
         };
-        int dbg = myRenderer.csmDebugMode();
-        if (ImGui::Combo("Mode", &dbg, kModes, IM_ARRAYSIZE(kModes))) myRenderer.setCSMDebugMode(dbg);
+        int dbg = renderer().csmDebugMode();
+        if (ImGui::Combo("Mode", &dbg, kModes, IM_ARRAYSIZE(kModes))) renderer().setCSMDebugMode(dbg);
 
         ImGui::SameLine();
         ImGui::TextDisabled("(?)");
@@ -331,8 +331,8 @@ void EditorApplication::DrawRenderingToggles(MyCoreEngine::Scene& scene)
 {
     if (!ImGui::CollapsingHeader("Rendering Toggles", ImGuiTreeNodeFlags_None)) return;
 
-    bool vsync = myRenderer.vsyncEnabled();
-    if (ImGui::Checkbox("VSync", &vsync)) myRenderer.setVSync(vsync);
+    bool vsync = vsyncEnabled();
+    if (ImGui::Checkbox("VSync", &vsync)) setVSync(vsync);
     ImGui::SameLine(); ImGui::TextDisabled("(off = uncapped, for benchmarking)");
 
     bool inst = scene.GetInstancingEnabled();
@@ -351,7 +351,7 @@ void EditorApplication::DrawInformationPanel(const MyCoreEngine::Scene& scene, f
     ImGui::Begin("Information", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
     if (ImGui::CollapsingHeader("Rendering Stats", ImGuiTreeNodeFlags_None)) {
         ImGui::Text("dt: %.3f ms (%.1f FPS)", dt * 1000.f, dt > 0.f ? 1.f / dt : 0.f);
-        ImGui::Text("Cascades: %d, res: %d", myRenderer.getCSMNumCascades(), myRenderer.getCSMBaseResolution());
+        ImGui::Text("Cascades: %d, res: %d", renderer().getCSMNumCascades(), renderer().getCSMBaseResolution());
         ImGui::Text("Draws:            %u", rs.draws);
         ImGui::Text("Instanced draws:  %u", rs.instancedDraws);
         ImGui::Text("Instances:        %u", rs.instances);

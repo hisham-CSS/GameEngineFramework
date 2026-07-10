@@ -5,20 +5,15 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include <functional>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/epsilon.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <GLFW/glfw3.h>
 
-#include "Window.h"
 #include "Camera.h"
 #include "Scene.h"
 #include "Shader.h"
-#include "InputMap.h"
 #include "Model.h"
-#include "FixedTimestep.h"
 #include "../render/RenderPipeline.h"
 #include "../render/passes/ShadowCSMPass.h"
 #include "../render/passes/TonemapPass.h"
@@ -26,64 +21,30 @@
 
 namespace MyCoreEngine {
 
+    // Render-only: owns the render-pass pipeline, HDR targets, and render
+    // settings (sun, shadows, IBL, exposure). The window, input, camera,
+    // timing, and main loop live in Application.
     class ENGINE_API Renderer {
     public:
-        Renderer(int width, int height, const char* title);
-        ~Renderer(); // frees HDR + fullscreen-quad GL resources (window_ outlives them)
+        Renderer() = default;
+        ~Renderer(); // frees HDR + fullscreen-quad GL resources
 
-        // prevent copying (vector<unique_ptr<...>> cannot be copied)
         Renderer(const Renderer&) = delete;
         Renderer& operator=(const Renderer&) = delete;
-
-        // simplest: also prevent moves for now (unless you really need them)
         Renderer(Renderer&&) noexcept = delete;
         Renderer& operator=(Renderer&&) noexcept = delete;
 
-        // Main loop
-        void run(Scene& scene, Shader& shader);
+        // Creates GL state, HDR targets, and the CSM pass. Requires a current
+        // GL context with GLAD already loaded (Application::InitGL does both).
+        void Setup(int fbWidth, int fbHeight);
 
-        // Expose native window so the Editor can init ImGui on it
-        GLFWwindow* GetNativeWindow() { return window_.getGLFWwindow(); }
+        // Renders one frame of the scene into the window backbuffer
+        // (CSM -> forward opaque -> tonemap).
+        void RenderFrame(Scene& scene, Shader& shader, Camera& camera,
+                         int fbWidth, int fbHeight, float deltaTime);
 
-        // Editor-provided UI draw (called each frame after 3D draw)
-        using UIDrawFn = std::function<void(float /*deltaTime*/)>;
-        void SetUIDraw(UIDrawFn fn) { uiDraw_ = std::move(fn); }
-
-        // --- Game update hooks ---
-        // FixedUpdate runs at a fixed rate (default 60 Hz) via an accumulator:
-        // 0..N calls per frame, always with the same dt. Put simulation /
-        // gameplay / future physics here. Update runs once per rendered frame
-        // with the (time-scaled) variable dt. Both run before UpdateTransforms,
-        // so Transform edits (+ dirty flag) are picked up the same frame.
-        using UpdateFn = std::function<void(float /*dt*/)>;
-        void SetUpdate(UpdateFn fn) { update_ = std::move(fn); }
-        void SetFixedUpdate(UpdateFn fn) { fixedUpdate_ = std::move(fn); }
-
-        void  setFixedTimestepHz(float hz) { fixedStep_.setStep(1.f / std::max(1.f, hz)); }
-        float fixedTimestepHz() const { return 1.f / fixedStep_.step(); }
-        // Fraction of a fixed step not yet simulated (for render interpolation).
-        float fixedAlpha() const { return fixedStep_.alpha(); }
-
-        void  setTimeScale(float s) { timeScale_ = std::max(0.f, s); }
-        float timeScale() const { return timeScale_; }
-        void  setPaused(bool p) { paused_ = p; }
-        bool  paused() const { return paused_; }
-
-        // Editor-provided capture flags (so game input is skipped when UI is focused)
-        using UICaptureFn = std::function<std::pair<bool, bool>()>;
-        void SetUICaptureProvider(UICaptureFn fn) { captureFn_ = std::move(fn); }
-
-        // Named action/axis input. Default bindings: WASD + gamepad left stick
-        // drive MoveForward/MoveRight, right stick drives LookX/LookY, ESC =
-        // "Quit". Games and the editor can query and rebind freely.
-        InputMap& input() { return input_; }
-
-        // Fires once, right after GLAD is initialized and the context is ready.
-        using OnContextReadyFn = std::function<void()>;
-        void SetOnContextReady(OnContextReadyFn fn) { onReady_ = std::move(fn); }
-
-        // public:
-        void InitGL(); // new: loads GLAD and fires OnContextReady once
+        // Framebuffer resized; Application forwards the GLFW callback here.
+        void OnFramebufferResize(int width, int height);
 
         // public API:
         void SetIBLTextures(unsigned int irradianceCube, unsigned int prefilteredCube, unsigned int brdfLUT2D, float prefilteredMipCount);
@@ -91,10 +52,6 @@ namespace MyCoreEngine {
         // Light exposure
         float exposure() const { return exposure_; }
         void setExposure(float e) { exposure_ = std::max(0.01f, e); }
-
-        // Present pacing (default on: tear-free, predictable frame times)
-        void setVSync(bool on);
-        bool vsyncEnabled() const { return vsync_; }
 
         // Sun / shadows
         glm::vec3 sunDir() const { return sunDir_; }
@@ -108,13 +65,8 @@ namespace MyCoreEngine {
             }
         }
 
-        //int cascadeResolution() const { return csmRes_; }
-        //int getCascadeCount() const { return kCascades; }
-        //int getCascadeResolution() const { return csmRes_; }
-        //float debugCascadeSplit(int i) const { return splitZ_[i + 1]; }
         int csmDebugMode() const { return csmDebugMode_; }
         void setCSMDebugMode(int m) { csmDebugMode_ = glm::clamp(m, 0, 5); }
-
 
         // --- Editor: directional light rotation (Unity-style) ---
         // If enabled, renderer computes sunDir_ from yaw/pitch every frame.
@@ -127,7 +79,7 @@ namespace MyCoreEngine {
         // (These let your existing editor panels keep calling into Renderer.)
         bool  getCSMEnabled() const;
         void  setCSMEnabled(bool e);
-        
+
         float getCSMMaxShadowDistance() const;
         void  setCSMMaxShadowDistance(float d);
         float getCSMCascadePadding() const;
@@ -155,7 +107,6 @@ namespace MyCoreEngine {
             if (cascade >= 0 && cascade < 4) cascadeKernel_[cascade] = glm::clamp(radius, 0, 4);
         }
 
-
         float getCSMLambda() const;
         void  setCSMLambda(float v);
         int   getCSMBaseResolution() const;
@@ -170,31 +121,23 @@ namespace MyCoreEngine {
         void  setCSMEpsilons(float posMeters, float angDegrees);
         void  forceCSMUpdate(); // manual refresh
 
-        const CSMSnapshot & getCSMSnapshot() const; // for debug UI
+        const CSMSnapshot& getCSMSnapshot() const; // for debug UI
 
     private:
-        // Window / timing
-        Window window_;
-        float deltaTime_ = 0.0f;
-        float lastFrame_ = 0.0f;
-        uint64_t frameIndex_ = 0;
-
         PassContext passCtx_{};
         RenderPipeline pipeline_;
         ShadowCSMPass* csmPass_ = nullptr; // optional raw ptr for quick access
         ForwardOpaquePass* forwardPass_ = nullptr;
         TonemapPass* tonemapPass_ = nullptr;
-        
+
         CSMSnapshot nullSnap_{};             // fallback for getCSMSnapshot()
-        
+
+        uint64_t frameIndex_ = 0;
 
         unsigned int iblIrradiance_ = 0; // GL texture ids (0 = not set)
         unsigned int iblPrefiltered_ = 0;
         unsigned int iblBRDFLUT_ = 0;
         float iblPrefilterMipCount_ = 0.0f;
-
-        // Shadow resources
-        GLuint shadowDepthTex_ = 0;
 
         // === Shadows / CSM ===
         float splitBlend_ = 20.0f; // meters; expose in your UI if you like
@@ -203,7 +146,6 @@ namespace MyCoreEngine {
         float shadowBiasConst_ = 1.5f;                  // texels
         float shadowBiasSlope_ = 2.0f;                  // texels, scaled by (1 - N.L)
         std::array<int, 4> cascadeKernel_{ 1, 1, 1, 1 }; // PCF radius per cascade
-
 
         // Light (editor already exposes dir/intensity; add projection span)
         glm::vec3 sunDir_ = glm::vec3(-0.282f, -0.941f, 0.188f);
@@ -226,50 +168,10 @@ namespace MyCoreEngine {
         // Exposure control (you can surface this in the editor)
         float exposure_ = 1.0f;
 
-        bool vsync_ = true;
-
-        // Camera & input
-        Camera      camera_{ glm::vec3(0.0f, 0.0f, 3.0f) };
-        InputMap    input_;
-
-        // UI hooks
-        UIDrawFn       uiDraw_{};
-        UICaptureFn    captureFn_{};
-        OnContextReadyFn onReady_{};
-        bool           readyFired_ = false;
-
-        // Game update hooks + fixed-step state
-        UpdateFn      update_{};
-        UpdateFn      fixedUpdate_{};
-        FixedTimestep fixedStep_{ 1.f / 60.f };
-        float         timeScale_ = 1.0f;
-        bool          paused_ = false;
-
-        // mouse-look state
-        bool rotating_ = false;
-        bool firstMouse_ = true;
-        double lastX_ = 0.0;
-        double lastY_ = 0.0;
-
-        void handleMouseLook_(bool uiWantsMouse);   // new
-        // (optional) wheel zoom callback hook
-        static void ScrollThunk_(GLFWwindow* w, double /*xoff*/, double yoff);
-        void onScroll_(double yoff);
-
-        // framebuffer resize -> update viewport
-        static void FramebufferSizeThunk_(GLFWwindow* w, int width, int height);
-        void onFramebufferSize_(int width, int height);
-
         // helpers
-        void updateDeltaTime_();
-        void setupGL_();           // creates GL state + fires OnContextReady once
         void recreateHDR_(int w, int h);
 
-        // --- CSM (4 cascades) ---
-        //int csmRes_ = 2048;
         int csmDebugMode_ = 0; // 0=off
-
-        glm::mat4 Renderer::getCameraPerspectiveMatrix(const Camera& cam);
 
         // Directional light rotation control (optional)
         bool  useSunYawPitch_ = true;
