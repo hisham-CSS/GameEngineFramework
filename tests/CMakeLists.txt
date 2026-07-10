@@ -68,15 +68,14 @@ add_custom_command(TARGET test_scene_details POST_BUILD
 # Let's try copying from the directory of Engine target.
 add_custom_command(TARGET test_scene_details POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    "$<TARGET_FILE_DIR:Engine>/assimp-vc143-mtd.dll"
+    "$<TARGET_FILE_DIR:Engine>/assimp-vc143-mt$<$<CONFIG:Debug>:d>.dll"
     "$<TARGET_FILE_DIR:Engine>/poly2tri.dll"
-    "$<TARGET_FILE_DIR:Engine>/zlibd1.dll"
+    "$<TARGET_FILE_DIR:Engine>/zlib$<$<CONFIG:Debug>:d>1.dll"
     "$<TARGET_FILE_DIR:Engine>/minizip.dll"
-    "$<TARGET_FILE_DIR:Engine>/pugixml.dll" 
+    "$<TARGET_FILE_DIR:Engine>/pugixml.dll"
     $<TARGET_FILE_DIR:test_scene_details>
-    # Note: Using explicit filenames is brittle but Vcpkg changes them rarely.
-    # A generic copy *.dll would be better but CMake copy_directory is recursive/folder-based.
-    # We can try to assume they are next to Engine.dll.
+    # vcpkg's Debug DLLs carry a 'd' suffix (assimp-vc143-mtd.dll, zlibd1.dll);
+    # the generator expressions keep this copy working in both configs.
 )
 
 # --- CPU-only split tests (no GL) ---

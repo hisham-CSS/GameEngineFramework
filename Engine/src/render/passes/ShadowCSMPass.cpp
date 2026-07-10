@@ -44,13 +44,14 @@ void ShadowCSMPass::ensureTargets_() {
             glBindTexture(GL_TEXTURE_2D, depth_[i]);
             glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, desired, desired, 0,
             GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, nullptr);
-            // Keep your previous params (PCF works with LINEAR + compare mode)
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+            // The forward shader samples these as plain sampler2D and compares
+            // manually; compare mode must stay off (sampling a compare-mode depth
+            // texture through a non-shadow sampler is undefined behavior).
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
             resPer_[i] = desired;
             // After resize, force a clean rebuild + full redraw starting from cascade 0
             shadowParamsDirty_ = true;

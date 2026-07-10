@@ -59,6 +59,12 @@ struct PassContext {
     float splitBlend = 0.0f;     // meters; cascade cross-fade band
     int   csmDebug = 0;        // 0=off, >0 = modes in your shader
 
+    // Receiver-side shadow filtering (consumed by Forward pass -> frag shader).
+    // Biases are in texels (the shader scales by uCascadeTexel).
+    float shadowBiasConst = 1.5f;
+    float shadowBiasSlope = 2.0f;
+    std::array<int, 4> cascadeKernel{ 1, 1, 1, 1 }; // PCF radius per cascade; 0 = single tap
+
     // Shadow data (produced by ShadowCSMPass; consumed by Forward pass)
     CSMSnapshot csm{};
 	IBLSnapshot ibl{};
@@ -74,6 +80,6 @@ struct IRenderPass {
     // Called when the window framebuffer changes (Renderer already handles this)
     virtual void resize(PassContext&, int /*w*/, int /*h*/) {}
 
-    // Do the pass’ work; return true if you drew something
+    // Do the passï¿½ work; return true if you drew something
     virtual bool execute(PassContext&, MyCoreEngine::Scene&, Camera&, const FrameParams&) = 0;
 };

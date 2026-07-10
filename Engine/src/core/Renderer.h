@@ -1,6 +1,7 @@
 #pragma once
 #include "Core.h"
 
+#include <array>
 #include <memory>
 #include <string>
 #include <vector>
@@ -111,6 +112,18 @@ namespace MyCoreEngine {
         void  setCSMCullFrontFaces(bool on);
         bool  getCSMCullFrontFaces() const;
 
+        // Receiver-side (shader) shadow filtering: texel-scaled bias + PCF kernel radius
+        float getShadowBiasConst() const { return shadowBiasConst_; }
+        void  setShadowBiasConst(float v) { shadowBiasConst_ = std::max(0.f, v); }
+        float getShadowBiasSlope() const { return shadowBiasSlope_; }
+        void  setShadowBiasSlope(float v) { shadowBiasSlope_ = std::max(0.f, v); }
+        int   getCascadeKernel(int cascade) const {
+            return (cascade >= 0 && cascade < 4) ? cascadeKernel_[cascade] : 0;
+        }
+        void  setCascadeKernel(int cascade, int radius) {
+            if (cascade >= 0 && cascade < 4) cascadeKernel_[cascade] = glm::clamp(radius, 0, 4);
+        }
+
 
         float getCSMLambda() const;
         void  setCSMLambda(float v);
@@ -154,6 +167,11 @@ namespace MyCoreEngine {
 
         // === Shadows / CSM ===
         float splitBlend_ = 20.0f; // meters; expose in your UI if you like
+
+        // Receiver-side shadow filtering (uploaded by the forward pass each frame)
+        float shadowBiasConst_ = 1.5f;                  // texels
+        float shadowBiasSlope_ = 2.0f;                  // texels, scaled by (1 - N.L)
+        std::array<int, 4> cascadeKernel_{ 1, 1, 1, 1 }; // PCF radius per cascade
 
 
         // Light (editor already exposes dir/intensity; add projection span)

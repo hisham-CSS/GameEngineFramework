@@ -1,108 +1,106 @@
-﻿# GameEngineFramework
+# GameEngineFramework
 
 ## Project Overview
 
-This project is a modular, high-performance game engine framework built with modern C++17. It features a clean architecture with a separate Engine (DLL) and Editor, a sophisticated rendering pipeline with advanced features, and a professional development environment using CMake and vcpkg.
+This project is a modular game engine framework built with modern C++17. It features a clean
+architecture with a separate Engine (DLL) and Editor, a render-pass-based OpenGL pipeline with
+PBR, IBL, and cascaded shadow maps, and a CMake + vcpkg build system.
 
-## Key Features
+The renderer is the most mature part of the engine. Scene authoring, persistence, and gameplay
+systems are still in development — see [Development Status](#development-status) below and the
+full audit + roadmap in [docs/ENGINE_AUDIT_2026-07.md](docs/ENGINE_AUDIT_2026-07.md).
 
-- **Modern C++17 Architecture**: Clean, modular design with a separate Engine and Editor.
-- **Advanced Rendering Pipeline**: Sophisticated rendering system with modern graphics features.
-- **Entity-Component-System (ECS)**: High-performance scene management with EnTT.
-- **Functional Editor**: ImGui-based editor with core panels for scene management and inspection.
-- **Professional Build System**: CMake and vcpkg for easy building and dependency management.
-- **Comprehensive Testing**: Unit tests for core systems to ensure stability.
+## What Works Today
+
+- **Modern C++17 architecture**: separate Engine DLL and Editor executable.
+- **Render-pass pipeline**: `IRenderPass` interface with ShadowCSM → ForwardOpaque → Tonemap
+  passes composed by a `RenderPipeline`.
+- **Cascaded Shadow Maps**: up to 4 cascades with texel-snap stabilization, per-cascade
+  update budgeting, split blending, PCF filtering, and extensive editor tuning controls.
+- **PBR shading**: Cook-Torrance GGX with optional metallic/roughness/AO/normal maps, plus
+  image-based lighting (irradiance/prefiltered/BRDF LUT inputs).
+- **HDR pipeline**: RGBA16F render target with ACES tonemapping and gamma correction.
+- **Performance paths**: frustum culling, material/mesh-sorted draw batching, and GPU
+  instancing (the demo scene draws ~7,600 mesh instances in ~80 draw calls).
+- **ECS scene**: EnTT-based registry with Transform/Model/Material components.
+- **Asset loading**: assimp model import with texture caching and by-path deduplication.
+- **Editor**: ImGui panels for scene hierarchy, transform/material inspection, and deep
+  renderer tuning (lighting, shadows, IBL/HDR, rendering toggles, live render stats).
+- **Unit tests**: GoogleTest suite covering CSM split math, shadow stability, render-pass
+  wiring, and input/event basics.
+
+## Current Limitations (Honest Edition)
+
+- **No scene serialization** — scenes are constructed in code; there is no save/load yet.
+- **No standalone player or packaging** — the Editor is currently the only way to run a scene.
+- **Editor is renderer-focused** — no viewport panel, gizmos, entity create/delete UI, undo,
+  asset browser, or play mode yet. Docking is not enabled.
+- **Single directional light** — no point/spot lights or additional shadow casters.
+- **Opaque-only rendering** — no transparency pass, anti-aliasing, skybox, or post-processing
+  beyond tonemapping.
+- **No physics, animation, audio, scripting, or in-game UI** — planned (see roadmap).
+- **Single-threaded** — no job system or async asset loading yet.
 
 ## Project Structure
 
 ```
 GameEngineFramework/
-├── Editor/         # Editor application (ImGui)
-├── Engine/         # Core engine (DLL)
-├── tests/          # Unit tests
-├── .gitignore
+├── Editor/         # Editor application (ImGui) + Exported/ shaders & sample assets
+├── Engine/         # Core engine (DLL): core systems + render passes
+├── docs/           # Audit and roadmap documentation
+├── tests/          # GoogleTest unit tests
 ├── CMakeLists.txt
-├── LICENSE.txt
-├── README.md
 ├── vcpkg.json
 └── vcpkg-configuration.json
 ```
 
-## Core Engine Systems
-
-- **Application Framework**: Main application loop and window management.
-- **Asset Management**: System for loading and managing assets.
-- **Camera System**: 3D camera with projection and view controls.
-- **ECS (EnTT)**: High-performance entity-component-system.
-- **Event System**: Event-driven architecture with a central event bus.
-- **Input System**: GLFW-based input handling.
-- **Material System**: Material management for rendering.
-- **Model & Mesh**: 3D model and mesh loading/handling.
-- **Scene Management**: Scene graph and object hierarchy.
-- **Shader System**: Shader loading and management.
-
-## Advanced Rendering System
-
-- **Modular Render Pass Architecture**: Clean, extensible design with an `IRenderPass` interface.
-- **Forward Rendering Pipeline**: Modern forward rendering implementation.
-- **Cascading Shadow Maps (CSM)**: Advanced shadow mapping for large, dynamic scenes.
-- **HDR Rendering & Tone Mapping**: High-dynamic-range rendering with a tone mapping pass.
-- **Modern OpenGL**: Proper use of modern OpenGL features (framebuffers, vertex arrays, etc.).
-
-## Editor
-
-- **ImGui Integration**: Modern, immediate-mode GUI.
-- **Scene Hierarchy Panel**: View and manage scene objects.
-- **Inspector Panel**: View and edit component properties.
-- **Docking Support**: Flexible window layout.
-
 ## Dependencies
 
-- **GLFW**: Window and input management.
-- **GLAD**: OpenGL loading.
-- **GLM**: Mathematics library.
-- **STB**: Image loading.
-- **ASSIMP**: 3D model loading.
-- **EnTT**: Entity-component-system.
-- **ImGui**: Editor GUI.
+- **GLFW** — window and input
+- **GLAD** — OpenGL loading (GL 3.3 core)
+- **GLM** — math
+- **STB** — image loading
+- **ASSIMP** — model import
+- **EnTT** — entity-component-system
+- **ImGui** — editor UI
 
 ## Building the Project
 
 ### Prerequisites
 
-1.  **CMake** (version 3.20 or higher)
-2.  **vcpkg**
-3.  **C++17 Compiler**
+1. **CMake** (3.20+)
+2. **vcpkg**
+3. **C++17 compiler** (MSVC 2022 tested)
 
 ### Build Steps
 
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/hisham-CSS/GameEngineFramework
-    cd GameEngineFramework
-    ```
+```bash
+git clone https://github.com/hisham-CSS/GameEngineFramework
+cd GameEngineFramework
+cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=[path-to-vcpkg]/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+```
 
-2.  **Configure with CMake:**
-    ```bash
-    cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=[path-to-vcpkg]/scripts/buildsystems/vcpkg.cmake
-    ```
+Run the Editor from its output directory (assets are loaded by relative path):
+`build/build/bin/<Config>/Editor.exe`.
 
-3.  **Build the project:**
-    ```bash
-    cmake --build build
-    ```
+Tests: `ctest --test-dir build` (or run the `test_*` executables in `build/tests`).
 
 ## Development Status
 
-- ✅ **Core Engine Architecture**: Complete
-- ✅ **Rendering Pipeline**: Complete
-- ✅ **Editor Framework**: Complete
-- ✅ **Build System**: Complete
-- ✅ **Testing Infrastructure**: In Progress
-- 🔲 **Physics Integration**: Planned
-- 🔲 **Animation System**: Planned
-- 🔲 **Audio System**: Planned
-- 🔲 **Scripting System**: Planned
+- ✅ **Rendering pipeline (opaque + CSM + HDR + PBR/IBL)**: Working, actively tuned
+- ✅ **Build system (CMake + vcpkg)**: Working
+- 🔨 **Editor**: Renderer tuning panels working; scene authoring tools not started
+- 🔨 **Testing**: CSM/render passes covered; most other systems untested
+- 🔲 **Scene serialization (save/load)**: Not started — top roadmap priority
+- 🔲 **Standalone player & packaging**: Not started
+- 🔲 **Physics integration**: Planned (Jolt)
+- 🔲 **Animation system**: Planned
+- 🔲 **Audio system**: Planned
+- 🔲 **Scripting system**: Planned
+
+The phased roadmap (P0 fixes → persistence/player → editor authoring → gameplay features →
+performance/scale) lives in [docs/ENGINE_AUDIT_2026-07.md](docs/ENGINE_AUDIT_2026-07.md).
 
 ## Contributing
 

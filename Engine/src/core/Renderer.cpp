@@ -208,6 +208,9 @@ namespace MyCoreEngine {
             // per-frame knobs for passes
             passCtx_.splitBlend = splitBlend_;
             passCtx_.csmDebug = csmDebugMode_;
+            passCtx_.shadowBiasConst = shadowBiasConst_;
+            passCtx_.shadowBiasSlope = shadowBiasSlope_;
+            passCtx_.cascadeKernel = cascadeKernel_;
             passCtx_.ibl.irradiance = iblIrradiance_;
             passCtx_.ibl.prefiltered = iblPrefiltered_;
             passCtx_.ibl.brdfLUT = iblBRDFLUT_;

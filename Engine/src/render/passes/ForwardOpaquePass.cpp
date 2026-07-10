@@ -20,7 +20,9 @@ bool ForwardOpaquePass::execute(PassContext& ctx, Scene& scene, Camera& cam, con
 	shader_->setInt("uCascadeCount", ctx.csm.cascades);
 	shader_->setFloat("uSplitBlend", ctx.splitBlend);
 	shader_->setInt("uCSMDebug", ctx.csmDebug);
-	
+	shader_->setFloat("uShadowBiasConst", ctx.shadowBiasConst);
+	shader_->setFloat("uShadowBiasSlope", ctx.shadowBiasSlope);
+
 	for (int i = 0; i < ctx.csm.cascades; ++i) {
 		char name[32];
 		snprintf(name, sizeof(name), "uLightVP[%d]", i);
@@ -29,6 +31,8 @@ bool ForwardOpaquePass::execute(PassContext& ctx, Scene& scene, Camera& cam, con
 		shader_->setFloat(name, ctx.csm.splitFar[i]);
 		snprintf(name, sizeof(name), "uCascadeTexel[%d]", i);
 		shader_->setFloat(name, (ctx.csm.resPer[i] > 0) ? (1.0f / float(ctx.csm.resPer[i])) : 1.0f);
+		snprintf(name, sizeof(name), "uCascadeKernel[%d]", i);
+		shader_->setInt(name, ctx.cascadeKernel[i]);
 	}
 	for (int i = 0; i < ctx.csm.cascades; ++i) {
 		const int unit = kBaseUnit + i;

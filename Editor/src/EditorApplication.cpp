@@ -85,6 +85,21 @@ void EditorApplication::Run() {
         }
     }
 
+    // Ground plane: receives the sun shadows (NoShadow = doesn't cast its own)
+    {
+        auto groundHandle = assets_->GetModel("Exported/Model/plane.obj");
+        Entity ground = scene.createEntity();
+        Transform t{};
+        t.position = glm::vec3(0.f, -3.f, 0.f);
+        t.scale = glm::vec3(300.f, 1.f, 300.f);
+        ground.addComponent<Transform>(t);
+        ground.addComponent<ModelComponent>(ModelComponent{ groundHandle });
+        ground.addComponent<AABB>(generateAABB(*groundHandle));
+        // registry directly: Entity::addComponent can't return a reference for
+        // empty flag components (EnTT emplace returns void for them)
+        scene.registry.emplace<NoShadow>(ground);
+    }
+
     myRenderer.run(scene, *shader);
 }
 
@@ -204,6 +219,21 @@ void EditorApplication::DrawSunShadowControls(MyCoreEngine::Scene& scene)
     if (ImGui::SliderFloat("Slope Depth Bias", &slope, 0.f, 8.f)) myRenderer.setCSMSlopeDepthBias(slope);
     if (ImGui::SliderFloat("Constant Depth Bias", &cbias, 0.f, 16.f)) myRenderer.setCSMConstantDepthBias(cbias);
     if (ImGui::Checkbox("Cull Front Faces", &cullFront)) myRenderer.setCSMCullFrontFaces(cullFront);
+
+    ImGui::SeparatorText("Shadow Filtering (PCF)");
+    float rbc = myRenderer.getShadowBiasConst();
+    if (ImGui::SliderFloat("Receiver Bias Const (texels)", &rbc, 0.f, 8.f)) myRenderer.setShadowBiasConst(rbc);
+    float rbs = myRenderer.getShadowBiasSlope();
+    if (ImGui::SliderFloat("Receiver Bias Slope (texels)", &rbs, 0.f, 8.f)) myRenderer.setShadowBiasSlope(rbs);
+    static const char* kKernelLabels[4] = {
+        "PCF Radius (cascade 0)", "PCF Radius (cascade 1)",
+        "PCF Radius (cascade 2)", "PCF Radius (cascade 3)"
+    };
+    for (int i = 0; i < casc && i < 4; ++i) {
+        int r = myRenderer.getCascadeKernel(i);
+        if (ImGui::SliderInt(kKernelLabels[i], &r, 0, 4)) myRenderer.setCascadeKernel(i, r);
+    }
+
     if (ImGui::Button("Force Rebuild CSM")) myRenderer.forceCSMUpdate();
     // Debug
     if (ImGui::CollapsingHeader("CSM Debug", ImGuiTreeNodeFlags_None)) {
