@@ -9,7 +9,8 @@ static bool DragFloat3(const char* label, float v[3], float speed = 0.1f) {
     return ImGui::DragFloat3(label, v, speed);
 }
 
-void InspectorPanel::Draw(entt::registry& reg, entt::entity selected) {
+void InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
+                          MyCoreEngine::AssetManager* assets) {
     if (ImGui::Begin("Inspector")) {
         if (selected == entt::null || !reg.valid(selected)) {
             ImGui::TextUnformatted("No entity selected.");
@@ -27,6 +28,16 @@ void InspectorPanel::Draw(entt::registry& reg, entt::entity selected) {
         }
         else {
             ImGui::Text("ID: %u", (uint32_t)selected);
+            if (ImGui::SmallButton("Add Name")) {
+                reg.emplace<Name>(selected, Name{ "Entity" });
+            }
+        }
+
+        // NoShadow is a tag: expose it as a friendly checkbox
+        bool castsShadows = !reg.any_of<NoShadow>(selected);
+        if (ImGui::Checkbox("Casts Shadows", &castsShadows)) {
+            if (castsShadows) reg.remove<NoShadow>(selected);
+            else reg.emplace<NoShadow>(selected);
         }
 
         if (auto* t = reg.try_get<Transform>(selected)) {
@@ -39,6 +50,39 @@ void InspectorPanel::Draw(entt::registry& reg, entt::entity selected) {
         }
         else {
             ImGui::TextUnformatted("Transform: <none>");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Add Transform")) {
+                reg.emplace<Transform>(selected);
+            }
+        }
+
+        // --- Model assignment ---
+        ImGui::SeparatorText("Model");
+        {
+            auto* mc = reg.try_get<ModelComponent>(selected);
+            if (mc && mc->model) {
+                ImGui::TextWrapped("Path: %s", mc->model->SourcePath().c_str());
+                if (ImGui::SmallButton("Remove Model")) {
+                    reg.remove<ModelComponent>(selected);
+                    reg.remove<AABB>(selected);
+                    mc = nullptr;
+                }
+            }
+            else {
+                ImGui::TextDisabled("(no model)");
+            }
+            if (assets) {
+                static char modelPath[260] = "Exported/Model/backpack.obj";
+                ImGui::InputText("##modelpath", modelPath, sizeof(modelPath));
+                ImGui::SameLine();
+                if (ImGui::SmallButton(mc ? "Replace" : "Load")) {
+                    if (auto model = assets->GetModel(modelPath); model && !model->Meshes().empty()) {
+                        reg.emplace_or_replace<ModelComponent>(selected, ModelComponent{ model });
+                        reg.emplace_or_replace<AABB>(selected, generateAABB(*model));
+                        if (!reg.any_of<Transform>(selected)) reg.emplace<Transform>(selected);
+                    }
+                }
+            }
         }
 
         // --- Materials ---

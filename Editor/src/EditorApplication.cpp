@@ -67,7 +67,7 @@ void EditorApplication::Run() {
         hierarchy_.Draw(scene.registry, selected_);
             
 		//inspector
-        inspector_.Draw(scene.registry, selected_);
+        inspector_.Draw(scene.registry, selected_, assets_.get());
 
         ui_.EndFrame();
     });
@@ -158,12 +158,20 @@ void EditorApplication::DrawViewport(MyCoreEngine::Scene& scene)
     }
     const ImVec2 imagePos = ImGui::GetCursorScreenPos();
     const ImVec2 imageSize(avail.x > 1.f ? avail.x : 1.f, avail.y > 1.f ? avail.y : 1.f);
+    // An interactive item over the whole viewport: it claims mouse presses,
+    // so gizmo drags / camera drags can never register as a window-body drag
+    // that would move or undock the panel. The scene texture is drawn behind.
+    ImGui::InvisibleButton("##viewport", imageSize,
+        ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
+    viewportHovered_ = ImGui::IsItemHovered();
+    const bool viewportClicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
     if (sceneTarget_.colorTexture()) {
         // GL textures are bottom-up: flip V
-        ImGui::Image((ImTextureID)(intptr_t)sceneTarget_.colorTexture(),
-            imageSize, ImVec2(0, 1), ImVec2(1, 0));
+        ImGui::GetWindowDrawList()->AddImage(
+            (ImTextureID)(intptr_t)sceneTarget_.colorTexture(),
+            imagePos, ImVec2(imagePos.x + imageSize.x, imagePos.y + imageSize.y),
+            ImVec2(0, 1), ImVec2(1, 0));
     }
-    viewportHovered_ = ImGui::IsItemHovered();
 
     // camera matrices matching what the renderer used for this target
     const float aspect = (sceneTarget_.height() > 0)
@@ -197,8 +205,8 @@ void EditorApplication::DrawViewport(MyCoreEngine::Scene& scene)
         }
     }
 
-    // click-to-select (LMB press inside the image, not on the gizmo)
-    if (viewportHovered_ && !gizmoActive && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+    // click-to-select (LMB press inside the viewport, not on the gizmo)
+    if (viewportClicked && !gizmoActive) {
         const ImVec2 mouse = ImGui::GetMousePos();
         const float u = (mouse.x - imagePos.x) / imageSize.x;
         const float v = (mouse.y - imagePos.y) / imageSize.y;

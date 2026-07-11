@@ -11,6 +11,10 @@ void EditorImGuiLayer::Init(GLFWwindow* window) {
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable; // vcpkg imgui[docking-experimental]
+    // Unity-style: windows move/undock only when dragged by their tab or
+    // title bar — body drags never yank a docked panel around (essential for
+    // gizmo dragging inside the viewport).
+    io.ConfigWindowsMoveFromTitleBarOnly = true;
     ImGui::StyleColorsDark();
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 330");

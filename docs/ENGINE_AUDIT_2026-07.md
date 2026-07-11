@@ -202,7 +202,7 @@ Phased so each phase ends in something usable. Effort: S ≤ 1 day, M = days, L 
 | # | Item | Effort |
 |---|---|---|
 | P2-1 | Render scene to texture + viewport panel; enable ImGui docking (flag + DockSpace) | **Done 2026-07-11** — `RenderTarget` + `RenderFrame(targetFBO)` with auto HDR resize; dockable Viewport panel; camera controls gated to viewport hover |
-| P2-2 | Entity create/delete/rename; component add/remove in Inspector | M |
+| P2-2 | Entity create/delete/rename; component add/remove in Inspector | **Done 2026-07-11** — hierarchy Create button + right-click Delete; Inspector: rename, Casts Shadows toggle, model assign/replace/remove (AABB auto-regen), add Name/Transform. Also fixed gizmo-drag moving docked windows (`ConfigWindowsMoveFromTitleBarOnly` + InvisibleButton viewport input, Unity-style tab behavior) |
 | P2-3 | ImGuizmo translate/rotate/scale + mouse picking (ID buffer or ray-AABB) | **Done 2026-07-11** — ImGuizmo (vcpkg) with toolbar + LOCAL-mode manipulation writing back to Transform; ray-vs-world-AABB click picking (miss = deselect). Caveat: decompose/recompose rotation order can drift on compound rotations — revisit with undo (P2-7) |
 | P2-4 | Save/Load/New scene UI on top of P1-1; startup scene in project settings file | S |
 | P2-5 | Asset browser (filesystem view of project assets, drag into scene) | M |

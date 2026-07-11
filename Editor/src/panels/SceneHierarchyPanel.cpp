@@ -11,6 +11,16 @@ static const char* GetEntityLabel(entt::registry& reg, entt::entity e) {
 bool SceneHierarchyPanel::Draw(entt::registry& reg, entt::entity& selected) {
     bool changed = false;
     if (ImGui::Begin("Scene Hierarchy")) {
+        if (ImGui::Button("+ Create Entity")) {
+            entt::entity e = reg.create();
+            reg.emplace<Name>(e, Name{ "Entity" });
+            reg.emplace<Transform>(e);
+            selected = e;
+            changed = true;
+        }
+        ImGui::Separator();
+
+        entt::entity toDelete = entt::null;
         auto all = reg.view<entt::entity>();
         for (auto e : all) {
             ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
@@ -20,6 +30,19 @@ bool SceneHierarchyPanel::Draw(entt::registry& reg, entt::entity& selected) {
                 GetEntityLabel(reg, e), (uint32_t)e);
 
             if (ImGui::IsItemClicked()) { selected = e; changed = true; }
+
+            if (ImGui::BeginPopupContextItem()) {
+                if (ImGui::MenuItem("Delete Entity")) {
+                    toDelete = e;
+                }
+                ImGui::EndPopup();
+            }
+        }
+
+        if (toDelete != entt::null) {
+            reg.destroy(toDelete);
+            if (selected == toDelete) selected = entt::null;
+            changed = true;
         }
     }
     ImGui::End();
