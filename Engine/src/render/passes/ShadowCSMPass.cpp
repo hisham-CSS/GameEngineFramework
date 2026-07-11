@@ -166,7 +166,9 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
         bool needs = !cascadeValid_[i];
         if (!needs && policy_ == UpdatePolicy::Always) needs = true;
         if (!needs && policy_ == UpdatePolicy::CameraOrSunMoved) {
-            needs = glm::length(sliceCenter - renderedCenter_[i]) > renderedMargin_[i];
+            // refresh slightly before the margin is exhausted so boundary
+            // fragments never lose coverage to snap offsets / FP rounding
+            needs = glm::length(sliceCenter - renderedCenter_[i]) > renderedMargin_[i] * 0.95f;
         }
         // Manual: only global invalidation (markDirty_) refreshes
         if (needs) needIdx[needCount++] = i;

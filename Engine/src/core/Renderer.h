@@ -140,7 +140,10 @@ namespace MyCoreEngine {
         float iblPrefilterMipCount_ = 0.0f;
 
         // === Shadows / CSM ===
-        float splitBlend_ = 20.0f; // meters; expose in your UI if you like
+        // Cross-fade band at cascade splits, in view-space meters. Keep small
+        // relative to the cascade slice sizes: 20 m (the old value, tuned for
+        // a 1000 m shadow distance) spanned entire mid cascades.
+        float splitBlend_ = 4.0f;
 
         // Receiver-side shadow filtering (uploaded by the forward pass each frame)
         float shadowBiasConst_ = 1.5f;                  // texels
