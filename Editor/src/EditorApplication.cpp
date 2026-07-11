@@ -68,16 +68,9 @@ void EditorApplication::Run() {
     auto modelHandle = assets_->GetModel("Exported/Model/backpack.obj");  // shared
     AABB localBV = generateAABB(*modelHandle); // if you still use local-space AABB
     
-    {
-        Entity firstEntity = scene.createEntity();
-        firstEntity.addComponent<Name>(Name{ "Hero" });
-        Transform t{};
-        t.position = glm::vec3(0.f, 0.f, 0.f);
-        firstEntity.addComponent<Transform>(t);
-        firstEntity.addComponent<ModelComponent>(ModelComponent{ modelHandle });
-		firstEntity.addComponent<AABB>(localBV); // if you still use local-space AABB
-    }
-    
+    // 20x20 grid; the center entity (at the origin) is named "Hero" and is
+    // spun by the FixedUpdate demo below. (There used to be a separate hero
+    // entity on top of the grid one — two backpacks clipping at the origin.)
     for (unsigned int x = 0; x < 20; ++x) {
         for (unsigned int z = 0; z < 20; ++z) {
             Entity e = scene.createEntity();
@@ -86,6 +79,9 @@ void EditorApplication::Run() {
             e.addComponent<Transform>(t);
             e.addComponent<ModelComponent>(ModelComponent{ modelHandle });
 			e.addComponent<AABB>(localBV); // if you still use local-space AABB
+            if (x == 10 && z == 10) {
+                e.addComponent<Name>(Name{ "Hero" }); // sits at (0, 0, 0)
+            }
         }
     }
 
@@ -338,6 +334,12 @@ void EditorApplication::DrawRenderingToggles(MyCoreEngine::Scene& scene)
     bool inst = scene.GetInstancingEnabled();
     if (ImGui::Checkbox("Enable instancing", &inst)) scene.SetInstancingEnabled(inst);
 
+    bool lod = scene.GetLODEnabled();
+    if (ImGui::Checkbox("Enable mesh LOD", &lod)) scene.SetLODEnabled(lod);
+    float lodScale = scene.GetLODDistanceScale();
+    if (ImGui::SliderFloat("LOD distance scale", &lodScale, 0.25f, 4.f)) scene.SetLODDistanceScale(lodScale);
+    ImGui::SameLine(); ImGui::TextDisabled("(higher = detail farther)");
+
     bool nm = scene.GetNormalMapEnabled();
     if (ImGui::Checkbox("Enable normal mapping", &nm)) scene.SetNormalMapEnabled(nm);
 
@@ -362,6 +364,8 @@ void EditorApplication::DrawInformationPanel(const MyCoreEngine::Scene& scene, f
         ImGui::Text("Built items:      %u", rs.itemsBuilt);
         ImGui::Text("Culled:           %u", rs.culled);
         ImGui::Text("Submitted:        %u", rs.submitted);
+        ImGui::Text("LOD 0/1/2:        %u / %u / %u",
+            rs.lodInstances[0], rs.lodInstances[1], rs.lodInstances[2]);
         unsigned totalCalls = rs.draws + rs.instancedDraws;
         ImGui::Text("GPU draw calls:   %u", totalCalls);
     }

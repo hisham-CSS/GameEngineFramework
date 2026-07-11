@@ -53,6 +53,7 @@ find_package(assimp CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
 find_package(EnTT CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
+find_package(meshoptimizer CONFIG REQUIRED)
 
 # Publicly include the Engine's `include` folder for other projects (like Editor, Launcher)
 target_include_directories(Engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -64,6 +65,7 @@ target_link_libraries(Engine PUBLIC assimp::assimp)
 target_link_libraries(Engine PRIVATE glm::glm)
 target_link_libraries(Engine PUBLIC EnTT::EnTT)
 target_link_libraries(Engine PRIVATE nlohmann_json::nlohmann_json)
+target_link_libraries(Engine PRIVATE meshoptimizer::meshoptimizer)
 
 # Set different output directories for Debug and Release
 set_target_properties(Engine PROPERTIES

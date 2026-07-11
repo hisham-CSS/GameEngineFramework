@@ -81,12 +81,26 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
         if (!mc.model) continue;
         if (!bounds.isOnFrustum(camFrustum, t)) { stats.culled++; continue; }
 
+        // LOD by camera distance relative to the object's world-space size
+        int lod = 0;
+        if (lodEnabled_) {
+            const glm::vec3 localC = (bounds.min + bounds.max) * 0.5f;
+            const glm::vec3 worldC = glm::vec3(t.modelMatrix * glm::vec4(localC, 1.f));
+            const float maxScale = std::max({ glm::length(glm::vec3(t.modelMatrix[0])),
+                                              glm::length(glm::vec3(t.modelMatrix[1])),
+                                              glm::length(glm::vec3(t.modelMatrix[2])) });
+            const float radius = std::max(0.01f, glm::length(bounds.max - bounds.min) * 0.5f * maxScale);
+            const float ratio = glm::length(worldC - camera.Position) / (radius * lodDistanceScale_);
+            lod = (ratio > 60.f) ? 2 : (ratio > 25.f) ? 1 : 0;
+        }
+
         // Push one DrawItem per mesh in the model
         for (const auto& mesh : mc.model->Meshes()) {
             DrawItem di;
             di.entity = entity;
             di.mesh = &mesh;
             di.model = t.modelMatrix;
+            di.lod = lod;
             di.depth = glm::dot(glm::vec3(di.model[3]) - camera.Position, camera.Front);
             // Batch key is derived from the material actually used by this entity
             if (const Material* m = chooseMaterial_(entity, mesh)) {
@@ -103,10 +117,11 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
 
     // 2) Sort: primarily by texKey to minimize texture/VAO rebinds
     // (If you later add camera depth, sort by {depth asc, texKey asc})
-    std::sort(items_.begin(), items_.end(), 
+    std::sort(items_.begin(), items_.end(),
         [](const DrawItem& a, const DrawItem& b) {
             if (a.texKey != b.texKey) return a.texKey < b.texKey;              // bucket by textures
             if (a.mesh != b.mesh)   return (uintptr_t)a.mesh < (uintptr_t)b.mesh; // group identical VAOs
+            if (a.lod != b.lod)     return a.lod < b.lod;                       // instanced runs share a LOD
             return a.depth < b.depth;                                           // front-to-back within a mesh
         });
     ensureInstanceBuffer_();
@@ -148,11 +163,13 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
             stats.vaoBinds++;
         }
 
-        // count consecutive items with same key+mesh
+        // count consecutive items with same key+mesh+lod
+        const int lod = items_[i].lod;
         std::size_t runStart = i, runEnd = i + 1;
         while (runEnd < items_.size() &&
             items_[runEnd].texKey == key &&
-            items_[runEnd].mesh == mesh) {
+            items_[runEnd].mesh == mesh &&
+            items_[runEnd].lod == lod) {
             ++runEnd;
         }
         const std::size_t runCount = runEnd - runStart;
@@ -171,13 +188,14 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
             // enable instanced attributes on current VAO & draw once
             bindInstanceAttribs_();
             shader.setInt("uUseInstancing", 1);
-            mesh->IssueDrawInstanced(static_cast<GLsizei>(runCount));
+            mesh->IssueDrawInstanced(static_cast<GLsizei>(runCount), lod);
             shader.setInt("uUseInstancing", 0);
 
             i = runEnd;
             stats.instancedDraws++;
             stats.instances += static_cast<unsigned>(runCount);
             stats.submitted += static_cast<unsigned>(runCount);
+            stats.lodInstances[glm::clamp(lod, 0, 2)] += static_cast<unsigned>(runCount);
         }
         else {
             // single draw (exactly your old path)
@@ -185,10 +203,11 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
             // Single draw: bind chosen material for this item (needed if the last bucket’s material differs)
             bindMaterialForItem_(items_[i], shader);
             shader.setMat4("model", items_[i].model);
-            items_[i].mesh->IssueDraw();
+            items_[i].mesh->IssueDraw(items_[i].lod);
             ++i;
             stats.draws++;
             stats.submitted++;
+            stats.lodInstances[glm::clamp(items_[i - 1].lod, 0, 2)]++;
         }
     }
 
@@ -296,6 +315,10 @@ void Scene::RenderShadowsCombined(Shader& shadowShader, const std::vector<Cascad
         auto& bucket = shadowCascadeItems_[c];
         if (bucket.empty()) continue;
 
+        // Shadow maps tolerate coarse geometry: near cascades use LOD 1,
+        // far cascades LOD 2 (the cascade index is already a distance proxy).
+        const int shadowLod = lodEnabled_ ? ((c <= 1) ? 1 : 2) : 0;
+
         // NEW: Callback to bind FBO/Viewport for this cascade
         if (preDrawCallback) {
             preDrawCallback((int)c);
@@ -330,12 +353,12 @@ void Scene::RenderShadowsCombined(Shader& shadowShader, const std::vector<Cascad
 
                 bindInstanceAttribs_();
                 shadowShader.setInt("uUseInstancing", 1);
-                mesh->IssueDrawInstanced((GLsizei)run);
+                mesh->IssueDrawInstanced((GLsizei)run, shadowLod);
                 shadowShader.setInt("uUseInstancing", 0);
             }
             else {
                 shadowShader.setMat4("model", bucket[i].model);
-                mesh->IssueDraw();
+                mesh->IssueDraw(shadowLod);
             }
             i = j;
         }

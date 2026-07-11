@@ -46,6 +46,8 @@ namespace MyCoreEngine {
         settings["aoMapEnabled"] = scene_.GetAOMapEnabled();
         settings["iblEnabled"] = scene_.GetIBLEnabled();
         settings["iblIntensity"] = scene_.GetIBLIntensity();
+        settings["lodEnabled"] = scene_.GetLODEnabled();
+        settings["lodDistanceScale"] = scene_.GetLODDistanceScale();
         root["settings"] = std::move(settings);
 
         // --- entities ---
@@ -148,6 +150,8 @@ namespace MyCoreEngine {
             scene_.SetAOMapEnabled(s.value("aoMapEnabled", scene_.GetAOMapEnabled()));
             scene_.SetIBLEnabled(s.value("iblEnabled", scene_.GetIBLEnabled()));
             scene_.SetIBLIntensity(s.value("iblIntensity", scene_.GetIBLIntensity()));
+            scene_.SetLODEnabled(s.value("lodEnabled", scene_.GetLODEnabled()));
+            scene_.SetLODDistanceScale(s.value("lodDistanceScale", scene_.GetLODDistanceScale()));
         }
 
         for (const json& je : root["entities"]) {

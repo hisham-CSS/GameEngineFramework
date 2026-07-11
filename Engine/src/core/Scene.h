@@ -21,6 +21,7 @@ struct DrawItem {
     const Mesh* mesh = nullptr;
     glm::mat4 model{ 1.0f };
     float     depth = 0.0f;
+    int       lod = 0;                 // mesh LOD level chosen for this item
     entt::entity entity = entt::null;  // producer entity (for material overrides)
 };
 
@@ -38,6 +39,7 @@ namespace MyCoreEngine {
         unsigned submitted = 0;       // items submitted to GPU (draws + instances)
         unsigned itemsBuilt = 0;      // items_ after culling (meshes that passed)
         unsigned entitiesTotal = 0;   // 'total' (as you already increment)
+        unsigned lodInstances[3] = { 0, 0, 0 }; // submitted instances per LOD level
     };
 
     class ENGINE_API Scene {
@@ -60,6 +62,13 @@ namespace MyCoreEngine {
         // Toggle instancing at runtime
         void SetInstancingEnabled(bool enabled) { instancingEnabled_ = enabled; }
         bool GetInstancingEnabled() const { return instancingEnabled_; }
+
+        // Mesh LOD: level picked per entity from camera distance vs object size
+        void  SetLODEnabled(bool v) { lodEnabled_ = v; }
+        bool  GetLODEnabled() const { return lodEnabled_; }
+        // >1 keeps high detail farther out; <1 switches down sooner (cheaper)
+        void  SetLODDistanceScale(float s) { lodDistanceScale_ = std::clamp(s, 0.1f, 8.f); }
+        float GetLODDistanceScale() const { return lodDistanceScale_; }
         
         // Read-only stats for the last frame
         const RenderStats &GetRenderStats() const { return lastStats_; }
@@ -120,6 +129,8 @@ namespace MyCoreEngine {
          static uint64_t texKeyFromMaterial_(const Material & m);
 
          bool instancingEnabled_ = true;
+         bool lodEnabled_ = true;
+         float lodDistanceScale_ = 1.0f;
          RenderStats lastStats_;
          bool normalMapEnabled_ = true;
 

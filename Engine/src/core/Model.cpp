@@ -1,6 +1,8 @@
 #include "Model.h"
 #include "Shader.h"
 
+#include <meshoptimizer.h>
+
 #include <algorithm>
 
 #include "stb_image.h"   // declarations only; implementation is in stb_image_impl.cpp
@@ -26,10 +28,22 @@ namespace MyCoreEngine {
         setupMesh();
     }
 
+    static void deleteLodBuffers_(const Mesh::LodRange* lods, unsigned baseEBO) {
+        // fallback levels alias the previous level's EBO; delete each unique
+        // buffer exactly once (level 0 aliases the mesh's own EBO)
+        for (int l = 1; l < Mesh::kLodCount; ++l) {
+            if (lods[l].ebo && lods[l].ebo != lods[l - 1].ebo && lods[l].ebo != baseEBO) {
+                unsigned ebo = lods[l].ebo;
+                glDeleteBuffers(1, &ebo);
+            }
+        }
+    }
+
     Mesh::~Mesh() {
         // texture ids are shared via the global cache; only buffers are owned here.
         // Guard: if the GL context is already gone (late static teardown), skip.
         if (!glfwGetCurrentContext()) return;
+        deleteLodBuffers_(lods_, EBO_);
         if (EBO_) glDeleteBuffers(1, &EBO_);
         if (VBO_) glDeleteBuffers(1, &VBO_);
         if (VAO_) glDeleteVertexArrays(1, &VAO_);
@@ -42,12 +56,14 @@ namespace MyCoreEngine {
           material_(std::move(other.material_)),
           materialIndex_(other.materialIndex_),
           VAO_(other.VAO_), VBO_(other.VBO_), EBO_(other.EBO_) {
+        for (int l = 0; l < kLodCount; ++l) { lods_[l] = other.lods_[l]; other.lods_[l] = {}; }
         other.VAO_ = other.VBO_ = other.EBO_ = 0;
     }
 
     Mesh& Mesh::operator=(Mesh&& other) noexcept {
         if (this != &other) {
             if (glfwGetCurrentContext()) {
+                deleteLodBuffers_(lods_, EBO_);
                 if (EBO_) glDeleteBuffers(1, &EBO_);
                 if (VBO_) glDeleteBuffers(1, &VBO_);
                 if (VAO_) glDeleteVertexArrays(1, &VAO_);
@@ -58,6 +74,7 @@ namespace MyCoreEngine {
             material_ = std::move(other.material_);
             materialIndex_ = other.materialIndex_;
             VAO_ = other.VAO_; VBO_ = other.VBO_; EBO_ = other.EBO_;
+            for (int l = 0; l < kLodCount; ++l) { lods_[l] = other.lods_[l]; other.lods_[l] = {}; }
             other.VAO_ = other.VBO_ = other.EBO_ = 0;
         }
         return *this;
@@ -91,6 +108,47 @@ namespace MyCoreEngine {
         glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, Bitangent));
 
         glBindVertexArray(0);
+
+        buildLods_();
+    }
+
+    void Mesh::buildLods_() {
+        lods_[0] = { EBO_, static_cast<GLsizei>(indices_.size()) };
+        for (int l = 1; l < kLodCount; ++l) lods_[l] = lods_[0];
+        if (indices_.size() < 3 * 64) return; // tiny meshes aren't worth simplifying
+
+        // Simplified index buffers over the same vertex buffer: cheap on VRAM
+        // (indices only) and the VAO/material state is shared across levels.
+        const float targets[kLodCount] = { 1.f, 0.25f, 0.08f };
+        for (int l = 1; l < kLodCount; ++l) {
+            const size_t targetCount = (size_t(indices_.size() * targets[l]) / 3) * 3;
+            std::vector<unsigned int> lodIndices(indices_.size());
+            float error = 0.f;
+            const size_t count = meshopt_simplify(
+                lodIndices.data(), indices_.data(), indices_.size(),
+                &vertices_[0].Position.x, vertices_.size(), sizeof(Vertex),
+                targetCount, /*target_error*/ 0.05f, /*options*/ 0, &error);
+
+            // accept only if it meaningfully reduced the previous level
+            if (count >= 3 && count < size_t(lods_[l - 1].indexCount) * 9 / 10) {
+                unsigned ebo = 0;
+                glGenBuffers(1, &ebo);
+                // COPY_WRITE target: fills the buffer without touching any
+                // VAO's element-array binding
+                glBindBuffer(GL_COPY_WRITE_BUFFER, ebo);
+                glBufferData(GL_COPY_WRITE_BUFFER, count * sizeof(unsigned int), lodIndices.data(), GL_STATIC_DRAW);
+                glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+                lods_[l] = { ebo, static_cast<GLsizei>(count) };
+            }
+            else {
+                lods_[l] = lods_[l - 1]; // fall back to the previous level
+            }
+        }
+    }
+
+    const Mesh::LodRange& Mesh::Lod(int level) const {
+        level = std::max(0, std::min(level, kLodCount - 1));
+        return lods_[level];
     }
     void Mesh::Draw(Shader& shader) const {
         unsigned int diffuseNr=1, specularNr=1, normalNr=1, heightNr=1;
@@ -109,6 +167,7 @@ namespace MyCoreEngine {
         }
 
         glBindVertexArray(VAO_);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO_); // LOD draws may have rebound the VAO's element buffer
         glDrawElements(GL_TRIANGLES, (GLsizei)indices_.size(), GL_UNSIGNED_INT, 0);
         glBindVertexArray(0);
         glActiveTexture(GL_TEXTURE0);
@@ -125,11 +184,12 @@ namespace MyCoreEngine {
     }
     unsigned int Mesh::IndexCount() const { return static_cast<unsigned int>(indices_.size()); }
     unsigned int Mesh::VAO() const { return VAO_; } // whatever your VAO member is named
-    void Mesh::IssueDrawInstanced(GLsizei instanceCount) const {
-        glDrawElementsInstanced(GL_TRIANGLES,
-            static_cast<GLsizei>(indices_.size()),
-            GL_UNSIGNED_INT, 0,
-            instanceCount);
+    void Mesh::IssueDrawInstanced(GLsizei instanceCount, int lod) const {
+        // Explicitly bind the level's index buffer: LOD draws mutate the
+        // shared VAO's element-array binding, so every issue path binds its own.
+        const LodRange& lr = Lod(lod);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, lr.ebo);
+        glDrawElementsInstanced(GL_TRIANGLES, lr.indexCount, GL_UNSIGNED_INT, 0, instanceCount);
     }
     void Mesh::BindForDraw(MyCoreEngine::Shader& shader) const {
 
@@ -286,8 +346,10 @@ namespace MyCoreEngine {
         glActiveTexture(GL_TEXTURE0);
     }
 
-    void Mesh::IssueDraw() const {
-        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(indices_.size()), GL_UNSIGNED_INT, 0);
+    void Mesh::IssueDraw(int lod) const {
+        const LodRange& lr = Lod(lod);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, lr.ebo);
+        glDrawElements(GL_TRIANGLES, lr.indexCount, GL_UNSIGNED_INT, 0);
     }
 
     // ---- Model ----

@@ -61,11 +61,22 @@ namespace MyCoreEngine {
         // Pack up to first 4 texture ids into a 64-bit signature for bucketing
         uint64_t TextureSignature() const;
 
+        // --- LOD ---
+        // Simplified index buffers over the SAME vertex buffer, generated at
+        // load with meshoptimizer. Level 0 is the full mesh; higher levels
+        // fall back to the previous one when simplification isn't useful.
+        static constexpr int kLodCount = 3;
+        struct LodRange {
+            unsigned ebo = 0;
+            GLsizei  indexCount = 0;
+        };
+        const LodRange& Lod(int level) const;
+
         // split draw into bind vs issue
         void BindForDraw(MyCoreEngine::Shader& shader) const; // bind textures + VAO (no draw)
         void BindForDrawWith(MyCoreEngine::Shader& shader, const MyCoreEngine::Material& mat) const;
-        void IssueDraw() const;                               // just glDrawElements
-        void IssueDrawInstanced(GLsizei instanceCount) const;
+        void IssueDraw(int lod = 0) const;                    // just glDrawElements
+        void IssueDrawInstanced(GLsizei instanceCount, int lod = 0) const;
         void SetMaterial(const MyCoreEngine::MaterialHandle& m) { material_ = m; }
         const MyCoreEngine::MaterialHandle& GetMaterial() const { return material_; }
         size_t MaterialIndex() const { return materialIndex_; }
@@ -77,8 +88,10 @@ namespace MyCoreEngine {
         MyCoreEngine::MaterialHandle material_; // optional
         size_t materialIndex_ = 0;
         unsigned int VAO_ = 0, VBO_ = 0, EBO_ = 0;
+        LodRange lods_[kLodCount]{};
 
         void setupMesh();
+        void buildLods_();
         
     };
 
