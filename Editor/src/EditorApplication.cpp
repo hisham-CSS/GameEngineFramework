@@ -158,20 +158,21 @@ void EditorApplication::DrawViewport(MyCoreEngine::Scene& scene)
     }
     const ImVec2 imagePos = ImGui::GetCursorScreenPos();
     const ImVec2 imageSize(avail.x > 1.f ? avail.x : 1.f, avail.y > 1.f ? avail.y : 1.f);
-    // An interactive item over the whole viewport: it claims mouse presses,
-    // so gizmo drags / camera drags can never register as a window-body drag
-    // that would move or undock the panel. The scene texture is drawn behind.
-    ImGui::InvisibleButton("##viewport", imageSize,
-        ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
-    viewportHovered_ = ImGui::IsItemHovered();
-    const bool viewportClicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
+    // Deliberately a NON-interactive item: an InvisibleButton here becomes
+    // ImGui's active item on click, and ImGuizmo refuses to start a drag
+    // while any item is active (gizmo hover works, dragging never engages).
+    // Window-body drags are already prevented globally by
+    // io.ConfigWindowsMoveFromTitleBarOnly.
     if (sceneTarget_.colorTexture()) {
         // GL textures are bottom-up: flip V
-        ImGui::GetWindowDrawList()->AddImage(
-            (ImTextureID)(intptr_t)sceneTarget_.colorTexture(),
-            imagePos, ImVec2(imagePos.x + imageSize.x, imagePos.y + imageSize.y),
-            ImVec2(0, 1), ImVec2(1, 0));
+        ImGui::Image((ImTextureID)(intptr_t)sceneTarget_.colorTexture(),
+            imageSize, ImVec2(0, 1), ImVec2(1, 0));
     }
+    else {
+        ImGui::Dummy(imageSize);
+    }
+    viewportHovered_ = ImGui::IsItemHovered();
+    const bool viewportClicked = viewportHovered_ && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
 
     // camera matrices matching what the renderer used for this target
     const float aspect = (sceneTarget_.height() > 0)
