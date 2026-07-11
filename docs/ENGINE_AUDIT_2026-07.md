@@ -201,9 +201,9 @@ Phased so each phase ends in something usable. Effort: S ≤ 1 day, M = days, L 
 ### Phase 2 — Editor becomes an authoring tool
 | # | Item | Effort |
 |---|---|---|
-| P2-1 | Render scene to texture + viewport panel; enable ImGui docking (flag + DockSpace) | M |
+| P2-1 | Render scene to texture + viewport panel; enable ImGui docking (flag + DockSpace) | **Done 2026-07-11** — `RenderTarget` + `RenderFrame(targetFBO)` with auto HDR resize; dockable Viewport panel; camera controls gated to viewport hover |
 | P2-2 | Entity create/delete/rename; component add/remove in Inspector | M |
-| P2-3 | ImGuizmo translate/rotate/scale + mouse picking (ID buffer or ray-AABB) | M |
+| P2-3 | ImGuizmo translate/rotate/scale + mouse picking (ID buffer or ray-AABB) | **Done 2026-07-11** — ImGuizmo (vcpkg) with toolbar + LOCAL-mode manipulation writing back to Transform; ray-vs-world-AABB click picking (miss = deselect). Caveat: decompose/recompose rotation order can drift on compound rotations — revisit with undo (P2-7) |
 | P2-4 | Save/Load/New scene UI on top of P1-1; startup scene in project settings file | S |
 | P2-5 | Asset browser (filesystem view of project assets, drag into scene) | M |
 | P2-6 | Play-in-editor: snapshot registry → tick game loop → restore on stop | M–L |
@@ -234,6 +234,8 @@ Phased so each phase ends in something usable. Effort: S ≤ 1 day, M = days, L 
 | P4-5 | Draw-list caching (rebuild only on change), material key caching | |
 | P4-6 | LOD system; consider occlusion culling only if scenes demand it | **LOD done 2026-07-11** (meshoptimizer: per-mesh LOD1 ~25% / LOD2 ~8% index buffers, distance-based selection, LOD-aware batching, cascade-based shadow LOD, editor toggle/scale/histogram). Finding: ground-level wide shots are **fragment-bound** (LOD saves ~1–3 ms there); LOD's big wins are bird's-eye zoom-outs and shadow-caster geometry. Next fill-rate levers: depth prepass, resolution scale, PCF cost tuning. |
 | P4-7 | Asset database with GUIDs + cooked binary format | Enables real content pipeline |
+| P4-8 | **Automated performance tests** (user-requested 2026-07-11): headless benchmark scenes rendered N frames with frame-time budget assertions, runnable via ctest (e.g. `perf` label) so regressions surface without manual editor A/B sessions. Should cover: at-rest, sustained camera movement, wide-view instance counts, dynamic-caster shadows. | Manual A/B measurement was needed for every perf change in July 2026 — automate it |
+| P4-9 | Parallel cull/submission (job system application): wide views with heavy geometry still drop to 20–30 FPS while moving (user-observed after the 2026-07-11 rework) — the ~23k-item build/sort/submit is single-threaded | Deferred by user until job system lands |
 
 ---
 

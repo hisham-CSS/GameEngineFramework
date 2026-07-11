@@ -6,6 +6,10 @@
 #include "panels/InspectorPanel.h"
 
 #include "imgui.h"
+#include "ImGuizmo.h"
+
+#include <glm/gtc/type_ptr.hpp>
+#include <cfloat>
 
 //for the future for any initalization things that are required
 void EditorApplication::Initialize()
@@ -23,21 +27,32 @@ void EditorApplication::Run() {
         // GL context + GLAD are ready here
         ui_.Init(GetNativeWindow());
 
+        // scene renders offscreen; the Viewport panel displays (and resizes) it
+        sceneTarget_.Create(1280, 720);
+        SetSceneRenderTarget(&sceneTarget_);
 
         // SAFE: capture 'this' (EditorApplication) whose lifetime spans the run loop
         SetUICaptureProvider([this] {
             return std::pair<bool, bool>{
                 ui_.WantCaptureKeyboard(),
-                    ui_.WantCaptureMouse()
+                    // the viewport is an ImGui window too — camera controls
+                    // must keep working while the mouse is over it
+                    ui_.WantCaptureMouse() && !viewportHovered_
             };
         });
     });
 
     SetUIDraw([this, &scene](float dt) {
         ui_.BeginFrame();
+        ImGuizmo::BeginFrame();
+        // one dockspace over the whole window: every panel becomes dockable
+        ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
+
+        DrawViewport(scene);
+
         //Information Panel
         DrawInformationPanel(scene, dt);
-            
+
         //rendering window
         DrawScenePersistence(scene);
         DrawTimeControls();
@@ -115,6 +130,137 @@ void EditorApplication::Run() {
     });
 
     RunLoop(scene, *shader);
+}
+
+void EditorApplication::DrawViewport(MyCoreEngine::Scene& scene)
+{
+    using namespace MyCoreEngine;
+
+    ImGui::SetNextWindowSize(ImVec2(900, 560), ImGuiCond_FirstUseEver);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(2, 2));
+    const bool open = ImGui::Begin("Viewport", nullptr,
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::PopStyleVar();
+    if (!open) {
+        viewportHovered_ = false;
+        ImGui::End();
+        return;
+    }
+
+    // gizmo mode toolbar
+    ImGui::RadioButton("Translate", &gizmoOp_, 0); ImGui::SameLine();
+    ImGui::RadioButton("Rotate", &gizmoOp_, 1); ImGui::SameLine();
+    ImGui::RadioButton("Scale", &gizmoOp_, 2);
+
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    if (avail.x >= 8.f && avail.y >= 8.f) {
+        sceneTarget_.Resize((int)avail.x, (int)avail.y); // takes effect next frame
+    }
+    const ImVec2 imagePos = ImGui::GetCursorScreenPos();
+    const ImVec2 imageSize(avail.x > 1.f ? avail.x : 1.f, avail.y > 1.f ? avail.y : 1.f);
+    if (sceneTarget_.colorTexture()) {
+        // GL textures are bottom-up: flip V
+        ImGui::Image((ImTextureID)(intptr_t)sceneTarget_.colorTexture(),
+            imageSize, ImVec2(0, 1), ImVec2(1, 0));
+    }
+    viewportHovered_ = ImGui::IsItemHovered();
+
+    // camera matrices matching what the renderer used for this target
+    const float aspect = (sceneTarget_.height() > 0)
+        ? float(sceneTarget_.width()) / float(sceneTarget_.height()) : 1.f;
+    Camera& cam = camera();
+    const glm::mat4 view = cam.GetViewMatrix();
+    const glm::mat4 proj = glm::perspective(glm::radians(cam.Zoom), aspect, 0.1f, 1000.0f);
+
+    // transform gizmo on the selected entity
+    bool gizmoActive = false;
+    if (selected_ != entt::null && scene.registry.valid(selected_)) {
+        if (auto* t = scene.registry.try_get<Transform>(selected_)) {
+            ImGuizmo::SetOrthographic(false);
+            ImGuizmo::SetDrawlist();
+            ImGuizmo::SetRect(imagePos.x, imagePos.y, imageSize.x, imageSize.y);
+            const ImGuizmo::OPERATION op = (gizmoOp_ == 1) ? ImGuizmo::ROTATE
+                : (gizmoOp_ == 2) ? ImGuizmo::SCALE
+                : ImGuizmo::TRANSLATE;
+
+            glm::mat4 m = t->modelMatrix;
+            if (ImGuizmo::Manipulate(glm::value_ptr(view), glm::value_ptr(proj),
+                    op, ImGuizmo::LOCAL, glm::value_ptr(m))) {
+                float tr[3], rot[3], sc[3];
+                ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(m), tr, rot, sc);
+                t->position = { tr[0], tr[1], tr[2] };
+                t->rotation = { rot[0], rot[1], rot[2] };
+                t->scale = { sc[0], sc[1], sc[2] };
+                t->dirty = true;
+            }
+            gizmoActive = ImGuizmo::IsOver() || ImGuizmo::IsUsing();
+        }
+    }
+
+    // click-to-select (LMB press inside the image, not on the gizmo)
+    if (viewportHovered_ && !gizmoActive && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        const ImVec2 mouse = ImGui::GetMousePos();
+        const float u = (mouse.x - imagePos.x) / imageSize.x;
+        const float v = (mouse.y - imagePos.y) / imageSize.y;
+        pickEntity_(scene, u, v, view, proj);
+    }
+
+    ImGui::End();
+}
+
+void EditorApplication::pickEntity_(MyCoreEngine::Scene& scene, float u, float v,
+                                    const glm::mat4& view, const glm::mat4& proj)
+{
+    // viewport uv -> NDC (screen top = +1) -> world-space ray
+    const glm::mat4 invVP = glm::inverse(proj * view);
+    glm::vec4 pn = invVP * glm::vec4(2.f * u - 1.f, 1.f - 2.f * v, -1.f, 1.f);
+    glm::vec4 pf = invVP * glm::vec4(2.f * u - 1.f, 1.f - 2.f * v, 1.f, 1.f);
+    pn /= pn.w;
+    pf /= pf.w;
+    const glm::vec3 origin(pn);
+    const glm::vec3 dir = glm::normalize(glm::vec3(pf) - origin);
+
+    float bestT = FLT_MAX;
+    entt::entity best = entt::null;
+    auto entities = scene.registry.view<Transform, AABB>();
+    for (auto e : entities) {
+        const auto& t = entities.get<Transform>(e);
+        const auto& b = entities.get<AABB>(e);
+
+        // conservative world-space AABB of the transformed local box
+        glm::vec3 mn(FLT_MAX), mx(-FLT_MAX);
+        for (int c = 0; c < 8; ++c) {
+            const glm::vec3 corner(
+                (c & 1) ? b.max.x : b.min.x,
+                (c & 2) ? b.max.y : b.min.y,
+                (c & 4) ? b.max.z : b.min.z);
+            const glm::vec3 w = glm::vec3(t.modelMatrix * glm::vec4(corner, 1.f));
+            mn = glm::min(mn, w);
+            mx = glm::max(mx, w);
+        }
+
+        // ray/AABB slab test
+        float t0 = 0.f, t1 = FLT_MAX;
+        bool hit = true;
+        for (int a = 0; a < 3 && hit; ++a) {
+            if (std::abs(dir[a]) < 1e-8f) {
+                if (origin[a] < mn[a] || origin[a] > mx[a]) hit = false;
+            }
+            else {
+                float tA = (mn[a] - origin[a]) / dir[a];
+                float tB = (mx[a] - origin[a]) / dir[a];
+                if (tA > tB) std::swap(tA, tB);
+                t0 = std::max(t0, tA);
+                t1 = std::min(t1, tB);
+                if (t0 > t1) hit = false;
+            }
+        }
+        if (hit && t0 < bestT) {
+            bestT = t0;
+            best = e;
+        }
+    }
+    selected_ = best; // entt::null on miss = deselect
 }
 
 void EditorApplication::DrawInputPanel()

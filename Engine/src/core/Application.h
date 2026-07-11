@@ -9,6 +9,7 @@
 #include "Camera.h"
 #include "FixedTimestep.h"
 #include "Renderer.h"
+#include "RenderTarget.h"
 
 namespace MyCoreEngine
 {
@@ -68,12 +69,16 @@ namespace MyCoreEngine
 		void setVSync(bool on);
 		bool vsyncEnabled() const { return vsync_; }
 
+		// Route the 3D scene into an offscreen target (the editor's Viewport
+		// panel). Null = render straight to the window backbuffer (player).
+		// The UI callback always draws to the window backbuffer.
+		void SetSceneRenderTarget(RenderTarget* target) { sceneTarget_ = target; }
+
 	private:
 		void updateDeltaTime_();
 		void handleMouseLook_();
 
 		static void ScrollThunk_(GLFWwindow* w, double xoff, double yoff);
-		static void FramebufferSizeThunk_(GLFWwindow* w, int width, int height);
 
 		// Destruction order matters: window_ is declared first so the GL
 		// context outlives renderer_'s resource teardown.
@@ -103,6 +108,8 @@ namespace MyCoreEngine
 		bool   firstMouse_ = true;
 		double lastX_ = 0.0;
 		double lastY_ = 0.0;
+
+		RenderTarget* sceneTarget_ = nullptr; // non-owning
 	};
 
 	//defined in other projects

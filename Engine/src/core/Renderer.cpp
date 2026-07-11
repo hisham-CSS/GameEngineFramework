@@ -130,7 +130,19 @@ namespace MyCoreEngine {
     }
 
     void Renderer::RenderFrame(Scene& scene, Shader& shader, Camera& camera,
-                               int fbWidth, int fbHeight, float deltaTime) {
+                               int fbWidth, int fbHeight, float deltaTime,
+                               unsigned targetFBO) {
+        // resize the HDR pipeline whenever the output size changes (window
+        // resize in the player, viewport-panel resize in the editor)
+        if (fbWidth != lastFbW_ || fbHeight != lastFbH_) {
+            if (hdrFBO_ && lastFbW_ != 0) recreateHDR_(fbWidth, fbHeight);
+            lastFbW_ = fbWidth; lastFbH_ = fbHeight;
+        }
+        passCtx_.defaultFBO = targetFBO;
+        passCtx_.hdrFBO = hdrFBO_;
+        passCtx_.hdrColorTex = hdrColorTex_;
+        passCtx_.hdrDepthRBO = hdrDepthRBO_;
+
         // ensure forward & tonemap passes exist (CSM was added in Setup)
         if (!forwardPass_) {
             forwardPass_ = &pipeline_.add<ForwardOpaquePass>(shader);
@@ -183,13 +195,6 @@ namespace MyCoreEngine {
         pipeline_.executeAll(passCtx_, scene, camera, fp);
     }
 
-    void Renderer::OnFramebufferResize(int width, int height) {
-        // Prevent GL errors on minimization
-        if (width <= 0 || height <= 0) return;
-
-        glViewport(0, 0, width, height);
-        if (hdrFBO_) recreateHDR_(width, height);
-    }
 
     void Renderer::SetIBLTextures(unsigned int irr, unsigned int pre, unsigned int lut, float mipCount) {
         iblIrradiance_ = irr;

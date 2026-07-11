@@ -1,3 +1,5 @@
+#include <glad/glad.h>
+
 #include "Application.h"
 #include "GLInit.h"
 #include "Scene.h"
@@ -36,7 +38,8 @@ namespace MyCoreEngine
 
 		glfwSetWindowUserPointer(window_.getGLFWwindow(), this);
 		glfwSetScrollCallback(window_.getGLFWwindow(), &Application::ScrollThunk_);
-		glfwSetFramebufferSizeCallback(window_.getGLFWwindow(), &Application::FramebufferSizeThunk_);
+		// (no framebuffer-size callback: RenderFrame tracks its output size
+		// every frame and resizes the HDR pipeline itself)
 
 		if (!readyFired_ && onReady_) {
 			onReady_(); // apps init ImGui / create GL objects here
@@ -106,7 +109,18 @@ namespace MyCoreEngine
 
 			int fbw = 0, fbh = 0;
 			window_.getFramebufferSize(fbw, fbh);
-			if (fbw > 0 && fbh > 0) {
+			if (sceneTarget_ && sceneTarget_->fbo() && sceneTarget_->width() > 0) {
+				// scene -> offscreen target (editor viewport)...
+				renderer_.RenderFrame(scene, shader, camera_,
+					sceneTarget_->width(), sceneTarget_->height(), deltaTime_,
+					sceneTarget_->fbo());
+				// ...UI -> window backbuffer
+				glBindFramebuffer(GL_FRAMEBUFFER, 0);
+				glViewport(0, 0, fbw, fbh);
+				glClearColor(0.06f, 0.06f, 0.07f, 1.0f);
+				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+			}
+			else if (fbw > 0 && fbh > 0) {
 				renderer_.RenderFrame(scene, shader, camera_, fbw, fbh, deltaTime_);
 			}
 
@@ -162,15 +176,6 @@ namespace MyCoreEngine
 	{
 		if (auto* self = static_cast<Application*>(glfwGetWindowUserPointer(w))) {
 			self->camera_.ProcessMouseScroll(static_cast<float>(yoff));
-		}
-	}
-
-	void Application::FramebufferSizeThunk_(GLFWwindow* w, int width, int height)
-	{
-		if (auto* self = static_cast<Application*>(glfwGetWindowUserPointer(w))) {
-			// Prevent GL errors on minimization
-			if (width <= 0 || height <= 0) return;
-			self->renderer_.OnFramebufferResize(width, height);
 		}
 	}
 }

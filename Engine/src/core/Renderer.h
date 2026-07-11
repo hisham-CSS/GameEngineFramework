@@ -38,13 +38,13 @@ namespace MyCoreEngine {
         // GL context with GLAD already loaded (Application::InitGL does both).
         void Setup(int fbWidth, int fbHeight);
 
-        // Renders one frame of the scene into the window backbuffer
-        // (CSM -> forward opaque -> tonemap).
+        // Renders one frame of the scene (CSM -> forward opaque -> tonemap)
+        // into targetFBO (0 = window backbuffer; the editor passes a
+        // RenderTarget's FBO to show the scene inside its Viewport panel).
+        // The HDR pipeline resizes automatically when fbWidth/fbHeight change.
         void RenderFrame(Scene& scene, Shader& shader, Camera& camera,
-                         int fbWidth, int fbHeight, float deltaTime);
-
-        // Framebuffer resized; Application forwards the GLFW callback here.
-        void OnFramebufferResize(int width, int height);
+                         int fbWidth, int fbHeight, float deltaTime,
+                         unsigned targetFBO = 0);
 
         // public API:
         void SetIBLTextures(unsigned int irradianceCube, unsigned int prefilteredCube, unsigned int brdfLUT2D, float prefilteredMipCount);
@@ -133,6 +133,7 @@ namespace MyCoreEngine {
         CSMSnapshot nullSnap_{};             // fallback for getCSMSnapshot()
 
         uint64_t frameIndex_ = 0;
+        int lastFbW_ = 0, lastFbH_ = 0; // HDR pipeline size tracking
 
         unsigned int iblIrradiance_ = 0; // GL texture ids (0 = not set)
         unsigned int iblPrefiltered_ = 0;

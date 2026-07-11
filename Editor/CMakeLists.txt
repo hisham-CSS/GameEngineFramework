@@ -8,10 +8,12 @@ add_executable(Editor
 
 
 find_package(imgui CONFIG REQUIRED)
+find_package(imguizmo CONFIG REQUIRED)
 
 # Link the Engine library to the Editor executable
 target_link_libraries(Editor PRIVATE Engine)
 target_link_libraries(Editor PRIVATE imgui::imgui)
+target_link_libraries(Editor PRIVATE imguizmo::imguizmo)
 
 
 # Set different output directories for Debug and Release

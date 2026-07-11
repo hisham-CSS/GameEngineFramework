@@ -24,8 +24,11 @@ full audit + roadmap in [docs/ENGINE_AUDIT_2026-07.md](docs/ENGINE_AUDIT_2026-07
   instancing (the demo scene draws ~7,600 mesh instances in ~80 draw calls).
 - **ECS scene**: EnTT-based registry with Transform/Model/Material components.
 - **Asset loading**: assimp model import with texture caching and by-path deduplication.
-- **Editor**: ImGui panels for scene hierarchy, transform/material inspection, scene
-  save/load, and deep renderer tuning (lighting, shadows, IBL/HDR, toggles, live stats).
+- **Editor**: dockable ImGui workspace with a scene **Viewport panel** (render-to-texture,
+  resizes with the panel), **transform gizmos** (ImGuizmo translate/rotate/scale) and
+  **click-to-select picking**, plus panels for scene hierarchy, transform/material
+  inspection, scene save/load, and deep renderer tuning (lighting, shadows, IBL/HDR,
+  toggles, live stats).
 - **Scene serialization**: versioned JSON save/load of entities (name, transform, model
   by asset path, material overrides, flags) plus scene lighting/shading settings.
 - **Standalone Player**: `Player.exe [scene.json]` boots the engine and runs a serialized
@@ -42,8 +45,8 @@ full audit + roadmap in [docs/ENGINE_AUDIT_2026-07.md](docs/ENGINE_AUDIT_2026-07
 
 - **No project system** — window size, startup camera, and renderer defaults are hardcoded;
   there is no per-game settings file yet.
-- **Editor is renderer-focused** — no viewport panel, gizmos, entity create/delete UI, undo,
-  asset browser, or play mode yet. Docking is not enabled.
+- **Editor authoring is partial** — viewport, docking, gizmos, and picking exist; entity
+  create/delete UI, undo, asset browser, and play mode are still missing.
 - **Single directional light** — no point/spot lights or additional shadow casters.
 - **Opaque-only rendering** — no transparency pass, anti-aliasing, skybox, or post-processing
   beyond tonemapping.

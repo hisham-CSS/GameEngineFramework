@@ -8,6 +8,7 @@
     "entt",
     "nlohmann-json",
     "meshoptimizer",
+    "imguizmo",
     {
         "name": "imgui",
         "features": [ "docking-experimental", "glfw-binding", "opengl3-binding" ]

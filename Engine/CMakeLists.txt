@@ -31,6 +31,8 @@ add_library(Engine SHARED
     src/core/FixedTimestep.h
     src/core/InputMap.h
     src/core/InputMap.cpp
+    src/core/RenderTarget.h
+    src/core/RenderTarget.cpp
     src/render/IRenderPass.h 
     src/render/passes/ForwardOpaquePass.h 
     src/render/passes/ShadowCSMPass.h 
