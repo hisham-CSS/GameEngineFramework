@@ -230,9 +230,9 @@ Phased so each phase ends in something usable. Effort: S ≤ 1 day, M = days, L 
 | P4-1 | Per-frame/per-view UBOs (camera, lights, CSM) | Follow-on to P0-2 |
 | P4-2 | Texture compression (BC7/BC5 offline cook or GPU compress on import) + anisotropy | Protects 4GB VRAM |
 | P4-3 | Job system (thread pool) + async asset loading | 6c/12t currently idle |
-| P4-4 | Persistent-mapped instance ring buffer; VAO-baked instance attribs | |
+| P4-4 | Persistent-mapped instance ring buffer; VAO-baked instance attribs | **Largely done 2026-07-11**: instanced runs are discovered once per frame, all instance matrices upload in a single `glBufferData`, and draws use per-run attrib offsets (color + shadow paths). The old per-run orphan+map/unmap cycle was a driver sync per run — measured as the top frame cost at high instance counts (wide view: 71→36 ms combined with view-range shadow invalidation). Depth prepass was built (toggle, default OFF): early-Z already handles this content, so it cost more than it saved (85 vs 71 ms). Dynamic casters now invalidate only cascades whose **view-depth slice** their shadow footprint overlaps — spinning objects get live shadows at rest (60 FPS) without re-rendering far cascades. |
 | P4-5 | Draw-list caching (rebuild only on change), material key caching | |
-| P4-6 | LOD system; consider occlusion culling only if scenes demand it | |
+| P4-6 | LOD system; consider occlusion culling only if scenes demand it | **LOD done 2026-07-11** (meshoptimizer: per-mesh LOD1 ~25% / LOD2 ~8% index buffers, distance-based selection, LOD-aware batching, cascade-based shadow LOD, editor toggle/scale/histogram). Finding: ground-level wide shots are **fragment-bound** (LOD saves ~1–3 ms there); LOD's big wins are bird's-eye zoom-outs and shadow-caster geometry. Next fill-rate levers: depth prepass, resolution scale, PCF cost tuning. |
 | P4-7 | Asset database with GUIDs + cooked binary format | Enables real content pipeline |
 
 ---

@@ -1,5 +1,10 @@
 #version 330 core
 
+// Required for the depth prepass: the same source is linked into a second
+// program (empty fragment stage) and the color pass uses GL_EQUAL — without
+// this, GLSL does not guarantee identical gl_Position across programs.
+invariant gl_Position;
+
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec3 aNormal;
 layout (location = 2) in vec2 aTex;

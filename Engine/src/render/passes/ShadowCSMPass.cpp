@@ -169,6 +169,15 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
             // refresh slightly before the margin is exhausted so boundary
             // fragments never lose coverage to snap offsets / FP rounding
             needs = glm::length(sliceCenter - renderedCenter_[i]) > renderedMargin_[i] * 0.95f;
+            // a caster that moved/rotated this frame makes stale any cascade
+            // whose view-depth slice its shadow can reach, even with the
+            // camera perfectly still (slack covers the split blend band,
+            // which samples neighboring cascades)
+            if (!needs) {
+                const float slack = ctx.splitBlend + 1.f;
+                needs = scene.HasDynamicCasterInViewRange(
+                    pos, fwd, splitZ_[i] - slack, splitZ_[i + 1] + slack, sun);
+            }
         }
         // Manual: only global invalidation (markDirty_) refreshes
         if (needs) needIdx[needCount++] = i;
@@ -176,6 +185,13 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
 
     // Optional cap (opt-in extra amortization; nearest cascades first).
     const int toUpdate = (budgetPerFrame_ > 0) ? std::min(budgetPerFrame_, needCount) : needCount;
+    // Cascades flagged but dropped by the cap must STAY flagged: the
+    // dirty-caster signal is transient (cleared next UpdateTransforms), so
+    // without this a deferred cascade would never refresh once the caster
+    // stops moving.
+    for (int k = toUpdate; k < needCount; ++k) {
+        cascadeValid_[needIdx[k]] = false;
+    }
 
     // Nothing stale: publish the still-valid snapshot and skip all GPU work.
     if (toUpdate == 0) {

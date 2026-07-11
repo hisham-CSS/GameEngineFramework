@@ -334,6 +334,10 @@ void EditorApplication::DrawRenderingToggles(MyCoreEngine::Scene& scene)
     bool inst = scene.GetInstancingEnabled();
     if (ImGui::Checkbox("Enable instancing", &inst)) scene.SetInstancingEnabled(inst);
 
+    bool prepass = scene.GetDepthPrepassEnabled();
+    if (ImGui::Checkbox("Depth prepass", &prepass)) scene.SetDepthPrepassEnabled(prepass);
+    ImGui::SameLine(); ImGui::TextDisabled("(shade each pixel once)");
+
     bool lod = scene.GetLODEnabled();
     if (ImGui::Checkbox("Enable mesh LOD", &lod)) scene.SetLODEnabled(lod);
     float lodScale = scene.GetLODDistanceScale();

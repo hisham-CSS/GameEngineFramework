@@ -69,6 +69,24 @@ namespace MyCoreEngine {
         // >1 keeps high detail farther out; <1 switches down sooner (cheaper)
         void  SetLODDistanceScale(float s) { lodDistanceScale_ = std::clamp(s, 0.1f, 8.f); }
         float GetLODDistanceScale() const { return lodDistanceScale_; }
+
+        // Depth prepass: lay depth down first (cheap shader), then shade color
+        // with depth-equal so each pixel runs the PBR shader exactly once.
+        void  SetDepthPrepassEnabled(bool v) { depthPrepassEnabled_ = v; }
+        bool  GetDepthPrepassEnabled() const { return depthPrepassEnabled_; }
+        // Non-owning; set each frame by the forward pass (same vertex shader as
+        // the color pass so gl_Position matches bit-for-bit under GL_EQUAL).
+        void  SetDepthPrepassShader(Shader* s) { depthPrepassShader_ = s; }
+
+        // True if the SHADOW FOOTPRINT of any caster whose transform changed
+        // this frame overlaps the camera view-depth range [zNear, zFar].
+        // Fragments pick their cascade by view depth, so only cascades whose
+        // slice range the shadow can reach ever sample it — a spinning object
+        // near the camera must not re-render the (huge, expensive) far
+        // cascades every frame.
+        bool HasDynamicCasterInViewRange(const glm::vec3& camPos, const glm::vec3& camFwd,
+                                         float zNear, float zFar,
+                                         const glm::vec3& sunDir) const;
         
         // Read-only stats for the last frame
         const RenderStats &GetRenderStats() const { return lastStats_; }
@@ -118,11 +136,18 @@ namespace MyCoreEngine {
          std::vector<DrawItem> shadowCascadeItems_[4];
          // private:
          GLuint instanceVBO_ = 0;
+         std::size_t instanceVBOCapacity_ = 0; // high-water mark, never shrinks
          void ensureInstanceBuffer_();
-         void bindInstanceAttribs_() const; // sets attribs 3..6 + divisors on current VAO
+         // Orphan at capacity + subdata: the store must NEVER shrink, because
+         // mesh VAOs keep instanced-attrib pointers baked at large offsets and
+         // a smaller store would make later fetches out-of-bounds (GL UB).
+         void uploadInstanceMats_();
+         // sets attribs 8..11 + divisors on the current VAO, reading from
+         // instanceVBO_ starting at byteOffset
+         void bindInstanceAttribs_(std::size_t byteOffset) const;
 
          // Choose material (override -> shared) for an item and bind it for drawing
-         bool Scene::aabbIntersectsLightFrustum(const glm::mat4& lightVP, const AABB& aabb, const glm::mat4& model);
+         static bool aabbIntersectsLightFrustum(const glm::mat4& lightVP, const AABB& aabb, const glm::mat4& model);
          
          const Material * chooseMaterial_(entt::entity e, const Mesh & mesh) const;
          void bindMaterialForItem_(const DrawItem & di, Shader & shader) const;
@@ -131,6 +156,32 @@ namespace MyCoreEngine {
          bool instancingEnabled_ = true;
          bool lodEnabled_ = true;
          float lodDistanceScale_ = 1.0f;
+         // Off by default: early-Z already rejects most occluded fragments in
+         // front-to-back-ish scenes, so on this content the extra geometry
+         // submission costs more than the shading it saves. Enable for scenes
+         // with heavy fragment cost + bad depth ordering.
+         bool depthPrepassEnabled_ = false;
+         Shader* depthPrepassShader_ = nullptr; // non-owning (forward pass owns it)
+
+         // Per-frame scratch: instanced-run table + gathered instance matrices
+         // (single buffer upload per frame; per-run map/unmap cycles were the
+         // top frame cost at high instance counts)
+         struct DrawRun {
+             uint64_t texKey;
+             const Mesh* mesh;
+             int lod;
+             std::size_t first;     // index into items_
+             std::size_t count;
+             std::size_t matOffset; // index into instanceMats_
+         };
+         std::vector<DrawRun> runs_;
+         std::vector<glm::mat4> instanceMats_;
+
+         // world-space bounding spheres of casters whose transforms changed
+         // this frame
+         struct DirtyCaster { glm::vec3 center; float radius; };
+         std::vector<DirtyCaster> dirtyCasters_;
+
          RenderStats lastStats_;
          bool normalMapEnabled_ = true;
 

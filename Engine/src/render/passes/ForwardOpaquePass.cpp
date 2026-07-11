@@ -2,14 +2,33 @@
 #include "ForwardOpaquePass.h"
 #include <glad/glad.h>
 
+void ForwardOpaquePass::setup(PassContext&) {
+	if (!prepassShader_) {
+		prepassShader_ = std::make_unique<Shader>(
+			"Exported/Shaders/vertex.glsl",
+			"Exported/Shaders/prepass_frag.glsl");
+	}
+}
+
 bool ForwardOpaquePass::execute(PassContext& ctx, Scene& scene, Camera& cam, const FrameParams& fp) {
-	
+
 	// bind HDR FBO and clear
 	glViewport(0, 0, fp.viewportW, fp.viewportH);
 	glBindFramebuffer(GL_FRAMEBUFFER, ctx.hdrFBO);
 	glClearColor(0.f, 0.f, 0.f, 1.f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	
+
+	// depth-prepass program shares the color pass's camera uniforms
+	if (prepassShader_ && prepassShader_->isValid()) {
+		prepassShader_->use();
+		prepassShader_->setMat4("projection", fp.proj);
+		prepassShader_->setMat4("view", fp.view);
+		scene.SetDepthPrepassShader(prepassShader_.get());
+	}
+	else {
+		scene.SetDepthPrepassShader(nullptr);
+	}
+
 	// main shader
 	shader_->use();
 	shader_->setMat4("projection", fp.proj);

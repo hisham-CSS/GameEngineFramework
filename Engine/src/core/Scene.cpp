@@ -52,13 +52,62 @@ Entity Scene::createEntity() {
 
 void Scene::UpdateTransforms()
 {
+    auto worldSphere = [](const glm::mat4& m, const AABB& b) -> DirtyCaster {
+        const glm::vec3 localC = (b.min + b.max) * 0.5f;
+        const glm::vec3 worldC = glm::vec3(m * glm::vec4(localC, 1.f));
+        const float maxScale = std::max({ glm::length(glm::vec3(m[0])),
+                                          glm::length(glm::vec3(m[1])),
+                                          glm::length(glm::vec3(m[2])) });
+        const float radius = std::max(0.01f, glm::length(b.max - b.min) * 0.5f * maxScale);
+        return { worldC, radius };
+    };
+
+    dirtyCasters_.clear();
     auto RegView = registry.view<Transform>();
     for (auto entity : RegView) {
         auto& t = RegView.get<Transform>(entity);
         if (t.dirty) {
+            // Remember moved/rotated shadow casters so the CSM pass can
+            // refresh cascades whose region their shadow can touch. BOTH the
+            // departure and arrival positions matter: recording only the new
+            // sphere leaves a baked "ghost" shadow behind teleports and fast
+            // per-frame moves.
+            const bool casts = !registry.any_of<NoShadow>(entity) &&
+                registry.all_of<ModelComponent, AABB>(entity);
+            if (casts) {
+                dirtyCasters_.push_back(worldSphere(t.modelMatrix, registry.get<AABB>(entity)));
+            }
             t.updateMatrix();
+            if (casts) {
+                dirtyCasters_.push_back(worldSphere(t.modelMatrix, registry.get<AABB>(entity)));
+            }
         }
     }
+}
+
+bool Scene::HasDynamicCasterInViewRange(const glm::vec3& camPos, const glm::vec3& camFwd,
+                                        float zNear, float zFar,
+                                        const glm::vec3& sunDir) const
+{
+    // Shadows lengthen as the sun drops: scale the swept footprint by the
+    // sun's horizontal-over-vertical slope. Still an approximation for very
+    // tall casters high above their receivers.
+    const float sunSlope = glm::length(glm::vec2(sunDir.x, sunDir.z)) /
+        std::max(std::abs(sunDir.y), 0.2f);
+
+    for (const auto& dc : dirtyCasters_) {
+        // Approximate the caster's shadow footprint as a sphere around the
+        // caster swept along the light direction.
+        const float shadowLen = dc.radius * (4.f + 4.f * sunSlope);
+        const glm::vec3 sweptCenter = dc.center + sunDir * (shadowLen * 0.5f);
+        const float sweptRadius = dc.radius + shadowLen * 0.5f;
+
+        const float z = glm::dot(sweptCenter - camPos, camFwd);
+        if (z + sweptRadius >= zNear && z - sweptRadius <= zFar) {
+            return true;
+        }
+    }
+    return false;
 }
 
 // Renderer calls this; we keep signature identical.
@@ -125,6 +174,74 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
             return a.depth < b.depth;                                           // front-to-back within a mesh
         });
     ensureInstanceBuffer_();
+
+    // Discover instanced runs once and upload EVERY instance matrix in one
+    // buffer update; draws then point the instanced attribs at per-run byte
+    // offsets. (The old per-run glBufferData+glMapBuffer cycle was a driver
+    // sync per run — the top frame cost at high instance counts.)
+    runs_.clear();
+    instanceMats_.clear();
+    for (std::size_t i = 0; i < items_.size(); ) {
+        const auto key = items_[i].texKey;
+        const Mesh* mesh = items_[i].mesh;
+        const int lod = items_[i].lod;
+        std::size_t runEnd = i + 1;
+        while (runEnd < items_.size() &&
+            items_[runEnd].texKey == key &&
+            items_[runEnd].mesh == mesh &&
+            items_[runEnd].lod == lod) {
+            ++runEnd;
+        }
+        const std::size_t count = runEnd - i;
+        runs_.push_back({ key, mesh, lod, i, count, instanceMats_.size() });
+        if (instancingEnabled_ && count >= 2) {
+            for (std::size_t k = 0; k < count; ++k)
+                instanceMats_.push_back(items_[i + k].model);
+        }
+        i = runEnd;
+    }
+    uploadInstanceMats_();
+
+    // --- depth prepass: same runs/LODs/matrices as the color pass with a
+    // no-op fragment shader, so the expensive PBR/PCF shading below runs at
+    // most once per pixel (GL_EQUAL rejects occluded fragments early).
+    const bool prepass = depthPrepassEnabled_ && depthPrepassShader_ && depthPrepassShader_->isValid();
+    if (prepass) {
+        glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+        glDepthMask(GL_TRUE);
+        glDepthFunc(GL_LESS);
+
+        Shader& d = *depthPrepassShader_;
+        d.use();
+        d.setInt("uUseInstancing", 0);
+
+        const Mesh* prevMesh = nullptr;
+        for (const auto& r : runs_) {
+            if (r.mesh != prevMesh) {
+                glBindVertexArray(r.mesh->VAO());
+                prevMesh = r.mesh;
+            }
+            if (instancingEnabled_ && r.count >= 2) {
+                bindInstanceAttribs_(r.matOffset * sizeof(glm::mat4));
+                d.setInt("uUseInstancing", 1);
+                r.mesh->IssueDrawInstanced(static_cast<GLsizei>(r.count), r.lod);
+                d.setInt("uUseInstancing", 0);
+            }
+            else {
+                for (std::size_t k = 0; k < r.count; ++k) {
+                    d.setMat4("model", items_[r.first + k].model);
+                    r.mesh->IssueDraw(r.lod);
+                }
+            }
+        }
+
+        // color pass: shade only the surviving depth, don't write depth
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        glDepthFunc(GL_EQUAL);
+        glDepthMask(GL_FALSE);
+    }
+
+    shader.use();
     shader.setInt("uUseInstancing", 0);
 
     shader.setInt("uUsePBR", pbrEnabled_ ? 1 : 0);
@@ -145,73 +262,52 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
     uint64_t currentKey = ~0ull;
     const Mesh* currentMesh = nullptr;
 
-    for (std::size_t i = 0; i < items_.size(); ) {
-        const auto key = items_[i].texKey;
-        const auto* mesh = items_[i].mesh;
-
+    for (const auto& r : runs_) {
         // bind textures+VAO bucket
-        if (key != currentKey) {
-            bindMaterialForItem_(items_[i], shader);
-            currentKey = key;
-            currentMesh = mesh;
+        if (r.texKey != currentKey) {
+            bindMaterialForItem_(items_[r.first], shader);
+            currentKey = r.texKey;
+            currentMesh = r.mesh;
             stats.textureBinds++;
             stats.vaoBinds++; // BindForDraw set VAO
         }
-        else if (mesh != currentMesh) {
-            glBindVertexArray(mesh->VAO());
-            currentMesh = mesh;
+        else if (r.mesh != currentMesh) {
+            glBindVertexArray(r.mesh->VAO());
+            currentMesh = r.mesh;
             stats.vaoBinds++;
         }
 
-        // count consecutive items with same key+mesh+lod
-        const int lod = items_[i].lod;
-        std::size_t runStart = i, runEnd = i + 1;
-        while (runEnd < items_.size() &&
-            items_[runEnd].texKey == key &&
-            items_[runEnd].mesh == mesh &&
-            items_[runEnd].lod == lod) {
-            ++runEnd;
-        }
-        const std::size_t runCount = runEnd - runStart;
-
-        if (instancingEnabled_ && runCount >= 2) {
-            // upload instance matrices
-            glBindBuffer(GL_ARRAY_BUFFER, instanceVBO_);
-            glBufferData(GL_ARRAY_BUFFER, runCount * sizeof(glm::mat4), nullptr, GL_STREAM_DRAW);
-            if (void* p = glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY)) {
-                auto* mats = static_cast<glm::mat4*>(p);
-                for (std::size_t k = 0; k < runCount; ++k)
-                    mats[k] = items_[runStart + k].model;
-                glUnmapBuffer(GL_ARRAY_BUFFER);
-            }
-
-            // enable instanced attributes on current VAO & draw once
-            bindInstanceAttribs_();
+        if (instancingEnabled_ && r.count >= 2) {
+            bindInstanceAttribs_(r.matOffset * sizeof(glm::mat4));
             shader.setInt("uUseInstancing", 1);
-            mesh->IssueDrawInstanced(static_cast<GLsizei>(runCount), lod);
+            r.mesh->IssueDrawInstanced(static_cast<GLsizei>(r.count), r.lod);
             shader.setInt("uUseInstancing", 0);
 
-            i = runEnd;
             stats.instancedDraws++;
-            stats.instances += static_cast<unsigned>(runCount);
-            stats.submitted += static_cast<unsigned>(runCount);
-            stats.lodInstances[glm::clamp(lod, 0, 2)] += static_cast<unsigned>(runCount);
+            stats.instances += static_cast<unsigned>(r.count);
+            stats.submitted += static_cast<unsigned>(r.count);
+            stats.lodInstances[glm::clamp(r.lod, 0, 2)] += static_cast<unsigned>(r.count);
         }
         else {
-            // single draw (exactly your old path)
-            shader.setMat4("model", items_[i].model);
-            // Single draw: bind chosen material for this item (needed if the last bucket’s material differs)
-            bindMaterialForItem_(items_[i], shader);
-            shader.setMat4("model", items_[i].model);
-            items_[i].mesh->IssueDraw(items_[i].lod);
-            ++i;
-            stats.draws++;
-            stats.submitted++;
-            stats.lodInstances[glm::clamp(items_[i - 1].lod, 0, 2)]++;
+            for (std::size_t k = 0; k < r.count; ++k) {
+                // per-item material bind: entities in the same texKey bucket can
+                // still carry different override instances (same textures,
+                // different scalars)
+                bindMaterialForItem_(items_[r.first + k], shader);
+                shader.setMat4("model", items_[r.first + k].model);
+                r.mesh->IssueDraw(r.lod);
+                stats.draws++;
+                stats.submitted++;
+                stats.lodInstances[glm::clamp(r.lod, 0, 2)]++;
+            }
         }
     }
 
     // tidy
+    if (prepass) {
+        glDepthFunc(GL_LESS);
+        glDepthMask(GL_TRUE);
+    }
     glBindVertexArray(0);
     glActiveTexture(GL_TEXTURE0);
 
@@ -224,16 +320,27 @@ void Scene::ensureInstanceBuffer_() {
     }
 }
 
-void Scene::bindInstanceAttribs_() const {
+void Scene::uploadInstanceMats_() {
+    const std::size_t bytes = instanceMats_.size() * sizeof(glm::mat4);
+    if (bytes == 0) return;
+    if (bytes > instanceVBOCapacity_) instanceVBOCapacity_ = bytes;
+    glBindBuffer(GL_ARRAY_BUFFER, instanceVBO_);
+    // orphan at the high-water capacity (no GPU sync), then fill
+    glBufferData(GL_ARRAY_BUFFER, instanceVBOCapacity_, nullptr, GL_STREAM_DRAW);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, bytes, instanceMats_.data());
+}
+
+void Scene::bindInstanceAttribs_(std::size_t byteOffset) const {
     // current mesh VAO must already be bound
     glBindBuffer(GL_ARRAY_BUFFER, instanceVBO_);
     const GLsizei stride = sizeof(glm::mat4);
-    const GLsizei vec4sz = sizeof(glm::vec4);
+    const std::size_t vec4sz = sizeof(glm::vec4);
 
     for (int i = 0; i < 4; ++i) {
         GLuint loc = 8 + i; // 8,9,10,11
         glEnableVertexAttribArray(loc);
-        glVertexAttribPointer(loc, 4, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(i * vec4sz));
+        glVertexAttribPointer(loc, 4, GL_FLOAT, GL_FALSE, stride,
+            reinterpret_cast<void*>(byteOffset + i * vec4sz));
         glVertexAttribDivisor(loc, 1);
     }
 }
@@ -331,7 +438,22 @@ void Scene::RenderShadowsCombined(Shader& shadowShader, const std::vector<Cascad
         std::sort(bucket.begin(), bucket.end(),
             [](const DrawItem& a, const DrawItem& b) { return a.mesh < b.mesh; });
 
+        // Gather every instanced matrix in this bucket and upload once
+        // (per-run map/unmap cycles were a driver sync each).
+        instanceMats_.clear();
+        for (size_t i = 0; i < bucket.size();) {
+            const Mesh* mesh = bucket[i].mesh;
+            size_t j = i + 1;
+            while (j < bucket.size() && bucket[j].mesh == mesh) ++j;
+            if (j - i >= 2) {
+                for (size_t k = i; k < j; ++k) instanceMats_.push_back(bucket[k].model);
+            }
+            i = j;
+        }
+        uploadInstanceMats_();
+
         // Instanced draw loop
+        size_t matOffset = 0;
         for (size_t i = 0; i < bucket.size();) {
             const Mesh* mesh = bucket[i].mesh;
             size_t j = i + 1;
@@ -341,17 +463,8 @@ void Scene::RenderShadowsCombined(Shader& shadowShader, const std::vector<Cascad
             glBindVertexArray(mesh->VAO());
 
             if (run >= 2) {
-                glBindBuffer(GL_ARRAY_BUFFER, instanceVBO_);
-                glBufferData(GL_ARRAY_BUFFER, run * sizeof(glm::mat4), nullptr, GL_STREAM_DRAW);
-                
-                // map buffer logic
-                if (void* p = glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY)) {
-                    auto* mats = static_cast<glm::mat4*>(p);
-                    for (size_t k = 0; k < run; ++k) mats[k] = bucket[i + k].model;
-                    glUnmapBuffer(GL_ARRAY_BUFFER);
-                }
-
-                bindInstanceAttribs_();
+                bindInstanceAttribs_(matOffset * sizeof(glm::mat4));
+                matOffset += run;
                 shadowShader.setInt("uUseInstancing", 1);
                 mesh->IssueDrawInstanced((GLsizei)run, shadowLod);
                 shadowShader.setInt("uUseInstancing", 0);
@@ -409,7 +522,7 @@ void Scene::RenderDepth(Shader& prog, const glm::mat4& lightVP)
                 for (size_t k = 0; k < run; ++k) mats[k] = items_[i + k].model;
                 glUnmapBuffer(GL_ARRAY_BUFFER);
             }
-            bindInstanceAttribs_();
+            bindInstanceAttribs_(0);
             prog.setInt("uUseInstancing", 1);
             prog.setMat4("uLightVP", lightVP);
             mesh->IssueDrawInstanced((GLsizei)run);

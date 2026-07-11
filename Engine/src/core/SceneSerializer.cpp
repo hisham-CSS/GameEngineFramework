@@ -48,6 +48,7 @@ namespace MyCoreEngine {
         settings["iblIntensity"] = scene_.GetIBLIntensity();
         settings["lodEnabled"] = scene_.GetLODEnabled();
         settings["lodDistanceScale"] = scene_.GetLODDistanceScale();
+        settings["depthPrepass"] = scene_.GetDepthPrepassEnabled();
         root["settings"] = std::move(settings);
 
         // --- entities ---
@@ -152,6 +153,7 @@ namespace MyCoreEngine {
             scene_.SetIBLIntensity(s.value("iblIntensity", scene_.GetIBLIntensity()));
             scene_.SetLODEnabled(s.value("lodEnabled", scene_.GetLODEnabled()));
             scene_.SetLODDistanceScale(s.value("lodDistanceScale", scene_.GetLODDistanceScale()));
+            scene_.SetDepthPrepassEnabled(s.value("depthPrepass", scene_.GetDepthPrepassEnabled()));
         }
 
         for (const json& je : root["entities"]) {

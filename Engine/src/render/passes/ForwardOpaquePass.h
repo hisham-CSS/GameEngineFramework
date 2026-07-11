@@ -2,17 +2,22 @@
 #pragma once
 #include "../IRenderPass.h"
 
+#include <memory>
+
 class ENGINE_API ForwardOpaquePass final : public IRenderPass {
 public:
     // Renderer (or Editor) gives the compiled forward shader you already pass to run()
     explicit ForwardOpaquePass(Shader& shader) : shader_(&shader) {}
     const char* name() const override { return "ForwardOpaque"; }
 
-    void setup(PassContext&) override {};
+    void setup(PassContext&) override;
     void resize(PassContext&, int, int) override {};
     bool execute(PassContext&, MyCoreEngine::Scene&, Camera&, const FrameParams&) override;
 
 private:
     Shader* shader_; // not owned
+    // Depth-prepass program: the SAME vertex shader as the color pass with a
+    // no-op fragment stage (bit-identical gl_Position -> GL_EQUAL is exact).
+    std::unique_ptr<Shader> prepassShader_;
     static constexpr int kBaseUnit = 8; // uShadowCascade[] start at texture unit 8
 };
