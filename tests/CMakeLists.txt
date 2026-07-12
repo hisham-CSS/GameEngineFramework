@@ -48,5 +48,11 @@ engine_test(test_scene_details)    # cascade Z-split culling
 engine_test(test_scene_serializer) # JSON scene round-trip
 engine_test(test_fixed_timestep)   # fixed-step accumulator
 engine_test(test_splits)           # CSM split math (pure CPU)
+engine_test(test_undo_history)     # editor undo/redo snapshots (pure CPU)
+
+# UndoHistory lives in the Editor (it snapshots editor-managed components)
+# but is ImGui-free, so it can be compiled straight into a headless test.
+target_sources(test_undo_history PRIVATE ${CMAKE_SOURCE_DIR}/Editor/src/UndoHistory.cpp)
+target_include_directories(test_undo_history PRIVATE ${CMAKE_SOURCE_DIR}/Editor/src)
 
 target_compile_definitions(test_render_passes PRIVATE UNIT_TEST=1)

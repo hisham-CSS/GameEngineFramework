@@ -1,6 +1,7 @@
 #pragma once
 #include "Engine.h"
 #include "EditorImGuiLayer.h"
+#include "UndoHistory.h"
 #include "panels/SceneHierarchyPanel.h"
 #include "panels/InspectorPanel.h"
 
@@ -36,9 +37,14 @@ public:
 
     void DrawInformationPanel(const MyCoreEngine::Scene& scene, float dt);
 
+    // Undo/redo buttons + clickable command history (P2-7)
+    void DrawEditHistory(MyCoreEngine::Scene& scene);
+
 private:
     void pickEntity_(MyCoreEngine::Scene& scene, float mouseU, float mouseV,
                      const glm::mat4& view, const glm::mat4& proj);
+    void doUndo_(MyCoreEngine::Scene& scene);
+    void doRedo_(MyCoreEngine::Scene& scene);
 
     EditorImGuiLayer ui_;                 // <-- persistent member
     SceneHierarchyPanel hierarchy_;
@@ -48,6 +54,10 @@ private:
     MyCoreEngine::RenderTarget sceneTarget_;
     bool viewportHovered_ = false;
     int  gizmoOp_ = 0; // 0 translate, 1 rotate, 2 scale
+
+    UndoHistory undo_;
+    bool gizmoWasUsing_ = false;   // edge-detects gizmo drag end for coalescing
+    Transform gizmoBefore_{};      // selected entity's transform before the drag
 
     std::unique_ptr<MyCoreEngine::AssetManager> assets_;
 };

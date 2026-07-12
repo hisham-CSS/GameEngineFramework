@@ -207,7 +207,7 @@ Phased so each phase ends in something usable. Effort: S ≤ 1 day, M = days, L 
 | P2-4 | Save/Load/New scene UI on top of P1-1; startup scene in project settings file | S |
 | P2-5 | Asset browser (filesystem view of project assets, drag into scene) | M |
 | P2-6 | Play-in-editor: snapshot registry → tick game loop → restore on stop | M–L |
-| P2-7 | Undo/redo command stack for transform/component edits | M |
+| P2-7 | Undo/redo command stack for transform/component edits | **Done 2026-07-11** — snapshot-based `UndoHistory` (before/after per entity; create/delete = missing side; entt `create(hint)` resurrects the same handle). Gizmo drags + Inspector drag/text widgets coalesce into one entry (`IsItemActivated`/`IsItemDeactivatedAfterEdit`); covers rename, transform, shadows toggle, model assign/remove, material overrides, entity create/delete (full component restore, model by asset path, deep-copied materials). Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z (off while typing); "Edit" panel with click-to-jump history; 100-entry cap; 12 headless gtests. Shared-material rows are now read-only (were silently editable, mutating every user of the model). Caveats: hotkeys are ignored mid-drag (rewinding history during a manipulation corrupts it); undoing an edit on a FixedUpdate-animated entity (the spinning Hero) also rewinds the animated fields captured in the whole-entity snapshot — proper fix is P2-6's sim/authoring separation; Load Scene clears history (stale entt handles) |
 | P2-8 | Parent/child transform hierarchy + hierarchy panel tree view | M–L |
 
 ### Phase 3 — Runtime feature completeness (drive by the actual game's needs)

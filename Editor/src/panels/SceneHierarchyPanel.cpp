@@ -1,5 +1,6 @@
 #pragma once
 #include "SceneHierarchyPanel.h"
+#include "../UndoHistory.h"
 #include "imgui.h"
 #include "Engine.h" // for Name, Transform, etc.
 
@@ -8,13 +9,14 @@ static const char* GetEntityLabel(entt::registry& reg, entt::entity e) {
     return "(Entity)";
 }
 
-bool SceneHierarchyPanel::Draw(entt::registry& reg, entt::entity& selected) {
+bool SceneHierarchyPanel::Draw(entt::registry& reg, entt::entity& selected, UndoHistory& undo) {
     bool changed = false;
     if (ImGui::Begin("Scene Hierarchy")) {
         if (ImGui::Button("+ Create Entity")) {
             entt::entity e = reg.create();
             reg.emplace<Name>(e, Name{ "Entity" });
             reg.emplace<Transform>(e);
+            undo.recordCreate(reg, e, "Create entity");
             selected = e;
             changed = true;
         }
@@ -40,7 +42,8 @@ bool SceneHierarchyPanel::Draw(entt::registry& reg, entt::entity& selected) {
         }
 
         if (toDelete != entt::null) {
-            reg.destroy(toDelete);
+            std::string label = std::string("Delete '") + GetEntityLabel(reg, toDelete) + "'";
+            undo.recordDelete(reg, toDelete, std::move(label)); // snapshots, then destroys
             if (selected == toDelete) selected = entt::null;
             changed = true;
         }

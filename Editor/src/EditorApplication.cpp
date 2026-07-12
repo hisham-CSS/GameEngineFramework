@@ -10,6 +10,7 @@
 
 #include <glm/gtc/type_ptr.hpp>
 #include <cfloat>
+#include <cstdio>
 
 //for the future for any initalization things that are required
 void EditorApplication::Initialize()
@@ -34,7 +35,11 @@ void EditorApplication::Run() {
         // SAFE: capture 'this' (EditorApplication) whose lifetime spans the run loop
         SetUICaptureProvider([this] {
             return std::pair<bool, bool>{
-                ui_.WantCaptureKeyboard(),
+                // NOT WantCaptureKeyboard: with keyboard nav + docking, ImGui
+                // keeps a window focused after any panel click, so that flag
+                // stays true forever and the fly camera goes dead. Only real
+                // text editing (Inspector name field etc.) should block WASD.
+                ui_.WantTextInput(),
                     // the viewport is an ImGui window too — camera controls
                     // must keep working while the mouse is over it
                     ui_.WantCaptureMouse() && !viewportHovered_
@@ -64,10 +69,34 @@ void EditorApplication::Run() {
         DrawIBLHDRControls(scene);
 
 		//scene hierarchy
-        hierarchy_.Draw(scene.registry, selected_);
-            
+        hierarchy_.Draw(scene.registry, selected_, undo_);
+
 		//inspector
-        inspector_.Draw(scene.registry, selected_, assets_.get());
+        inspector_.Draw(scene.registry, selected_, undo_, assets_.get());
+
+        // commit any edit whose widget stopped being submitted this frame
+        // (deselect while a text field was focused, tab switch, collapse)
+        undo_.tickFrame(scene.registry);
+
+        //undo/redo history (P2-7)
+        DrawEditHistory(scene);
+
+        // Ctrl+Z / Ctrl+Y (+ Ctrl+Shift+Z). Not while typing in a text
+        // field (ImGui's own text-edit undo owns Ctrl+Z there), and not
+        // while a drag is in flight: rewinding history mid-manipulation
+        // corrupts it — ImGuizmo would stomp the undone transform from its
+        // drag-start anchors and the release-time push would erase the
+        // entry that was just undone.
+        ImGuiIO& io = ImGui::GetIO();
+        if (io.KeyCtrl && !io.WantTextInput &&
+            !ImGuizmo::IsUsing() && !undo_.editActive()) {
+            if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) {
+                if (io.KeyShift) doRedo_(scene); else doUndo_(scene);
+            }
+            else if (ImGui::IsKeyPressed(ImGuiKey_Y, false)) {
+                doRedo_(scene);
+            }
+        }
 
         ui_.EndFrame();
     });
@@ -183,14 +212,22 @@ void EditorApplication::DrawViewport(MyCoreEngine::Scene& scene)
 
     // transform gizmo on the selected entity
     bool gizmoActive = false;
+    bool gizmoDrawn = false;
     if (selected_ != entt::null && scene.registry.valid(selected_)) {
         if (auto* t = scene.registry.try_get<Transform>(selected_)) {
+            gizmoDrawn = true;
             ImGuizmo::SetOrthographic(false);
             ImGuizmo::SetDrawlist();
             ImGuizmo::SetRect(imagePos.x, imagePos.y, imageSize.x, imageSize.y);
             const ImGuizmo::OPERATION op = (gizmoOp_ == 1) ? ImGuizmo::ROTATE
                 : (gizmoOp_ == 2) ? ImGuizmo::SCALE
                 : ImGuizmo::TRANSLATE;
+
+            // While idle, keep refreshing the pre-drag transform. IsUsing()
+            // only flips true inside Manipulate on the frame a drag starts,
+            // so this copy is guaranteed to hold the state from before the
+            // drag's first applied delta — that's the undo point.
+            if (!ImGuizmo::IsUsing()) gizmoBefore_ = *t;
 
             glm::mat4 m = t->modelMatrix;
             if (ImGuizmo::Manipulate(glm::value_ptr(view), glm::value_ptr(proj),
@@ -203,8 +240,21 @@ void EditorApplication::DrawViewport(MyCoreEngine::Scene& scene)
                 t->dirty = true;
             }
             gizmoActive = ImGuizmo::IsOver() || ImGuizmo::IsUsing();
+
+            // one history entry per drag, pushed on release
+            const bool usingNow = ImGuizmo::IsUsing();
+            if (gizmoWasUsing_ && !usingNow) {
+                static const char* kGizmoLabels[3] = {
+                    "Move (gizmo)", "Rotate (gizmo)", "Scale (gizmo)"
+                };
+                const int opIdx = (gizmoOp_ >= 0 && gizmoOp_ <= 2) ? gizmoOp_ : 0;
+                undo_.recordTransformChange(scene.registry, selected_,
+                                            gizmoBefore_, kGizmoLabels[opIdx]);
+            }
+            gizmoWasUsing_ = usingNow;
         }
     }
+    if (!gizmoDrawn) gizmoWasUsing_ = false; // selection lost: no drag to close out
 
     // click-to-select (LMB press inside the viewport, not on the gizmo)
     if (viewportClicked && !gizmoActive) {
@@ -281,7 +331,7 @@ void EditorApplication::DrawInputPanel()
     ImGui::Text("MoveForward: %+.2f", in.axis("MoveForward"));
     ImGui::Text("MoveRight:   %+.2f", in.axis("MoveRight"));
     ImGui::Text("Look X/Y:    %+.2f / %+.2f", in.axis("LookX"), in.axis("LookY"));
-    ImGui::TextDisabled("Defaults: WASD + left stick move, right stick looks,");
+    ImGui::TextDisabled("Defaults: WASD/arrows + left stick move, right stick looks,");
     ImGui::TextDisabled("ESC / Back quits. Rebind via Application::input().");
 }
 
@@ -317,6 +367,9 @@ void EditorApplication::DrawScenePersistence(MyCoreEngine::Scene& scene)
     if (ImGui::Button("Load Scene")) {
         if (serializer.Load(scenePath)) {
             selected_ = entt::null; // old entity handles are invalid after a load
+            // ...and so is every handle in the undo history: undoing a
+            // pre-load entry would resurrect ghosts into the loaded scene
+            undo_.clear();
             lastStatus = std::string("Loaded ") + scenePath;
         }
         else {
@@ -527,6 +580,70 @@ void EditorApplication::DrawInformationPanel(const MyCoreEngine::Scene& scene, f
             rs.lodInstances[0], rs.lodInstances[1], rs.lodInstances[2]);
         unsigned totalCalls = rs.draws + rs.instancedDraws;
         ImGui::Text("GPU draw calls:   %u", totalCalls);
+    }
+    ImGui::End();
+}
+
+void EditorApplication::doUndo_(MyCoreEngine::Scene& scene)
+{
+    undo_.undo(scene.registry, assets_.get());
+    if (!scene.registry.valid(selected_)) selected_ = entt::null;
+}
+
+void EditorApplication::doRedo_(MyCoreEngine::Scene& scene)
+{
+    undo_.redo(scene.registry, assets_.get());
+    if (!scene.registry.valid(selected_)) selected_ = entt::null;
+}
+
+void EditorApplication::DrawEditHistory(MyCoreEngine::Scene& scene)
+{
+    ImGui::SetNextWindowSize(ImVec2(280, 320), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Edit")) {
+        const bool canU = undo_.canUndo();
+        const bool canR = undo_.canRedo();
+        if (!canU) ImGui::BeginDisabled();
+        if (ImGui::Button("Undo")) doUndo_(scene);
+        if (!canU) ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (!canR) ImGui::BeginDisabled();
+        if (ImGui::Button("Redo")) doRedo_(scene);
+        if (!canR) ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::TextDisabled("Ctrl+Z / Ctrl+Y");
+        ImGui::Separator();
+
+        const auto& entries = undo_.entries();
+        if (entries.empty()) {
+            ImGui::TextDisabled("(no edits yet)");
+        }
+        else {
+            // clicking a row rewinds/replays history to just after that entry;
+            // rows past the cursor are undone (dimmed)
+            size_t target = entries.size() + 1; // sentinel: no click
+            {
+                const bool current = undo_.cursor() == 0;
+                if (ImGui::Selectable("(initial state)", current)) target = 0;
+            }
+            for (size_t i = 0; i < entries.size(); ++i) {
+                ImGui::PushID((int)i);
+                const bool applied = i < undo_.cursor();
+                if (!applied) ImGui::PushStyleVar(ImGuiStyleVar_Alpha,
+                                                  ImGui::GetStyle().Alpha * 0.45f);
+                char row[192];
+                snprintf(row, sizeof(row), "%d. %s [e%u]", (int)i + 1,
+                         entries[i].label.c_str(), (uint32_t)entries[i].entity);
+                if (ImGui::Selectable(row, applied && i + 1 == undo_.cursor())) {
+                    target = i + 1;
+                }
+                if (!applied) ImGui::PopStyleVar();
+                ImGui::PopID();
+            }
+            if (target <= entries.size()) {
+                undo_.jumpTo(scene.registry, assets_.get(), target);
+                if (!scene.registry.valid(selected_)) selected_ = entt::null;
+            }
+        }
     }
     ImGui::End();
 }

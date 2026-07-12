@@ -12,6 +12,7 @@ public:
     void Shutdown();
 
     bool WantCaptureKeyboard() const;
+    bool WantTextInput() const; // true only while a text field is being edited
     bool WantCaptureMouse() const;
 
 private:

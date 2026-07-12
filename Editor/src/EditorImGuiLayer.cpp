@@ -45,6 +45,9 @@ void EditorImGuiLayer::Shutdown() {
 bool EditorImGuiLayer::WantCaptureKeyboard() const {
     return ImGui::GetIO().WantCaptureKeyboard;
 }
+bool EditorImGuiLayer::WantTextInput() const {
+    return ImGui::GetIO().WantTextInput;
+}
 bool EditorImGuiLayer::WantCaptureMouse() const {
     return ImGui::GetIO().WantCaptureMouse;
 }

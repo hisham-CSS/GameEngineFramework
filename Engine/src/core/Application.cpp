@@ -14,7 +14,9 @@ namespace MyCoreEngine
 	{
 		// Default fly-camera bindings; apps can rebind via input().
 		input_.bindAxisKeys("MoveForward", GLFW_KEY_W, GLFW_KEY_S);
+		input_.bindAxisKeys("MoveForward", GLFW_KEY_UP, GLFW_KEY_DOWN);
 		input_.bindAxisKeys("MoveRight", GLFW_KEY_D, GLFW_KEY_A);
+		input_.bindAxisKeys("MoveRight", GLFW_KEY_RIGHT, GLFW_KEY_LEFT);
 		input_.bindGamepadAxis("MoveForward", GLFW_GAMEPAD_AXIS_LEFT_Y, /*inverted=*/true);
 		input_.bindGamepadAxis("MoveRight", GLFW_GAMEPAD_AXIS_LEFT_X);
 		input_.bindGamepadAxis("LookX", GLFW_GAMEPAD_AXIS_RIGHT_X);
