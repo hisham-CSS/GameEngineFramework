@@ -21,6 +21,9 @@ public:
 
     void DrawInputPanel();
 
+    // named layout save/load (Settings window; files in Layouts/*.ini)
+    void DrawLayoutControls();
+
     void DrawTimeControls();
 
     void DrawScenePersistence(MyCoreEngine::Scene& scene);
@@ -58,6 +61,10 @@ private:
     UndoHistory undo_;
     bool gizmoWasUsing_ = false;   // edge-detects gizmo drag end for coalescing
     Transform gizmoBefore_{};      // selected entity's transform before the drag
+
+    // layout .ini to load before the next frame (empty = none). Deferred
+    // because settings must be (re)applied outside NewFrame/Render.
+    std::string pendingLayoutLoad_;
 
     std::unique_ptr<MyCoreEngine::AssetManager> assets_;
 };

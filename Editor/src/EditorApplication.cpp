@@ -9,8 +9,11 @@
 #include "ImGuizmo.h"
 
 #include <glm/gtc/type_ptr.hpp>
+#include <cctype>
 #include <cfloat>
 #include <cstdio>
+#include <filesystem>
+#include <vector>
 
 //for the future for any initalization things that are required
 void EditorApplication::Initialize()
@@ -48,6 +51,14 @@ void EditorApplication::Run() {
     });
 
     SetUIDraw([this, &scene](float dt) {
+        // Apply a requested layout between frames: LoadIniSettingsFromDisk
+        // re-applies settings to live windows through the settings handlers'
+        // ApplyAll, which must run outside NewFrame/Render.
+        if (!pendingLayoutLoad_.empty()) {
+            ImGui::LoadIniSettingsFromDisk(pendingLayoutLoad_.c_str());
+            pendingLayoutLoad_.clear();
+        }
+
         ui_.BeginFrame();
         ImGuizmo::BeginFrame();
         // one dockspace over the whole window: every panel becomes dockable
@@ -58,15 +69,23 @@ void EditorApplication::Run() {
         //Information Panel
         DrawInformationPanel(scene, dt);
 
-        //rendering window
-        DrawScenePersistence(scene);
-        DrawTimeControls();
-        DrawInputPanel();
-        DrawRenderingToggles(scene);
-        DrawLightControls(scene);
-        DrawSunShadowControls(scene);
-        DrawMaterialControls(scene);
-        DrawIBLHDRControls(scene);
+        // Engine/render controls. These used to be bare CollapsingHeaders,
+        // which ImGui collects into its implicit "Debug##Default" fallback
+        // window — and the fallback window can never dock. A real named
+        // window makes them a first-class dockable panel.
+        ImGui::SetNextWindowSize(ImVec2(360, 540), ImGuiCond_FirstUseEver);
+        if (ImGui::Begin("Settings")) {
+            DrawScenePersistence(scene);
+            DrawTimeControls();
+            DrawInputPanel();
+            DrawRenderingToggles(scene);
+            DrawLightControls(scene);
+            DrawSunShadowControls(scene);
+            DrawMaterialControls(scene);
+            DrawIBLHDRControls(scene);
+            DrawLayoutControls();
+        }
+        ImGui::End();
 
 		//scene hierarchy
         hierarchy_.Draw(scene.registry, selected_, undo_);
@@ -320,6 +339,55 @@ void EditorApplication::pickEntity_(MyCoreEngine::Scene& scene, float u, float v
         }
     }
     selected_ = best; // entt::null on miss = deselect
+}
+
+void EditorApplication::DrawLayoutControls()
+{
+    if (!ImGui::CollapsingHeader("Layouts", ImGuiTreeNodeFlags_None)) return;
+    namespace fs = std::filesystem;
+
+    static char layoutName[64] = "MyLayout";
+    ImGui::InputText("##layoutname", layoutName, sizeof(layoutName));
+    ImGui::SameLine();
+    if (ImGui::Button("Save Layout")) {
+        // keep the filename filesystem-safe
+        std::string safe;
+        for (char c : std::string(layoutName)) {
+            if (std::isalnum((unsigned char)c) || c == '-' || c == '_' || c == ' ')
+                safe += c;
+        }
+        if (!safe.empty()) {
+            std::error_code ec;
+            fs::create_directories("Layouts", ec);
+            ImGui::SaveIniSettingsToDisk(("Layouts/" + safe + ".ini").c_str());
+        }
+    }
+    ImGui::TextDisabled("(docking + window positions; the session layout");
+    ImGui::TextDisabled(" auto-saves to imgui.ini on top of named ones)");
+    ImGui::Separator();
+
+    std::vector<fs::path> layouts;
+    std::error_code ec;
+    if (fs::exists("Layouts", ec)) {
+        for (const auto& entry : fs::directory_iterator("Layouts", ec)) {
+            if (entry.path().extension() == ".ini") layouts.push_back(entry.path());
+        }
+    }
+    if (layouts.empty()) ImGui::TextDisabled("(no saved layouts)");
+    for (const auto& p : layouts) {
+        const std::string stem = p.stem().string();
+        ImGui::PushID(stem.c_str());
+        if (ImGui::SmallButton("Load")) {
+            pendingLayoutLoad_ = p.string(); // applied before the next frame
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Delete")) {
+            fs::remove(p, ec);
+        }
+        ImGui::SameLine();
+        ImGui::TextUnformatted(stem.c_str());
+        ImGui::PopID();
+    }
 }
 
 void EditorApplication::DrawInputPanel()
