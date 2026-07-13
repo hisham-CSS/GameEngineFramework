@@ -24,12 +24,19 @@ set_target_properties(Editor PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR}/build/bin/Release
 )
 
-# Copy shaders over into the build executable folder as that is what is needed to load the files
-add_custom_command(
-  TARGET Editor POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E copy_directory
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/Exported
-    $<TARGET_FILE_DIR:Editor>/Exported)
+# Stage runtime assets (shaders/models + seed scene) next to the exes.
+# ONE staging target shared by Editor and both Players: concurrent copies
+# into the same directory race under Ninja (intermittent sharing violations
+# — same lesson as tests' test_runtime_deps), and a blind copy_directory
+# clobbered editor-saved scenes with the checked-in copy every build. The
+# script overwrites static assets but only seeds authored .json files.
+add_custom_target(runtime_assets
+  COMMAND ${CMAKE_COMMAND}
+    -DSRC=${CMAKE_CURRENT_SOURCE_DIR}/src/Exported
+    -DDST=$<TARGET_FILE_DIR:Editor>/Exported
+    -P ${CMAKE_SOURCE_DIR}/cmake/stage_runtime_assets.cmake
+  COMMENT "Staging runtime assets")
+add_dependencies(Editor runtime_assets)
 
 # Optionally add different compile options based on the build configuration
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")

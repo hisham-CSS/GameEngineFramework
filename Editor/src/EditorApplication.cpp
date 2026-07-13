@@ -177,18 +177,10 @@ void EditorApplication::Run() {
         scene.registry.emplace<NoShadow>(ground);
     }
 
-    // Demo gameplay on the fixed tick: spin every entity named "Hero".
-    // (Real games will hang systems/scripts off this hook — see roadmap P3-9.)
-    SetFixedUpdate([&scene](float fixedDt) {
-        auto view = scene.registry.view<Name, Transform>();
-        for (auto e : view) {
-            if (view.get<Name>(e).value != "Hero") continue;
-            auto& t = view.get<Transform>(e);
-            t.rotation.y += 45.f * fixedDt; // deg/sec, framerate-independent
-            if (t.rotation.y >= 360.f) t.rotation.y -= 360.f;
-            t.dirty = true;
-        }
-    });
+    // Demo gameplay (shared with the standalone player): spin entities named
+    // "Hero". Only ticks between Play and Stop here — the gameplay gate is
+    // off in edit mode.
+    MyCoreEngine::InstallDemoGameplay(*this, scene);
 
     RunLoop(scene, *shader);
 }
@@ -483,6 +475,29 @@ void EditorApplication::DrawScenePersistence(MyCoreEngine::Scene& scene)
     }
     if (playing_) ImGui::EndDisabled();
     if (!lastStatus.empty()) ImGui::TextDisabled("%s", lastStatus.c_str());
+
+    // --- Build Settings: which scene the standalone player boots into ---
+    ImGui::SeparatorText("Build Settings");
+    static std::string startupScene = [] {
+        MyCoreEngine::ProjectSettings s;
+        s.Load();
+        return s.startupScene;
+    }();
+    static std::string buildStatus;
+    ImGui::Text("Player startup scene: %s", startupScene.c_str());
+    if (ImGui::Button("Set Current File as Startup Scene")) {
+        MyCoreEngine::ProjectSettings s;
+        s.Load(); // preserves the fields the struct knows; Save rewrites the file
+        s.startupScene = scenePath;
+        if (s.Save()) {
+            startupScene = s.startupScene;
+            buildStatus = "Saved to Exported/project.json (ships with the game)";
+        }
+        else {
+            buildStatus = "Save FAILED (see console)";
+        }
+    }
+    if (!buildStatus.empty()) ImGui::TextDisabled("%s", buildStatus.c_str());
 }
 
 void EditorApplication::DrawLightControls(MyCoreEngine::Scene& scene)
