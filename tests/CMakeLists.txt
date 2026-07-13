@@ -55,4 +55,12 @@ engine_test(test_undo_history)     # editor undo/redo snapshots (pure CPU)
 target_sources(test_undo_history PRIVATE ${CMAKE_SOURCE_DIR}/Editor/src/UndoHistory.cpp)
 target_include_directories(test_undo_history PRIVATE ${CMAKE_SOURCE_DIR}/Editor/src)
 
+engine_test(test_perf_render)      # P4-8 perf budgets (real GPU work)
+# Timing test: never share the machine with other tests, and give the
+# model load + 4 scenarios room to breathe.
+set_tests_properties(test_perf_render PROPERTIES
+  LABELS "perf"
+  RUN_SERIAL TRUE
+  TIMEOUT 300)
+
 target_compile_definitions(test_render_passes PRIVATE UNIT_TEST=1)
