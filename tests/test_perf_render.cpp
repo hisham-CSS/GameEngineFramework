@@ -51,16 +51,24 @@ extern "C" {
 namespace {
 
     // ---- budgets (median ms), ~2x the measured baseline medians. ----
-    // Baselines 2026-07-12 (commit a7eec47), RTX 3050 Laptop @1920x1080:
-    //   at-rest 20x20 spawn view   15.0 ms   (~12.3k instances)
-    //   sustained camera orbit     17.4 ms   (p95 ~32 — CSM rebuild spikes)
-    //   wide view 25x25            45.5 ms   (~40k instances, P4-9 canary)
-    //   dynamic caster (spin)      26.4 ms
+    // Baselines 2026-07-13 (commit 7fcedf2), RTX 3050 Laptop @1920x1080.
+    // "cpu" = median time until RenderFrame returns (pre-glFinish): the
+    // main-thread build/cull/sort/submit share of the frame.
+    //   at-rest 20x20 spawn view   14.5 ms (cpu  1.2)  ~12.3k instances
+    //   sustained camera orbit     17.2 ms (cpu  1.6)  p95 ~31, CSM spikes
+    //   wide view 25x25            45.4 ms (cpu  4.5)  ~40k instances
+    //   wide view 25x25 moving     49.8 ms (cpu  6.0)  CSM movement cadence
+    //   wide 25x25 move+spin       94.3 ms (cpu 16.4)  July-2026 editor repro:
+    //     dynamic caster invalidates cascades every frame; ~78 ms of it is
+    //     GPU (forward + shadow re-render), NOT the single-threaded CPU path
+    //   dynamic caster (spin)      26.4 ms (cpu  2.9)
     // If a failure is an intentional cost (new feature), re-measure and
     // update the budget + baseline lines here.
     constexpr double kBudgetAtRestMs = 30.0;
     constexpr double kBudgetCameraMoveMs = 35.0;
     constexpr double kBudgetWideViewMs = 90.0;
+    constexpr double kBudgetWideMovingMs = 100.0;
+    constexpr double kBudgetWideMoveSpinMs = 190.0;
     constexpr double kBudgetDynamicCasterMs = 50.0;
 
     double budgetScale() {
@@ -185,6 +193,7 @@ namespace {
         struct PerfResult {
             double medianMs = 0.0;
             double p95Ms = 0.0;
+            double cpuMedianMs = 0.0; // until RenderFrame returns (pre-glFinish)
             RenderStats stats{};
         };
 
@@ -206,8 +215,9 @@ namespace {
             }
             glFinish();
 
-            std::vector<double> ms;
+            std::vector<double> ms, cpuMs;
             ms.reserve(frames);
+            cpuMs.reserve(frames);
             using clock = std::chrono::steady_clock;
             for (int i = 0; i < frames; ++i) {
                 if (perFrame) perFrame(warmup + i); // game logic: untimed
@@ -215,20 +225,24 @@ namespace {
                 scene.UpdateTransforms();
                 renderer.RenderFrame(scene, *shader, cam,
                                      rt.width(), rt.height(), dt, rt.fbo());
+                const auto tCpu = clock::now(); // submission done, GPU may still run
                 glFinish();
                 const auto t1 = clock::now();
                 ms.push_back(std::chrono::duration<double, std::milli>(t1 - t0).count());
+                cpuMs.push_back(std::chrono::duration<double, std::milli>(tCpu - t0).count());
             }
 
             std::sort(ms.begin(), ms.end());
+            std::sort(cpuMs.begin(), cpuMs.end());
             PerfResult r;
             r.medianMs = ms[ms.size() / 2];
             // nearest-rank p95: smallest sample >= 95% of the distribution
             r.p95Ms = ms[(size_t)std::ceil(0.95 * (double)ms.size()) - 1];
+            r.cpuMedianMs = cpuMs[cpuMs.size() / 2];
             r.stats = scene.GetRenderStats();
-            std::printf("[PERF] %-28s median %7.2f ms  p95 %7.2f ms  "
+            std::printf("[PERF] %-28s median %7.2f ms (cpu %6.2f)  p95 %7.2f ms  "
                         "(submitted %u, instances %u, culled %u)\n",
-                        name, r.medianMs, r.p95Ms,
+                        name, r.medianMs, r.cpuMedianMs, r.p95Ms,
                         r.stats.submitted, r.stats.instances, r.stats.culled);
             std::fflush(stdout);
             return r;
@@ -285,6 +299,46 @@ TEST_F(PerfFixture, WideView_HighInstanceCount) {
     EXPECT_GT(r.stats.submitted, 15000u) << "wide view lost its instance load — scene/culling bug?";
     EXPECT_LT(r.medianMs, kBudgetWideViewMs * budgetScale())
         << "wide-view frame regressed vs baseline";
+}
+
+// Scenario 3b: wide view WHILE MOVING — the July 2026 pain case (20-30 FPS
+// in the editor): every camera step triggers CSM cascade rebuilds, so the
+// per-frame cost adds shadow bucketing/culling/draws on top of the wide
+// forward pass. This is the primary P4-9 target.
+TEST_F(PerfFixture, WideView_Moving) {
+    Scene scene;
+    buildGrid(scene, 25, 25);
+    Camera cam;
+
+    const auto r = measure("wide view 25x25 moving", scene, cam, [&](int i) {
+        const float a = 0.006f * (float)i;
+        const glm::vec3 pos{ 170.f * std::sin(a), 110.f, 170.f * std::cos(a) };
+        aim(cam, pos, { 0.f, 0.f, 0.f });
+    });
+    EXPECT_GT(r.stats.submitted, 15000u) << "wide view lost its instance load — scene/culling bug?";
+    EXPECT_LT(r.medianMs, kBudgetWideMovingMs * budgetScale())
+        << "moving-wide-view frame regressed vs baseline";
+}
+
+// Scenario 3c: the full July 2026 editor reproduction — wide view, camera
+// flying, AND the demo Hero spinning every frame (dynamic caster keeps
+// invalidating cascades). Worst case for the whole pipeline.
+TEST_F(PerfFixture, WideView_MovingWithDynamicCaster) {
+    Scene scene;
+    const auto built = buildGrid(scene, 25, 25);
+    ASSERT_TRUE(built.hero != entt::null);
+    Camera cam;
+
+    const auto r = measure("wide 25x25 move+spin", scene, cam, [&](int i) {
+        const float a = 0.006f * (float)i;
+        aim(cam, { 170.f * std::sin(a), 110.f, 170.f * std::cos(a) }, { 0.f, 0.f, 0.f });
+        auto& t = scene.registry.get<Transform>(built.hero);
+        t.rotation.y += 45.f * (1.f / 60.f);
+        t.dirty = true;
+    });
+    EXPECT_GT(r.stats.submitted, 15000u) << "wide view lost its instance load — scene/culling bug?";
+    EXPECT_LT(r.medianMs, kBudgetWideMoveSpinMs * budgetScale())
+        << "move+spin wide-view frame regressed vs baseline";
 }
 
 // Scenario 4: dynamic caster — the center entity spins every frame
