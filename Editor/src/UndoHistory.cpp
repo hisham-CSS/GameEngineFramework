@@ -63,7 +63,11 @@ void UndoHistory::apply_(entt::registry& reg, MyCoreEngine::AssetManager* assets
         if (reg.valid(e)) reg.destroy(e);
         return;
     }
-    const EntitySnapshot& s = *snap;
+    apply(reg, assets, e, *snap);
+}
+
+void UndoHistory::apply(entt::registry& reg, MyCoreEngine::AssetManager* assets,
+                        entt::entity e, const EntitySnapshot& s) {
     if (!reg.valid(e)) {
         // resurrect under the same handle so later history entries still
         // reference the right entity (entt honors the hint if the slot is free)
@@ -99,6 +103,19 @@ void UndoHistory::apply_(entt::registry& reg, MyCoreEngine::AssetManager* assets
     else reg.remove<NoShadow>(e);
 }
 
+UndoHistory::SceneSnapshot UndoHistory::captureScene(entt::registry& reg) {
+    SceneSnapshot out;
+    auto view = reg.view<entt::entity>();
+    for (auto e : view) out.emplace_back(e, capture(reg, e));
+    return out;
+}
+
+void UndoHistory::restoreScene(entt::registry& reg, MyCoreEngine::AssetManager* assets,
+                               const SceneSnapshot& snap) {
+    reg.clear(); // play-created entities vanish; everything else rebuilds
+    for (const auto& [e, s] : snap) apply(reg, assets, e, s);
+}
+
 bool UndoHistory::same_(const std::optional<EntitySnapshot>& a,
                         const std::optional<EntitySnapshot>& b) {
     if (a.has_value() != b.has_value()) return false;
@@ -107,6 +124,7 @@ bool UndoHistory::same_(const std::optional<EntitySnapshot>& a,
 }
 
 void UndoHistory::beginEdit(entt::registry& reg, entt::entity e, std::string label) {
+    if (!recordingEnabled_) return;
     if (pendingActive_ && pendingEntity_ == e && pendingLabel_ == label) {
         pendingTouched_ = true;
         return;
@@ -151,6 +169,7 @@ void UndoHistory::tickFrame(entt::registry& reg) {
 
 void UndoHistory::record(entt::registry& reg, entt::entity e, std::string label,
                          const std::function<void()>& mutate) {
+    if (!recordingEnabled_) { mutate(); return; } // apply, don't remember
     Entry en;
     en.label = std::move(label);
     en.entity = e;
@@ -163,6 +182,7 @@ void UndoHistory::record(entt::registry& reg, entt::entity e, std::string label,
 }
 
 void UndoHistory::recordCreate(entt::registry& reg, entt::entity e, std::string label) {
+    if (!recordingEnabled_) return; // entity already created by the caller
     Entry en;
     en.label = std::move(label);
     en.entity = e;
@@ -173,6 +193,7 @@ void UndoHistory::recordCreate(entt::registry& reg, entt::entity e, std::string 
 
 void UndoHistory::recordDelete(entt::registry& reg, entt::entity e, std::string label) {
     if (!reg.valid(e)) return;
+    if (!recordingEnabled_) { reg.destroy(e); return; } // delete, don't remember
     Entry en;
     en.label = std::move(label);
     en.entity = e;
@@ -185,6 +206,7 @@ void UndoHistory::recordDelete(entt::registry& reg, entt::entity e, std::string 
 void UndoHistory::recordTransformChange(entt::registry& reg, entt::entity e,
                                         const Transform& before, std::string label) {
     if (!reg.valid(e)) return;
+    if (!recordingEnabled_) return; // the drag already applied its change
     EntitySnapshot after = capture(reg, e);
     EntitySnapshot beforeSnap = after; // only the transform differed during the drag
     beforeSnap.hasTransform = true;

@@ -49,6 +49,12 @@ private:
     void doUndo_(MyCoreEngine::Scene& scene);
     void doRedo_(MyCoreEngine::Scene& scene);
 
+    // play-in-editor (P2-6): Play snapshots the registry and enables the
+    // gameplay hooks; Stop disables them and restores the snapshot under
+    // the original entity handles (selection + undo history stay valid).
+    void startPlay_(MyCoreEngine::Scene& scene);
+    void stopPlay_(MyCoreEngine::Scene& scene);
+
     EditorImGuiLayer ui_;                 // <-- persistent member
     SceneHierarchyPanel hierarchy_;
     InspectorPanel      inspector_;
@@ -61,6 +67,9 @@ private:
     UndoHistory undo_;
     bool gizmoWasUsing_ = false;   // edge-detects gizmo drag end for coalescing
     Transform gizmoBefore_{};      // selected entity's transform before the drag
+
+    bool playing_ = false;                      // play-in-editor state
+    UndoHistory::SceneSnapshot playSnapshot_;   // edit-mode scene, restored on Stop
 
     // layout .ini to load before the next frame (empty = none). Deferred
     // because settings must be (re)applied outside NewFrame/Render.

@@ -56,7 +56,17 @@ namespace MyCoreEngine
 		void SetUpdate(UpdateFn fn) { update_ = std::move(fn); }
 		void SetFixedUpdate(UpdateFn fn) { fixedUpdate_ = std::move(fn); }
 
+		// --- gameplay gating (play-in-editor) ---
+		// When disabled, the fixed/variable game-update hooks don't tick.
+		// The Player leaves this on (default); the editor enables it only
+		// while in play mode, so gameplay never mutates the edit-mode scene.
+		void setGameplayEnabled(bool on) { gameplayEnabled_ = on; }
+		bool gameplayEnabled() const { return gameplayEnabled_; }
+
 		// --- time control ---
+		// Drop any accumulated partial fixed step (play-in-editor calls this
+		// on Play so every session's first tick lands at the same time).
+		void  resetGameClock() { fixedStep_.reset(); }
 		void  setFixedTimestepHz(float hz) { fixedStep_.setStep(1.f / std::max(1.f, hz)); }
 		float fixedTimestepHz() const { return 1.f / fixedStep_.step(); }
 		float fixedAlpha() const { return fixedStep_.alpha(); }
@@ -93,6 +103,7 @@ namespace MyCoreEngine
 		FixedTimestep fixedStep_{ 1.f / 60.f };
 		float    timeScale_ = 1.0f;
 		bool     paused_ = false;
+		bool     gameplayEnabled_ = true;
 		bool     vsync_ = true;
 
 		// hooks

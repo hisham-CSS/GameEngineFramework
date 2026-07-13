@@ -101,24 +101,37 @@ void EditorApplication::Run() {
         DrawEditHistory(scene);
 
         // Ctrl+Z / Ctrl+Y (+ Ctrl+Shift+Z). Not while typing in a text
-        // field (ImGui's own text-edit undo owns Ctrl+Z there), and not
-        // while a drag is in flight: rewinding history mid-manipulation
-        // corrupts it — ImGuizmo would stomp the undone transform from its
+        // field (ImGui's own text-edit undo owns Ctrl+Z there), not while
+        // a drag is in flight (rewinding history mid-manipulation corrupts
+        // it — ImGuizmo would stomp the undone transform from its
         // drag-start anchors and the release-time push would erase the
-        // entry that was just undone.
+        // entry that was just undone), and not during play (play-mode
+        // changes are discarded on Stop, not undone).
         ImGuiIO& io = ImGui::GetIO();
         if (io.KeyCtrl && !io.WantTextInput &&
             !ImGuizmo::IsUsing() && !undo_.editActive()) {
-            if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) {
-                if (io.KeyShift) doRedo_(scene); else doUndo_(scene);
+            // the drag gates also protect Ctrl+P: toggling play mid-drag
+            // would snapshot/restore around a half-applied manipulation and
+            // leak play-pose transforms into the edit scene and history
+            if (!playing_) {
+                if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) {
+                    if (io.KeyShift) doRedo_(scene); else doUndo_(scene);
+                }
+                else if (ImGui::IsKeyPressed(ImGuiKey_Y, false)) {
+                    doRedo_(scene);
+                }
             }
-            else if (ImGui::IsKeyPressed(ImGuiKey_Y, false)) {
-                doRedo_(scene);
+            if (ImGui::IsKeyPressed(ImGuiKey_P, false)) {
+                if (playing_) stopPlay_(scene); else startPlay_(scene);
             }
         }
 
         ui_.EndFrame();
     });
+
+    // Edit mode by default: gameplay hooks (FixedUpdate/Update) only tick
+    // between Play and Stop. The Player never touches this and always ticks.
+    setGameplayEnabled(false);
 
     // Make GL ready before creating any GL objects (Shaders, Models)
     InitGL();
@@ -199,6 +212,27 @@ void EditorApplication::DrawViewport(MyCoreEngine::Scene& scene)
     ImGui::RadioButton("Translate", &gizmoOp_, 0); ImGui::SameLine();
     ImGui::RadioButton("Rotate", &gizmoOp_, 1); ImGui::SameLine();
     ImGui::RadioButton("Scale", &gizmoOp_, 2);
+
+    // play-in-editor controls (P2-6)
+    ImGui::SameLine(0.f, 32.f);
+    if (!playing_) {
+        if (ImGui::Button("Play")) startPlay_(scene);
+        ImGui::SameLine();
+        ImGui::TextDisabled("(Ctrl+P)");
+    }
+    else {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.65f, 0.15f, 0.15f, 1.f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.80f, 0.20f, 0.20f, 1.f));
+        if (ImGui::Button("Stop")) stopPlay_(scene);
+        ImGui::PopStyleColor(2);
+        ImGui::SameLine();
+        // "entity changes": scene-level settings (lights, render toggles)
+        // are outside the snapshot and stick — gameplay only mutates the
+        // registry today
+        ImGui::TextColored(ImVec4(1.f, 0.75f, 0.25f, 1.f),
+                           "PLAYING%s — entity changes revert on Stop",
+                           paused() ? " (paused)" : "");
+    }
 
     const ImVec2 avail = ImGui::GetContentRegionAvail();
     if (avail.x >= 8.f && avail.y >= 8.f) {
@@ -426,6 +460,9 @@ void EditorApplication::DrawScenePersistence(MyCoreEngine::Scene& scene)
     ImGui::InputText("Scene file", scenePath, sizeof(scenePath));
 
     MyCoreEngine::SceneSerializer serializer(scene, *assets_);
+    // Saving mid-play would persist transient play state; loading would be
+    // overwritten by Stop's snapshot restore anyway.
+    if (playing_) ImGui::BeginDisabled();
     if (ImGui::Button("Save Scene")) {
         lastStatus = serializer.Save(scenePath)
             ? std::string("Saved to ") + scenePath
@@ -444,6 +481,7 @@ void EditorApplication::DrawScenePersistence(MyCoreEngine::Scene& scene)
             lastStatus = "Load FAILED (see console)";
         }
     }
+    if (playing_) ImGui::EndDisabled();
     if (!lastStatus.empty()) ImGui::TextDisabled("%s", lastStatus.c_str());
 }
 
@@ -657,22 +695,62 @@ void EditorApplication::DrawInformationPanel(const MyCoreEngine::Scene& scene, f
     ImGui::End();
 }
 
+void EditorApplication::startPlay_(MyCoreEngine::Scene& scene)
+{
+    if (playing_) return;
+    undo_.cancelEdit(); // a half-open drag must not commit against play state
+    playSnapshot_ = UndoHistory::captureScene(scene.registry);
+    undo_.setRecordingEnabled(false);
+    resetGameClock(); // deterministic first tick for every session
+    setGameplayEnabled(true);
+    playing_ = true;
+}
+
+void EditorApplication::stopPlay_(MyCoreEngine::Scene& scene)
+{
+    if (!playing_) return;
+    setGameplayEnabled(false);
+    UndoHistory::restoreScene(scene.registry, assets_.get(), playSnapshot_);
+    playSnapshot_.clear();
+    undo_.setRecordingEnabled(true);
+    playing_ = false;
+    // selection normally survives (same handles); it only drops if a
+    // play-created entity was selected at Stop
+    if (!scene.registry.valid(selected_)) selected_ = entt::null;
+    // The restore rewrites transforms wholesale, so the dirty-caster flow
+    // never sees the play-end poses as "departures" — far cascades would
+    // keep shadows baked where things stood when Stop was pressed. A full
+    // rebuild on a user action is imperceptible.
+    renderer().forceCSMUpdate();
+}
+
 void EditorApplication::doUndo_(MyCoreEngine::Scene& scene)
 {
     undo_.undo(scene.registry, assets_.get());
     if (!scene.registry.valid(selected_)) selected_ = entt::null;
+    // snapshot restores overwrite the live matrix, so the departure pose
+    // never reaches the dirty-caster flow — rebuild shadows outright
+    renderer().forceCSMUpdate();
 }
 
 void EditorApplication::doRedo_(MyCoreEngine::Scene& scene)
 {
     undo_.redo(scene.registry, assets_.get());
     if (!scene.registry.valid(selected_)) selected_ = entt::null;
+    renderer().forceCSMUpdate();
 }
 
 void EditorApplication::DrawEditHistory(MyCoreEngine::Scene& scene)
 {
     ImGui::SetNextWindowSize(ImVec2(280, 320), ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Edit")) {
+        if (playing_) {
+            // play-mode changes are discarded by Stop, not undone; rewinding
+            // history against play state would corrupt both
+            ImGui::TextDisabled("(undo/redo disabled during play)");
+            ImGui::End();
+            return;
+        }
         const bool canU = undo_.canUndo();
         const bool canR = undo_.canRedo();
         if (!canU) ImGui::BeginDisabled();
@@ -715,6 +793,7 @@ void EditorApplication::DrawEditHistory(MyCoreEngine::Scene& scene)
             if (target <= entries.size()) {
                 undo_.jumpTo(scene.registry, assets_.get(), target);
                 if (!scene.registry.valid(selected_)) selected_ = entt::null;
+                renderer().forceCSMUpdate(); // see doUndo_
             }
         }
     }

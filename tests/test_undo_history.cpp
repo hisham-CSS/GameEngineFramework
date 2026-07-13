@@ -256,6 +256,92 @@ TEST(UndoHistory, TickFrameDropsAbandonedNoOpEdit) {
     EXPECT_TRUE(h.entries().empty());
 }
 
+// --- play-in-editor (P2-6): whole-scene snapshot/restore -------------------
+
+TEST(SceneSnapshot, RestoreRoundTripPreservesHandlesAndDiscardsPlayChanges) {
+    entt::registry reg;
+    auto a = makeEntity(reg, "A");
+    reg.get<Transform>(a).position = { 1.f, 0.f, 0.f };
+    reg.emplace<NoShadow>(a);
+    auto b = makeEntity(reg, "B");
+    MaterialOverrides mo;
+    auto mat = std::make_shared<MyCoreEngine::Material>();
+    mat->metallic = 0.75f;
+    mo.byIndex[1] = mat;
+    reg.emplace<MaterialOverrides>(b, std::move(mo));
+    reg.emplace<AABB>(b, glm::vec3(-1.f), glm::vec3(1.f));
+
+    const auto snap = UndoHistory::captureScene(reg);
+
+    // "play": mutate A, destroy B, spawn a new entity
+    reg.get<Transform>(a).position = { 9.f, 9.f, 9.f };
+    reg.get<Name>(a).value = "A-played";
+    reg.destroy(b);
+    auto playSpawn = makeEntity(reg, "PlaySpawn");
+    (void)playSpawn;
+
+    UndoHistory::restoreScene(reg, nullptr, snap);
+
+    // original handles are back with their edit-mode state
+    ASSERT_TRUE(reg.valid(a));
+    ASSERT_TRUE(reg.valid(b));
+    EXPECT_EQ(reg.get<Name>(a).value, "A");
+    EXPECT_EQ(reg.get<Transform>(a).position, glm::vec3(1.f, 0.f, 0.f));
+    EXPECT_TRUE(reg.any_of<NoShadow>(a));
+    EXPECT_FLOAT_EQ(reg.get<MaterialOverrides>(b).byIndex.at(1)->metallic, 0.75f);
+    EXPECT_EQ(reg.get<AABB>(b).min, glm::vec3(-1.f));
+
+    // the play-spawned entity is gone: exactly the two originals remain
+    size_t count = 0;
+    for (auto e : reg.view<entt::entity>()) { (void)e; ++count; }
+    EXPECT_EQ(count, 2u);
+}
+
+TEST(SceneSnapshot, UndoHistoryStaysValidAcrossPlaySession) {
+    entt::registry reg;
+    UndoHistory h;
+    auto e = makeEntity(reg, "A");
+
+    // edit-mode history: position 0 -> 1
+    h.record(reg, e, "move", [&] { reg.get<Transform>(e).position.x = 1.f; });
+
+    // play session mutates the entity, stop restores it
+    const auto snap = UndoHistory::captureScene(reg);
+    reg.get<Transform>(e).position.x = 42.f;
+    UndoHistory::restoreScene(reg, nullptr, snap);
+    EXPECT_FLOAT_EQ(reg.get<Transform>(e).position.x, 1.f);
+
+    // the pre-play history still applies cleanly
+    h.undo(reg, nullptr);
+    EXPECT_FLOAT_EQ(reg.get<Transform>(e).position.x, 0.f);
+    h.redo(reg, nullptr);
+    EXPECT_FLOAT_EQ(reg.get<Transform>(e).position.x, 1.f);
+}
+
+TEST(UndoHistory, RecordingDisabledMutatesWithoutHistory) {
+    entt::registry reg;
+    UndoHistory h;
+    auto e = makeEntity(reg, "A");
+
+    h.setRecordingEnabled(false);
+
+    h.record(reg, e, "move", [&] { reg.get<Transform>(e).position.x = 5.f; });
+    EXPECT_FLOAT_EQ(reg.get<Transform>(e).position.x, 5.f); // mutation applied
+    h.beginEdit(reg, e, "Position");
+    reg.get<Transform>(e).position.x = 6.f;
+    h.endEdit(reg);
+    h.recordTransformChange(reg, e, Transform{}, "Move (gizmo)");
+    auto victim = makeEntity(reg, "Victim");
+    h.recordCreate(reg, victim, "Create entity");
+    h.recordDelete(reg, victim, "Delete 'Victim'");
+    EXPECT_FALSE(reg.valid(victim)); // delete still deletes
+    EXPECT_TRUE(h.entries().empty()); // ...but nothing was recorded
+
+    h.setRecordingEnabled(true);
+    h.record(reg, e, "move", [&] { reg.get<Transform>(e).position.x = 7.f; });
+    EXPECT_EQ(h.entries().size(), 1u); // recording works again
+}
+
 TEST(UndoHistory, EntityVanishingMidEditDropsEntry) {
     entt::registry reg;
     UndoHistory h;

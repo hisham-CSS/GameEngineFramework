@@ -5,6 +5,8 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <utility>
+#include <vector>
 
 // Undo/redo history for editor scene edits (P2-7).
 //
@@ -43,6 +45,18 @@ public:
         std::optional<EntitySnapshot> before; // nullopt = entity absent
         std::optional<EntitySnapshot> after;
     };
+
+    // --- recording gate (play-in-editor) ------------------------------------
+    // While disabled, every record* call still performs its mutation (delete
+    // still destroys, record still runs its lambda) but nothing is pushed:
+    // play-mode changes are discarded wholesale by the stop-restore, so
+    // history entries for them would dangle. Existing entries stay valid
+    // because restoreScene rebuilds the pre-play state under the same handles.
+    void setRecordingEnabled(bool on) {
+        recordingEnabled_ = on;
+        if (!on) cancelEdit();
+    }
+    bool recordingEnabled() const { return recordingEnabled_; }
 
     // --- continuous edits (drags, text fields) -----------------------------
     // beginEdit captures the pre-edit state once; endEdit captures the
@@ -95,6 +109,19 @@ public:
     void clear();
 
     static EntitySnapshot capture(entt::registry& reg, entt::entity e);
+    // Rebuild one entity from a snapshot, resurrecting its original handle
+    // if it no longer exists (entt create(hint)).
+    static void apply(entt::registry& reg, MyCoreEngine::AssetManager* assets,
+                      entt::entity e, const EntitySnapshot& snap);
+
+    // --- whole-scene snapshot (play-in-editor, P2-6) ------------------------
+    // captureScene records every entity; restoreScene clears the registry and
+    // rebuilds each entity under its ORIGINAL handle, so selection and this
+    // undo history stay valid across a play session.
+    using SceneSnapshot = std::vector<std::pair<entt::entity, EntitySnapshot>>;
+    static SceneSnapshot captureScene(entt::registry& reg);
+    static void restoreScene(entt::registry& reg, MyCoreEngine::AssetManager* assets,
+                             const SceneSnapshot& snap);
 
 private:
     static void apply_(entt::registry& reg, MyCoreEngine::AssetManager* assets,
@@ -105,6 +132,7 @@ private:
 
     std::deque<Entry> entries_;
     size_t cursor_ = 0;
+    bool recordingEnabled_ = true;
 
     bool pendingActive_ = false;
     bool pendingTouched_ = false;
