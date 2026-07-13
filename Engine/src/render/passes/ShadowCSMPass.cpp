@@ -80,10 +80,15 @@ bool ShadowCSMPass::rebuild_(const Camera& cam, float aspect) {
     splitZ_[0] = n;
     if (splitMode_ == SplitMode::Fixed) {
         // simple, reliable: fixed ratios (feel free to tweak)
-        // for 4 cascades these are ~{5%, 15%, 40%, 100%} of max distance
+        // for 4 cascades these are ~{5%, 15%, 40%, 100%} of max distance.
+        // The table is right-aligned for fewer cascades (3 -> 15/40/100%).
+        // NOTE 2026-07-13: this used kDefaultRatios[min(i,3)], which skipped
+        // the 5% entry — cascade 0 stretched to 15% and the LAST cascade
+        // collapsed to a degenerate sliver at exactly maxShadowDistance
+        // (splits {15,40,100,100}%), so 4-cascade setups really ran 3.
         static const float kDefaultRatios[4] = { 0.05f, 0.15f, 0.40f, 1.0f };
         for (int i = 1; i < cascades_; ++i) {
-            float r = kDefaultRatios[std::min(i, 3)];
+            float r = kDefaultRatios[std::clamp(i - 1 + (kMaxCascades - cascades_), 0, 3)];
             float d = glm::clamp(n + r * (f - n), n + eps, f - eps);
             if (d <= splitZ_[i - 1] + eps) d = splitZ_[i - 1] + eps;
             splitZ_[i] = d;
@@ -175,8 +180,25 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
             // which samples neighboring cascades)
             if (!needs) {
                 const float slack = ctx.splitBlend + 1.f;
-                needs = scene.HasDynamicCasterInViewRange(
-                    pos, fwd, splitZ_[i] - slack, splitZ_[i + 1] + slack, sun);
+                const bool dyn = pendingDynamic_[i] ||
+                    scene.HasDynamicCasterInViewRange(
+                        pos, fwd, splitZ_[i] - slack, splitZ_[i + 1] + slack, sun);
+                if (dyn) {
+                    // Throttle: far cascades are huge (a re-render redraws
+                    // most of the scene), so dynamic invalidations amortize
+                    // across frames there; cascades 0-1 stay every-frame.
+                    const uint64_t interval =
+                        (uint64_t)std::min(1 << std::max(0, i - 1), dynIntervalCap_);
+                    if (frameIndex_ - lastRenderedFrame_[i] >= interval) {
+                        needs = true;
+                    }
+                    else {
+                        // the dirty-caster signal is transient (cleared next
+                        // UpdateTransforms): remember it so the deferred
+                        // refresh still happens after the caster stops
+                        pendingDynamic_[i] = true;
+                    }
+                }
             }
         }
         // Manual: only global invalidation (markDirty_) refreshes
@@ -185,6 +207,8 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
 
     // Optional cap (opt-in extra amortization; nearest cascades first).
     const int toUpdate = (budgetPerFrame_ > 0) ? std::min(budgetPerFrame_, needCount) : needCount;
+    lastUpdatedCount_ = toUpdate; // cheap; tests read it via getDebugSnapshot
+    for (int k = 0; k < kMaxCascades; ++k) lastUpdatedIdx_[k] = (k < toUpdate) ? needIdx[k] : -1;
     // Cascades flagged but dropped by the cap must STAY flagged: the
     // dirty-caster signal is transient (cleared next UpdateTransforms), so
     // without this a deferred cascade would never refresh once the caster
@@ -272,6 +296,10 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
         renderedCenter_[i] = center;
         renderedMargin_[i] = margin;
         cascadeValid_[i] = true;
+        // any re-render captures current caster poses: clear the deferred-
+        // dynamic flag and restart this cascade's throttle window
+        lastRenderedFrame_[i] = frameIndex_;
+        pendingDynamic_[i] = false;
     }
 
     // render depth per cascade (your renderCSM_ body)
@@ -370,10 +398,6 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
         ctx.csm.resPer[i] = resPer_[i];
     }
     
-    #ifdef UNIT_TEST
-        lastUpdatedCount_ = toUpdate;
-    #endif
-
     return (toUpdate > 0);
 }
 

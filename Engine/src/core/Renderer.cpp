@@ -301,6 +301,12 @@ namespace MyCoreEngine {
     void Renderer::setCSMCascadeBudget(int n) {
         if (csmPass_) csmPass_->setCascadeUpdateBudget(n);
     }
+    int Renderer::getCSMDynamicIntervalCap() const {
+        return csmPass_ ? csmPass_->dynamicIntervalCap() : 1;
+    }
+    void Renderer::setCSMDynamicIntervalCap(int frames) {
+        if (csmPass_) csmPass_->setDynamicIntervalCap(frames);
+    }
     void Renderer::getCSMEpsilons(float& posMeters, float& angDegrees) const {
         if (csmPass_) csmPass_->getEpsilons(posMeters, angDegrees);
         else { posMeters = 0.05f; angDegrees = 0.5f; }

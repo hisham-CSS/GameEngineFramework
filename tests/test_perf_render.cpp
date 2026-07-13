@@ -51,24 +51,25 @@ extern "C" {
 namespace {
 
     // ---- budgets (median ms), ~2x the measured baseline medians. ----
-    // Baselines 2026-07-13 (commit 7fcedf2), RTX 3050 Laptop @1920x1080.
+    // Baselines 2026-07-13 (dynamic-caster shadow throttling + CSM split
+    // off-by-one fix), RTX 3050 Laptop @1920x1080.
     // "cpu" = median time until RenderFrame returns (pre-glFinish): the
     // main-thread build/cull/sort/submit share of the frame.
-    //   at-rest 20x20 spawn view   14.5 ms (cpu  1.2)  ~12.3k instances
-    //   sustained camera orbit     17.2 ms (cpu  1.6)  p95 ~31, CSM spikes
-    //   wide view 25x25            45.4 ms (cpu  4.5)  ~40k instances
-    //   wide view 25x25 moving     49.8 ms (cpu  6.0)  CSM movement cadence
-    //   wide 25x25 move+spin       94.3 ms (cpu 16.4)  July-2026 editor repro:
-    //     dynamic caster invalidates cascades every frame; ~78 ms of it is
-    //     GPU (forward + shadow re-render), NOT the single-threaded CPU path
-    //   dynamic caster (spin)      26.4 ms (cpu  2.9)
+    //   at-rest 20x20 spawn view   14.6 ms (cpu  1.2)  ~12.3k instances
+    //   sustained camera orbit     17.3 ms (cpu  1.7)
+    //   wide view 25x25            45.7 ms (cpu  4.6)  ~40k instances
+    //   wide view 25x25 moving     50.0 ms (cpu  5.4)  CSM movement cadence
+    //   wide 25x25 move+spin       51.4 ms (cpu  6.3)  was 94.3 before the
+    //     throttle: far-cascade dynamic re-renders amortize every 4 frames
+    //     (p95 ~77 shows the bounded spike; near cascades stay every-frame)
+    //   dynamic caster (spin)      24.6 ms (cpu  2.7)
     // If a failure is an intentional cost (new feature), re-measure and
     // update the budget + baseline lines here.
     constexpr double kBudgetAtRestMs = 30.0;
     constexpr double kBudgetCameraMoveMs = 35.0;
     constexpr double kBudgetWideViewMs = 90.0;
     constexpr double kBudgetWideMovingMs = 100.0;
-    constexpr double kBudgetWideMoveSpinMs = 190.0;
+    constexpr double kBudgetWideMoveSpinMs = 105.0;
     constexpr double kBudgetDynamicCasterMs = 50.0;
 
     double budgetScale() {

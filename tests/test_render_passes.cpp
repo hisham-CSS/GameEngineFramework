@@ -457,6 +457,143 @@ TEST_F(GLFixture, ShadowDepth_DeterministicHashAndSensitivity) {
     EXPECT_NE(h1, h3) << "Depth should react to model movement";
 }
 
+// ---------- dynamic-caster re-render throttling (2026-07-13) ----------
+// A caster spinning in place far from the camera must NOT force the huge
+// far cascade to re-render every frame: dynamic invalidations amortize
+// (cascade i at most every min(2^(i-1), cap) frames), a pending flag
+// guarantees the final refresh after the caster stops, and casters below
+// the per-cascade texel floor don't invalidate at all.
+namespace {
+    // real Scene + a component-complete but meshless caster: update
+    // decisions run exactly as in production, nothing is actually drawn
+    static entt::entity addCaster(Scene& scene, glm::vec3 pos, float halfSize) {
+        Entity e = scene.createEntity();
+        Transform t{};
+        t.position = pos;
+        e.addComponent<Transform>(t);
+        e.addComponent<ModelComponent>(ModelComponent{}); // null model
+        e.addComponent<AABB>(AABB{ glm::vec3(-halfSize), glm::vec3(halfSize) });
+        return e;
+    }
+
+    static void spinCaster(Scene& scene, entt::entity e) {
+        auto& t = scene.registry.get<Transform>(e);
+        t.rotation.y += 10.f;
+        t.dirty = true;
+    }
+}
+
+TEST_F(GLFixture, DynamicCaster_FarCascadeThrottled) {
+    PassContext ctx{}; GLFixture::makeHDR(ctx);
+    ShadowCSMPass pass;
+    pass.setup(ctx);
+    pass.setNumCascades(4);
+    pass.setCascadeUpdateBudget(0);
+    pass.setBaseResolution(512);
+    pass.setMaxShadowDistance(200.f);
+    pass.setDynamicIntervalCap(4); // default, explicit for the test
+    // policy stays CameraOrSunMoved (the production default)
+
+    Camera cam; cam.Position = { 0, 2, 0 };
+    cam.Front = glm::normalize(glm::vec3(0, -0.05f, -1)); cam.Zoom = 60.f;
+    FrameParams fp{};
+    fp.view = cam.GetViewMatrix();
+    fp.proj = glm::perspective(glm::radians(cam.Zoom), 1.0f, 0.1f, 1000.0f);
+    fp.viewportW = 64; fp.viewportH = 64;
+    ctx.sunDir = glm::normalize(glm::vec3(-0.3f, -1.0f, -0.2f));
+
+    Scene scene;
+    // depth ~150: inside cascade 3's slice (80..200), nowhere else
+    // (splits for 4 cascades / 200m: 10 / 30 / 80 / 200)
+    auto far = addCaster(scene, { 0, 0, -150 }, 2.f);
+
+    scene.UpdateTransforms();
+    pass.execute(ctx, scene, cam, fp); // first frame renders everything
+    {
+        const auto s = pass.getDebugSnapshot();
+        ASSERT_EQ(s.lastUpdatedCount, 4);
+        // the far cascade must be a real slice, not the degenerate sliver
+        // the pre-2026-07-13 off-by-one produced (splits {15,40,100,100}%)
+        EXPECT_GT(s.splitFar[3] - s.splitFar[2], 50.f);
+    }
+
+    // spin every frame with the camera perfectly still. Frame indices 2..7;
+    // cascade 3's throttle interval is min(2^(3-1), cap=4) = 4, and the
+    // full render above stamped frame 1 — so exactly one re-render (frame 5)
+    int updates = 0;
+    for (int i = 0; i < 6; ++i) {
+        spinCaster(scene, far);
+        scene.UpdateTransforms();
+        pass.execute(ctx, scene, cam, fp);
+        const auto s = pass.getDebugSnapshot();
+        updates += s.lastUpdatedCount;
+        if (s.lastUpdatedCount > 0) {
+            EXPECT_EQ(s.lastUpdatedIdx[0], 3) << "wrong cascade re-rendered";
+        }
+    }
+    EXPECT_EQ(updates, 1) << "far-cascade dynamic re-renders are not amortized "
+                             "(unthrottled this was 6 — one per frame)";
+
+    // the caster stopped while its last pose was still deferred: the pending
+    // flag must produce exactly one final refresh once the interval elapses
+    int tailUpdates = 0;
+    for (int i = 0; i < 6; ++i) {
+        scene.UpdateTransforms(); // no dirty flags
+        pass.execute(ctx, scene, cam, fp);
+        tailUpdates += pass.getDebugSnapshot().lastUpdatedCount;
+    }
+    EXPECT_EQ(tailUpdates, 1) << "pending dynamic refresh lost or repeated after caster stopped";
+}
+
+TEST_F(GLFixture, DynamicCaster_NearCascadeStaysLive) {
+    PassContext ctx{}; GLFixture::makeHDR(ctx);
+    ShadowCSMPass pass;
+    pass.setup(ctx);
+    pass.setNumCascades(4);
+    pass.setCascadeUpdateBudget(0);
+    pass.setBaseResolution(512);
+    pass.setMaxShadowDistance(200.f);
+    pass.setDynamicIntervalCap(4);
+
+    Camera cam; cam.Position = { 0, 2, 0 };
+    cam.Front = glm::normalize(glm::vec3(0, -0.05f, -1)); cam.Zoom = 60.f;
+    FrameParams fp{};
+    fp.view = cam.GetViewMatrix();
+    fp.proj = glm::perspective(glm::radians(cam.Zoom), 1.0f, 0.1f, 1000.0f);
+    fp.viewportW = 64; fp.viewportH = 64;
+    ctx.sunDir = glm::normalize(glm::vec3(-0.3f, -1.0f, -0.2f));
+
+    Scene scene;
+    auto near = addCaster(scene, { 0, 0, -5 }, 2.f); // cascade 0/1 range
+
+    scene.UpdateTransforms();
+    pass.execute(ctx, scene, cam, fp);
+
+    // near shadows must keep updating EVERY frame — that's where detail is.
+    // The caster's swept footprint overlaps BOTH cascade 0 and cascade 1;
+    // assert both indices specifically so a regression that throttles
+    // cascade 1 (e.g. interval 2^i instead of 2^(i-1)) cannot hide behind
+    // cascade 0's every-frame updates.
+    for (int i = 0; i < 4; ++i) {
+        spinCaster(scene, near);
+        scene.UpdateTransforms();
+        pass.execute(ctx, scene, cam, fp);
+        const auto s = pass.getDebugSnapshot();
+        bool has0 = false, has1 = false;
+        for (int k = 0; k < s.lastUpdatedCount && k < 4; ++k) {
+            if (s.lastUpdatedIdx[k] == 0) has0 = true;
+            if (s.lastUpdatedIdx[k] == 1) has1 = true;
+        }
+        EXPECT_TRUE(has0) << "cascade 0 dynamic update throttled (frame " << i << ")";
+        EXPECT_TRUE(has1) << "cascade 1 dynamic update throttled (frame " << i << ")";
+    }
+}
+
+// (A "significance floor" that ignored sub-texel casters entirely was tried
+// here and removed: dropping the invalidation — instead of deferring it like
+// the throttle does — left translating casters' shadows baked forever, and
+// it contributed nothing measurable to the wide+spin win.)
+
 // ---------- NEW: tonemap smoke test ----------
 TEST_F(GLFixture, Tonemap_WritesToDefaultFBO) {
     PassContext ctx{}; GLFixture::makeHDR(ctx, 64, 64);

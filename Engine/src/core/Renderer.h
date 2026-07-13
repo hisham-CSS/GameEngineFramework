@@ -117,6 +117,8 @@ namespace MyCoreEngine {
         void  setCSMUpdatePolicy(ShadowCSMPass::UpdatePolicy p);
         int   getCSMCascadeBudget() const;
         void  setCSMCascadeBudget(int n);
+        int   getCSMDynamicIntervalCap() const;
+        void  setCSMDynamicIntervalCap(int frames);
         void  getCSMEpsilons(float& posMeters, float& angDegrees) const;
         void  setCSMEpsilons(float posMeters, float angDegrees);
         void  forceCSMUpdate(); // manual refresh

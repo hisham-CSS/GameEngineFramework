@@ -52,6 +52,18 @@ public:
     void  setUpdateMarginFraction(float f) { updateMarginFrac_ = std::clamp(f, 0.02f, 0.5f); markDirty_(); }
     float updateMarginFraction() const { return updateMarginFrac_; }
 
+    // --- dynamic-caster re-render throttle (2026-07-13) ------------------
+    // A moved/rotated caster invalidates every cascade its shadow can reach.
+    // Far cascades are huge (most of the scene re-drawn), so a single
+    // spinning object used to double the frame. Cascade i re-renders for
+    // DYNAMIC casters at most every min(2^(i-1), cap) frames — cascades 0
+    // and 1 stay every-frame, far ones amortize. Staleness is bounded: a
+    // pending flag guarantees the final refresh after the caster stops.
+    // cap=1 disables the throttle; 4 is the largest value the formula can
+    // express with kMaxCascades=4.
+    void setDynamicIntervalCap(int frames) { dynIntervalCap_ = std::clamp(frames, 1, 4); }
+    int  dynamicIntervalCap() const { return dynIntervalCap_; }
+
     // Depth-bias / culling controls
     void setSlopeDepthBias(float slope) { slopeBias_ = std::max(0.f, slope); markDirty_(); }
     void setConstantDepthBias(float constant) { constBias_ = std::max(0.f, constant); markDirty_(); }
@@ -115,6 +127,7 @@ private:
     SplitMode    splitMode_{ SplitMode::Fixed };
     int          budgetPerFrame_{ 0 };   // 0 == update all stale cascades
     int          lastUpdatedCount_{ 0 };  // for tests only
+    std::array<int, kMaxCascades> lastUpdatedIdx_{ {-1,-1,-1,-1} }; // for tests only
 
     // Per-cascade cached coverage (movement-proportional update cadence):
     // a cascade is re-rendered only when the slice center drifts past the
@@ -123,6 +136,11 @@ private:
     std::array<float, kMaxCascades> renderedMargin_{ {0,0,0,0} };
     std::array<bool, kMaxCascades> cascadeValid_{ {false,false,false,false} };
     float updateMarginFrac_{ 0.15f };
+
+    // dynamic-caster throttling state
+    int   dynIntervalCap_{ 4 };          // far-cascade re-render at most every N frames
+    std::array<uint64_t, kMaxCascades> lastRenderedFrame_{ {0,0,0,0} };
+    std::array<bool, kMaxCascades> pendingDynamic_{ {false,false,false,false} };
 
     // GL
     unsigned shadowFBO_{ 0 };
@@ -153,7 +171,8 @@ private:
         glm::mat4 lightVP[4];
         int  resPer[4];
         unsigned depthTex[4];
-        int lastUpdatedCount;   
+        int lastUpdatedCount;
+        int lastUpdatedIdx[4]; // which cascades updated last frame (-1 = none)
     };
     DebugSnapshot getDebugSnapshot() const {
         DebugSnapshot s{};
@@ -163,6 +182,7 @@ private:
             s.lightVP[i] = lightVP_[i];
             s.resPer[i] = resPer_[i];
             s.depthTex[i] = depth_[i];
+            s.lastUpdatedIdx[i] = lastUpdatedIdx_[i];
         }
         s.lastUpdatedCount = lastUpdatedCount_;
         return s;

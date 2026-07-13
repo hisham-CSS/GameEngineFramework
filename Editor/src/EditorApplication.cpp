@@ -554,6 +554,11 @@ void EditorApplication::DrawSunShadowControls(MyCoreEngine::Scene& scene)
     if (ImGui::SliderInt("Update Budget (cascades/frame)", &budget, 0, casc)) renderer().setCSMCascadeBudget(budget);
     ImGui::SameLine(); ImGui::TextDisabled("(0 = all)");
 
+    ImGui::SeparatorText("Dynamic Caster Cost");
+    int dynCap = renderer().getCSMDynamicIntervalCap();
+    if (ImGui::SliderInt("Far Re-render Interval (frames)", &dynCap, 1, 4)) renderer().setCSMDynamicIntervalCap(dynCap);
+    ImGui::SameLine(); ImGui::TextDisabled("(1 = every frame)");
+
     // Bias / culling
     ImGui::SeparatorText("Shadow Acne Controls");
     float slope = renderer().getCSMSlopeDepthBias();
