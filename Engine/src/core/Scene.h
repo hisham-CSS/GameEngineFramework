@@ -72,6 +72,13 @@ namespace MyCoreEngine {
         // Create a new entity and return the wrapper.
         Entity createEntity();
 
+        // "New scene": destroys every entity and restores the scene-level
+        // settings (lighting, material scalars, toggles) to their defaults.
+        // GL resources (instance buffer) are kept. Callers own the follow-up
+        // bookkeeping: stale entity handles (selection, undo history) and a
+        // shadow rebuild (wholesale caster removal bypasses dirty tracking).
+        void ResetToDefaults();
+
         void UpdateTransforms();
         // Renderer calls this; we keep signature identical.
         // Now builds a draw list with frustum culling, sorts, then batches by texture key.

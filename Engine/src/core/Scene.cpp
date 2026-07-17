@@ -127,6 +127,32 @@ Entity Scene::createEntity() {
     return Entity(handle, &registry);
 }
 
+void Scene::ResetToDefaults() {
+    registry.clear();
+    dirtyCasters_.clear();
+    lastStats_ = RenderStats{};
+
+    // scene-level settings: mirror the in-class initializers in Scene.h
+    // (keep the two in sync when adding settings)
+    instancingEnabled_ = true;
+    lodEnabled_ = true;
+    lodDistanceScale_ = 1.0f;
+    depthPrepassEnabled_ = false;
+    normalMapEnabled_ = true;
+    pbrEnabled_ = true;
+    metallic_ = 0.0f;
+    roughness_ = 0.5f;
+    ao_ = 1.0f;
+    lightDir_ = glm::normalize(glm::vec3(0.3f, -1.0f, 0.2f));
+    lightColor_ = glm::vec3(1.0f);
+    lightIntensity_ = 3.0f;
+    metallicMapEnabled_ = true;
+    roughnessMapEnabled_ = true;
+    aoMapEnabled_ = true;
+    iblEnabled_ = true;
+    iblIntensity_ = 1.0f;
+}
+
 void Scene::UpdateTransforms()
 {
     auto worldSphere = [](const glm::mat4& m, const AABB& b) -> DirtyCaster {

@@ -179,6 +179,45 @@ TEST(SceneSerializer, RefusesParentCyclesInFile) {
     std::remove(path);
 }
 
+// "New Scene" (P2-4): everything gone, settings back to defaults
+TEST(SceneReset, ResetToDefaultsClearsEntitiesAndSettings) {
+    Scene s;
+    Entity e = s.createEntity();
+    e.addComponent<Name>(Name{ "Doomed" });
+    e.addComponent<Transform>(Transform{});
+    s.LightIntensity() = 9.f;
+    s.LightDir() = glm::vec3(1.f, 0.f, 0.f);
+    s.SetPBREnabled(false);
+    s.SetIBLIntensity(3.5f);
+    s.SetLODDistanceScale(2.f);
+    s.SetInstancingEnabled(false);
+
+    s.ResetToDefaults();
+
+    size_t count = 0;
+    for (auto ent : s.registry.view<entt::entity>()) { (void)ent; ++count; }
+    EXPECT_EQ(count, 0u);
+    EXPECT_FLOAT_EQ(s.LightIntensity(), 3.f);
+    EXPECT_NEAR(s.LightDir().y, glm::normalize(glm::vec3(0.3f, -1.f, 0.2f)).y, 1e-5f);
+    EXPECT_TRUE(s.GetPBREnabled());
+    EXPECT_FLOAT_EQ(s.GetIBLIntensity(), 1.f);
+    EXPECT_FLOAT_EQ(s.GetLODDistanceScale(), 1.f);
+    EXPECT_TRUE(s.GetInstancingEnabled());
+
+    // a fresh save/load round-trips the reset state (empty scene loads back)
+    const char* path = "test_scene_reset.json";
+    AssetManager assets;
+    SceneSerializer save(s, assets);
+    ASSERT_TRUE(save.Save(path));
+    Scene b;
+    SceneSerializer load(b, assets);
+    ASSERT_TRUE(load.Load(path));
+    size_t loaded = 0;
+    for (auto ent : b.registry.view<entt::entity>()) { (void)ent; ++loaded; }
+    EXPECT_EQ(loaded, 0u);
+    std::remove(path);
+}
+
 TEST(SceneSerializer, LoadMissingFileFails) {
     Scene s;
     AssetManager assets;

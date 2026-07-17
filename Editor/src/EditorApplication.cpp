@@ -142,7 +142,11 @@ void EditorApplication::Run() {
         ImGuiIO& io = ImGui::GetIO();
         if (io.KeyCtrl && !io.WantTextInput &&
             !ImGuizmo::IsUsing() && !undo_.editActive() &&
-            ImGui::GetDragDropPayload() == nullptr) {
+            ImGui::GetDragDropPayload() == nullptr &&
+            !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel)) {
+            // popup gate: starting play with a modal open would soft-lock it
+            // (modal buttons inherit the play-mode disabled flag, modals
+            // can't be Escape-closed, and the modal blocks clicking Stop)
             // the drag gates also protect Ctrl+P: toggling play mid-drag
             // would snapshot/restore around a half-applied manipulation and
             // leak play-pose transforms into the edit scene and history.
@@ -566,9 +570,33 @@ void EditorApplication::DrawScenePersistence(MyCoreEngine::Scene& scene)
     ImGui::InputText("Scene file", scenePath, sizeof(scenePath));
 
     MyCoreEngine::SceneSerializer serializer(scene, *assets_);
-    // Saving mid-play would persist transient play state; loading would be
-    // overwritten by Stop's snapshot restore anyway.
+    // Saving mid-play would persist transient play state; loading/newing
+    // would be overwritten by Stop's snapshot restore anyway.
     if (playing_) ImGui::BeginDisabled();
+    if (ImGui::Button("New Scene")) {
+        ImGui::OpenPopup("New Scene?");
+    }
+    if (ImGui::BeginPopupModal("New Scene?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("Replace the current scene with an empty one?");
+        ImGui::TextUnformatted("Unsaved changes will be lost.");
+        ImGui::Separator();
+        if (ImGui::Button("New Scene", ImVec2(120, 0))) {
+            scene.ResetToDefaults();
+            selected_ = entt::null; // every entity handle is gone
+            undo_.clear();          // ...including all of the history's
+            // wholesale caster removal bypasses the departure-sphere flow:
+            // the old scene's shadows would stay baked otherwise
+            renderer().forceCSMUpdate();
+            lastStatus = "New scene";
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::SameLine();
     if (ImGui::Button("Save Scene")) {
         lastStatus = serializer.Save(scenePath)
             ? std::string("Saved to ") + scenePath
