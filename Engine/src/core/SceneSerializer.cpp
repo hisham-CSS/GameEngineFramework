@@ -52,12 +52,27 @@ namespace MyCoreEngine {
         root["settings"] = std::move(settings);
 
         // --- entities ---
+        // Entities have no stable ids in the file: parent links serialize as
+        // the INDEX of the parent within this array (same iteration order).
+        std::unordered_map<entt::entity, size_t> entityIndex;
+        {
+            size_t i = 0;
+            for (auto e : reg.view<entt::entity>()) entityIndex[e] = i++;
+        }
+
         json entities = json::array();
         for (auto e : reg.view<entt::entity>()) {
-            json je;
+            // object even when component-less: every entity must occupy an
+            // OBJECT slot so parent indices stay aligned on load
+            json je = json::object();
 
             if (auto* name = reg.try_get<Name>(e)) {
                 je["name"] = name->value;
+            }
+            if (auto* p = reg.try_get<Parent>(e)) {
+                if (auto it = entityIndex.find(p->value); it != entityIndex.end()) {
+                    je["parent"] = it->second;
+                }
             }
             if (auto* t = reg.try_get<Transform>(e)) {
                 je["transform"] = {
@@ -156,9 +171,23 @@ namespace MyCoreEngine {
             scene_.SetDepthPrepassEnabled(s.value("depthPrepass", scene_.GetDepthPrepassEnabled()));
         }
 
+        // parent links resolve in a second pass: a child can precede its
+        // parent in the array
+        std::vector<entt::entity> created;
+        std::vector<std::pair<entt::entity, size_t>> pendingParents;
+
         for (const json& je : root["entities"]) {
-            if (!je.is_object()) continue;
+            if (!je.is_object()) {
+                // keep index alignment: parent refs are FILE-array indices,
+                // so skipped entries must still occupy a created[] slot
+                created.push_back(entt::null);
+                continue;
+            }
             Entity entity = scene_.createEntity();
+            created.push_back(entity);
+            if (je.contains("parent") && je["parent"].is_number_unsigned()) {
+                pendingParents.emplace_back(entity, je["parent"].get<size_t>());
+            }
 
             if (je.contains("name")) {
                 entity.addComponent<Name>(Name{ je["name"].get<std::string>() });
@@ -209,6 +238,21 @@ namespace MyCoreEngine {
                     entity.addComponent<MaterialOverrides>(std::move(ov));
                 }
             }
+        }
+
+        for (const auto& [child, parentIdx] : pendingParents) {
+            if (parentIdx >= created.size()) continue;
+            const entt::entity parent = created[parentIdx];
+            if (parent == entt::null || parent == child) continue;
+            // refuse links that would close a cycle (corrupt/hand-edited
+            // file): cycle members would be unreachable from any root and
+            // vanish from the hierarchy panel entirely
+            if (IsSameOrDescendantOf(reg, parent, child)) {
+                std::cerr << "WARN::SCENE::LOAD parent link skipped (cycle) in '"
+                          << path << "'" << std::endl;
+                continue;
+            }
+            reg.emplace<Parent>(child, Parent{ parent });
         }
 
         return true;

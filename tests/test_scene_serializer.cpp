@@ -79,6 +79,106 @@ TEST(SceneSerializer, RoundTripEntitiesAndSettings) {
     std::remove(path);
 }
 
+TEST(SceneSerializer, RoundTripParentLinks) {
+    const char* path = "test_scene_parents.json";
+
+    Scene a;
+    Entity parent = a.createEntity();
+    parent.addComponent<Name>(Name{ "Parent" });
+    Transform pt{};
+    pt.position = { 10.f, 0.f, 0.f };
+    parent.addComponent<Transform>(pt);
+
+    Entity child = a.createEntity();
+    child.addComponent<Name>(Name{ "Child" });
+    Transform ct{};
+    ct.position = { 0.f, 5.f, 0.f }; // LOCAL to parent
+    child.addComponent<Transform>(ct);
+    a.registry.emplace<Parent>(child, Parent{ (entt::entity)parent });
+
+    AssetManager assets;
+    SceneSerializer save(a, assets);
+    ASSERT_TRUE(save.Save(path));
+
+    Scene b;
+    SceneSerializer load(b, assets);
+    ASSERT_TRUE(load.Load(path));
+
+    entt::entity lp = entt::null, lc = entt::null;
+    for (auto e : b.registry.view<Name>()) {
+        const auto& n = b.registry.get<Name>(e);
+        if (n.value == "Parent") lp = e;
+        if (n.value == "Child") lc = e;
+    }
+    ASSERT_TRUE(lp != entt::null);
+    ASSERT_TRUE(lc != entt::null);
+    ASSERT_TRUE(b.registry.any_of<Parent>(lc));
+    EXPECT_EQ(b.registry.get<Parent>(lc).value, lp);
+    EXPECT_FALSE(b.registry.any_of<Parent>(lp));
+
+    // world transforms resolve through the restored hierarchy
+    b.UpdateTransforms();
+    const glm::vec3 childWorld(b.registry.get<Transform>(lc).modelMatrix[3]);
+    EXPECT_NEAR(childWorld.x, 10.f, 1e-4f);
+    EXPECT_NEAR(childWorld.y, 5.f, 1e-4f);
+
+    std::remove(path);
+}
+
+TEST(SceneSerializer, ParentIndicesSurviveSkippedEntries) {
+    // parent refs are FILE-array indices; a malformed non-object entry must
+    // not shift later links onto the wrong entities
+    const char* path = "test_scene_skipshift.json";
+    {
+        std::ofstream out(path);
+        out << R"({"version":1,"entities":[
+            {"name":"A","transform":{"position":[0,0,0]}},
+            42,
+            {"name":"B","transform":{"position":[1,0,0]}},
+            {"name":"C","transform":{"position":[2,0,0]},"parent":2}
+        ]})";
+    }
+    Scene s;
+    AssetManager assets;
+    SceneSerializer load(s, assets);
+    ASSERT_TRUE(load.Load(path));
+
+    entt::entity b = entt::null, c = entt::null;
+    for (auto e : s.registry.view<Name>()) {
+        if (s.registry.get<Name>(e).value == "B") b = e;
+        if (s.registry.get<Name>(e).value == "C") c = e;
+    }
+    ASSERT_TRUE(b != entt::null);
+    ASSERT_TRUE(c != entt::null);
+    ASSERT_TRUE(s.registry.any_of<Parent>(c)) << "parent link lost to index shift";
+    EXPECT_EQ(s.registry.get<Parent>(c).value, b) << "parent link shifted to wrong entity";
+
+    std::remove(path);
+}
+
+TEST(SceneSerializer, RefusesParentCyclesInFile) {
+    const char* path = "test_scene_cycle.json";
+    {
+        std::ofstream out(path);
+        out << R"({"version":1,"entities":[
+            {"name":"A","transform":{"position":[0,0,0]},"parent":1},
+            {"name":"B","transform":{"position":[1,0,0]},"parent":0}
+        ]})";
+    }
+    Scene s;
+    AssetManager assets;
+    SceneSerializer load(s, assets);
+    ASSERT_TRUE(load.Load(path));
+
+    // at most one direction of the cycle may survive; a full A<->B cycle
+    // would make both entities unreachable from any hierarchy root
+    int parented = 0;
+    for (auto e : s.registry.view<Parent>()) { (void)e; ++parented; }
+    EXPECT_LE(parented, 1);
+
+    std::remove(path);
+}
+
 TEST(SceneSerializer, LoadMissingFileFails) {
     Scene s;
     AssetManager assets;

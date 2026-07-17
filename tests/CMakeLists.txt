@@ -49,6 +49,7 @@ engine_test(test_scene_serializer) # JSON scene round-trip
 engine_test(test_fixed_timestep)   # fixed-step accumulator
 engine_test(test_splits)           # CSM split math (pure CPU)
 engine_test(test_undo_history)     # editor undo/redo snapshots (pure CPU)
+engine_test(test_hierarchy)        # transform parenting (pure CPU)
 
 # UndoHistory lives in the Editor (it snapshots editor-managed components)
 # but is ImGui-free, so it can be compiled straight into a headless test.

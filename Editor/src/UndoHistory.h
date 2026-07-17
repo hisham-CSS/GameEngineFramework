@@ -33,17 +33,24 @@ struct EntitySnapshot {
     bool hasAABB = false;       AABB aabb{ glm::vec3(0.f), glm::vec3(0.f) };
     bool hasOverrides = false;  MaterialOverrides overrides{}; // deep copies
     bool noShadow = false;
+    bool hasParent = false;     entt::entity parent = entt::null; // hierarchy link
 };
 
 class UndoHistory {
 public:
     static constexpr size_t kMaxEntries = 100;
 
-    struct Entry {
-        std::string label;
+    // One undoable step. Most edits touch a single entity; subtree deletes
+    // (P2-8) carry one SubOp per deleted entity so undo restores the whole
+    // hierarchy in a single Ctrl+Z. ops[0] is the primary entity for display.
+    struct SubOp {
         entt::entity entity = entt::null;
         std::optional<EntitySnapshot> before; // nullopt = entity absent
         std::optional<EntitySnapshot> after;
+    };
+    struct Entry {
+        std::string label;
+        std::vector<SubOp> ops;
     };
 
     // --- recording gate (play-in-editor) ------------------------------------
@@ -89,7 +96,8 @@ public:
 
     // --- entity lifecycle -----------------------------------------------------
     void recordCreate(entt::registry& reg, entt::entity e, std::string label);
-    // Snapshots all components, then destroys the entity itself.
+    // Snapshots the entity AND its whole descendant subtree (Parent links),
+    // then destroys them all; one undo entry restores the hierarchy intact.
     void recordDelete(entt::registry& reg, entt::entity e, std::string label);
 
     // --- gizmo helper: transform-only change with an explicit "before" -------
@@ -128,6 +136,10 @@ private:
                        entt::entity e, const std::optional<EntitySnapshot>& snap);
     static bool same_(const std::optional<EntitySnapshot>& a,
                       const std::optional<EntitySnapshot>& b);
+    // Re-emplaces Parent links for one applied entry side: during a batch
+    // restore a child can be rebuilt before its parent exists, so apply_
+    // drops the link and this pass repairs it once every entity is back.
+    static void fixupParents_(entt::registry& reg, const Entry& en, bool beforeSide);
     void push_(Entry entry);
 
     std::deque<Entry> entries_;

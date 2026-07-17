@@ -3,8 +3,85 @@
 #include <vector>
 #include <algorithm>
 #include <GLFW/glfw3.h>
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/euler_angles.hpp> // extractEulerAngleYXZ (matches localMatrix's Y*X*Z)
 #include "Scene.h"
 
+
+// --- transform hierarchy helpers (P2-8) ------------------------------------
+
+bool MyCoreEngine::IsSameOrDescendantOf(entt::registry& reg, entt::entity node,
+                                        entt::entity ancestor)
+{
+    // hop cap guards corrupt Parent cycles
+    int hops = 0;
+    for (entt::entity cur = node; cur != entt::null && hops < 100000; ++hops) {
+        if (cur == ancestor) return true;
+        const auto* p = reg.valid(cur) ? reg.try_get<Parent>(cur) : nullptr;
+        cur = (p && reg.valid(p->value)) ? p->value : entt::null;
+    }
+    return false;
+}
+
+glm::mat4 MyCoreEngine::ResolveWorldMatrix(entt::registry& reg, entt::entity e)
+{
+    glm::mat4 world(1.f);
+    int hops = 0;
+    for (entt::entity cur = e; cur != entt::null && hops < 100000; ++hops) {
+        const auto* t = reg.valid(cur) ? reg.try_get<Transform>(cur) : nullptr;
+        if (!t) break;
+        world = t->localMatrix() * world;
+        const auto* p = reg.try_get<Parent>(cur);
+        cur = (p && reg.valid(p->value)) ? p->value : entt::null;
+    }
+    return world;
+}
+
+void MyCoreEngine::DecomposeTRS(const glm::mat4& m, glm::vec3& outPos,
+                                glm::vec3& outRotDeg, glm::vec3& outScale)
+{
+    // assumes no shear/negative scale
+    outPos = glm::vec3(m[3]);
+    outScale = { glm::length(glm::vec3(m[0])),
+                 glm::length(glm::vec3(m[1])),
+                 glm::length(glm::vec3(m[2])) };
+    glm::mat4 rot(1.f);
+    for (int c = 0; c < 3; ++c) {
+        const float len = glm::length(glm::vec3(m[c]));
+        rot[c] = (len > 1e-8f) ? glm::vec4(glm::vec3(m[c]) / len, 0.f)
+                               : glm::mat4(1.f)[c];
+    }
+    float ry = 0.f, rx = 0.f, rz = 0.f;
+    glm::extractEulerAngleYXZ(rot, ry, rx, rz); // localMatrix builds Y*X*Z
+    outRotDeg = glm::degrees(glm::vec3(rx, ry, rz));
+}
+
+bool MyCoreEngine::SetParentKeepWorld(entt::registry& reg, entt::entity child,
+                                      entt::entity newParent)
+{
+    if (!reg.valid(child) || !reg.all_of<Transform>(child)) return false;
+    if (newParent != entt::null) {
+        if (!reg.valid(newParent) || !reg.all_of<Transform>(newParent)) return false;
+        // no cycles: the new parent must not be the child or below it
+        if (IsSameOrDescendantOf(reg, newParent, child)) return false;
+    }
+
+    // world transform resolved from local TRS chains, NOT cached matrices —
+    // cached ones can be stale mid-frame (e.g. right after a gizmo drag)
+    const glm::mat4 childWorld = ResolveWorldMatrix(reg, child);
+    glm::mat4 newLocal = childWorld;
+    if (newParent != entt::null) {
+        newLocal = glm::inverse(ResolveWorldMatrix(reg, newParent)) * childWorld;
+    }
+
+    auto& t = reg.get<Transform>(child);
+    DecomposeTRS(newLocal, t.position, t.rotation, t.scale);
+    t.dirty = true;
+
+    if (newParent == entt::null) reg.remove<Parent>(child);
+    else reg.emplace_or_replace<Parent>(child, Parent{ newParent });
+    return true;
+}
 
 // Simple FNV-1a hash of the material’s bound texture ids
 static uint64_t fnv1a64_(uint64_t h, uint32_t v) { h ^= v; return h * 1099511628211ull; }
@@ -63,24 +140,65 @@ void Scene::UpdateTransforms()
     };
 
     dirtyCasters_.clear();
-    auto RegView = registry.view<Transform>();
-    for (auto entity : RegView) {
-        auto& t = RegView.get<Transform>(entity);
-        if (t.dirty) {
+
+    // Hierarchy pass (P2-8): world = parentWorld * localTRS, resolved
+    // root-down. A node recomputes when its own local TRS is dirty OR any
+    // ancestor recomputed, so children follow a moving parent. Entities in
+    // a Parent cycle are unreachable from any root and simply freeze (the
+    // editor refuses to create cycles; this guards corrupt data).
+    auto view = registry.view<Transform>();
+
+    // derived children adjacency; rebuilt per call (scene sizes are small)
+    std::unordered_map<entt::entity, std::vector<entt::entity>> children;
+    std::vector<entt::entity> roots;
+    for (auto e : view) {
+        const auto* p = registry.try_get<Parent>(e);
+        if (p && p->value != entt::null && registry.valid(p->value) &&
+            registry.all_of<Transform>(p->value)) {
+            children[p->value].push_back(e);
+        }
+        else {
+            roots.push_back(e);
+        }
+    }
+
+    struct Item { entt::entity e; entt::entity parent; bool parentMoved; };
+    std::vector<Item> stack;
+    stack.reserve(roots.size());
+    for (auto r : roots) stack.push_back({ r, entt::null, false });
+
+    while (!stack.empty()) {
+        const Item it = stack.back();
+        stack.pop_back();
+        auto& t = view.get<Transform>(it.e);
+
+        const bool needs = t.dirty || it.parentMoved;
+        if (needs) {
             // Remember moved/rotated shadow casters so the CSM pass can
             // refresh cascades whose region their shadow can touch. BOTH the
             // departure and arrival positions matter: recording only the new
             // sphere leaves a baked "ghost" shadow behind teleports and fast
             // per-frame moves.
-            const bool casts = !registry.any_of<NoShadow>(entity) &&
-                registry.all_of<ModelComponent, AABB>(entity);
+            const bool casts = !registry.any_of<NoShadow>(it.e) &&
+                registry.all_of<ModelComponent, AABB>(it.e);
             if (casts) {
-                dirtyCasters_.push_back(worldSphere(t.modelMatrix, registry.get<AABB>(entity)));
+                dirtyCasters_.push_back(worldSphere(t.modelMatrix, registry.get<AABB>(it.e)));
             }
-            t.updateMatrix();
+            if (it.parent != entt::null) {
+                // parent processed first: its modelMatrix is current
+                t.modelMatrix = view.get<Transform>(it.parent).modelMatrix * t.localMatrix();
+                t.dirty = false;
+            }
+            else {
+                t.updateMatrix();
+            }
             if (casts) {
-                dirtyCasters_.push_back(worldSphere(t.modelMatrix, registry.get<AABB>(entity)));
+                dirtyCasters_.push_back(worldSphere(t.modelMatrix, registry.get<AABB>(it.e)));
             }
+        }
+
+        if (auto itc = children.find(it.e); itc != children.end()) {
+            for (auto c : itc->second) stack.push_back({ c, it.e, needs });
         }
     }
 }

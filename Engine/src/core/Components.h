@@ -2,6 +2,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <entt/entt.hpp>
+
 #include <array>
 #include <memory>
 #include <string>
@@ -17,6 +19,15 @@ struct Name {
 	std::string value = "Entity";
 };
 
+// Transform hierarchy (P2-8): an entity with a Parent treats its Transform
+// as LOCAL to that parent — Scene::UpdateTransforms resolves worldMatrix =
+// parentWorld * localTRS root-down every frame. No Parent (or a dangling
+// one) means the entity is a root and local == world. The single Parent
+// link is the only source of truth; children lists are derived where needed.
+struct Parent {
+	entt::entity value = entt::null;
+};
+
 struct ModelComponent {
 	std::shared_ptr<MyCoreEngine::Model> model; // shared handle to GPU-ready model
 };
@@ -27,21 +38,29 @@ struct MaterialOverrides {
 };
 
 struct Transform {
+    // position/rotation/scale are LOCAL when the entity has a Parent,
+    // world-space otherwise. modelMatrix is always the WORLD matrix
+    // (renderer/picking/culling consume it directly).
     glm::vec3 position{ 0.0f, 0.0f, 0.0f };
-    glm::vec3 rotation{ 0.0f, 0.0f, 0.0f }; // Euler angles in degrees
+    glm::vec3 rotation{ 0.0f, 0.0f, 0.0f }; // Euler angles in degrees (Y*X*Z)
     glm::vec3 scale{ 1.0f, 1.0f, 1.0f };
     glm::mat4 modelMatrix{ 1.0f };
     bool dirty = true;
 
-    // Compute a local TRS matrix.
-    void updateMatrix() {
+    // Local TRS from position/rotation/scale (rotation applied Y*X*Z).
+    glm::mat4 localMatrix() const {
         glm::mat4 t = glm::translate(glm::mat4(1.0f), position);
         glm::mat4 rx = glm::rotate(glm::mat4(1.0f), glm::radians(rotation.x), glm::vec3(1, 0, 0));
         glm::mat4 ry = glm::rotate(glm::mat4(1.0f), glm::radians(rotation.y), glm::vec3(0, 1, 0));
         glm::mat4 rz = glm::rotate(glm::mat4(1.0f), glm::radians(rotation.z), glm::vec3(0, 0, 1));
         glm::mat4 r = ry * rx * rz;
         glm::mat4 s = glm::scale(glm::mat4(1.0f), scale);
-        modelMatrix = t * r * s;
+        return t * r * s;
+    }
+
+    // Root-entity refresh (no parent): world == local.
+    void updateMatrix() {
+        modelMatrix = localMatrix();
         dirty = false;
     }
 

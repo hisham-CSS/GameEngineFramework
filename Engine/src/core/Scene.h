@@ -42,6 +42,27 @@ namespace MyCoreEngine {
         unsigned lodInstances[3] = { 0, 0, 0 }; // submitted instances per LOD level
     };
 
+    // --- transform hierarchy helpers (P2-8) --------------------------------
+    // True if `node` is `ancestor` itself or sits anywhere below it.
+    ENGINE_API bool IsSameOrDescendantOf(entt::registry& reg, entt::entity node,
+                                         entt::entity ancestor);
+    // World matrix resolved through the Parent chain from local TRS values
+    // (correct even when cached modelMatrix values are stale/dirty).
+    ENGINE_API glm::mat4 ResolveWorldMatrix(entt::registry& reg, entt::entity e);
+    // Decompose an affine TRS matrix into position / YXZ euler degrees /
+    // scale — EXACTLY the conventions Transform::localMatrix rebuilds, so a
+    // decompose->rebuild round-trip is lossless for shear-free matrices.
+    // (ImGuizmo's DecomposeMatrixToComponents uses a different euler order
+    // and silently re-orients compound rotations — never use it to fill
+    // Transform::rotation.)
+    ENGINE_API void DecomposeTRS(const glm::mat4& m, glm::vec3& outPos,
+                                 glm::vec3& outRotDeg, glm::vec3& outScale);
+    // Reparent `child` under `newParent` (entt::null = make root) while
+    // preserving its world transform: the local TRS is rewritten against the
+    // new parent. Refuses cycles and entities without Transforms.
+    ENGINE_API bool SetParentKeepWorld(entt::registry& reg, entt::entity child,
+                                       entt::entity newParent);
+
     class ENGINE_API Scene {
     public:
         entt::registry registry;

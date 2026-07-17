@@ -17,6 +17,8 @@ namespace {
                                a.transform.scale != b.transform.scale)) return false;
         if (a.modelPath != b.modelPath) return false;
         if (a.noShadow != b.noShadow) return false;
+        if (a.hasParent != b.hasParent) return false;
+        if (a.hasParent && a.parent != b.parent) return false;
         if (a.hasOverrides != b.hasOverrides) return false;
         if (a.hasOverrides) {
             if (a.overrides.byIndex.size() != b.overrides.byIndex.size()) return false;
@@ -54,6 +56,7 @@ EntitySnapshot UndoHistory::capture(entt::registry& reg, entt::entity e) {
         s.overrides = deepCopy(*mo);
     }
     s.noShadow = reg.any_of<NoShadow>(e);
+    if (auto* p = reg.try_get<Parent>(e)) { s.hasParent = true; s.parent = p->value; }
     return s;
 }
 
@@ -101,6 +104,24 @@ void UndoHistory::apply(entt::registry& reg, MyCoreEngine::AssetManager* assets,
 
     if (s.noShadow) { if (!reg.any_of<NoShadow>(e)) reg.emplace<NoShadow>(e); }
     else reg.remove<NoShadow>(e);
+
+    // parent link — skipped if the target doesn't exist (yet); batch paths
+    // (multi-op entries, restoreScene) run a fixup pass afterwards
+    if (s.hasParent && reg.valid(s.parent)) {
+        reg.emplace_or_replace<Parent>(e, Parent{ s.parent });
+    }
+    else {
+        reg.remove<Parent>(e);
+    }
+}
+
+void UndoHistory::fixupParents_(entt::registry& reg, const Entry& en, bool beforeSide) {
+    for (const auto& op : en.ops) {
+        const auto& snap = beforeSide ? op.before : op.after;
+        if (snap && snap->hasParent && reg.valid(op.entity) && reg.valid(snap->parent)) {
+            reg.emplace_or_replace<Parent>(op.entity, Parent{ snap->parent });
+        }
+    }
 }
 
 UndoHistory::SceneSnapshot UndoHistory::captureScene(entt::registry& reg) {
@@ -114,6 +135,13 @@ void UndoHistory::restoreScene(entt::registry& reg, MyCoreEngine::AssetManager* 
                                const SceneSnapshot& snap) {
     reg.clear(); // play-created entities vanish; everything else rebuilds
     for (const auto& [e, s] : snap) apply(reg, assets, e, s);
+    // parent links: a child rebuilt before its parent lost the link in
+    // apply's validity check — repair now that every entity exists
+    for (const auto& [e, s] : snap) {
+        if (s.hasParent && reg.valid(e) && reg.valid(s.parent)) {
+            reg.emplace_or_replace<Parent>(e, Parent{ s.parent });
+        }
+    }
 }
 
 bool UndoHistory::same_(const std::optional<EntitySnapshot>& a,
@@ -141,12 +169,14 @@ void UndoHistory::endEdit(entt::registry& reg) {
     if (!pendingActive_) return;
     pendingActive_ = false;
     if (!reg.valid(pendingEntity_)) return; // entity vanished mid-edit: drop
+    SubOp op;
+    op.entity = pendingEntity_;
+    op.before = std::move(pendingBefore_);
+    op.after = capture(reg, pendingEntity_);
+    if (same_(op.before, op.after)) return;
     Entry en;
     en.label = std::move(pendingLabel_);
-    en.entity = pendingEntity_;
-    en.before = std::move(pendingBefore_);
-    en.after = capture(reg, pendingEntity_);
-    if (same_(en.before, en.after)) return;
+    en.ops.push_back(std::move(op));
     push_(std::move(en));
 }
 
@@ -167,17 +197,38 @@ void UndoHistory::tickFrame(entt::registry& reg) {
     pendingTouched_ = false;
 }
 
+namespace {
+    // root + every descendant, derived from the Parent links. Each entity
+    // has at most one parent, so each appears in at most one children list
+    // and the walk is bounded even on corrupt data.
+    std::vector<entt::entity> collectSubtree(entt::registry& reg, entt::entity root) {
+        std::unordered_map<entt::entity, std::vector<entt::entity>> children;
+        for (auto [e, p] : reg.view<Parent>().each()) {
+            if (reg.valid(p.value)) children[p.value].push_back(e);
+        }
+        std::vector<entt::entity> out{ root };
+        for (size_t i = 0; i < out.size(); ++i) {
+            if (auto it = children.find(out[i]); it != children.end()) {
+                for (auto c : it->second) out.push_back(c);
+            }
+        }
+        return out;
+    }
+} // namespace
+
 void UndoHistory::record(entt::registry& reg, entt::entity e, std::string label,
                          const std::function<void()>& mutate) {
     if (!recordingEnabled_) { mutate(); return; } // apply, don't remember
+    SubOp op;
+    op.entity = e;
+    op.before = capture(reg, e);
+    mutate();
+    op.after = reg.valid(e) ? std::optional<EntitySnapshot>(capture(reg, e))
+                            : std::nullopt;
+    if (same_(op.before, op.after)) return;
     Entry en;
     en.label = std::move(label);
-    en.entity = e;
-    en.before = capture(reg, e);
-    mutate();
-    en.after = reg.valid(e) ? std::optional<EntitySnapshot>(capture(reg, e))
-                            : std::nullopt;
-    if (same_(en.before, en.after)) return;
+    en.ops.push_back(std::move(op));
     push_(std::move(en));
 }
 
@@ -185,21 +236,32 @@ void UndoHistory::recordCreate(entt::registry& reg, entt::entity e, std::string 
     if (!recordingEnabled_) return; // entity already created by the caller
     Entry en;
     en.label = std::move(label);
-    en.entity = e;
-    en.before = std::nullopt;
-    en.after = capture(reg, e);
+    SubOp op;
+    op.entity = e;
+    op.before = std::nullopt;
+    op.after = capture(reg, e);
+    en.ops.push_back(std::move(op));
     push_(std::move(en));
 }
 
 void UndoHistory::recordDelete(entt::registry& reg, entt::entity e, std::string label) {
     if (!reg.valid(e)) return;
-    if (!recordingEnabled_) { reg.destroy(e); return; } // delete, don't remember
+    const auto subtree = collectSubtree(reg, e);
+    if (!recordingEnabled_) { // delete (with children), don't remember
+        for (auto s : subtree) if (reg.valid(s)) reg.destroy(s);
+        return;
+    }
     Entry en;
     en.label = std::move(label);
-    en.entity = e;
-    en.before = capture(reg, e);
-    en.after = std::nullopt;
-    reg.destroy(e);
+    en.ops.reserve(subtree.size());
+    for (auto s : subtree) {
+        SubOp op;
+        op.entity = s;
+        op.before = capture(reg, s);
+        op.after = std::nullopt;
+        en.ops.push_back(std::move(op));
+    }
+    for (auto s : subtree) if (reg.valid(s)) reg.destroy(s);
     push_(std::move(en));
 }
 
@@ -207,16 +269,18 @@ void UndoHistory::recordTransformChange(entt::registry& reg, entt::entity e,
                                         const Transform& before, std::string label) {
     if (!reg.valid(e)) return;
     if (!recordingEnabled_) return; // the drag already applied its change
+    SubOp op;
+    op.entity = e;
     EntitySnapshot after = capture(reg, e);
     EntitySnapshot beforeSnap = after; // only the transform differed during the drag
     beforeSnap.hasTransform = true;
     beforeSnap.transform = before;
+    op.before = std::move(beforeSnap);
+    op.after = std::move(after);
+    if (same_(op.before, op.after)) return; // click without drag
     Entry en;
     en.label = std::move(label);
-    en.entity = e;
-    en.before = std::move(beforeSnap);
-    en.after = std::move(after);
-    if (same_(en.before, en.after)) return; // click without drag
+    en.ops.push_back(std::move(op));
     push_(std::move(en));
 }
 
@@ -224,14 +288,16 @@ void UndoHistory::undo(entt::registry& reg, MyCoreEngine::AssetManager* assets) 
     if (pendingActive_) cancelEdit(); // a live drag can't survive a history rewind
     if (!canUndo()) return;
     const Entry& en = entries_[--cursor_];
-    apply_(reg, assets, en.entity, en.before);
+    for (const auto& op : en.ops) apply_(reg, assets, op.entity, op.before);
+    fixupParents_(reg, en, /*beforeSide=*/true);
 }
 
 void UndoHistory::redo(entt::registry& reg, MyCoreEngine::AssetManager* assets) {
     if (pendingActive_) cancelEdit();
     if (!canRedo()) return;
     const Entry& en = entries_[cursor_++];
-    apply_(reg, assets, en.entity, en.after);
+    for (const auto& op : en.ops) apply_(reg, assets, op.entity, op.after);
+    fixupParents_(reg, en, /*beforeSide=*/false);
 }
 
 void UndoHistory::jumpTo(entt::registry& reg, MyCoreEngine::AssetManager* assets,

@@ -109,10 +109,13 @@ void EditorApplication::Run() {
         // changes are discarded on Stop, not undone).
         ImGuiIO& io = ImGui::GetIO();
         if (io.KeyCtrl && !io.WantTextInput &&
-            !ImGuizmo::IsUsing() && !undo_.editActive()) {
+            !ImGuizmo::IsUsing() && !undo_.editActive() &&
+            ImGui::GetDragDropPayload() == nullptr) {
             // the drag gates also protect Ctrl+P: toggling play mid-drag
             // would snapshot/restore around a half-applied manipulation and
-            // leak play-pose transforms into the edit scene and history
+            // leak play-pose transforms into the edit scene and history.
+            // The drag-drop gate stops undo/redo from destroying an entity
+            // whose handle is mid-flight in a hierarchy drag payload.
             if (!playing_) {
                 if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) {
                     if (io.KeyShift) doRedo_(scene); else doUndo_(scene);
@@ -277,11 +280,19 @@ void EditorApplication::DrawViewport(MyCoreEngine::Scene& scene)
             glm::mat4 m = t->modelMatrix;
             if (ImGuizmo::Manipulate(glm::value_ptr(view), glm::value_ptr(proj),
                     op, ImGuizmo::LOCAL, glm::value_ptr(m))) {
-                float tr[3], rot[3], sc[3];
-                ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(m), tr, rot, sc);
-                t->position = { tr[0], tr[1], tr[2] };
-                t->rotation = { rot[0], rot[1], rot[2] };
-                t->scale = { sc[0], sc[1], sc[2] };
+                // the gizmo edits the WORLD matrix; a parented entity stores
+                // LOCAL TRS, so convert through the parent's world first
+                glm::mat4 local = m;
+                if (auto* par = scene.registry.try_get<Parent>(selected_);
+                    par && scene.registry.valid(par->value) &&
+                    scene.registry.all_of<Transform>(par->value)) {
+                    local = glm::inverse(
+                        scene.registry.get<Transform>(par->value).modelMatrix) * m;
+                }
+                // engine decompose, NOT ImGuizmo's: its euler convention
+                // differs from localMatrix's Y*X*Z rebuild, which visibly
+                // re-oriented compound-rotated entities on any drag
+                MyCoreEngine::DecomposeTRS(local, t->position, t->rotation, t->scale);
                 t->dirty = true;
             }
             gizmoActive = ImGuizmo::IsOver() || ImGuizmo::IsUsing();
@@ -796,9 +807,17 @@ void EditorApplication::DrawEditHistory(MyCoreEngine::Scene& scene)
                 const bool applied = i < undo_.cursor();
                 if (!applied) ImGui::PushStyleVar(ImGuiStyleVar_Alpha,
                                                   ImGui::GetStyle().Alpha * 0.45f);
+                const auto& ops = entries[i].ops;
+                const uint32_t primary = ops.empty() ? 0u : (uint32_t)ops[0].entity;
                 char row[192];
-                snprintf(row, sizeof(row), "%d. %s [e%u]", (int)i + 1,
-                         entries[i].label.c_str(), (uint32_t)entries[i].entity);
+                if (ops.size() > 1) {
+                    snprintf(row, sizeof(row), "%d. %s [e%u +%d]", (int)i + 1,
+                             entries[i].label.c_str(), primary, (int)ops.size() - 1);
+                }
+                else {
+                    snprintf(row, sizeof(row), "%d. %s [e%u]", (int)i + 1,
+                             entries[i].label.c_str(), primary);
+                }
                 if (ImGui::Selectable(row, applied && i + 1 == undo_.cursor())) {
                     target = i + 1;
                 }

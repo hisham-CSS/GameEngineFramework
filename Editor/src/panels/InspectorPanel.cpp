@@ -60,6 +60,11 @@ void InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
         }
 
         if (auto* t = reg.try_get<Transform>(selected)) {
+            if (auto* par = reg.try_get<Parent>(selected); par && reg.valid(par->value)) {
+                const char* pname = "(Entity)";
+                if (auto* pn = reg.try_get<Name>(par->value)) pname = pn->value.c_str();
+                ImGui::TextDisabled("Transform is local to parent '%s'", pname);
+            }
             float pos[3] = { t->position.x, t->position.y, t->position.z };
             float rot[3] = { t->rotation.x, t->rotation.y, t->rotation.z };
             float scl[3] = { t->scale.x,    t->scale.y,    t->scale.z };

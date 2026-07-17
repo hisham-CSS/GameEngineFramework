@@ -342,6 +342,81 @@ TEST(UndoHistory, RecordingDisabledMutatesWithoutHistory) {
     EXPECT_EQ(h.entries().size(), 1u); // recording works again
 }
 
+// --- hierarchy (P2-8): subtree delete + parent links in snapshots ----------
+
+TEST(UndoHistory, DeleteRestoresWholeSubtree) {
+    entt::registry reg;
+    UndoHistory h;
+    auto parent = makeEntity(reg, "P");
+    auto child = makeEntity(reg, "C");
+    auto grandchild = makeEntity(reg, "G");
+    reg.emplace<Parent>(child, Parent{ parent });
+    reg.emplace<Parent>(grandchild, Parent{ child });
+    reg.get<Transform>(child).position = { 1.f, 2.f, 3.f };
+
+    h.recordDelete(reg, parent, "Delete 'P'");
+    EXPECT_FALSE(reg.valid(parent));
+    EXPECT_FALSE(reg.valid(child));
+    EXPECT_FALSE(reg.valid(grandchild));
+    ASSERT_EQ(h.entries().size(), 1u);
+    EXPECT_EQ(h.entries().back().ops.size(), 3u);
+
+    h.undo(reg, nullptr);
+    ASSERT_TRUE(reg.valid(parent));
+    ASSERT_TRUE(reg.valid(child));
+    ASSERT_TRUE(reg.valid(grandchild));
+    EXPECT_EQ(reg.get<Parent>(child).value, parent);
+    EXPECT_EQ(reg.get<Parent>(grandchild).value, child);
+    EXPECT_EQ(reg.get<Transform>(child).position, glm::vec3(1.f, 2.f, 3.f));
+
+    h.redo(reg, nullptr);
+    EXPECT_FALSE(reg.valid(parent));
+    EXPECT_FALSE(reg.valid(child));
+    EXPECT_FALSE(reg.valid(grandchild));
+}
+
+TEST(UndoHistory, ReparentUndoRestoresOldParentAndLocal) {
+    entt::registry reg;
+    UndoHistory h;
+    auto a = makeEntity(reg, "A");
+    reg.get<Transform>(a).position = { 10.f, 0.f, 0.f };
+    auto child = makeEntity(reg, "C");
+    reg.get<Transform>(child).position = { 1.f, 2.f, 3.f };
+
+    h.record(reg, child, "Parent 'C' under 'A'", [&] {
+        ASSERT_TRUE(MyCoreEngine::SetParentKeepWorld(reg, child, a));
+    });
+    ASSERT_TRUE(reg.any_of<Parent>(child));
+    EXPECT_EQ(reg.get<Parent>(child).value, a);
+
+    h.undo(reg, nullptr);
+    EXPECT_FALSE(reg.any_of<Parent>(child));
+    EXPECT_EQ(reg.get<Transform>(child).position, glm::vec3(1.f, 2.f, 3.f));
+
+    h.redo(reg, nullptr);
+    ASSERT_TRUE(reg.any_of<Parent>(child));
+    EXPECT_EQ(reg.get<Parent>(child).value, a);
+}
+
+TEST(SceneSnapshot, ParentLinksSurviveRestoreRegardlessOfOrder) {
+    entt::registry reg;
+    // child created BEFORE parent so the snapshot lists it first — the
+    // restore fixup pass must still rebuild the link
+    auto child = makeEntity(reg, "C");
+    auto parent = makeEntity(reg, "P");
+    reg.emplace<Parent>(child, Parent{ parent });
+
+    const auto snap = UndoHistory::captureScene(reg);
+    reg.get<Transform>(child).position = { 9.f, 9.f, 9.f };
+    reg.destroy(child);
+    UndoHistory::restoreScene(reg, nullptr, snap);
+
+    ASSERT_TRUE(reg.valid(child));
+    ASSERT_TRUE(reg.valid(parent));
+    ASSERT_TRUE(reg.any_of<Parent>(child));
+    EXPECT_EQ(reg.get<Parent>(child).value, parent);
+}
+
 TEST(UndoHistory, EntityVanishingMidEditDropsEntry) {
     entt::registry reg;
     UndoHistory h;
