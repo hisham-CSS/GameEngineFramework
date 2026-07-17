@@ -4,6 +4,7 @@
 #include "UndoHistory.h"
 #include "panels/SceneHierarchyPanel.h"
 #include "panels/InspectorPanel.h"
+#include "panels/AssetBrowserPanel.h"
 
 class EditorApplication : public MyCoreEngine::Application
 {
@@ -55,10 +56,27 @@ private:
     void startPlay_(MyCoreEngine::Scene& scene);
     void stopPlay_(MyCoreEngine::Scene& scene);
 
+    // shared scene-load path (Scene panel button + asset browser): clears
+    // undo/selection (stale handles) and forces a CSM rebuild (wholesale
+    // scene replacement bypasses the departure-sphere dirty-caster flow —
+    // old-scene shadows would stay baked in far cascades otherwise)
+    bool loadSceneFromFile_(MyCoreEngine::Scene& scene, const std::string& path);
+    bool setStartupScene_(const std::string& path); // updates buildSettingsStatus_
+    // spawn a model entity (undo-recorded, selects it); pos = world position
+    void spawnModelEntity_(MyCoreEngine::Scene& scene, const std::string& path,
+                           const glm::vec3& pos);
+
     EditorImGuiLayer ui_;                 // <-- persistent member
     SceneHierarchyPanel hierarchy_;
     InspectorPanel      inspector_;
+    AssetBrowserPanel   assetBrowser_;
     entt::entity        selected_ = entt::null;
+
+    // startup-scene display cache + status line (Scene panel); set from
+    // either the panel button or the asset browser context menu
+    std::string startupSceneDisplay_;
+    std::string buildSettingsStatus_;
+    bool startupSceneLoaded_ = false;
 
     MyCoreEngine::RenderTarget sceneTarget_;
     bool viewportHovered_ = false;

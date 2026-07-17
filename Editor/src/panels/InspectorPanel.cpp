@@ -10,13 +10,14 @@ static bool DragFloat3(const char* label, float v[3], float speed = 0.1f) {
     return ImGui::DragFloat3(label, v, speed);
 }
 
-void InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
+bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
                           UndoHistory& undo, MyCoreEngine::AssetManager* assets) {
+    bool shadowsDirty = false;
     if (ImGui::Begin("Inspector")) {
         if (selected == entt::null || !reg.valid(selected)) {
             ImGui::TextUnformatted("No entity selected.");
             ImGui::End();
-            return;
+            return false;
         }
 
         // Undo bookkeeping for drag/text widgets: capture the pre-edit state
@@ -57,6 +58,7 @@ void InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
                 if (castsShadows) reg.remove<NoShadow>(selected);
                 else if (!reg.any_of<NoShadow>(selected)) reg.emplace<NoShadow>(selected);
             });
+            shadowsDirty = true; // caster set changed, transform untouched
         }
 
         if (auto* t = reg.try_get<Transform>(selected)) {
@@ -97,6 +99,7 @@ void InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
                         reg.remove<AABB>(selected);
                     });
                     mc = nullptr;
+                    shadowsDirty = true; // removed caster leaves a baked shadow
                 }
             }
             else {
@@ -113,6 +116,7 @@ void InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
                             reg.emplace_or_replace<AABB>(selected, generateAABB(*model));
                             if (!reg.any_of<Transform>(selected)) reg.emplace<Transform>(selected);
                         });
+                        shadowsDirty = true; // swapped caster, clean transform
                     }
                 }
             }
@@ -221,4 +225,5 @@ void InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
         }
     }
     ImGui::End();
+    return shadowsDirty;
 };

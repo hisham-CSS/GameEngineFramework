@@ -102,11 +102,32 @@ void EditorApplication::Run() {
         hierarchy_.Draw(scene.registry, selected_, undo_);
 
 		//inspector
-        inspector_.Draw(scene.registry, selected_, undo_, assets_.get());
+        if (inspector_.Draw(scene.registry, selected_, undo_, assets_.get())) {
+            // caster set changed without a transform dirtying (model swap /
+            // remove / shadow toggle): stale shadows stay baked otherwise
+            renderer().forceCSMUpdate();
+        }
 
         // commit any edit whose widget stopped being submitted this frame
         // (deselect while a text field was focused, tab switch, collapse)
         undo_.tickFrame(scene.registry);
+
+        //asset browser (P2-5)
+        {
+            const AssetBrowserActions aba = assetBrowser_.Draw(
+                scene.registry, selected_, undo_, assets_.get(), playing_);
+            if (!aba.loadScene.empty() && !playing_) {
+                loadSceneFromFile_(scene, aba.loadScene);
+            }
+            if (!aba.setStartup.empty()) {
+                setStartupScene_(aba.setStartup);
+            }
+            if (!aba.spawnModel.empty()) {
+                spawnModelEntity_(scene, aba.spawnModel,
+                                  camera().Position + camera().Front * 10.f);
+            }
+            if (aba.shadowsDirty) renderer().forceCSMUpdate();
+        }
 
         //undo/redo history (P2-7)
         DrawEditHistory(scene);
@@ -273,6 +294,22 @@ void EditorApplication::DrawViewport(MyCoreEngine::Scene& scene)
     viewportHovered_ = ImGui::IsItemHovered();
     const bool viewportClicked = viewportHovered_ && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
 
+    // asset drops spawn a model where the drag lands (ray resolved below,
+    // once this frame's view/proj are computed)
+    bool assetDropped = false;
+    char droppedPath[260] = {};
+    float dropU = 0.f, dropV = 0.f;
+    if (ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* pl = ImGui::AcceptDragDropPayload(AssetBrowserPanel::kAssetPayload)) {
+            snprintf(droppedPath, sizeof(droppedPath), "%s", (const char*)pl->Data);
+            const ImVec2 mouse = ImGui::GetMousePos();
+            dropU = (mouse.x - imagePos.x) / imageSize.x;
+            dropV = (mouse.y - imagePos.y) / imageSize.y;
+            assetDropped = true;
+        }
+        ImGui::EndDragDropTarget();
+    }
+
     // Camera look/zoom via ImGui input: viewport-aware, so it keeps working
     // when this panel is a detached OS window on another monitor (the
     // engine's raw main-window polling is disabled — setInternalCameraInput).
@@ -305,6 +342,24 @@ void EditorApplication::DrawViewport(MyCoreEngine::Scene& scene)
     Camera& cam = camera();
     const glm::mat4 view = cam.GetViewMatrix();
     const glm::mat4 proj = glm::perspective(glm::radians(cam.Zoom), aspect, 0.1f, 1000.0f);
+
+    if (assetDropped && assets_) {
+        // ray through the drop point; land on the ground plane (y=0) when
+        // the ray points at it, else 10 units out
+        const glm::mat4 invVP = glm::inverse(proj * view);
+        glm::vec4 pn = invVP * glm::vec4(2.f * dropU - 1.f, 1.f - 2.f * dropV, -1.f, 1.f);
+        glm::vec4 pf = invVP * glm::vec4(2.f * dropU - 1.f, 1.f - 2.f * dropV, 1.f, 1.f);
+        pn /= pn.w;
+        pf /= pf.w;
+        const glm::vec3 origin(pn);
+        const glm::vec3 dir = glm::normalize(glm::vec3(pf) - origin);
+        glm::vec3 pos = origin + dir * 10.f;
+        if (std::abs(dir.y) > 1e-4f) {
+            const float t = -origin.y / dir.y;
+            if (t > 0.f && t < 500.f) pos = origin + dir * t;
+        }
+        spawnModelEntity_(scene, droppedPath, pos);
+    }
 
     // transform gizmo on the selected entity
     bool gizmoActive = false;
@@ -521,42 +576,26 @@ void EditorApplication::DrawScenePersistence(MyCoreEngine::Scene& scene)
     }
     ImGui::SameLine();
     if (ImGui::Button("Load Scene")) {
-        if (serializer.Load(scenePath)) {
-            selected_ = entt::null; // old entity handles are invalid after a load
-            // ...and so is every handle in the undo history: undoing a
-            // pre-load entry would resurrect ghosts into the loaded scene
-            undo_.clear();
-            lastStatus = std::string("Loaded ") + scenePath;
-        }
-        else {
-            lastStatus = "Load FAILED (see console)";
-        }
+        lastStatus = loadSceneFromFile_(scene, scenePath)
+            ? std::string("Loaded ") + scenePath
+            : std::string("Load FAILED (see console)");
     }
     if (playing_) ImGui::EndDisabled();
     if (!lastStatus.empty()) ImGui::TextDisabled("%s", lastStatus.c_str());
 
     // --- Build Settings: which scene the standalone player boots into ---
     ImGui::SeparatorText("Build Settings");
-    static std::string startupScene = [] {
+    if (!startupSceneLoaded_) {
         MyCoreEngine::ProjectSettings s;
         s.Load();
-        return s.startupScene;
-    }();
-    static std::string buildStatus;
-    ImGui::Text("Player startup scene: %s", startupScene.c_str());
-    if (ImGui::Button("Set Current File as Startup Scene")) {
-        MyCoreEngine::ProjectSettings s;
-        s.Load(); // preserves the fields the struct knows; Save rewrites the file
-        s.startupScene = scenePath;
-        if (s.Save()) {
-            startupScene = s.startupScene;
-            buildStatus = "Saved to Exported/project.json (ships with the game)";
-        }
-        else {
-            buildStatus = "Save FAILED (see console)";
-        }
+        startupSceneDisplay_ = s.startupScene;
+        startupSceneLoaded_ = true;
     }
-    if (!buildStatus.empty()) ImGui::TextDisabled("%s", buildStatus.c_str());
+    ImGui::Text("Player startup scene: %s", startupSceneDisplay_.c_str());
+    if (ImGui::Button("Set Current File as Startup Scene")) {
+        setStartupScene_(scenePath); // outcome lands in buildSettingsStatus_
+    }
+    if (!buildSettingsStatus_.empty()) ImGui::TextDisabled("%s", buildSettingsStatus_.c_str());
 }
 
 void EditorApplication::DrawLightControls(MyCoreEngine::Scene& scene)
@@ -767,6 +806,58 @@ void EditorApplication::DrawInformationPanel(const MyCoreEngine::Scene& scene, f
         ImGui::Text("GPU draw calls:   %u", totalCalls);
     }
     ImGui::End();
+}
+
+bool EditorApplication::loadSceneFromFile_(MyCoreEngine::Scene& scene, const std::string& path)
+{
+    MyCoreEngine::SceneSerializer serializer(scene, *assets_);
+    if (!serializer.Load(path)) return false;
+    selected_ = entt::null; // old entity handles are invalid after a load
+    // ...and so is every handle in the undo history: undoing a pre-load
+    // entry would resurrect ghosts into the loaded scene
+    undo_.clear();
+    // wholesale scene replacement bypasses the departure-sphere flow: the
+    // old scene's shadows would stay baked in cascades the new content
+    // doesn't touch (same class of bug as play-mode stop-restore)
+    renderer().forceCSMUpdate();
+    return true;
+}
+
+bool EditorApplication::setStartupScene_(const std::string& path)
+{
+    MyCoreEngine::ProjectSettings s;
+    s.Load(); // preserves the fields the struct knows; Save rewrites the file
+    s.startupScene = path;
+    const bool ok = s.Save();
+    if (ok) {
+        startupSceneDisplay_ = path;
+        startupSceneLoaded_ = true;
+        buildSettingsStatus_ = "Saved to Exported/project.json (ships with the game)";
+    }
+    else {
+        buildSettingsStatus_ = "Save FAILED (see console)";
+    }
+    return ok;
+}
+
+void EditorApplication::spawnModelEntity_(MyCoreEngine::Scene& scene,
+                                          const std::string& path,
+                                          const glm::vec3& pos)
+{
+    if (!assets_) return;
+    auto model = assets_->GetModel(path);
+    if (!model || model->Meshes().empty()) return;
+
+    MyCoreEngine::Entity e = scene.createEntity();
+    const std::string stem = std::filesystem::path(path).stem().string();
+    e.addComponent<Name>(Name{ stem.empty() ? std::string("Entity") : stem });
+    Transform t{};
+    t.position = pos;
+    e.addComponent<Transform>(t);
+    e.addComponent<ModelComponent>(ModelComponent{ model });
+    e.addComponent<AABB>(generateAABB(*model));
+    undo_.recordCreate(scene.registry, e, "Spawn '" + stem + "'");
+    selected_ = e;
 }
 
 void EditorApplication::startPlay_(MyCoreEngine::Scene& scene)

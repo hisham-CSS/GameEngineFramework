@@ -7,6 +7,8 @@ add_executable(Editor
     src/ImGuiInputMap.h
     src/UndoHistory.cpp
     src/UndoHistory.h
+    src/panels/AssetBrowserPanel.h
+    src/panels/AssetBrowserPanel.cpp
     src/panels/SceneHierarchyPanel.h "src/panels/SceneHierarchyPanel.cpp" "src/panels/InspectorPanel.h" "src/panels/InspectorPanel.cpp" "src/EditorMain.cpp")
 
 
