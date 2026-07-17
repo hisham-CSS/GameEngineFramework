@@ -4,6 +4,7 @@ add_executable(Editor
     src/EditorApplication.h
     src/EditorImGuiLayer.cpp
     src/EditorImGuiLayer.h
+    src/ImGuiInputMap.h
     src/UndoHistory.cpp
     src/UndoHistory.h
     src/panels/SceneHierarchyPanel.h "src/panels/SceneHierarchyPanel.cpp" "src/panels/InspectorPanel.h" "src/panels/InspectorPanel.cpp" "src/EditorMain.cpp")

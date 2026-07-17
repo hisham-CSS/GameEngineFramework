@@ -2,6 +2,7 @@
 
 #include "Engine.h"                 // Renderer/Scene/Shader headers aggregated or include individually
 #include "EditorImGuiLayer.h"
+#include "ImGuiInputMap.h"
 #include "panels/SceneHierarchyPanel.h"
 #include "panels/InspectorPanel.h"
 
@@ -30,6 +31,13 @@ void EditorApplication::Run() {
     SetOnContextReady([this, &scene]() {
         // GL context + GLAD are ready here
         ui_.Init(GetNativeWindow());
+
+        // Multi-viewport input routing: keyboard/mouse polls go through
+        // ImGui (aggregated across detached OS windows), and the editor
+        // drives camera look/zoom itself in DrawViewport — the engine's
+        // raw main-window mouse-look can't see panels on other monitors.
+        installInput(std::make_unique<ImGuiInputMap>());
+        setInternalCameraInput(false);
 
         // scene renders offscreen; the Viewport panel displays (and resizes) it
         sceneTarget_.Create(1280, 720);
@@ -192,6 +200,15 @@ void EditorApplication::DrawViewport(MyCoreEngine::Scene& scene)
 {
     using namespace MyCoreEngine;
 
+    // End-of-look handling runs unconditionally (before any early-return):
+    // the disabled cursor must be restored even if the viewport window
+    // stops being drawn while RMB is still held.
+    if (camLooking_ && !ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
+        if (lookWindow_) glfwSetInputMode(lookWindow_, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+        camLooking_ = false;
+        lookWindow_ = nullptr;
+    }
+
     ImGui::SetNextWindowSize(ImVec2(900, 560), ImGuiCond_FirstUseEver);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(2, 2));
     const bool open = ImGui::Begin("Viewport", nullptr,
@@ -250,6 +267,32 @@ void EditorApplication::DrawViewport(MyCoreEngine::Scene& scene)
     }
     viewportHovered_ = ImGui::IsItemHovered();
     const bool viewportClicked = viewportHovered_ && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+
+    // Camera look/zoom via ImGui input: viewport-aware, so it keeps working
+    // when this panel is a detached OS window on another monitor (the
+    // engine's raw main-window polling is disabled — setInternalCameraInput).
+    // Note: applied after this frame's scene render, so the image reflects a
+    // look/zoom one frame later; gizmo/pick math below uses the CURRENT
+    // camera and stays self-consistent (interaction is RMB/LMB-exclusive).
+    if (viewportHovered_ && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+        camLooking_ = true;
+        // disabled-cursor look, same contract as the engine's fly-cam:
+        // hidden cursor + unbounded virtual deltas, so a single drag can
+        // turn 360 deg instead of pinning at the desktop edge. The cursor
+        // mode goes on THIS panel's platform window (may be a detached one).
+        lookWindow_ = (GLFWwindow*)ImGui::GetWindowViewport()->PlatformHandle;
+        if (lookWindow_) glfwSetInputMode(lookWindow_, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    }
+    if (camLooking_) {
+        const ImVec2 d = ImGui::GetIO().MouseDelta;
+        if (d.x != 0.f || d.y != 0.f) {
+            camera().ProcessMouseMovement(d.x, -d.y); // yaw +x, pitch -y
+        }
+    }
+    if (viewportHovered_) {
+        const float wheel = ImGui::GetIO().MouseWheel;
+        if (wheel != 0.f) camera().ProcessMouseScroll(wheel);
+    }
 
     // camera matrices matching what the renderer used for this target
     const float aspect = (sceneTarget_.height() > 0)

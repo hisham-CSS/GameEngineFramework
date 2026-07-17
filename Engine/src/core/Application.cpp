@@ -11,21 +11,34 @@ namespace MyCoreEngine
 {
 	Application::Application(int width, int height, const char* title)
 		: window_(width, height, title)
+		, input_(std::make_unique<InputMap>())
 	{
-		// Default fly-camera bindings; apps can rebind via input().
-		input_.bindAxisKeys("MoveForward", GLFW_KEY_W, GLFW_KEY_S);
-		input_.bindAxisKeys("MoveForward", GLFW_KEY_UP, GLFW_KEY_DOWN);
-		input_.bindAxisKeys("MoveRight", GLFW_KEY_D, GLFW_KEY_A);
-		input_.bindAxisKeys("MoveRight", GLFW_KEY_RIGHT, GLFW_KEY_LEFT);
-		input_.bindGamepadAxis("MoveForward", GLFW_GAMEPAD_AXIS_LEFT_Y, /*inverted=*/true);
-		input_.bindGamepadAxis("MoveRight", GLFW_GAMEPAD_AXIS_LEFT_X);
-		input_.bindGamepadAxis("LookX", GLFW_GAMEPAD_AXIS_RIGHT_X);
-		input_.bindGamepadAxis("LookY", GLFW_GAMEPAD_AXIS_RIGHT_Y, /*inverted=*/true);
-		input_.bindKey("Quit", GLFW_KEY_ESCAPE);
-		input_.bindGamepadButton("Quit", GLFW_GAMEPAD_BUTTON_BACK);
+		bindDefaultInput_();
 	}
 
 	Application::~Application() = default;
+
+	void Application::bindDefaultInput_()
+	{
+		// Default fly-camera bindings; apps can rebind via input().
+		input_->bindAxisKeys("MoveForward", GLFW_KEY_W, GLFW_KEY_S);
+		input_->bindAxisKeys("MoveForward", GLFW_KEY_UP, GLFW_KEY_DOWN);
+		input_->bindAxisKeys("MoveRight", GLFW_KEY_D, GLFW_KEY_A);
+		input_->bindAxisKeys("MoveRight", GLFW_KEY_RIGHT, GLFW_KEY_LEFT);
+		input_->bindGamepadAxis("MoveForward", GLFW_GAMEPAD_AXIS_LEFT_Y, /*inverted=*/true);
+		input_->bindGamepadAxis("MoveRight", GLFW_GAMEPAD_AXIS_LEFT_X);
+		input_->bindGamepadAxis("LookX", GLFW_GAMEPAD_AXIS_RIGHT_X);
+		input_->bindGamepadAxis("LookY", GLFW_GAMEPAD_AXIS_RIGHT_Y, /*inverted=*/true);
+		input_->bindKey("Quit", GLFW_KEY_ESCAPE);
+		input_->bindGamepadButton("Quit", GLFW_GAMEPAD_BUTTON_BACK);
+	}
+
+	void Application::installInput(std::unique_ptr<InputMap> map)
+	{
+		if (!map) return;
+		input_ = std::move(map);
+		bindDefaultInput_();
+	}
 
 	void Application::InitGL()
 	{
@@ -78,24 +91,24 @@ namespace MyCoreEngine
 
 			// Poll every frame so edge states stay coherent; only APPLY the
 			// default camera/quit behavior when the UI isn't capturing keys.
-			input_.update(window_.getGLFWwindow());
+			input_->update(window_.getGLFWwindow());
 			if (!capK) {
-				if (input_.wasPressed("Quit")) {
+				if (input_->wasPressed("Quit")) {
 					glfwSetWindowShouldClose(window_.getGLFWwindow(), true);
 				}
 				const float move = camera_.MovementSpeed * deltaTime_;
-				camera_.Position += camera_.Front * (input_.axis("MoveForward") * move);
-				camera_.Position += camera_.Right * (input_.axis("MoveRight") * move);
+				camera_.Position += camera_.Front * (input_->axis("MoveForward") * move);
+				camera_.Position += camera_.Right * (input_->axis("MoveRight") * move);
 
-				const float lookX = input_.axis("LookX");
-				const float lookY = input_.axis("LookY");
+				const float lookX = input_->axis("LookX");
+				const float lookY = input_->axis("LookY");
 				if (lookX != 0.f || lookY != 0.f) {
 					// ~120 deg/s at full stick deflection (sensitivity 0.1 applies inside)
 					const float padLook = 1200.f * deltaTime_;
 					camera_.ProcessMouseMovement(lookX * padLook, lookY * padLook);
 				}
 			}
-			if (!capM) handleMouseLook_();
+			if (!capM && internalCameraInput_) handleMouseLook_();
 
 			// Game update: fixed steps (simulation) then per-frame variable step.
 			// Camera/editor input above deliberately ignores pause/time scale.
@@ -180,7 +193,10 @@ namespace MyCoreEngine
 	void Application::ScrollThunk_(GLFWwindow* w, double /*xoff*/, double yoff)
 	{
 		if (auto* self = static_cast<Application*>(glfwGetWindowUserPointer(w))) {
-			self->camera_.ProcessMouseScroll(static_cast<float>(yoff));
+			// the editor zooms via ImGui wheel input instead (viewport-aware)
+			if (self->internalCameraInput_) {
+				self->camera_.ProcessMouseScroll(static_cast<float>(yoff));
+			}
 		}
 	}
 }

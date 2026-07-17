@@ -2,6 +2,7 @@
 #include "Core.h"
 
 #include <functional>
+#include <memory>
 #include <utility>
 
 #include "Window.h"
@@ -37,10 +38,21 @@ namespace MyCoreEngine
 
 		// --- subsystem access ---
 		Renderer& renderer() { return renderer_; }
-		InputMap& input() { return input_; }
+		InputMap& input() { return *input_; }
 		Camera&   camera() { return camera_; }
 		Window&   window() { return window_; }
 		GLFWwindow* GetNativeWindow() { return window_.getGLFWwindow(); }
+
+		// Swap the input backend (e.g. the editor's ImGui-routed InputMap,
+		// which aggregates input across detached multi-viewport windows).
+		// Default fly-camera bindings are re-applied to the new map.
+		void installInput(std::unique_ptr<InputMap> map);
+
+		// When off, the engine's raw main-window mouse-look and scroll-zoom
+		// are skipped — the app drives the camera itself (the editor does
+		// this via ImGui input so it works across detached panels).
+		void setInternalCameraInput(bool on) { internalCameraInput_ = on; }
+		bool internalCameraInput() const { return internalCameraInput_; }
 
 		// --- hooks (same contract as the old Renderer API) ---
 		using UIDrawFn = std::function<void(float /*deltaTime*/)>;
@@ -87,15 +99,17 @@ namespace MyCoreEngine
 	private:
 		void updateDeltaTime_();
 		void handleMouseLook_();
+		void bindDefaultInput_();
 
 		static void ScrollThunk_(GLFWwindow* w, double xoff, double yoff);
 
 		// Destruction order matters: window_ is declared first so the GL
 		// context outlives renderer_'s resource teardown.
 		Window   window_;
-		InputMap input_;
+		std::unique_ptr<InputMap> input_;
 		Camera   camera_{ glm::vec3(0.0f, 0.0f, 3.0f) };
 		Renderer renderer_;
+		bool     internalCameraInput_ = true;
 
 		// timing
 		float    deltaTime_ = 0.0f;
