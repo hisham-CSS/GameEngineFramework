@@ -45,12 +45,15 @@ void EditorApplication::Run() {
 
         // SAFE: capture 'this' (EditorApplication) whose lifetime spans the run loop
         SetUICaptureProvider([this] {
+            // Camera keys act only when the user is actually IN the viewport:
+            // focused, hovered, or mid-RMB-look. The old rule ("fly unless
+            // typing") predates multi-viewports — with input aggregated
+            // across detached OS windows, it moved the camera while
+            // scrolling/keyboarding in panels on other monitors. Text editing
+            // still blocks regardless (WantTextInput).
+            const bool inViewport = viewportFocused_ || viewportHovered_ || camLooking_;
             return std::pair<bool, bool>{
-                // NOT WantCaptureKeyboard: with keyboard nav + docking, ImGui
-                // keeps a window focused after any panel click, so that flag
-                // stays true forever and the fly camera goes dead. Only real
-                // text editing (Inspector name field etc.) should block WASD.
-                ui_.WantTextInput(),
+                ui_.WantTextInput() || !inViewport,
                     // the viewport is an ImGui window too — camera controls
                     // must keep working while the mouse is over it
                     ui_.WantCaptureMouse() && !viewportHovered_
@@ -216,9 +219,11 @@ void EditorApplication::DrawViewport(MyCoreEngine::Scene& scene)
     ImGui::PopStyleVar();
     if (!open) {
         viewportHovered_ = false;
+        viewportFocused_ = false;
         ImGui::End();
         return;
     }
+    viewportFocused_ = ImGui::IsWindowFocused();
 
     // gizmo mode toolbar
     ImGui::RadioButton("Translate", &gizmoOp_, 0); ImGui::SameLine();

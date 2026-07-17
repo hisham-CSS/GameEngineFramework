@@ -62,6 +62,7 @@ private:
 
     MyCoreEngine::RenderTarget sceneTarget_;
     bool viewportHovered_ = false;
+    bool viewportFocused_ = false; // Viewport is the focused ImGui window
     bool camLooking_ = false; // RMB look drag started over the viewport
     GLFWwindow* lookWindow_ = nullptr; // platform window holding the disabled cursor
     int  gizmoOp_ = 0; // 0 translate, 1 rotate, 2 scale
