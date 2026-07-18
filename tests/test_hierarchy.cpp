@@ -154,6 +154,63 @@ TEST(Hierarchy, DanglingParentActsAsRoot) {
     expectVec3Near(worldPos(scene, child), { 1.f, 2.f, 3.f });
 }
 
+// --- game camera entity (Scene/Game split) ---------------------------------
+
+TEST(GameCamera, SyncMatchesWorldPose) {
+    Scene scene;
+    auto e = makeNode(scene, { 3.f, 4.f, 5.f }, "Cam");
+    scene.registry.get<Transform>(e).rotation = { 0.f, 90.f, 0.f }; // yaw left
+    scene.registry.emplace<CameraComponent>(e, CameraComponent{ 75.f, true });
+    scene.UpdateTransforms();
+
+    Camera cam;
+    ASSERT_TRUE(SyncCameraFromEntity(scene.registry, e, cam));
+    expectVec3Near(cam.Position, { 3.f, 4.f, 5.f });
+    // identity looks down -Z; yaw +90 turns it toward -X
+    expectVec3Near(cam.Front, { -1.f, 0.f, 0.f });
+    expectVec3Near(cam.Up, { 0.f, 1.f, 0.f });
+    EXPECT_FLOAT_EQ(cam.Zoom, 75.f);
+}
+
+TEST(GameCamera, SyncFollowsParentHierarchy) {
+    Scene scene;
+    auto rig = makeNode(scene, { 10.f, 0.f, 0.f }, "Rig");
+    auto cam = makeNode(scene, { 0.f, 2.f, 0.f }, "Cam");
+    scene.registry.emplace<Parent>(cam, Parent{ rig });
+    scene.registry.emplace<CameraComponent>(cam, CameraComponent{});
+    scene.UpdateTransforms();
+
+    Camera out;
+    ASSERT_TRUE(SyncCameraFromEntity(scene.registry, cam, out));
+    expectVec3Near(out.Position, { 10.f, 2.f, 0.f }); // world, not local
+
+    // move the rig: the camera follows through the hierarchy
+    auto& rt = scene.registry.get<Transform>(rig);
+    rt.position.x = 20.f;
+    rt.dirty = true;
+    scene.UpdateTransforms();
+    ASSERT_TRUE(SyncCameraFromEntity(scene.registry, cam, out));
+    expectVec3Near(out.Position, { 20.f, 2.f, 0.f });
+}
+
+TEST(GameCamera, FindPrimaryPrefersPrimaryFlag) {
+    Scene scene;
+    EXPECT_TRUE(FindPrimaryCamera(scene.registry) == entt::null);
+
+    auto a = makeNode(scene, { 0.f, 0.f, 0.f }, "A");
+    scene.registry.emplace<CameraComponent>(a, CameraComponent{ 60.f, false });
+    EXPECT_EQ(FindPrimaryCamera(scene.registry), a); // only camera wins
+
+    auto b = makeNode(scene, { 1.f, 0.f, 0.f }, "B");
+    scene.registry.emplace<CameraComponent>(b, CameraComponent{ 60.f, true });
+    EXPECT_EQ(FindPrimaryCamera(scene.registry), b); // primary beats first
+
+    // a camera without a Transform can't render: never selected
+    auto c = scene.createEntity();
+    scene.registry.emplace<CameraComponent>((entt::entity)c, CameraComponent{ 60.f, true });
+    EXPECT_EQ(FindPrimaryCamera(scene.registry), b);
+}
+
 TEST(Hierarchy, MovedParentInvalidatesChildCasterShadows) {
     Scene scene;
     auto parent = makeNode(scene, { 0.f, 0.f, -50.f }, "P");

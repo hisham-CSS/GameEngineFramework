@@ -179,6 +179,33 @@ TEST(SceneSerializer, RefusesParentCyclesInFile) {
     std::remove(path);
 }
 
+TEST(SceneSerializer, RoundTripCameraComponent) {
+    const char* path = "test_scene_camera.json";
+
+    Scene a;
+    Entity cam = a.createEntity();
+    cam.addComponent<Name>(Name{ "Main Camera" });
+    Transform t{};
+    t.position = { 0.f, 6.f, 30.f };
+    cam.addComponent<Transform>(t);
+    a.registry.emplace<CameraComponent>((entt::entity)cam, CameraComponent{ 85.f, true });
+
+    AssetManager assets;
+    SceneSerializer save(a, assets);
+    ASSERT_TRUE(save.Save(path));
+
+    Scene b;
+    SceneSerializer load(b, assets);
+    ASSERT_TRUE(load.Load(path));
+
+    const entt::entity found = FindPrimaryCamera(b.registry);
+    ASSERT_TRUE(found != entt::null);
+    EXPECT_FLOAT_EQ(b.registry.get<CameraComponent>(found).fovDeg, 85.f);
+    EXPECT_TRUE(b.registry.get<CameraComponent>(found).primary);
+
+    std::remove(path);
+}
+
 // "New Scene" (P2-4): everything gone, settings back to defaults
 TEST(SceneReset, ResetToDefaultsClearsEntitiesAndSettings) {
     Scene s;

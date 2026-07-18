@@ -89,6 +89,12 @@ namespace MyCoreEngine {
             if (reg.any_of<NoShadow>(e)) {
                 je["noShadow"] = true;
             }
+            if (auto* cam = reg.try_get<CameraComponent>(e)) {
+                je["camera"] = {
+                    { "fovDeg",  cam->fovDeg },
+                    { "primary", cam->primary },
+                };
+            }
             if (auto* ov = reg.try_get<MaterialOverrides>(e)) {
                 json jov = json::array();
                 for (const auto& [slot, mat] : ov->byIndex) {
@@ -216,6 +222,15 @@ namespace MyCoreEngine {
             }
             if (je.value("noShadow", false)) {
                 reg.emplace<NoShadow>(entity);
+            }
+            if (je.contains("camera") && je["camera"].is_object()) {
+                const json& jc = je["camera"];
+                CameraComponent cam;
+                // clamp: an out-of-range fov (hand-edited file) makes the
+                // projection degenerate and renders silent garbage
+                cam.fovDeg = glm::clamp(jc.value("fovDeg", cam.fovDeg), 1.0f, 179.0f);
+                cam.primary = jc.value("primary", cam.primary);
+                reg.emplace<CameraComponent>(entity, cam);
             }
             if (je.contains("materialOverrides") && model) {
                 const auto& shared = model->Materials();

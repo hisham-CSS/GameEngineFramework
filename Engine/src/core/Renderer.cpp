@@ -102,6 +102,14 @@ namespace MyCoreEngine {
 
         glViewport(0, 0, fbw, fbh);
 
+        // Seed the size tracking with what we just allocated: RenderFrame
+        // must recreate the HDR pipeline the moment its output size differs.
+        // (The old `lastFbW_ != 0` guard skipped the FIRST differing frame,
+        // permanently locking renderers whose first render size never
+        // changes again — the editor's Game view — to the Setup size.)
+        lastFbW_ = fbw;
+        lastFbH_ = fbh;
+
         passCtx_.defaultFBO = 0;
         passCtx_.hdrFBO = hdrFBO_;
         passCtx_.hdrColorTex = hdrColorTex_;
@@ -135,7 +143,7 @@ namespace MyCoreEngine {
         // resize the HDR pipeline whenever the output size changes (window
         // resize in the player, viewport-panel resize in the editor)
         if (fbWidth != lastFbW_ || fbHeight != lastFbH_) {
-            if (hdrFBO_ && lastFbW_ != 0) recreateHDR_(fbWidth, fbHeight);
+            if (hdrFBO_) recreateHDR_(fbWidth, fbHeight);
             lastFbW_ = fbWidth; lastFbH_ = fbHeight;
         }
         passCtx_.defaultFBO = targetFBO;

@@ -8,6 +8,40 @@
 #include "Scene.h"
 
 
+// --- game camera helpers ---------------------------------------------------
+
+entt::entity MyCoreEngine::FindPrimaryCamera(entt::registry& reg)
+{
+    entt::entity first = entt::null;
+    for (auto [e, cam] : reg.view<CameraComponent>().each()) {
+        if (!reg.all_of<Transform>(e)) continue; // a camera needs a pose
+        if (cam.primary) return e;
+        if (first == entt::null) first = e;
+    }
+    return first;
+}
+
+bool MyCoreEngine::SyncCameraFromEntity(entt::registry& reg, entt::entity e,
+                                        Camera& cam)
+{
+    if (!reg.valid(e) || !reg.all_of<CameraComponent, Transform>(e)) return false;
+    const auto& cc = reg.get<CameraComponent>(e);
+    const glm::mat4& m = reg.get<Transform>(e).modelMatrix; // WORLD (hierarchy applied)
+
+    auto column = [&](int c, glm::vec3 fallback) {
+        const glm::vec3 v(m[c]);
+        const float len = glm::length(v);
+        return (len > 1e-6f) ? v / len : fallback;
+    };
+    cam.Position = glm::vec3(m[3]);
+    cam.Right = column(0, { 1.f, 0.f, 0.f });
+    cam.Up = column(1, { 0.f, 1.f, 0.f });
+    cam.Front = -column(2, { 0.f, 0.f, 1.f }); // identity looks down -Z
+    // clamp: fov outside (0,180) degenerates tan(fov/2) in every projection
+    cam.Zoom = glm::clamp(cc.fovDeg, 1.f, 179.f);
+    return true;
+}
+
 // --- transform hierarchy helpers (P2-8) ------------------------------------
 
 bool MyCoreEngine::IsSameOrDescendantOf(entt::registry& reg, entt::entity node,

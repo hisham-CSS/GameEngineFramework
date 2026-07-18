@@ -417,6 +417,22 @@ TEST(SceneSnapshot, ParentLinksSurviveRestoreRegardlessOfOrder) {
     EXPECT_EQ(reg.get<Parent>(child).value, parent);
 }
 
+TEST(UndoHistory, CameraComponentSurvivesDeleteUndo) {
+    entt::registry reg;
+    UndoHistory h;
+    auto e = makeEntity(reg, "Main Camera");
+    reg.emplace<CameraComponent>(e, CameraComponent{ 85.f, true });
+
+    h.recordDelete(reg, e, "Delete 'Main Camera'");
+    EXPECT_FALSE(reg.valid(e));
+
+    h.undo(reg, nullptr);
+    ASSERT_TRUE(reg.valid(e));
+    ASSERT_TRUE(reg.any_of<CameraComponent>(e));
+    EXPECT_FLOAT_EQ(reg.get<CameraComponent>(e).fovDeg, 85.f);
+    EXPECT_TRUE(reg.get<CameraComponent>(e).primary);
+}
+
 TEST(UndoHistory, EntityVanishingMidEditDropsEntry) {
     entt::registry reg;
     UndoHistory h;

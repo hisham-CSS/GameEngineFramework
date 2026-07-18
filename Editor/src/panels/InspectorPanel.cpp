@@ -32,6 +32,25 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
             }
         };
 
+        // For ABSOLUTE sliders (SliderFloat): clicking the track jumps the
+        // value on the activation frame, BEFORE any begin-edit could run —
+        // so the undo "before" must be the value read prior to the widget.
+        // We briefly restore it around beginEdit's capture. (Drag widgets
+        // are delta-based and don't need this.)
+        auto trackSliderItem = [&](const char* label, float& liveValue, float preValue) {
+            if (ImGui::IsItemActivated()) {
+                const float jumped = liveValue;
+                liveValue = preValue;
+                undo.beginEdit(reg, selected, label);
+                liveValue = jumped;
+            }
+            else if (ImGui::IsItemActive()) undo.touchEdit(label);
+            if (ImGui::IsItemDeactivated()) {
+                if (ImGui::IsItemDeactivatedAfterEdit()) undo.endEditIf(reg, label);
+                else undo.cancelEditIf(label);
+            }
+        };
+
         if (auto* name = reg.try_get<Name>(selected)) {
             char buf[128];
             snprintf(buf, sizeof(buf), "%s", name->value.c_str());
@@ -83,6 +102,42 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
             if (ImGui::SmallButton("Add Transform")) {
                 undo.record(reg, selected, "Add transform", [&] {
                     reg.emplace<Transform>(selected);
+                });
+            }
+        }
+
+        // --- Camera ---
+        ImGui::SeparatorText("Camera");
+        if (auto* cam = reg.try_get<CameraComponent>(selected)) {
+            const float preFov = cam->fovDeg;
+            // AlwaysClamp: Ctrl+Click typing must not escape the range — a
+            // fov outside (0,180) makes tan(fov/2) degenerate and the Game
+            // view / player render garbage
+            ImGui::SliderFloat("FOV (deg)", &cam->fovDeg, 20.f, 120.f, "%.0f",
+                               ImGuiSliderFlags_AlwaysClamp);
+            trackSliderItem("Camera FOV", cam->fovDeg, preFov);
+            bool primary = cam->primary;
+            if (ImGui::Checkbox("Primary Camera", &primary)) {
+                undo.record(reg, selected, primary ? "Make primary camera"
+                                                   : "Clear primary camera", [&] {
+                    cam->primary = primary;
+                });
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("(game renders from the primary)");
+            if (ImGui::SmallButton("Remove Camera")) {
+                undo.record(reg, selected, "Remove camera", [&] {
+                    reg.remove<CameraComponent>(selected);
+                });
+            }
+        }
+        else {
+            ImGui::TextDisabled("(no camera)");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Add Camera")) {
+                undo.record(reg, selected, "Add camera", [&] {
+                    reg.emplace<CameraComponent>(selected);
+                    if (!reg.any_of<Transform>(selected)) reg.emplace<Transform>(selected);
                 });
             }
         }
@@ -188,12 +243,15 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
                                 float emi[3] = { editing->emissive.r,  editing->emissive.g,  editing->emissive.b };
                                 if (ImGui::ColorEdit3("Emissive", emi))  editing->emissive = { emi[0], emi[1], emi[2] };
                                 trackItem(lblEmi);
+                                const float preMet = editing->metallic;
                                 ImGui::SliderFloat("Metallic", &editing->metallic, 0.0f, 1.0f);
-                                trackItem(lblMet);
+                                trackSliderItem(lblMet, editing->metallic, preMet);
+                                const float preRgh = editing->roughness;
                                 ImGui::SliderFloat("Roughness", &editing->roughness, 0.0f, 1.0f);
-                                trackItem(lblRgh);
+                                trackSliderItem(lblRgh, editing->roughness, preRgh);
+                                const float preAO = editing->ao;
                                 ImGui::SliderFloat("AO", &editing->ao, 0.0f, 1.0f);
-                                trackItem(lblAO);
+                                trackSliderItem(lblAO, editing->ao, preAO);
                                 if (ImGui::Button("Revert to shared")) {
                                     char lbl[48];
                                     snprintf(lbl, sizeof(lbl), "Revert material %d to shared", (int)i + 1);

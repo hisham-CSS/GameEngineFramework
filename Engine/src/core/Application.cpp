@@ -125,6 +125,15 @@ namespace MyCoreEngine
 
 			scene.UpdateTransforms();
 
+			// After UpdateTransforms so the camera entity's world matrix is
+			// current — the view tracks gameplay with no frame lag.
+			if (renderFromSceneCamera_) {
+				const entt::entity camEntity = FindPrimaryCamera(scene.registry);
+				if (camEntity != entt::null) {
+					SyncCameraFromEntity(scene.registry, camEntity, camera_);
+				}
+			}
+
 			int fbw = 0, fbh = 0;
 			window_.getFramebufferSize(fbw, fbh);
 			if (sceneTarget_ && sceneTarget_->fbo() && sceneTarget_->width() > 0) {

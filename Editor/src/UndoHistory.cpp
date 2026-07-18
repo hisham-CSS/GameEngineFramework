@@ -17,6 +17,9 @@ namespace {
                                a.transform.scale != b.transform.scale)) return false;
         if (a.modelPath != b.modelPath) return false;
         if (a.noShadow != b.noShadow) return false;
+        if (a.hasCamera != b.hasCamera) return false;
+        if (a.hasCamera && (a.camera.fovDeg != b.camera.fovDeg ||
+                            a.camera.primary != b.camera.primary)) return false;
         if (a.hasParent != b.hasParent) return false;
         if (a.hasParent && a.parent != b.parent) return false;
         if (a.hasOverrides != b.hasOverrides) return false;
@@ -57,6 +60,7 @@ EntitySnapshot UndoHistory::capture(entt::registry& reg, entt::entity e) {
     }
     s.noShadow = reg.any_of<NoShadow>(e);
     if (auto* p = reg.try_get<Parent>(e)) { s.hasParent = true; s.parent = p->value; }
+    if (auto* c = reg.try_get<CameraComponent>(e)) { s.hasCamera = true; s.camera = *c; }
     return s;
 }
 
@@ -104,6 +108,9 @@ void UndoHistory::apply(entt::registry& reg, MyCoreEngine::AssetManager* assets,
 
     if (s.noShadow) { if (!reg.any_of<NoShadow>(e)) reg.emplace<NoShadow>(e); }
     else reg.remove<NoShadow>(e);
+
+    if (s.hasCamera) reg.emplace_or_replace<CameraComponent>(e, s.camera);
+    else reg.remove<CameraComponent>(e);
 
     // parent link — skipped if the target doesn't exist (yet); batch paths
     // (multi-op entries, restoreScene) run a fixup pass afterwards

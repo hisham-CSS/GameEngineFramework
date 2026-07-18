@@ -49,6 +49,17 @@ namespace MyCoreEngine {
     // World matrix resolved through the Parent chain from local TRS values
     // (correct even when cached modelMatrix values are stale/dirty).
     ENGINE_API glm::mat4 ResolveWorldMatrix(entt::registry& reg, entt::entity e);
+    // --- game camera helpers -----------------------------------------------
+    // The camera entity the game renders from: first CameraComponent with
+    // primary=true, else the first camera at all; entt::null when the scene
+    // has none (callers fall back to their own camera).
+    ENGINE_API entt::entity FindPrimaryCamera(entt::registry& reg);
+    // Copies the entity's world pose + fov into `cam` (Position/Front/Up/
+    // Right from the world matrix columns, Zoom from fovDeg). Returns false
+    // if the entity is not a valid camera (cam is left untouched).
+    ENGINE_API bool SyncCameraFromEntity(entt::registry& reg, entt::entity e,
+                                         Camera& cam);
+
     // Decompose an affine TRS matrix into position / YXZ euler degrees /
     // scale — EXACTLY the conventions Transform::localMatrix rebuilds, so a
     // decompose->rebuild round-trip is lossless for shear-free matrices.

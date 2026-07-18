@@ -34,6 +34,7 @@ struct EntitySnapshot {
     bool hasOverrides = false;  MaterialOverrides overrides{}; // deep copies
     bool noShadow = false;
     bool hasParent = false;     entt::entity parent = entt::null; // hierarchy link
+    bool hasCamera = false;     CameraComponent camera{};
 };
 
 class UndoHistory {

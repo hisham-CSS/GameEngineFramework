@@ -54,6 +54,15 @@ namespace MyCoreEngine
 		void setInternalCameraInput(bool on) { internalCameraInput_ = on; }
 		bool internalCameraInput() const { return internalCameraInput_; }
 
+		// When on, each frame renders from the scene's primary camera ENTITY
+		// (CameraComponent + Transform) instead of the free-fly camera — the
+		// player enables this so the game is seen through its own camera.
+		// Scenes without a camera fall back to the fly cam automatically.
+		// The editor leaves this off: its Scene view is the god camera and
+		// the Game panel renders from the camera entity separately.
+		void setRenderFromSceneCamera(bool on) { renderFromSceneCamera_ = on; }
+		bool renderFromSceneCamera() const { return renderFromSceneCamera_; }
+
 		// --- hooks (same contract as the old Renderer API) ---
 		using UIDrawFn = std::function<void(float /*deltaTime*/)>;
 		void SetUIDraw(UIDrawFn fn) { uiDraw_ = std::move(fn); }
@@ -118,6 +127,7 @@ namespace MyCoreEngine
 		float    timeScale_ = 1.0f;
 		bool     paused_ = false;
 		bool     gameplayEnabled_ = true;
+		bool     renderFromSceneCamera_ = false;
 		bool     vsync_ = true;
 
 		// hooks

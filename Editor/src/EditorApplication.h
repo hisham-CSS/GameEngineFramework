@@ -16,9 +16,16 @@ public:
 
     void Run() override;
 
-    // Scene viewport: renders the offscreen scene texture, hosts the
-    // transform gizmo, and click-picks entities via ray-AABB.
+    // Scene viewport (god camera): renders the offscreen scene texture,
+    // hosts the transform gizmo, and click-picks entities via ray-AABB.
     void DrawViewport(MyCoreEngine::Scene& scene);
+
+    // Game viewport: what the game actually shows — rendered from the
+    // scene's primary camera ENTITY through a dedicated Renderer (sharing
+    // the Scene view's renderer would thrash CSM cascades between two
+    // frusta every frame). Skipped entirely while the panel is hidden.
+    void DrawGameViewport(MyCoreEngine::Scene& scene, MyCoreEngine::Shader& shader,
+                          float dt);
 
     void DrawInputPanel();
 
@@ -62,6 +69,12 @@ private:
     // old-scene shadows would stay baked in far cascades otherwise)
     bool loadSceneFromFile_(MyCoreEngine::Scene& scene, const std::string& path);
     bool setStartupScene_(const std::string& path); // updates buildSettingsStatus_
+    // Shadow rebuilds must hit BOTH renderers — the Game view keeps its own
+    // CSM state and would otherwise hold stale baked shadows.
+    void forceAllCSMUpdate_() {
+        renderer().forceCSMUpdate();
+        gameRenderer_.forceCSMUpdate();
+    }
     // spawn a model entity (undo-recorded, selects it); pos = world position
     void spawnModelEntity_(MyCoreEngine::Scene& scene, const std::string& path,
                            const glm::vec3& pos);
@@ -79,6 +92,10 @@ private:
     bool startupSceneLoaded_ = false;
 
     MyCoreEngine::RenderTarget sceneTarget_;
+    MyCoreEngine::RenderTarget gameTarget_;   // Game panel's offscreen target
+    MyCoreEngine::Renderer gameRenderer_;     // own CSM state for the game frustum
+    Camera gameCamera_;                       // scratch, synced from the camera entity
+    MyCoreEngine::Shader* sceneShader_ = nullptr; // Run()'s shader (outlives the loop)
     bool viewportHovered_ = false;
     bool viewportFocused_ = false; // Viewport is the focused ImGui window
     bool camLooking_ = false; // RMB look drag started over the viewport

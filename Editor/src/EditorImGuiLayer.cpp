@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdio>
 #include "EditorImGuiLayer.h"
 #include "imgui.h"
 #include "imgui_impl_glfw.h"

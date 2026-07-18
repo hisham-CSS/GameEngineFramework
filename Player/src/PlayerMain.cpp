@@ -70,6 +70,11 @@ public:
         // (Application::gameplayEnabled_ defaults on; only the editor gates it).
         InstallDemoGameplay(*this, scene);
 
+        // Render through the scene's primary camera entity (Unity-style):
+        // the editor's Game view shows the same thing. Scenes without a
+        // camera fall back to the free-fly camera automatically.
+        setRenderFromSceneCamera(true);
+
         RunLoop(scene, shader); // ESC or window close exits
     }
 };

@@ -19,6 +19,19 @@ struct Name {
 	std::string value = "Entity";
 };
 
+// Makes an entity a game camera: the editor's Game view and the standalone
+// player render from the PRIMARY camera entity's world transform (position/
+// orientation come from the Transform, hierarchy included — a camera can be
+// parented to anything). The identity orientation looks down -Z, matching
+// the engine camera convention. Near/far planes are engine-fixed
+// (0.1 / 1000) for now; fov is per-camera.
+struct CameraComponent {
+	float fovDeg = 60.0f;
+	// The camera the game renders from. With several primaries (or none),
+	// the first camera found wins — see FindPrimaryCamera.
+	bool primary = true;
+};
+
 // Transform hierarchy (P2-8): an entity with a Parent treats its Transform
 // as LOCAL to that parent — Scene::UpdateTransforms resolves worldMatrix =
 // parentWorld * localTRS root-down every frame. No Parent (or a dangling

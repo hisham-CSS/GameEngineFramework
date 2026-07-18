@@ -1,4 +1,6 @@
-﻿#include "EditorApplication.h"
+﻿#include <glad/glad.h> // raw GL for the Game view's framebuffer restore
+
+#include "EditorApplication.h"
 
 #include "Engine.h"                 // Renderer/Scene/Shader headers aggregated or include individually
 #include "EditorImGuiLayer.h"
@@ -39,9 +41,20 @@ void EditorApplication::Run() {
         installInput(std::make_unique<ImGuiInputMap>());
         setInternalCameraInput(false);
 
-        // scene renders offscreen; the Viewport panel displays (and resizes) it
+        // scene renders offscreen; the Scene panel displays (and resizes) it
         sceneTarget_.Create(1280, 720);
         SetSceneRenderTarget(&sceneTarget_);
+
+        // The EDITOR module keeps its own GLAD pointer table — the engine's
+        // loader only fills the DLL's. Raw GL calls from editor code (the
+        // Game view's framebuffer restore) segfault on null pointers
+        // without this. (Same per-module lesson as the test exes.)
+        gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
+
+        // Game view: separate target + renderer keyed to the game camera's
+        // frustum (rendered on demand in DrawGameViewport)
+        gameTarget_.Create(1280, 720);
+        gameRenderer_.Setup(gameTarget_.width(), gameTarget_.height());
 
         // SAFE: capture 'this' (EditorApplication) whose lifetime spans the run loop
         SetUICaptureProvider([this] {
@@ -77,8 +90,12 @@ void EditorApplication::Run() {
 
         DrawViewport(scene);
 
-        //Information Panel
+        //Information Panel (reads the SCENE view's render stats — draw it
+        //before the Game view renders and overwrites them)
         DrawInformationPanel(scene, dt);
+
+        //Game view: what the primary camera entity sees
+        DrawGameViewport(scene, *sceneShader_, dt);
 
         // Engine/render controls. These used to be bare CollapsingHeaders,
         // which ImGui collects into its implicit "Debug##Default" fallback
@@ -105,7 +122,7 @@ void EditorApplication::Run() {
         if (inspector_.Draw(scene.registry, selected_, undo_, assets_.get())) {
             // caster set changed without a transform dirtying (model swap /
             // remove / shadow toggle): stale shadows stay baked otherwise
-            renderer().forceCSMUpdate();
+            forceAllCSMUpdate_();
         }
 
         // commit any edit whose widget stopped being submitted this frame
@@ -126,7 +143,7 @@ void EditorApplication::Run() {
                 spawnModelEntity_(scene, aba.spawnModel,
                                   camera().Position + camera().Front * 10.f);
             }
-            if (aba.shadowsDirty) renderer().forceCSMUpdate();
+            if (aba.shadowsDirty) forceAllCSMUpdate_();
         }
 
         //undo/redo history (P2-7)
@@ -177,6 +194,7 @@ void EditorApplication::Run() {
     assets_ = std::make_unique<AssetManager>(); // create after GL is ready
     std::unique_ptr<Shader> shader = std::make_unique<Shader>("Exported/Shaders/vertex.glsl",
         "Exported/Shaders/frag.glsl");
+    sceneShader_ = shader.get(); // the Game view renders with the same shader
 
     assert(glfwGetCurrentContext() != nullptr);
     // --- Load or reuse a model by path ---
@@ -216,6 +234,18 @@ void EditorApplication::Run() {
         scene.registry.emplace<NoShadow>(ground);
     }
 
+    // Main Camera: the entity the Game view and the player render from
+    // (identity orientation looks down -Z; pitch down toward the grid)
+    {
+        Entity camEntity = scene.createEntity();
+        camEntity.addComponent<Name>(Name{ "Main Camera" });
+        Transform t{};
+        t.position = glm::vec3(0.f, 6.f, 30.f);
+        t.rotation = glm::vec3(-11.f, 0.f, 0.f);
+        camEntity.addComponent<Transform>(t);
+        camEntity.addComponent<CameraComponent>(CameraComponent{});
+    }
+
     // Demo gameplay (shared with the standalone player): spin entities named
     // "Hero". Only ticks between Play and Stop here — the gameplay gate is
     // off in edit mode.
@@ -239,7 +269,9 @@ void EditorApplication::DrawViewport(MyCoreEngine::Scene& scene)
 
     ImGui::SetNextWindowSize(ImVec2(900, 560), ImGuiCond_FirstUseEver);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(2, 2));
-    const bool open = ImGui::Begin("Viewport", nullptr,
+    // "Scene" = the editor god camera; the "Game" panel shows the primary
+    // camera entity's view (renamed from "Viewport" — re-dock once)
+    const bool open = ImGui::Begin("Scene", nullptr,
         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::PopStyleVar();
     if (!open) {
@@ -430,6 +462,65 @@ void EditorApplication::DrawViewport(MyCoreEngine::Scene& scene)
     ImGui::End();
 }
 
+void EditorApplication::DrawGameViewport(MyCoreEngine::Scene& scene,
+                                         MyCoreEngine::Shader& shader, float dt)
+{
+    using namespace MyCoreEngine;
+
+    ImGui::SetNextWindowSize(ImVec2(640, 400), ImGuiCond_FirstUseEver);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(2, 2));
+    const bool open = ImGui::Begin("Game", nullptr,
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::PopStyleVar();
+    if (!open) {
+        // hidden/collapsed: skip the whole second scene render
+        ImGui::End();
+        return;
+    }
+
+    const entt::entity camEntity = FindPrimaryCamera(scene.registry);
+    if (camEntity == entt::null) {
+        ImGui::TextDisabled("No camera in the scene.");
+        ImGui::TextDisabled("Select an entity and use Inspector > Camera > Add Camera.");
+        ImGui::End();
+        return;
+    }
+
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    if (avail.x >= 8.f && avail.y >= 8.f) {
+        gameTarget_.Resize((int)avail.x, (int)avail.y);
+    }
+
+    SyncCameraFromEntity(scene.registry, camEntity, gameCamera_);
+
+    // Keep the look coherent with the Scene view: scene-level state (lights,
+    // materials, toggles) is shared via the Scene itself; these few live on
+    // the renderer and must be mirrored. Force direct-dir mode first —
+    // otherwise the game renderer's own yaw/pitch default overwrites the
+    // mirrored direction and sun edits never reach the Game view.
+    gameRenderer_.setUseSunYawPitch(false);
+    gameRenderer_.setSunDir(renderer().sunDir());
+    gameRenderer_.setExposure(renderer().exposure());
+    gameRenderer_.setCSMEnabled(renderer().getCSMEnabled());
+
+    if (gameTarget_.fbo() && gameTarget_.width() > 0) {
+        gameRenderer_.RenderFrame(scene, shader, gameCamera_,
+                                  gameTarget_.width(), gameTarget_.height(), dt,
+                                  gameTarget_.fbo());
+        // mid-UI-frame offscreen render: restore the backbuffer binding —
+        // ImGui's backend renders into whatever framebuffer is bound
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+
+    const ImVec2 imageSize(avail.x > 1.f ? avail.x : 1.f, avail.y > 1.f ? avail.y : 1.f);
+    if (gameTarget_.colorTexture()) {
+        // GL textures are bottom-up: flip V
+        ImGui::Image((ImTextureID)(intptr_t)gameTarget_.colorTexture(),
+                     imageSize, ImVec2(0, 1), ImVec2(1, 0));
+    }
+    ImGui::End();
+}
+
 void EditorApplication::pickEntity_(MyCoreEngine::Scene& scene, float u, float v,
                                     const glm::mat4& view, const glm::mat4& proj)
 {
@@ -586,7 +677,7 @@ void EditorApplication::DrawScenePersistence(MyCoreEngine::Scene& scene)
             undo_.clear();          // ...including all of the history's
             // wholesale caster removal bypasses the departure-sphere flow:
             // the old scene's shadows would stay baked otherwise
-            renderer().forceCSMUpdate();
+            forceAllCSMUpdate_();
             lastStatus = "New scene";
             ImGui::CloseCurrentPopup();
         }
@@ -762,7 +853,7 @@ void EditorApplication::DrawSunShadowControls(MyCoreEngine::Scene& scene)
         if (ImGui::SliderInt(kKernelLabels[i], &r, 0, 4)) renderer().setCascadeKernel(i, r);
     }
 
-    if (ImGui::Button("Force Rebuild CSM")) renderer().forceCSMUpdate();
+    if (ImGui::Button("Force Rebuild CSM")) forceAllCSMUpdate_();
     // Debug
     if (ImGui::CollapsingHeader("CSM Debug", ImGuiTreeNodeFlags_None)) {
         static const char* kModes[] = {
@@ -847,7 +938,7 @@ bool EditorApplication::loadSceneFromFile_(MyCoreEngine::Scene& scene, const std
     // wholesale scene replacement bypasses the departure-sphere flow: the
     // old scene's shadows would stay baked in cascades the new content
     // doesn't touch (same class of bug as play-mode stop-restore)
-    renderer().forceCSMUpdate();
+    forceAllCSMUpdate_();
     return true;
 }
 
@@ -914,7 +1005,7 @@ void EditorApplication::stopPlay_(MyCoreEngine::Scene& scene)
     // never sees the play-end poses as "departures" — far cascades would
     // keep shadows baked where things stood when Stop was pressed. A full
     // rebuild on a user action is imperceptible.
-    renderer().forceCSMUpdate();
+    forceAllCSMUpdate_();
 }
 
 void EditorApplication::doUndo_(MyCoreEngine::Scene& scene)
@@ -923,14 +1014,14 @@ void EditorApplication::doUndo_(MyCoreEngine::Scene& scene)
     if (!scene.registry.valid(selected_)) selected_ = entt::null;
     // snapshot restores overwrite the live matrix, so the departure pose
     // never reaches the dirty-caster flow — rebuild shadows outright
-    renderer().forceCSMUpdate();
+    forceAllCSMUpdate_();
 }
 
 void EditorApplication::doRedo_(MyCoreEngine::Scene& scene)
 {
     undo_.redo(scene.registry, assets_.get());
     if (!scene.registry.valid(selected_)) selected_ = entt::null;
-    renderer().forceCSMUpdate();
+    forceAllCSMUpdate_();
 }
 
 void EditorApplication::DrawEditHistory(MyCoreEngine::Scene& scene)
@@ -994,7 +1085,7 @@ void EditorApplication::DrawEditHistory(MyCoreEngine::Scene& scene)
             if (target <= entries.size()) {
                 undo_.jumpTo(scene.registry, assets_.get(), target);
                 if (!scene.registry.valid(selected_)) selected_ = entt::null;
-                renderer().forceCSMUpdate(); // see doUndo_
+                forceAllCSMUpdate_(); // see doUndo_
             }
         }
     }
