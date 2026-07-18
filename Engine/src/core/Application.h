@@ -8,6 +8,7 @@
 #include "Window.h"
 #include "InputMap.h"
 #include "Camera.h"
+#include "CameraDirector.h"
 #include "FixedTimestep.h"
 #include "Renderer.h"
 #include "RenderTarget.h"
@@ -40,6 +41,12 @@ namespace MyCoreEngine
 		Renderer& renderer() { return renderer_; }
 		InputMap& input() { return *input_; }
 		Camera&   camera() { return camera_; }
+		// The Cinemachine-style director that picks (and blends between)
+		// scene camera entities when renderFromSceneCamera is on. Gameplay
+		// code tunes it here: setDefaultBlendSeconds for smooth camera
+		// takes, setOverride for scripted hard control. Camera switching
+		// itself is data-driven — raise a CameraComponent's priority.
+		CameraDirector& cameraDirector() { return director_; }
 		Window&   window() { return window_; }
 		GLFWwindow* GetNativeWindow() { return window_.getGLFWwindow(); }
 
@@ -54,12 +61,13 @@ namespace MyCoreEngine
 		void setInternalCameraInput(bool on) { internalCameraInput_ = on; }
 		bool internalCameraInput() const { return internalCameraInput_; }
 
-		// When on, each frame renders from the scene's primary camera ENTITY
-		// (CameraComponent + Transform) instead of the free-fly camera — the
-		// player enables this so the game is seen through its own camera.
-		// Scenes without a camera fall back to the fly cam automatically.
-		// The editor leaves this off: its Scene view is the god camera and
-		// the Game panel renders from the camera entity separately.
+		// When on, each frame renders through the CameraDirector — the
+		// highest-priority enabled camera ENTITY (CameraComponent +
+		// Transform), with blending on switches — instead of the free-fly
+		// camera. The player enables this so the game is seen through its
+		// own cameras. Scenes without a camera fall back to the fly cam
+		// automatically. The editor leaves this off: its Scene view is the
+		// god camera and the Game panel runs its own director separately.
 		void setRenderFromSceneCamera(bool on) { renderFromSceneCamera_ = on; }
 		bool renderFromSceneCamera() const { return renderFromSceneCamera_; }
 
@@ -117,6 +125,7 @@ namespace MyCoreEngine
 		Window   window_;
 		std::unique_ptr<InputMap> input_;
 		Camera   camera_{ glm::vec3(0.0f, 0.0f, 3.0f) };
+		CameraDirector director_;
 		Renderer renderer_;
 		bool     internalCameraInput_ = true;
 

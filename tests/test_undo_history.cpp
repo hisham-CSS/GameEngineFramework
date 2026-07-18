@@ -421,7 +421,13 @@ TEST(UndoHistory, CameraComponentSurvivesDeleteUndo) {
     entt::registry reg;
     UndoHistory h;
     auto e = makeEntity(reg, "Main Camera");
-    reg.emplace<CameraComponent>(e, CameraComponent{ 85.f, true });
+    CameraComponent cc;
+    cc.fovDeg = 85.f;
+    cc.nearClip = 0.5f;
+    cc.farClip = 300.f;
+    cc.priority = 3;
+    cc.enabled = false;
+    reg.emplace<CameraComponent>(e, cc);
 
     h.recordDelete(reg, e, "Delete 'Main Camera'");
     EXPECT_FALSE(reg.valid(e));
@@ -429,8 +435,12 @@ TEST(UndoHistory, CameraComponentSurvivesDeleteUndo) {
     h.undo(reg, nullptr);
     ASSERT_TRUE(reg.valid(e));
     ASSERT_TRUE(reg.any_of<CameraComponent>(e));
-    EXPECT_FLOAT_EQ(reg.get<CameraComponent>(e).fovDeg, 85.f);
-    EXPECT_TRUE(reg.get<CameraComponent>(e).primary);
+    const auto& back = reg.get<CameraComponent>(e);
+    EXPECT_FLOAT_EQ(back.fovDeg, 85.f);
+    EXPECT_FLOAT_EQ(back.nearClip, 0.5f);
+    EXPECT_FLOAT_EQ(back.farClip, 300.f);
+    EXPECT_EQ(back.priority, 3);
+    EXPECT_FALSE(back.enabled);
 }
 
 TEST(UndoHistory, EntityVanishingMidEditDropsEntry) {

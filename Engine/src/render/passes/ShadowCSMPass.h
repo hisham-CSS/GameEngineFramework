@@ -123,6 +123,8 @@ private:
     glm::vec3    lastSunDir_{ 0,-1,0 };
     float        lastAspect_{ -1.f };
     float        lastFovDeg_{ -1.f };
+    float        lastNear_{ -1.f };
+    float        lastFar_{ -1.f };
     UpdatePolicy policy_{ UpdatePolicy::CameraOrSunMoved };
     SplitMode    splitMode_{ SplitMode::Fixed };
     int          budgetPerFrame_{ 0 };   // 0 == update all stale cascades

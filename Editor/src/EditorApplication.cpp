@@ -377,7 +377,8 @@ void EditorApplication::DrawViewport(MyCoreEngine::Scene& scene)
         ? float(sceneTarget_.width()) / float(sceneTarget_.height()) : 1.f;
     Camera& cam = camera();
     const glm::mat4 view = cam.GetViewMatrix();
-    const glm::mat4 proj = glm::perspective(glm::radians(cam.Zoom), aspect, 0.1f, 1000.0f);
+    const glm::mat4 proj = glm::perspective(glm::radians(cam.Zoom), aspect,
+                                            cam.NearClip, cam.FarClip);
 
     if (assetDropped && assets_) {
         // ray through the drop point; land on the ground plane (y=0) when
@@ -478,10 +479,59 @@ void EditorApplication::DrawGameViewport(MyCoreEngine::Scene& scene,
         return;
     }
 
-    const entt::entity camEntity = FindPrimaryCamera(scene.registry);
-    if (camEntity == entt::null) {
+    // toolbar: camera override picker + blend duration. The director keys
+    // switches off CameraComponent priorities on its own; the picker is a
+    // manual override for previewing any camera.
+    {
+        auto camLabel = [&](entt::entity e) -> std::string {
+            const auto* n = scene.registry.try_get<Name>(e);
+            std::string s = n ? n->value : ("Entity " + std::to_string((uint32_t)e));
+            if (const auto* cc = scene.registry.try_get<CameraComponent>(e); cc && !cc->enabled)
+                s += " (disabled)";
+            return s;
+        };
+        entt::entity ov = gameDirector_.overrideCamera();
+        const bool ovValid = ov != entt::null && scene.registry.valid(ov) &&
+                             scene.registry.all_of<CameraComponent, Transform>(ov);
+        if (ov != entt::null && !ovValid) {
+            // the overridden camera vanished (deleted, component removed):
+            // drop the override instead of leaving it armed while the combo
+            // reads "Auto" — an undo could resurrect the entity under the
+            // same handle later and silently hijack the Game view
+            gameDirector_.setOverride(entt::null);
+            ov = entt::null;
+        }
+        ImGui::SetNextItemWidth(180.f);
+        if (ImGui::BeginCombo("##gamecamera",
+                              ovValid ? camLabel(ov).c_str() : "Auto (director)")) {
+            if (ImGui::Selectable("Auto (director)", !ovValid)) {
+                gameDirector_.setOverride(entt::null);
+            }
+            for (auto [e, cc] : scene.registry.view<CameraComponent>().each()) {
+                if (!scene.registry.all_of<Transform>(e)) continue;
+                ImGui::PushID((int)(uint32_t)e);
+                if (ImGui::Selectable(camLabel(e).c_str(), ov == e)) {
+                    gameDirector_.setOverride(e);
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::SameLine();
+        float blend = gameDirector_.defaultBlendSeconds();
+        ImGui::SetNextItemWidth(90.f);
+        if (ImGui::DragFloat("Blend", &blend, 0.02f, 0.f, 10.f, "%.2fs",
+                             ImGuiSliderFlags_AlwaysClamp)) {
+            gameDirector_.setDefaultBlendSeconds(blend);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Seconds to blend when the rendered camera changes\n(0 = hard cut)");
+        }
+    }
+
+    if (!gameDirector_.Update(scene.registry, dt, gameCamera_)) {
         ImGui::TextDisabled("No camera in the scene.");
-        ImGui::TextDisabled("Select an entity and use Inspector > Camera > Add Camera.");
+        ImGui::TextDisabled("Select an entity and use Inspector > Add Component > Camera.");
         ImGui::End();
         return;
     }
@@ -490,8 +540,6 @@ void EditorApplication::DrawGameViewport(MyCoreEngine::Scene& scene,
     if (avail.x >= 8.f && avail.y >= 8.f) {
         gameTarget_.Resize((int)avail.x, (int)avail.y);
     }
-
-    SyncCameraFromEntity(scene.registry, camEntity, gameCamera_);
 
     // Keep the look coherent with the Scene view: scene-level state (lights,
     // materials, toggles) is shared via the Scene itself; these few live on
@@ -675,6 +723,7 @@ void EditorApplication::DrawScenePersistence(MyCoreEngine::Scene& scene)
             scene.ResetToDefaults();
             selected_ = entt::null; // every entity handle is gone
             undo_.clear();          // ...including all of the history's
+            gameDirector_.reset();  // ...and the Game view's camera handles
             // wholesale caster removal bypasses the departure-sphere flow:
             // the old scene's shadows would stay baked otherwise
             forceAllCSMUpdate_();
@@ -935,6 +984,7 @@ bool EditorApplication::loadSceneFromFile_(MyCoreEngine::Scene& scene, const std
     // ...and so is every handle in the undo history: undoing a pre-load
     // entry would resurrect ghosts into the loaded scene
     undo_.clear();
+    gameDirector_.reset(); // Game view camera/override handles are stale too
     // wholesale scene replacement bypasses the departure-sphere flow: the
     // old scene's shadows would stay baked in cascades the new content
     // doesn't touch (same class of bug as play-mode stop-restore)
@@ -998,6 +1048,10 @@ void EditorApplication::stopPlay_(MyCoreEngine::Scene& scene)
     playSnapshot_.clear();
     undo_.setRecordingEnabled(true);
     playing_ = false;
+    // handles survive the restore, but the Game view must CUT back to the
+    // edit-mode camera — blending from the play session's last pose would
+    // look like gameplay continuing after Stop
+    gameDirector_.cut();
     // selection normally survives (same handles); it only drops if a
     // play-created entity was selected at Stop
     if (!scene.registry.valid(selected_)) selected_ = entt::null;

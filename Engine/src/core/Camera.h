@@ -38,6 +38,15 @@ public:
     float MouseSensitivity = SENSITIVITY_DEFAULT;
     float Zoom = ZOOM_DEFAULT;
 
+    // Clip planes. The renderer, frustum culling, and CSM splits all read
+    // these (they used to hardcode 0.1/1000 in three places). Synced from
+    // CameraComponent when rendering through a scene camera; the editor's
+    // god camera keeps the defaults.
+    inline static constexpr float NEAR_DEFAULT = 0.1f;
+    inline static constexpr float FAR_DEFAULT = 1000.0f;
+    float NearClip = NEAR_DEFAULT;
+    float FarClip = FAR_DEFAULT;
+
     // Constructors
     Camera(glm::vec3 position = { 0.0f, 0.0f, 0.0f },
         glm::vec3 up = { 0.0f, 1.0f, 0.0f },

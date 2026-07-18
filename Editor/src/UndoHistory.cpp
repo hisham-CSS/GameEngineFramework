@@ -20,7 +20,10 @@ namespace {
         if (a.noShadow != b.noShadow) return false;
         if (a.hasCamera != b.hasCamera) return false;
         if (a.hasCamera && (a.camera.fovDeg != b.camera.fovDeg ||
-                            a.camera.primary != b.camera.primary)) return false;
+                            a.camera.nearClip != b.camera.nearClip ||
+                            a.camera.farClip != b.camera.farClip ||
+                            a.camera.priority != b.camera.priority ||
+                            a.camera.enabled != b.camera.enabled)) return false;
         if (a.hasParent != b.hasParent) return false;
         if (a.hasParent && a.parent != b.parent) return false;
         if (a.hasOverrides != b.hasOverrides) return false;

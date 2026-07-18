@@ -102,15 +102,47 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
                 ImGui::SliderFloat("FOV (deg)", &cam->fovDeg, 20.f, 120.f, "%.0f",
                                    ImGuiSliderFlags_AlwaysClamp);
                 trackSliderItem("Camera FOV", cam->fovDeg, preFov);
-                bool primary = cam->primary;
-                if (ImGui::Checkbox("Primary Camera", &primary)) {
-                    undo.record(reg, selected, primary ? "Make primary camera"
-                                                       : "Clear primary camera", [&] {
-                        cam->primary = primary;
+
+                // clip planes. Widget bounds are FIXED constants and the
+                // near < far invariant is enforced in code right after each
+                // widget (before trackItem snapshots the edit): dynamic
+                // bounds can collapse to v_min == v_max, which our ImGui
+                // (1.91.0) treats as UNBOUNDED — clamping silently off —
+                // and absolute epsilons round away at large depths. Editing
+                // near past far pushes far along (Unity-style).
+                const float preNear = cam->nearClip;
+                ImGui::DragFloat("Near Clip", &cam->nearClip, 0.01f,
+                                 0.001f, 100000.f, "%.3f",
+                                 ImGuiSliderFlags_AlwaysClamp);
+                cam->nearClip = glm::clamp(cam->nearClip, 0.001f, 100000.f);
+                cam->farClip = std::max(cam->farClip, MinFarClipFor(cam->nearClip));
+                trackItem("Camera near clip");
+                const float preFar = cam->farClip;
+                ImGui::DragFloat("Far Clip", &cam->farClip, 1.f,
+                                 0.002f, 200000.f, "%.1f",
+                                 ImGuiSliderFlags_AlwaysClamp);
+                cam->farClip = glm::clamp(cam->farClip,
+                                          MinFarClipFor(cam->nearClip), 200000.f);
+                trackItem("Camera far clip");
+
+                // lens changes move the view frustum: the CSM cascades fit
+                // it, so refit even though no caster/camera moved
+                if (cam->fovDeg != preFov || cam->nearClip != preNear ||
+                    cam->farClip != preFar) {
+                    shadowsDirty = true;
+                }
+
+                ImGui::DragInt("Priority", &cam->priority, 0.1f);
+                trackItem("Camera priority");
+                bool enabled = cam->enabled;
+                if (ImGui::Checkbox("Enabled", &enabled)) {
+                    undo.record(reg, selected, enabled ? "Enable camera"
+                                                       : "Disable camera", [&] {
+                        cam->enabled = enabled;
                     });
                 }
-                ImGui::SameLine();
-                ImGui::TextDisabled("(game renders from the primary)");
+                ImGui::TextDisabled("Highest-priority enabled camera renders;");
+                ImGui::TextDisabled("switches blend via the camera director.");
             }
             if (!keep) {
                 undo.record(reg, selected, "Remove camera", [&] {

@@ -21,7 +21,9 @@ add_library(Engine SHARED
     src/core/ImageIO.cpp 
     src/core/Model.cpp 
     src/core/Shader.cpp 
-    src/core/Camera.cpp 
+    src/core/Camera.cpp
+    src/core/CameraDirector.h
+    src/core/CameraDirector.cpp
     src/core/AssetManager.h
     src/core/AssetManager.cpp
     src/core/Scene.cpp

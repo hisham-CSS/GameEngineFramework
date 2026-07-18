@@ -20,17 +20,33 @@ struct Name {
 };
 
 // Makes an entity a game camera: the editor's Game view and the standalone
-// player render from the PRIMARY camera entity's world transform (position/
-// orientation come from the Transform, hierarchy included — a camera can be
-// parented to anything). The identity orientation looks down -Z, matching
-// the engine camera convention. Near/far planes are engine-fixed
-// (0.1 / 1000) for now; fov is per-camera.
+// player render from a camera entity's world transform (position/orientation
+// come from the Transform, hierarchy included — a camera can be parented to
+// anything). The identity orientation looks down -Z, matching the engine
+// camera convention.
+//
+// WHICH camera renders is Cinemachine-style: the CameraDirector picks the
+// highest-priority enabled camera each frame and blends between cameras when
+// the winner changes — raise a camera's priority (or enable it) to cut/blend
+// to it from gameplay code. See CameraDirector.h.
 struct CameraComponent {
-	float fovDeg = 60.0f;
-	// The camera the game renders from. With several primaries (or none),
-	// the first camera found wins — see FindPrimaryCamera.
-	bool primary = true;
+	float fovDeg = 60.0f;    // vertical field of view
+	float nearClip = 0.1f;   // > 0; keep as large as the scene allows (depth precision)
+	float farClip = 1000.0f; // > nearClip
+	// Selection: highest priority among enabled cameras wins (ties: lowest
+	// entity index). Disabled cameras are never selected.
+	int  priority = 0;
+	bool enabled = true;
 };
+
+// Smallest legal far plane for a given near plane. The relative term
+// matters: a plain absolute epsilon is absorbed by float rounding above
+// ~32k (ULP(50000) ≈ 0.004 > 1e-3), which would let near == far reach
+// glm::perspective as a division by zero — NaN projection, silent black
+// render. Every place that enforces near < far must use this.
+inline float MinFarClipFor(float nearClip) {
+	return std::max(nearClip + 1e-3f, nearClip * 1.0001f);
+}
 
 // Transform hierarchy (P2-8): an entity with a Parent treats its Transform
 // as LOCAL to that parent — Scene::UpdateTransforms resolves worldMatrix =

@@ -125,12 +125,17 @@ namespace MyCoreEngine
 
 			scene.UpdateTransforms();
 
-			// After UpdateTransforms so the camera entity's world matrix is
-			// current — the view tracks gameplay with no frame lag.
+			// After UpdateTransforms so the camera entities' world matrices
+			// are current — the view tracks gameplay with no frame lag. The
+			// director picks the highest-priority enabled camera and blends
+			// on switches. When no camera is usable the fly cam takes over —
+			// restore its default lens first: the director wrote the LAST
+			// scene camera's clip planes into camera_, and e.g. near=2/
+			// far=60 would corrupt the fallback view for the whole session.
 			if (renderFromSceneCamera_) {
-				const entt::entity camEntity = FindPrimaryCamera(scene.registry);
-				if (camEntity != entt::null) {
-					SyncCameraFromEntity(scene.registry, camEntity, camera_);
+				if (!director_.Update(scene.registry, deltaTime_, camera_)) {
+					camera_.NearClip = Camera::NEAR_DEFAULT;
+					camera_.FarClip = Camera::FAR_DEFAULT;
 				}
 			}
 

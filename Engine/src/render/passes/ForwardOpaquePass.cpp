@@ -78,9 +78,11 @@ bool ForwardOpaquePass::execute(PassContext& ctx, Scene& scene, Camera& cam, con
 		shader_->setFloat("uPrefilterMipCount", 0.0f);
 	}
 	
-	// draw scene
+	// draw scene — culling frustum must use the same clip planes as the
+	// projection in fp.proj (both read the camera's NearClip/FarClip)
 	const Frustum camFrustum = createFrustumFromCamera(
-	cam, float(fp.viewportW) / float(fp.viewportH), glm::radians(cam.Zoom), 0.1f, 1000.0f);
+	cam, float(fp.viewportW) / float(fp.viewportH), glm::radians(cam.Zoom),
+	cam.NearClip, cam.FarClip);
 	scene.RenderScene(camFrustum, *shader_, cam);
 	return true;
 }

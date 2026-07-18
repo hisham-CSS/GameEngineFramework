@@ -21,9 +21,10 @@ public:
     void DrawViewport(MyCoreEngine::Scene& scene);
 
     // Game viewport: what the game actually shows — rendered from the
-    // scene's primary camera ENTITY through a dedicated Renderer (sharing
-    // the Scene view's renderer would thrash CSM cascades between two
-    // frusta every frame). Skipped entirely while the panel is hidden.
+    // scene's camera ENTITIES via a CameraDirector (priority selection +
+    // blends, with a toolbar override picker) through a dedicated Renderer
+    // (sharing the Scene view's renderer would thrash CSM cascades between
+    // two frusta every frame). Skipped entirely while the panel is hidden.
     void DrawGameViewport(MyCoreEngine::Scene& scene, MyCoreEngine::Shader& shader,
                           float dt);
 
@@ -94,7 +95,12 @@ private:
     MyCoreEngine::RenderTarget sceneTarget_;
     MyCoreEngine::RenderTarget gameTarget_;   // Game panel's offscreen target
     MyCoreEngine::Renderer gameRenderer_;     // own CSM state for the game frustum
-    Camera gameCamera_;                       // scratch, synced from the camera entity
+    Camera gameCamera_;                       // scratch, written by gameDirector_
+    // The Game panel's own director (the Application one only runs when
+    // renderFromSceneCamera is on — the player). Reset whenever entity
+    // handles go stale (scene load / new scene) or after play-stop's bulk
+    // restore (cut back to the edit-mode camera, don't blend).
+    MyCoreEngine::CameraDirector gameDirector_;
     MyCoreEngine::Shader* sceneShader_ = nullptr; // Run()'s shader (outlives the loop)
     bool viewportHovered_ = false;
     bool viewportFocused_ = false; // Viewport is the focused ImGui window

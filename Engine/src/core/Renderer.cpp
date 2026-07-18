@@ -165,9 +165,11 @@ namespace MyCoreEngine {
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // per-frame matrices
+        // per-frame matrices (clip planes come from the camera — synced from
+        // the CameraComponent when rendering through a scene camera)
         const float aspect = (fbHeight > 0) ? float(fbWidth) / float(fbHeight) : 1.0f;
-        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), aspect, 0.1f, 1000.0f);
+        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), aspect,
+                                                camera.NearClip, camera.FarClip);
         glm::mat4 view = camera.GetViewMatrix();
 
         // per-frame params

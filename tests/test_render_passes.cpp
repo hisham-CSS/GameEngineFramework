@@ -457,6 +457,53 @@ TEST_F(GLFixture, ShadowDepth_DeterministicHashAndSensitivity) {
     EXPECT_NE(h1, h3) << "Depth should react to model movement";
 }
 
+// ---------- degenerate camera clip ranges (2026-07-18) ----------
+// With clip planes camera-driven, a near plane beyond the shadow distance
+// (or a near/far pair whose separation rounds below float ULP) used to
+// invert the Fixed-mode split clamp bounds or collapse splits to
+// zNear == zFar — NaN cascade matrices, NaN shadow sampling, black scene.
+TEST_F(GLFixture, CSM_DegenerateClipRangesKeepSplitsStrictlyIncreasing) {
+    PassContext ctx{}; GLFixture::makeHDR(ctx);
+    ShadowCSMPass pass;
+    pass.setup(ctx);
+    pass.setNumCascades(4);
+    pass.setBaseResolution(256);
+    pass.setMaxShadowDistance(200.f);
+    ctx.sunDir = glm::normalize(glm::vec3(-0.3f, -1.0f, -0.2f));
+
+    Scene scene;
+    FrameParams fp{};
+    fp.viewportW = 64; fp.viewportH = 64;
+
+    auto runWith = [&](float nearClip, float farClip) {
+        SCOPED_TRACE(testing::Message() << "near=" << nearClip << " far=" << farClip);
+        Camera cam;
+        cam.Position = { 0, 2, 0 };
+        cam.Front = glm::normalize(glm::vec3(0, -0.05f, -1));
+        cam.NearClip = nearClip;
+        cam.FarClip = farClip;
+        fp.view = cam.GetViewMatrix();
+        fp.proj = glm::perspective(glm::radians(cam.Zoom), 1.0f, nearClip, farClip);
+        ASSERT_TRUE(pass.execute(ctx, scene, cam, fp));
+        auto snap = pass.getDebugSnapshot();
+        float prev = nearClip;
+        for (int i = 0; i < snap.cascades; ++i) {
+            ASSERT_TRUE(std::isfinite(snap.splitFar[i])) << "cascade " << i;
+            EXPECT_GT(snap.splitFar[i], prev) << "cascade " << i
+                << ": splits must stay strictly increasing";
+            prev = snap.splitFar[i];
+            const glm::mat4& m = snap.lightVP[i];
+            for (int c = 0; c < 4; ++c)
+                for (int r = 0; r < 4; ++r)
+                    ASSERT_TRUE(std::isfinite(m[c][r]))
+                        << "NaN lightVP in cascade " << i;
+        }
+    };
+    runWith(300.f, 5000.f);    // near beyond maxShadowDistance: range collapses
+    runWith(0.001f, 0.004f);   // minimum legal lens: range thinner than the old eps
+    runWith(50000.f, 50005.f); // ULP(50000) > 1e-3: additive bumps round away
+}
+
 // ---------- dynamic-caster re-render throttling (2026-07-13) ----------
 // A caster spinning in place far from the camera must NOT force the huge
 // far cascade to re-render every frame: dynamic invalidations amortize

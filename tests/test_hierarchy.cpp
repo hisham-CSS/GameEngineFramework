@@ -2,6 +2,8 @@
 // UpdateTransforms and the reparenting helpers are pure registry/math code.
 #include <gtest/gtest.h>
 
+#include <algorithm>
+
 #include "Engine.h"
 
 using namespace MyCoreEngine;
@@ -160,7 +162,11 @@ TEST(GameCamera, SyncMatchesWorldPose) {
     Scene scene;
     auto e = makeNode(scene, { 3.f, 4.f, 5.f }, "Cam");
     scene.registry.get<Transform>(e).rotation = { 0.f, 90.f, 0.f }; // yaw left
-    scene.registry.emplace<CameraComponent>(e, CameraComponent{ 75.f, true });
+    CameraComponent cc;
+    cc.fovDeg = 75.f;
+    cc.nearClip = 0.5f;
+    cc.farClip = 250.f;
+    scene.registry.emplace<CameraComponent>(e, cc);
     scene.UpdateTransforms();
 
     Camera cam;
@@ -170,6 +176,12 @@ TEST(GameCamera, SyncMatchesWorldPose) {
     expectVec3Near(cam.Front, { -1.f, 0.f, 0.f });
     expectVec3Near(cam.Up, { 0.f, 1.f, 0.f });
     EXPECT_FLOAT_EQ(cam.Zoom, 75.f);
+    EXPECT_FLOAT_EQ(cam.NearClip, 0.5f);
+    EXPECT_FLOAT_EQ(cam.FarClip, 250.f);
+    // euler look state must match the vectors — the fly cam rebuilds Front
+    // FROM Yaw/Pitch on the first look input after a fallback
+    EXPECT_NEAR(cam.Yaw, 180.f, 1e-3f);  // atan2 over Front(-1,0,0)
+    EXPECT_NEAR(cam.Pitch, 0.f, 1e-3f);
 }
 
 TEST(GameCamera, SyncFollowsParentHierarchy) {
@@ -193,22 +205,39 @@ TEST(GameCamera, SyncFollowsParentHierarchy) {
     expectVec3Near(out.Position, { 20.f, 2.f, 0.f });
 }
 
-TEST(GameCamera, FindPrimaryPrefersPrimaryFlag) {
+TEST(GameCamera, FindActiveCameraPrefersPriority) {
     Scene scene;
-    EXPECT_TRUE(FindPrimaryCamera(scene.registry) == entt::null);
+    EXPECT_TRUE(FindActiveCamera(scene.registry) == entt::null);
 
     auto a = makeNode(scene, { 0.f, 0.f, 0.f }, "A");
-    scene.registry.emplace<CameraComponent>(a, CameraComponent{ 60.f, false });
-    EXPECT_EQ(FindPrimaryCamera(scene.registry), a); // only camera wins
+    scene.registry.emplace<CameraComponent>(a, CameraComponent{});
+    EXPECT_EQ(FindActiveCamera(scene.registry), a); // only camera wins
 
     auto b = makeNode(scene, { 1.f, 0.f, 0.f }, "B");
-    scene.registry.emplace<CameraComponent>(b, CameraComponent{ 60.f, true });
-    EXPECT_EQ(FindPrimaryCamera(scene.registry), b); // primary beats first
+    CameraComponent high;
+    high.priority = 5;
+    scene.registry.emplace<CameraComponent>(b, high);
+    EXPECT_EQ(FindActiveCamera(scene.registry), b); // higher priority beats first
 
     // a camera without a Transform can't render: never selected
     auto c = scene.createEntity();
-    scene.registry.emplace<CameraComponent>((entt::entity)c, CameraComponent{ 60.f, true });
-    EXPECT_EQ(FindPrimaryCamera(scene.registry), b);
+    CameraComponent top;
+    top.priority = 100;
+    scene.registry.emplace<CameraComponent>((entt::entity)c, top);
+    EXPECT_EQ(FindActiveCamera(scene.registry), b);
+
+    // disabled cameras are never selected, whatever their priority
+    auto d = makeNode(scene, { 2.f, 0.f, 0.f }, "D");
+    CameraComponent off;
+    off.priority = 100;
+    off.enabled = false;
+    scene.registry.emplace<CameraComponent>(d, off);
+    EXPECT_EQ(FindActiveCamera(scene.registry), b);
+
+    // ties resolve to the lowest entity id (deterministic selection)
+    auto& bc = scene.registry.get<CameraComponent>(b);
+    bc.priority = 0;
+    EXPECT_EQ(FindActiveCamera(scene.registry), std::min(a, b));
 }
 
 TEST(Hierarchy, MovedParentInvalidatesChildCasterShadows) {

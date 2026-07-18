@@ -73,9 +73,18 @@ void ShadowCSMPass::ensureTargets_() {
 
 bool ShadowCSMPass::rebuild_(const Camera& cam, float aspect) {
 
-    const float n = 0.1f; // camera near; keep in sync with forward
-    const float f = std::max(n + 1e-3f, maxShadowDistance_);
-    const float eps = 1e-3f; // strictly increasing guard
+    // splits start at the camera's real near plane and never reach past its
+    // far plane — shadows beyond the far plane would render into invisible
+    // depth range and waste the far cascade's texels. The floor on f is
+    // RELATIVE (n * 1.0001): an absolute epsilon is absorbed by float ULP
+    // at large depths (ULP(50000) ≈ 0.004 > 1e-3) and a camera whose near
+    // plane sits beyond the shadow distance would collapse the range.
+    const float n = std::max(cam.NearClip, 1e-3f);
+    const float f = std::max(std::max(n + 1e-3f, n * 1.0001f),
+                             std::min(maxShadowDistance_, cam.FarClip));
+    // strictly-increasing guard, scaled to the range: a fixed 1e-3 inverts
+    // the clamp bounds below when f - n is tiny (near beyond shadow range)
+    const float eps = std::min(1e-3f, (f - n) / float(4 * std::max(cascades_, 1)));
     
     splitZ_[0] = n;
     if (splitMode_ == SplitMode::Fixed) {
@@ -122,6 +131,17 @@ bool ShadowCSMPass::rebuild_(const Camera& cam, float aspect) {
     //    }
     //    splitZ_[cascades_] = f;
     //}
+
+    // final guard for BOTH modes: at large depths float rounding can absorb
+    // the epsilon bumps above (splitZ_[i-1] + eps == splitZ_[i-1] when
+    // ULP > eps), and equal splits reach glm::perspective as zNear == zFar
+    // — division by zero, NaN cascade matrices, NaN shadow sampling. Force
+    // each split at least one representable step past the previous.
+    for (int i = 1; i <= cascades_; ++i) {
+        if (splitZ_[i] <= splitZ_[i - 1])
+            splitZ_[i] = std::nextafter(splitZ_[i - 1], FLT_MAX);
+    }
+
     for (int i = 0; i < cascades_; ++i) {
         splitFar_[i] = splitZ_[i + 1];   // publish to forward as FAR distances
     }
@@ -148,11 +168,17 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
     const float sunDeg = glm::degrees(std::acos(sunDot));
     const bool  aspectChanged = (std::abs(aspect - lastAspect_) > 1e-4f);
     const bool  fovChanged = (std::abs(fovDeg - lastFovDeg_) > 1e-3f);
+    // lens clip planes move the split range itself (splits span [near,
+    // min(maxShadowDistance, far)]) — runtime changes (inspector edits,
+    // director blends) must refit even when the camera hasn't moved
+    const bool  clipChanged = (std::abs(cam.NearClip - lastNear_) > 1e-4f) ||
+                              (std::abs(cam.FarClip - lastFar_) > 1e-3f);
 
-    if (shadowParamsDirty_ || forceFullUpdateOnce_ || (sunDeg > angEps_) || aspectChanged || fovChanged) {
-        rebuild_(cam, aspect); // splits depend on fov/aspect/settings
+    if (shadowParamsDirty_ || forceFullUpdateOnce_ || (sunDeg > angEps_) || aspectChanged || fovChanged || clipChanged) {
+        rebuild_(cam, aspect); // splits depend on fov/clip planes/aspect/settings
         for (auto& v : cascadeValid_) v = false;
         lastSunDir_ = sun; lastAspect_ = aspect; lastFovDeg_ = fovDeg;
+        lastNear_ = cam.NearClip; lastFar_ = cam.FarClip;
         shadowParamsDirty_ = false;
         forceFullUpdateOnce_ = false;
     }

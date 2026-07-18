@@ -224,7 +224,13 @@ TEST(SceneSerializer, RoundTripCameraComponent) {
     Transform t{};
     t.position = { 0.f, 6.f, 30.f };
     cam.addComponent<Transform>(t);
-    a.registry.emplace<CameraComponent>((entt::entity)cam, CameraComponent{ 85.f, true });
+    CameraComponent cc;
+    cc.fovDeg = 85.f;
+    cc.nearClip = 0.25f;
+    cc.farClip = 500.f;
+    cc.priority = 7;
+    cc.enabled = false;
+    a.registry.emplace<CameraComponent>((entt::entity)cam, cc);
 
     AssetManager assets;
     SceneSerializer save(a, assets);
@@ -234,10 +240,148 @@ TEST(SceneSerializer, RoundTripCameraComponent) {
     SceneSerializer load(b, assets);
     ASSERT_TRUE(load.Load(path));
 
-    const entt::entity found = FindPrimaryCamera(b.registry);
-    ASSERT_TRUE(found != entt::null);
-    EXPECT_FLOAT_EQ(b.registry.get<CameraComponent>(found).fovDeg, 85.f);
-    EXPECT_TRUE(b.registry.get<CameraComponent>(found).primary);
+    bool found = false;
+    for (auto [e, c] : b.registry.view<CameraComponent>().each()) {
+        found = true;
+        EXPECT_FLOAT_EQ(c.fovDeg, 85.f);
+        EXPECT_FLOAT_EQ(c.nearClip, 0.25f);
+        EXPECT_FLOAT_EQ(c.farClip, 500.f);
+        EXPECT_EQ(c.priority, 7);
+        EXPECT_FALSE(c.enabled); // disabled must round-trip (it is not selectable)
+    }
+    EXPECT_TRUE(found);
+    // disabled camera: nothing to render from
+    EXPECT_TRUE(FindActiveCamera(b.registry) == entt::null);
+
+    std::remove(path);
+}
+
+// Scenes written before the camera director existed marked the rendered
+// camera with "primary": true — that must map onto a priority bump so old
+// multi-camera scenes keep their selection.
+TEST(SceneSerializer, LegacyPrimaryCameraMapsToPriority) {
+    const char* path = "test_scene_legacy_camera.json";
+    {
+        std::ofstream out(path);
+        out << R"({
+  "version": 1,
+  "entities": [
+    { "name": "Other",  "transform": { "position": [0,0,0] }, "camera": { "fovDeg": 60.0, "primary": false } },
+    { "name": "Chosen", "transform": { "position": [1,0,0] }, "camera": { "fovDeg": 70.0, "primary": true } }
+  ]
+})";
+    }
+
+    Scene s;
+    AssetManager assets;
+    SceneSerializer load(s, assets);
+    ASSERT_TRUE(load.Load(path));
+
+    const entt::entity active = FindActiveCamera(s.registry);
+    ASSERT_TRUE(active != entt::null);
+    EXPECT_EQ(s.registry.get<Name>(active).value, "Chosen");
+    EXPECT_EQ(s.registry.get<CameraComponent>(active).priority, 1);
+    // legacy files carry no clip planes: defaults apply
+    EXPECT_FLOAT_EQ(s.registry.get<CameraComponent>(active).nearClip, 0.1f);
+    EXPECT_FLOAT_EQ(s.registry.get<CameraComponent>(active).farClip, 1000.f);
+
+    std::remove(path);
+}
+
+// The OLD default was primary = true and nothing cleared the flag on other
+// cameras, so legacy files routinely hold several primaries. The old
+// selection iterated newest-first — the LAST primary in the file rendered —
+// and the mapping must preserve that (later primaries get higher priority).
+TEST(SceneSerializer, LegacyMultiPrimaryKeepsTheLastPrimary) {
+    const char* path = "test_scene_legacy_multi.json";
+    {
+        std::ofstream out(path);
+        out << R"({
+  "version": 1,
+  "entities": [
+    { "name": "Main Camera",  "transform": { "position": [0,0,0] }, "camera": { "fovDeg": 60.0, "primary": true } },
+    { "name": "Cutscene Cam", "transform": { "position": [1,0,0] }, "camera": { "fovDeg": 45.0, "primary": true } }
+  ]
+})";
+    }
+
+    Scene s;
+    AssetManager assets;
+    SceneSerializer load(s, assets);
+    ASSERT_TRUE(load.Load(path));
+
+    const entt::entity active = FindActiveCamera(s.registry);
+    ASSERT_TRUE(active != entt::null);
+    EXPECT_EQ(s.registry.get<Name>(active).value, "Cutscene Cam");
+
+    std::remove(path);
+}
+
+// Camera priority ties resolve by entity index, and entity indices come
+// from file order on load — so save/load must preserve entity order or the
+// rendered camera would flip on every save cycle (entt views iterate
+// newest-first; the serializer reverses back to creation order).
+TEST(SceneSerializer, PriorityTieSurvivesSaveLoadCycles) {
+    const char* path = "test_scene_tie_stability.json";
+
+    Scene a;
+    auto addCam = [](Scene& s, const char* name, glm::vec3 pos) {
+        Entity e = s.createEntity();
+        e.addComponent<Name>(Name{ name });
+        Transform t{};
+        t.position = pos;
+        e.addComponent<Transform>(t);
+        s.registry.emplace<CameraComponent>((entt::entity)e, CameraComponent{});
+    };
+    addCam(a, "First", { 0.f, 0.f, 0.f });
+    addCam(a, "Second", { 1.f, 0.f, 0.f });
+
+    AssetManager assets;
+    ASSERT_TRUE(a.registry.valid(FindActiveCamera(a.registry)));
+    const std::string winner =
+        a.registry.get<Name>(FindActiveCamera(a.registry)).value;
+
+    // two full save/load cycles: the tie winner must never change
+    Scene b;
+    ASSERT_TRUE(SceneSerializer(a, assets).Save(path));
+    ASSERT_TRUE(SceneSerializer(b, assets).Load(path));
+    ASSERT_TRUE(b.registry.valid(FindActiveCamera(b.registry)));
+    EXPECT_EQ(b.registry.get<Name>(FindActiveCamera(b.registry)).value, winner);
+
+    Scene c;
+    ASSERT_TRUE(SceneSerializer(b, assets).Save(path));
+    ASSERT_TRUE(SceneSerializer(c, assets).Load(path));
+    ASSERT_TRUE(c.registry.valid(FindActiveCamera(c.registry)));
+    EXPECT_EQ(c.registry.get<Name>(FindActiveCamera(c.registry)).value, winner);
+
+    std::remove(path);
+}
+
+// Absolute epsilons round away above ~32k (ULP(50000) ≈ 0.004): a file
+// holding near == far must still load with a strictly ordered lens or the
+// projection divides by zero and renders NaN.
+TEST(SceneSerializer, HugeEqualClipPlanesLoadStrictlyOrdered) {
+    const char* path = "test_scene_huge_clips.json";
+    {
+        std::ofstream out(path);
+        out << R"({
+  "version": 1,
+  "entities": [
+    { "name": "Cam", "transform": { "position": [0,0,0] },
+      "camera": { "fovDeg": 60.0, "nearClip": 50000.0, "farClip": 50000.0 } }
+  ]
+})";
+    }
+
+    Scene s;
+    AssetManager assets;
+    SceneSerializer load(s, assets);
+    ASSERT_TRUE(load.Load(path));
+
+    const entt::entity cam = FindActiveCamera(s.registry);
+    ASSERT_TRUE(cam != entt::null);
+    const auto& cc = s.registry.get<CameraComponent>(cam);
+    EXPECT_GT(cc.farClip, cc.nearClip) << "near == far must not survive the load clamp";
 
     std::remove(path);
 }

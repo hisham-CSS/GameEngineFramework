@@ -50,13 +50,16 @@ namespace MyCoreEngine {
     // (correct even when cached modelMatrix values are stale/dirty).
     ENGINE_API glm::mat4 ResolveWorldMatrix(entt::registry& reg, entt::entity e);
     // --- game camera helpers -----------------------------------------------
-    // The camera entity the game renders from: first CameraComponent with
-    // primary=true, else the first camera at all; entt::null when the scene
-    // has none (callers fall back to their own camera).
-    ENGINE_API entt::entity FindPrimaryCamera(entt::registry& reg);
-    // Copies the entity's world pose + fov into `cam` (Position/Front/Up/
-    // Right from the world matrix columns, Zoom from fovDeg). Returns false
-    // if the entity is not a valid camera (cam is left untouched).
+    // The camera entity the game renders from: highest-priority ENABLED
+    // CameraComponent with a Transform (ties: lowest entity index);
+    // entt::null when the scene has none (callers fall back to their own).
+    // Stateless — for blending between cameras use a CameraDirector, which
+    // runs this same selection internally.
+    ENGINE_API entt::entity FindActiveCamera(entt::registry& reg);
+    // Copies the entity's world pose + lens into `cam` (Position/Front/Up/
+    // Right from the world matrix columns, Zoom from fovDeg, NearClip/
+    // FarClip from the clip planes). Returns false if the entity is not a
+    // valid camera (cam is left untouched).
     ENGINE_API bool SyncCameraFromEntity(entt::registry& reg, entt::entity e,
                                          Camera& cam);
 

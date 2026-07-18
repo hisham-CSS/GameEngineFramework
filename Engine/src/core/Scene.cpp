@@ -2,23 +2,19 @@
 #include <entt/entt.hpp>
 #include <vector>
 #include <algorithm>
+#include <cmath>
 #include <GLFW/glfw3.h>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/euler_angles.hpp> // extractEulerAngleYXZ (matches localMatrix's Y*X*Z)
 #include "Scene.h"
+#include "CameraDirector.h" // FindActiveCamera delegates to its selection
 
 
 // --- game camera helpers ---------------------------------------------------
 
-entt::entity MyCoreEngine::FindPrimaryCamera(entt::registry& reg)
+entt::entity MyCoreEngine::FindActiveCamera(entt::registry& reg)
 {
-    entt::entity first = entt::null;
-    for (auto [e, cam] : reg.view<CameraComponent>().each()) {
-        if (!reg.all_of<Transform>(e)) continue; // a camera needs a pose
-        if (cam.primary) return e;
-        if (first == entt::null) first = e;
-    }
-    return first;
+    return CameraDirector::SelectCamera(reg);
 }
 
 bool MyCoreEngine::SyncCameraFromEntity(entt::registry& reg, entt::entity e,
@@ -37,8 +33,17 @@ bool MyCoreEngine::SyncCameraFromEntity(entt::registry& reg, entt::entity e,
     cam.Right = column(0, { 1.f, 0.f, 0.f });
     cam.Up = column(1, { 0.f, 1.f, 0.f });
     cam.Front = -column(2, { 0.f, 0.f, 1.f }); // identity looks down -Z
-    // clamp: fov outside (0,180) degenerates tan(fov/2) in every projection
+    // euler look state must match the vectors: the fly cam rebuilds Front
+    // FROM Yaw/Pitch on the first look input, so leaving them stale snaps
+    // the view when a caller later falls back to free-fly controls
+    cam.Yaw = glm::degrees(std::atan2(cam.Front.z, cam.Front.x));
+    cam.Pitch = glm::degrees(std::asin(glm::clamp(cam.Front.y, -1.f, 1.f)));
+    // clamp: fov outside (0,180) degenerates tan(fov/2) in every projection;
+    // near must stay positive and far strictly past near or the projection
+    // divides by zero (relative separation — see MinFarClipFor)
     cam.Zoom = glm::clamp(cc.fovDeg, 1.f, 179.f);
+    cam.NearClip = std::max(cc.nearClip, 1e-3f);
+    cam.FarClip = std::max(cc.farClip, MinFarClipFor(cam.NearClip));
     return true;
 }
 

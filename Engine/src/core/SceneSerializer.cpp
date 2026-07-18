@@ -6,6 +6,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 
@@ -54,14 +55,22 @@ namespace MyCoreEngine {
         // --- entities ---
         // Entities have no stable ids in the file: parent links serialize as
         // the INDEX of the parent within this array (same iteration order).
+        // Write in CREATION order (entt views iterate newest-first): Load
+        // recreates entities in file order, so this keeps relative entity
+        // indices stable across save/load cycles — priority ties in camera
+        // selection (lowest index wins) must not flip on every save.
+        std::vector<entt::entity> ordered;
+        for (auto e : reg.view<entt::entity>()) ordered.push_back(e);
+        std::reverse(ordered.begin(), ordered.end());
+
         std::unordered_map<entt::entity, size_t> entityIndex;
         {
             size_t i = 0;
-            for (auto e : reg.view<entt::entity>()) entityIndex[e] = i++;
+            for (auto e : ordered) entityIndex[e] = i++;
         }
 
         json entities = json::array();
-        for (auto e : reg.view<entt::entity>()) {
+        for (auto e : ordered) {
             // object even when component-less: every entity must occupy an
             // OBJECT slot so parent indices stay aligned on load
             json je = json::object();
@@ -93,8 +102,11 @@ namespace MyCoreEngine {
             }
             if (auto* cam = reg.try_get<CameraComponent>(e)) {
                 je["camera"] = {
-                    { "fovDeg",  cam->fovDeg },
-                    { "primary", cam->primary },
+                    { "fovDeg",   cam->fovDeg },
+                    { "nearClip", cam->nearClip },
+                    { "farClip",  cam->farClip },
+                    { "priority", cam->priority },
+                    { "enabled",  cam->enabled },
                 };
             }
             if (auto* ov = reg.try_get<MaterialOverrides>(e)) {
@@ -183,6 +195,7 @@ namespace MyCoreEngine {
         // parent in the array
         std::vector<entt::entity> created;
         std::vector<std::pair<entt::entity, size_t>> pendingParents;
+        int legacyPrimaries = 0; // pre-director files: count of "primary" cameras seen
 
         for (const json& je : root["entities"]) {
             if (!je.is_object()) {
@@ -235,10 +248,26 @@ namespace MyCoreEngine {
             if (je.contains("camera") && je["camera"].is_object()) {
                 const json& jc = je["camera"];
                 CameraComponent cam;
-                // clamp: an out-of-range fov (hand-edited file) makes the
-                // projection degenerate and renders silent garbage
+                // clamp: out-of-range lens values (hand-edited file) make
+                // the projection degenerate and render silent garbage.
+                // MinFarClipFor keeps the separation RELATIVE — an absolute
+                // epsilon rounds away above ~32k and near == far would
+                // reach the projection as a division by zero.
                 cam.fovDeg = glm::clamp(jc.value("fovDeg", cam.fovDeg), 1.0f, 179.0f);
-                cam.primary = jc.value("primary", cam.primary);
+                cam.nearClip = std::max(jc.value("nearClip", cam.nearClip), 1e-3f);
+                cam.farClip = std::max(jc.value("farClip", cam.farClip),
+                                       MinFarClipFor(cam.nearClip));
+                cam.priority = jc.value("priority", cam.priority);
+                cam.enabled = jc.value("enabled", cam.enabled);
+                // legacy (pre camera-director): "primary": true marked the
+                // rendered camera — map it to a priority bump. Later
+                // primaries get HIGHER priority: the old selection iterated
+                // newest-first, so with several primaries (the old default
+                // — the flag started true and nothing cleared it on other
+                // cameras) the LAST one in the file used to render.
+                if (!jc.contains("priority") && jc.value("primary", false)) {
+                    cam.priority = ++legacyPrimaries;
+                }
                 reg.emplace<CameraComponent>(entity, cam);
             }
             if (je.contains("materialOverrides") && model) {
