@@ -36,6 +36,8 @@ add_library(Engine SHARED
     src/core/FixedTimestep.h
     src/core/InputMap.h
     src/core/InputMap.cpp
+    src/core/JobSystem.h
+    src/core/JobSystem.cpp
     src/core/RenderTarget.h
     src/core/RenderTarget.cpp
     src/assets/AssetIndex.h

@@ -22,6 +22,7 @@
 #include "../src/core/DemoGameplay.h"
 #include "../src/core/FixedTimestep.h"
 #include "../src/core/InputMap.h"
+#include "../src/core/JobSystem.h"
 #include "../src/core/RenderTarget.h"
 #include "../src/core/GLInit.h"
 #include "../src/assets/AssetIndex.h"

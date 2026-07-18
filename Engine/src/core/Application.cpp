@@ -110,6 +110,11 @@ namespace MyCoreEngine
 			}
 			if (!capM && internalCameraInput_) handleMouseLook_();
 
+			// Finalize completed background work (asset decodes and the
+			// like) on the main thread with the GL context current. The
+			// budget keeps a burst of finished jobs from hitching a frame.
+			jobs_.pumpCompletions(2.0f);
+
 			// Game update: fixed steps (simulation) then per-frame variable step.
 			// Camera/editor input above deliberately ignores pause/time scale.
 			// Skipped entirely while gameplay is gated off (editor edit mode).
@@ -162,6 +167,15 @@ namespace MyCoreEngine
 			window_.swapBuffers();
 			window_.pollEvents();
 		}
+
+		// Drain the pool BEFORE RunLoop returns: callers destroy their
+		// locals (Scene, AssetManager, Shader) right after this, and the
+		// derived app's members go next — a worker still decoding against
+		// them would be a quit-during-load use-after-free. Finishing here
+		// also runs every completion while the GL context and app state
+		// are fully alive, so shutdown is deterministic.
+		jobs_.waitIdle();
+		jobs_.pumpCompletions(1e6f);
 	}
 
 	void Application::handleMouseLook_()

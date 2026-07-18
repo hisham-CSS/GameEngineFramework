@@ -10,6 +10,7 @@
 #include "Camera.h"
 #include "CameraDirector.h"
 #include "FixedTimestep.h"
+#include "JobSystem.h"
 #include "Renderer.h"
 #include "RenderTarget.h"
 
@@ -47,6 +48,10 @@ namespace MyCoreEngine
 		// takes, setOverride for scripted hard control. Camera switching
 		// itself is data-driven — raise a CameraComponent's priority.
 		CameraDirector& cameraDirector() { return director_; }
+		// The engine thread pool (P4-3). Submit CPU work from anywhere;
+		// completions run on the main thread each frame (RunLoop pumps
+		// them with the GL context current — that's where uploads go).
+		JobSystem& jobs() { return jobs_; }
 		Window&   window() { return window_; }
 		GLFWwindow* GetNativeWindow() { return window_.getGLFWwindow(); }
 
@@ -126,6 +131,7 @@ namespace MyCoreEngine
 		std::unique_ptr<InputMap> input_;
 		Camera   camera_{ glm::vec3(0.0f, 0.0f, 3.0f) };
 		CameraDirector director_;
+		JobSystem jobs_; // constructed on the main thread (captures its id)
 		Renderer renderer_;
 		bool     internalCameraInput_ = true;
 
