@@ -25,7 +25,17 @@ namespace MyCoreEngine {
     // ---- Mesh ----
     Mesh::Mesh(const std::vector<Vertex>& vertices, const std::vector<unsigned int>& indices, const std::vector<Texture>& textures)
     : vertices_(vertices), indices_(indices), textures_(textures) {
-        setupMesh();
+        setupBuffers_();
+        // synchronous path: compute LODs inline (same total work as before
+        // the decode split — meshoptimizer always ran at load)
+        uploadLods_(ComputeLodIndices(vertices_, indices_));
+    }
+
+    Mesh::Mesh(std::vector<Vertex> vertices, std::vector<unsigned int> indices,
+               LodIndexArrays precomputedLods)
+    : vertices_(std::move(vertices)), indices_(std::move(indices)) {
+        setupBuffers_();
+        uploadLods_(precomputedLods); // worker already ran meshoptimizer
     }
 
     static void deleteLodBuffers_(const Mesh::LodRange* lods, unsigned baseEBO) {
@@ -79,7 +89,7 @@ namespace MyCoreEngine {
         }
         return *this;
     }
-    void Mesh::setupMesh() {
+    void Mesh::setupBuffers_() {
         glGenVertexArrays(1, &VAO_);
         glGenBuffers(1, &VBO_);
         glGenBuffers(1, &EBO_);
@@ -108,37 +118,50 @@ namespace MyCoreEngine {
         glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, Bitangent));
 
         glBindVertexArray(0);
-
-        buildLods_();
     }
 
-    void Mesh::buildLods_() {
-        lods_[0] = { EBO_, static_cast<GLsizei>(indices_.size()) };
-        for (int l = 1; l < kLodCount; ++l) lods_[l] = lods_[0];
-        if (indices_.size() < 3 * 64) return; // tiny meshes aren't worth simplifying
+    Mesh::LodIndexArrays Mesh::ComputeLodIndices(const std::vector<Vertex>& vertices,
+                                                 const std::vector<unsigned int>& indices) {
+        LodIndexArrays out{}; // all empty = every level falls back to base
+        if (indices.size() < 3 * 64 || vertices.empty()) return out; // tiny meshes aren't worth simplifying
 
         // Simplified index buffers over the same vertex buffer: cheap on VRAM
         // (indices only) and the VAO/material state is shared across levels.
         const float targets[kLodCount] = { 1.f, 0.25f, 0.08f };
+        size_t prevCount = indices.size(); // last ACCEPTED level's index count
         for (int l = 1; l < kLodCount; ++l) {
-            const size_t targetCount = (size_t(indices_.size() * targets[l]) / 3) * 3;
-            std::vector<unsigned int> lodIndices(indices_.size());
+            const size_t targetCount = (size_t(indices.size() * targets[l]) / 3) * 3;
+            std::vector<unsigned int> lodIndices(indices.size());
             float error = 0.f;
             const size_t count = meshopt_simplify(
-                lodIndices.data(), indices_.data(), indices_.size(),
-                &vertices_[0].Position.x, vertices_.size(), sizeof(Vertex),
+                lodIndices.data(), indices.data(), indices.size(),
+                &vertices[0].Position.x, vertices.size(), sizeof(Vertex),
                 targetCount, /*target_error*/ 0.05f, /*options*/ 0, &error);
 
             // accept only if it meaningfully reduced the previous level
-            if (count >= 3 && count < size_t(lods_[l - 1].indexCount) * 9 / 10) {
+            if (count >= 3 && count < prevCount * 9 / 10) {
+                lodIndices.resize(count);
+                out[l] = std::move(lodIndices);
+                prevCount = count;
+            }
+            // else: slot stays empty -> uploadLods_ aliases the previous level
+        }
+        return out;
+    }
+
+    void Mesh::uploadLods_(const LodIndexArrays& lodIndices) {
+        lods_[0] = { EBO_, static_cast<GLsizei>(indices_.size()) };
+        for (int l = 1; l < kLodCount; ++l) {
+            const auto& src = lodIndices[l];
+            if (!src.empty()) {
                 unsigned ebo = 0;
                 glGenBuffers(1, &ebo);
                 // COPY_WRITE target: fills the buffer without touching any
                 // VAO's element-array binding
                 glBindBuffer(GL_COPY_WRITE_BUFFER, ebo);
-                glBufferData(GL_COPY_WRITE_BUFFER, count * sizeof(unsigned int), lodIndices.data(), GL_STATIC_DRAW);
+                glBufferData(GL_COPY_WRITE_BUFFER, src.size() * sizeof(unsigned int), src.data(), GL_STATIC_DRAW);
                 glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
-                lods_[l] = { ebo, static_cast<GLsizei>(count) };
+                lods_[l] = { ebo, static_cast<GLsizei>(src.size()) };
             }
             else {
                 lods_[l] = lods_[l - 1]; // fall back to the previous level
@@ -352,18 +375,126 @@ namespace MyCoreEngine {
         glDrawElements(GL_TRIANGLES, lr.indexCount, GL_UNSIGNED_INT, 0);
     }
 
-    // ---- Model ----
-    Model::Model(const std::string& path, bool gamma)
-        : sourcePath_(normPath(path)) {
-        loadModel(path);
-    }
-    void Model::Draw(Shader& shader) {
-        for (auto& m : meshes_) m.Draw(shader);
-    }
-    void Model::loadModel(const std::string& path) {
-        MLOG("loadModel begin: %s", path.c_str());
+    // ---- Model: decode stage (WORKER-SAFE — no GL, no shared state) ----
 
-        Assimp::Importer importer;
+    namespace {
+        // same filename resolution the old TextureFromFile used
+        std::string resolveTexFilename(const std::string& file, const std::string& directory) {
+            if (file.empty() || directory.empty()) return file;
+            if (file[0] == '/' || file[0] == '\\') return file;
+    #ifdef _WIN32
+            return directory + '\\' + file;
+    #else
+            return directory + '/' + file;
+    #endif
+        }
+
+        // probe primary-then-fallback slot for the first texture path
+        std::string texFileFromSlot(::aiMaterial* mat, aiTextureType primary, aiTextureType fallback) {
+            if (!mat) return {};
+            aiString str;
+            if (mat->GetTexture(primary, 0, &str) == AI_SUCCESS && str.length > 0)
+                return normPath(std::string(str.C_Str()));
+            if (fallback != aiTextureType_UNKNOWN &&
+                mat->GetTexture(fallback, 0, &str) == AI_SUCCESS && str.length > 0)
+                return normPath(std::string(str.C_Str()));
+            return {};
+        }
+
+        // vertex/index extraction — unchanged from the old processMesh
+        void collectMeshes(const ::aiScene* scene, ::aiNode* node, ModelCPUData& cpu) {
+            for (unsigned int i = 0; i < node->mNumMeshes; i++) {
+                ::aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
+                ModelCPUData::MeshData md;
+
+                md.vertices.reserve(mesh->mNumVertices);
+                for (unsigned int v = 0; v < mesh->mNumVertices; v++) {
+                    Vertex vert{};
+                    vert.Position = { mesh->mVertices[v].x, mesh->mVertices[v].y, mesh->mVertices[v].z };
+                    vert.Normal   = mesh->HasNormals()
+                                  ? glm::vec3{ mesh->mNormals[v].x, mesh->mNormals[v].y, mesh->mNormals[v].z }
+                                  : glm::vec3{ 0,0,0 };
+                    if (mesh->mTextureCoords[0]) {
+                        vert.TexCoords = { mesh->mTextureCoords[0][v].x, mesh->mTextureCoords[0][v].y };
+                        vert.Tangent   = { mesh->mTangents[v].x, mesh->mTangents[v].y, mesh->mTangents[v].z };
+                        vert.Bitangent = { mesh->mBitangents[v].x, mesh->mBitangents[v].y, mesh->mBitangents[v].z };
+                    }
+                    md.vertices.push_back(vert);
+                }
+                for (unsigned int f = 0; f < mesh->mNumFaces; f++) {
+                    const ::aiFace& face = mesh->mFaces[f];
+                    for (unsigned int j = 0; j < face.mNumIndices; j++)
+                        md.indices.push_back(face.mIndices[j]);
+                }
+
+                md.lodIndices = Mesh::ComputeLodIndices(md.vertices, md.indices);
+                md.materialIndex = (mesh->mMaterialIndex < cpu.materials.size())
+                                 ? (int)mesh->mMaterialIndex : -1;
+                cpu.meshes.push_back(std::move(md));
+            }
+            for (unsigned int i = 0; i < node->mNumChildren; i++) {
+                collectMeshes(scene, node->mChildren[i], cpu);
+            }
+        }
+    } // namespace
+
+    int Model::decodeTextureSlot_(ModelCPUData& cpu, ::aiMaterial* mat,
+                                  aiTextureType primary, aiTextureType fallback,
+                                  bool isSRGB, const std::string& directory,
+                                  const std::unordered_set<std::string>* skipDecodeKeys)
+    {
+        const std::string file = texFileFromSlot(mat, primary, fallback);
+        if (file.empty()) return -1; // slot absent on the material
+
+        const std::string key = makeTexKey_(file, directory, isSRGB);
+        for (size_t i = 0; i < cpu.textures.size(); ++i) {
+            if (cpu.textures[i].key == key) return (int)i; // deduped within this model
+        }
+
+        ModelCPUData::TextureData t;
+        t.key = key;
+        t.srgb = isSRGB;
+        t.file = resolveTexFilename(file, directory);
+
+        // already uploaded (caller snapshotted the cache on the main
+        // thread): record the slot, skip disk + decode entirely — finalize
+        // resolves the key from the cache, pixels never needed. This keeps
+        // reloads as cheap as the pre-split loader's cache-first lookup.
+        if (skipDecodeKeys && skipDecodeKeys->count(key)) {
+            cpu.textures.push_back(std::move(t)); // decoded=false, no pixels
+            return (int)cpu.textures.size() - 1;
+        }
+
+        // per-THREAD flip flag: multiple workers decode concurrently and the
+        // global stbi flag would be a data race
+        stbi_set_flip_vertically_on_load_thread(1);
+        int w = 0, h = 0, c = 0;
+        unsigned char* data = stbi_load(t.file.c_str(), &w, &h, &c, 4);
+        if (data) {
+            t.width = w;
+            t.height = h;
+            t.pixels.assign(data, data + (size_t)w * (size_t)h * 4);
+            stbi_image_free(data);
+            t.decoded = true;
+            MLOG("texture decoded: %s (%dx%d)", t.file.c_str(), w, h);
+        }
+        else {
+            // kept anyway: finalize caches id 0 under the key, matching the
+            // old failed-TextureFromFile behavior (no retry storm per mesh)
+            MLOG("stbi_load failed: %s", t.file.c_str());
+        }
+        cpu.textures.push_back(std::move(t));
+        return (int)cpu.textures.size() - 1;
+    }
+
+    ModelCPUData Model::Decode(const std::string& path, bool /*gamma*/,
+                               const std::unordered_set<std::string>* skipDecodeKeys)
+    {
+        ModelCPUData cpu;
+        cpu.sourcePath = normPath(path);
+        MLOG("decode begin: %s", path.c_str());
+
+        Assimp::Importer importer; // one importer per call: Assimp is thread-safe this way
         const ::aiScene* scene = importer.ReadFile(path,
             aiProcess_Triangulate |
             aiProcess_GenNormals |
@@ -373,189 +504,156 @@ namespace MyCoreEngine {
         if (!scene || (scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) || !scene->mRootNode) {
             std::cerr << "ERROR::MODEL::LOAD_FAILED '" << path << "': "
                       << importer.GetErrorString() << std::endl;
-            return; // model stays empty; downstream AABBs will be degenerate
+            return cpu; // valid=false: finalize yields an empty model
         }
 
-        directory_ = path.substr(0, path.find_last_of("/\\"));
+        cpu.directory = path.substr(0, path.find_last_of("/\\"));
+        cpu.valid = true;
         MLOG("scene meshes=%u materials=%u", scene->mNumMeshes, scene->mNumMaterials);
 
-        materials_.clear();
-        materials_.resize(scene->mNumMaterials);
-
+        cpu.materials.resize(scene->mNumMaterials);
         for (unsigned i = 0; i < scene->mNumMaterials; ++i) {
-            aiMaterial* aim = scene->mMaterials[i];
-            auto mat = std::make_shared<MyCoreEngine::Material>();
+            ::aiMaterial* aim = scene->mMaterials[i];
+            ModelCPUData::MaterialData& md = cpu.materials[i];
 
-            // Optional: read base color / emissive from aiMaterial if present
             aiColor3D col;
             if (AI_SUCCESS == aim->Get(AI_MATKEY_COLOR_DIFFUSE, col)) {
-                mat->baseColor = { col.r, col.g, col.b };
+                md.base.baseColor = { col.r, col.g, col.b };
             }
             if (AI_SUCCESS == aim->Get(AI_MATKEY_COLOR_EMISSIVE, col)) {
-                mat->emissive = { col.r, col.g, col.b };
+                md.base.emissive = { col.r, col.g, col.b };
             }
             float f;
-            if (AI_SUCCESS == aim->Get(AI_MATKEY_METALLIC_FACTOR, f))  mat->metallic = std::clamp(f, 0.f, 1.f);
-            if (AI_SUCCESS == aim->Get(AI_MATKEY_ROUGHNESS_FACTOR, f)) mat->roughness = std::clamp(f, 0.f, 1.f);
-            if (AI_SUCCESS == aim->Get(AI_MATKEY_REFLECTIVITY, f)) {/*optional*/ }
+            if (AI_SUCCESS == aim->Get(AI_MATKEY_METALLIC_FACTOR, f))  md.base.metallic = std::clamp(f, 0.f, 1.f);
+            if (AI_SUCCESS == aim->Get(AI_MATKEY_ROUGHNESS_FACTOR, f)) md.base.roughness = std::clamp(f, 0.f, 1.f);
 
-            // Load textures using your cache (linear formats for MR/A/normal, sRGB for albedo/emissive)
-            mat->albedoTex = getOrLoadTexture_(aim, aiTextureType_BASE_COLOR, aiTextureType_DIFFUSE, /*srgb=*/true);
-            mat->normalTex = getOrLoadTexture_(aim, aiTextureType_NORMALS, aiTextureType_HEIGHT,   /*srgb=*/false);
-            mat->metallicTex = getOrLoadTexture_(aim, aiTextureType_METALNESS, aiTextureType_UNKNOWN,  /*srgb=*/false);
-            mat->roughnessTex = getOrLoadTexture_(aim, aiTextureType_DIFFUSE_ROUGHNESS, aiTextureType_UNKNOWN, /*srgb=*/false);
-            mat->aoTex = getOrLoadTexture_(aim, aiTextureType_AMBIENT_OCCLUSION, aiTextureType_AMBIENT, /*srgb=*/false);
-            mat->emissiveTex = getOrLoadTexture_(aim, aiTextureType_EMISSIVE, aiTextureType_EMISSIVE, /*srgb=*/true);
-
-            materials_[i] = std::move(mat);
+            // linear formats for MR/AO/normal, sRGB for albedo/emissive
+            md.albedo    = decodeTextureSlot_(cpu, aim, aiTextureType_BASE_COLOR, aiTextureType_DIFFUSE, /*srgb=*/true, cpu.directory, skipDecodeKeys);
+            md.normal    = decodeTextureSlot_(cpu, aim, aiTextureType_NORMALS, aiTextureType_HEIGHT,   /*srgb=*/false, cpu.directory, skipDecodeKeys);
+            md.metallic  = decodeTextureSlot_(cpu, aim, aiTextureType_METALNESS, aiTextureType_UNKNOWN,  /*srgb=*/false, cpu.directory, skipDecodeKeys);
+            md.roughness = decodeTextureSlot_(cpu, aim, aiTextureType_DIFFUSE_ROUGHNESS, aiTextureType_UNKNOWN, /*srgb=*/false, cpu.directory, skipDecodeKeys);
+            md.ao        = decodeTextureSlot_(cpu, aim, aiTextureType_AMBIENT_OCCLUSION, aiTextureType_AMBIENT, /*srgb=*/false, cpu.directory, skipDecodeKeys);
+            md.emissive  = decodeTextureSlot_(cpu, aim, aiTextureType_EMISSIVE, aiTextureType_EMISSIVE, /*srgb=*/true, cpu.directory, skipDecodeKeys);
         }
 
-        
-
-        processNode(scene->mRootNode, scene);
-        MLOG("loadModel end: meshes_=%zu", meshes_.size());
+        collectMeshes(scene, scene->mRootNode, cpu);
+        MLOG("decode end: meshes=%zu textures=%zu", cpu.meshes.size(), cpu.textures.size());
+        return cpu;
     }
-    void Model::processNode(::aiNode* node, const ::aiScene* scene) {
-        for (unsigned int i = 0; i < node->mNumMeshes; i++) {
-            ::aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
-            meshes_.push_back(processMesh(mesh, scene));
-        }
-        for (unsigned int i = 0; i < node->mNumChildren; i++) {
-            processNode(node->mChildren[i], scene);
-        }
-    }
-    Mesh Model::processMesh(::aiMesh* mesh, const ::aiScene* scene) {
-        std::vector<Vertex> vertices;
-        std::vector<unsigned int> indices;
-        std::vector<Texture> textures;
-        Mesh newMesh;
 
-        vertices.reserve(mesh->mNumVertices);
-        for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
-            Vertex v{};
-            v.Position = { mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z };
-            v.Normal   = mesh->HasNormals()
-                       ? glm::vec3{ mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z }
-                       : glm::vec3{0,0,0};
-            if (mesh->mTextureCoords[0]) {
-                v.TexCoords = { mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y };
-                v.Tangent   = { mesh->mTangents[i].x, mesh->mTangents[i].y, mesh->mTangents[i].z };
-                v.Bitangent = { mesh->mBitangents[i].x, mesh->mBitangents[i].y, mesh->mBitangents[i].z };
-            }
-            vertices.push_back(v);
-        }
+    // ---- Model: finalize stage (MAIN THREAD — GL context current) ----
 
-        for (unsigned int i = 0; i < mesh->mNumFaces; i++) {
-            const ::aiFace& face = mesh->mFaces[i];
-            for (unsigned int j = 0; j < face.mNumIndices; j++)
-                indices.push_back(face.mIndices[j]);
-        }
-        newMesh = Mesh(vertices, indices, textures);
-        unsigned idx = mesh->mMaterialIndex;
-        if (idx < materials_.size() && materials_[idx]) {
-            newMesh.SetMaterial(materials_[idx]);        // << share the same Material object
-        }
-
-        //if (mesh && mesh->mMaterialIndex < scene->mNumMaterials) {
-        //    ::aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];
-
-        //    // Only read however many the material actually has; cache prevents duplicates
-        //    auto diffuse = loadMaterialTextures(material, aiTextureType_DIFFUSE, "texture_diffuse");
-        //    auto specular = loadMaterialTextures(material, aiTextureType_SPECULAR, "texture_specular");
-        //    // Many assets store normals as aiTextureType_NORMALS, not HEIGHT:
-        //    auto normals = loadMaterialTextures(material, aiTextureType_NORMALS, "texture_normal");
-        //    // If your asset uses HEIGHT for normals, keep this too (harmless if count==0):
-        //    auto height = loadMaterialTextures(material, aiTextureType_HEIGHT, "texture_normal");
-
-        //    textures.insert(textures.end(), diffuse.begin(), diffuse.end());
-        //    textures.insert(textures.end(), specular.begin(), specular.end());
-        //    textures.insert(textures.end(), normals.begin(), normals.end());
-        //    textures.insert(textures.end(), height.begin(), height.end());
-
-        //    MaterialHandle mat = std::make_shared<Material>();
-        //    // Set textures using your cache outputs:
-        //    mat->albedoTex = findTexId(textures, { "texture_diffuse","albedo","basecolor" });
-        //    mat->normalTex = findTexId(textures, { "texture_normal","normal","normalmap" });
-        //    mat->metallicTex = findTexId(textures, { "texture_metallic","metallic","metalness" });
-        //    mat->roughnessTex = findTexId(textures, { "texture_roughness","roughness" });
-        //    mat->aoTex = findTexId(textures, { "texture_ambient","ao","ambient_occlusion" });
-        //    // Optional scalars if present via Assimp material properties (safe defaults otherwise)
-        //    // mat->metallic = ...; mat->roughness = ...; mat->ao = ...;
-        //    newMesh = Mesh(vertices, indices, textures);
-        //    newMesh.SetMaterial(mat);
-        //}
-
-        return newMesh;
-    }
-    unsigned int Model::TextureFromFile(const char* path, const std::string& directory, bool isSRGB) {
-        std::string filename = path;
-        if (!directory.empty()) {
-    #ifdef _WIN32
-            const char sep = '\\';
-    #else
-            const char sep = '/';
-    #endif
-            if (path[0] != '/' && path[0] != '\\')
-                filename = directory + sep + filename;
-        }
-
+    unsigned int Model::uploadTextureRGBA_(const ModelCPUData::TextureData& t)
+    {
         // Guard GL readiness just in case
         if (glfwGetCurrentContext() == nullptr || !glad_glGenTextures) {
-            MLOG("GL not ready when loading texture: %s", filename.c_str());
-            return 0;
-        }
-
-        int w = 0, h = 0, c = 0;
-        stbi_set_flip_vertically_on_load(1);
-        unsigned char* data = stbi_load(filename.c_str(), &w, &h, &c, 4);
-        if (!data) {
-            MLOG("stbi_load failed: %s", filename.c_str());
+            MLOG("GL not ready when uploading texture: %s", t.file.c_str());
             return 0;
         }
 
         unsigned int tex = 0;
-        const GLint internalFormat = isSRGB ? GL_SRGB8_ALPHA8 : GL_RGBA8;
+        const GLint internalFormat = t.srgb ? GL_SRGB8_ALPHA8 : GL_RGBA8;
 
         glGenTextures(1, &tex);
         glBindTexture(GL_TEXTURE_2D, tex);
-        glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+        glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, t.width, t.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, t.pixels.data());
         glGenerateMipmap(GL_TEXTURE_2D);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glBindTexture(GL_TEXTURE_2D, 0);
-        stbi_image_free(data);
 
-        MLOG("texture OK: %s (%dx%d)", filename.c_str(), w, h);
+        MLOG("texture OK: %s (%dx%d)", t.file.c_str(), t.width, t.height);
         return tex;
     }
-    std::vector<Texture> Model::loadMaterialTextures(::aiMaterial* mat, aiTextureType type, const std::string& typeName)
+
+    void Model::finalize_(ModelCPUData&& cpu)
     {
-        std::vector<Texture> textures;
-        if (!mat) return textures;
+        directory_ = std::move(cpu.directory);
+        if (!cpu.valid) return; // empty model, same as a failed sync load
 
-        const unsigned int count = mat->GetTextureCount(type);
-        for (unsigned int i = 0; i < count; ++i) {
-            ::aiString str;
-            if (mat->GetTexture(type, i, &str) != AI_SUCCESS) continue;
-
-            // Assimp gives relative path in most cases
-            std::string file = normPath(std::string(str.C_Str()));
-            // Albedo-like maps should be uploaded as sRGB:
-            const bool isSRGB = (typeName == "texture_diffuse" ||
-                typeName == "albedo" ||
-                typeName == "basecolor");
-            unsigned int id = getOrLoadTexture_(file, directory_, isSRGB);
-
-            Texture tex{};
-            tex.id = id;
-            tex.type = typeName;
-            tex.path = file;
-            textures.push_back(tex);
+        // Textures first. The shared cache is MAIN-THREAD-ONLY: workers ship
+        // pixels, this stage does every lookup/insert. A cache hit resolves
+        // skip-set entries (no pixels shipped) and discards any redundant
+        // worker decode — never wrong, at worst spare CPU.
+        std::vector<unsigned int> texIds(cpu.textures.size(), 0);
+        for (size_t i = 0; i < cpu.textures.size(); ++i) {
+            auto& t = cpu.textures[i];
+            auto it = sTextureCache_.find(t.key);
+            if (it != sTextureCache_.end()) {
+                texIds[i] = it->second;
+            }
+            else {
+                const unsigned int id = t.decoded ? uploadTextureRGBA_(t) : 0;
+                sTextureCache_.emplace(t.key, id); // failed decodes cache 0 (no retry storm)
+                texIds[i] = id;
+            }
+            // pixels are dead the moment the id exists: release now instead
+            // of holding every texture's pixels through mesh building (a
+            // backpack-class model carries >100MB of decoded pixels)
+            t.pixels.clear();
+            t.pixels.shrink_to_fit();
         }
-        return textures;
+
+        auto slot = [&](int idx) -> unsigned int {
+            return (idx >= 0 && (size_t)idx < texIds.size()) ? texIds[idx] : 0;
+        };
+        materials_.clear();
+        materials_.resize(cpu.materials.size());
+        for (size_t i = 0; i < cpu.materials.size(); ++i) {
+            const auto& md = cpu.materials[i];
+            auto mat = std::make_shared<MyCoreEngine::Material>(md.base);
+            mat->albedoTex    = slot(md.albedo);
+            mat->normalTex    = slot(md.normal);
+            mat->metallicTex  = slot(md.metallic);
+            mat->roughnessTex = slot(md.roughness);
+            mat->aoTex        = slot(md.ao);
+            mat->emissiveTex  = slot(md.emissive);
+            materials_[i] = std::move(mat);
+        }
+
+        meshes_.reserve(cpu.meshes.size());
+        for (auto& md : cpu.meshes) {
+            Mesh mesh(std::move(md.vertices), std::move(md.indices), std::move(md.lodIndices));
+            if (md.materialIndex >= 0 && (size_t)md.materialIndex < materials_.size() &&
+                materials_[md.materialIndex]) {
+                mesh.SetMaterial(materials_[md.materialIndex]); // share the same Material object
+            }
+            meshes_.push_back(std::move(mesh));
+        }
+        MLOG("finalize end: meshes_=%zu", meshes_.size());
     }
+
+    std::unordered_set<std::string> Model::CachedTextureKeys()
+    {
+        std::unordered_set<std::string> keys;
+        keys.reserve(sTextureCache_.size());
+        for (const auto& [k, id] : sTextureCache_) keys.insert(k);
+        return keys;
+    }
+
+    ModelCPUData Model::decodeSyncWithCache_(const std::string& path, bool gamma)
+    {
+        // sync loads run on the main thread, where the cache is legally
+        // consultable: skip decoding textures that are already uploaded so a
+        // reload costs a hash lookup again, like the pre-split loader
+        const auto cached = CachedTextureKeys();
+        return Decode(path, gamma, &cached);
+    }
+
+    Model::Model(const std::string& path, bool gamma)
+        : Model(decodeSyncWithCache_(path, gamma)) {} // same pipeline, both stages inline
+
+    Model::Model(ModelCPUData&& cpu)
+        : sourcePath_(std::move(cpu.sourcePath)) {
+        finalize_(std::move(cpu));
+    }
+
+    void Model::Draw(Shader& shader) {
+        for (auto& m : meshes_) m.Draw(shader);
+    }
+
     std::string Model::makeTexKey_(const std::string& file, const std::string& directory, bool isSRGB)
     {
         // normalize once; key must be unique per (path + color space)
@@ -566,50 +664,7 @@ namespace MyCoreEngine {
         key += isSRGB ? "|srgb" : "|lin";
         return key;
     }
-    unsigned int Model::getOrLoadTexture_(const std::string& file, const std::string& directory, bool isSRGB)
-    {
-        const std::string key = makeTexKey_(file, directory, isSRGB);
-        auto it = sTextureCache_.find(key);
-        if (it != sTextureCache_.end())
-            return it->second;
 
-        unsigned int id = TextureFromFile(file.c_str(), directory, isSRGB);
-
-        // Only log when we actually loaded it:
-        // (your existing "[Model] texture OK" logging can stay in TextureFromFile)
-        sTextureCache_.emplace(key, id);
-        return id;
-    }
-    unsigned int Model::getOrLoadTexture_(aiMaterial* mat, aiTextureType primary, aiTextureType fallback, bool isSRGB)
-    {
-        if (!mat) return 0;
-
-        aiString str;
-        // Try primary slot first
-        if (mat->GetTexture(primary, 0, &str) == AI_SUCCESS && str.length > 0) {
-            const std::string file = normPath(std::string(str.C_Str()));
-            return getOrLoadTexture_(file, directory_, isSRGB);
-        }
-        // Fallback slot if primary is empty
-        if (fallback != aiTextureType_UNKNOWN &&
-            mat->GetTexture(fallback, 0, &str) == AI_SUCCESS && str.length > 0)
-        {
-            const std::string file = normPath(std::string(str.C_Str()));
-            return getOrLoadTexture_(file, directory_, isSRGB);
-        }
-
-        return 0; // no texture declared on this material for these types
-    }
-    unsigned Model::findTexId(const std::vector<Texture>& texList,
-        std::initializer_list<const char*> names)
-    {
-        for (auto& t : texList) {
-            for (auto* n : names) {
-                if (t.type == n) return t.id;
-            }
-        }
-        return 0;
-    }
     std::unordered_map<std::string, unsigned int> Model::sTextureCache_;
 } // namespace MyCoreEngine
 

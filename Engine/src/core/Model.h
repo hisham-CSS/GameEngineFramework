@@ -7,7 +7,9 @@
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 
+#include <array>
 #include <unordered_map>
+#include <unordered_set>
 #include <glm/glm.hpp>
 #include <string>
 #include <vector>
@@ -72,6 +74,20 @@ namespace MyCoreEngine {
         };
         const LodRange& Lod(int level) const;
 
+        // Per-level simplified index buffers; an EMPTY vector at level l
+        // means "fall back to the previous level" (level 0 is always the
+        // base mesh and its slot is unused).
+        using LodIndexArrays = std::array<std::vector<unsigned int>, kLodCount>;
+        // WORKER-SAFE (pure meshoptimizer, no GL): the CPU half of LOD
+        // building. The GL half (EBO creation) happens in the constructors.
+        static LodIndexArrays ComputeLodIndices(const std::vector<Vertex>& vertices,
+                                                const std::vector<unsigned int>& indices);
+        // MAIN THREAD (GL): build from data a worker already decoded —
+        // uploads buffers and the precomputed LOD indices without re-running
+        // meshoptimizer.
+        Mesh(std::vector<Vertex> vertices, std::vector<unsigned int> indices,
+             LodIndexArrays precomputedLods);
+
         // split draw into bind vs issue
         void BindForDraw(MyCoreEngine::Shader& shader) const; // bind textures + VAO (no draw)
         void BindForDrawWith(MyCoreEngine::Shader& shader, const MyCoreEngine::Material& mat) const;
@@ -90,23 +106,88 @@ namespace MyCoreEngine {
         unsigned int VAO_ = 0, VBO_ = 0, EBO_ = 0;
         LodRange lods_[kLodCount]{};
 
-        void setupMesh();
-        void buildLods_();
-        
+        void setupBuffers_();                       // VAO/VBO/EBO upload (GL)
+        void uploadLods_(const LodIndexArrays&);    // LOD EBOs / aliasing (GL)
+    };
+
+    // ----- ModelCPUData -----
+    // Everything a WORKER thread can produce for a model without touching
+    // GL: parsed geometry, precomputed LOD indices, material scalars, and
+    // stb-decoded texture pixels. Model::Decode fills one (job stage);
+    // Model's ModelCPUData constructor turns it into GL objects (main-
+    // thread completion stage). The synchronous Model(path) is the same
+    // two stages back-to-back — ONE pipeline, two halves.
+    struct ModelCPUData {
+        struct TextureData {
+            std::string key;    // Model texture-cache key (path + colorspace)
+            std::string file;   // resolved filename (logging)
+            int width = 0, height = 0;
+            std::vector<unsigned char> pixels; // RGBA8, stb-decoded (flipped)
+            bool srgb = false;
+            bool decoded = false; // false: stbi failed — finalize caches id 0
+        };
+        struct MaterialData {
+            Material base;      // scalar values; texture ids stay 0 until finalize
+            // indices into `textures` (-1 = slot absent on the material)
+            int albedo = -1, normal = -1, metallic = -1, roughness = -1,
+                ao = -1, emissive = -1;
+        };
+        struct MeshData {
+            std::vector<Vertex> vertices;
+            std::vector<unsigned int> indices;
+            Mesh::LodIndexArrays lodIndices; // precomputed on the worker
+            int materialIndex = -1;          // into `materials`
+        };
+        std::vector<TextureData> textures; // unique by key
+        std::vector<MaterialData> materials;
+        std::vector<MeshData> meshes;
+        std::string sourcePath;            // normalized
+        std::string directory;
+        bool valid = false;                // Assimp import succeeded
     };
 
     // ----- Model -----
     class ENGINE_API Model {
     public:
+        // Synchronous load: Decode + finalize back-to-back on the calling
+        // thread (which must be the main thread — GL uploads happen here).
         explicit Model(const std::string& path, bool gamma = false);
-        
+
+        // WORKER-SAFE (no GL, no shared state): the CPU half of a load —
+        // Assimp import, vertex/index extraction, LOD index generation,
+        // material scalars, stb texture decode. Run it on a JobSystem
+        // worker; hand the result to the ModelCPUData constructor on the
+        // main thread.
+        //
+        // `skipDecodeKeys` (optional): texture-cache keys whose pixels are
+        // ALREADY uploaded — those slots are recorded without touching disk
+        // (finalize resolves them from the cache; entries never evict, so a
+        // snapshot can't go stale). The sync ctor passes a live snapshot so
+        // reloading a model whose textures are resident costs a hash lookup
+        // again, like the pre-split loader. Callers submitting to WORKERS
+        // must pass a snapshot taken ON THE MAIN THREAD (or nothing —
+        // workers then redundantly decode and finalize discards: never
+        // wrong, just spare CPU).
+        static ModelCPUData Decode(const std::string& path, bool gamma = false,
+                                   const std::unordered_set<std::string>* skipDecodeKeys = nullptr);
+
+        // MAIN THREAD ONLY: snapshot of every texture-cache key currently
+        // uploaded — the input for Decode's skipDecodeKeys.
+        static std::unordered_set<std::string> CachedTextureKeys();
+
+        // MAIN THREAD (GL context current): the upload half — mesh buffers,
+        // precomputed LOD EBOs, texture upload through the shared cache.
+        // An invalid ModelCPUData (failed import) yields an empty model,
+        // exactly like a failed synchronous load.
+        explicit Model(ModelCPUData&& cpu);
+
         // ECS-friendly: forbid copies (GL objects & internal state are not copy-safe)
         Model(const Model&) = delete;
         Model & operator=(const Model&) = delete;
         // Allow moves
         Model(Model&&) noexcept = default;
         Model & operator=(Model&&) noexcept = default;
-        
+
         void Draw(Shader& shader);
         const std::vector<Mesh>& Meshes() const { return meshes_; }
         const std::vector<MyCoreEngine::MaterialHandle>& Materials() const { return materials_; }
@@ -118,22 +199,22 @@ namespace MyCoreEngine {
         std::string       directory_;
         std::string       sourcePath_;
 
-        // Global cache keyed by (normalized path + �|srgb/|lin�)
+        // Global cache keyed by (normalized path + "|srgb"/"|lin").
+        // MAIN-THREAD-ONLY (unsynchronized): workers deliver pixels, the
+        // finalize stage does every lookup/insert.
         static std::unordered_map<std::string, unsigned int> sTextureCache_;
 
         std::vector<MyCoreEngine::MaterialHandle> materials_; // size = scene->mNumMaterials
 
-        //Model and Material Helpers
-        void loadModel(const std::string& path);
-        void processNode(::aiNode* node, const ::aiScene* scene);
-        Mesh processMesh(::aiMesh* mesh, const ::aiScene* scene);
-        std::vector<Texture> loadMaterialTextures(::aiMaterial* mat, aiTextureType type, const std::string& typeName);
-        static unsigned int TextureFromFile(const char* path, const std::string& directory, bool isSRGB);
+        void finalize_(ModelCPUData&& cpu); // the GL half (main thread)
+        static ModelCPUData decodeSyncWithCache_(const std::string& path, bool gamma);
         static std::string makeTexKey_(const std::string & file, const std::string & directory, bool isSRGB);
-        unsigned int getOrLoadTexture_(const std::string & file, const std::string & directory, bool isSRGB);
-        // NEW: convenience that looks up a texture on an aiMaterial then calls the path-based loader.
-        // Tries 'primary' first, then 'fallback'. Returns 0 if none found.
-        unsigned int getOrLoadTexture_(aiMaterial* mat, aiTextureType primary, aiTextureType fallback, bool isSRGB);
-        static unsigned findTexId(const std::vector<Texture>& texList, std::initializer_list<const char*> names);
+        // Decode helper: probe primary-then-fallback texture slot, stb-decode
+        // it into cpu.textures (deduped by key). Returns the index or -1.
+        static int decodeTextureSlot_(ModelCPUData& cpu, ::aiMaterial* mat,
+                                      aiTextureType primary, aiTextureType fallback,
+                                      bool isSRGB, const std::string& directory,
+                                      const std::unordered_set<std::string>* skipDecodeKeys);
+        static unsigned int uploadTextureRGBA_(const ModelCPUData::TextureData& t);
     };
 } // namespace MyCoreEngine

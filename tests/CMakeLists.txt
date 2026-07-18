@@ -53,6 +53,7 @@ engine_test(test_hierarchy)        # transform parenting (pure CPU)
 engine_test(test_camera_director)  # Cinemachine-style selection/blending (pure CPU)
 engine_test(test_asset_index)      # asset filesystem domain: scan/cache/find (pure CPU)
 engine_test(test_job_system)       # P4-3 thread pool + main-thread completion pump (pure CPU)
+engine_test(test_model_decode)     # P4-3 model decode stage (pure CPU — no GL by design)
 
 # UndoHistory lives in the Editor (it snapshots editor-managed components)
 # but is ImGui-free, so it can be compiled straight into a headless test.
