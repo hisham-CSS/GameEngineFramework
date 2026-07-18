@@ -84,6 +84,9 @@ private:
     SceneHierarchyPanel hierarchy_;
     InspectorPanel      inspector_;
     AssetBrowserPanel   assetBrowser_;
+    // Engine-side asset filesystem domain: cached tree of Exported/, all
+    // disk walking + rescan throttling live here; the panel is a view.
+    MyCoreEngine::AssetIndex assetIndex_;
     entt::entity        selected_ = entt::null;
 
     // startup-scene display cache + status line (Scene panel); set from

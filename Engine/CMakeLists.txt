@@ -38,6 +38,8 @@ add_library(Engine SHARED
     src/core/InputMap.cpp
     src/core/RenderTarget.h
     src/core/RenderTarget.cpp
+    src/assets/AssetIndex.h
+    src/assets/AssetIndex.cpp
     src/render/IRenderPass.h 
     src/render/passes/ForwardOpaquePass.h 
     src/render/passes/ShadowCSMPass.h 

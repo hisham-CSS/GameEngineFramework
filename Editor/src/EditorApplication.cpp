@@ -131,8 +131,9 @@ void EditorApplication::Run() {
 
         //asset browser (P2-5)
         {
+            assetIndex_.tick(dt); // throttled: rewalks the tree every ~2s
             const AssetBrowserActions aba = assetBrowser_.Draw(
-                scene.registry, selected_, undo_, assets_.get(), playing_);
+                scene.registry, selected_, undo_, assets_.get(), assetIndex_, playing_);
             if (!aba.loadScene.empty() && !playing_) {
                 loadSceneFromFile_(scene, aba.loadScene);
             }

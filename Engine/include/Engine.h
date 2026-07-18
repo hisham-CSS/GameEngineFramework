@@ -24,5 +24,6 @@
 #include "../src/core/InputMap.h"
 #include "../src/core/RenderTarget.h"
 #include "../src/core/GLInit.h"
+#include "../src/assets/AssetIndex.h"
 #include "../src/render/CSMSplits.h"
 

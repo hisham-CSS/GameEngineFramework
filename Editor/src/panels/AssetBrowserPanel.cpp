@@ -3,168 +3,253 @@
 #include "imgui.h"
 #include "Engine.h"
 
-#include <algorithm>
-#include <cctype>
 #include <cstdio>
+#include <vector>
+
+using MyCoreEngine::AssetIndex;
 
 namespace {
 
-    std::string lowerExt(const std::filesystem::path& p) {
-        std::string e = p.extension().string();
-        std::transform(e.begin(), e.end(), e.begin(),
-                       [](unsigned char c) { return (char)std::tolower(c); });
-        return e;
+    const char* kindTag(AssetIndex::Kind k) {
+        switch (k) {
+        case AssetIndex::Kind::Directory: return "[DIR]";
+        case AssetIndex::Kind::Model:     return "[MDL]";
+        case AssetIndex::Kind::SceneJson: return "[SCN]";
+        case AssetIndex::Kind::Texture:   return "[TEX]";
+        case AssetIndex::Kind::Shader:    return "[SHD]";
+        default:                          return "[ - ]";
+        }
     }
 
-    const char* kindTag(int k) {
-        static const char* tags[] = { "[DIR]", "[MDL]", "[SCN]", "[TEX]", "[SHD]", "[ - ]" };
-        return tags[k];
+    // is `path` equal to `dir` or anywhere below it?
+    bool isSameOrUnder(const std::string& path, const std::string& dir) {
+        if (path == dir) return true;
+        return path.size() > dir.size() &&
+               path.compare(0, dir.size(), dir) == 0 &&
+               path[dir.size()] == '/';
     }
 
 } // namespace
 
-void AssetBrowserPanel::rescan_() {
-    framesSinceScan_ = 0;
-    entries_.clear();
+void AssetBrowserPanel::navigateTo_(const std::string& relPath) {
+    selectedDir_ = relPath;
+    revealSelection_ = true; // open the tree down to it next draw
+}
 
-    std::error_code ec;
-    if (!std::filesystem::is_directory(cwd_, ec)) cwd_ = "Exported"; // deleted/renamed dir
+void AssetBrowserPanel::drawBreadcrumbs_() {
+    // "Exported > Model > ..." — every segment is clickable
+    const std::string& sel = selectedDir_;
+    size_t start = 0;
+    bool first = true;
+    while (start < sel.size()) {
+        size_t slash = sel.find('/', start);
+        if (slash == std::string::npos) slash = sel.size();
+        const std::string segment = sel.substr(start, slash - start);
+        const std::string upToHere = sel.substr(0, slash);
 
-    std::vector<Entry> dirs, files;
-    try {
-        for (const auto& de : std::filesystem::directory_iterator(cwd_, ec)) {
-            try {
-                Entry en;
-                // path::string() THROWS for names not representable in the
-                // active code page (MSVC strict conversion — no '?' fallback).
-                // Such files can't be opened by the engine's narrow-path IO
-                // anyway: skip them instead of crashing the whole editor.
-                en.name = de.path().filename().string();
-                en.relPath = de.path().generic_string(); // forward slashes, engine style
-                if (de.is_directory(ec)) {
-                    en.kind = Kind::Directory;
-                    dirs.push_back(std::move(en));
-                    continue;
-                }
-                const std::string ext = lowerExt(de.path());
-                if (ext == ".obj") en.kind = Kind::Model;
-                else if (ext == ".json" && en.name != "project.json") en.kind = Kind::SceneJson;
-                else if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".hdr" ||
-                         ext == ".tga" || ext == ".bmp") en.kind = Kind::Texture;
-                else if (ext == ".glsl") en.kind = Kind::Shader;
-                else en.kind = Kind::Other;
-                files.push_back(std::move(en));
-            }
-            catch (const std::exception&) {
-                continue; // unrepresentable name: skip this entry
-            }
+        if (!first) {
+            ImGui::SameLine(0.f, 2.f);
+            ImGui::TextDisabled(">");
+            ImGui::SameLine(0.f, 2.f);
         }
+        first = false;
+
+        ImGui::PushID((int)start);
+        if (upToHere == sel) {
+            // current folder: plain text, nothing to navigate to
+            ImGui::TextUnformatted(segment.c_str());
+        }
+        else if (ImGui::SmallButton(segment.c_str())) {
+            navigateTo_(upToHere);
+        }
+        ImGui::PopID();
+
+        start = slash + 1;
     }
-    catch (const std::exception&) {
-        // iterator advance failure (dir vanished mid-scan etc.): keep what we have
+}
+
+void AssetBrowserPanel::drawFolderTree_(const void* nodePtr, bool isRoot) {
+    const auto& node = *static_cast<const AssetIndex::Node*>(nodePtr);
+
+    bool hasSubdirs = false;
+    for (const auto& c : node.children) {
+        if (c.kind == AssetIndex::Kind::Directory) { hasSubdirs = true; break; }
     }
-    auto byName = [](const Entry& a, const Entry& b) { return a.name < b.name; };
-    std::sort(dirs.begin(), dirs.end(), byName);
-    std::sort(files.begin(), files.end(), byName);
-    entries_ = std::move(dirs);
-    entries_.insert(entries_.end(), files.begin(), files.end());
+
+    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow |
+                               ImGuiTreeNodeFlags_OpenOnDoubleClick |
+                               ImGuiTreeNodeFlags_SpanAvailWidth;
+    if (!hasSubdirs) flags |= ImGuiTreeNodeFlags_Leaf;
+    if (node.relPath == selectedDir_) flags |= ImGuiTreeNodeFlags_Selected;
+    if (isRoot) flags |= ImGuiTreeNodeFlags_DefaultOpen;
+
+    // reveal a folder picked via double-click/breadcrumb: force ancestors open
+    if (revealSelection_ && node.relPath != selectedDir_ &&
+        isSameOrUnder(selectedDir_, node.relPath)) {
+        ImGui::SetNextItemOpen(true);
+    }
+
+    const bool open = ImGui::TreeNodeEx(node.relPath.c_str(), flags, "%s", node.name.c_str());
+    // opening the ancestors isn't enough in a tall tree: bring the target
+    // into the visible scroll region too
+    if (revealSelection_ && node.relPath == selectedDir_) ImGui::SetScrollHereY();
+    // click (not the expand arrow) selects the folder for the content pane
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen()) {
+        selectedDir_ = node.relPath;
+    }
+    if (open) {
+        for (const auto& c : node.children) {
+            if (c.kind == AssetIndex::Kind::Directory) drawFolderTree_(&c, false);
+        }
+        ImGui::TreePop();
+    }
+}
+
+AssetBrowserActions AssetBrowserPanel::drawContents_(const void* nodePtr,
+                                                     entt::registry& reg,
+                                                     entt::entity selected,
+                                                     UndoHistory& undo,
+                                                     MyCoreEngine::AssetManager* assets,
+                                                     bool playing) {
+    AssetBrowserActions actions;
+    const auto& dir = *static_cast<const AssetIndex::Node*>(nodePtr);
+
+    if (dir.children.empty()) ImGui::TextDisabled("(empty)");
+    for (const auto& e : dir.children) {
+        ImGui::PushID(e.relPath.c_str());
+
+        char row[320];
+        std::snprintf(row, sizeof(row), "%s %s", kindTag(e.kind), e.name.c_str());
+        ImGui::Selectable(row, false, ImGuiSelectableFlags_AllowDoubleClick);
+
+        const bool doubleClicked =
+            ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
+
+        // models drag into the viewport to spawn where they land
+        if (e.kind == AssetIndex::Kind::Model && ImGui::BeginDragDropSource()) {
+            char payload[260] = {};
+            std::snprintf(payload, sizeof(payload), "%s", e.relPath.c_str());
+            ImGui::SetDragDropPayload(kAssetPayload, payload, sizeof(payload));
+            ImGui::Text("Spawn %s", e.name.c_str());
+            ImGui::EndDragDropSource();
+        }
+
+        switch (e.kind) {
+        case AssetIndex::Kind::Directory:
+            if (doubleClicked) navigateTo_(e.relPath);
+            break;
+        case AssetIndex::Kind::Model:
+            if (doubleClicked) actions.spawnModel = e.relPath;
+            if (ImGui::BeginPopupContextItem()) {
+                if (ImGui::MenuItem("Spawn in Scene")) actions.spawnModel = e.relPath;
+                const bool canAssign = assets && reg.valid(selected);
+                if (ImGui::MenuItem("Assign to Selected Entity", nullptr, false, canAssign)) {
+                    if (auto model = assets->GetModel(e.relPath);
+                        model && !model->Meshes().empty()) {
+                        undo.record(reg, selected, "Assign model", [&] {
+                            reg.emplace_or_replace<ModelComponent>(selected, ModelComponent{ model });
+                            reg.emplace_or_replace<AABB>(selected, generateAABB(*model));
+                            if (!reg.any_of<Transform>(selected)) reg.emplace<Transform>(selected);
+                        });
+                        actions.shadowsDirty = true; // swapped caster, clean transform
+                    }
+                }
+                if (ImGui::MenuItem("Copy Path")) ImGui::SetClipboardText(e.relPath.c_str());
+                ImGui::EndPopup();
+            }
+            break;
+        case AssetIndex::Kind::SceneJson:
+            if (doubleClicked && !playing) actions.loadScene = e.relPath;
+            if (ImGui::BeginPopupContextItem()) {
+                // loading is blocked during play (Stop's restore would
+                // stomp it); startup-scene setting is safe anytime
+                if (ImGui::MenuItem("Load Scene", nullptr, false, !playing)) {
+                    actions.loadScene = e.relPath;
+                }
+                if (ImGui::MenuItem("Set as Startup Scene")) actions.setStartup = e.relPath;
+                if (ImGui::MenuItem("Copy Path")) ImGui::SetClipboardText(e.relPath.c_str());
+                ImGui::EndPopup();
+            }
+            break;
+        default:
+            if (ImGui::BeginPopupContextItem()) {
+                if (ImGui::MenuItem("Copy Path")) ImGui::SetClipboardText(e.relPath.c_str());
+                ImGui::EndPopup();
+            }
+            break;
+        }
+
+        ImGui::PopID();
+    }
+    return actions;
 }
 
 AssetBrowserActions AssetBrowserPanel::Draw(entt::registry& reg, entt::entity selected,
                                             UndoHistory& undo,
                                             MyCoreEngine::AssetManager* assets,
-                                            bool playing) {
+                                            AssetIndex& index, bool playing) {
     AssetBrowserActions actions;
 
-    ImGui::SetNextWindowSize(ImVec2(320, 380), ImGuiCond_FirstUseEver);
+    if (selectedDir_.empty()) selectedDir_ = index.root().relPath;
+
+    ImGui::SetNextWindowSize(ImVec2(460, 380), ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Assets")) {
-        // toolbar: up / current dir / refresh
-        const bool atRoot = (cwd_ == std::filesystem::path("Exported"));
-        if (atRoot) ImGui::BeginDisabled();
-        if (ImGui::Button("Up")) {
-            cwd_ = cwd_.parent_path();
-            framesSinceScan_ = 1 << 20;
+        // the selected folder can vanish between rescans — or be REPLACED
+        // by a file with the same name: fall back to the nearest existing
+        // ancestor DIRECTORY (worst case the root itself)
+        const AssetIndex::Node* dir = index.find(selectedDir_);
+        while (!dir || dir->kind != AssetIndex::Kind::Directory) {
+            const size_t slash = selectedDir_.find_last_of('/');
+            if (slash == std::string::npos) {
+                selectedDir_ = index.root().relPath;
+                dir = &index.root();
+                break;
+            }
+            selectedDir_.resize(slash);
+            dir = index.find(selectedDir_);
         }
-        if (atRoot) ImGui::EndDisabled();
-        ImGui::SameLine();
-        if (ImGui::Button("Refresh")) framesSinceScan_ = 1 << 20;
-        ImGui::SameLine();
-        ImGui::TextDisabled("%s", cwd_.generic_string().c_str());
+
+        // toolbar: refresh (a request to the engine index — the panel owns
+        // no disk state) + clickable breadcrumbs
+        if (ImGui::SmallButton("Refresh")) index.forceRescan();
+        ImGui::SameLine(0.f, 8.f);
+        drawBreadcrumbs_();
         ImGui::Separator();
 
-        // rescan periodically (files change on disk: saves, builds, OneDrive)
-        if (++framesSinceScan_ > 120) rescan_();
+        // left: folder tree | splitter | right: selected folder's contents
+        const float height = ImGui::GetContentRegionAvail().y > 1.f
+                                 ? ImGui::GetContentRegionAvail().y : 1.f;
+        // clamp UNCONDITIONALLY (floor 80): skipping the upper clamp in a
+        // narrow panel let a wide treeWidth_ push the splitter and the
+        // whole contents pane outside the clip rect — unreachable until
+        // the window was widened again
+        const float maxTree = ImGui::GetContentRegionAvail().x - 120.f;
+        const float hiTree = maxTree > 80.f ? maxTree : 80.f;
+        treeWidth_ = treeWidth_ < 80.f ? 80.f : (treeWidth_ > hiTree ? hiTree : treeWidth_);
+        ImGui::BeginChild("##foldertree", ImVec2(treeWidth_, height));
+        drawFolderTree_(&index.root(), true);
+        revealSelection_ = false; // one-shot: ancestors were forced open above
+        ImGui::EndChild();
 
-        if (entries_.empty()) ImGui::TextDisabled("(empty)");
-        for (const Entry& e : entries_) {
-            ImGui::PushID(e.relPath.c_str());
-
-            char row[320];
-            std::snprintf(row, sizeof(row), "%s %s", kindTag((int)e.kind), e.name.c_str());
-            ImGui::Selectable(row, false, ImGuiSelectableFlags_AllowDoubleClick);
-
-            const bool doubleClicked =
-                ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
-
-            // models drag into the viewport to spawn where they land
-            if (e.kind == Kind::Model && ImGui::BeginDragDropSource()) {
-                char payload[260] = {};
-                std::snprintf(payload, sizeof(payload), "%s", e.relPath.c_str());
-                ImGui::SetDragDropPayload(kAssetPayload, payload, sizeof(payload));
-                ImGui::Text("Spawn %s", e.name.c_str());
-                ImGui::EndDragDropSource();
-            }
-
-            switch (e.kind) {
-            case Kind::Directory:
-                if (doubleClicked) {
-                    cwd_ = e.relPath;
-                    framesSinceScan_ = 1 << 20;
-                }
-                break;
-            case Kind::Model:
-                if (doubleClicked) actions.spawnModel = e.relPath;
-                if (ImGui::BeginPopupContextItem()) {
-                    if (ImGui::MenuItem("Spawn in Scene")) actions.spawnModel = e.relPath;
-                    const bool canAssign = assets && reg.valid(selected);
-                    if (ImGui::MenuItem("Assign to Selected Entity", nullptr, false, canAssign)) {
-                        if (auto model = assets->GetModel(e.relPath);
-                            model && !model->Meshes().empty()) {
-                            undo.record(reg, selected, "Assign model", [&] {
-                                reg.emplace_or_replace<ModelComponent>(selected, ModelComponent{ model });
-                                reg.emplace_or_replace<AABB>(selected, generateAABB(*model));
-                                if (!reg.any_of<Transform>(selected)) reg.emplace<Transform>(selected);
-                            });
-                            actions.shadowsDirty = true; // swapped caster, clean transform
-                        }
-                    }
-                    if (ImGui::MenuItem("Copy Path")) ImGui::SetClipboardText(e.relPath.c_str());
-                    ImGui::EndPopup();
-                }
-                break;
-            case Kind::SceneJson:
-                if (doubleClicked && !playing) actions.loadScene = e.relPath;
-                if (ImGui::BeginPopupContextItem()) {
-                    // loading is blocked during play (Stop's restore would
-                    // stomp it); startup-scene setting is safe anytime
-                    if (ImGui::MenuItem("Load Scene", nullptr, false, !playing)) {
-                        actions.loadScene = e.relPath;
-                    }
-                    if (ImGui::MenuItem("Set as Startup Scene")) actions.setStartup = e.relPath;
-                    if (ImGui::MenuItem("Copy Path")) ImGui::SetClipboardText(e.relPath.c_str());
-                    ImGui::EndPopup();
-                }
-                break;
-            default:
-                if (ImGui::BeginPopupContextItem()) {
-                    if (ImGui::MenuItem("Copy Path")) ImGui::SetClipboardText(e.relPath.c_str());
-                    ImGui::EndPopup();
-                }
-                break;
-            }
-
-            ImGui::PopID();
+        ImGui::SameLine(0.f, 0.f);
+        ImGui::InvisibleButton("##splitter", ImVec2(6.f, height));
+        if (ImGui::IsItemHovered() || ImGui::IsItemActive())
+            ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+        if (ImGui::IsItemActive())
+            treeWidth_ += ImGui::GetIO().MouseDelta.x;
+        {
+            // visible 1px divider inside the splitter hitbox
+            const ImVec2 mn = ImGui::GetItemRectMin();
+            const ImVec2 mx = ImGui::GetItemRectMax();
+            const float x = (mn.x + mx.x) * 0.5f;
+            ImGui::GetWindowDrawList()->AddLine(ImVec2(x, mn.y), ImVec2(x, mx.y),
+                ImGui::GetColorU32(ImGuiCol_Separator));
         }
+        ImGui::SameLine(0.f, 0.f);
+
+        ImGui::BeginChild("##contents", ImVec2(0, height));
+        actions = drawContents_(dir, reg, selected, undo, assets, playing);
+        ImGui::EndChild();
     }
     ImGui::End();
     return actions;

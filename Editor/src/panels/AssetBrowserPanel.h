@@ -1,11 +1,9 @@
 #pragma once
 #include <entt/entt.hpp>
 
-#include <filesystem>
 #include <string>
-#include <vector>
 
-namespace MyCoreEngine { class AssetManager; }
+namespace MyCoreEngine { class AssetManager; class AssetIndex; }
 class UndoHistory;
 
 // Scene-level requests the panel can't perform itself (they touch undo
@@ -20,29 +18,32 @@ struct AssetBrowserActions {
     bool shadowsDirty = false;
 };
 
-// Filesystem view of the runtime asset root (Exported/ next to the exe —
-// the same files the engine actually loads). Models drag into the viewport
-// (payload kAssetPayload) or spawn/assign via context menu; scene files
-// load or become the startup scene.
+// The Assets panel: a VIEW over the engine's AssetIndex (all disk walking
+// lives there — the asset filesystem domain). Unity-style layout: folder
+// tree on the left (collapse/expand, click to select), the selected
+// folder's contents on the right, clickable breadcrumbs on top. Models
+// drag into the viewport (payload kAssetPayload) or spawn/assign via
+// context menu; scene files load or become the startup scene.
 class AssetBrowserPanel {
 public:
+    // `index` is non-const only for forceRescan (the Refresh button); the
+    // panel never mutates the tree itself.
     AssetBrowserActions Draw(entt::registry& reg, entt::entity selected,
                              UndoHistory& undo, MyCoreEngine::AssetManager* assets,
-                             bool playing);
+                             MyCoreEngine::AssetIndex& index, bool playing);
 
     static constexpr const char* kAssetPayload = "CSE_ASSET_MODEL"; // char[260] path
 
 private:
-    enum class Kind { Directory, Model, SceneJson, Texture, Shader, Other };
-    struct Entry {
-        std::string name;    // filename for display
-        std::string relPath; // engine-style path ("Exported/Model/foo.obj")
-        Kind kind = Kind::Other;
-    };
+    void drawBreadcrumbs_();
+    void drawFolderTree_(const void* node, bool isRoot); // AssetIndex::Node*
+    AssetBrowserActions drawContents_(const void* node, entt::registry& reg,
+                                      entt::entity selected, UndoHistory& undo,
+                                      MyCoreEngine::AssetManager* assets,
+                                      bool playing);
+    void navigateTo_(const std::string& relPath);
 
-    void rescan_();
-
-    std::filesystem::path cwd_{ "Exported" };
-    std::vector<Entry> entries_;
-    int framesSinceScan_ = 1 << 20; // force a scan on first draw
+    std::string selectedDir_;      // relPath of the folder shown on the right
+    bool revealSelection_ = false; // one-shot: open tree ancestors of selectedDir_
+    float treeWidth_ = 150.f;      // splitter position
 };
