@@ -29,7 +29,11 @@
 struct EntitySnapshot {
     bool hasName = false;       Name name{};
     bool hasTransform = false;  Transform transform{};
-    std::string modelPath;      // empty = no ModelComponent
+    // A ModelComponent can exist EMPTY (added via the Inspector, model not
+    // loaded yet) — presence and path are tracked separately so restores
+    // don't silently drop the component.
+    bool hasModelComponent = false;
+    std::string modelPath;      // empty = component has no model loaded
     bool hasAABB = false;       AABB aabb{ glm::vec3(0.f), glm::vec3(0.f) };
     bool hasOverrides = false;  MaterialOverrides overrides{}; // deep copies
     bool noShadow = false;

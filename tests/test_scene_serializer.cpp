@@ -79,6 +79,42 @@ TEST(SceneSerializer, RoundTripEntitiesAndSettings) {
     std::remove(path);
 }
 
+// A ModelComponent with no model loaded (added via the Inspector, model
+// picked later) is a legitimate authoring state: it must survive a
+// save/load round trip as a present-but-empty component, exactly like it
+// survives undo/redo and play-stop restores.
+TEST(SceneSerializer, EmptyModelComponentRoundTrip) {
+    const char* path = "test_scene_empty_model.json";
+
+    Scene a;
+    Entity e1 = a.createEntity();
+    e1.addComponent<Name>(Name{ "Pending" });
+    e1.addComponent<Transform>(Transform{});
+    e1.addComponent<ModelComponent>(ModelComponent{}); // no model yet
+
+    AssetManager assets;
+    SceneSerializer save(a, assets);
+    ASSERT_TRUE(save.Save(path));
+
+    Scene b;
+    SceneSerializer load(b, assets);
+    ASSERT_TRUE(load.Load(path));
+
+    bool found = false;
+    auto view = b.registry.view<Name>();
+    for (auto e : view) {
+        if (view.get<Name>(e).value != "Pending") continue;
+        found = true;
+        auto* mc = b.registry.try_get<ModelComponent>(e);
+        ASSERT_NE(mc, nullptr) << "empty ModelComponent dropped by save/load";
+        EXPECT_EQ(mc->model, nullptr);
+        EXPECT_FALSE(b.registry.any_of<AABB>(e));
+    }
+    EXPECT_TRUE(found);
+
+    std::remove(path);
+}
+
 TEST(SceneSerializer, RoundTripParentLinks) {
     const char* path = "test_scene_parents.json";
 

@@ -465,13 +465,17 @@ TEST_F(GLFixture, ShadowDepth_DeterministicHashAndSensitivity) {
 // the per-cascade texel floor don't invalidate at all.
 namespace {
     // real Scene + a component-complete but meshless caster: update
-    // decisions run exactly as in production, nothing is actually drawn
+    // decisions run exactly as in production, nothing is actually drawn.
+    // The casts predicate requires a NON-NULL model (empty ModelComponent
+    // renders nothing), so use a missing-file Model: the Assimp import fails
+    // before any GL call, leaving a non-null model with zero meshes.
     static entt::entity addCaster(Scene& scene, glm::vec3 pos, float halfSize) {
+        static auto stubModel = std::make_shared<Model>("__caster_stub__.obj");
         Entity e = scene.createEntity();
         Transform t{};
         t.position = pos;
         e.addComponent<Transform>(t);
-        e.addComponent<ModelComponent>(ModelComponent{}); // null model
+        e.addComponent<ModelComponent>(ModelComponent{ stubModel });
         e.addComponent<AABB>(AABB{ glm::vec3(-halfSize), glm::vec3(halfSize) });
         return e;
     }

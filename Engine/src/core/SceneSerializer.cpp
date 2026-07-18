@@ -82,9 +82,11 @@ namespace MyCoreEngine {
                 };
             }
             if (auto* mc = reg.try_get<ModelComponent>(e)) {
-                if (mc->model && !mc->model->SourcePath().empty()) {
-                    je["model"] = mc->model->SourcePath();
-                }
+                // empty string = component present but no model loaded (a
+                // legitimate authoring state — must survive save/load like
+                // it survives undo/play-stop restores)
+                je["model"] = (mc->model && !mc->model->SourcePath().empty())
+                    ? mc->model->SourcePath() : std::string();
             }
             if (reg.any_of<NoShadow>(e)) {
                 je["noShadow"] = true;
@@ -210,13 +212,20 @@ namespace MyCoreEngine {
 
             std::shared_ptr<Model> model;
             if (je.contains("model")) {
-                model = assets_.GetModel(je["model"].get<std::string>());
-                if (model) {
-                    entity.addComponent<ModelComponent>(ModelComponent{ model });
-                    // AABB is derived data: regenerate rather than trust the file.
-                    // Skip empty models (failed loads) — their bounds would be garbage.
-                    if (!model->Meshes().empty()) {
-                        entity.addComponent<AABB>(generateAABB(*model));
+                const std::string modelPath = je["model"].get<std::string>();
+                if (modelPath.empty()) {
+                    // component present, no model loaded yet
+                    entity.addComponent<ModelComponent>(ModelComponent{});
+                }
+                else {
+                    model = assets_.GetModel(modelPath);
+                    if (model) {
+                        entity.addComponent<ModelComponent>(ModelComponent{ model });
+                        // AABB is derived data: regenerate rather than trust the file.
+                        // Skip empty models (failed loads) — their bounds would be garbage.
+                        if (!model->Meshes().empty()) {
+                            entity.addComponent<AABB>(generateAABB(*model));
+                        }
                     }
                 }
             }

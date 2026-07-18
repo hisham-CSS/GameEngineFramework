@@ -15,6 +15,7 @@ namespace {
         if (a.hasTransform && (a.transform.position != b.transform.position ||
                                a.transform.rotation != b.transform.rotation ||
                                a.transform.scale != b.transform.scale)) return false;
+        if (a.hasModelComponent != b.hasModelComponent) return false;
         if (a.modelPath != b.modelPath) return false;
         if (a.noShadow != b.noShadow) return false;
         if (a.hasCamera != b.hasCamera) return false;
@@ -50,8 +51,10 @@ EntitySnapshot UndoHistory::capture(entt::registry& reg, entt::entity e) {
     if (!reg.valid(e)) return s;
     if (auto* n = reg.try_get<Name>(e))      { s.hasName = true; s.name = *n; }
     if (auto* t = reg.try_get<Transform>(e)) { s.hasTransform = true; s.transform = *t; }
-    if (auto* mc = reg.try_get<ModelComponent>(e); mc && mc->model)
-        s.modelPath = mc->model->SourcePath();
+    if (auto* mc = reg.try_get<ModelComponent>(e)) {
+        s.hasModelComponent = true;
+        if (mc->model) s.modelPath = mc->model->SourcePath();
+    }
     if (auto* bv = reg.try_get<AABB>(e))     { s.hasAABB = true; s.aabb = *bv; }
     if (auto* mo = reg.try_get<MaterialOverrides>(e)) {
         // deep copy: history must not alias the live, still-editable materials
@@ -91,14 +94,20 @@ void UndoHistory::apply(entt::registry& reg, MyCoreEngine::AssetManager* assets,
     }
     else reg.remove<Transform>(e);
 
-    bool hasModel = false;
-    if (!s.modelPath.empty() && assets) {
-        if (auto model = assets->GetModel(s.modelPath); model && !model->Meshes().empty()) {
-            reg.emplace_or_replace<ModelComponent>(e, ModelComponent{ model });
-            hasModel = true;
+    if (s.hasModelComponent) {
+        ModelComponent mc{};
+        if (!s.modelPath.empty() && assets) {
+            if (auto model = assets->GetModel(s.modelPath); model && !model->Meshes().empty()) {
+                mc.model = model;
+            }
         }
+        // empty component restores as empty (present-but-unloaded is a
+        // legitimate authoring state)
+        reg.emplace_or_replace<ModelComponent>(e, std::move(mc));
     }
-    if (!hasModel) reg.remove<ModelComponent>(e);
+    else {
+        reg.remove<ModelComponent>(e);
+    }
 
     if (s.hasAABB) reg.emplace_or_replace<AABB>(e, s.aabb);
     else reg.remove<AABB>(e);

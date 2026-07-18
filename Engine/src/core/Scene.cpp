@@ -238,9 +238,12 @@ void Scene::UpdateTransforms()
             // refresh cascades whose region their shadow can touch. BOTH the
             // departure and arrival positions matter: recording only the new
             // sphere leaves a baked "ghost" shadow behind teleports and fast
-            // per-frame moves.
+            // per-frame moves. The model must actually be LOADED — an empty
+            // ModelComponent renders and casts nothing (every render path
+            // null-checks it; this predicate must too).
+            const auto* mcPtr = registry.try_get<ModelComponent>(it.e);
             const bool casts = !registry.any_of<NoShadow>(it.e) &&
-                registry.all_of<ModelComponent, AABB>(it.e);
+                mcPtr && mcPtr->model && registry.all_of<AABB>(it.e);
             if (casts) {
                 dirtyCasters_.push_back(worldSphere(t.modelMatrix, registry.get<AABB>(it.e)));
             }

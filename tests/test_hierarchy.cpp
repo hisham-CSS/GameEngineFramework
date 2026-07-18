@@ -216,8 +216,11 @@ TEST(Hierarchy, MovedParentInvalidatesChildCasterShadows) {
     auto parent = makeNode(scene, { 0.f, 0.f, -50.f }, "P");
     auto child = makeNode(scene, { 0.f, 1.f, 0.f }, "C");
     scene.registry.emplace<Parent>(child, Parent{ parent });
-    // component-complete caster (null model is fine — flags only)
-    scene.registry.emplace<ModelComponent>(child, ModelComponent{});
+    // component-complete caster: the casts predicate requires a LOADED model
+    // (empty ModelComponent renders nothing). A missing-file Model fails the
+    // Assimp import before any GL call — non-null and headless-safe.
+    scene.registry.emplace<ModelComponent>(child,
+        ModelComponent{ std::make_shared<Model>("__caster_stub__.obj") });
     scene.registry.emplace<AABB>(child, AABB{ glm::vec3(-1.f), glm::vec3(1.f) });
     scene.UpdateTransforms();
 
