@@ -5,6 +5,7 @@
 #include "Engine.h"
 
 #include <cstdio>
+#include <filesystem>
 
 // Component-based Inspector: an entity shows ONLY the components attached
 // to it — each in its own collapsible section with a native close (✕) to
@@ -347,3 +348,85 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
     ImGui::End();
     return shadowsDirty;
 };
+
+void InspectorPanel::DrawAsset(const void* indexNode) {
+    using MyCoreEngine::AssetIndex;
+    const auto& node = *static_cast<const AssetIndex::Node*>(indexNode);
+
+    if (node.relPath != assetPath_) {
+        // highlighted asset changed: refresh the cached file info + settings
+        assetPath_ = node.relPath;
+        assetStatus_.clear();
+        std::error_code ec;
+        const auto sz = std::filesystem::file_size(node.relPath, ec);
+        assetSize_ = ec ? 0 : sz;
+        importMaxDim_ = MyCoreEngine::LoadImportSettings(node.relPath).maxDimension;
+    }
+
+    if (ImGui::Begin("Inspector")) {
+        ImGui::TextWrapped("%s", node.name.c_str());
+        const char* kindLabel = "Asset";
+        switch (node.kind) {
+        case AssetIndex::Kind::Model:     kindLabel = "Model"; break;
+        case AssetIndex::Kind::Texture:   kindLabel = "Texture"; break;
+        case AssetIndex::Kind::SceneJson: kindLabel = "Scene"; break;
+        case AssetIndex::Kind::Shader:    kindLabel = "Shader"; break;
+        default: break;
+        }
+        if (assetSize_ >= 1024 * 1024) {
+            ImGui::TextDisabled("%s - %.1f MB", kindLabel, (double)assetSize_ / (1024.0 * 1024.0));
+        }
+        else {
+            ImGui::TextDisabled("%s - %.1f KB", kindLabel, (double)assetSize_ / 1024.0);
+        }
+        ImGui::TextDisabled("%s", node.relPath.c_str());
+        if (ImGui::SmallButton("Copy Path")) ImGui::SetClipboardText(node.relPath.c_str());
+        ImGui::Separator();
+
+        if (node.kind == AssetIndex::Kind::Texture) {
+            if (ImGui::CollapsingHeader("Import Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
+                // the sidecar seam (P4-3 phase 4): one real setting today,
+                // enforced by AssetCooker validate; the P4-2 texture cook
+                // will apply it. More settings land with the import
+                // pipeline (see ImportSettings.h).
+                static const int kDims[] = { 0, 512, 1024, 2048, 4096 };
+                static const char* kLabels[] = { "Unlimited", "512", "1024", "2048", "4096" };
+                int current = -1;
+                for (int i = 0; i < 5; ++i) {
+                    if (kDims[i] == importMaxDim_) { current = i; break; }
+                }
+                // a hand-edited sidecar can hold any value: show it honestly
+                // instead of masquerading as "Unlimited"
+                char preview[32];
+                if (current >= 0) std::snprintf(preview, sizeof(preview), "%s", kLabels[current]);
+                else std::snprintf(preview, sizeof(preview), "%d (custom)", importMaxDim_);
+                if (ImGui::BeginCombo("Max Dimension", preview)) {
+                    for (int i = 0; i < 5; ++i) {
+                        if (ImGui::Selectable(kLabels[i], i == current)) {
+                            MyCoreEngine::ImportSettings s;
+                            s.maxDimension = kDims[i];
+                            if (MyCoreEngine::SaveImportSettings(node.relPath, s)) {
+                                importMaxDim_ = kDims[i];
+                                assetStatus_ = "saved";
+                            }
+                            else {
+                                // revert the UI to what's actually on disk
+                                importMaxDim_ =
+                                    MyCoreEngine::LoadImportSettings(node.relPath).maxDimension;
+                                assetStatus_ = "save FAILED (file not writable?)";
+                            }
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+                ImGui::TextDisabled("Enforced by AssetCooker validate;");
+                ImGui::TextDisabled("the texture cook (P4-2) will apply it.");
+                if (!assetStatus_.empty()) ImGui::TextDisabled("%s", assetStatus_.c_str());
+            }
+        }
+        else {
+            ImGui::TextDisabled("No import settings for this asset type yet.");
+        }
+    }
+    ImGui::End();
+}

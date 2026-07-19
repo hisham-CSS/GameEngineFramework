@@ -12,7 +12,13 @@
 
 #include <cstdio>
 #include <GLFW/glfw3.h>
-#define MLOG(...) std::printf("[Model] " __VA_ARGS__), std::printf("\n")
+// Diagnostics go to STDERR (stdout belongs to tools like AssetCooker whose
+// stdout is a machine-readable protocol) as ONE fprintf per line — decode
+// logs come from parallel workers, and the old separate trailing-newline
+// call let two workers' lines splice together mid-line.
+#define MLOG(...) do { char mlogBuf_[512]; \
+    std::snprintf(mlogBuf_, sizeof(mlogBuf_), __VA_ARGS__); \
+    std::fprintf(stderr, "[Model] %s\n", mlogBuf_); } while (0)
 
 
 static std::string normPath(std::string p) {

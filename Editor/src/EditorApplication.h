@@ -6,11 +6,14 @@
 #include "panels/InspectorPanel.h"
 #include "panels/AssetBrowserPanel.h"
 
+#include <atomic>
+#include <thread>
+
 class EditorApplication : public MyCoreEngine::Application
 {
 public:
     EditorApplication() : Application(1280, 720, "Cat Splat Engine") {}
-    ~EditorApplication() {}
+    ~EditorApplication() { cancelValidate_(); } // kill a hung cooker child
 
     void Initialize();
 
@@ -85,6 +88,9 @@ private:
     void assignModelToEntity_(MyCoreEngine::Scene& scene, const std::string& path,
                               entt::entity target);
     void pollPendingModelOps_(MyCoreEngine::Scene& scene);
+    // spawn `AssetCooker validate` as a child process on a worker thread
+    // (crash isolation: hostile assets take down the cooker, not us)
+    void startValidate_();
     void finishSpawn_(MyCoreEngine::Scene& scene,
                       const std::shared_ptr<MyCoreEngine::Model>& model,
                       const glm::vec3& pos);
@@ -116,6 +122,30 @@ private:
         bool requestedDuringPlay = false;
     };
     std::vector<PendingModelOp> pendingModelOps_;
+
+    // Which view the Inspector shows: an asset click hands it to the
+    // asset view; a NEWLY selected entity (hierarchy, viewport pick,
+    // spawn) reclaims it. The entity selection itself is never cleared by
+    // asset clicks — "assign to selected" flows depend on it surviving.
+    bool inspectorShowsAsset_ = false;
+
+    // AssetCooker validation run: child process via CreateProcess (we hold
+    // the process handle so shutdown can kill a hung cooker) with its
+    // stdout piped; a dedicated reader thread drains the pipe (NOT a pool
+    // worker — a blocked pipe read must never stall asset decodes or the
+    // RunLoop exit drain). stderr stays on the editor console.
+    struct ValidateRun {
+        std::thread reader;
+        void* process = nullptr;      // HANDLE
+        std::atomic<bool> done{ false };
+        std::string output;           // reader-owned until done
+        unsigned long exitCode = 0;
+    };
+    std::unique_ptr<ValidateRun> validateRun_;
+    void cancelValidate_();           // kill + join (shutdown path)
+    bool validateRunning_ = false;
+    bool validateOpen_ = false;       // report window visibility
+    std::string validateReport_;
 
     // startup-scene display cache + status line (Scene panel); set from
     // either the panel button or the asset browser context menu

@@ -126,6 +126,15 @@ namespace MyCoreEngine {
                         dirs.push_back(std::move(n));
                     }
                     else {
+                        // .import sidecars are per-asset metadata (edited
+                        // via the Inspector), not browsable content
+                        constexpr const char* kSidecar = ".import";
+                        constexpr size_t kSidecarLen = 7;
+                        if (n.name.size() > kSidecarLen &&
+                            n.name.compare(n.name.size() - kSidecarLen, kSidecarLen,
+                                           kSidecar) == 0) {
+                            continue;
+                        }
                         n.kind = classify(de.path(), n.name);
                         files.push_back(std::move(n));
                     }

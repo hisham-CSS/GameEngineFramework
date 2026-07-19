@@ -179,6 +179,16 @@ TEST_F(AssetIndexTest, MissingRootYieldsEmptyTreeNotAnError) {
     EXPECT_EQ(idx.root().kind, AssetIndex::Kind::Directory);
 }
 
+TEST_F(AssetIndexTest, ImportSidecarsAreHiddenFromTheTree) {
+    touch(fs::path(kRoot) / "tex.png.import"); // per-asset metadata
+    AssetIndex idx(kRoot);
+    idx.tick(10.f);
+    EXPECT_EQ(idx.find(std::string(kRoot) + "/tex.png.import"), nullptr)
+        << ".import sidecars are metadata, not browsable assets";
+    EXPECT_NE(idx.find(std::string(kRoot) + "/tex.png"), nullptr)
+        << "the asset itself must still be listed";
+}
+
 TEST_F(AssetIndexTest, HostileFilenamesNeverCrashTheScan) {
     // a name outside the active code page makes path::string() THROW on
     // MSVC (no '?' substitution) — the recurring editor-boot crash class.

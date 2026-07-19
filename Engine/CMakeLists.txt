@@ -42,6 +42,10 @@ add_library(Engine SHARED
     src/core/RenderTarget.cpp
     src/assets/AssetIndex.h
     src/assets/AssetIndex.cpp
+    src/assets/AssetValidator.h
+    src/assets/AssetValidator.cpp
+    src/assets/ImportSettings.h
+    src/assets/ImportSettings.cpp
     src/render/IRenderPass.h 
     src/render/passes/ForwardOpaquePass.h 
     src/render/passes/ShadowCSMPass.h 

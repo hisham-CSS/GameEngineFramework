@@ -19,6 +19,10 @@
 #include <filesystem>
 #include <vector>
 
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h> // CreateProcess/pipes: the AssetCooker child process
+
 //for the future for any initalization things that are required
 void EditorApplication::Initialize()
 {
@@ -89,6 +93,10 @@ void EditorApplication::Run() {
         // one dockspace over the whole window: every panel becomes dockable
         ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
 
+        // Inspector arbitration baseline: captured BEFORE any panel runs so
+        // viewport picks/drops count as "newly selected this frame" too
+        const entt::entity selAtFrameStart = selected_;
+
         DrawViewport(scene);
 
         //Information Panel (reads the SCENE view's render stats — draw it
@@ -116,22 +124,24 @@ void EditorApplication::Run() {
         }
         ImGui::End();
 
-		//scene hierarchy
-        hierarchy_.Draw(scene.registry, selected_, undo_);
-
-		//inspector
-        if (inspector_.Draw(scene.registry, selected_, undo_, assets_.get())) {
-            // caster set changed without a transform dirtying (model swap /
-            // remove / shadow toggle): stale shadows stay baked otherwise
-            forceAllCSMUpdate_();
-        }
-
-        // commit any edit whose widget stopped being submitted this frame
-        // (deselect while a text field was focused, tab switch, collapse)
-        undo_.tickFrame(scene.registry);
-
-        //asset browser (P2-5) + async model ops (P4-3 phase 3)
+        //asset browser (P2-5) + async model ops (P4-3 phase 3).
+        // Drawn BEFORE hierarchy/inspector so an asset click can hand the
+        // Inspector over this same frame; an entity click later in the
+        // frame wins back (Unity-style: last selection wins).
         {
+            // finished AssetCooker run: collect the report, free the child
+            if (validateRun_ && validateRun_->done) {
+                validateRun_->reader.join();
+                const unsigned long rc = validateRun_->exitCode;
+                validateReport_ = std::move(validateRun_->output);
+                validateReport_ += "\n(exit code " + std::to_string(rc) +
+                    (rc == 0 ? " - clean)" : rc == 1 ? " - errors found)" : ")");
+                CloseHandle((HANDLE)validateRun_->process);
+                validateRun_.reset();
+                validateRunning_ = false;
+                validateOpen_ = true; // reopen even if closed mid-run
+            }
+
             assetIndex_.tick(dt, &jobs()); // throttled; the walk runs on a worker
             // gated off during play: an edit-mode drop landing mid-play
             // would spawn into the play scene, record no undo (recording
@@ -140,7 +150,7 @@ void EditorApplication::Run() {
             if (!playing_) pollPendingModelOps_(scene);
             const AssetBrowserActions aba = assetBrowser_.Draw(
                 scene.registry, selected_, assetIndex_, playing_,
-                (int)pendingModelOps_.size());
+                (int)pendingModelOps_.size(), validateRunning_);
             if (!aba.loadScene.empty() && !playing_) {
                 loadSceneFromFile_(scene, aba.loadScene);
             }
@@ -154,7 +164,60 @@ void EditorApplication::Run() {
             if (!aba.assignModel.empty()) {
                 assignModelToEntity_(scene, aba.assignModel, selected_);
             }
+            if (aba.validateRequested && !validateRunning_) startValidate_();
+            // hand the INSPECTOR to the asset view; the entity selection
+            // itself survives — "Assign to Selected Entity" depends on it
+            if (aba.assetClicked) inspectorShowsAsset_ = true;
         }
+
+        // validation report window (AssetCooker child-process output)
+        if (validateOpen_) {
+            ImGui::SetNextWindowSize(ImVec2(560, 320), ImGuiCond_FirstUseEver);
+            if (ImGui::Begin("Asset Validation", &validateOpen_)) {
+                if (validateRunning_) {
+                    ImGui::TextDisabled("running AssetCooker validate...");
+                }
+                else {
+                    ImGui::BeginChild("##valout", ImVec2(0, 0), 0,
+                                      ImGuiWindowFlags_HorizontalScrollbar);
+                    ImGui::TextUnformatted(validateReport_.c_str());
+                    ImGui::EndChild();
+                }
+            }
+            ImGui::End();
+        }
+
+		//scene hierarchy
+        hierarchy_.Draw(scene.registry, selected_, undo_);
+
+		//inspector: an entity newly selected this frame (hierarchy click,
+		// viewport pick, spawn landing) reclaims it from the asset view;
+		// a highlighted asset that vanished from disk drops back too
+        if (selected_ != entt::null && selected_ != selAtFrameStart) {
+            inspectorShowsAsset_ = false;
+        }
+        const MyCoreEngine::AssetIndex::Node* assetNode = nullptr;
+        if (inspectorShowsAsset_) {
+            if (!assetBrowser_.selectedAsset().empty()) {
+                assetNode = assetIndex_.find(assetBrowser_.selectedAsset());
+            }
+            if (!assetNode) {
+                assetBrowser_.clearAssetSelection();
+                inspectorShowsAsset_ = false;
+            }
+        }
+        if (assetNode) {
+            inspector_.DrawAsset(assetNode);
+        }
+        else if (inspector_.Draw(scene.registry, selected_, undo_, assets_.get())) {
+            // caster set changed without a transform dirtying (model swap /
+            // remove / shadow toggle): stale shadows stay baked otherwise
+            forceAllCSMUpdate_();
+        }
+
+        // commit any edit whose widget stopped being submitted this frame
+        // (deselect while a text field was focused, tab switch, collapse)
+        undo_.tickFrame(scene.registry);
 
         //undo/redo history (P2-7)
         DrawEditHistory(scene);
@@ -1115,6 +1178,80 @@ void EditorApplication::finishAssign_(MyCoreEngine::Scene& scene,
     });
     // swapped caster without a transform dirty: rebuild both renderers' CSM
     forceAllCSMUpdate_();
+}
+
+void EditorApplication::startValidate_()
+{
+    if (validateRun_) return; // one run at a time (button is disabled anyway)
+    validateRunning_ = true;
+    validateOpen_ = true;
+    validateReport_.clear();
+
+    // CreateProcess (not _popen): we keep the process HANDLE so shutdown
+    // can TerminateProcess a hung cooker — crash isolation AND hang
+    // isolation. Only stdout is piped (the WARN/ERR/DONE protocol);
+    // stderr (engine [Model] logs) stays on the editor console.
+    SECURITY_ATTRIBUTES sa{ sizeof(sa), nullptr, TRUE };
+    HANDLE readEnd = nullptr, writeEnd = nullptr;
+    if (!CreatePipe(&readEnd, &writeEnd, &sa, 0)) {
+        validateReport_ = "failed to create pipe for AssetCooker";
+        validateRunning_ = false;
+        return;
+    }
+    SetHandleInformation(readEnd, HANDLE_FLAG_INHERIT, 0);
+
+    STARTUPINFOA si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdOutput = writeEnd;
+    si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+    si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    PROCESS_INFORMATION pi{};
+    // explicit .\ path: resolved against the CWD (the exe dir), immune to
+    // PATH search rules like NoDefaultCurrentDirectoryInExePath
+    char cmd[] = ".\\AssetCooker.exe validate Exported";
+    const BOOL ok = CreateProcessA(nullptr, cmd, nullptr, nullptr, TRUE,
+                                   CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+    CloseHandle(writeEnd); // ours closes now so EOF arrives when the child exits
+    if (!ok) {
+        CloseHandle(readEnd);
+        validateReport_ = "failed to launch AssetCooker.exe (is it built?)";
+        validateRunning_ = false;
+        return;
+    }
+    CloseHandle(pi.hThread);
+
+    auto run = std::make_unique<ValidateRun>();
+    run->process = pi.hProcess;
+    ValidateRun* raw = run.get();
+    run->reader = std::thread([raw, readEnd] {
+        char buf[512];
+        DWORD got = 0;
+        while (ReadFile(readEnd, buf, sizeof(buf), &got, nullptr) && got > 0) {
+            raw->output.append(buf, got);
+        }
+        CloseHandle(readEnd);
+        WaitForSingleObject((HANDLE)raw->process, INFINITE);
+        DWORD code = 0;
+        GetExitCodeProcess((HANDLE)raw->process, &code);
+        raw->exitCode = code;
+        raw->done = true;
+    });
+    validateRun_ = std::move(run);
+}
+
+void EditorApplication::cancelValidate_()
+{
+    if (!validateRun_) return;
+    // a hung child would block the reader forever: kill it, which EOFs the
+    // pipe and lets the reader thread finish
+    if (!validateRun_->done) {
+        TerminateProcess((HANDLE)validateRun_->process, 1);
+    }
+    if (validateRun_->reader.joinable()) validateRun_->reader.join();
+    CloseHandle((HANDLE)validateRun_->process);
+    validateRun_.reset();
+    validateRunning_ = false;
 }
 
 void EditorApplication::startPlay_(MyCoreEngine::Scene& scene)

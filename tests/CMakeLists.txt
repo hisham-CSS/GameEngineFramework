@@ -55,6 +55,27 @@ engine_test(test_asset_index)      # asset filesystem domain: scan/cache/find (p
 engine_test(test_job_system)       # P4-3 thread pool + main-thread completion pump (pure CPU)
 engine_test(test_model_decode)     # P4-3 model decode stage (pure CPU — no GL by design)
 engine_test(test_asset_manager_async) # P4-3 async RequestModel: states/dedupe/cap (pure CPU)
+engine_test(test_import_settings)  # P4-3 phase 4: .import sidecar round-trip (pure CPU)
+engine_test(test_asset_validator)  # P4-3 phase 4: cooker validate logic (pure CPU)
+
+# AssetCooker CLI smoke: no args must print the usage text (matching on
+# output, not exit code — a crash also exits nonzero and would fool
+# WILL_FAIL, but it never prints "usage:")
+add_test(NAME cooker_usage COMMAND AssetCooker)
+set_tests_properties(cooker_usage PROPERTIES PASS_REGULAR_EXPRESSION "usage:")
+
+# End-to-end validate over the staged test asset tree: the success path —
+# warnings allowed, errors none, DONE protocol line intact
+add_test(NAME cooker_validate COMMAND AssetCooker validate Exported
+         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+set_tests_properties(cooker_validate PROPERTIES
+    PASS_REGULAR_EXPRESSION "DONE models=[0-9]+ textures=[0-9]+ warnings=[0-9]+ errors=0")
+
+# ...and the fail-closed contract: a missing root must NOT validate clean
+add_test(NAME cooker_missing_root COMMAND AssetCooker validate no_such_root_xyz
+         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+set_tests_properties(cooker_missing_root PROPERTIES
+    PASS_REGULAR_EXPRESSION "asset root not found")
 
 # UndoHistory lives in the Editor (it snapshots editor-managed components)
 # but is ImGui-free, so it can be compiled straight into a headless test.

@@ -40,11 +40,15 @@ add_dependencies(PlayerDebug runtime_assets)
 add_dependencies(PlayerShipping runtime_assets)
 
 # --- Packaging: the standalone game bundle ships the shipping player ---
+# .import sidecars are editor-only metadata (like Unity .meta): the player
+# never reads them, so they stay out of the shipped bundle.
 install(TARGETS PlayerShipping RUNTIME DESTINATION .)
-install(DIRECTORY ${CMAKE_SOURCE_DIR}/Editor/src/Exported/ DESTINATION Exported)
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/Editor/src/Exported/ DESTINATION Exported
+        PATTERN "*.import" EXCLUDE)
 # Editor-authored content (saved scenes, project.json with the startup scene)
 # lands in the RUNTIME Exported/ next to the exes, not in the source tree —
 # layer it on top so the shipped bundle actually contains what the editor
 # configured. OPTIONAL: absent for never-run or non-Release builds.
 install(DIRECTORY ${CMAKE_BINARY_DIR}/build/bin/Release/Exported/
-        DESTINATION Exported OPTIONAL)
+        DESTINATION Exported OPTIONAL
+        PATTERN "*.import" EXCLUDE)

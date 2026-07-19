@@ -117,10 +117,20 @@ AssetBrowserActions AssetBrowserPanel::drawContents_(const void* nodePtr,
 
         char row[320];
         std::snprintf(row, sizeof(row), "%s %s", kindTag(e.kind), e.name.c_str());
-        ImGui::Selectable(row, false, ImGuiSelectableFlags_AllowDoubleClick);
+        ImGui::Selectable(row, e.relPath == selectedAsset_,
+                          ImGuiSelectableFlags_AllowDoubleClick);
 
         const bool doubleClicked =
             ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
+
+        // single-click on a FILE highlights it for the Inspector asset view;
+        // suppressed when this click completed a double-click — the double's
+        // action (spawn/drill/load) owns the frame
+        if (!doubleClicked && e.kind != AssetIndex::Kind::Directory &&
+            ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
+            selectedAsset_ = e.relPath;
+            actions.assetClicked = true;
+        }
 
         // models drag into the viewport to spawn where they land
         if (e.kind == AssetIndex::Kind::Model && ImGui::BeginDragDropSource()) {
@@ -175,7 +185,7 @@ AssetBrowserActions AssetBrowserPanel::drawContents_(const void* nodePtr,
 
 AssetBrowserActions AssetBrowserPanel::Draw(entt::registry& reg, entt::entity selected,
                                             AssetIndex& index, bool playing,
-                                            int loadingCount) {
+                                            int loadingCount, bool validating) {
     AssetBrowserActions actions;
 
     if (selectedDir_.empty()) selectedDir_ = index.root().relPath;
@@ -200,6 +210,10 @@ AssetBrowserActions AssetBrowserPanel::Draw(entt::registry& reg, entt::entity se
         // toolbar: refresh (a request to the engine index — the panel owns
         // no disk state) + clickable breadcrumbs
         if (ImGui::SmallButton("Refresh")) index.forceRescan();
+        ImGui::SameLine(0.f, 4.f);
+        if (validating) ImGui::BeginDisabled();
+        if (ImGui::SmallButton("Validate")) actions.validateRequested = true;
+        if (validating) ImGui::EndDisabled();
         ImGui::SameLine(0.f, 8.f);
         drawBreadcrumbs_();
         if (loadingCount > 0) {

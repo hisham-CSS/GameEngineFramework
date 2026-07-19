@@ -12,10 +12,17 @@ project(GameEngineFramework)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED true)
 
-# Add subdirectories for Engine, Editor, and the standalone Player
+# Add subdirectories for Engine, Editor, the standalone Player, and the
+# headless AssetCooker (batch asset work, spawned by the editor)
 add_subdirectory(Engine)
 add_subdirectory(Editor)
 add_subdirectory(Player)
+add_subdirectory(Cooker)
+
+# The editor invokes AssetCooker.exe at runtime (Validate button): building
+# the Editor must produce/refresh the cooker too, or a dev-loop build ships
+# a missing/stale cooker next to a new editor.
+add_dependencies(Editor AssetCooker)
 
 option(ENABLE_TESTS "Build unit tests" ON)
 
