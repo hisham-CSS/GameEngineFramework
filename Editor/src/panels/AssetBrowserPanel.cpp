@@ -1,5 +1,4 @@
 #include "AssetBrowserPanel.h"
-#include "../UndoHistory.h"
 #include "imgui.h"
 #include "Engine.h"
 
@@ -108,8 +107,6 @@ void AssetBrowserPanel::drawFolderTree_(const void* nodePtr, bool isRoot) {
 AssetBrowserActions AssetBrowserPanel::drawContents_(const void* nodePtr,
                                                      entt::registry& reg,
                                                      entt::entity selected,
-                                                     UndoHistory& undo,
-                                                     MyCoreEngine::AssetManager* assets,
                                                      bool playing) {
     AssetBrowserActions actions;
     const auto& dir = *static_cast<const AssetIndex::Node*>(nodePtr);
@@ -142,17 +139,9 @@ AssetBrowserActions AssetBrowserPanel::drawContents_(const void* nodePtr,
             if (doubleClicked) actions.spawnModel = e.relPath;
             if (ImGui::BeginPopupContextItem()) {
                 if (ImGui::MenuItem("Spawn in Scene")) actions.spawnModel = e.relPath;
-                const bool canAssign = assets && reg.valid(selected);
+                const bool canAssign = reg.valid(selected);
                 if (ImGui::MenuItem("Assign to Selected Entity", nullptr, false, canAssign)) {
-                    if (auto model = assets->GetModel(e.relPath);
-                        model && !model->Meshes().empty()) {
-                        undo.record(reg, selected, "Assign model", [&] {
-                            reg.emplace_or_replace<ModelComponent>(selected, ModelComponent{ model });
-                            reg.emplace_or_replace<AABB>(selected, generateAABB(*model));
-                            if (!reg.any_of<Transform>(selected)) reg.emplace<Transform>(selected);
-                        });
-                        actions.shadowsDirty = true; // swapped caster, clean transform
-                    }
+                    actions.assignModel = e.relPath; // editor resolves it async
                 }
                 if (ImGui::MenuItem("Copy Path")) ImGui::SetClipboardText(e.relPath.c_str());
                 ImGui::EndPopup();
@@ -185,9 +174,8 @@ AssetBrowserActions AssetBrowserPanel::drawContents_(const void* nodePtr,
 }
 
 AssetBrowserActions AssetBrowserPanel::Draw(entt::registry& reg, entt::entity selected,
-                                            UndoHistory& undo,
-                                            MyCoreEngine::AssetManager* assets,
-                                            AssetIndex& index, bool playing) {
+                                            AssetIndex& index, bool playing,
+                                            int loadingCount) {
     AssetBrowserActions actions;
 
     if (selectedDir_.empty()) selectedDir_ = index.root().relPath;
@@ -214,6 +202,11 @@ AssetBrowserActions AssetBrowserPanel::Draw(entt::registry& reg, entt::entity se
         if (ImGui::SmallButton("Refresh")) index.forceRescan();
         ImGui::SameLine(0.f, 8.f);
         drawBreadcrumbs_();
+        if (loadingCount > 0) {
+            ImGui::SameLine(0.f, 12.f);
+            ImGui::TextDisabled("loading %d model%s...", loadingCount,
+                                loadingCount == 1 ? "" : "s");
+        }
         ImGui::Separator();
 
         // left: folder tree | splitter | right: selected folder's contents
@@ -248,7 +241,7 @@ AssetBrowserActions AssetBrowserPanel::Draw(entt::registry& reg, entt::entity se
         ImGui::SameLine(0.f, 0.f);
 
         ImGui::BeginChild("##contents", ImVec2(0, height));
-        actions = drawContents_(dir, reg, selected, undo, assets, playing);
+        actions = drawContents_(dir, reg, selected, playing);
         ImGui::EndChild();
     }
     ImGui::End();

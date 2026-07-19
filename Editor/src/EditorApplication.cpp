@@ -12,6 +12,7 @@
 #include "ImGuizmo.h"
 
 #include <glm/gtc/type_ptr.hpp>
+#include <algorithm>
 #include <cctype>
 #include <cfloat>
 #include <cstdio>
@@ -129,11 +130,17 @@ void EditorApplication::Run() {
         // (deselect while a text field was focused, tab switch, collapse)
         undo_.tickFrame(scene.registry);
 
-        //asset browser (P2-5)
+        //asset browser (P2-5) + async model ops (P4-3 phase 3)
         {
-            assetIndex_.tick(dt); // throttled: rewalks the tree every ~2s
+            assetIndex_.tick(dt, &jobs()); // throttled; the walk runs on a worker
+            // gated off during play: an edit-mode drop landing mid-play
+            // would spawn into the play scene, record no undo (recording
+            // disabled), and be silently destroyed by Stop's restore —
+            // deferring applies it to the restored edit scene instead
+            if (!playing_) pollPendingModelOps_(scene);
             const AssetBrowserActions aba = assetBrowser_.Draw(
-                scene.registry, selected_, undo_, assets_.get(), assetIndex_, playing_);
+                scene.registry, selected_, assetIndex_, playing_,
+                (int)pendingModelOps_.size());
             if (!aba.loadScene.empty() && !playing_) {
                 loadSceneFromFile_(scene, aba.loadScene);
             }
@@ -144,7 +151,9 @@ void EditorApplication::Run() {
                 spawnModelEntity_(scene, aba.spawnModel,
                                   camera().Position + camera().Front * 10.f);
             }
-            if (aba.shadowsDirty) forceAllCSMUpdate_();
+            if (!aba.assignModel.empty()) {
+                assignModelToEntity_(scene, aba.assignModel, selected_);
+            }
         }
 
         //undo/redo history (P2-7)
@@ -725,6 +734,7 @@ void EditorApplication::DrawScenePersistence(MyCoreEngine::Scene& scene)
             selected_ = entt::null; // every entity handle is gone
             undo_.clear();          // ...including all of the history's
             gameDirector_.reset();  // ...and the Game view's camera handles
+            pendingModelOps_.clear(); // in-flight ops were aimed at the old scene
             // wholesale caster removal bypasses the departure-sphere flow:
             // the old scene's shadows would stay baked otherwise
             forceAllCSMUpdate_();
@@ -986,6 +996,7 @@ bool EditorApplication::loadSceneFromFile_(MyCoreEngine::Scene& scene, const std
     // entry would resurrect ghosts into the loaded scene
     undo_.clear();
     gameDirector_.reset(); // Game view camera/override handles are stale too
+    pendingModelOps_.clear(); // in-flight spawns/assigns were aimed at the old scene
     // wholesale scene replacement bypasses the departure-sphere flow: the
     // old scene's shadows would stay baked in cascades the new content
     // doesn't touch (same class of bug as play-mode stop-restore)
@@ -1015,11 +1026,70 @@ void EditorApplication::spawnModelEntity_(MyCoreEngine::Scene& scene,
                                           const glm::vec3& pos)
 {
     if (!assets_) return;
-    auto model = assets_->GetModel(path);
-    if (!model || model->Meshes().empty()) return;
+    auto req = assets_->RequestModel(jobs(), path);
+    if (req->state == MyCoreEngine::AssetManager::LoadState::Live) {
+        finishSpawn_(scene, req->model, pos); // cache hit: same frame as before
+        return;
+    }
+    if (req->state == MyCoreEngine::AssetManager::LoadState::Failed) return;
+    PendingModelOp op;
+    op.req = std::move(req);
+    op.spawnPos = pos;
+    op.requestedDuringPlay = playing_;
+    pendingModelOps_.push_back(std::move(op));
+}
 
+void EditorApplication::assignModelToEntity_(MyCoreEngine::Scene& scene,
+                                             const std::string& path,
+                                             entt::entity target)
+{
+    if (!assets_ || !scene.registry.valid(target)) return;
+    auto req = assets_->RequestModel(jobs(), path);
+    if (req->state == MyCoreEngine::AssetManager::LoadState::Live) {
+        finishAssign_(scene, req->model, target);
+        return;
+    }
+    if (req->state == MyCoreEngine::AssetManager::LoadState::Failed) return;
+    PendingModelOp op;
+    op.req = std::move(req);
+    op.assignTo = target;
+    op.requestedDuringPlay = playing_;
+    pendingModelOps_.push_back(std::move(op));
+}
+
+void EditorApplication::pollPendingModelOps_(MyCoreEngine::Scene& scene)
+{
+    using LoadState = MyCoreEngine::AssetManager::LoadState;
+    for (size_t i = 0; i < pendingModelOps_.size(); ) {
+        PendingModelOp& op = pendingModelOps_[i];
+        if (op.req->state == LoadState::Queued || op.req->state == LoadState::Decoding) {
+            ++i;
+            continue;
+        }
+        // terminal: run it (or drop it) and remove from the list
+        PendingModelOp done = std::move(op);
+        pendingModelOps_.erase(pendingModelOps_.begin() + i);
+        if (done.req->state == LoadState::Failed) {
+            fprintf(stderr, "[Editor] model load failed: %s\n", done.req->path.c_str());
+            continue;
+        }
+        if (done.assignTo == entt::null) {
+            finishSpawn_(scene, done.req->model, done.spawnPos);
+        }
+        else if (scene.registry.valid(done.assignTo)) {
+            // target may have died while decoding: only assign to the living
+            finishAssign_(scene, done.req->model, done.assignTo);
+        }
+    }
+}
+
+void EditorApplication::finishSpawn_(MyCoreEngine::Scene& scene,
+                                     const std::shared_ptr<MyCoreEngine::Model>& model,
+                                     const glm::vec3& pos)
+{
+    if (!model || model->Meshes().empty()) return;
     MyCoreEngine::Entity e = scene.createEntity();
-    const std::string stem = std::filesystem::path(path).stem().string();
+    const std::string stem = std::filesystem::path(model->SourcePath()).stem().string();
     e.addComponent<Name>(Name{ stem.empty() ? std::string("Entity") : stem });
     Transform t{};
     t.position = pos;
@@ -1028,6 +1098,23 @@ void EditorApplication::spawnModelEntity_(MyCoreEngine::Scene& scene,
     e.addComponent<AABB>(generateAABB(*model));
     undo_.recordCreate(scene.registry, e, "Spawn '" + stem + "'");
     selected_ = e;
+    // no CSM force needed: the fresh Transform is dirty, so the normal
+    // dirty-caster arrival flow picks the new caster up next frame
+}
+
+void EditorApplication::finishAssign_(MyCoreEngine::Scene& scene,
+                                      const std::shared_ptr<MyCoreEngine::Model>& model,
+                                      entt::entity target)
+{
+    if (!model || model->Meshes().empty()) return;
+    auto& reg = scene.registry;
+    undo_.record(reg, target, "Assign model", [&] {
+        reg.emplace_or_replace<ModelComponent>(target, ModelComponent{ model });
+        reg.emplace_or_replace<AABB>(target, generateAABB(*model));
+        if (!reg.any_of<Transform>(target)) reg.emplace<Transform>(target);
+    });
+    // swapped caster without a transform dirty: rebuild both renderers' CSM
+    forceAllCSMUpdate_();
 }
 
 void EditorApplication::startPlay_(MyCoreEngine::Scene& scene)
@@ -1053,6 +1140,13 @@ void EditorApplication::stopPlay_(MyCoreEngine::Scene& scene)
     // edit-mode camera — blending from the play session's last pose would
     // look like gameplay continuing after Stop
     gameDirector_.cut();
+    // ops REQUESTED during play die with the session (their entities would
+    // have been discarded by the restore anyway); edit-requested ops that
+    // deferred across play stay and land in the restored edit scene
+    pendingModelOps_.erase(
+        std::remove_if(pendingModelOps_.begin(), pendingModelOps_.end(),
+                       [](const PendingModelOp& op) { return op.requestedDuringPlay; }),
+        pendingModelOps_.end());
     // selection normally survives (same handles); it only drops if a
     // play-created entity was selected at Stop
     if (!scene.registry.valid(selected_)) selected_ = entt::null;

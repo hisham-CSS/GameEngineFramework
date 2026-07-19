@@ -26,11 +26,15 @@ namespace MyCoreEngine {
     //   ImGui are single-threaded by design.
     // - `onComplete` runs on the MAIN thread, inside pumpCompletions(),
     //   with the GL context current — this is where uploads belong.
-    // - Closures OWN their state (shared_ptr, like the example above).
-    //   Never capture references to RunLoop callers' locals, derived-app
-    //   members, or the renderer: Application::RunLoop drains the pool on
-    //   exit, but anything submitted outside the loop's lifetime — or any
-    //   future stop()-style teardown — would dangle such references.
+    // - Closures OWN their transient state (shared_ptr, like the example
+    //   above). Referencing longer-lived objects (the AssetManager that
+    //   submitted, an app-owned index) is safe ONLY because of the drain
+    //   guarantee: RunLoop finishes all jobs and runs all completions
+    //   before returning, while Run() locals and app members are still
+    //   alive — and closures destroyed unexecuted at teardown never
+    //   dereference anything. Work submitted OUTSIDE RunLoop's lifetime,
+    //   or under any future stop()-style teardown, loses that guarantee:
+    //   such closures must be fully self-owning.
     //
     // Threading model: fixed worker pool (default ~hardware/3, capped at 4
     // — leave headroom for the driver and OS on the 6c/12t target), one

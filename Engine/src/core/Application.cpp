@@ -174,8 +174,16 @@ namespace MyCoreEngine
 		// them would be a quit-during-load use-after-free. Finishing here
 		// also runs every completion while the GL context and app state
 		// are fully alive, so shutdown is deterministic.
-		jobs_.waitIdle();
-		jobs_.pumpCompletions(1e6f);
+		//
+		// LOOPED because completions may chain-submit (the AssetManager's
+		// decode queue launches the next load from a completion): after
+		// waitIdle every finished job's completion is visible, so a pump
+		// that runs ZERO completions proves nothing was submitted since —
+		// the pool is quiescent. A single pass would return with workers
+		// still running chained decodes.
+		do {
+			jobs_.waitIdle();
+		} while (jobs_.pumpCompletions(1e6f) > 0);
 	}
 
 	void Application::handleMouseLook_()

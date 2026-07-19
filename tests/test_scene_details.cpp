@@ -446,6 +446,39 @@ TEST_F(SceneFixture, AcceptedLodLevelsGetRealEBOs) {
     EXPECT_EQ(glGetError(), (GLenum)GL_NO_ERROR) << "LOD teardown raised a GL error";
 }
 
+// P4-3 phase 3: the full async request round trip — decode on a worker,
+// GL finalize in the main-thread pump, handle flips to Live with a real
+// renderable model; a second request resolves instantly from the cache.
+TEST_F(SceneFixture, RequestModelGoesLiveThroughThePump) {
+    using LoadState = AssetManager::LoadState;
+    JobSystem jobs(2);
+    AssetManager assets;
+
+    auto req = assets.RequestModel(jobs, "dummy.obj");
+    ASSERT_TRUE(req != nullptr);
+    EXPECT_TRUE(req->state == LoadState::Queued || req->state == LoadState::Decoding);
+    EXPECT_EQ(req->model, nullptr) << "no model before the main-thread finalize";
+
+    jobs.waitIdle();
+    EXPECT_NE(req->state, LoadState::Live) << "Live requires the main-thread pump";
+    jobs.pumpCompletions(1e6f);
+
+    ASSERT_EQ(req->state, LoadState::Live);
+    ASSERT_TRUE(req->model != nullptr);
+    ASSERT_EQ(req->model->Meshes().size(), 1u);
+    EXPECT_NE(req->model->Meshes()[0].VAO(), 0u) << "GL objects from the finalize";
+    EXPECT_EQ(assets.pendingRequests(), 0u);
+
+    // cache hit: instant Live, same instance, no job
+    auto again = assets.RequestModel(jobs, "dummy.obj");
+    EXPECT_EQ(again->state, LoadState::Live);
+    EXPECT_EQ(again->model.get(), req->model.get());
+    EXPECT_EQ(assets.pendingRequests(), 0u);
+
+    // ...and the sync API sees the async-loaded model too
+    EXPECT_EQ(assets.GetModel("dummy.obj").get(), req->model.get());
+}
+
 // An empty ModelComponent's null-model guard has a sibling now: a FAILED
 // async decode finalizes into a valid-but-empty Model (parity with the old
 // failed sync load) — downstream code already handles empty Meshes().

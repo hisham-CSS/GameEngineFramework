@@ -76,9 +76,21 @@ private:
         renderer().forceCSMUpdate();
         gameRenderer_.forceCSMUpdate();
     }
-    // spawn a model entity (undo-recorded, selects it); pos = world position
+    // Async model ops (P4-3 phase 3): spawn/assign REQUEST the model and
+    // return immediately; the entity appears (undo-recorded) when the
+    // decode lands, at the position/target captured at request time.
+    // Cache hits complete inline, same frame as before.
     void spawnModelEntity_(MyCoreEngine::Scene& scene, const std::string& path,
                            const glm::vec3& pos);
+    void assignModelToEntity_(MyCoreEngine::Scene& scene, const std::string& path,
+                              entt::entity target);
+    void pollPendingModelOps_(MyCoreEngine::Scene& scene);
+    void finishSpawn_(MyCoreEngine::Scene& scene,
+                      const std::shared_ptr<MyCoreEngine::Model>& model,
+                      const glm::vec3& pos);
+    void finishAssign_(MyCoreEngine::Scene& scene,
+                       const std::shared_ptr<MyCoreEngine::Model>& model,
+                       entt::entity target);
 
     EditorImGuiLayer ui_;                 // <-- persistent member
     SceneHierarchyPanel hierarchy_;
@@ -88,6 +100,22 @@ private:
     // disk walking + rescan throttling live here; the panel is a view.
     MyCoreEngine::AssetIndex assetIndex_;
     entt::entity        selected_ = entt::null;
+
+    // async model requests awaiting their decode (spawn ops carry the
+    // drop position captured at request time; assign ops carry the target
+    // entity, revalidated at completion — it can die in the meantime).
+    // Edit/play boundary: the poll is GATED off during play, so ops
+    // requested in edit mode defer across a play session and land in the
+    // restored edit scene (undo-recorded); ops requested DURING play are
+    // tagged and dropped at Stop — their intent died with the session,
+    // matching the old sync semantics where play spawns were discarded.
+    struct PendingModelOp {
+        MyCoreEngine::AssetManager::ModelRequestHandle req;
+        glm::vec3 spawnPos{ 0.f };
+        entt::entity assignTo = entt::null; // null = spawn op
+        bool requestedDuringPlay = false;
+    };
+    std::vector<PendingModelOp> pendingModelOps_;
 
     // startup-scene display cache + status line (Scene panel); set from
     // either the panel button or the asset browser context menu

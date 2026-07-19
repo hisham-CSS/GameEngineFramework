@@ -116,6 +116,62 @@ TEST_F(AssetIndexTest, TickThrottlesRescans) {
     EXPECT_NE(idx.find(std::string(kRoot) + "/late.obj"), nullptr);
 }
 
+TEST_F(AssetIndexTest, AsyncTickScansOnAWorkerAndAdoptsOnPump) {
+    MyCoreEngine::JobSystem jobs(2);
+    AssetIndex idx(kRoot);
+
+    idx.tick(10.f, &jobs); // walk submitted to a worker
+    // the tree only lands via the main-thread completion pump
+    jobs.waitIdle();
+    EXPECT_TRUE(idx.root().children.empty()) << "tree adopted before the pump ran";
+    jobs.pumpCompletions(1e6f);
+    ASSERT_EQ(idx.root().children.size(), 5u);
+    EXPECT_NE(idx.find(std::string(kRoot) + "/Model/a.obj"), nullptr);
+    const auto v1 = idx.version();
+    EXPECT_GT(v1, 0u);
+
+    // async rescan with no disk change: version holds
+    idx.forceRescan();
+    idx.tick(0.f, &jobs);
+    jobs.waitIdle();
+    jobs.pumpCompletions(1e6f);
+    EXPECT_EQ(idx.version(), v1);
+
+    // disk change picked up asynchronously
+    touch(fs::path(kRoot) / "async_late.obj");
+    idx.forceRescan();
+    idx.tick(0.f, &jobs);
+    jobs.waitIdle();
+    jobs.pumpCompletions(1e6f);
+    EXPECT_GT(idx.version(), v1);
+    EXPECT_NE(idx.find(std::string(kRoot) + "/async_late.obj"), nullptr);
+}
+
+TEST_F(AssetIndexTest, ForceRescanDuringInFlightScanIsNotLost) {
+    // ordering contract in rescanAsync_: the in-flight early-return must
+    // happen BEFORE the pending flag is consumed, or a Refresh clicked
+    // mid-walk silently dies and the pre-Refresh tree is the final state
+    MyCoreEngine::JobSystem jobs(2);
+    AssetIndex idx(kRoot);
+
+    idx.tick(10.f, &jobs);     // walk #1 launched
+    jobs.waitIdle();           // walk done; adoption queued; scan still "in flight"
+
+    idx.forceRescan();
+    idx.tick(0.f, &jobs);      // must early-return, NOT consume the pending flag
+    EXPECT_EQ(jobs.pendingCompletions(), 1u) << "a second walk launched mid-flight";
+
+    touch(fs::path(kRoot) / "midflight.obj");
+    jobs.pumpCompletions(1e6f); // adopts walk #1's PRE-touch tree
+    EXPECT_EQ(idx.find(std::string(kRoot) + "/midflight.obj"), nullptr);
+
+    idx.tick(0.f, &jobs);      // the surviving pending flag launches walk #2
+    jobs.waitIdle();
+    jobs.pumpCompletions(1e6f);
+    EXPECT_NE(idx.find(std::string(kRoot) + "/midflight.obj"), nullptr)
+        << "the Refresh requested mid-flight was lost";
+}
+
 TEST_F(AssetIndexTest, MissingRootYieldsEmptyTreeNotAnError) {
     AssetIndex idx("no_such_dir_asset_index");
     idx.tick(10.f);

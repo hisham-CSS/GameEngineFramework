@@ -1,7 +1,10 @@
 #include "AssetIndex.h"
+#include "../core/JobSystem.h"
 
 #include <algorithm>
 #include <cctype>
+#include <memory>
+#include <utility>
 
 namespace {
 
@@ -43,11 +46,34 @@ namespace MyCoreEngine {
         interval_ = seconds > 0.1f ? seconds : 0.1f;
     }
 
-    void AssetIndex::tick(float dt)
+    void AssetIndex::tick(float dt, JobSystem* jobs)
     {
         sinceScan_ += dt > 0.f ? dt : 0.f;
-        if (pending_ || sinceScan_ >= interval_) {
-            rescanNow_();
+        if (!(pending_ || sinceScan_ >= interval_)) return;
+        if (jobs) rescanAsync_(*jobs);
+        else rescanNow_();
+    }
+
+    AssetIndex::Node AssetIndex::buildTree_(const std::string& rootPath)
+    {
+        Node fresh;
+        fresh.name = rootPath;
+        fresh.relPath = rootPath;
+        fresh.kind = Kind::Directory;
+
+        std::error_code ec;
+        if (std::filesystem::is_directory(rootPath, ec)) {
+            scanDir_(rootPath, fresh, 0);
+        }
+        // else: vanished root -> empty tree (never an error state)
+        return fresh;
+    }
+
+    void AssetIndex::adoptTree_(Node&& fresh)
+    {
+        if (!sameTree_(root_, fresh)) {
+            root_ = std::move(fresh);
+            ++version_;
         }
     }
 
@@ -55,22 +81,27 @@ namespace MyCoreEngine {
     {
         pending_ = false;
         sinceScan_ = 0.f;
+        adoptTree_(buildTree_(rootPath_));
+    }
 
-        Node fresh;
-        fresh.name = rootPath_;
-        fresh.relPath = rootPath_;
-        fresh.kind = Kind::Directory;
+    void AssetIndex::rescanAsync_(JobSystem& jobs)
+    {
+        if (scanInFlight_) return; // one walk at a time; retry next interval
+        scanInFlight_ = true;
+        pending_ = false;
+        sinceScan_ = 0.f;
 
-        std::error_code ec;
-        if (std::filesystem::is_directory(rootPath_, ec)) {
-            scanDir_(rootPath_, fresh, 0);
-        }
-        // else: vanished root -> empty tree (never an error state)
-
-        if (!sameTree_(root_, fresh)) {
-            root_ = std::move(fresh);
-            ++version_;
-        }
+        // worker gets a COPY of the root path (never mutated after ctor,
+        // but a copy keeps the job free of any reference to this object);
+        // the tree swap happens back on the main thread
+        auto result = std::make_shared<Node>();
+        const std::string rootPath = rootPath_;
+        jobs.submit(
+            [result, rootPath] { *result = buildTree_(rootPath); },
+            [this, result] {
+                adoptTree_(std::move(*result));
+                scanInFlight_ = false;
+            });
     }
 
     void AssetIndex::scanDir_(const std::filesystem::path& dir, Node& out, int depth)

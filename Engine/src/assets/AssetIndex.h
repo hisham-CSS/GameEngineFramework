@@ -3,10 +3,13 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <vector>
 
 namespace MyCoreEngine {
+
+    class JobSystem;
 
     // The asset FILESYSTEM domain: a cached, engine-owned view of the
     // runtime asset tree (the Exported/ root the engine actually loads
@@ -48,7 +51,14 @@ namespace MyCoreEngine {
         // Throttled polling: call once per frame with the frame delta; the
         // tree is rewalked at most every rescanInterval() seconds. Between
         // rescans this is a couple of float ops.
-        void tick(float dt);
+        //
+        // With `jobs` (P4-3 phase 3): the disk walk runs on a WORKER and
+        // the compare/swap/version-bump lands back on the main thread in a
+        // completion — the UI thread never blocks on the filesystem (a big
+        // tree or a cold OneDrive hydrate used to stall the frame). At
+        // most one scan is in flight. Without `jobs`, the walk stays
+        // synchronous (tests, tools). MAIN THREAD ONLY either way.
+        void tick(float dt, JobSystem* jobs = nullptr);
 
         // Rescan on the next tick regardless of the throttle (toolbar
         // Refresh, right after the app writes a file itself).
@@ -70,6 +80,9 @@ namespace MyCoreEngine {
 
     private:
         void rescanNow_();
+        void rescanAsync_(JobSystem& jobs);
+        void adoptTree_(Node&& fresh); // compare/swap/version-bump (main thread)
+        static Node buildTree_(const std::string& rootPath); // pure walk (worker-safe)
         static void scanDir_(const std::filesystem::path& dir, Node& out, int depth);
         static bool sameTree_(const Node& a, const Node& b);
 
@@ -79,6 +92,7 @@ namespace MyCoreEngine {
         float interval_ = 2.0f;
         float sinceScan_ = 1e9f; // scan on first tick
         bool pending_ = false;
+        bool scanInFlight_ = false; // async walk running (at most one)
     };
 
 } // namespace MyCoreEngine
