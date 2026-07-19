@@ -115,12 +115,48 @@ TEST_F(AssetValidatorTest, OversizedTextureAgainstImportSettingsWarns) {
     EXPECT_EQ(countIssues(report2, AssetValidationIssue::Level::Warn, "big.bmp"), 0);
 }
 
-TEST_F(AssetValidatorTest, NoAcceptedLodWarnsOnDenseObj) {
-    // a dense OBJ grid imports as disconnected per-face vertices (no
-    // JoinIdenticalVertices), so simplification accepts nothing — exactly
-    // what this check exists to surface
+TEST_F(AssetValidatorTest, NoAcceptedLodWarnsOnDisconnectedObj) {
+    // The import joins identical vertices now (LOD fix), so a clean dense
+    // grid simplifies fine and must NOT warn. What the check exists to
+    // surface is geometry that stays unsimplifiable: co-located triangle
+    // soup — duplicated positions with disconnected topology (meshopt
+    // won't tear a visually continuous surface, so nothing collapses;
+    // pre-fix, EVERY OBJ decoded like this). Recreate it post-join by
+    // giving every face its own unique UVs: JoinIdenticalVertices merges
+    // only bit-identical attribute tuples, so the per-face-UV-atlas
+    // export (a real class of asset) keeps its per-face vertices.
     {
         std::ofstream obj(fs::path(kRoot) / "grid.obj");
+        constexpr int N = 24;
+        int vi = 0;
+        auto corner = [&](int x, int y) {
+            obj << "v " << x << " 0 " << y << "\n";
+            obj << "vt " << (++vi) * 0.0001f << " 0\n"; // unique per face-corner
+        };
+        auto face = [&](int a) {
+            obj << "f " << a << "/" << a << " " << a + 1 << "/" << a + 1
+                << " " << a + 2 << "/" << a + 2 << "\n";
+        };
+        for (int y = 0; y + 1 < N; ++y) {
+            for (int x = 0; x + 1 < N; ++x) {
+                corner(x, y); corner(x + 1, y); corner(x, y + 1);
+                face(vi - 2);
+                corner(x + 1, y); corner(x + 1, y + 1); corner(x, y + 1);
+                face(vi - 2);
+            }
+        }
+    }
+    JobSystem jobs(2);
+    const auto report = ValidateAssetTree(kRoot, jobs);
+    EXPECT_GE(countIssues(report, AssetValidationIssue::Level::Warn, "grid.obj"), 1);
+    EXPECT_EQ(report.errorCount(), 0);
+
+    // ...and the joined-import counterpart: the same grid written as
+    // SHARED-vertex faces simplifies now, so the warning must not fire
+    // (before the JoinIdenticalVertices fix this warned too — every OBJ
+    // decoded as soup and the LOD system was silently inert).
+    {
+        std::ofstream obj(fs::path(kRoot) / "shared.obj");
         constexpr int N = 24;
         for (int y = 0; y < N; ++y)
             for (int x = 0; x < N; ++x)
@@ -133,8 +169,7 @@ TEST_F(AssetValidatorTest, NoAcceptedLodWarnsOnDenseObj) {
             }
         }
     }
-    JobSystem jobs(2);
-    const auto report = ValidateAssetTree(kRoot, jobs);
-    EXPECT_GE(countIssues(report, AssetValidationIssue::Level::Warn, "grid.obj"), 1);
-    EXPECT_EQ(report.errorCount(), 0);
+    const auto report2 = ValidateAssetTree(kRoot, jobs);
+    EXPECT_EQ(countIssues(report2, AssetValidationIssue::Level::Warn, "shared.obj"), 0)
+        << "a clean shared-vertex grid must simplify — LOD import regressed?";
 }
