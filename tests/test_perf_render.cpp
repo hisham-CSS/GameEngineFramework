@@ -51,26 +51,29 @@ extern "C" {
 namespace {
 
     // ---- budgets (median ms), ~2x the measured baseline medians. ----
-    // Baselines 2026-07-13 (dynamic-caster shadow throttling + CSM split
-    // off-by-one fix), RTX 3050 Laptop @1920x1080.
+    // Baselines 2026-07-18 (aiProcess_JoinIdenticalVertices: OBJ imports
+    // finally produce indexed geometry, so LOD1/2 actually accept — wide
+    // views render mostly LOD1/2 index buffers now), RTX 3050 @1920x1080.
     // "cpu" = median time until RenderFrame returns (pre-glFinish): the
     // main-thread build/cull/sort/submit share of the frame.
-    //   at-rest 20x20 spawn view   14.6 ms (cpu  1.2)  ~12.3k instances
-    //   sustained camera orbit     17.3 ms (cpu  1.7)
-    //   wide view 25x25            45.7 ms (cpu  4.6)  ~40k instances
-    //   wide view 25x25 moving     50.0 ms (cpu  5.4)  CSM movement cadence
-    //   wide 25x25 move+spin       51.4 ms (cpu  6.3)  was 94.3 before the
-    //     throttle: far-cascade dynamic re-renders amortize every 4 frames
-    //     (p95 ~77 shows the bounded spike; near cascades stay every-frame)
-    //   dynamic caster (spin)      24.6 ms (cpu  2.7)
+    //   at-rest 20x20 spawn view    6.1 ms (cpu  1.3)  ~12.3k instances
+    //   sustained camera orbit      7.4 ms (cpu  2.1)
+    //   wide view 25x25            16.9 ms (cpu  6.5)  ~40k instances
+    //   wide view 25x25 moving     23.8 ms (cpu 11.7)  CSM movement cadence
+    //   wide 25x25 move+spin       32.7 ms (cpu  9.5)  p95 ~55: far-cascade
+    //     dynamic re-renders amortize every 4 frames (bounded spike)
+    //   dynamic caster (spin)      16.5 ms (cpu  3.3)
+    // (2026-07-13 pre-LOD-fix medians for reference: 14.6 / 17.3 / 45.7 /
+    //  50.0 / 51.4 / 24.6 — a regression to those means LODs went inert
+    //  again and MUST fail these budgets.)
     // If a failure is an intentional cost (new feature), re-measure and
     // update the budget + baseline lines here.
-    constexpr double kBudgetAtRestMs = 30.0;
-    constexpr double kBudgetCameraMoveMs = 35.0;
-    constexpr double kBudgetWideViewMs = 90.0;
-    constexpr double kBudgetWideMovingMs = 100.0;
-    constexpr double kBudgetWideMoveSpinMs = 105.0;
-    constexpr double kBudgetDynamicCasterMs = 50.0;
+    constexpr double kBudgetAtRestMs = 12.0;
+    constexpr double kBudgetCameraMoveMs = 15.0;
+    constexpr double kBudgetWideViewMs = 35.0;
+    constexpr double kBudgetWideMovingMs = 50.0;
+    constexpr double kBudgetWideMoveSpinMs = 65.0;
+    constexpr double kBudgetDynamicCasterMs = 35.0;
 
     double budgetScale() {
         if (const char* s = std::getenv("CSE_PERF_BUDGET_SCALE")) {
@@ -242,9 +245,11 @@ namespace {
             r.cpuMedianMs = cpuMs[cpuMs.size() / 2];
             r.stats = scene.GetRenderStats();
             std::printf("[PERF] %-28s median %7.2f ms (cpu %6.2f)  p95 %7.2f ms  "
-                        "(submitted %u, instances %u, culled %u)\n",
+                        "(submitted %u, instances %u, culled %u, lod %u/%u/%u)\n",
                         name, r.medianMs, r.cpuMedianMs, r.p95Ms,
-                        r.stats.submitted, r.stats.instances, r.stats.culled);
+                        r.stats.submitted, r.stats.instances, r.stats.culled,
+                        r.stats.lodInstances[0], r.stats.lodInstances[1],
+                        r.stats.lodInstances[2]);
             std::fflush(stdout);
             return r;
         }

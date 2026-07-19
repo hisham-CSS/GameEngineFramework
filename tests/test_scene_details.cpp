@@ -389,9 +389,10 @@ TEST_F(SceneFixture, MissingTextureFileFinalizesToZeroId) {
 // GL half of the LOD pipeline on a mesh that actually clears the simplify
 // floor: accepted levels get their OWN EBOs with the ACCEPTED counts, the
 // precomputed-LOD ctor matches the compute-inline ctor, and destruction
-// stays GL-clean. Built in-memory: an OBJ file can't drive this — Assimp
-// (without JoinIdenticalVertices, pre-existing) explodes faces into
-// disconnected vertices and meshopt then can't collapse any edges.
+// stays GL-clean. Built in-memory to pin the GL branch without file I/O;
+// the import side (JoinIdenticalVertices producing simplifiable indexed
+// geometry from a real OBJ) is pinned by BackpackObjAcceptsLodLevels in
+// test_model_decode.
 TEST_F(SceneFixture, AcceptedLodLevelsGetRealEBOs) {
     while (glGetError() != GL_NO_ERROR) {} // drain stale errors from earlier tests
 

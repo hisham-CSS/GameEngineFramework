@@ -5,6 +5,7 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <cfloat>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -92,6 +93,51 @@ TEST_F(ModelDecodeTest, ComputeLodIndicesKeepsAcceptedLevelsShrinking) {
     // a flat dense grid is trivially simplifiable: expect at least one
     // accepted level, or the LOD pipeline silently stopped working
     EXPECT_FALSE(lods[1].empty() && lods[2].empty());
+}
+
+// Real-asset LOD pin: backpack.obj through the ACTUAL import flags. The
+// synthetic in-memory grids above can't catch an import-flag regression —
+// without aiProcess_JoinIdenticalVertices Assimp's OBJ importer emits
+// per-face vertices (disconnected triangle soup), meshopt_simplify can't
+// collapse a single edge, and every LOD level is silently rejected for
+// every OBJ asset. Decoded via a geometry-only copy (no .mtl next to it):
+// texture decode isn't under test and the real maps are multi-MB.
+TEST_F(ModelDecodeTest, BackpackObjAcceptsLodLevels) {
+    namespace fs = std::filesystem;
+    const char* src = "Exported/Model/backpack.obj";
+    ASSERT_TRUE(fs::exists(src)) << "staged asset missing — run from the tests binary dir";
+    fs::copy_file(src, "lod_backpack.obj", fs::copy_options::overwrite_existing);
+
+    const ModelCPUData cpu = Model::Decode("lod_backpack.obj");
+    std::error_code ec;
+    fs::remove("lod_backpack.obj", ec);
+    ASSERT_TRUE(cpu.valid);
+    ASSERT_FALSE(cpu.meshes.empty());
+
+    size_t accepted = 0;
+    for (size_t i = 0; i < cpu.meshes.size(); ++i) {
+        const auto& m = cpu.meshes[i];
+        glm::vec3 lo{ FLT_MAX }, hi{ -FLT_MAX };
+        for (const auto& v : m.vertices) {
+            lo = glm::min(lo, v.Position);
+            hi = glm::max(hi, v.Position);
+        }
+        std::printf("[lod] mesh %zu: verts=%zu idx=%zu lod1=%zu lod2=%zu "
+                    "aabb(%.3f %.3f %.3f)-(%.3f %.3f %.3f)\n",
+                    i, m.vertices.size(), m.indices.size(),
+                    m.lodIndices[1].size(), m.lodIndices[2].size(),
+                    lo.x, lo.y, lo.z, hi.x, hi.y, hi.z);
+        for (int l = 1; l < Mesh::kLodCount; ++l) accepted += !m.lodIndices[l].empty();
+        if (m.indices.size() >= 3 * 64) {
+            // joined import = indexed geometry with real vertex reuse; the
+            // pre-fix soup had vertices.size() == indices.size() exactly
+            EXPECT_LT(m.vertices.size(), m.indices.size())
+                << "mesh " << i << " decoded as unindexed triangle soup";
+        }
+    }
+    EXPECT_GT(accepted, 0u)
+        << "no LOD level accepted on any backpack mesh — the OBJ import "
+           "produces unsimplifiable geometry and the LOD system is inert";
 }
 
 TEST_F(ModelDecodeTest, ConcurrentDecodesOnWorkersMatch) {

@@ -503,6 +503,12 @@ namespace MyCoreEngine {
         Assimp::Importer importer; // one importer per call: Assimp is thread-safe this way
         const ::aiScene* scene = importer.ReadFile(path,
             aiProcess_Triangulate |
+            // Merge identical vertices into indexed geometry. Without this the
+            // OBJ importer emits per-face vertices (disconnected soup):
+            // meshopt_simplify can't collapse a single edge, so every LOD
+            // level is rejected and the LOD system is inert for OBJ assets.
+            // Positions are only deduplicated, never moved — AABBs unchanged.
+            aiProcess_JoinIdenticalVertices |
             aiProcess_GenNormals |
             aiProcess_CalcTangentSpace |
             aiProcess_FlipUVs);
