@@ -121,8 +121,16 @@ namespace MyCoreEngine
 			// Skipped entirely while gameplay is gated off (editor edit mode).
 			if (gameplayEnabled_) {
 				const float gameDt = paused_ ? 0.f : deltaTime_ * timeScale_;
-				if (fixedUpdate_) {
-					fixedStep_.advance(gameDt, fixedUpdate_);
+				if (fixedUpdate_ || !fixedSubscribers_.empty()) {
+					// One accumulator drives BOTH the primary gameplay slot
+					// and every subscriber (physics), so they always see the
+					// same step count and never drift apart.
+					fixedStep_.advance(gameDt, [this](float fixedDt) {
+						if (fixedUpdate_) fixedUpdate_(fixedDt);
+						for (auto& s : fixedSubscribers_) {
+							if (s.fn) s.fn(fixedDt);
+						}
+					});
 				}
 				if (update_ && gameDt > 0.f) {
 					update_(gameDt);

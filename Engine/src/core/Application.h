@@ -1,9 +1,11 @@
 #pragma once
 #include "Core.h"
 
+#include <algorithm>
 #include <functional>
 #include <memory>
 #include <utility>
+#include <vector>
 
 #include "Window.h"
 #include "InputMap.h"
@@ -88,7 +90,26 @@ namespace MyCoreEngine
 
 		using UpdateFn = std::function<void(float /*dt*/)>;
 		void SetUpdate(UpdateFn fn) { update_ = std::move(fn); }
+		// The single "primary" fixed-update slot (gameplay). Overwrites.
 		void SetFixedUpdate(UpdateFn fn) { fixedUpdate_ = std::move(fn); }
+
+		// Additional fixed-tick subscribers, run AFTER the primary slot in
+		// registration order. Physics needs this: SetFixedUpdate is already
+		// owned by the game's gameplay hook, and silently replacing it would
+		// delete the game. Ordering matches Unity's: gameplay applies forces
+		// on the tick, then the simulation integrates them.
+		using TickHandle = uint32_t;
+		TickHandle AddFixedUpdate(UpdateFn fn) {
+			const TickHandle h = ++nextTickHandle_;
+			fixedSubscribers_.push_back({ h, std::move(fn) });
+			return h;
+		}
+		void RemoveFixedUpdate(TickHandle h) {
+			fixedSubscribers_.erase(
+				std::remove_if(fixedSubscribers_.begin(), fixedSubscribers_.end(),
+					[h](const FixedSubscriber& s) { return s.handle == h; }),
+				fixedSubscribers_.end());
+		}
 
 		// --- gameplay gating (play-in-editor) ---
 		// When disabled, the fixed/variable game-update hooks don't tick.
@@ -166,6 +187,9 @@ namespace MyCoreEngine
 		bool           readyFired_ = false;
 		UpdateFn       update_{};
 		UpdateFn       fixedUpdate_{};
+		struct FixedSubscriber { TickHandle handle; UpdateFn fn; };
+		std::vector<FixedSubscriber> fixedSubscribers_;
+		TickHandle     nextTickHandle_ = 0;
 
 		// mouse-look state
 		bool   rotating_ = false;

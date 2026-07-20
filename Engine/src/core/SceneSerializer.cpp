@@ -3,6 +3,7 @@
 #include "Components.h"
 #include "AssetManager.h"
 #include "Model.h"
+#include "../physics/PhysicsComponents.h"
 
 #include <nlohmann/json.hpp>
 
@@ -109,6 +110,45 @@ namespace MyCoreEngine {
                     { "enabled",  cam->enabled },
                 };
             }
+            // --- physics: body + whichever collider shape the entity has.
+            // Backend-agnostic by construction (these are engine enums and
+            // plain floats), so a scene authored against Jolt loads under
+            // PhysX unchanged.
+            if (auto* rb = reg.try_get<RigidBody>(e)) {
+                je["rigidBody"] = {
+                    { "type",            static_cast<int>(rb->type) },
+                    { "mass",            rb->mass },
+                    { "friction",        rb->friction },
+                    { "restitution",     rb->restitution },
+                    { "linearDamping",   rb->linearDamping },
+                    { "angularDamping",  rb->angularDamping },
+                    { "isTrigger",       rb->isTrigger },
+                    { "initialLinearVelocity", vec3ToJson(rb->initialLinearVelocity) },
+                };
+            }
+            if (auto* c = reg.try_get<BoxCollider>(e)) {
+                je["boxCollider"] = {
+                    { "halfExtents", vec3ToJson(c->halfExtents) },
+                    { "offset",      vec3ToJson(c->offset) },
+                };
+            }
+            if (auto* c = reg.try_get<SphereCollider>(e)) {
+                je["sphereCollider"] = {
+                    { "radius", c->radius },
+                    { "offset", vec3ToJson(c->offset) },
+                };
+            }
+            if (auto* c = reg.try_get<CapsuleCollider>(e)) {
+                je["capsuleCollider"] = {
+                    { "radius",     c->radius },
+                    { "halfHeight", c->halfHeight },
+                    { "offset",     vec3ToJson(c->offset) },
+                };
+            }
+            if (auto* c = reg.try_get<PlaneCollider>(e)) {
+                je["planeCollider"] = { { "offset", vec3ToJson(c->offset) } };
+            }
+
             if (auto* ov = reg.try_get<MaterialOverrides>(e)) {
                 json jov = json::array();
                 for (const auto& [slot, mat] : ov->byIndex) {
@@ -270,6 +310,55 @@ namespace MyCoreEngine {
                 }
                 reg.emplace<CameraComponent>(entity, cam);
             }
+            // --- physics (see the save side). Every field falls back to the
+            // component default, and the enum is range-checked: a hand-edited
+            // or newer-build file must not index BodyType out of range.
+            if (je.contains("rigidBody") && je["rigidBody"].is_object()) {
+                const json& jr = je["rigidBody"];
+                RigidBody rb;
+                const int t = jr.value("type", static_cast<int>(rb.type));
+                rb.type = (t >= 0 && t <= static_cast<int>(BodyType::Dynamic))
+                    ? static_cast<BodyType>(t) : BodyType::Dynamic;
+                rb.mass = jr.value("mass", rb.mass);
+                rb.friction = std::max(0.f, jr.value("friction", rb.friction));
+                rb.restitution = glm::clamp(jr.value("restitution", rb.restitution), 0.f, 1.f);
+                rb.linearDamping = std::max(0.f, jr.value("linearDamping", rb.linearDamping));
+                rb.angularDamping = std::max(0.f, jr.value("angularDamping", rb.angularDamping));
+                rb.isTrigger = jr.value("isTrigger", rb.isTrigger);
+                rb.initialLinearVelocity = vec3FromJson(
+                    jr.value("initialLinearVelocity", json()), rb.initialLinearVelocity);
+                reg.emplace<RigidBody>(entity, rb);
+            }
+            if (je.contains("boxCollider") && je["boxCollider"].is_object()) {
+                const json& jc = je["boxCollider"];
+                BoxCollider c;
+                c.halfExtents = glm::max(
+                    vec3FromJson(jc.value("halfExtents", json()), c.halfExtents),
+                    glm::vec3(1e-3f)); // zero extents degenerate every backend
+                c.offset = vec3FromJson(jc.value("offset", json()), c.offset);
+                reg.emplace<BoxCollider>(entity, c);
+            }
+            if (je.contains("sphereCollider") && je["sphereCollider"].is_object()) {
+                const json& jc = je["sphereCollider"];
+                SphereCollider c;
+                c.radius = std::max(jc.value("radius", c.radius), 1e-3f);
+                c.offset = vec3FromJson(jc.value("offset", json()), c.offset);
+                reg.emplace<SphereCollider>(entity, c);
+            }
+            if (je.contains("capsuleCollider") && je["capsuleCollider"].is_object()) {
+                const json& jc = je["capsuleCollider"];
+                CapsuleCollider c;
+                c.radius = std::max(jc.value("radius", c.radius), 1e-3f);
+                c.halfHeight = std::max(jc.value("halfHeight", c.halfHeight), 1e-4f);
+                c.offset = vec3FromJson(jc.value("offset", json()), c.offset);
+                reg.emplace<CapsuleCollider>(entity, c);
+            }
+            if (je.contains("planeCollider") && je["planeCollider"].is_object()) {
+                PlaneCollider c;
+                c.offset = vec3FromJson(je["planeCollider"].value("offset", json()), c.offset);
+                reg.emplace<PlaneCollider>(entity, c);
+            }
+
             if (je.contains("materialOverrides") && model) {
                 const auto& shared = model->Materials();
                 MaterialOverrides ov;

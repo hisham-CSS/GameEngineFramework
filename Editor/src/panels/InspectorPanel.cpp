@@ -298,6 +298,123 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
             }
         }
 
+        // ---- Rigid Body ---------------------------------------------------
+        if (auto* rb = reg.try_get<RigidBody>(selected)) {
+            bool keep = true;
+            if (ImGui::CollapsingHeader("Rigid Body", &keep, ImGuiTreeNodeFlags_DefaultOpen)) {
+                const char* kTypes[] = { "Static", "Kinematic", "Dynamic" };
+                int type = static_cast<int>(rb->type);
+                if (ImGui::Combo("Body type", &type, kTypes, IM_ARRAYSIZE(kTypes))) {
+                    undo.record(reg, selected, "Change body type", [&] {
+                        reg.get<RigidBody>(selected).type = static_cast<BodyType>(type);
+                    });
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Static: never moves (level geometry)\n"
+                                      "Kinematic: moved by code, pushes dynamics\n"
+                                      "Dynamic: fully simulated");
+                }
+
+                // Dynamic-only tuning: mass/damping/velocity mean nothing on a
+                // static body, so don't offer knobs that silently do nothing.
+                if (rb->type == BodyType::Dynamic) {
+                    ImGui::DragFloat("Mass", &rb->mass, 0.05f, 0.0f, 10000.f, "%.3f kg");
+                    trackItem("Change mass");
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip("0 = let the backend compute it from the shape");
+                    }
+                    ImGui::DragFloat3("Initial velocity", &rb->initialLinearVelocity.x, 0.05f);
+                    trackItem("Change initial velocity");
+                    ImGui::DragFloat("Linear damping", &rb->linearDamping, 0.005f, 0.f, 10.f);
+                    trackItem("Change linear damping");
+                    ImGui::DragFloat("Angular damping", &rb->angularDamping, 0.005f, 0.f, 10.f);
+                    trackItem("Change angular damping");
+                }
+
+                const float preFric = rb->friction;
+                ImGui::SliderFloat("Friction", &rb->friction, 0.0f, 1.0f);
+                trackSliderItem("Change friction", rb->friction, preFric);
+                const float preRest = rb->restitution;
+                ImGui::SliderFloat("Restitution", &rb->restitution, 0.0f, 1.0f);
+                trackSliderItem("Change restitution", rb->restitution, preRest);
+
+                bool trig = rb->isTrigger;
+                if (ImGui::Checkbox("Is trigger", &trig)) {
+                    undo.record(reg, selected, "Toggle trigger", [&] {
+                        reg.get<RigidBody>(selected).isTrigger = trig;
+                    });
+                }
+
+                if (!reg.any_of<BoxCollider, SphereCollider, CapsuleCollider, PlaneCollider>(selected)) {
+                    ImGui::TextColored(ImVec4(1.f, 0.6f, 0.2f, 1.f),
+                                       "No collider: this body will be skipped.");
+                }
+                ImGui::TextDisabled("Simulated on Play (edit mode is static).");
+            }
+            if (!keep) {
+                undo.record(reg, selected, "Remove rigid body", [&] {
+                    reg.remove<RigidBody>(selected);
+                });
+            }
+        }
+
+        // ---- Colliders ----------------------------------------------------
+        if (auto* c = reg.try_get<BoxCollider>(selected)) {
+            bool keep = true;
+            if (ImGui::CollapsingHeader("Box Collider", &keep, ImGuiTreeNodeFlags_DefaultOpen)) {
+                ImGui::DragFloat3("Half extents", &c->halfExtents.x, 0.01f, 0.001f, 1000.f);
+                trackItem("Change box extents");
+                ImGui::DragFloat3("Offset##box", &c->offset.x, 0.01f);
+                trackItem("Change box offset");
+                ImGui::TextDisabled("Scaled by the entity's Transform scale.");
+            }
+            if (!keep) {
+                undo.record(reg, selected, "Remove box collider",
+                            [&] { reg.remove<BoxCollider>(selected); });
+            }
+        }
+        if (auto* c = reg.try_get<SphereCollider>(selected)) {
+            bool keep = true;
+            if (ImGui::CollapsingHeader("Sphere Collider", &keep, ImGuiTreeNodeFlags_DefaultOpen)) {
+                ImGui::DragFloat("Radius##sph", &c->radius, 0.01f, 0.001f, 1000.f);
+                trackItem("Change sphere radius");
+                ImGui::DragFloat3("Offset##sph", &c->offset.x, 0.01f);
+                trackItem("Change sphere offset");
+            }
+            if (!keep) {
+                undo.record(reg, selected, "Remove sphere collider",
+                            [&] { reg.remove<SphereCollider>(selected); });
+            }
+        }
+        if (auto* c = reg.try_get<CapsuleCollider>(selected)) {
+            bool keep = true;
+            if (ImGui::CollapsingHeader("Capsule Collider", &keep, ImGuiTreeNodeFlags_DefaultOpen)) {
+                ImGui::DragFloat("Radius##cap", &c->radius, 0.01f, 0.001f, 1000.f);
+                trackItem("Change capsule radius");
+                ImGui::DragFloat("Half height", &c->halfHeight, 0.01f, 0.0001f, 1000.f);
+                trackItem("Change capsule half height");
+                ImGui::DragFloat3("Offset##cap", &c->offset.x, 0.01f);
+                trackItem("Change capsule offset");
+                ImGui::TextDisabled("Y-up; half height excludes the caps.");
+            }
+            if (!keep) {
+                undo.record(reg, selected, "Remove capsule collider",
+                            [&] { reg.remove<CapsuleCollider>(selected); });
+            }
+        }
+        if (auto* c = reg.try_get<PlaneCollider>(selected)) {
+            bool keep = true;
+            if (ImGui::CollapsingHeader("Plane Collider", &keep, ImGuiTreeNodeFlags_DefaultOpen)) {
+                ImGui::DragFloat3("Offset##pln", &c->offset.x, 0.01f);
+                trackItem("Change plane offset");
+                ImGui::TextDisabled("Infinite ground plane; use on a Static body.");
+            }
+            if (!keep) {
+                undo.record(reg, selected, "Remove plane collider",
+                            [&] { reg.remove<PlaneCollider>(selected); });
+            }
+        }
+
         // ---- Add Component ------------------------------------------------
         ImGui::Spacing();
         ImGui::Separator();
@@ -337,6 +454,45 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
                 if (ImGui::MenuItem("Camera")) {
                     undo.record(reg, selected, "Add camera", [&] {
                         reg.emplace<CameraComponent>(selected);
+                        if (!reg.any_of<Transform>(selected)) reg.emplace<Transform>(selected);
+                    });
+                }
+            }
+            if (!reg.any_of<RigidBody>(selected)) {
+                ++missing;
+                if (ImGui::MenuItem("Rigid Body")) {
+                    undo.record(reg, selected, "Add rigid body", [&] {
+                        reg.emplace<RigidBody>(selected);
+                        if (!reg.any_of<Transform>(selected)) reg.emplace<Transform>(selected);
+                    });
+                }
+            }
+            // Colliders are mutually exclusive: PhysicsWorld uses the FIRST
+            // shape it finds, so offering a second one would silently do
+            // nothing. Only advertise them when the entity has none.
+            if (!reg.any_of<BoxCollider, SphereCollider, CapsuleCollider, PlaneCollider>(selected)) {
+                missing += 4;
+                if (ImGui::MenuItem("Box Collider")) {
+                    undo.record(reg, selected, "Add box collider", [&] {
+                        reg.emplace<BoxCollider>(selected);
+                        if (!reg.any_of<Transform>(selected)) reg.emplace<Transform>(selected);
+                    });
+                }
+                if (ImGui::MenuItem("Sphere Collider")) {
+                    undo.record(reg, selected, "Add sphere collider", [&] {
+                        reg.emplace<SphereCollider>(selected);
+                        if (!reg.any_of<Transform>(selected)) reg.emplace<Transform>(selected);
+                    });
+                }
+                if (ImGui::MenuItem("Capsule Collider")) {
+                    undo.record(reg, selected, "Add capsule collider", [&] {
+                        reg.emplace<CapsuleCollider>(selected);
+                        if (!reg.any_of<Transform>(selected)) reg.emplace<Transform>(selected);
+                    });
+                }
+                if (ImGui::MenuItem("Plane Collider")) {
+                    undo.record(reg, selected, "Add plane collider", [&] {
+                        reg.emplace<PlaneCollider>(selected);
                         if (!reg.any_of<Transform>(selected)) reg.emplace<Transform>(selected);
                     });
                 }

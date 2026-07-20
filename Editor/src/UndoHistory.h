@@ -39,6 +39,14 @@ struct EntitySnapshot {
     bool noShadow = false;
     bool hasParent = false;     entt::entity parent = entt::null; // hierarchy link
     bool hasCamera = false;     CameraComponent camera{};
+    // Physics. This struct is a CLOSED list: apply() removes any tracked
+    // component whose flag is false, and never restores an untracked one, so
+    // a component missing here is destroyed by play-stop and undo.
+    bool hasRigidBody = false;      RigidBody rigidBody{};
+    bool hasBoxCollider = false;    BoxCollider boxCollider{};
+    bool hasSphereCollider = false; SphereCollider sphereCollider{};
+    bool hasCapsuleCollider = false; CapsuleCollider capsuleCollider{};
+    bool hasPlaneCollider = false;  PlaneCollider planeCollider{};
 };
 
 class UndoHistory {

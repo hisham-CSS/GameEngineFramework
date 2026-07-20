@@ -323,6 +323,10 @@ void EditorApplication::Run() {
     // "Hero". Only ticks between Play and Stop here — the gameplay gate is
     // off in edit mode.
     MyCoreEngine::InstallDemoGameplay(*this, scene);
+    // Physics steps on the same fixed tick, as a SUBSCRIBER so it composes
+    // with the gameplay hook above instead of replacing it. Bodies are built
+    // on Play (startPlay_) and destroyed on Stop, so edit mode stays static.
+    MyCoreEngine::InstallPhysics(*this, scene, physics_);
 
     RunLoop(scene, *shader);
 }
@@ -1040,6 +1044,44 @@ void EditorApplication::DrawRenderingToggles(MyCoreEngine::Scene& scene)
 
     bool pbr = scene.GetPBREnabled();
     if (ImGui::Checkbox("Enable PBR (Cook-Torrance)", &pbr)) scene.SetPBREnabled(pbr);
+
+    // ---- physics ----
+    ImGui::SeparatorText("Physics");
+    {
+        // Backend list is whatever this build registered, so the picker is
+        // honest: a build without an SDK simply doesn't offer it.
+        const auto backends = MyCoreEngine::PhysicsBackendRegistry::Available();
+        const std::string current = physics_.BackendName();
+        if (ImGui::BeginCombo("Backend", current.empty() ? "(none)" : current.c_str())) {
+            for (const auto& n : backends) {
+                if (ImGui::Selectable(n.c_str(), n == current) && n != current) {
+                    // Switching rebuilds the world under the new engine.
+                    // Refused mid-play: bodies would vanish and every
+                    // simulated pose would snap back.
+                    if (playing_) {
+                        physicsStatus_ = "Stop play before switching backend.";
+                    }
+                    else if (physics_.SetBackend(n)) {
+                        physicsStatus_ = "Backend: " + n;
+                    }
+                    else {
+                        physicsStatus_ = "FAILED to initialize " + n;
+                    }
+                }
+            }
+            ImGui::EndCombo();
+        }
+        glm::vec3 g = physics_.Gravity();
+        if (ImGui::DragFloat3("Gravity", &g.x, 0.05f)) physics_.SetGravity(g);
+        ImGui::Text("Bodies: %zu", physics_.BodyCount());
+        if (!physics_.SkippedEntities().empty()) {
+            ImGui::TextColored(ImVec4(1.f, 0.6f, 0.2f, 1.f),
+                               "%zu body(s) skipped - no collider",
+                               physics_.SkippedEntities().size());
+        }
+        if (!physicsStatus_.empty()) ImGui::TextDisabled("%s", physicsStatus_.c_str());
+        ImGui::TextDisabled(playing_ ? "Simulating." : "Bodies build on Play.");
+    }
 }
 
 void EditorApplication::DrawInformationPanel(const MyCoreEngine::Scene& scene, float dt)
@@ -1095,6 +1137,8 @@ bool EditorApplication::loadSceneFromFile_(MyCoreEngine::Scene& scene, const std
     // old scene's shadows would stay baked in cascades the new content
     // doesn't touch (same class of bug as play-mode stop-restore)
     forceAllCSMUpdate_();
+    // ...and every entity->body pair now refers to the OLD scene's entities
+    physics_.Clear();
     return true;
 }
 
@@ -1292,6 +1336,10 @@ void EditorApplication::startPlay_(MyCoreEngine::Scene& scene)
     playSnapshot_ = UndoHistory::captureScene(scene.registry);
     undo_.setRecordingEnabled(false);
     resetGameClock(); // deterministic first tick for every session
+    // Build native bodies from the CURRENT (edit-mode) poses: play starts
+    // from exactly what the author sees. Bodies live only for the session —
+    // Stop destroys them and restores the pre-play scene.
+    physics_.Rebuild(scene.registry);
     setGameplayEnabled(true);
     playing_ = true;
 }
@@ -1300,6 +1348,10 @@ void EditorApplication::stopPlay_(MyCoreEngine::Scene& scene)
 {
     if (!playing_) return;
     setGameplayEnabled(false);
+    // Drop every native body BEFORE the restore: restoreScene() clears the
+    // registry and resurrects entities via create(hint), so the entity->body
+    // map would survive looking valid while pointing at freed bodies.
+    physics_.Clear();
     UndoHistory::restoreScene(scene.registry, assets_.get(), playSnapshot_);
     playSnapshot_.clear();
     undo_.setRecordingEnabled(true);

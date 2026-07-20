@@ -176,6 +176,12 @@ private:
     bool playing_ = false;                      // play-in-editor state
     UndoHistory::SceneSnapshot playSnapshot_;   // edit-mode scene, restored on Stop
 
+    // Physics: one active backend for the whole world. Bodies exist only for
+    // the duration of a play session (built in startPlay_, cleared in
+    // stopPlay_), so edit-mode poses are never disturbed by the solver.
+    MyCoreEngine::PhysicsWorld physics_;
+    std::string physicsStatus_; // last backend switch result, shown in Settings
+
     // layout .ini to load before the next frame (empty = none). Deferred
     // because settings must be (re)applied outside NewFrame/Render.
     std::string pendingLayoutLoad_;

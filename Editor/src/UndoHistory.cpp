@@ -24,6 +24,29 @@ namespace {
                             a.camera.farClip != b.camera.farClip ||
                             a.camera.priority != b.camera.priority ||
                             a.camera.enabled != b.camera.enabled)) return false;
+        // physics: without these, an edit that ONLY changes a physics field
+        // compares equal and the undo entry is dropped as a no-op
+        if (a.hasRigidBody != b.hasRigidBody) return false;
+        if (a.hasRigidBody && (a.rigidBody.type != b.rigidBody.type ||
+                               a.rigidBody.mass != b.rigidBody.mass ||
+                               a.rigidBody.friction != b.rigidBody.friction ||
+                               a.rigidBody.restitution != b.rigidBody.restitution ||
+                               a.rigidBody.linearDamping != b.rigidBody.linearDamping ||
+                               a.rigidBody.angularDamping != b.rigidBody.angularDamping ||
+                               a.rigidBody.isTrigger != b.rigidBody.isTrigger ||
+                               a.rigidBody.initialLinearVelocity != b.rigidBody.initialLinearVelocity)) return false;
+        if (a.hasBoxCollider != b.hasBoxCollider) return false;
+        if (a.hasBoxCollider && (a.boxCollider.halfExtents != b.boxCollider.halfExtents ||
+                                 a.boxCollider.offset != b.boxCollider.offset)) return false;
+        if (a.hasSphereCollider != b.hasSphereCollider) return false;
+        if (a.hasSphereCollider && (a.sphereCollider.radius != b.sphereCollider.radius ||
+                                    a.sphereCollider.offset != b.sphereCollider.offset)) return false;
+        if (a.hasCapsuleCollider != b.hasCapsuleCollider) return false;
+        if (a.hasCapsuleCollider && (a.capsuleCollider.radius != b.capsuleCollider.radius ||
+                                     a.capsuleCollider.halfHeight != b.capsuleCollider.halfHeight ||
+                                     a.capsuleCollider.offset != b.capsuleCollider.offset)) return false;
+        if (a.hasPlaneCollider != b.hasPlaneCollider) return false;
+        if (a.hasPlaneCollider && a.planeCollider.offset != b.planeCollider.offset) return false;
         if (a.hasParent != b.hasParent) return false;
         if (a.hasParent && a.parent != b.parent) return false;
         if (a.hasOverrides != b.hasOverrides) return false;
@@ -67,6 +90,11 @@ EntitySnapshot UndoHistory::capture(entt::registry& reg, entt::entity e) {
     s.noShadow = reg.any_of<NoShadow>(e);
     if (auto* p = reg.try_get<Parent>(e)) { s.hasParent = true; s.parent = p->value; }
     if (auto* c = reg.try_get<CameraComponent>(e)) { s.hasCamera = true; s.camera = *c; }
+    if (auto* c = reg.try_get<RigidBody>(e))       { s.hasRigidBody = true; s.rigidBody = *c; }
+    if (auto* c = reg.try_get<BoxCollider>(e))     { s.hasBoxCollider = true; s.boxCollider = *c; }
+    if (auto* c = reg.try_get<SphereCollider>(e))  { s.hasSphereCollider = true; s.sphereCollider = *c; }
+    if (auto* c = reg.try_get<CapsuleCollider>(e)) { s.hasCapsuleCollider = true; s.capsuleCollider = *c; }
+    if (auto* c = reg.try_get<PlaneCollider>(e))   { s.hasPlaneCollider = true; s.planeCollider = *c; }
     return s;
 }
 
@@ -123,6 +151,18 @@ void UndoHistory::apply(entt::registry& reg, MyCoreEngine::AssetManager* assets,
 
     if (s.hasCamera) reg.emplace_or_replace<CameraComponent>(e, s.camera);
     else reg.remove<CameraComponent>(e);
+
+    // physics (see EntitySnapshot: absent flag => component removed)
+    if (s.hasRigidBody) reg.emplace_or_replace<RigidBody>(e, s.rigidBody);
+    else reg.remove<RigidBody>(e);
+    if (s.hasBoxCollider) reg.emplace_or_replace<BoxCollider>(e, s.boxCollider);
+    else reg.remove<BoxCollider>(e);
+    if (s.hasSphereCollider) reg.emplace_or_replace<SphereCollider>(e, s.sphereCollider);
+    else reg.remove<SphereCollider>(e);
+    if (s.hasCapsuleCollider) reg.emplace_or_replace<CapsuleCollider>(e, s.capsuleCollider);
+    else reg.remove<CapsuleCollider>(e);
+    if (s.hasPlaneCollider) reg.emplace_or_replace<PlaneCollider>(e, s.planeCollider);
+    else reg.remove<PlaneCollider>(e);
 
     // parent link — skipped if the target doesn't exist (yet); batch paths
     // (multi-op entries, restoreScene) run a fixup pass afterwards

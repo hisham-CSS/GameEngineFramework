@@ -62,6 +62,7 @@ add_library(Engine SHARED
     src/physics/PhysicsBackendRegistry.cpp
     src/physics/PhysicsWorld.h
     src/physics/PhysicsWorld.cpp
+    src/physics/PhysicsInstall.h
     src/physics/backends/SimplePhysicsBackend.h
     src/physics/backends/SimplePhysicsBackend.cpp)
 

@@ -115,6 +115,114 @@ TEST(SceneSerializer, EmptyModelComponentRoundTrip) {
     std::remove(path);
 }
 
+// Physics components must survive save/load, and must do so WITHOUT naming a
+// backend: a scene authored while Jolt was active has to load under PhysX.
+TEST(SceneSerializer, RoundTripPhysicsComponents) {
+    const char* path = "test_scene_physics.json";
+
+    Scene a;
+    Entity body = a.createEntity();
+    body.addComponent<Name>(Name{ "Crate" });
+    body.addComponent<Transform>(Transform{});
+    RigidBody rb;
+    rb.type = BodyType::Dynamic;
+    rb.mass = 7.5f;
+    rb.friction = 0.33f;
+    rb.restitution = 0.62f;
+    rb.linearDamping = 0.11f;
+    rb.angularDamping = 0.22f;
+    rb.isTrigger = true;
+    rb.initialLinearVelocity = { 1.f, 2.f, 3.f };
+    body.addComponent<RigidBody>(rb);
+    body.addComponent<BoxCollider>(BoxCollider{ glm::vec3(2.f, 3.f, 4.f), glm::vec3(0.5f, 0.f, -0.5f) });
+
+    Entity ground = a.createEntity();
+    ground.addComponent<Name>(Name{ "Ground" });
+    ground.addComponent<Transform>(Transform{});
+    ground.addComponent<RigidBody>(RigidBody{ BodyType::Static });
+    ground.addComponent<PlaneCollider>(PlaneCollider{ glm::vec3(0.f, -1.f, 0.f) });
+
+    Entity ball = a.createEntity();
+    ball.addComponent<Name>(Name{ "Ball" });
+    ball.addComponent<Transform>(Transform{});
+    ball.addComponent<RigidBody>(RigidBody{});
+    ball.addComponent<SphereCollider>(SphereCollider{ 1.25f, glm::vec3(0.f, 1.f, 0.f) });
+
+    Entity cap = a.createEntity();
+    cap.addComponent<Name>(Name{ "Cap" });
+    cap.addComponent<Transform>(Transform{});
+    cap.addComponent<RigidBody>(RigidBody{});
+    cap.addComponent<CapsuleCollider>(CapsuleCollider{ 0.4f, 0.9f, glm::vec3(0.f) });
+
+    AssetManager assets;
+    SceneSerializer save(a, assets);
+    ASSERT_TRUE(save.Save(path));
+
+    Scene b;
+    SceneSerializer load(b, assets);
+    ASSERT_TRUE(load.Load(path));
+
+    // Look entities up by name without comparing against entt::null (gtest's
+    // printer can't format a null entity handle).
+    bool found = false;
+    auto byName = [&](const char* want) {
+        auto view = b.registry.view<Name>();
+        found = false;
+        auto result = *view.begin();
+        for (auto e : view) {
+            if (view.get<Name>(e).value == want) { result = e; found = true; break; }
+        }
+        return result;
+    };
+
+    const auto eBody = byName("Crate");
+    ASSERT_TRUE(found) << "Crate missing after load";
+    const auto* rb2 = b.registry.try_get<RigidBody>(eBody);
+    ASSERT_NE(rb2, nullptr) << "RigidBody dropped by save/load";
+    EXPECT_EQ(rb2->type, BodyType::Dynamic);
+    EXPECT_FLOAT_EQ(rb2->mass, 7.5f);
+    EXPECT_FLOAT_EQ(rb2->friction, 0.33f);
+    EXPECT_FLOAT_EQ(rb2->restitution, 0.62f);
+    EXPECT_FLOAT_EQ(rb2->linearDamping, 0.11f);
+    EXPECT_FLOAT_EQ(rb2->angularDamping, 0.22f);
+    EXPECT_TRUE(rb2->isTrigger);
+    EXPECT_FLOAT_EQ(rb2->initialLinearVelocity.z, 3.f);
+    const auto* box = b.registry.try_get<BoxCollider>(eBody);
+    ASSERT_NE(box, nullptr);
+    EXPECT_FLOAT_EQ(box->halfExtents.y, 3.f);
+    EXPECT_FLOAT_EQ(box->offset.x, 0.5f);
+
+    const auto eGround = byName("Ground");
+    ASSERT_TRUE(found) << "Ground missing after load";
+    ASSERT_NE(b.registry.try_get<RigidBody>(eGround), nullptr);
+    EXPECT_EQ(b.registry.get<RigidBody>(eGround).type, BodyType::Static);
+    ASSERT_NE(b.registry.try_get<PlaneCollider>(eGround), nullptr);
+    EXPECT_FLOAT_EQ(b.registry.get<PlaneCollider>(eGround).offset.y, -1.f);
+
+    const auto eBall = byName("Ball");
+    ASSERT_TRUE(found) << "Ball missing after load";
+    const auto* sph = b.registry.try_get<SphereCollider>(eBall);
+    ASSERT_NE(sph, nullptr);
+    EXPECT_FLOAT_EQ(sph->radius, 1.25f);
+    EXPECT_FLOAT_EQ(sph->offset.y, 1.f);
+
+    const auto eCap = byName("Cap");
+    ASSERT_TRUE(found) << "Cap missing after load";
+    const auto* capc = b.registry.try_get<CapsuleCollider>(eCap);
+    ASSERT_NE(capc, nullptr);
+    EXPECT_FLOAT_EQ(capc->radius, 0.4f);
+    EXPECT_FLOAT_EQ(capc->halfHeight, 0.9f);
+
+    // no backend name anywhere in the file: scenes are backend-agnostic
+    std::ifstream in(path);
+    const std::string text((std::istreambuf_iterator<char>(in)),
+                           std::istreambuf_iterator<char>());
+    EXPECT_EQ(text.find("Jolt"), std::string::npos);
+    EXPECT_EQ(text.find("PhysX"), std::string::npos);
+
+    std::remove(path);
+}
+
 TEST(SceneSerializer, RoundTripParentLinks) {
     const char* path = "test_scene_parents.json";
 

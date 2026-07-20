@@ -37,4 +37,5 @@
 #include "../src/physics/IPhysicsBackend.h"
 #include "../src/physics/PhysicsBackendRegistry.h"
 #include "../src/physics/PhysicsWorld.h"
+#include "../src/physics/PhysicsInstall.h"
 

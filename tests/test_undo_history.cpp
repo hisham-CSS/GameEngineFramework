@@ -297,6 +297,95 @@ TEST(SceneSnapshot, RestoreRoundTripPreservesHandlesAndDiscardsPlayChanges) {
     EXPECT_EQ(count, 2u);
 }
 
+// EntitySnapshot is a CLOSED component list: apply() removes any tracked
+// component whose flag is false and never restores an untracked one. A
+// physics component missing from it would be silently DESTROYED the first
+// time the user pressed Play then Stop (or undid anything) — which is
+// exactly how authored physics setups would vanish.
+TEST(SceneSnapshot, PhysicsComponentsSurvivePlayStopRestore) {
+    entt::registry reg;
+
+    auto crate = makeEntity(reg, "Crate");
+    RigidBody rb;
+    rb.type = BodyType::Dynamic;
+    rb.mass = 4.25f;
+    rb.restitution = 0.5f;
+    rb.isTrigger = true;
+    reg.emplace<RigidBody>(crate, rb);
+    reg.emplace<BoxCollider>(crate, BoxCollider{ glm::vec3(1.f, 2.f, 3.f), glm::vec3(0.25f) });
+
+    auto ground = makeEntity(reg, "Ground");
+    reg.emplace<RigidBody>(ground, RigidBody{ BodyType::Static });
+    reg.emplace<PlaneCollider>(ground, PlaneCollider{ glm::vec3(0.f, -2.f, 0.f) });
+
+    auto ball = makeEntity(reg, "Ball");
+    reg.emplace<RigidBody>(ball, RigidBody{});
+    reg.emplace<SphereCollider>(ball, SphereCollider{ 0.75f, glm::vec3(0.f) });
+
+    auto cap = makeEntity(reg, "Cap");
+    reg.emplace<RigidBody>(cap, RigidBody{});
+    reg.emplace<CapsuleCollider>(cap, CapsuleCollider{ 0.3f, 1.1f, glm::vec3(0.f) });
+
+    const auto snap = UndoHistory::captureScene(reg);
+
+    // "play": the solver moves things and gameplay mutates bodies
+    reg.get<Transform>(crate).position = { 0.f, -50.f, 0.f };
+    reg.get<RigidBody>(crate).mass = 999.f;
+    reg.remove<BoxCollider>(crate);          // as if gameplay stripped it
+    reg.remove<RigidBody>(ball);
+
+    UndoHistory::restoreScene(reg, nullptr, snap);
+
+    // every physics component is back, with its authored values
+    ASSERT_TRUE(reg.any_of<RigidBody>(crate)) << "RigidBody lost across play-stop";
+    const auto& rb2 = reg.get<RigidBody>(crate);
+    EXPECT_EQ(rb2.type, BodyType::Dynamic);
+    EXPECT_FLOAT_EQ(rb2.mass, 4.25f) << "play-time mutation leaked past Stop";
+    EXPECT_FLOAT_EQ(rb2.restitution, 0.5f);
+    EXPECT_TRUE(rb2.isTrigger);
+    ASSERT_TRUE(reg.any_of<BoxCollider>(crate)) << "BoxCollider lost across play-stop";
+    EXPECT_EQ(reg.get<BoxCollider>(crate).halfExtents, glm::vec3(1.f, 2.f, 3.f));
+    EXPECT_EQ(reg.get<BoxCollider>(crate).offset, glm::vec3(0.25f));
+    EXPECT_EQ(reg.get<Transform>(crate).position, glm::vec3(0.f, 0.f, 0.f));
+
+    ASSERT_TRUE(reg.any_of<PlaneCollider>(ground));
+    EXPECT_FLOAT_EQ(reg.get<PlaneCollider>(ground).offset.y, -2.f);
+    EXPECT_EQ(reg.get<RigidBody>(ground).type, BodyType::Static);
+
+    ASSERT_TRUE(reg.any_of<RigidBody>(ball)) << "removed RigidBody not restored";
+    ASSERT_TRUE(reg.any_of<SphereCollider>(ball));
+    EXPECT_FLOAT_EQ(reg.get<SphereCollider>(ball).radius, 0.75f);
+
+    ASSERT_TRUE(reg.any_of<CapsuleCollider>(cap));
+    EXPECT_FLOAT_EQ(reg.get<CapsuleCollider>(cap).halfHeight, 1.1f);
+}
+
+// An edit that changes ONLY a physics field must produce a real undo entry:
+// same_() drops entries it considers unchanged, so a field missing from the
+// comparison makes that edit silently un-undoable.
+TEST(UndoHistoryTest, PhysicsOnlyEditIsUndoable) {
+    entt::registry reg;
+    UndoHistory h;
+    auto e = makeEntity(reg, "Crate");
+    reg.emplace<RigidBody>(e, RigidBody{});
+    reg.emplace<SphereCollider>(e, SphereCollider{ 0.5f, glm::vec3(0.f) });
+
+    // Two edits back to back (no undo between them, which would truncate the
+    // redo tail and make the count misleading).
+    h.record(reg, e, "Change mass", [&] { reg.get<RigidBody>(e).mass = 12.f; });
+    ASSERT_EQ(h.entries().size(), 1u) << "a mass-only edit must record an undo entry";
+    h.record(reg, e, "Change radius",
+             [&] { reg.get<SphereCollider>(e).radius = 3.f; });
+    ASSERT_EQ(h.entries().size(), 2u) << "a collider-only edit must record an undo entry";
+
+    h.undo(reg, nullptr); // reverts the radius edit
+    EXPECT_FLOAT_EQ(reg.get<SphereCollider>(e).radius, 0.5f) << "undo did not revert radius";
+    EXPECT_FLOAT_EQ(reg.get<RigidBody>(e).mass, 12.f) << "undo reverted too much";
+
+    h.undo(reg, nullptr); // reverts the mass edit
+    EXPECT_FLOAT_EQ(reg.get<RigidBody>(e).mass, 1.0f) << "undo did not revert mass";
+}
+
 TEST(SceneSnapshot, UndoHistoryStaysValidAcrossPlaySession) {
     entt::registry reg;
     UndoHistory h;
