@@ -270,53 +270,31 @@ void EditorApplication::Run() {
     sceneShader_ = shader.get(); // the Game view renders with the same shader
 
     assert(glfwGetCurrentContext() != nullptr);
-    // --- Load or reuse a model by path ---
-    auto modelHandle = assets_->GetModel("Exported/Model/backpack.obj");  // shared
-    AABB localBV = generateAABB(*modelHandle); // if you still use local-space AABB
-    
-    // 20x20 grid; the center entity (at the origin) is named "Hero" and is
-    // spun by the FixedUpdate demo below. (There used to be a separate hero
-    // entity on top of the grid one — two backpacks clipping at the origin.)
-    for (unsigned int x = 0; x < 20; ++x) {
-        for (unsigned int z = 0; z < 20; ++z) {
-            Entity e = scene.createEntity();
-            Transform t{};
-            t.position = glm::vec3(x * 10.f - 100.f, 0.f, z * 10.f - 100.f);
-            e.addComponent<Transform>(t);
-            e.addComponent<ModelComponent>(ModelComponent{ modelHandle });
-			e.addComponent<AABB>(localBV); // if you still use local-space AABB
-            if (x == 10 && z == 10) {
-                e.addComponent<Name>(Name{ "Hero" }); // sits at (0, 0, 0)
-            }
+
+    // Boot content comes from the SCENE FILE, never from code.
+    //
+    // This used to build a 20x20 backpack grid + Ground + Hero + Main Camera
+    // here on every launch, which made the editor lie about what a scene
+    // contains: your saved file was never what you saw at startup, so
+    // authored components (physics especially) looked like they "didn't
+    // save" — they saved fine, the hardcoded scene just replaced them before
+    // you ever saw them. The editor now opens the same startup scene the
+    // player ships with, so the two agree by construction.
+    {
+        MyCoreEngine::ProjectSettings settings;
+        settings.Load(); // Exported/project.json
+        const std::string startup = settings.startupScene.empty()
+            ? std::string("Exported/scene.json") : settings.startupScene;
+
+        MyCoreEngine::SceneSerializer bootSerializer(scene, *assets_);
+        if (bootSerializer.Load(startup)) {
+            bootStatus_ = "Loaded startup scene: " + startup;
         }
-    }
-
-    // Ground plane: receives the sun shadows (NoShadow = doesn't cast its own)
-    {
-        auto groundHandle = assets_->GetModel("Exported/Model/plane.obj");
-        Entity ground = scene.createEntity();
-        ground.addComponent<Name>(Name{ "Ground" });
-        Transform t{};
-        t.position = glm::vec3(0.f, -3.f, 0.f);
-        t.scale = glm::vec3(300.f, 1.f, 300.f);
-        ground.addComponent<Transform>(t);
-        ground.addComponent<ModelComponent>(ModelComponent{ groundHandle });
-        ground.addComponent<AABB>(generateAABB(*groundHandle));
-        // registry directly: Entity::addComponent can't return a reference for
-        // empty flag components (EnTT emplace returns void for them)
-        scene.registry.emplace<NoShadow>(ground);
-    }
-
-    // Main Camera: the entity the Game view and the player render from
-    // (identity orientation looks down -Z; pitch down toward the grid)
-    {
-        Entity camEntity = scene.createEntity();
-        camEntity.addComponent<Name>(Name{ "Main Camera" });
-        Transform t{};
-        t.position = glm::vec3(0.f, 6.f, 30.f);
-        t.rotation = glm::vec3(-11.f, 0.f, 0.f);
-        camEntity.addComponent<Transform>(t);
-        camEntity.addComponent<CameraComponent>(CameraComponent{});
+        else {
+            createDefaultScene_(scene);
+            bootStatus_ = "No scene at '" + startup + "' — created a default scene";
+        }
+        std::cout << "EDITOR: " << bootStatus_ << std::endl;
     }
 
     // Demo gameplay (shared with the standalone player): spin entities named
@@ -783,6 +761,9 @@ void EditorApplication::DrawScenePersistence(MyCoreEngine::Scene& scene)
 
     static char scenePath[260] = "Exported/scene.json";
     static std::string lastStatus;
+    // What happened at boot — makes "why am I looking at this scene?"
+    // answerable without digging through the console.
+    if (!bootStatus_.empty()) ImGui::TextDisabled("%s", bootStatus_.c_str());
     ImGui::InputText("Scene file", scenePath, sizeof(scenePath));
 
     MyCoreEngine::SceneSerializer serializer(scene, *assets_);
@@ -793,15 +774,23 @@ void EditorApplication::DrawScenePersistence(MyCoreEngine::Scene& scene)
         ImGui::OpenPopup("New Scene?");
     }
     if (ImGui::BeginPopupModal("New Scene?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::TextUnformatted("Replace the current scene with an empty one?");
+        ImGui::TextUnformatted("Replace the current scene with a new one?");
+        ImGui::TextUnformatted("You get a Main Camera and a ground plane.");
         ImGui::TextUnformatted("Unsaved changes will be lost.");
         ImGui::Separator();
         if (ImGui::Button("New Scene", ImVec2(120, 0))) {
             scene.ResetToDefaults();
+            // Seed the same minimal content the editor boots with when no
+            // scene file exists. A truly EMPTY scene has no camera, and a
+            // camera-less scene makes the Game view and the shipped player
+            // fall back to a debug fly-cam — the exact trap that made a
+            // built game look like it ignored the scene's camera.
+            createDefaultScene_(scene);
             selected_ = entt::null; // every entity handle is gone
             undo_.clear();          // ...including all of the history's
             gameDirector_.reset();  // ...and the Game view's camera handles
             pendingModelOps_.clear(); // in-flight ops were aimed at the old scene
+            physics_.Clear();       // bodies referred to the old entities
             // wholesale caster removal bypasses the departure-sphere flow:
             // the old scene's shadows would stay baked otherwise
             forceAllCSMUpdate_();
@@ -1121,6 +1110,43 @@ void EditorApplication::DrawInformationPanel(const MyCoreEngine::Scene& scene, f
         ImGui::Text("GPU draw calls:   %u", totalCalls);
     }
     ImGui::End();
+}
+
+void EditorApplication::createDefaultScene_(MyCoreEngine::Scene& scene)
+{
+    using namespace MyCoreEngine;
+
+    // Minimal, but deliberately NEVER camera-less: the Game view and the
+    // shipped player both render through a CameraComponent, and a scene
+    // without one silently falls back to a debug fly-cam — which reads as
+    // "the build ignored my camera".
+    {
+        Entity cam = scene.createEntity();
+        cam.addComponent<Name>(Name{ "Main Camera" });
+        Transform t{};
+        t.position = glm::vec3(0.f, 6.f, 30.f);
+        t.rotation = glm::vec3(-11.f, 0.f, 0.f); // pitch down toward the origin
+        cam.addComponent<Transform>(t);
+        scene.registry.emplace<CameraComponent>(cam, CameraComponent{});
+    }
+
+    // A ground you can actually land on: visual plane + a static physics
+    // plane, so dropping a RigidBody into a fresh scene just works.
+    if (auto groundHandle = assets_->GetModel("Exported/Model/plane.obj")) {
+        Entity ground = scene.createEntity();
+        ground.addComponent<Name>(Name{ "Ground" });
+        Transform t{};
+        t.position = glm::vec3(0.f, -3.f, 0.f);
+        t.scale = glm::vec3(300.f, 1.f, 300.f);
+        ground.addComponent<Transform>(t);
+        ground.addComponent<ModelComponent>(ModelComponent{ groundHandle });
+        ground.addComponent<AABB>(generateAABB(*groundHandle));
+        // registry directly: Entity::addComponent can't return a reference for
+        // empty flag components (EnTT emplace returns void for them)
+        scene.registry.emplace<NoShadow>(ground);
+        scene.registry.emplace<RigidBody>(ground, RigidBody{ BodyType::Static });
+        scene.registry.emplace<PlaneCollider>(ground, PlaneCollider{});
+    }
 }
 
 bool EditorApplication::loadSceneFromFile_(MyCoreEngine::Scene& scene, const std::string& path)

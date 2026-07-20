@@ -72,6 +72,9 @@ private:
     // scene replacement bypasses the departure-sphere dirty-caster flow —
     // old-scene shadows would stay baked in far cascades otherwise)
     bool loadSceneFromFile_(MyCoreEngine::Scene& scene, const std::string& path);
+    // Minimal starting content (Main Camera + ground) used when no startup
+    // scene exists and by New Scene. Never leaves the scene camera-less.
+    void createDefaultScene_(MyCoreEngine::Scene& scene);
     bool setStartupScene_(const std::string& path); // updates buildSettingsStatus_
     // Shadow rebuilds must hit BOTH renderers — the Game view keeps its own
     // CSM state and would otherwise hold stale baked shadows.
@@ -181,6 +184,7 @@ private:
     // stopPlay_), so edit-mode poses are never disturbed by the solver.
     MyCoreEngine::PhysicsWorld physics_;
     std::string physicsStatus_; // last backend switch result, shown in Settings
+    std::string bootStatus_;    // what happened at startup (loaded / defaulted)
 
     // layout .ini to load before the next frame (empty = none). Deferred
     // because settings must be (re)applied outside NewFrame/Render.
