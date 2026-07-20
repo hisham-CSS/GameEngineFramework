@@ -90,6 +90,12 @@ set_target_properties(Engine PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR}/build/lib/Release
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/build/bin/Debug
     RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR}/build/bin/Release
+    # RelWithDebInfo = optimized + symbols (debug real scenes at Release
+    # speed). Without an explicit dir this config falls back to each
+    # target's own binary dir, which scatters Engine.dll away from the exes.
+    ARCHIVE_OUTPUT_DIRECTORY_RELWITHDEBINFO ${CMAKE_BINARY_DIR}/build/lib/RelWithDebInfo
+    LIBRARY_OUTPUT_DIRECTORY_RELWITHDEBINFO ${CMAKE_BINARY_DIR}/build/lib/RelWithDebInfo
+    RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${CMAKE_BINARY_DIR}/build/bin/RelWithDebInfo
 )
 
 # Optionally define different compile options based on the build configuration

@@ -25,6 +25,7 @@ target_link_libraries(Editor PRIVATE imguizmo::imguizmo)
 set_target_properties(Editor PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/build/bin/Debug
     RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR}/build/bin/Release
+    RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${CMAKE_BINARY_DIR}/build/bin/RelWithDebInfo
 )
 
 # Stage runtime assets (shaders/models + seed scene) next to the exes.

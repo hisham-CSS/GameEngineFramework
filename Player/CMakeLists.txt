@@ -15,6 +15,7 @@ foreach(tgt PlayerDebug PlayerShipping)
     set_target_properties(${tgt} PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/build/bin/Debug
         RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR}/build/bin/Release
+        RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${CMAKE_BINARY_DIR}/build/bin/RelWithDebInfo
     )
 
     if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
