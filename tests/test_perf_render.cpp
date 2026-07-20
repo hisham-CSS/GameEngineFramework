@@ -262,6 +262,45 @@ namespace {
 
 } // namespace
 
+// Projected-size culling: on a wide shot with a near->far size gradient, the
+// cull must drop a meaningful chunk of the distant (small) instances and must
+// NOT be slower than the un-culled baseline. This is the wide-view lever —
+// the frame is vertex/instance-bound (measured: shadows/PCF/fill are ~free),
+// so fewer submitted instances is the only thing that helps. Functional
+// assertions on the counts; timing printed for the log, budget-checked
+// elsewhere.
+TEST_F(PerfFixture, SmallObjectCull_DropsDistantInstances) {
+    Camera cam;
+    aim(cam, { 0.f, 40.f, 160.f }, { 0.f, 0.f, -40.f }); // low oblique: size gradient
+
+    Scene off;
+    buildGrid(off, 25, 25);
+    off.SetSmallCullEnabled(false);
+    const auto rOff = measure("size-cull OFF", off, cam);
+
+    Scene on;
+    buildGrid(on, 25, 25);
+    on.SetSmallCullEnabled(true);
+    // This low oblique view spans a large near->far size gradient (near
+    // backpacks are ~150px, the far rows ~30px). A 48px floor culls the far
+    // portion — enough to prove the mechanism drops a real fraction. (In a
+    // real bird's-eye "fly up", far smaller thresholds cull just as hard as
+    // everything shrinks uniformly.)
+    on.SetSmallCullPixels(48.f);
+    const auto rOn = measure("size-cull 48px", on, cam);
+
+    EXPECT_EQ(rOff.stats.culledSmall, 0u) << "cull disabled must drop nothing by size";
+    EXPECT_GT(rOn.stats.culledSmall, 0u) << "48px floor must cull the distant small backpacks";
+    EXPECT_LT(rOn.stats.submitted, rOff.stats.submitted)
+        << "culling must reduce submitted instances";
+    // sanity: it removed a real fraction, not one stray entity
+    EXPECT_LT(rOn.stats.submitted, (rOff.stats.submitted * 9u) / 10u)
+        << "expected the far rows (>10% of instances) to drop";
+    // and it must not cost MORE than drawing everything (allow noise headroom)
+    EXPECT_LT(rOn.medianMs, rOff.medianMs * 1.25 * budgetScale())
+        << "size cull should never be slower than the un-culled frame";
+}
+
 // Scenario 1: static camera over the editor's default 20x20 spawn grid.
 TEST_F(PerfFixture, AtRest_SpawnView) {
     Scene scene;

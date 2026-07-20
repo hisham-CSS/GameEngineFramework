@@ -35,7 +35,8 @@ namespace MyCoreEngine {
         unsigned instances = 0;       // total instances drawn via instancing
         unsigned vaoBinds = 0;
         unsigned textureBinds = 0;    // when a new texture bucket is bound
-        unsigned culled = 0;          // items rejected by frustum
+        unsigned culled = 0;          // entities rejected by frustum
+        unsigned culledSmall = 0;     // entities rejected by projected-size cull
         unsigned submitted = 0;       // items submitted to GPU (draws + instances)
         unsigned itemsBuilt = 0;      // items_ after culling (meshes that passed)
         unsigned entitiesTotal = 0;   // 'total' (as you already increment)
@@ -94,9 +95,12 @@ namespace MyCoreEngine {
         void ResetToDefaults();
 
         void UpdateTransforms();
-        // Renderer calls this; we keep signature identical.
-        // Now builds a draw list with frustum culling, sorts, then batches by texture key.
-        virtual void RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camera);
+        // Renderer calls this; builds a draw list with frustum culling +
+        // optional projected-size culling, sorts, then batches by texture key.
+        // viewportHeightPx (pixels) drives the screen-size cull; 0 disables it
+        // (e.g. callers with no framebuffer size handy).
+        virtual void RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camera,
+                                 int viewportHeightPx = 0);
 
         // Depth-only shadow pass (directional)
         void RenderShadowDepth(Shader & shadowShader, const glm::mat4 & lightVP);
@@ -111,6 +115,17 @@ namespace MyCoreEngine {
         // >1 keeps high detail farther out; <1 switches down sooner (cheaper)
         void  SetLODDistanceScale(float s) { lodDistanceScale_ = std::clamp(s, 0.1f, 8.f); }
         float GetLODDistanceScale() const { return lodDistanceScale_; }
+
+        // Projected-size cull: drop objects whose bounding sphere projects
+        // smaller than N pixels tall from the forward pass. Adaptive with
+        // camera distance/altitude — the lever that actually helps a
+        // vertex/instance-bound wide view (shadows/PCF/fill measured free).
+        // Needs the viewport pixel height passed to RenderScene.
+        void  SetSmallCullEnabled(bool v) { smallCullEnabled_ = v; }
+        bool  GetSmallCullEnabled() const { return smallCullEnabled_; }
+        // pixel-height floor; higher culls more (and pops sooner). 0 disables.
+        void  SetSmallCullPixels(float px) { smallCullPixels_ = std::clamp(px, 0.f, 64.f); }
+        float GetSmallCullPixels() const { return smallCullPixels_; }
 
         // Depth prepass: lay depth down first (cheap shader), then shade color
         // with depth-equal so each pixel runs the PBR shader exactly once.
@@ -198,6 +213,11 @@ namespace MyCoreEngine {
          bool instancingEnabled_ = true;
          bool lodEnabled_ = true;
          float lodDistanceScale_ = 1.0f;
+         // Off by default: it changes what's visible (distant objects pop out),
+         // so it's opt-in. Editor exposes an enable + pixel-floor slider; the
+         // player can turn it on per project. 3px is a safe "sub-visible" floor.
+         bool  smallCullEnabled_ = false;
+         float smallCullPixels_ = 3.0f;
          // Off by default: early-Z already rejects most occluded fragments in
          // front-to-back-ish scenes, so on this content the extra geometry
          // submission costs more than the shading it saves. Enable for scenes

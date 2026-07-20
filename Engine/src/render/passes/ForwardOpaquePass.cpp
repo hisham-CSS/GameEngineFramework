@@ -83,6 +83,7 @@ bool ForwardOpaquePass::execute(PassContext& ctx, Scene& scene, Camera& cam, con
 	const Frustum camFrustum = createFrustumFromCamera(
 	cam, float(fp.viewportW) / float(fp.viewportH), glm::radians(cam.Zoom),
 	cam.NearClip, cam.FarClip);
-	scene.RenderScene(camFrustum, *shader_, cam);
+	// viewport pixel height drives the projected-size cull (0 would disable it)
+	scene.RenderScene(camFrustum, *shader_, cam, fp.viewportH);
 	return true;
 }

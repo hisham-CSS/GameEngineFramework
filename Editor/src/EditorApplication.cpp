@@ -1018,6 +1018,23 @@ void EditorApplication::DrawRenderingToggles(MyCoreEngine::Scene& scene)
     if (ImGui::SliderFloat("LOD distance scale", &lodScale, 0.25f, 4.f)) scene.SetLODDistanceScale(lodScale);
     ImGui::SameLine(); ImGui::TextDisabled("(higher = detail farther)");
 
+    // Projected-size cull: the lever that actually speeds up wide/bird's-eye
+    // views (they're vertex/instance-bound; shadows/fill are effectively free).
+    // Higher pixel floor = more culled + more distant popping.
+    bool smallCull = scene.GetSmallCullEnabled();
+    if (ImGui::Checkbox("Cull tiny objects", &smallCull)) scene.SetSmallCullEnabled(smallCull);
+    float smallPx = scene.GetSmallCullPixels();
+    if (ImGui::SliderFloat("Min on-screen px", &smallPx, 0.f, 48.f, "%.1f px")) scene.SetSmallCullPixels(smallPx);
+    ImGui::SameLine(); ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip(
+            "Drops objects whose bounding sphere projects smaller than N pixels\n"
+            "tall. Speeds up vertex/instance-bound wide & bird's-eye views.\n"
+            "Low values (2-4px) are sub-visible. Higher values cull more but can\n"
+            "pop distant objects and, with a low sun, leave their (still-cast)\n"
+            "shadows briefly visible.");
+    }
+
     bool nm = scene.GetNormalMapEnabled();
     if (ImGui::Checkbox("Enable normal mapping", &nm)) scene.SetNormalMapEnabled(nm);
 
@@ -1031,6 +1048,11 @@ void EditorApplication::DrawInformationPanel(const MyCoreEngine::Scene& scene, f
     ImGui::Begin("Information", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
     if (ImGui::CollapsingHeader("Rendering Stats", ImGuiTreeNodeFlags_None)) {
         ImGui::Text("dt: %.3f ms (%.1f FPS)", dt * 1000.f, dt > 0.f ? 1.f / dt : 0.f);
+        // GPU string: a hybrid laptop silently on the Intel iGPU is ~4-5x
+        // slower than the dGPU — the fastest way to spot that here. Queried
+        // once (the string is static for the context's lifetime).
+        static const char* sGpu = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
+        ImGui::TextDisabled("GPU: %s", sGpu ? sGpu : "(unknown)");
         ImGui::Text("Cascades: %d, res: %d", renderer().getCSMNumCascades(), renderer().getCSMBaseResolution());
         ImGui::Text("Draws:            %u", rs.draws);
         ImGui::Text("Instanced draws:  %u", rs.instancedDraws);
@@ -1040,7 +1062,8 @@ void EditorApplication::DrawInformationPanel(const MyCoreEngine::Scene& scene, f
         ImGui::Text("VAO binds:        %u", rs.vaoBinds);
         ImGui::Separator();
         ImGui::Text("Built items:      %u", rs.itemsBuilt);
-        ImGui::Text("Culled:           %u", rs.culled);
+        ImGui::Text("Culled (frustum): %u", rs.culled);
+        ImGui::Text("Culled (size):    %u", rs.culledSmall);
         ImGui::Text("Submitted:        %u", rs.submitted);
         ImGui::Text("LOD 0/1/2:        %u / %u / %u",
             rs.lodInstances[0], rs.lodInstances[1], rs.lodInstances[2]);

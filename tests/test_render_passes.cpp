@@ -93,7 +93,7 @@ namespace {
             }
             glBindVertexArray(0);
         }
-        void RenderScene(const Frustum&, Shader&, Camera&) override {}
+        void RenderScene(const Frustum&, Shader&, Camera&, int) override {}
     };
 
     struct GLFixture : ::testing::Test {
@@ -183,7 +183,7 @@ namespace {
         void RenderDepthCascade(Shader&, const glm::mat4&, float, float, const glm::mat4&) override {
             // draw nothing
         }
-        void RenderScene(const Frustum&, Shader&, Camera&) override {
+        void RenderScene(const Frustum&, Shader&, Camera&, int) override {
             // draw nothing
         }
     };

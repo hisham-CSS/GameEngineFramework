@@ -176,6 +176,8 @@ void Scene::ResetToDefaults() {
     instancingEnabled_ = true;
     lodEnabled_ = true;
     lodDistanceScale_ = 1.0f;
+    smallCullEnabled_ = false;
+    smallCullPixels_ = 3.0f;
     depthPrepassEnabled_ = false;
     normalMapEnabled_ = true;
     pbrEnabled_ = true;
@@ -298,12 +300,21 @@ bool Scene::HasDynamicCasterInViewRange(const glm::vec3& camPos, const glm::vec3
 
 // Renderer calls this; we keep signature identical.
 // Now builds a draw list with frustum culling, sorts, then batches by texture key.
-void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camera)
+void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camera,
+                        int viewportHeightPx)
 {
     shader.setVec3("uCamPos", camera.Position);
     RenderStats stats{}; // local accumulator for this frame
     items_.clear();
     items_.reserve(1024);
+
+    // Projected-size cull needs the vertical-FOV factor and a pixel height.
+    // Object pixel height ~= viewportH * (2*radius) / (2*dist*tan(fovY/2))
+    //                      = viewportH * radius / (dist * tanHalfFov).
+    // Zoom is vertical FOV in DEGREES (mirror ForwardOpaquePass's frustum).
+    const float tanHalfFov = std::tan(glm::radians(camera.Zoom) * 0.5f);
+    const bool  screenCull = smallCullEnabled_ && viewportHeightPx > 0 &&
+                             tanHalfFov > 1e-4f && smallCullPixels_ > 0.f;
 
     // 1) Build draw list with frustum test
     auto view = registry.view<ModelComponent, Transform, AABB>();
@@ -316,16 +327,33 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
         if (!mc.model) continue;
         if (!bounds.isOnFrustum(camFrustum, t)) { stats.culled++; continue; }
 
+        // World-space bounding sphere (center + radius) — needed by BOTH the
+        // LOD level and the screen-size cull, so it's computed unconditionally
+        // (was inside the lodEnabled_ block).
+        const glm::vec3 localC = (bounds.min + bounds.max) * 0.5f;
+        const glm::vec3 worldC = glm::vec3(t.modelMatrix * glm::vec4(localC, 1.f));
+        const float maxScale = std::max({ glm::length(glm::vec3(t.modelMatrix[0])),
+                                          glm::length(glm::vec3(t.modelMatrix[1])),
+                                          glm::length(glm::vec3(t.modelMatrix[2])) });
+        const float radius = std::max(0.01f, glm::length(bounds.max - bounds.min) * 0.5f * maxScale);
+        const float dist = glm::length(worldC - camera.Position);
+
+        // Screen-space size cull: skip objects whose projected sphere is
+        // smaller than the threshold in pixels. Adaptive — flying high/wide
+        // shrinks distant objects below the floor and bounds the frame, which
+        // is the only lever that helps a vertex/instance-bound wide view
+        // (shadows/PCF/fill were measured free). The object is dropped from
+        // the FORWARD pass only; its (equally sub-pixel) shadow is left to the
+        // shadow pass, so no caster-set change and no CSM ghosting.
+        if (screenCull && dist > 1e-3f) {
+            const float pixelH = (float)viewportHeightPx * radius / (dist * tanHalfFov);
+            if (pixelH < smallCullPixels_) { stats.culledSmall++; continue; }
+        }
+
         // LOD by camera distance relative to the object's world-space size
         int lod = 0;
         if (lodEnabled_) {
-            const glm::vec3 localC = (bounds.min + bounds.max) * 0.5f;
-            const glm::vec3 worldC = glm::vec3(t.modelMatrix * glm::vec4(localC, 1.f));
-            const float maxScale = std::max({ glm::length(glm::vec3(t.modelMatrix[0])),
-                                              glm::length(glm::vec3(t.modelMatrix[1])),
-                                              glm::length(glm::vec3(t.modelMatrix[2])) });
-            const float radius = std::max(0.01f, glm::length(bounds.max - bounds.min) * 0.5f * maxScale);
-            const float ratio = glm::length(worldC - camera.Position) / (radius * lodDistanceScale_);
+            const float ratio = dist / (radius * lodDistanceScale_);
             lod = (ratio > 60.f) ? 2 : (ratio > 25.f) ? 1 : 0;
         }
 
