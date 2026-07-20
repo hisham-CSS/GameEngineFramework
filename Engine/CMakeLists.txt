@@ -53,7 +53,17 @@ add_library(Engine SHARED
     src/render/RenderPipeline.h 
     src/render/passes/ShadowCSMPass.cpp 
     src/render/passes/ForwardOpaquePass.cpp 
-    src/render/passes/TonemapPass.cpp "src/core/GLInit.h" "src/core/GLInit.cpp" "src/render/CSMSplits.h")
+    src/render/passes/TonemapPass.cpp "src/core/GLInit.h" "src/core/GLInit.cpp" "src/render/CSMSplits.h"
+    # --- physics: backend-agnostic core + pluggable backends ---
+    src/physics/PhysicsTypes.h
+    src/physics/PhysicsComponents.h
+    src/physics/IPhysicsBackend.h
+    src/physics/PhysicsBackendRegistry.h
+    src/physics/PhysicsBackendRegistry.cpp
+    src/physics/PhysicsWorld.h
+    src/physics/PhysicsWorld.cpp
+    src/physics/backends/SimplePhysicsBackend.h
+    src/physics/backends/SimplePhysicsBackend.cpp)
 
 target_compile_definitions(Engine PUBLIC ENGINE_DLL_EXPORTS)
 
@@ -69,6 +79,65 @@ find_package(glm CONFIG REQUIRED)
 find_package(EnTT CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(meshoptimizer CONFIG REQUIRED)
+
+# --- physics backends (OPTIONAL by design) ------------------------------
+# Each SDK is compiled in only when found, and every backend sits behind
+# IPhysicsBackend. A build with neither still works: the dependency-free
+# "Simple" backend is always registered. This is what keeps "support any
+# physics library" honest -- adding one is a new subclass + a find_package
+# block here, and nothing else in the engine changes.
+option(CSE_ENABLE_JOLT  "Build the Jolt physics backend"  ON)
+option(CSE_ENABLE_PHYSX "Build the PhysX physics backend" ON)
+
+# CRITICAL: each SDK is linked into its OWN object library, never directly
+# into Engine. These imported targets propagate INTERFACE compile definitions
+# to every consumer source file, and Jolt's include `_HAS_EXCEPTIONS=0`.
+# Linking Jolt straight into Engine rebuilt the ENTIRE engine without
+# exception support, which turned the std::filesystem throw that AssetIndex
+# relies on (non-codepage filenames) into a 0xC0000409 fast-fail and would
+# have silently broken every other try/catch in the engine.
+# Object-library isolation keeps those definitions on the one translation
+# unit that actually includes the SDK -- which is the whole point of the
+# pimpl in each backend header.
+# STATIC (not OBJECT) is load-bearing: for a static library CMake records
+# PRIVATE deps as $<LINK_ONLY:...> in the link interface, so Engine inherits
+# the SDK's .lib for linking but NOT its INTERFACE compile definitions or
+# include dirs. An OBJECT library would hand over object files without the
+# link deps, and linking the SDK into Engine directly is what caused the
+# _HAS_EXCEPTIONS=0 contamination above.
+function(cse_add_physics_backend tgt srcfile sdk_target define)
+    add_library(${tgt} STATIC ${srcfile})
+    target_link_libraries(${tgt} PRIVATE ${sdk_target} glm::glm EnTT::EnTT)
+    target_compile_definitions(${tgt} PRIVATE ENGINE_DLL_EXPORTS ${define})
+    set_target_properties(${tgt} PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    target_link_libraries(Engine PRIVATE ${tgt})
+    # Engine itself only needs the DEFINE (so the registry compiles its entry);
+    # the backend header is SDK-free by design, so no SDK types leak in here.
+    target_compile_definitions(Engine PRIVATE ${define})
+endfunction()
+
+if (CSE_ENABLE_JOLT)
+    find_package(Jolt CONFIG QUIET)
+    if (Jolt_FOUND)
+        cse_add_physics_backend(EnginePhysicsJolt
+            src/physics/backends/JoltPhysicsBackend.cpp Jolt::Jolt CSE_WITH_JOLT)
+        message(STATUS "Physics: Jolt backend ENABLED")
+    else()
+        message(STATUS "Physics: Jolt not found - backend disabled")
+    endif()
+endif()
+
+if (CSE_ENABLE_PHYSX)
+    find_package(unofficial-omniverse-physx-sdk CONFIG QUIET)
+    if (unofficial-omniverse-physx-sdk_FOUND)
+        cse_add_physics_backend(EnginePhysicsPhysX
+            src/physics/backends/PhysXPhysicsBackend.cpp
+            unofficial::omniverse-physx-sdk::sdk CSE_WITH_PHYSX)
+        message(STATUS "Physics: PhysX backend ENABLED")
+    else()
+        message(STATUS "Physics: PhysX not found - backend disabled")
+    endif()
+endif()
 
 # Publicly include the Engine's `include` folder for other projects (like Editor, Launcher)
 target_include_directories(Engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)

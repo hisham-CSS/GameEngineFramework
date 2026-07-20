@@ -29,4 +29,12 @@
 #include "../src/assets/AssetValidator.h"
 #include "../src/assets/ImportSettings.h"
 #include "../src/render/CSMSplits.h"
+// physics: backend-agnostic core. The concrete backends (Jolt/PhysX) are
+// deliberately NOT exported — callers select one by name through the
+// registry, so no consumer ever includes an SDK header.
+#include "../src/physics/PhysicsTypes.h"
+#include "../src/physics/PhysicsComponents.h"
+#include "../src/physics/IPhysicsBackend.h"
+#include "../src/physics/PhysicsBackendRegistry.h"
+#include "../src/physics/PhysicsWorld.h"
 
