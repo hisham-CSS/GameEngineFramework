@@ -32,7 +32,6 @@ add_library(Engine SHARED
     src/core/SceneSerializer.cpp
     src/core/ProjectSettings.h
     src/core/ProjectSettings.cpp
-    src/core/DemoGameplay.h
     src/core/FixedTimestep.h
     src/core/InputMap.h
     src/core/InputMap.cpp

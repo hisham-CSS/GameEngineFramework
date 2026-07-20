@@ -45,6 +45,7 @@ namespace MyCoreEngine {
 
     void SimplePhysicsBackend::destroyAllBodies() {
         bodies_.clear();
+        events_.clear();
     }
 
     size_t SimplePhysicsBackend::bodyCount() const {
@@ -56,7 +57,11 @@ namespace MyCoreEngine {
 
         // Collect static support surfaces once per step. Only the two shapes
         // that can act as ground here: infinite planes and static boxes.
+        events_.clear(); // events belong to THIS step only
+
         struct Support {
+            uint64_t id;
+            uint64_t userData;
             float topY;
             bool  infinite;      // plane: no horizontal bounds
             glm::vec3 min, max;  // box XZ bounds (world), when !infinite
@@ -66,11 +71,11 @@ namespace MyCoreEngine {
             if (b.desc.type != BodyType::Static) continue;
             const glm::vec3 c = b.state.position + b.desc.shape.offset;
             if (b.desc.shape.type == ShapeType::Plane) {
-                supports.push_back({ c.y, true, {}, {} });
+                supports.push_back({ id, b.desc.userData, c.y, true, {}, {} });
             }
             else if (b.desc.shape.type == ShapeType::Box) {
                 const glm::vec3 h = b.desc.shape.halfExtents;
-                supports.push_back({ c.y + h.y, false, c - h, c + h });
+                supports.push_back({ id, b.desc.userData, c.y + h.y, false, c - h, c + h });
             }
         }
 
@@ -88,17 +93,20 @@ namespace MyCoreEngine {
             const float bottom = shapeBottomOffset(b.desc.shape);
             const glm::vec3 p = b.state.position + b.desc.shape.offset;
             float restY = -std::numeric_limits<float>::infinity();
+            const Support* restOn = nullptr;
             for (const auto& s : supports) {
                 if (!s.infinite) {
                     if (p.x < s.min.x || p.x > s.max.x || p.z < s.min.z || p.z > s.max.z) {
                         continue; // outside this box's horizontal extent
                     }
                 }
-                if (s.topY > restY) restY = s.topY;
+                if (s.topY > restY) { restY = s.topY; restOn = &s; }
             }
+            uint64_t nowRestingOn = 0;
             if (restY > -std::numeric_limits<float>::infinity()) {
                 const float minCenterY = restY + bottom - b.desc.shape.offset.y;
                 if (b.state.position.y <= minCenterY && b.state.linearVelocity.y <= 0.f) {
+                    if (restOn) nowRestingOn = restOn->id;
                     b.state.position.y = minCenterY;
                     const float e = b.desc.material.restitution;
                     if (e > 0.f && std::fabs(b.state.linearVelocity.y) > 0.5f) {
@@ -112,6 +120,26 @@ namespace MyCoreEngine {
                         b.state.linearVelocity.z *= f;
                     }
                 }
+            }
+
+            // Begin/End transitions against the supporting body
+            if (nowRestingOn != b.restingOn) {
+                auto emit = [&](uint64_t otherId, ContactPhase phase) {
+                    if (otherId == 0) return;
+                    ContactEvent e;
+                    e.phase = phase;
+                    e.a = BodyId{ id };
+                    e.b = BodyId{ otherId };
+                    e.userDataA = b.desc.userData;
+                    const auto it = bodies_.find(otherId);
+                    e.userDataB = (it != bodies_.end()) ? it->second.desc.userData : 0ull;
+                    e.normal = { 0.f, 1.f, 0.f };
+                    e.point = b.state.position;
+                    events_.push_back(e);
+                };
+                emit(b.restingOn, ContactPhase::End);   // left the old support
+                emit(nowRestingOn, ContactPhase::Begin); // landed on a new one
+                b.restingOn = nowRestingOn;
             }
         }
     }

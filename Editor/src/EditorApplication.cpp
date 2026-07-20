@@ -322,10 +322,10 @@ void EditorApplication::Run() {
     // Demo gameplay (shared with the standalone player): spin entities named
     // "Hero". Only ticks between Play and Stop here — the gameplay gate is
     // off in edit mode.
-    MyCoreEngine::InstallDemoGameplay(*this, scene);
-    // Physics steps on the same fixed tick, as a SUBSCRIBER so it composes
-    // with the gameplay hook above instead of replacing it. Bodies are built
-    // on Play (startPlay_) and destroyed on Stop, so edit mode stays static.
+    // Physics steps on the fixed tick as a SUBSCRIBER, so a game's own
+    // gameplay hook (Application::SetFixedUpdate) still composes with it.
+    // Bodies are built on Play (startPlay_) and destroyed on Stop, so edit
+    // mode stays static.
     MyCoreEngine::InstallPhysics(*this, scene, physics_);
 
     RunLoop(scene, *shader);

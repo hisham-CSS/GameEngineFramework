@@ -100,6 +100,90 @@ namespace MyCoreEngine {
 
     } // namespace
 
+    // Collects Begin/End transitions from Jolt's contact callbacks.
+    //
+    // Three constraints from the SDK drive this design:
+    // 1. Callbacks run CONCURRENTLY on Jolt's job threads with every body
+    //    locked. We may only read, must not touch physics state, and must not
+    //    call any Jolt locking function (that deadlocks) -- so events go into
+    //    a buffer under OUR OWN mutex and are handed out after Update().
+    // 2. Contacts are per SUB-SHAPE pair, so one body pair can fire several
+    //    times. PhysicsSystem::WereBodiesInContact (valid only inside these
+    //    callbacks) collapses that to a true first-touch / last-separation.
+    // 3. OnContactRemoved receives only a SubShapeIDPair -- no bodies, which
+    //    may already be destroyed. User data therefore has to be cached when
+    //    the body is created.
+    class JoltContactCollector final : public JPH::ContactListener {
+    public:
+        void setSystem(JPH::PhysicsSystem* s) { system_ = s; }
+
+        void rememberBody(uint32_t idx, uint64_t userData) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            userData_[idx] = userData;
+        }
+        void forgetBody(uint32_t idx) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            userData_.erase(idx);
+        }
+        void clearBodies() {
+            std::lock_guard<std::mutex> lock(mutex_);
+            userData_.clear();
+        }
+
+        void beginStep() {
+            std::lock_guard<std::mutex> lock(mutex_);
+            events_.clear();
+        }
+        // Called after Update() returns, i.e. single-threaded again.
+        const std::vector<ContactEvent>& events() const { return events_; }
+
+        void OnContactAdded(const JPH::Body& b1, const JPH::Body& b2,
+                            const JPH::ContactManifold& manifold,
+                            JPH::ContactSettings& settings) override {
+            // already touching via another sub-shape pair -> not a new touch
+            if (system_ && system_->WereBodiesInContact(b1.GetID(), b2.GetID())) return;
+
+            ContactEvent e;
+            e.phase = ContactPhase::Begin;
+            e.a = BodyId{ b1.GetID().GetIndexAndSequenceNumber() };
+            e.b = BodyId{ b2.GetID().GetIndexAndSequenceNumber() };
+            e.userDataA = b1.GetUserData();
+            e.userDataB = b2.GetUserData();
+            e.isTrigger = b1.IsSensor() || b2.IsSensor() || settings.mIsSensor;
+            e.normal = toGlm(manifold.mWorldSpaceNormal);
+            if (manifold.mRelativeContactPointsOn1.size() > 0) {
+                const JPH::RVec3 p = manifold.GetWorldSpaceContactPointOn1(0);
+                e.point = { float(p.GetX()), float(p.GetY()), float(p.GetZ()) };
+            }
+            std::lock_guard<std::mutex> lock(mutex_);
+            events_.push_back(e);
+        }
+
+        void OnContactRemoved(const JPH::SubShapeIDPair& pair) override {
+            // still touching through another sub-shape pair -> not a real exit
+            if (system_ && system_->WereBodiesInContact(pair.GetBody1ID(), pair.GetBody2ID())) return;
+
+            ContactEvent e;
+            e.phase = ContactPhase::End;
+            const uint32_t i1 = pair.GetBody1ID().GetIndexAndSequenceNumber();
+            const uint32_t i2 = pair.GetBody2ID().GetIndexAndSequenceNumber();
+            e.a = BodyId{ i1 };
+            e.b = BodyId{ i2 };
+            std::lock_guard<std::mutex> lock(mutex_);
+            // cached at create time: the bodies themselves may be gone, and
+            // we cannot lock them here anyway
+            if (auto it = userData_.find(i1); it != userData_.end()) e.userDataA = it->second;
+            if (auto it = userData_.find(i2); it != userData_.end()) e.userDataB = it->second;
+            events_.push_back(e);
+        }
+
+    private:
+        JPH::PhysicsSystem* system_ = nullptr;
+        mutable std::mutex mutex_;
+        std::vector<ContactEvent> events_;
+        std::unordered_map<uint32_t, uint64_t> userData_;
+    };
+
     struct JoltPhysicsBackend::Impl {
         std::unique_ptr<JPH::PhysicsSystem>        system;
         std::unique_ptr<JPH::TempAllocatorImpl>    tempAllocator;
@@ -107,6 +191,7 @@ namespace MyCoreEngine {
         BPLayerInterfaceImpl                       bpLayers;
         ObjectVsBroadPhaseFilterImpl               objVsBp;
         ObjectLayerPairFilterImpl                  objPair;
+        JoltContactCollector                       contacts;
         std::unordered_set<uint32_t>               bodies; // live BodyID indices
         PhysicsSettings                            settings{};
     };
@@ -133,6 +218,11 @@ namespace MyCoreEngine {
                        settings.maxBodyPairs, settings.maxContactConstraints,
                        I.bpLayers, I.objVsBp, I.objPair);
         I.system->SetGravity(toJolt(settings.gravity));
+
+        // contact events: the collector needs the system to call
+        // WereBodiesInContact from inside the callbacks
+        I.contacts.setSystem(I.system.get());
+        I.system->SetContactListener(&I.contacts);
         return true;
     }
 
@@ -140,6 +230,8 @@ namespace MyCoreEngine {
         auto& I = *impl_;
         if (I.system) {
             destroyAllBodies();
+            // the listener is a member of Impl; unhook before the system dies
+            I.system->SetContactListener(nullptr);
             I.system.reset();
         }
         I.jobSystem.reset();
@@ -212,6 +304,8 @@ namespace MyCoreEngine {
 
         const uint32_t idx = body->GetID().GetIndexAndSequenceNumber();
         I.bodies.insert(idx);
+        // OnContactRemoved gets no Body pointers, so cache the payload now
+        I.contacts.rememberBody(idx, desc.userData);
         return BodyId{ static_cast<uint64_t>(idx) };
     }
 
@@ -223,6 +317,7 @@ namespace MyCoreEngine {
         bi.RemoveBody(bid);
         bi.DestroyBody(bid);
         I.bodies.erase(static_cast<uint32_t>(id.value));
+        I.contacts.forgetBody(static_cast<uint32_t>(id.value));
     }
 
     void JoltPhysicsBackend::destroyAllBodies() {
@@ -235,6 +330,7 @@ namespace MyCoreEngine {
             bi.DestroyBody(bid);
         }
         I.bodies.clear();
+        I.contacts.clearBodies();
     }
 
     size_t JoltPhysicsBackend::bodyCount() const { return impl_->bodies.size(); }
@@ -242,6 +338,7 @@ namespace MyCoreEngine {
     void JoltPhysicsBackend::step(float fixedDt) {
         auto& I = *impl_;
         if (!I.system || fixedDt <= 0.f) return;
+        I.contacts.beginStep(); // events belong to THIS step only
         // 1 collision step per update: the engine already supplies a fixed,
         // small dt, so Jolt does not need to subdivide it further.
         I.system->Update(fixedDt, 1, I.tempAllocator.get(), I.jobSystem.get());
@@ -327,6 +424,10 @@ namespace MyCoreEngine {
             out.normal = toGlm(lock.GetBody().GetWorldSpaceSurfaceNormal(hit.mSubShapeID2, pt));
         }
         return true;
+    }
+
+    const std::vector<ContactEvent>& JoltPhysicsBackend::contactEvents() const {
+        return impl_->contacts.events();
     }
 
     void JoltPhysicsBackend::setGravity(const glm::vec3& g) {

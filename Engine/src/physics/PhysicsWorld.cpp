@@ -215,6 +215,60 @@ namespace MyCoreEngine {
             // simulated pose never reaches modelMatrix or the renderer.
             t->dirty = true;
         }
+
+        // 4) Fan out collision/trigger events. Deliberately LAST: listeners
+        // see transforms that already reflect this step.
+        dispatchContacts_(reg);
+    }
+
+    PhysicsWorld::ListenerHandle PhysicsWorld::OnCollision(CollisionCallback cb) {
+        if (!cb) return 0;
+        const ListenerHandle h = ++nextListener_;
+        listeners_.push_back({ h, std::move(cb) });
+        return h;
+    }
+
+    void PhysicsWorld::RemoveCollisionListener(ListenerHandle h) {
+        listeners_.erase(
+            std::remove_if(listeners_.begin(), listeners_.end(),
+                [h](const Listener& l) { return l.handle == h; }),
+            listeners_.end());
+    }
+
+    void PhysicsWorld::ClearCollisionListeners() { listeners_.clear(); }
+
+    bool PhysicsWorld::BackendReportsContacts() const {
+        return backend_ && backend_->supportsContactEvents();
+    }
+
+    void PhysicsWorld::dispatchContacts_(entt::registry& reg) {
+        if (listeners_.empty() || !backend_) return;
+
+        for (const ContactEvent& ce : backend_->contactEvents()) {
+            CollisionEvent e;
+            e.phase = ce.phase;
+            e.isTrigger = ce.isTrigger;
+            e.point = ce.point;
+            e.normal = ce.normal;
+
+            // userData carries the entity handle; validate it, because an
+            // End event can name a body whose entity was destroyed during
+            // the very step that produced the event.
+            auto resolve = [&reg](uint64_t ud) -> entt::entity {
+                const auto e = static_cast<entt::entity>(static_cast<uint32_t>(ud));
+                return reg.valid(e) ? e : entt::null;
+            };
+            e.a = resolve(ce.userDataA);
+            e.b = resolve(ce.userDataB);
+            if (e.a == entt::null && e.b == entt::null) continue;
+
+            // Copy the list: a listener is allowed to unsubscribe itself,
+            // which would otherwise invalidate the iterator mid-dispatch.
+            const auto snapshot = listeners_;
+            for (const auto& l : snapshot) {
+                if (l.cb) l.cb(e);
+            }
+        }
     }
 
     bool PhysicsWorld::Raycast(const glm::vec3& origin, const glm::vec3& direction,

@@ -90,6 +90,33 @@ namespace MyCoreEngine {
         uint64_t  userData = 0; // mirrors BodyDesc::userData of the body hit
     };
 
+    // ---- collision / trigger events ----------------------------------
+    // Reported per fixed step. Only the transitions are surfaced (not the
+    // per-frame "still touching" stream): Begin/End is what gameplay
+    // actually reacts to, and every backend can report it consistently,
+    // whereas "persisted" semantics differ enough between engines to leak.
+    enum class ContactPhase {
+        Begin, // the pair started touching this step
+        End    // the pair stopped touching this step
+    };
+
+    struct ContactEvent {
+        ContactPhase phase = ContactPhase::Begin;
+        BodyId a{}, b{};
+        // Mirrors BodyDesc::userData for each body (the engine stores the
+        // entity handle), so a listener can resolve entities without the
+        // backend knowing what an entity is.
+        uint64_t userDataA = 0, userDataB = 0;
+        // True when either side is a trigger/sensor: those pairs report
+        // overlap but generate no collision response.
+        bool isTrigger = false;
+        // Representative world contact point/normal. Only meaningful on
+        // Begin — an End event fires when the pair separates, and some
+        // backends have no manifold left to report by then.
+        glm::vec3 point{ 0.f };
+        glm::vec3 normal{ 0.f };
+    };
+
     // World-creation parameters. Kept deliberately small and generic: anything
     // that only one library understands belongs in that backend, not here.
     struct PhysicsSettings {

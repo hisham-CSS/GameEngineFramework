@@ -55,6 +55,21 @@ namespace MyCoreEngine {
         virtual bool raycast(const glm::vec3& origin, const glm::vec3& direction,
                              float maxDistance, RayHit& out) const = 0;
 
+        // ---- collision / trigger events ----
+        // Transitions recorded during the most recent step(), in no
+        // particular order. The buffer is cleared at the START of each step,
+        // so a caller reads it after step() and before the next one.
+        //
+        // Backends MUST accumulate these on their own lock: Jolt invokes
+        // contact callbacks concurrently from its job threads (with all
+        // bodies locked, read-only). Collecting during the step and exposing
+        // only afterwards is what lets listener code stay single-threaded.
+        virtual const std::vector<ContactEvent>& contactEvents() const {
+            static const std::vector<ContactEvent> kNone;
+            return kNone;
+        }
+        virtual bool supportsContactEvents() const { return false; }
+
         // ---- world settings ----
         virtual void      setGravity(const glm::vec3& g) = 0;
         virtual glm::vec3 gravity() const = 0;

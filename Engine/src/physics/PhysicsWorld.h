@@ -52,6 +52,30 @@ namespace MyCoreEngine {
         // no backend / before Build(): it simply does nothing.
         void Step(entt::registry& reg, float fixedDt);
 
+        // ---- collision / trigger events ----
+        // A backend ContactEvent with both sides resolved to ECS entities.
+        struct CollisionEvent {
+            ContactPhase phase = ContactPhase::Begin;
+            entt::entity a = entt::null;
+            entt::entity b = entt::null;
+            bool isTrigger = false;
+            glm::vec3 point{ 0.f };
+            glm::vec3 normal{ 0.f };
+        };
+        using CollisionCallback = std::function<void(const CollisionEvent&)>;
+        using ListenerHandle = uint32_t;
+
+        // Listeners fire from Step(), AFTER the backend has finished
+        // simulating — so they run single-threaded on the fixed tick even
+        // though Jolt reports contacts from its job threads. That means a
+        // listener may safely touch the registry.
+        // Adding/removing a body from a listener is still unsafe (it would
+        // mutate the map being iterated); defer such work to the next tick.
+        ListenerHandle OnCollision(CollisionCallback cb);
+        void RemoveCollisionListener(ListenerHandle h);
+        void ClearCollisionListeners();
+        bool BackendReportsContacts() const;
+
         // ---- queries / control ----
         bool Raycast(const glm::vec3& origin, const glm::vec3& direction,
                      float maxDistance, RayHit& out) const;
@@ -69,6 +93,8 @@ namespace MyCoreEngine {
         // Fills `out` from whichever collider component the entity carries.
         // false when the entity has no collider at all.
         static bool shapeFromEntity_(entt::registry& reg, entt::entity e, ShapeDesc& out);
+        // Resolves backend contact events to entities and fans them out.
+        void dispatchContacts_(entt::registry& reg);
 
         std::unique_ptr<IPhysicsBackend> backend_;
         std::string      backendName_;
@@ -78,6 +104,10 @@ namespace MyCoreEngine {
         std::unordered_map<entt::entity, BodyId> entityToBody_;
         std::unordered_map<uint64_t, entt::entity> bodyToEntity_;
         std::vector<entt::entity> skipped_;
+
+        struct Listener { ListenerHandle handle; CollisionCallback cb; };
+        std::vector<Listener> listeners_;
+        ListenerHandle nextListener_ = 0;
     };
 
 } // namespace MyCoreEngine

@@ -218,6 +218,107 @@ TEST(PhysicsConformance, GravitySettingIsHonoured) {
     }
 }
 
+// ---- contact events: same assertions for every backend --------------------
+
+TEST(PhysicsConformance, LandingReportsABeginContact) {
+    for (const auto& name : AllBackends()) {
+        Fixture f;
+        ASSERT_TRUE(f.make(name, 3.f)) << name;
+        if (!f.be->supportsContactEvents()) { f.be->shutdown(); continue; }
+
+        bool sawBegin = false;
+        bool pairedCorrectly = false;
+        for (int i = 0; i < 240 && !sawBegin; ++i) {
+            f.be->step(1.f / 60.f);
+            for (const auto& e : f.be->contactEvents()) {
+                if (e.phase != ContactPhase::Begin) continue;
+                sawBegin = true;
+                // the pair must be ball(222) + ground(111), in either order
+                pairedCorrectly =
+                    (e.userDataA == 222 && e.userDataB == 111) ||
+                    (e.userDataA == 111 && e.userDataB == 222);
+            }
+        }
+        EXPECT_TRUE(sawBegin) << name << ": landing produced no Begin contact";
+        EXPECT_TRUE(pairedCorrectly)
+            << name << ": contact userData did not identify both bodies";
+        f.be->shutdown();
+    }
+}
+
+TEST(PhysicsConformance, ContactEventsAreClearedEachStep) {
+    for (const auto& name : AllBackends()) {
+        Fixture f;
+        ASSERT_TRUE(f.make(name, 3.f)) << name;
+        if (!f.be->supportsContactEvents()) { f.be->shutdown(); continue; }
+
+        f.settle(300); // land and come fully to rest
+        // once resting, steady state must not keep re-reporting Begin: the
+        // API surfaces TRANSITIONS, not a per-step "still touching" stream
+        int beginsWhileResting = 0;
+        for (int i = 0; i < 60; ++i) {
+            f.be->step(1.f / 60.f);
+            for (const auto& e : f.be->contactEvents()) {
+                if (e.phase == ContactPhase::Begin) ++beginsWhileResting;
+            }
+        }
+        EXPECT_EQ(beginsWhileResting, 0)
+            << name << ": resting contact re-reported Begin (events not transition-only)";
+        f.be->shutdown();
+    }
+}
+
+// A trigger must report overlap but apply NO collision response — the body
+// falls straight through it. Skipped on backends that declare no trigger
+// support rather than asserted-around.
+TEST(PhysicsConformance, TriggerReportsOverlapWithoutBlocking) {
+    for (const auto& name : AllBackends()) {
+        auto be = PhysicsBackendRegistry::Create(name);
+        ASSERT_NE(be, nullptr) << name;
+        PhysicsSettings s{};
+        ASSERT_TRUE(be->initialize(s)) << name;
+        if (!be->supportsTriggers() || !be->supportsContactEvents()) {
+            be->shutdown();
+            continue;
+        }
+
+        // static trigger volume sitting at y=2
+        BodyDesc t{};
+        t.type = BodyType::Static;
+        t.shape.type = ShapeType::Box;
+        t.shape.halfExtents = { 4.f, 1.f, 4.f };
+        t.position = { 0.f, 2.f, 0.f };
+        t.isTrigger = true;
+        t.userData = 777;
+        ASSERT_TRUE(be->createBody(t).valid()) << name;
+
+        BodyDesc b{};
+        b.type = BodyType::Dynamic;
+        b.shape.type = ShapeType::Sphere;
+        b.shape.radius = 0.25f;
+        b.position = { 0.f, 8.f, 0.f };
+        b.mass = 1.f;
+        b.userData = 888;
+        const BodyId ball = be->createBody(b);
+        ASSERT_TRUE(ball.valid()) << name;
+
+        bool sawTriggerBegin = false;
+        for (int i = 0; i < 300; ++i) {
+            be->step(1.f / 60.f);
+            for (const auto& e : be->contactEvents()) {
+                if (e.isTrigger && e.phase == ContactPhase::Begin) sawTriggerBegin = true;
+            }
+        }
+        EXPECT_TRUE(sawTriggerBegin) << name << ": trigger overlap was never reported";
+
+        BodyState st{};
+        ASSERT_TRUE(be->getBodyState(ball, st)) << name;
+        EXPECT_LT(st.position.y, 1.0f)
+            << name << ": body was blocked by a trigger (triggers must not collide)";
+        be->shutdown();
+    }
+}
+
 // ---- PhysicsWorld <-> ECS integration -------------------------------------
 
 namespace {
@@ -324,6 +425,55 @@ TEST(PhysicsWorldTest, SwitchingBackendsTearsDownCleanly) {
     EXPECT_EQ(world.BodyCount(), 0u);
     // and stepping a backend-less world is a no-op, not a crash
     world.Step(scene.registry, 1.f / 60.f);
+}
+
+// Events must reach a listener with both sides resolved to ECS entities —
+// that mapping is the whole point of routing them through PhysicsWorld.
+TEST(PhysicsWorldTest, CollisionListenerReceivesResolvedEntities) {
+    for (const auto& name : AllBackends()) {
+        Scene scene;
+        const entt::entity box = buildFallScene(scene);
+
+        PhysicsWorld world;
+        ASSERT_TRUE(world.SetBackend(name)) << name;
+        if (!world.BackendReportsContacts()) continue;
+        world.Build(scene.registry);
+
+        int begins = 0;
+        bool boxInvolved = false;
+        bool bothResolved = true;
+        world.OnCollision([&](const PhysicsWorld::CollisionEvent& e) {
+            if (e.phase != ContactPhase::Begin) return;
+            ++begins;
+            if (e.a == box || e.b == box) boxInvolved = true;
+            if (e.a == entt::null || e.b == entt::null) bothResolved = false;
+        });
+
+        for (int i = 0; i < 300 && begins == 0; ++i) {
+            world.Step(scene.registry, 1.f / 60.f);
+            scene.UpdateTransforms();
+        }
+        EXPECT_GT(begins, 0) << name << ": listener never fired";
+        EXPECT_TRUE(boxInvolved) << name << ": falling box was not in the contact";
+        EXPECT_TRUE(bothResolved) << name << ": an event had an unresolved entity";
+    }
+}
+
+TEST(PhysicsWorldTest, RemovedListenerStopsReceiving) {
+    Scene scene;
+    buildFallScene(scene);
+    PhysicsWorld world;
+    ASSERT_TRUE(world.SetBackend("Simple"));
+    world.Build(scene.registry);
+
+    int calls = 0;
+    const auto h = world.OnCollision([&](const PhysicsWorld::CollisionEvent&) { ++calls; });
+    world.RemoveCollisionListener(h);
+    for (int i = 0; i < 300; ++i) {
+        world.Step(scene.registry, 1.f / 60.f);
+        scene.UpdateTransforms();
+    }
+    EXPECT_EQ(calls, 0) << "a removed listener must not be called";
 }
 
 TEST(PhysicsWorldTest, RaycastMapsHitBackToEntity) {

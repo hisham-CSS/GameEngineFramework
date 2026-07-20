@@ -38,6 +38,9 @@ namespace MyCoreEngine {
         bool raycast(const glm::vec3& origin, const glm::vec3& direction,
                      float maxDistance, RayHit& out) const override;
 
+        const std::vector<ContactEvent>& contactEvents() const override;
+        bool supportsContactEvents() const override { return true; }
+
         void      setGravity(const glm::vec3& g) override;
         glm::vec3 gravity() const override;
 

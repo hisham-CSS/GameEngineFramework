@@ -43,6 +43,9 @@ namespace MyCoreEngine {
         bool raycast(const glm::vec3& origin, const glm::vec3& direction,
                      float maxDistance, RayHit& out) const override;
 
+        const std::vector<ContactEvent>& contactEvents() const override { return events_; }
+        bool supportsContactEvents() const override { return true; }
+
         void      setGravity(const glm::vec3& g) override { settings_.gravity = g; }
         glm::vec3 gravity() const override { return settings_.gravity; }
 
@@ -53,6 +56,9 @@ namespace MyCoreEngine {
             BodyDesc  desc{};
             BodyState state{};
             bool      alive = true;
+            // id of the support this body is currently resting on (0 = none),
+            // so Begin/End transitions can be detected between steps
+            uint64_t  restingOn = 0;
         };
 
         // Lowest point of a shape below its origin — used for resting contact.
@@ -60,6 +66,7 @@ namespace MyCoreEngine {
 
         PhysicsSettings settings_{};
         std::unordered_map<uint64_t, Body> bodies_;
+        std::vector<ContactEvent> events_;
         uint64_t nextId_ = 1; // 0 stays free so a zeroed BodyId is never valid
     };
 

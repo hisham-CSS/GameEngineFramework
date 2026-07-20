@@ -1,12 +1,12 @@
 #pragma once
-// One-call physics install, shared by BOTH hosts (editor and player) exactly
-// like InstallDemoGameplay — so "it works in Play" and "it works in the
-// shipped game" can never drift apart.
+// One-call physics install, shared by BOTH hosts (editor and player) — so
+// "it works in Play" and "it works in the shipped game" can never drift
+// apart.
 //
 // Uses Application::AddFixedUpdate (a SUBSCRIBER), never SetFixedUpdate:
-// the single primary slot already belongs to the game's gameplay hook, and
-// taking it would silently delete the game. Subscribers run after the
-// primary slot, so gameplay applies forces on a tick and the simulation
+// the single primary slot is reserved for a game's own gameplay hook, and
+// taking it would silently replace that game's logic. Subscribers run after
+// the primary slot, so gameplay applies forces on a tick and the simulation
 // integrates them in the same tick.
 
 #include "../core/Application.h"

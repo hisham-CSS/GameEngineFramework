@@ -30,6 +30,8 @@ namespace {
 }
 
 class PlayerApplication : public MyCoreEngine::Application {
+    // Outlives RunLoop: the fixed-tick subscriber captures it by reference.
+    MyCoreEngine::PhysicsWorld physics_;
 public:
     PlayerApplication() : Application(1280, 720, "Cat Splat Player") {}
 
@@ -66,9 +68,12 @@ public:
             return;
         }
 
-        // The player is always "playing": gameplay ticks from frame one
-        // (Application::gameplayEnabled_ defaults on; only the editor gates it).
-        InstallDemoGameplay(*this, scene);
+        // The player is always "playing": ticks run from frame one
+        // (Application::gameplayEnabled_ defaults on; only the editor gates
+        // it). There is no Play button here, so physics bodies are built
+        // right after the scene loads rather than on a play transition.
+        InstallPhysics(*this, scene, physics_);
+        physics_.Build(scene.registry);
 
         // Render through the scene's primary camera entity (Unity-style):
         // the editor's Game view shows the same thing. Scenes without a

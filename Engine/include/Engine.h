@@ -19,7 +19,6 @@
 #include "../src/core/Material.h"
 #include "../src/core/SceneSerializer.h"
 #include "../src/core/ProjectSettings.h"
-#include "../src/core/DemoGameplay.h"
 #include "../src/core/FixedTimestep.h"
 #include "../src/core/InputMap.h"
 #include "../src/core/JobSystem.h"

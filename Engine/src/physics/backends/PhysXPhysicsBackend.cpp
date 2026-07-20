@@ -58,6 +58,113 @@ namespace MyCoreEngine {
             }
         }
 
+        // THE trap: PxDefaultSimulationFilterShader produces perfectly
+        // correct collisions and NEVER calls onContact -- no error, no
+        // warning, nothing in PVD. Contact reports only happen if the shader
+        // explicitly raises eNOTIFY_TOUCH_FOUND/LOST alongside
+        // eDETECT_DISCRETE_CONTACT. Must be a plain function pointer
+        // (stateless), so it lives here as a free function.
+        PxFilterFlags contactReportingFilterShader(
+            PxFilterObjectAttributes attributes0, PxFilterData filterData0,
+            PxFilterObjectAttributes attributes1, PxFilterData filterData1,
+            PxPairFlags& pairFlags, const void* constantBlock, PxU32 constantBlockSize)
+        {
+            PX_UNUSED(filterData0); PX_UNUSED(filterData1);
+            PX_UNUSED(constantBlock); PX_UNUSED(constantBlockSize);
+
+            // Triggers report overlap only: giving them contact/solver flags
+            // is unsupported and silently degrades enter/exit reporting.
+            if (PxFilterObjectIsTrigger(attributes0) || PxFilterObjectIsTrigger(attributes1)) {
+                pairFlags = PxPairFlag::eTRIGGER_DEFAULT;
+                return PxFilterFlag::eDEFAULT;
+            }
+            pairFlags = PxPairFlag::eCONTACT_DEFAULT
+                      | PxPairFlag::eNOTIFY_TOUCH_FOUND
+                      | PxPairFlag::eNOTIFY_TOUCH_LOST
+                      | PxPairFlag::eNOTIFY_CONTACT_POINTS;
+            return PxFilterFlag::eDEFAULT;
+        }
+
+        // Translates PhysX callbacks into engine ContactEvents. PhysX invokes
+        // these during fetchResults() on the calling thread, but the buffer is
+        // still guarded so the contract matches Jolt's exactly.
+        class PhysXContactCollector final : public PxSimulationEventCallback {
+        public:
+            void beginStep() { events_.clear(); }
+            const std::vector<ContactEvent>& events() const { return events_; }
+
+            void onContact(const PxContactPairHeader& header,
+                           const PxContactPair* pairs, PxU32 nbPairs) override {
+                // actors reported for TOUCH_LOST may already be deleted
+                if (header.flags & (PxContactPairHeaderFlag::eREMOVED_ACTOR_0 |
+                                    PxContactPairHeaderFlag::eREMOVED_ACTOR_1)) {
+                    return;
+                }
+                for (PxU32 i = 0; i < nbPairs; ++i) {
+                    const PxContactPair& p = pairs[i];
+                    if (p.flags & (PxContactPairFlag::eREMOVED_SHAPE_0 |
+                                   PxContactPairFlag::eREMOVED_SHAPE_1)) {
+                        continue;
+                    }
+                    // PxPairFlags is a PxFlags<>; compare with isSet(), not != 0
+                    const bool found = p.events.isSet(PxPairFlag::eNOTIFY_TOUCH_FOUND);
+                    const bool lost = p.events.isSet(PxPairFlag::eNOTIFY_TOUCH_LOST);
+                    if (!found && !lost) continue;
+
+                    ContactEvent e;
+                    e.phase = found ? ContactPhase::Begin : ContactPhase::End;
+                    e.a = BodyId{ reinterpret_cast<uint64_t>(header.actors[0]) };
+                    e.b = BodyId{ reinterpret_cast<uint64_t>(header.actors[1]) };
+                    e.userDataA = userDataOf(header.actors[0]);
+                    e.userDataB = userDataOf(header.actors[1]);
+                    e.isTrigger = false;
+                    if (found && p.contactCount > 0) {
+                        PxContactPairPoint pts[8];
+                        const PxU32 n = p.extractContacts(pts, 8);
+                        if (n > 0) {
+                            e.point = { pts[0].position.x, pts[0].position.y, pts[0].position.z };
+                            e.normal = { pts[0].normal.x, pts[0].normal.y, pts[0].normal.z };
+                        }
+                    }
+                    events_.push_back(e);
+                }
+            }
+
+            void onTrigger(PxTriggerPair* pairs, PxU32 count) override {
+                for (PxU32 i = 0; i < count; ++i) {
+                    const PxTriggerPair& p = pairs[i];
+                    if (p.flags & (PxTriggerPairFlag::eREMOVED_SHAPE_TRIGGER |
+                                   PxTriggerPairFlag::eREMOVED_SHAPE_OTHER)) {
+                        continue;
+                    }
+                    ContactEvent e;
+                    // status is exactly TOUCH_FOUND or TOUCH_LOST, never PERSISTS
+                    // status is a plain enum here, exactly FOUND or LOST
+                    e.phase = (p.status == PxPairFlag::eNOTIFY_TOUCH_FOUND)
+                        ? ContactPhase::Begin : ContactPhase::End;
+                    e.a = BodyId{ reinterpret_cast<uint64_t>(p.triggerActor) };
+                    e.b = BodyId{ reinterpret_cast<uint64_t>(p.otherActor) };
+                    e.userDataA = userDataOf(p.triggerActor);
+                    e.userDataB = userDataOf(p.otherActor);
+                    e.isTrigger = true;
+                    events_.push_back(e);
+                }
+            }
+
+            // Required: all six virtuals are pure, so omitting any one leaves
+            // the class abstract.
+            void onConstraintBreak(PxConstraintInfo*, PxU32) override {}
+            void onWake(PxActor**, PxU32) override {}
+            void onSleep(PxActor**, PxU32) override {}
+            void onAdvance(const PxRigidBody* const*, const PxTransform*, const PxU32) override {}
+
+        private:
+            static uint64_t userDataOf(const PxActor* a) {
+                return a ? static_cast<uint64_t>(reinterpret_cast<uintptr_t>(a->userData)) : 0ull;
+            }
+            std::vector<ContactEvent> events_;
+        };
+
         inline PxVec3 toPx(const glm::vec3& v) { return PxVec3(v.x, v.y, v.z); }
         inline glm::vec3 toGlm(const PxVec3& v) { return { v.x, v.y, v.z }; }
         inline PxQuat toPx(const glm::quat& q) { return PxQuat(q.x, q.y, q.z, q.w); }
@@ -69,6 +176,7 @@ namespace MyCoreEngine {
         PxScene*                 scene = nullptr;
         PxDefaultCpuDispatcher*  dispatcher = nullptr;
         PxMaterial*              defaultMaterial = nullptr;
+        PhysXContactCollector    contacts;
         std::unordered_set<PxActor*> actors;
         PhysicsSettings          settings{};
         bool                     acquired = false;
@@ -92,13 +200,22 @@ namespace MyCoreEngine {
         I.dispatcher = PxDefaultCpuDispatcherCreate(settings.workerThreads);
         if (!I.dispatcher) { shutdown(); return false; }
         desc.cpuDispatcher = I.dispatcher;
-        desc.filterShader = PxDefaultSimulationFilterShader;
+        // custom shader: the default one never fires contact reports
+        desc.filterShader = contactReportingFilterShader;
+        // static/kinematic pairs are filtered out BEFORE the shader runs, so
+        // a kinematic body entering a static trigger would report nothing
+        desc.kineKineFilteringMode = PxPairFilteringMode::eKEEP;
+        desc.staticKineFilteringMode = PxPairFilteringMode::eKEEP;
 
         I.scene = physics->createScene(desc);
         if (!I.scene) { shutdown(); return false; }
 
         I.defaultMaterial = physics->createMaterial(0.5f, 0.5f, 0.0f);
         if (!I.defaultMaterial) { shutdown(); return false; }
+
+        // the scene does NOT take ownership: the collector is an Impl member
+        // so it outlives the scene, and is unhooked in shutdown()
+        I.scene->setSimulationEventCallback(&I.contacts);
         return true;
     }
 
@@ -106,7 +223,11 @@ namespace MyCoreEngine {
         auto& I = *impl_;
         destroyAllBodies();
         if (I.defaultMaterial) { I.defaultMaterial->release(); I.defaultMaterial = nullptr; }
-        if (I.scene) { I.scene->release(); I.scene = nullptr; }
+        if (I.scene) {
+            I.scene->setSimulationEventCallback(nullptr);
+            I.scene->release();
+            I.scene = nullptr;
+        }
         if (I.dispatcher) { I.dispatcher->release(); I.dispatcher = nullptr; }
         if (I.acquired) { releaseGlobals(); I.acquired = false; }
     }
@@ -229,6 +350,7 @@ namespace MyCoreEngine {
     void PhysXPhysicsBackend::step(float fixedDt) {
         auto& I = *impl_;
         if (!I.scene || fixedDt <= 0.f) return;
+        I.contacts.beginStep(); // events belong to THIS step only
         I.scene->simulate(fixedDt);
         I.scene->fetchResults(true); // block: the engine wants the result now
     }
@@ -326,6 +448,10 @@ namespace MyCoreEngine {
             ? static_cast<uint64_t>(reinterpret_cast<uintptr_t>(buf.block.actor->userData))
             : 0ull;
         return true;
+    }
+
+    const std::vector<ContactEvent>& PhysXPhysicsBackend::contactEvents() const {
+        return impl_->contacts.events();
     }
 
     void PhysXPhysicsBackend::setGravity(const glm::vec3& g) {
