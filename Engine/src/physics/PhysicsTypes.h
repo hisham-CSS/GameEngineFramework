@@ -115,6 +115,17 @@ namespace MyCoreEngine {
         // backends have no manifold left to report by then.
         glm::vec3 point{ 0.f };
         glm::vec3 normal{ 0.f };
+        // Impact strength along the normal, in newton-seconds (kg*m/s).
+        // Scales with mass and closing speed, so it is the value to drive
+        // impact audio, damage, and particle intensity from. 0 on End events.
+        //
+        // FIDELITY DIFFERS BY BACKEND, deliberately surfaced rather than
+        // hidden: PhysX reports the SOLVER's actual applied impulse, while
+        // Jolt's contact callback runs BEFORE the solver, so its value is an
+        // estimate (effective mass x closing speed) — the right order of
+        // magnitude and monotonic in impact speed, but not solver-exact.
+        // Compare impulses within one backend, not across two.
+        float impulse = 0.f;
     };
 
     // World-creation parameters. Kept deliberately small and generic: anything

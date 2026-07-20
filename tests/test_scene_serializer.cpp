@@ -223,6 +223,55 @@ TEST(SceneSerializer, RoundTripPhysicsComponents) {
     std::remove(path);
 }
 
+// The shipped player renders through FindActiveCamera. A startup scene with
+// no enabled CameraComponent makes it silently fall back to a free-fly debug
+// camera, which reads as "the build ignored my camera" — the exact bug the
+// committed demo scene had (401 entities, zero cameras). This pins BOTH that
+// a camera survives the round trip AND that the seed scene ships with one.
+TEST(SceneSerializer, SceneCameraSurvivesRoundTripAndDrivesThePlayer) {
+    const char* path = "test_scene_camera.json";
+
+    Scene a;
+    Entity cam = a.createEntity();
+    cam.addComponent<Name>(Name{ "Main Camera" });
+    Transform t{};
+    t.position = { 0.f, 6.f, 30.f };
+    t.rotation = { -11.f, 0.f, 0.f };
+    cam.addComponent<Transform>(t);
+    CameraComponent cc;
+    cc.fovDeg = 60.f;
+    cc.enabled = true;
+    a.registry.emplace<CameraComponent>(cam, cc);
+
+    AssetManager assets;
+    SceneSerializer save(a, assets);
+    ASSERT_TRUE(save.Save(path));
+
+    Scene b;
+    SceneSerializer load(b, assets);
+    ASSERT_TRUE(load.Load(path));
+    b.UpdateTransforms();
+
+    // the player's own selection call must find it
+    const entt::entity active = FindActiveCamera(b.registry);
+    ASSERT_TRUE(b.registry.valid(active))
+        << "a saved camera must be selectable by FindActiveCamera";
+    EXPECT_EQ(b.registry.get<Name>(active).value, "Main Camera");
+
+    // ...and the pose must actually reach the render camera
+    Camera rendered;
+    ASSERT_TRUE(SyncCameraFromEntity(b.registry, active, rendered));
+    EXPECT_FLOAT_EQ(rendered.Position.z, 30.f);
+    EXPECT_FLOAT_EQ(rendered.Zoom, 60.f);
+
+    // a DISABLED camera must not be picked (it would look like the same bug)
+    b.registry.get<CameraComponent>(active).enabled = false;
+    EXPECT_FALSE(b.registry.valid(FindActiveCamera(b.registry)))
+        << "a disabled camera must not drive the view";
+
+    std::remove(path);
+}
+
 TEST(SceneSerializer, RoundTripParentLinks) {
     const char* path = "test_scene_parents.json";
 

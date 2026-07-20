@@ -155,6 +155,32 @@ namespace MyCoreEngine {
                 const JPH::RVec3 p = manifold.GetWorldSpaceContactPointOn1(0);
                 e.point = { float(p.GetX()), float(p.GetY()), float(p.GetZ()) };
             }
+
+            // Impulse ESTIMATE. Jolt calls this before the solver runs, so
+            // the applied impulse does not exist yet; approximate the one
+            // needed to cancel the closing velocity:
+            //     j = closingSpeed / (1/m1 + 1/m2)
+            // Static bodies have inverse mass 0, which correctly collapses
+            // this to the moving body's own mass. Reading velocities/motion
+            // properties is allowed here (bodies are locked, read-only).
+            {
+                const JPH::Vec3 n = manifold.mWorldSpaceNormal;
+                const JPH::RVec3 cp = manifold.mRelativeContactPointsOn1.size() > 0
+                    ? manifold.GetWorldSpaceContactPointOn1(0)
+                    : manifold.mBaseOffset;
+                const JPH::Vec3 v1 = b1.GetPointVelocity(cp);
+                const JPH::Vec3 v2 = b2.GetPointVelocity(cp);
+                // normal points from body 1 toward body 2
+                const float closing = (v1 - v2).Dot(n);
+                if (closing > 0.f) {
+                    const float invM1 = b1.GetMotionType() == JPH::EMotionType::Dynamic
+                        ? b1.GetMotionProperties()->GetInverseMass() : 0.f;
+                    const float invM2 = b2.GetMotionType() == JPH::EMotionType::Dynamic
+                        ? b2.GetMotionProperties()->GetInverseMass() : 0.f;
+                    const float invSum = invM1 + invM2;
+                    if (invSum > 1e-8f) e.impulse = closing / invSum;
+                }
+            }
             std::lock_guard<std::mutex> lock(mutex_);
             events_.push_back(e);
         }

@@ -124,6 +124,11 @@ namespace MyCoreEngine {
                         if (n > 0) {
                             e.point = { pts[0].position.x, pts[0].position.y, pts[0].position.z };
                             e.normal = { pts[0].normal.x, pts[0].normal.y, pts[0].normal.z };
+                            // the SOLVER's applied impulse (PhysX reports
+                            // post-solve), summed over the manifold points
+                            float total = 0.f;
+                            for (PxU32 k = 0; k < n; ++k) total += pts[k].impulse.magnitude();
+                            e.impulse = total;
                         }
                     }
                     events_.push_back(e);

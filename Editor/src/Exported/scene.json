@@ -8022,6 +8022,33 @@
           1.0
         ]
       }
+    },
+    {
+      "name": "Main Camera",
+      "transform": {
+        "position": [
+          0.0,
+          6.0,
+          30.0
+        ],
+        "rotation": [
+          -11.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "camera": {
+        "fovDeg": 60.0,
+        "nearClip": 0.1,
+        "farClip": 1000.0,
+        "priority": 0,
+        "enabled": true
+      }
     }
   ],
   "settings": {

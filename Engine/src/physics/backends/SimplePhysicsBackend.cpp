@@ -103,10 +103,14 @@ namespace MyCoreEngine {
                 if (s.topY > restY) { restY = s.topY; restOn = &s; }
             }
             uint64_t nowRestingOn = 0;
+            float landingImpulse = 0.f;
             if (restY > -std::numeric_limits<float>::infinity()) {
                 const float minCenterY = restY + bottom - b.desc.shape.offset.y;
                 if (b.state.position.y <= minCenterY && b.state.linearVelocity.y <= 0.f) {
                     if (restOn) nowRestingOn = restOn->id;
+                    // impulse needed to cancel the downward velocity
+                    landingImpulse = std::fabs(b.state.linearVelocity.y) *
+                                     ((b.desc.mass > 0.f) ? b.desc.mass : 1.f);
                     b.state.position.y = minCenterY;
                     const float e = b.desc.material.restitution;
                     if (e > 0.f && std::fabs(b.state.linearVelocity.y) > 0.5f) {
@@ -135,6 +139,7 @@ namespace MyCoreEngine {
                     e.userDataB = (it != bodies_.end()) ? it->second.desc.userData : 0ull;
                     e.normal = { 0.f, 1.f, 0.f };
                     e.point = b.state.position;
+                    if (phase == ContactPhase::Begin) e.impulse = landingImpulse;
                     events_.push_back(e);
                 };
                 emit(b.restingOn, ContactPhase::End);   // left the old support

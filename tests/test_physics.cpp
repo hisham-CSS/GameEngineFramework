@@ -246,6 +246,43 @@ TEST(PhysicsConformance, LandingReportsABeginContact) {
     }
 }
 
+// Impulse must be positive on impact and MONOTONIC in impact speed — that's
+// the property gameplay relies on (louder thud / more damage from a harder
+// hit). Absolute values are NOT compared across backends on purpose: PhysX
+// reports the solver's applied impulse while Jolt's callback runs pre-solve
+// and estimates it, so only within-backend ordering is meaningful.
+TEST(PhysicsConformance, ContactImpulseScalesWithImpactSpeed) {
+    for (const auto& name : AllBackends()) {
+        auto firstImpact = [&](float dropHeight) -> float {
+            Fixture f;
+            if (!f.make(name, dropHeight)) return -1.f;
+            if (!f.be->supportsContactEvents()) return -2.f;
+            for (int i = 0; i < 600; ++i) {
+                f.be->step(1.f / 60.f);
+                for (const auto& e : f.be->contactEvents()) {
+                    if (e.phase == ContactPhase::Begin) {
+                        const float j = e.impulse;
+                        f.be->shutdown();
+                        return j;
+                    }
+                }
+            }
+            f.be->shutdown();
+            return 0.f;
+        };
+
+        const float soft = firstImpact(1.5f);
+        if (soft == -2.f) continue; // backend reports no events
+        ASSERT_GE(soft, 0.f) << name << ": fixture failed to build";
+        const float hard = firstImpact(20.f);
+
+        EXPECT_GT(soft, 0.f) << name << ": landing reported zero impulse";
+        EXPECT_GT(hard, soft)
+            << name << ": a 20m drop must hit harder than a 1.5m drop ("
+            << hard << " vs " << soft << ")";
+    }
+}
+
 TEST(PhysicsConformance, ContactEventsAreClearedEachStep) {
     for (const auto& name : AllBackends()) {
         Fixture f;

@@ -75,10 +75,34 @@ public:
         InstallPhysics(*this, scene, physics_);
         physics_.Build(scene.registry);
 
-        // Render through the scene's primary camera entity (Unity-style):
-        // the editor's Game view shows the same thing. Scenes without a
-        // camera fall back to the free-fly camera automatically.
+        // Render through the scene's camera entity, exactly like the editor's
+        // Game view: same CameraDirector selection, same blending.
         setRenderFromSceneCamera(true);
+
+        // A shipped game must not hand the player a debug fly-camera. When
+        // the scene actually has a camera, the director owns the view and
+        // the engine's built-in WASD/mouse-look is turned OFF so gameplay is
+        // the only thing that can move it.
+        //
+        // When the scene has NO camera the director can't drive anything and
+        // the engine silently falls back to the fly cam — which looks exactly
+        // like "the game ignored my camera". That was a real, confusing
+        // failure, so it is now reported instead of guessed at, and free-fly
+        // stays enabled purely as a diagnostic so the level is still
+        // inspectable.
+        scene.UpdateTransforms(); // world matrices before the camera search
+        const entt::entity active = FindActiveCamera(scene.registry);
+        if (active != entt::null) {
+            setInternalCameraInput(false);
+            std::cout << "PLAYER: rendering from scene camera." << std::endl;
+        }
+        else {
+            fatal("scene '" + scenePath + "' contains no enabled CameraComponent, "
+                  "so there is nothing to render from.\n\n"
+                  "Add a Camera component to an entity in the editor and SAVE "
+                  "the scene (File > Save Scene). Falling back to a free-fly "
+                  "debug camera for now.");
+        }
 
         RunLoop(scene, shader); // ESC or window close exits
     }

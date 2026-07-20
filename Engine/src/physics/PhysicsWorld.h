@@ -61,6 +61,9 @@ namespace MyCoreEngine {
             bool isTrigger = false;
             glm::vec3 point{ 0.f };
             glm::vec3 normal{ 0.f };
+            // Impact strength (N*s) — see ContactEvent::impulse for the
+            // per-backend fidelity caveat. 0 on End events.
+            float impulse = 0.f;
         };
         using CollisionCallback = std::function<void(const CollisionEvent&)>;
         using ListenerHandle = uint32_t;

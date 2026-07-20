@@ -250,6 +250,7 @@ namespace MyCoreEngine {
             e.isTrigger = ce.isTrigger;
             e.point = ce.point;
             e.normal = ce.normal;
+            e.impulse = ce.impulse;
 
             // userData carries the entity handle; validate it, because an
             // End event can name a body whose entity was destroyed during
