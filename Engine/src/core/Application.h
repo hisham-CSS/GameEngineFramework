@@ -113,6 +113,16 @@ namespace MyCoreEngine
 		void setVSync(bool on);
 		bool vsyncEnabled() const { return vsync_; }
 
+		// --- per-frame CPU breakdown (last frame, milliseconds) ---
+		// Decomposes the frame so a slow editor frame can be attributed
+		// without guessing: sceneRender = 3D submission (GL calls are async,
+		// so GPU work usually lands in swap), ui = the whole editor UI
+		// callback (panels + ImGui render), swap = SwapBuffers, which absorbs
+		// the GPU wait AND any vsync block.
+		float frameSceneRenderMs() const { return sceneRenderMs_; }
+		float frameUiMs()          const { return uiMs_; }
+		float frameSwapMs()        const { return swapMs_; }
+
 		// Route the 3D scene into an offscreen target (the editor's Viewport
 		// panel). Null = render straight to the window backbuffer (player).
 		// The UI callback always draws to the window backbuffer.
@@ -138,6 +148,10 @@ namespace MyCoreEngine
 		// timing
 		float    deltaTime_ = 0.0f;
 		float    lastFrame_ = 0.0f;
+		// per-frame CPU breakdown (see frameSceneRenderMs/frameUiMs/frameSwapMs)
+		float    sceneRenderMs_ = 0.0f;
+		float    uiMs_ = 0.0f;
+		float    swapMs_ = 0.0f;
 		FixedTimestep fixedStep_{ 1.f / 60.f };
 		float    timeScale_ = 1.0f;
 		bool     paused_ = false;

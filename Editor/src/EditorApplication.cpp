@@ -1053,6 +1053,14 @@ void EditorApplication::DrawInformationPanel(const MyCoreEngine::Scene& scene, f
         // once (the string is static for the context's lifetime).
         static const char* sGpu = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
         ImGui::TextDisabled("GPU: %s", sGpu ? sGpu : "(unknown)");
+        // Frame breakdown: which THIRD of the frame is slow. GL is async, so
+        // 3D submission is usually small and the GPU wait (plus any vsync
+        // block) lands in swap. A big "ui" means the editor panels, not the
+        // renderer, own the frame.
+        ImGui::Text("  3D submit: %6.2f ms", frameSceneRenderMs());
+        ImGui::Text("  editor UI: %6.2f ms", frameUiMs());
+        ImGui::Text("  swap/wait: %6.2f ms  (vsync %s)",
+                    frameSwapMs(), vsyncEnabled() ? "ON" : "off");
         ImGui::Text("Cascades: %d, res: %d", renderer().getCSMNumCascades(), renderer().getCSMBaseResolution());
         ImGui::Text("Draws:            %u", rs.draws);
         ImGui::Text("Instanced draws:  %u", rs.instancedDraws);

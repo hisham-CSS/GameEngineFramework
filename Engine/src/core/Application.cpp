@@ -5,6 +5,7 @@
 #include "Scene.h"
 #include "Shader.h"
 
+#include <chrono>
 #include <stdexcept>
 
 namespace MyCoreEngine
@@ -144,6 +145,11 @@ namespace MyCoreEngine
 				}
 			}
 
+			// per-frame CPU breakdown: attribute a slow frame to 3D
+			// submission vs editor UI vs present/vsync without guessing
+			using perfClock_ = std::chrono::steady_clock;
+			const auto tRender0_ = perfClock_::now();
+
 			int fbw = 0, fbh = 0;
 			window_.getFramebufferSize(fbw, fbh);
 			if (sceneTarget_ && sceneTarget_->fbo() && sceneTarget_->width() > 0) {
@@ -161,10 +167,20 @@ namespace MyCoreEngine
 				renderer_.RenderFrame(scene, shader, camera_, fbw, fbh, deltaTime_);
 			}
 
+			const auto tRender1_ = perfClock_::now();
+
 			// Editor UI (after 3D draw)
 			if (uiDraw_) uiDraw_(deltaTime_);
 
+			const auto tUi1_ = perfClock_::now();
 			window_.swapBuffers();
+			const auto tSwap1_ = perfClock_::now();
+
+			using ms_ = std::chrono::duration<float, std::milli>;
+			sceneRenderMs_ = ms_(tRender1_ - tRender0_).count();
+			uiMs_ = ms_(tUi1_ - tRender1_).count();
+			swapMs_ = ms_(tSwap1_ - tUi1_).count();
+
 			window_.pollEvents();
 		}
 
