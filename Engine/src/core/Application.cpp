@@ -21,17 +21,9 @@ namespace MyCoreEngine
 
 	void Application::bindDefaultInput_()
 	{
-		// Default fly-camera bindings; apps can rebind via input().
-		input_->bindAxisKeys("MoveForward", GLFW_KEY_W, GLFW_KEY_S);
-		input_->bindAxisKeys("MoveForward", GLFW_KEY_UP, GLFW_KEY_DOWN);
-		input_->bindAxisKeys("MoveRight", GLFW_KEY_D, GLFW_KEY_A);
-		input_->bindAxisKeys("MoveRight", GLFW_KEY_RIGHT, GLFW_KEY_LEFT);
-		input_->bindGamepadAxis("MoveForward", GLFW_GAMEPAD_AXIS_LEFT_Y, /*inverted=*/true);
-		input_->bindGamepadAxis("MoveRight", GLFW_GAMEPAD_AXIS_LEFT_X);
-		input_->bindGamepadAxis("LookX", GLFW_GAMEPAD_AXIS_RIGHT_X);
-		input_->bindGamepadAxis("LookY", GLFW_GAMEPAD_AXIS_RIGHT_Y, /*inverted=*/true);
-		input_->bindKey("Quit", GLFW_KEY_ESCAPE);
-		input_->bindGamepadButton("Quit", GLFW_GAMEPAD_BUTTON_BACK);
+		// Delegated so the default set is testable without a window; apps can
+		// rebind or clear any of it via input().
+		BindDefaultActions(*input_);
 	}
 
 	void Application::installInput(std::unique_ptr<InputMap> map)
@@ -93,6 +85,12 @@ namespace MyCoreEngine
 			// Poll every frame so edge states stay coherent; only APPLY the
 			// default camera/quit behavior when the UI isn't capturing keys.
 			input_->update(window_.getGLFWwindow());
+			// Polling stays unconditional so edge state remains coherent, but
+			// a press made while the UI owns the keyboard must not reach
+			// gameplay: "Jump" is bound to Space, so typing a space into the
+			// entity-name or script-path field during Play would otherwise
+			// launch the player.
+			if (capK) input_->clearPressLatches();
 			if (!capK) {
 				if (input_->wasPressed("Quit")) {
 					glfwSetWindowShouldClose(window_.getGLFWwindow(), true);
@@ -119,23 +117,49 @@ namespace MyCoreEngine
 			// Game update: fixed steps (simulation) then per-frame variable step.
 			// Camera/editor input above deliberately ignores pause/time scale.
 			// Skipped entirely while gameplay is gated off (editor edit mode).
+			int   fixedSteps = 0;
+			bool  hasFixedConsumers = false;
+			float gameDt = 0.f;
 			if (gameplayEnabled_) {
-				const float gameDt = paused_ ? 0.f : deltaTime_ * timeScale_;
-				if (fixedUpdate_ || !fixedSubscribers_.empty()) {
+				gameDt = paused_ ? 0.f : deltaTime_ * timeScale_;
+				hasFixedConsumers = fixedUpdate_ || !fixedSubscribers_.empty();
+				if (hasFixedConsumers) {
 					// One accumulator drives BOTH the primary gameplay slot
 					// and every subscriber (physics), so they always see the
 					// same step count and never drift apart.
-					fixedStep_.advance(gameDt, [this](float fixedDt) {
+					fixedSteps = fixedStep_.advance(gameDt, [this](float fixedDt) {
+						// Each tick is its own consumption phase: every
+						// consumer within it observes the same input edges.
+						input_->beginInputPhase();
 						if (fixedUpdate_) fixedUpdate_(fixedDt);
 						for (auto& s : fixedSubscribers_) {
 							if (s.fn) s.fn(fixedDt);
 						}
 					});
 				}
-				if (update_ && gameDt > 0.f) {
-					update_(gameDt);
+				if (gameDt > 0.f) {
+					input_->beginInputPhase(); // variable-rate phase
+					if (update_) update_(gameDt);
+					for (auto& s : updateSubscribers_) {
+						if (s.fn) s.fn(gameDt);
+					}
 				}
 			}
+
+			// A press latch exists for exactly one situation: a frame that
+			// SHOULD have run a fixed tick but ran none, so a fixed-tick
+			// consumer has not had its chance to see the press yet. In every
+			// other case the latch is dropped, which keeps a press from being
+			// replayed later.
+			//
+			// gameDt > 0 is part of "should have": while paused (or at
+			// timeScale 0) NO tick is ever owed, so a latch would sit
+			// indefinitely and fire the moment the user resumes -- a jump
+			// from a keypress made minutes earlier, during the pause.
+			// Edit mode is the same case via gameplayEnabled_.
+			const bool awaitingTick = gameplayEnabled_ && hasFixedConsumers
+			                       && gameDt > 0.f && fixedSteps == 0;
+			if (!awaitingTick) input_->clearPressLatches();
 
 			scene.UpdateTransforms();
 

@@ -64,6 +64,18 @@ since a shipped game has no console).
 
 `input.down(action)`, `input.pressed(action)`, `input.axis(axis)` take **action
 names** from the InputMap, not key codes, so scripts survive rebinding.
+`Jump` (Space / gamepad A), `Quit`, `MoveForward` and `MoveRight` are bound by
+default; anything else you must bind yourself.
+
+`input.pressed()` is safe to call from `OnFixedUpdate`. It reports a latched
+press rather than a frame-scoped edge, so one physical press fires **exactly
+once** even though the fixed tick runs zero times on some frames and several
+times on others — and every entity reacting in that tick sees it, so putting
+the same jump script on ten objects jumps all ten. Do not read the same action
+from both `OnUpdate` and `OnFixedUpdate`; whichever runs first claims it.
+
+Querying an action nobody bound warns **once** and reads as false, rather than
+silently doing nothing forever.
 
 `raycast` returns `nil` on a miss, or a table with `entity`, `point`,
 `normal`, `distance`.

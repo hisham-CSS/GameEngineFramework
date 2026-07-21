@@ -299,8 +299,8 @@ once per frame before any hook runs. Just query it through `app.input()`.
 
 ### Default bindings
 
-`Application::bindDefaultInput_` installs these (and re-applies them whenever a
-new map is installed via `installInput`):
+`BindDefaultActions(InputMap&)` installs these, and `Application` re-applies
+them whenever a new map is installed via `installInput`:
 
 | Name | Kind | Bound to |
 | --- | --- | --- |
@@ -309,24 +309,48 @@ new map is installed via `installInput`):
 | `LookX` | axis | right stick X |
 | `LookY` | axis | right stick Y (inverted) |
 | `Quit` | action | `Escape`, gamepad `Back` |
+| `Jump` | action | `Space`, gamepad `A` |
 
-These drive the built-in free-fly camera. Add your own names in your install
-function:
+The axes drive the built-in free-fly camera. `Jump` has no engine-side
+consumer — it exists so gameplay and scripts have one conventional action
+bound out of the box. Add your own names in your install function:
 
 ```c++
 auto& in = app.input();
-in.bindKey("Jump", GLFW_KEY_SPACE);
-in.bindGamepadButton("Jump", GLFW_GAMEPAD_BUTTON_A);
 in.bindMouseButton("Fire", GLFW_MOUSE_BUTTON_LEFT);
 in.setGamepadDeadzone(0.2f);
 ```
 
-> **Gotcha — edge queries and the fixed tick.** `wasPressed` / `wasReleased`
-> are computed once per *frame*, in `InputMap::update`. A frame that consumes
-> three fixed steps will report the same press as `wasPressed` in all three,
-> and a frame that consumes zero steps will never show it to the tick at all.
-> Read edges in `SetUpdate` (or latch them there and consume the latch in the
-> tick); read `isDown` / `axis` levels in the fixed tick.
+> **Querying an unbound name is silent.** `isDown` / `wasPressed` return
+> `false` and `axis` returns `0` for a name nothing has bound, with no log
+> line — deliberately, so unconfigured input cannot kill a frame. The cost is
+> that a typo looks exactly like "the key isn't pressed". Lua scripts get a
+> warn-once for this; C++ callers should check `hasAction` / `hasAxis` when
+> debugging input that does nothing.
+
+### Reading edges from the fixed tick
+
+`wasPressed` / `wasReleased` are scoped to a rendered **frame**, and the fixed
+tick does not run once per frame: above the fixed rate most frames run zero
+ticks, and a stalled frame runs several in a row. Reading `wasPressed` from a
+fixed-tick hook therefore **misses** most presses and **multiplies** the rest.
+
+Use `consumePressed(action)` instead — it latches the press and holds it until
+a tick consumes it:
+
+```c++
+app.AddFixedUpdate([&](float dt) {
+    if (app.input().consumePressed("Jump")) { /* exactly once per press */ }
+    // Levels are fine to read directly on the tick:
+    body.velocity.x = app.input().axis("MoveRight") * speed;
+});
+```
+
+The claim is scoped to a **phase** (one fixed tick, or one variable update),
+not to a caller: every consumer inside a phase sees the same answer, so N
+entities all reacting to one jump all get it. Reading the same action from
+both a per-frame and a fixed-tick hook is unsupported — those are different
+phases, and whichever runs first wins.
 
 ## Reacting to physics collisions
 

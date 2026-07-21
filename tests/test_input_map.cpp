@@ -142,3 +142,140 @@ TEST(InputMap, DisconnectedGamepadContributesNothing) {
     EXPECT_FALSE(input.gamepadConnected());
     EXPECT_FLOAT_EQ(input.axis("MoveRight"), 0.f);
 }
+
+// --- press latch: the fixed-tick edge problem -------------------------------
+//
+// wasPressed() is scoped to a rendered FRAME, but the fixed tick does not run
+// once per frame. These pin the latch that bridges the two, because getting it
+// wrong is invisible: the jump just feels unreliable.
+
+TEST(InputMap, PressLatchSurvivesAFrameThatRanNoFixedTick) {
+    FakeInput in;
+    in.bindKey("Jump", GLFW_KEY_SPACE);
+
+    in.keys[GLFW_KEY_SPACE] = true;
+    in.update(nullptr);                  // the down-edge frame
+    EXPECT_TRUE(in.wasPressed("Jump"));  // frame-scoped view sees it
+
+    // Next frame the key is still held, so the frame-scoped edge is GONE.
+    // A fixed tick that only runs now would miss the press entirely without
+    // the latch -- this is the common case above the fixed rate.
+    in.update(nullptr);
+    EXPECT_FALSE(in.wasPressed("Jump")) << "edge should be frame-scoped";
+    EXPECT_TRUE(in.consumePressed("Jump")) << "latch did not survive the frame";
+}
+
+TEST(InputMap, HoldingAKeyDoesNotRelatch) {
+    FakeInput in;
+    in.bindKey("Jump", GLFW_KEY_SPACE);
+
+    in.keys[GLFW_KEY_SPACE] = true;
+    in.update(nullptr);
+    in.beginInputPhase();
+    ASSERT_TRUE(in.consumePressed("Jump"));
+
+    for (int i = 0; i < 10; ++i) in.update(nullptr); // still held
+    in.beginInputPhase();
+    EXPECT_FALSE(in.consumePressed("Jump")) << "hold produced a second press";
+
+    // Release and press again -> a genuinely new press.
+    in.keys[GLFW_KEY_SPACE] = false;
+    in.update(nullptr);
+    in.keys[GLFW_KEY_SPACE] = true;
+    in.update(nullptr);
+    in.beginInputPhase();
+    EXPECT_TRUE(in.consumePressed("Jump"));
+}
+
+TEST(InputMap, ClearPressLatchesDropsUnconsumedPresses) {
+    FakeInput in;
+    in.bindKey("Jump", GLFW_KEY_SPACE);
+
+    in.keys[GLFW_KEY_SPACE] = true;
+    in.update(nullptr);
+    // Edit mode runs no ticks at all; without this the first tick after Play
+    // would replay a press the user made while still editing.
+    in.clearPressLatches();
+    EXPECT_FALSE(in.consumePressed("Jump"));
+}
+
+TEST(InputMap, ConsumePressedOnUnboundActionIsSafe) {
+    FakeInput in;
+    EXPECT_FALSE(in.consumePressed("NoSuchAction"));
+    in.clearPressLatches(); // must not throw on an empty map
+}
+
+// --- default bindings -------------------------------------------------------
+
+TEST(InputMap, DefaultBindingsIncludeJump) {
+    InputMap map;
+    MyCoreEngine::BindDefaultActions(map);
+
+    // Regression: the shipped bouncer.lua example queried "Jump" before
+    // anything bound it. An unbound action reads false forever with no
+    // diagnostic, so the script silently did nothing and there was nothing
+    // in any log to explain why.
+    EXPECT_TRUE(map.hasAction("Jump")) << "bouncer.lua depends on this";
+    EXPECT_TRUE(map.hasAction("Quit"));
+    EXPECT_TRUE(map.hasAxis("MoveForward"));
+    EXPECT_TRUE(map.hasAxis("MoveRight"));
+    EXPECT_FALSE(map.hasAction("MoveForward")) << "axes are not actions";
+    EXPECT_FALSE(map.hasAction("TotallyMadeUp"));
+}
+
+TEST(InputMap, DefaultJumpRespondsToSpace) {
+    FakeInput in;
+    MyCoreEngine::BindDefaultActions(in);
+
+    in.keys[GLFW_KEY_SPACE] = true;
+    in.update(nullptr);
+    EXPECT_TRUE(in.isDown("Jump"));
+    EXPECT_TRUE(in.consumePressed("Jump"));
+}
+
+// --- phase scoping ----------------------------------------------------------
+//
+// A press is claimed by a PHASE, not by whoever reads it first. Getting this
+// wrong meant two entities running the same jump script only jumped once,
+// with nothing logged to explain the dead one.
+
+TEST(InputMap, EveryReaderInOnePhaseSeesTheSamePress) {
+    FakeInput in;
+    in.bindKey("Jump", GLFW_KEY_SPACE);
+    in.keys[GLFW_KEY_SPACE] = true;
+    in.update(nullptr);
+
+    in.beginInputPhase();
+    EXPECT_TRUE(in.consumePressed("Jump")) << "entity A";
+    EXPECT_TRUE(in.consumePressed("Jump")) << "entity B missed the press";
+    EXPECT_TRUE(in.consumePressed("Jump")) << "entity C missed the press";
+}
+
+TEST(InputMap, ALaterPhaseDoesNotSeeAnAlreadyServedPress) {
+    FakeInput in;
+    in.bindKey("Jump", GLFW_KEY_SPACE);
+    in.keys[GLFW_KEY_SPACE] = true;
+    in.update(nullptr);
+
+    in.beginInputPhase();
+    ASSERT_TRUE(in.consumePressed("Jump"));
+
+    // A stalled frame runs several ticks back to back; only the first is the
+    // press's phase, or one tap becomes N impulses.
+    in.beginInputPhase();
+    EXPECT_FALSE(in.consumePressed("Jump"));
+    in.beginInputPhase();
+    EXPECT_FALSE(in.consumePressed("Jump"));
+}
+
+TEST(InputMap, AnUnservedLatchStillCrossesPhases) {
+    FakeInput in;
+    in.bindKey("Jump", GLFW_KEY_SPACE);
+    in.keys[GLFW_KEY_SPACE] = true;
+    in.update(nullptr);   // down-edge on a frame that runs no tick
+    in.update(nullptr);   // held; frame-scoped edge is gone
+
+    // The tick finally arrives a frame late and must still see it.
+    in.beginInputPhase();
+    EXPECT_TRUE(in.consumePressed("Jump"));
+}

@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <unordered_set>
 
 namespace MyCoreEngine {
 
@@ -36,9 +37,12 @@ namespace MyCoreEngine {
     public:
         entt::registry* reg = nullptr;
         PhysicsWorld*   physics = nullptr;
-        const InputMap* input = nullptr;
+        // Non-const: consumePressed() clears the latch it reports, which is
+        // what makes a press fire exactly once from the fixed tick.
+        InputMap*       input = nullptr;
         std::vector<std::string>* messages = nullptr;
         float time = 0.f;
+        mutable std::unordered_set<std::string> warned; // warn-once keys
 
         void log(ScriptEntity self, const char* level, const char* message) override {
             const char* who = getName(self);
@@ -127,14 +131,52 @@ namespace MyCoreEngine {
             return true;
         }
 
+        // An unbound name reads as false/0 forever with no diagnostic, which
+        // is right for the engine (unconfigured input must not kill a frame)
+        // but terrible for script authoring: a typo or a binding nobody set
+        // up looks exactly like "the key isn't pressed". Scripts get told,
+        // once per name, so the failure is visible without becoming spam.
+        // Capped: a data-driven script building names from entity ids
+        // (`input.down('slot'..i)` in a loop) would otherwise grow this set
+        // and the message log without bound, turning a diagnostic into a leak.
+        static constexpr size_t kMaxWarned = 64;
+
+        void warnUnbound_(const char* name, const char* kind) const {
+            if (!name) return;
+            if (warned.size() >= kMaxWarned) {
+                if (warned.insert("__capped__").second) {
+                    const char* m = "[script:warn] further unbound-input "
+                                    "warnings suppressed";
+                    if (messages) messages->push_back(m);
+                    std::printf("%s\n", m);
+                }
+                return;
+            }
+            if (!warned.insert(std::string(kind) + ":" + name).second) return;
+            std::string line = std::string("[script:warn] no ") + kind + " named '"
+                             + name + "' is bound - it will always read as "
+                             + (std::string(kind) == "axis" ? "0" : "false");
+            if (messages) messages->push_back(line);
+            std::printf("%s\n", line.c_str());
+        }
+
         bool isActionDown(const char* action) const override {
-            return input && action && input->isDown(action);
+            if (!input || !action) return false;
+            if (!input->hasAction(action)) { warnUnbound_(action, "action"); return false; }
+            return input->isDown(action);
         }
         bool wasActionPressed(const char* action) const override {
-            return input && action && input->wasPressed(action);
+            if (!input || !action) return false;
+            if (!input->hasAction(action)) { warnUnbound_(action, "action"); return false; }
+            // consumePressed, NOT wasPressed: scripts read this from
+            // OnFixedUpdate, where a frame-scoped edge is missed on frames
+            // that run no tick and repeated on frames that run several.
+            return input->consumePressed(action);
         }
         float actionAxis(const char* axis) const override {
-            return (input && axis) ? input->axis(axis) : 0.f;
+            if (!input || !axis) return 0.f;
+            if (!input->hasAxis(axis)) { warnUnbound_(axis, "axis"); return 0.f; }
+            return input->axis(axis);
         }
 
         float timeSeconds() const override { return time; }
@@ -175,7 +217,7 @@ namespace MyCoreEngine {
     }
 
     void ScriptWorld::SetPhysics(PhysicsWorld* p) { host_->physics = p; }
-    void ScriptWorld::SetInput(const InputMap* i) { host_->input = i; }
+    void ScriptWorld::SetInput(InputMap* i) { host_->input = i; }
     void ScriptWorld::SetSourceResolver(SourceResolver r) { resolver_ = std::move(r); }
 
     bool ScriptWorld::defaultResolve_(const std::string& path, std::string& out) const {
@@ -265,7 +307,13 @@ namespace MyCoreEngine {
         order_.clear();
         built_ = false;
         time_ = 0.f;
-        if (host_) host_->time = 0.f;
+        if (host_) {
+            host_->time = 0.f;
+            // Per-session diagnostic: without this, fixing a misspelled action
+            // and pressing Play again prints nothing, so there is no way to
+            // confirm the fix took.
+            host_->warned.clear();
+        }
     }
 
     void ScriptWorld::fail_(entt::entity e, Instance& inst, const ScriptError& err,

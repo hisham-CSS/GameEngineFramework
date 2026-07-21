@@ -26,12 +26,17 @@ namespace MyCoreEngine {
     // physics/input capabilities, subscribes the fixed tick, and bridges
     // physics contacts into OnCollision.
     //
-    // The host still calls ScriptWorld::Update(reg, dt) once per frame, and
-    // Build/Start at the point where gameplay begins.
+    // Subscribes BOTH the fixed tick and the per-frame update, so the host
+    // only has to call Build/Start at the point where gameplay begins. Both
+    // hosts therefore run scripts at identical points in the loop -- see
+    // Application::AddUpdate for why that had to stop being per-host.
+    //
+    // Returns the FIXED-tick handle; the per-frame subscription lives for the
+    // life of the application, which is what both hosts want.
     inline Application::TickHandle InstallScripting(Application& app, Scene& scene,
                                                     ScriptWorld& world,
                                                     PhysicsWorld* physics = nullptr,
-                                                    const InputMap* input = nullptr,
+                                                    InputMap* input = nullptr,
                                                     const std::string& backendName = {},
                                                     const ScriptSettings& settings = {}) {
         RegisterBuiltinScriptBackends();
@@ -58,6 +63,9 @@ namespace MyCoreEngine {
             });
         }
 
+        app.AddUpdate([&scene, &world](float dt) {
+            world.Update(scene.registry, dt);
+        });
         return app.AddFixedUpdate([&scene, &world](float fixedDt) {
             world.FixedUpdate(scene.registry, fixedDt);
         });

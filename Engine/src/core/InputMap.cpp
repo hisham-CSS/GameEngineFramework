@@ -73,6 +73,13 @@ namespace MyCoreEngine {
                 }
             }
             a.down = down;
+            // Latch the down-edge so a fixed tick that does not run on this
+            // frame can still see it later. Retired by the Application once a
+            // tick has had its chance, or when a later phase asks for it.
+            if (a.down && !a.prev) {
+                a.latched = true;
+                a.servedPhase = 0; // a fresh press is unclaimed
+            }
         }
 
         for (auto& [name, ax] : axes_) {
@@ -110,6 +117,69 @@ namespace MyCoreEngine {
     float InputMap::axis(const std::string& axis) const {
         auto it = axes_.find(axis);
         return it != axes_.end() ? it->second.value : 0.f;
+    }
+
+    bool InputMap::consumePressed(const std::string& action) {
+        auto it = actions_.find(action);
+        if (it == actions_.end()) return false;
+        Action& a = it->second;
+        if (!a.latched) return false;
+
+        if (a.servedPhase == 0) {
+            a.servedPhase = phase_; // first reader in this phase claims it...
+            return true;
+        }
+        if (a.servedPhase == phase_) {
+            return true;            // ...and every later reader in it agrees
+        }
+        // A LATER phase is asking, so the press has already been delivered.
+        // Retire it here rather than waiting for clearPressLatches, which
+        // does not run on the zero-tick frames the latch exists to bridge.
+        a.latched = false;
+        a.servedPhase = 0;
+        return false;
+    }
+
+    void InputMap::beginInputPhase() {
+        ++phase_;
+    }
+
+    void InputMap::clearPressLatches() {
+        for (auto& [name, a] : actions_) {
+            a.latched = false;
+            a.servedPhase = 0;
+        }
+    }
+
+    bool InputMap::hasAction(const std::string& action) const {
+        return actions_.find(action) != actions_.end();
+    }
+    bool InputMap::hasAxis(const std::string& axis) const {
+        return axes_.find(axis) != axes_.end();
+    }
+
+    void BindDefaultActions(InputMap& map) {
+        // Fly-camera movement (keyboard + left stick).
+        map.bindAxisKeys("MoveForward", GLFW_KEY_W, GLFW_KEY_S);
+        map.bindAxisKeys("MoveForward", GLFW_KEY_UP, GLFW_KEY_DOWN);
+        map.bindAxisKeys("MoveRight", GLFW_KEY_D, GLFW_KEY_A);
+        map.bindAxisKeys("MoveRight", GLFW_KEY_RIGHT, GLFW_KEY_LEFT);
+        map.bindGamepadAxis("MoveForward", GLFW_GAMEPAD_AXIS_LEFT_Y, /*inverted=*/true);
+        map.bindGamepadAxis("MoveRight", GLFW_GAMEPAD_AXIS_LEFT_X);
+        // Look is gamepad-only; mouse look is handled separately by the
+        // Application, so these read 0 with no controller attached.
+        map.bindGamepadAxis("LookX", GLFW_GAMEPAD_AXIS_RIGHT_X);
+        map.bindGamepadAxis("LookY", GLFW_GAMEPAD_AXIS_RIGHT_Y, /*inverted=*/true);
+
+        map.bindKey("Quit", GLFW_KEY_ESCAPE);
+        map.bindGamepadButton("Quit", GLFW_GAMEPAD_BUTTON_BACK);
+
+        // "Jump" has no engine-side consumer -- it exists so gameplay and
+        // scripts have one conventional action bound out of the box. Without
+        // it the shipped bouncer.lua example queried a name nothing had
+        // bound and silently did nothing forever.
+        map.bindKey("Jump", GLFW_KEY_SPACE);
+        map.bindGamepadButton("Jump", GLFW_GAMEPAD_BUTTON_A);
     }
 
     float InputMap::applyDeadzone_(float v) const {

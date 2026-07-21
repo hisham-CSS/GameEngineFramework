@@ -7,6 +7,7 @@
 #include <gtest/gtest.h>
 
 #include "../Engine/src/core/Components.h"
+#include "../Engine/src/core/InputMap.h"
 #include "../Engine/src/script/ScriptBackendRegistry.h"
 #include "../Engine/src/script/ScriptComponent.h"
 #include "../Engine/src/script/ScriptWorld.h"
@@ -15,6 +16,7 @@
 
 #include <map>
 #include <string>
+#include <unordered_map>
 
 using namespace MyCoreEngine;
 
@@ -398,4 +400,127 @@ TEST(LuaScripting, FixedUpdateIsSeparateFromUpdate) {
 
     EXPECT_FLOAT_EQ(f.pos(e).x, 1.0f);
     EXPECT_FLOAT_EQ(f.pos(e).y, 2.0f);
+}
+
+// --- input reaching Lua -----------------------------------------------------
+//
+// These exist because bouncer.lua's jump silently did nothing: "Jump" was
+// never bound, and an unbound action reads as false with no diagnostic.
+
+namespace {
+    // Scripted keyboard, same seam test_input_map uses.
+    class FakeInput : public InputMap {
+    public:
+        std::unordered_map<int, bool> keys;
+    protected:
+        bool pollKey(GLFWwindow*, int key) const override {
+            auto it = keys.find(key);
+            return it != keys.end() && it->second;
+        }
+        bool pollMouseButton(GLFWwindow*, int) const override { return false; }
+        bool pollGamepad(GLFWgamepadstate&) const override { return false; }
+    };
+} // namespace
+
+TEST(LuaScripting, PressReachesTheScriptFromTheFixedTick) {
+    if (!luaAvailable()) GTEST_SKIP() << "Lua backend not built";
+    ScriptFixture f;
+    ASSERT_TRUE(f.world.SetBackend("Lua"));
+
+    FakeInput in;
+    BindDefaultActions(in);
+    f.world.SetInput(&in);
+
+    // Counts jumps by moving +1 on X per press.
+    f.sources["j.lua"] =
+        "function OnFixedUpdate(dt)\n"
+        "  if input.pressed('Jump') then self:translate(vec3.new(1,0,0)) end\n"
+        "end\n";
+    const entt::entity e = f.makeEntity("jumper", "j.lua");
+
+    f.world.Build(f.reg);
+    f.world.Start(f.reg);
+
+    in.keys[GLFW_KEY_SPACE] = true;
+    in.update(nullptr);
+
+    // One press, but this frame runs THREE fixed ticks (a stalled frame).
+    // Only the first tick's phase may see it, or one tap becomes a triple jump.
+    in.beginInputPhase(); f.world.FixedUpdate(f.reg, 1.f / 60.f);
+    in.beginInputPhase(); f.world.FixedUpdate(f.reg, 1.f / 60.f);
+    in.beginInputPhase(); f.world.FixedUpdate(f.reg, 1.f / 60.f);
+    EXPECT_FLOAT_EQ(f.pos(e).x, 1.0f) << "one press produced multiple jumps";
+
+    // Now the reverse: the key goes down on a frame that runs NO tick, and
+    // the tick arrives a frame later. The press must not be lost.
+    in.keys[GLFW_KEY_SPACE] = false;
+    in.update(nullptr);
+    in.keys[GLFW_KEY_SPACE] = true;
+    in.update(nullptr);   // down-edge frame, no tick runs
+    in.update(nullptr);   // still held; frame-scoped edge is gone
+    in.beginInputPhase();
+    f.world.FixedUpdate(f.reg, 1.f / 60.f);
+    EXPECT_FLOAT_EQ(f.pos(e).x, 2.0f) << "press was dropped by a zero-tick frame";
+}
+
+TEST(LuaScripting, EveryScriptedEntitySeesTheSamePress) {
+    if (!luaAvailable()) GTEST_SKIP() << "Lua backend not built";
+    ScriptFixture f;
+    ASSERT_TRUE(f.world.SetBackend("Lua"));
+
+    FakeInput in;
+    BindDefaultActions(in);
+    f.world.SetInput(&in);
+
+    // Duplicating the shipped example onto several objects is the obvious
+    // thing to do with it. With a first-reader-wins latch only entity A ever
+    // jumped and B/C looked broken with nothing in the log.
+    f.sources["j.lua"] = R"(
+        function OnFixedUpdate(dt)
+            if input.pressed('Jump') then self:translate(vec3.new(1,0,0)) end
+        end
+    )";
+    const entt::entity a = f.makeEntity("a", "j.lua");
+    const entt::entity b = f.makeEntity("b", "j.lua");
+    const entt::entity c = f.makeEntity("c", "j.lua");
+
+    f.world.Build(f.reg);
+    f.world.Start(f.reg);
+
+    in.keys[GLFW_KEY_SPACE] = true;
+    in.update(nullptr);
+    in.beginInputPhase();
+    f.world.FixedUpdate(f.reg, 1.f / 60.f);
+
+    EXPECT_FLOAT_EQ(f.pos(a).x, 1.0f);
+    EXPECT_FLOAT_EQ(f.pos(b).x, 1.0f) << "second entity was starved of the press";
+    EXPECT_FLOAT_EQ(f.pos(c).x, 1.0f) << "third entity was starved of the press";
+}
+
+TEST(LuaScripting, UnboundActionWarnsOnceInsteadOfFailingSilently) {
+    if (!luaAvailable()) GTEST_SKIP() << "Lua backend not built";
+    ScriptFixture f;
+    ASSERT_TRUE(f.world.SetBackend("Lua"));
+
+    FakeInput in;
+    BindDefaultActions(in); // deliberately does NOT bind "Fly"
+    f.world.SetInput(&in);
+
+    f.sources["fly.lua"] = "function OnUpdate(dt) if input.down('Fly') then end end";
+    f.makeEntity("f", "fly.lua");
+
+    f.world.Build(f.reg);
+    f.world.Start(f.reg);
+    f.world.ClearMessages();
+
+    for (int i = 0; i < 10; ++i) f.world.Update(f.reg, 0.016f);
+
+    // Exactly one warning: enough to find the bug, not enough to bury the log.
+    const auto& msgs = f.world.DrainMessages();
+    int warnings = 0;
+    for (const auto& m : msgs) {
+        if (m.find("Fly") != std::string::npos) ++warnings;
+    }
+    EXPECT_EQ(warnings, 1) << "expected exactly one unbound-action warning";
+    EXPECT_EQ(f.world.FailedCount(), 0u) << "an unbound action must not fail the script";
 }

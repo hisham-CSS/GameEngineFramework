@@ -21,6 +21,11 @@ end
 function OnFixedUpdate(dt)
     -- Physics work belongs on the FIXED tick, not OnUpdate: applying an
     -- impulse once per rendered frame makes the force framerate-dependent.
+    --
+    -- input.pressed() is latched, so it fires exactly once per physical
+    -- press even though the fixed tick runs zero times on some frames and
+    -- several times on others. "Jump" is bound to Space (gamepad A) by
+    -- default; rebind it with InputMap if you want a different key.
     if input.pressed("Jump") then
         self:applyImpulse(vec3.new(0, jumpImpulse, 0))
     end

@@ -80,11 +80,6 @@ void EditorApplication::Run() {
     });
 
     SetUIDraw([this, &scene](float dt) {
-        // Per-frame script tick. Driven here rather than from the Game panel
-        // so scripts keep running when that panel is hidden or undocked —
-        // gameplay must not depend on which windows the author has open.
-        // Fixed-rate work goes through the AddFixedUpdate subscriber instead.
-        if (playing_) scripts_.Update(scene.registry, dt);
 
         // Apply a requested layout between frames: LoadIniSettingsFromDisk
         // re-applies settings to live windows through the settings handlers'

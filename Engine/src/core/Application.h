@@ -111,6 +111,29 @@ namespace MyCoreEngine
 				fixedSubscribers_.end());
 		}
 
+		// Variable-rate equivalent of AddFixedUpdate, for the same reason:
+		// SetUpdate is the game's single primary slot, and scripting taking it
+		// would silently delete a game's own per-frame hook.
+		//
+		// It also exists so both hosts drive per-frame scripts at the SAME
+		// point in the loop. The editor previously called ScriptWorld::Update
+		// from its UI callback (which runs after the frame's input bookkeeping)
+		// while the player called it from SetUpdate (which runs before) -- so
+		// a script reading an input edge in OnUpdate behaved differently in
+		// Play than in the shipped game. That divergence is precisely what
+		// this engine tries hardest to avoid.
+		TickHandle AddUpdate(UpdateFn fn) {
+			const TickHandle h = ++nextTickHandle_;
+			updateSubscribers_.push_back({ h, std::move(fn) });
+			return h;
+		}
+		void RemoveUpdate(TickHandle h) {
+			updateSubscribers_.erase(
+				std::remove_if(updateSubscribers_.begin(), updateSubscribers_.end(),
+					[h](const FixedSubscriber& s) { return s.handle == h; }),
+				updateSubscribers_.end());
+		}
+
 		// --- gameplay gating (play-in-editor) ---
 		// When disabled, the fixed/variable game-update hooks don't tick.
 		// The Player leaves this on (default); the editor enables it only
@@ -189,6 +212,7 @@ namespace MyCoreEngine
 		UpdateFn       fixedUpdate_{};
 		struct FixedSubscriber { TickHandle handle; UpdateFn fn; };
 		std::vector<FixedSubscriber> fixedSubscribers_;
+		std::vector<FixedSubscriber> updateSubscribers_; // variable rate
 		TickHandle     nextTickHandle_ = 0;
 
 		// mouse-look state

@@ -54,7 +54,9 @@ namespace MyCoreEngine {
         // Optional capabilities handed to scripts. Absent ones degrade
         // gracefully: raycast/impulse return false, input reads as released.
         void SetPhysics(PhysicsWorld* physics);
-        void SetInput(const InputMap* input);
+        // Non-const: reading a press CONSUMES its latch (see
+        // InputMap::consumePressed) so a fixed-tick script sees it once.
+        void SetInput(InputMap* input);
 
         // How a ScriptComponent::path becomes source text. Defaults to reading
         // <scriptDirectory>/<path> from disk. Injectable so headless tests can

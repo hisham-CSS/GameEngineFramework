@@ -93,12 +93,10 @@ public:
         }
         scripts_.Build(scene.registry);
         scripts_.Start(scene.registry);
-        // Takes the PRIMARY variable-update slot. Defensible only because in
-        // the shipped player the scene's scripts ARE the game -- there is no
-        // other gameplay hook to displace. If the player ever grows one, this
-        // needs an AddUpdate subscriber list like AddFixedUpdate has, or it
-        // will silently delete that hook.
-        SetUpdate([this, &scene](float dt) { scripts_.Update(scene.registry, dt); });
+        // The per-frame tick is an AddUpdate SUBSCRIBER installed by
+        // InstallScripting, not the primary SetUpdate slot -- that slot stays
+        // free for a game's own hook, and both hosts now run scripts at the
+        // same point in the loop.
 
         // Render through the scene's camera entity, exactly like the editor's
         // Game view: same CameraDirector selection, same blending.
