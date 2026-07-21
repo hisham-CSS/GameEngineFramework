@@ -189,6 +189,10 @@ private:
     // destroyed on Stop, so a script can never mutate the edit-mode scene the
     // author is looking at.
     MyCoreEngine::ScriptWorld scripts_;
+
+    // Game panel focus. Gameplay receives input only while this is true, so
+    // the Scene view stays navigable with the same keys while playing.
+    bool gameViewFocused_ = false;
     std::string bootStatus_;    // what happened at startup (loaded / defaulted)
 
     // layout .ini to load before the next frame (empty = none). Deferred

@@ -77,6 +77,11 @@ from both `OnUpdate` and `OnFixedUpdate`; whichever runs first claims it.
 Querying an action nobody bound warns **once** and reads as false, rather than
 silently doing nothing forever.
 
+> **In the editor, gameplay reads input only while the Game panel is
+> focused** — click it, and the toolbar shows `Input: game`. This is what lets
+> you fly the Scene view with the same keys while a scene is playing. The
+> shipped player always has input.
+
 `raycast` returns `nil` on a miss, or a table with `entity`, `point`,
 `normal`, `distance`.
 

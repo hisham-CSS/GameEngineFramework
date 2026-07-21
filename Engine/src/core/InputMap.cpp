@@ -103,23 +103,30 @@ namespace MyCoreEngine {
     // --- queries ---
 
     bool InputMap::isDown(const std::string& action) const {
+        if (suppressed_) return false;
         auto it = actions_.find(action);
         return it != actions_.end() && it->second.down;
     }
     bool InputMap::wasPressed(const std::string& action) const {
+        if (suppressed_) return false;
         auto it = actions_.find(action);
         return it != actions_.end() && it->second.down && !it->second.prev;
     }
     bool InputMap::wasReleased(const std::string& action) const {
+        if (suppressed_) return false;
         auto it = actions_.find(action);
         return it != actions_.end() && !it->second.down && it->second.prev;
     }
     float InputMap::axis(const std::string& axis) const {
+        if (suppressed_) return 0.f;
         auto it = axes_.find(axis);
         return it != axes_.end() ? it->second.value : 0.f;
     }
 
     bool InputMap::consumePressed(const std::string& action) {
+        // Not consumed either: a suppressed reader must not silently eat a
+        // press that a legitimate consumer would otherwise get.
+        if (suppressed_) return false;
         auto it = actions_.find(action);
         if (it == actions_.end()) return false;
         Action& a = it->second;

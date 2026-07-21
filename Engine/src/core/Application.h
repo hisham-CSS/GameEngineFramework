@@ -141,6 +141,17 @@ namespace MyCoreEngine
 		void setGameplayEnabled(bool on) { gameplayEnabled_ = on; }
 		bool gameplayEnabled() const { return gameplayEnabled_; }
 
+		// Whether gameplay hooks currently RECEIVE input. Distinct from
+		// gameplayEnabled: the game still simulates, it just reads nothing.
+		//
+		// The Player leaves this on. The editor follows Game-view focus, so
+		// keys typed while the Scene view is focused drive the editor's fly
+		// camera instead of the game -- without this, one Space press both
+		// jumped the player and did whatever the editor wanted, and there was
+		// no way to look around a running scene without playing it.
+		void setGameplayInputEnabled(bool on) { gameplayInput_ = on; }
+		bool gameplayInputEnabled() const { return gameplayInput_; }
+
 		// --- time control ---
 		// Drop any accumulated partial fixed step (play-in-editor calls this
 		// on Play so every session's first tick lands at the same time).
@@ -200,6 +211,7 @@ namespace MyCoreEngine
 		float    timeScale_ = 1.0f;
 		bool     paused_ = false;
 		bool     gameplayEnabled_ = true;
+		bool     gameplayInput_ = true; // Player default; editor follows Game-view focus
 		bool     renderFromSceneCamera_ = false;
 		bool     vsync_ = true;
 

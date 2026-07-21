@@ -84,6 +84,17 @@ namespace MyCoreEngine {
         // one case a latch must survive.
         void clearPressLatches();
 
+        // While suppressed, every query reads neutral (released / 0) and
+        // consumePressed neither reports nor consumes. Polling and edge
+        // bookkeeping continue underneath, so unsuppressing does not produce
+        // a spurious edge from a key that was already held.
+        //
+        // The Application wraps only the GAMEPLAY hooks in this, which is what
+        // lets the editor keep driving its fly camera from the same named
+        // axes while the game itself receives nothing.
+        void setSuppressed(bool on) { suppressed_ = on; }
+        bool suppressed() const { return suppressed_; }
+
         // Binding introspection. Querying an UNBOUND name is deliberately
         // silent (false / 0) so unconfigured input cannot kill a frame -- but
         // that makes a typo or a missing binding invisible, so callers that
@@ -131,6 +142,7 @@ namespace MyCoreEngine {
         bool padConnected_ = false;
         // Monotonic phase counter; starts at 1 so 0 can mean "unclaimed".
         uint64_t phase_ = 1;
+        bool suppressed_ = false;
     };
 
     // The engine's starter bindings: the fly-camera axes, "Quit", and "Jump".

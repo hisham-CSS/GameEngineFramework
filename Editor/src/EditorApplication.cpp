@@ -543,9 +543,20 @@ void EditorApplication::DrawGameViewport(MyCoreEngine::Scene& scene,
     ImGui::PopStyleVar();
     if (!open) {
         // hidden/collapsed: skip the whole second scene render
+        gameViewFocused_ = false;
+        setGameplayInputEnabled(false);
         ImGui::End();
         return;
     }
+
+    // Gameplay reads input only while THIS panel is focused, matching Unity.
+    // Without it a key pressed while the Scene view is focused also drove the
+    // game, so there was no way to fly around a running scene -- and every
+    // Space both jumped the player and did whatever the editor wanted.
+    // Focus is sampled here (inside the UI pass) and applies from the next
+    // frame's gameplay block; a one-frame delay is imperceptible.
+    gameViewFocused_ = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+    setGameplayInputEnabled(playing_ && gameViewFocused_);
 
     // toolbar: camera override picker + blend duration. The director keys
     // switches off CameraComponent priorities on its own; the picker is a
@@ -594,6 +605,21 @@ void EditorApplication::DrawGameViewport(MyCoreEngine::Scene& scene,
         }
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Seconds to blend when the rendered camera changes\n(0 = hard cut)");
+        }
+
+        // Say WHERE input is going. Silence here is what made a working jump
+        // look broken: the key was fine, the panel just did not have focus.
+        if (playing_) {
+            ImGui::SameLine();
+            if (gameViewFocused_) {
+                ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1.f), "| Input: game");
+            } else {
+                ImGui::TextColored(ImVec4(1.f, 0.75f, 0.2f, 1.f), "| Click to give input to the game");
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Gameplay reads input only while this panel is focused,\n"
+                                  "so the Scene view stays navigable while playing.");
+            }
         }
     }
 
@@ -1401,6 +1427,7 @@ void EditorApplication::stopPlay_(MyCoreEngine::Scene& scene)
     // Drop every native body BEFORE the restore: restoreScene() clears the
     // registry and resurrects entities via create(hint), so the entity->body
     // map would survive looking valid while pointing at freed bodies.
+    setGameplayInputEnabled(false); // no game to receive input once stopped
     physics_.Clear();
     // Same hazard as bodies: restoreScene() clears the registry and
     // resurrects entities via create(hint), so every entity->instance pair

@@ -279,3 +279,64 @@ TEST(InputMap, AnUnservedLatchStillCrossesPhases) {
     in.beginInputPhase();
     EXPECT_TRUE(in.consumePressed("Jump"));
 }
+
+// --- suppression: gameplay vs editor -----------------------------------------
+//
+// The editor drives its fly camera from the SAME named axes the game reads, so
+// suppression must be scoped to gameplay rather than switching the map off.
+
+TEST(InputMap, SuppressedQueriesReadNeutral) {
+    FakeInput in;
+    BindDefaultActions(in);
+    in.keys[GLFW_KEY_SPACE] = true;
+    in.keys[GLFW_KEY_W] = true;
+    in.update(nullptr);
+
+    ASSERT_TRUE(in.isDown("Jump"));
+    ASSERT_FLOAT_EQ(in.axis("MoveForward"), 1.0f);
+
+    in.setSuppressed(true);
+    EXPECT_FALSE(in.isDown("Jump"));
+    EXPECT_FALSE(in.wasPressed("Jump"));
+    EXPECT_FLOAT_EQ(in.axis("MoveForward"), 0.0f);
+
+    // Unsuppressing restores the real state: the underlying poll never stopped.
+    in.setSuppressed(false);
+    EXPECT_TRUE(in.isDown("Jump"));
+    EXPECT_FLOAT_EQ(in.axis("MoveForward"), 1.0f);
+}
+
+TEST(InputMap, SuppressedReaderDoesNotEatThePress) {
+    FakeInput in;
+    in.bindKey("Jump", GLFW_KEY_SPACE);
+    in.keys[GLFW_KEY_SPACE] = true;
+    in.update(nullptr);
+
+    // Game view unfocused: the game reads nothing AND must not consume the
+    // latch, or refocusing would find the press already gone.
+    in.setSuppressed(true);
+    in.beginInputPhase();
+    EXPECT_FALSE(in.consumePressed("Jump"));
+
+    in.setSuppressed(false);
+    in.beginInputPhase();
+    EXPECT_TRUE(in.consumePressed("Jump")) << "suppressed reader swallowed the press";
+}
+
+TEST(InputMap, SuppressingDoesNotManufactureAnEdgeOnRelease) {
+    FakeInput in;
+    in.bindKey("Jump", GLFW_KEY_SPACE);
+
+    // Key held down across the whole suppressed window.
+    in.keys[GLFW_KEY_SPACE] = true;
+    in.update(nullptr);
+    in.setSuppressed(true);
+    for (int i = 0; i < 5; ++i) in.update(nullptr);
+    in.setSuppressed(false);
+    in.clearPressLatches(); // as the Application does while input is off
+
+    // Regaining focus with the key still held must NOT look like a new press.
+    in.update(nullptr);
+    in.beginInputPhase();
+    EXPECT_FALSE(in.consumePressed("Jump")) << "focus change forged a press";
+}

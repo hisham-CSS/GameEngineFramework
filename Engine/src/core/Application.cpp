@@ -120,6 +120,10 @@ namespace MyCoreEngine
 			int   fixedSteps = 0;
 			bool  hasFixedConsumers = false;
 			float gameDt = 0.f;
+			// Scoped to the gameplay hooks ONLY: the editor's fly-camera block
+			// above has already run off the same map, so the Scene view keeps
+			// working while the game receives nothing.
+			input_->setSuppressed(!gameplayInput_);
 			if (gameplayEnabled_) {
 				gameDt = paused_ ? 0.f : deltaTime_ * timeScale_;
 				hasFixedConsumers = fixedUpdate_ || !fixedSubscribers_.empty();
@@ -157,8 +161,15 @@ namespace MyCoreEngine
 			// indefinitely and fire the moment the user resumes -- a jump
 			// from a keypress made minutes earlier, during the pause.
 			// Edit mode is the same case via gameplayEnabled_.
-			const bool awaitingTick = gameplayEnabled_ && hasFixedConsumers
+			input_->setSuppressed(false); // editor/UI reads are never suppressed
+
+			const bool awaitingTick = gameplayEnabled_ && gameplayInput_
+			                       && hasFixedConsumers
 			                       && gameDt > 0.f && fixedSteps == 0;
+			// gameplayInput_ is part of "should have" for the same reason as
+			// pause: with input off, nothing will ever consume the latch, so
+			// holding it would fire a jump the moment the Game view regains
+			// focus -- from a key pressed while the user was in the Scene view.
 			if (!awaitingTick) input_->clearPressLatches();
 
 			scene.UpdateTransforms();
