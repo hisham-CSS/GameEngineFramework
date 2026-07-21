@@ -34,6 +34,17 @@ add_custom_target(test_runtime_deps
   VERBATIM)
 add_dependencies(test_runtime_deps Engine)
 
+# Staged separately because the Lua backend is optional: listing lua-c++.dll
+# in the copy above would break every test in a -DCSE_ENABLE_LUA=OFF build.
+# Uses the path Engine published rather than `TARGET lua-cpp`, which is not
+# visible here -- imported targets do not cross directory scopes.
+if (CSE_WITH_LUA_RUNTIME)
+  add_custom_command(TARGET test_runtime_deps POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "$<TARGET_FILE_DIR:Engine>/lua-c++.dll" ${CMAKE_CURRENT_BINARY_DIR}
+    VERBATIM)
+endif()
+
 macro(engine_test name)
   add_executable(${name} ${name}.cpp)
   target_link_libraries(${name} PRIVATE Engine GTest::gtest_main)
@@ -57,6 +68,7 @@ engine_test(test_model_decode)     # P4-3 model decode stage (pure CPU — no GL
 engine_test(test_asset_manager_async) # P4-3 async RequestModel: states/dedupe/cap (pure CPU)
 engine_test(test_lights)           # punctual light selection + culling (pure CPU)
 engine_test(test_physics)          # backend-conformance suite + PhysicsWorld/ECS (pure CPU)
+engine_test(test_scripting)        # script seam + Lua isolation/error policy (pure CPU)
 engine_test(test_import_settings)  # P4-3 phase 4: .import sidecar round-trip (pure CPU)
 engine_test(test_asset_validator)  # P4-3 phase 4: cooker validate logic (pure CPU)
 
@@ -93,3 +105,8 @@ set_tests_properties(test_perf_render PROPERTIES
   TIMEOUT 300)
 
 target_compile_definitions(test_render_passes PRIVATE UNIT_TEST=1)
+
+# The instruction-limit test proves a runaway script gets aborted. If that
+# guard ever regresses the test HANGS instead of failing, so cap it: a red
+# test is actionable, a stuck CI job is not.
+set_tests_properties(test_scripting PROPERTIES TIMEOUT 120)

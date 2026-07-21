@@ -4,6 +4,7 @@
 #include "AssetManager.h"
 #include "Model.h"
 #include "../physics/PhysicsComponents.h"
+#include "../script/ScriptComponent.h"
 
 #include <nlohmann/json.hpp>
 
@@ -119,6 +120,17 @@ namespace MyCoreEngine {
                     { "innerAngleDeg", lc->innerAngleDeg },
                     { "outerAngleDeg", lc->outerAngleDeg },
                     { "enabled",   lc->enabled },
+                };
+            }
+
+            // --- scripting. Only the path and the enable flag are saved:
+            // script STATE lives in the language runtime and is deliberately
+            // not persisted -- it would not survive a backend swap, and a
+            // half-restored VM is worse than a clean re-run of OnStart.
+            if (auto* sc = reg.try_get<ScriptComponent>(e)) {
+                je["script"] = {
+                    { "path",    sc->path },
+                    { "enabled", sc->enabled },
                 };
             }
 
@@ -338,6 +350,17 @@ namespace MyCoreEngine {
                                               lc.innerAngleDeg, 89.9f);
                 lc.enabled = jl.value("enabled", lc.enabled);
                 reg.emplace<LightComponent>(entity, lc);
+            }
+
+            // --- scripting (see the save side). An entity is given the
+            // component even when the path is empty, so a half-authored entity
+            // round-trips instead of silently losing its slot on reload.
+            if (je.contains("script") && je["script"].is_object()) {
+                const json& js = je["script"];
+                ScriptComponent sc;
+                sc.path    = js.value("path", sc.path);
+                sc.enabled = js.value("enabled", sc.enabled);
+                reg.emplace<ScriptComponent>(entity, sc);
             }
 
             // --- physics (see the save side). Every field falls back to the

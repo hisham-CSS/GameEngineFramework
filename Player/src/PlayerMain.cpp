@@ -32,6 +32,7 @@ namespace {
 class PlayerApplication : public MyCoreEngine::Application {
     // Outlives RunLoop: the fixed-tick subscriber captures it by reference.
     MyCoreEngine::PhysicsWorld physics_;
+    MyCoreEngine::ScriptWorld  scripts_; // same lifetime requirement
 public:
     PlayerApplication() : Application(1280, 720, "Cat Splat Player") {}
 
@@ -81,6 +82,23 @@ public:
         scene.UpdateTransforms();
         InstallPhysics(*this, scene, physics_);
         physics_.Build(scene.registry);
+
+        // Scripting, installed AFTER physics for the same tick-ordering
+        // reason as the editor. The shipped game starts scripts immediately —
+        // there is no Play button here, the saved scene IS the game.
+        {
+            ScriptSettings ss;
+            ss.scriptDirectory = "Exported/Scripts";
+            InstallScripting(*this, scene, scripts_, &physics_, &input(), {}, ss);
+        }
+        scripts_.Build(scene.registry);
+        scripts_.Start(scene.registry);
+        // Takes the PRIMARY variable-update slot. Defensible only because in
+        // the shipped player the scene's scripts ARE the game -- there is no
+        // other gameplay hook to displace. If the player ever grows one, this
+        // needs an AddUpdate subscriber list like AddFixedUpdate has, or it
+        // will silently delete that hook.
+        SetUpdate([this, &scene](float dt) { scripts_.Update(scene.registry, dt); });
 
         // Render through the scene's camera entity, exactly like the editor's
         // Game view: same CameraDirector selection, same blending.

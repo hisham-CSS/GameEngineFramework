@@ -184,6 +184,11 @@ private:
     // stopPlay_), so edit-mode poses are never disturbed by the solver.
     MyCoreEngine::PhysicsWorld physics_;
     std::string physicsStatus_; // last backend switch result, shown in Settings
+
+    // Scripting: same lifecycle as physics. Instances are created on Play and
+    // destroyed on Stop, so a script can never mutate the edit-mode scene the
+    // author is looking at.
+    MyCoreEngine::ScriptWorld scripts_;
     std::string bootStatus_;    // what happened at startup (loaded / defaulted)
 
     // layout .ini to load before the next frame (empty = none). Deferred

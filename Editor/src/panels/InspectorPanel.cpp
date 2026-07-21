@@ -21,7 +21,8 @@ static bool DragFloat3(const char* label, float v[3], float speed = 0.1f) {
 }
 
 bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
-                          UndoHistory& undo, MyCoreEngine::AssetManager* assets) {
+                          UndoHistory& undo, MyCoreEngine::AssetManager* assets,
+                          const MyCoreEngine::ScriptWorld* scripts) {
     bool shadowsDirty = false;
     if (ImGui::Begin("Inspector")) {
         if (selected == entt::null || !reg.valid(selected)) {
@@ -350,6 +351,52 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
             }
         }
 
+        // ---- Script --------------------------------------------------------
+        if (auto* sc = reg.try_get<MyCoreEngine::ScriptComponent>(selected)) {
+            bool keep = true;
+            if (ImGui::CollapsingHeader("Script", &keep, ImGuiTreeNodeFlags_DefaultOpen)) {
+                char buf[260];
+                std::snprintf(buf, sizeof(buf), "%s", sc->path.c_str());
+                if (ImGui::InputText("File", buf, sizeof(buf))) {
+                    sc->path = buf;
+                }
+                trackItem("Change script file");
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Path relative to the project's Scripts folder,\n"
+                                      "e.g. spinner.lua");
+                }
+
+                bool on = sc->enabled;
+                if (ImGui::Checkbox("Enabled", &on)) {
+                    undo.record(reg, selected, "Toggle script", [&] {
+                        reg.get<MyCoreEngine::ScriptComponent>(selected).enabled = on;
+                    });
+                }
+
+                // Surface this entity's compile/runtime error HERE. A script
+                // error that only reaches the console is easy to miss while
+                // you are looking straight at the field that caused it.
+                if (scripts) {
+                    for (const auto& st : scripts->Statuses()) {
+                        if (st.entity != selected) continue;
+                        if (st.failed) {
+                            ImGui::TextColored(ImVec4(1.f, 0.35f, 0.3f, 1.f), "Error");
+                            ImGui::TextWrapped("%s", st.error.c_str());
+                        } else if (st.loaded) {
+                            ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1.f), "Loaded");
+                        }
+                        break;
+                    }
+                }
+                ImGui::TextDisabled("Hooks: OnStart, OnUpdate(dt),\n"
+                                    "OnFixedUpdate(dt), OnCollision(c), OnDestroy");
+            }
+            if (!keep) {
+                undo.record(reg, selected, "Remove script",
+                            [&] { reg.remove<MyCoreEngine::ScriptComponent>(selected); });
+            }
+        }
+
         // ---- Rigid Body ---------------------------------------------------
         if (auto* rb = reg.try_get<RigidBody>(selected)) {
             bool keep = true;
@@ -515,6 +562,15 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
                 if (ImGui::MenuItem("Light")) {
                     undo.record(reg, selected, "Add light", [&] {
                         reg.emplace<LightComponent>(selected);
+                        if (!reg.any_of<Transform>(selected)) reg.emplace<Transform>(selected);
+                    });
+                }
+            }
+            if (!reg.any_of<MyCoreEngine::ScriptComponent>(selected)) {
+                ++missing;
+                if (ImGui::MenuItem("Script")) {
+                    undo.record(reg, selected, "Add script", [&] {
+                        reg.emplace<MyCoreEngine::ScriptComponent>(selected);
                         if (!reg.any_of<Transform>(selected)) reg.emplace<Transform>(selected);
                     });
                 }

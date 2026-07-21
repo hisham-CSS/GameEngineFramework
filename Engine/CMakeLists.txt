@@ -63,7 +63,19 @@ add_library(Engine SHARED
     src/physics/PhysicsWorld.cpp
     src/physics/PhysicsInstall.h
     src/physics/backends/SimplePhysicsBackend.h
-    src/physics/backends/SimplePhysicsBackend.cpp)
+    src/physics/backends/SimplePhysicsBackend.cpp
+    # --- scripting: backend-agnostic core + pluggable language backends ---
+    src/script/ScriptTypes.h
+    src/script/ScriptComponent.h
+    src/script/IScriptHost.h
+    src/script/IScriptBackend.h
+    src/script/ScriptBackendRegistry.h
+    src/script/ScriptBackendRegistry.cpp
+    src/script/ScriptWorld.h
+    src/script/ScriptWorld.cpp
+    src/script/ScriptInstall.h
+    src/script/backends/NullScriptBackend.h
+    src/script/backends/NullScriptBackend.cpp)
 
 target_compile_definitions(Engine PUBLIC ENGINE_DLL_EXPORTS)
 
@@ -105,9 +117,14 @@ option(CSE_ENABLE_PHYSX "Build the PhysX physics backend" ON)
 # include dirs. An OBJECT library would hand over object files without the
 # link deps, and linking the SDK into Engine directly is what caused the
 # _HAS_EXCEPTIONS=0 contamination above.
-function(cse_add_physics_backend tgt srcfile sdk_target define)
+# Used by BOTH the physics and the scripting seams -- the isolation problem is
+# identical (Jolt exports _HAS_EXCEPTIONS=0, vcpkg's Lua exports
+# LUA_BUILD_AS_DLL), so the fix is written once. Trailing arguments are the
+# SDK targets to link, since a backend may need more than one (the Lua backend
+# needs sol2 AND lua-cpp).
+function(cse_add_isolated_backend tgt srcfile define)
     add_library(${tgt} STATIC ${srcfile})
-    target_link_libraries(${tgt} PRIVATE ${sdk_target} glm::glm EnTT::EnTT)
+    target_link_libraries(${tgt} PRIVATE ${ARGN} glm::glm EnTT::EnTT)
     target_compile_definitions(${tgt} PRIVATE ENGINE_DLL_EXPORTS ${define})
     set_target_properties(${tgt} PROPERTIES POSITION_INDEPENDENT_CODE ON)
     target_link_libraries(Engine PRIVATE ${tgt})
@@ -119,8 +136,8 @@ endfunction()
 if (CSE_ENABLE_JOLT)
     find_package(Jolt CONFIG QUIET)
     if (Jolt_FOUND)
-        cse_add_physics_backend(EnginePhysicsJolt
-            src/physics/backends/JoltPhysicsBackend.cpp Jolt::Jolt CSE_WITH_JOLT)
+        cse_add_isolated_backend(EnginePhysicsJolt
+            src/physics/backends/JoltPhysicsBackend.cpp CSE_WITH_JOLT Jolt::Jolt)
         message(STATUS "Physics: Jolt backend ENABLED")
     else()
         message(STATUS "Physics: Jolt not found - backend disabled")
@@ -130,12 +147,65 @@ endif()
 if (CSE_ENABLE_PHYSX)
     find_package(unofficial-omniverse-physx-sdk CONFIG QUIET)
     if (unofficial-omniverse-physx-sdk_FOUND)
-        cse_add_physics_backend(EnginePhysicsPhysX
-            src/physics/backends/PhysXPhysicsBackend.cpp
-            unofficial::omniverse-physx-sdk::sdk CSE_WITH_PHYSX)
+        cse_add_isolated_backend(EnginePhysicsPhysX
+            src/physics/backends/PhysXPhysicsBackend.cpp CSE_WITH_PHYSX
+            unofficial::omniverse-physx-sdk::sdk)
         message(STATUS "Physics: PhysX backend ENABLED")
     else()
         message(STATUS "Physics: PhysX not found - backend disabled")
+    endif()
+endif()
+
+# --- scripting backends (OPTIONAL, same shape as physics) ---------------
+# A build with no language runtime still works: the dependency-free "Null"
+# backend is always registered, so scenes with ScriptComponents load and play
+# with those entities simply doing nothing.
+option(CSE_ENABLE_LUA "Build the Lua scripting backend" ON)
+
+if (CSE_ENABLE_LUA)
+    find_package(sol2 CONFIG QUIET)
+    # The [cpp] feature of vcpkg's lua builds it with C++ linkage, so a Lua
+    # error unwinds as a C++ exception instead of longjmp'ing straight past
+    # our destructors. sol2 relies on that for safe error propagation.
+    find_package(unofficial-lua-cpp CONFIG QUIET)
+    if (sol2_FOUND AND TARGET lua-cpp)
+        cse_add_isolated_backend(EngineScriptLua
+            src/script/backends/LuaScriptBackend.cpp CSE_WITH_LUA sol2 lua-cpp)
+        # BOTH of these are required by the [cpp] Lua build, and the failure
+        # mode of omitting SOL_USING_CXX_LUA is a wall of LNK2019s that looks
+        # like a missing library rather than a linkage mismatch:
+        #   SOL_USING_CXX_LUA  - lua-c++.lib exports C++-MANGLED names
+        #     (?lua_close@@YAXPEAUlua_State@@@Z). sol2 otherwise wraps the Lua
+        #     headers in extern "C" and asks the linker for `lua_close`.
+        #   SOL_EXCEPTIONS_SAFE_PROPAGATION - C++ Lua raises errors as real
+        #     exceptions; without this sol2 assumes longjmp and installs an
+        #     error path that would skip destructors on the way out.
+        target_compile_definitions(EngineScriptLua PRIVATE
+            SOL_USING_CXX_LUA=1
+            SOL_EXCEPTIONS_SAFE_PROPAGATION=1)
+
+        # vcpkg's applocal deployment does NOT pick this one up -- the '+'
+        # characters in "lua-c++.dll" defeat its filename matching, while
+        # every other dependency (assimp, glfw, PhysX) is deployed normally.
+        # Left alone, Engine.dll links cleanly and then fails to LOAD at
+        # runtime with a missing-DLL error that points nowhere near Lua.
+        add_custom_command(TARGET Engine POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE:lua-cpp>" "$<TARGET_FILE_DIR:Engine>"
+            COMMENT "Deploying lua-c++.dll (missed by vcpkg applocal)"
+            VERBATIM)
+        install(FILES "$<TARGET_FILE:lua-cpp>" DESTINATION .)
+        # A plain flag for sibling directories (tests/, Editor/, Player/).
+        # It cannot carry $<TARGET_FILE:lua-cpp>: find_package's imported
+        # targets are DIRECTORY-SCOPED, and that genex is expanded in the
+        # CONSUMING scope, where the target does not exist ("No target
+        # lua-cpp" at generate time). Consumers copy the DLL out of Engine's
+        # own output directory instead, which the POST_BUILD above populates.
+        set(CSE_WITH_LUA_RUNTIME ON
+            CACHE INTERNAL "Lua runtime DLL is staged beside Engine")
+        message(STATUS "Scripting: Lua backend ENABLED")
+    else()
+        message(STATUS "Scripting: sol2/lua-cpp not found - backend disabled")
     endif()
 endif()
 

@@ -124,6 +124,16 @@ Maps a mesh's material slot index to an override. `MaterialHandle` is `std::shar
 
 `AABB` has **no default constructor** — build it with `AABB(min, max)`, `AABB(center, iI, iJ, iK)`, or (normally) `generateAABB(const Model&)`, which walks every mesh vertex. It is model-local; frustum tests transform it by `Transform::modelMatrix`. Without an `AABB`, an entity is not rendered at all: every draw path (forward, depth and shadow) iterates `view<ModelComponent, Transform, AABB>()`, so an entity missing the component is skipped entirely, and it is not tracked as a dynamic shadow caster either.
 
+**`ScriptComponent`**
+
+| Field | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `path` | `std::string` | `""` | script file, relative to `Exported/Scripts` |
+| `enabled` | `bool` | `true` | a disabled script still loads (so errors surface) but never runs |
+
+Each entity gets its own instance with isolated globals, even when several
+entities share one file. See [Lua Scripting](lua-scripting.md).
+
 **`LightComponent`**
 
 | Field | Type | Default | Notes |
@@ -318,6 +328,7 @@ serializer.Load("scenes/level1.scene");
 | `noShadow` | `NoShadow` | `true` |
 | `camera` | `CameraComponent` | `fovDeg`, `nearClip`, `farClip`, `priority`, `enabled` |
 | `light` | `LightComponent` | `type`, `color`, `intensity`, `range`, `innerAngleDeg`, `outerAngleDeg`, `enabled` |
+| `script` | `ScriptComponent` | `path`, `enabled` |
 | `rigidBody` | `RigidBody` | `type` (int), `mass`, `friction`, `restitution`, `linearDamping`, `angularDamping`, `isTrigger`, `initialLinearVelocity` |
 | `boxCollider` | `BoxCollider` | `halfExtents`, `offset` |
 | `sphereCollider` | `SphereCollider` | `radius`, `offset` |

@@ -37,4 +37,14 @@
 #include "../src/physics/PhysicsBackendRegistry.h"
 #include "../src/physics/PhysicsWorld.h"
 #include "../src/physics/PhysicsInstall.h"
+// scripting: same shape as physics. The concrete language backends (Lua, and
+// whatever follows) sit behind IScriptBackend and are reached through the
+// registry, so no consumer ever includes sol2 or a Lua header.
+#include "../src/script/ScriptTypes.h"
+#include "../src/script/ScriptComponent.h"
+#include "../src/script/IScriptHost.h"
+#include "../src/script/IScriptBackend.h"
+#include "../src/script/ScriptBackendRegistry.h"
+#include "../src/script/ScriptWorld.h"
+#include "../src/script/ScriptInstall.h"
 

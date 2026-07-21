@@ -80,6 +80,12 @@ void EditorApplication::Run() {
     });
 
     SetUIDraw([this, &scene](float dt) {
+        // Per-frame script tick. Driven here rather than from the Game panel
+        // so scripts keep running when that panel is hidden or undocked —
+        // gameplay must not depend on which windows the author has open.
+        // Fixed-rate work goes through the AddFixedUpdate subscriber instead.
+        if (playing_) scripts_.Update(scene.registry, dt);
+
         // Apply a requested layout between frames: LoadIniSettingsFromDisk
         // re-applies settings to live windows through the settings handlers'
         // ApplyAll, which must run outside NewFrame/Render.
@@ -209,7 +215,7 @@ void EditorApplication::Run() {
         if (assetNode) {
             inspector_.DrawAsset(assetNode);
         }
-        else if (inspector_.Draw(scene.registry, selected_, undo_, assets_.get())) {
+        else if (inspector_.Draw(scene.registry, selected_, undo_, assets_.get(), &scripts_)) {
             // caster set changed without a transform dirtying (model swap /
             // remove / shadow toggle): stale shadows stay baked otherwise
             forceAllCSMUpdate_();
@@ -305,6 +311,18 @@ void EditorApplication::Run() {
     // Bodies are built on Play (startPlay_) and destroyed on Stop, so edit
     // mode stays static.
     MyCoreEngine::InstallPhysics(*this, scene, physics_);
+
+    // AFTER physics, so a script's OnFixedUpdate sees the poses the solver
+    // just produced rather than last tick's.
+    // Input is deliberately NOT bound here: installInput() can swap the map
+    // (the editor uses an ImGui-routed one that aggregates across detached
+    // viewports), which would leave a dangling pointer. startPlay_ binds
+    // whatever map is current instead.
+    {
+        MyCoreEngine::ScriptSettings ss;
+        ss.scriptDirectory = "Exported/Scripts";
+        MyCoreEngine::InstallScripting(*this, scene, scripts_, &physics_, nullptr, {}, ss);
+    }
 
     RunLoop(scene, *shader);
 }
@@ -791,6 +809,7 @@ void EditorApplication::DrawScenePersistence(MyCoreEngine::Scene& scene)
             gameDirector_.reset();  // ...and the Game view's camera handles
             pendingModelOps_.clear(); // in-flight ops were aimed at the old scene
             physics_.Clear();       // bodies referred to the old entities
+            scripts_.Clear();       // ...and so did every script instance
             // wholesale caster removal bypasses the departure-sphere flow:
             // the old scene's shadows would stay baked otherwise
             forceAllCSMUpdate_();
@@ -1166,6 +1185,7 @@ bool EditorApplication::loadSceneFromFile_(MyCoreEngine::Scene& scene, const std
     forceAllCSMUpdate_();
     // ...and every entity->body pair now refers to the OLD scene's entities
     physics_.Clear();
+    scripts_.Clear(); // ...as does every entity->script-instance pair
     return true;
 }
 
@@ -1367,6 +1387,14 @@ void EditorApplication::startPlay_(MyCoreEngine::Scene& scene)
     // from exactly what the author sees. Bodies live only for the session —
     // Stop destroys them and restores the pre-play scene.
     physics_.Rebuild(scene.registry);
+
+    // Scripts load and start from the same edit-mode state. Build compiles
+    // (surfacing syntax errors immediately) and Start runs OnStart, in that
+    // order, so a broken file is reported before anything is executed.
+    scripts_.SetInput(&input());
+    scripts_.Rebuild(scene.registry);
+    scripts_.Start(scene.registry);
+
     setGameplayEnabled(true);
     playing_ = true;
 }
@@ -1379,6 +1407,11 @@ void EditorApplication::stopPlay_(MyCoreEngine::Scene& scene)
     // registry and resurrects entities via create(hint), so the entity->body
     // map would survive looking valid while pointing at freed bodies.
     physics_.Clear();
+    // Same hazard as bodies: restoreScene() clears the registry and
+    // resurrects entities via create(hint), so every entity->instance pair
+    // would survive looking valid while pointing at a destroyed instance.
+    // Clearing here also fires OnDestroy while the entities still exist.
+    scripts_.Clear();
     UndoHistory::restoreScene(scene.registry, assets_.get(), playSnapshot_);
     playSnapshot_.clear();
     undo_.setRecordingEnabled(true);
