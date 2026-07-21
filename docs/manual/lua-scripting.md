@@ -102,9 +102,11 @@ takes down the editor:
 - The message appears in the Inspector next to the file that caused it.
 
 Runaway loops are handled too. Each callback runs under an instruction budget
-(`ScriptSettings::instructionLimit`, default 2,000,000); `while true do end`
-is aborted and the script disabled instead of freezing the editor. See
-[Security](#security) for the full set of sandbox limits.
+(`ScriptSettings::instructionLimit`, default 2,000,000) and a wall-clock budget
+(`ScriptSettings::callbackDeadlineMs`, default 1,000 ms); `while true do end`
+is aborted and the script disabled instead of freezing the editor — even when
+the loop is wrapped in `pcall`. See [Security](#security) for the full set of
+sandbox limits.
 
 ## Isolation
 
@@ -130,7 +132,15 @@ The sandbox is the trust boundary for the "run scripts you did not author" case
   single `string.rep("x", 2^31)` allocates in one C call the instruction hook
   cannot see; the cap turns that from a host crash into a script error.
 - **Instruction budget** (`instructionLimit`, default 2,000,000) aborts runaway
-  loops. The abort survives being wrapped in `pcall`.
+  loops. The abort survives being wrapped in a single `pcall`.
+- **Wall-clock budget** (`callbackDeadlineMs`, default 1,000 ms) bounds the one
+  case the instruction budget cannot: a runaway loop wrapped in `pcall` *and*
+  looped around. A Lua error cannot cross a `pcall`, so the inner `pcall`
+  swallows every instruction-limit abort and the outer loop retries forever.
+  Once the time budget is blown, the sandbox's `pcall`/`xpcall` re-raise
+  instead of returning, so the abort climbs out past every `pcall` level and
+  the callback ends. Generous by design — the instruction budget already caps a
+  callback at ~1–2 ms of work, so only a true runaway reaches it.
 - **Script and HDRi paths from a scene file are containment-checked** — absolute
   paths, drive/UNC roots, and `..` are rejected, so a hostile scene cannot point
   a script or environment path outside the project.
@@ -140,11 +150,11 @@ The sandbox is the trust boundary for the "run scripts you did not author" case
 directory) for **trusted** content — the editor sets it; a shipped game running
 downloaded scripts should not.
 
-**One known residual:** a script that both wraps a loop in `pcall` *and* loops
-around that (`while true do pcall(function() while true do end end) end`) can
-still peg one core, because each interrupt is caught and retried. Bounding that
-cleanly needs an out-of-band watchdog thread, which is [tracked separately].
-Everything above holds regardless.
+The wall-clock budget assumes `pcall`/`xpcall` are the only error boundaries a
+script can reach, which holds in the default sandbox (no coroutines, no `load`,
+no `debug`). Turning on `allowUnsafeLibraries` reopens `debug` and coroutines,
+so trusted content can defeat the guards — by design; the budget is a limit for
+*untrusted* scripts, and a generous one for the editor's own.
 
 ## Adding another language
 

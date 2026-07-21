@@ -619,6 +619,58 @@ TEST(LuaSandbox, PcalledInfiniteLoopStillAborts) {
     EXPECT_EQ(f.world.FailedCount(), 1u) << "pcall defeated the instruction limit";
 }
 
+TEST(LuaSandbox, PathologicalPcallLoopIsBoundedByTimeBudget) {
+    if (!luaAvailable()) GTEST_SKIP() << "Lua backend not built";
+    ScriptFixture f;
+    ScriptSettings s;
+    s.instructionLimit   = 100000; // short bursts -> frequent check-ins
+    s.callbackDeadlineMs = 100;    // abort within ~100ms of a runaway
+    ASSERT_TRUE(f.world.SetBackend("Lua", s));
+
+    // The residual the instruction limit ALONE cannot bound: a runaway loop
+    // wrapped in pcall AND looped around it. A Lua error cannot cross a pcall,
+    // so the inner pcall catches every instruction-limit abort and the outer
+    // loop retries -- pegging a core forever. The wall-clock budget closes the
+    // hole: once it is blown, the sandbox's pcall re-raises past every level.
+    // If this regresses the test HANGS rather than fails, which is exactly the
+    // freeze the budget exists to prevent -- hence the suite-level TIMEOUT.
+    f.sources["peg.lua"] =
+        "function OnUpdate(dt)\n"
+        "  while true do pcall(function() while true do end end) end\n"
+        "end\n";
+    f.makeEntity("peg", "peg.lua");
+    f.world.Build(f.reg);
+    f.world.Start(f.reg);
+    f.world.Update(f.reg, 0.1f);
+
+    EXPECT_EQ(f.world.FailedCount(), 1u) << "pcall-in-a-loop was not bounded";
+}
+
+TEST(LuaSandbox, TimeBudgetDoesNotDisturbNormalPcall) {
+    if (!luaAvailable()) GTEST_SKIP() << "Lua backend not built";
+    ScriptFixture f;
+    ScriptSettings s;
+    s.callbackDeadlineMs = 1000;
+    ASSERT_TRUE(f.world.SetBackend("Lua", s));
+
+    // A well-behaved script finishes in microseconds, far under budget, so the
+    // wrapped pcall must behave exactly like the real one: catch the error and
+    // let the caller carry on. Here the caught failure is turned into a normal
+    // result the script acts on, proving pcall still returns rather than aborts.
+    f.sources["catch.lua"] = R"(
+        function OnStart()
+            local ok, msg = pcall(function() error("boom") end)
+            if not ok then self:setPosition(vec3.new(3, 0, 0)) end
+        end
+    )";
+    const entt::entity e = f.makeEntity("c", "catch.lua");
+    f.world.Build(f.reg);
+    f.world.Start(f.reg);
+
+    EXPECT_EQ(f.world.FailedCount(), 0u) << "an under-budget pcall must not abort";
+    EXPECT_FLOAT_EQ(f.pos(e).x, 3.0f) << "pcall did not catch as it should";
+}
+
 TEST(LuaSandbox, HugeAllocationErrorsRatherThanCrashing) {
     if (!luaAvailable()) GTEST_SKIP() << "Lua backend not built";
     ScriptFixture f;

@@ -41,6 +41,18 @@ namespace MyCoreEngine {
         // editor keeps running.
         uint32_t instructionLimit = 2'000'000;
 
+        // Wall-clock budget per callback, in milliseconds; 0 disables it. The
+        // instruction limit alone cannot bound a script that wraps a runaway
+        // loop in `pcall` AND loops around that: each instruction-limit abort
+        // is a Lua error, and a Lua error cannot cross a `pcall`, so the inner
+        // pcall swallows every abort and the outer loop retries forever. A
+        // time budget closes that hole -- once it is blown, the sandbox's
+        // pcall/xpcall re-raise instead of returning, so the abort escapes
+        // past every pcall level. Generous by design (the instruction limit
+        // already caps a callback at ~1-2ms of work): only a true runaway
+        // reaches a budget measured in hundreds of milliseconds.
+        uint32_t callbackDeadlineMs = 1000;
+
         // Expose the language's unrestricted libraries (io, os, package,
         // debug), AND the bytecode loaders (load/loadfile/dofile) and
         // coroutines. Off by default: a shipped game running downloaded

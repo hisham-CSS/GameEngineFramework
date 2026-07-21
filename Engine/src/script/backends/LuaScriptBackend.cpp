@@ -4,6 +4,7 @@
 #define SOL_ALL_SAFETIES_ON 1
 #include <sol/sol.hpp>
 
+#include <chrono>
 #include <cstdlib>
 #include <unordered_map>
 
@@ -47,22 +48,58 @@ namespace MyCoreEngine {
             void setVelocity(const glm::vec3& v) { if (host) host->setLinearVelocity(id, v); }
         };
 
-        // The instruction-limit hook. Fires every N VM instructions and
-        // aborts the running chunk. This is what stops `while true do end` in
-        // a user's script from hanging the editor with no recovery.
+        // How often the count hook fires when ONLY a time budget is set
+        // (instructionLimit == 0). It exists purely to give the hook and the
+        // pcall wrappers periodic check-in points against the wall clock; the
+        // exact cadence does not matter, only that it is frequent enough to
+        // bound the deadline to a small overshoot.
+        constexpr int kDeadlineCheckInInstructions = 100'000;
+
+        // State the count hook and the pcall/xpcall wrappers consult, set up
+        // by the backend around every callback. thread_local because the count
+        // hook is handed only a lua_State*, and one backend runs its callbacks
+        // synchronously on one thread with no re-entrancy, so a single slot per
+        // thread is sufficient.
+        struct HookState {
+            bool instructionCapActive = false; // raise on every count fire
+            bool deadlineActive       = false;
+            std::chrono::steady_clock::time_point deadline{};
+
+            bool overDeadline() const {
+                return deadlineActive &&
+                       std::chrono::steady_clock::now() >= deadline;
+            }
+        };
+        thread_local HookState g_hook;
+
+        // The runaway-abort hook. Fires every N VM instructions. This is what
+        // stops `while true do end` in a user's script from hanging the editor
+        // with no recovery.
         //
         // It does NOT self-disarm. An earlier version cleared the hook before
         // raising, which pcall then permanently defeated: the first overflow
         // fired, disarmed, and raised; a surrounding pcall swallowed the
         // error; and the rest of the callback ran with no limit at all. Left
         // armed, the hook re-fires every N instructions, so a plain runaway
-        // loop still aborts out of the callback. (A script that both wraps its
-        // loop in pcall AND loops around that can still peg one core until the
-        // frame's watchdog would kill it; a true fix for that pathological
-        // case needs an out-of-band watchdog thread and is tracked separately.)
+        // loop still aborts out of the callback.
+        //
+        // A Lua error cannot cross a pcall, so the hook alone cannot stop a
+        // script that both wraps its loop in pcall AND loops around that -- the
+        // inner pcall catches every abort and the outer loop retries. The time
+        // budget closes that hole: see installBudgetGuards(), which re-raises
+        // past every pcall once overDeadline() is true. The hook's remaining
+        // job there is only to keep firing so those wrappers get their turn.
         void InstructionLimitHook(lua_State* L, lua_Debug*) {
-            luaL_error(L, "script exceeded the instruction limit "
-                          "(infinite loop?) - script disabled");
+            if (g_hook.instructionCapActive) {
+                luaL_error(L, "script exceeded the instruction limit "
+                              "(infinite loop?) - script disabled");
+            } else if (g_hook.overDeadline()) {
+                // Deadline-only mode (instructionLimit == 0): the count fires
+                // are just check-ins, so raise only when the clock says to.
+                luaL_error(L, "script exceeded the time budget "
+                              "(infinite loop?) - script disabled");
+            }
+            // Otherwise a harmless check-in: the budget is intact, keep going.
         }
 
         // Capping allocator. Wraps the default realloc and refuses to grow
@@ -117,14 +154,65 @@ namespace MyCoreEngine {
             return (it != instances.end()) ? &it->second : nullptr;
         }
 
+        // Arm both runaway guards for the callback about to run. The count
+        // hook is armed at the instruction cap when there is one; otherwise, if
+        // only a time budget is set, at a fixed check-in cadence so the clock
+        // still gets looked at. The deadline is stamped fresh here, so it is
+        // measured from the start of THIS callback, not wall-clock since load.
         void armHook() {
-            if (settings.instructionLimit > 0) {
-                lua_sethook(lua.lua_state(), InstructionLimitHook, LUA_MASKCOUNT,
-                            static_cast<int>(settings.instructionLimit));
+            const bool hasInstr = settings.instructionLimit > 0;
+            const bool hasTime  = settings.callbackDeadlineMs > 0;
+
+            g_hook.instructionCapActive = hasInstr;
+            g_hook.deadlineActive       = hasTime;
+            if (hasTime) {
+                g_hook.deadline = std::chrono::steady_clock::now() +
+                    std::chrono::milliseconds(settings.callbackDeadlineMs);
+            }
+
+            const int count = hasInstr ? static_cast<int>(settings.instructionLimit)
+                            : (hasTime ? kDeadlineCheckInInstructions : 0);
+            if (count > 0) {
+                lua_sethook(lua.lua_state(), InstructionLimitHook, LUA_MASKCOUNT, count);
             }
         }
         void disarmHook() {
             lua_sethook(lua.lua_state(), nullptr, 0, 0);
+            g_hook.instructionCapActive = false;
+            g_hook.deadlineActive       = false;
+        }
+
+        // Replace pcall/xpcall in the sandbox with versions that re-raise once
+        // the callback's time budget is blown. This is what bounds a script
+        // that wraps a runaway loop in pcall AND loops around it: the hook's
+        // abort is caught by the inner pcall, but our wrapper re-raises it, and
+        // because every pcall in the sandbox is our wrapper, the abort climbs
+        // out one level per pcall and escapes the callback. pcall and xpcall
+        // are the ONLY error boundaries a sandboxed script can reach (no
+        // coroutines, no load, no debug), so wrapping them is sufficient; the
+        // originals survive only as upvalues no script can name.
+        //
+        // Transparent when no budget is set (overDeadline() is always false)
+        // and while a callback is under budget, which is every real script.
+        void installBudgetGuards() {
+            lua.set_function("__scriptOverBudget", [] { return g_hook.overDeadline(); });
+
+            const char* kInstall = R"LUA(
+                local _pcall, _xpcall, _error = pcall, xpcall, error
+                local _over = __scriptOverBudget
+                __scriptOverBudget = nil  -- keep the predicate out of scripts' reach
+                local MSG = "script exceeded the time budget (infinite loop?) - script disabled"
+                local function guard(...)
+                    if _over() then return _error(MSG, 0) end
+                    return ...
+                end
+                function pcall(...) return guard(_pcall(...)) end
+                function xpcall(f, h, ...) return guard(_xpcall(f, h, ...)) end
+            )LUA";
+            // A static, self-contained chunk; if it somehow fails to install,
+            // the engine still runs -- only the pcall-loop bound is lost -- so
+            // this does not gate initialize().
+            lua.safe_script(kInstall, sol::script_pass_on_error);
         }
 
         // Every invocation funnels through here so the hook is always armed
@@ -316,6 +404,10 @@ namespace MyCoreEngine {
             const char* kLoaders[] = { "load", "loadstring", "loadfile", "dofile" };
             for (const char* n : kLoaders) impl_->lua[n] = sol::nil;
         }
+
+        // After the libraries are open (pcall/xpcall/error exist) and before
+        // any script loads, so every instance sees the budget-aware pcall.
+        impl_->installBudgetGuards();
 
         impl_->bindApi();
         return true;
