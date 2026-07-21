@@ -49,7 +49,30 @@ install(DIRECTORY ${CMAKE_SOURCE_DIR}/Editor/src/Exported/ DESTINATION Exported
 # Editor-authored content (saved scenes, project.json with the startup scene)
 # lands in the RUNTIME Exported/ next to the exes, not in the source tree —
 # layer it on top so the shipped bundle actually contains what the editor
-# configured. OPTIONAL: absent for never-run or non-Release builds.
-install(DIRECTORY ${CMAKE_BINARY_DIR}/build/bin/Release/Exported/
-        DESTINATION Exported OPTIONAL
-        PATTERN "*.import" EXCLUDE)
+# configured.
+#
+# The config is resolved at INSTALL time, not hardcoded. This path used to be
+# .../bin/Release/Exported, so installing any other configuration (notably
+# RelWithDebInfo) found nothing and silently shipped the source-tree defaults
+# instead of the user's saved scene -- a packaged game that ignored their
+# authoring, with no error to explain it. install(DIRECTORY) resolves its
+# source at configure time and cannot use $<CONFIG>, hence install(CODE).
+install(CODE "
+  set(_authored \"${CMAKE_BINARY_DIR}/build/bin/\${CMAKE_INSTALL_CONFIG_NAME}/Exported\")
+  if(EXISTS \"\${_authored}\")
+    message(STATUS \"Bundling editor-authored content from \${_authored}\")
+    file(GLOB_RECURSE _authored_files RELATIVE \"\${_authored}\" \"\${_authored}/*\")
+    foreach(_f IN LISTS _authored_files)
+      if(NOT _f MATCHES \"\\\\.import$\")
+        get_filename_component(_sub \"\${_f}\" DIRECTORY)
+        file(COPY \"\${_authored}/\${_f}\"
+             DESTINATION \"\${CMAKE_INSTALL_PREFIX}/Exported/\${_sub}\")
+      endif()
+    endforeach()
+  else()
+    message(WARNING
+      \"No editor-authored Exported/ for configuration '\${CMAKE_INSTALL_CONFIG_NAME}' \"
+      \"(looked in \${_authored}). The package ships the source-tree defaults, NOT \"
+      \"your saved scene. Run the editor in this configuration and save first.\")
+  endif()
+")

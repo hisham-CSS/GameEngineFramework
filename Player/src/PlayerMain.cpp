@@ -72,6 +72,13 @@ public:
         // (Application::gameplayEnabled_ defaults on; only the editor gates
         // it). There is no Play button here, so physics bodies are built
         // right after the scene loads rather than on a play transition.
+        // UpdateTransforms FIRST: a freshly loaded scene has dirty Transforms
+        // whose cached world matrices are still identity, and physics bodies
+        // are built from world poses. Building first put the ground (authored
+        // at y=-3, scaled 300x) at the origin as a 1x1 box, so everything
+        // fell straight past it. PhysicsWorld::Build is now robust to this on
+        // its own, but the ordering is still the honest way to express it.
+        scene.UpdateTransforms();
         InstallPhysics(*this, scene, physics_);
         physics_.Build(scene.registry);
 

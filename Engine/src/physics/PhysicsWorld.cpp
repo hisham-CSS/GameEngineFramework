@@ -111,8 +111,19 @@ namespace MyCoreEngine {
                 continue;
             }
 
-            // World pose: modelMatrix is WORLD (hierarchy already applied).
-            const glm::mat4& world = t.modelMatrix;
+            // World pose. modelMatrix is the CACHED world matrix, and it is
+            // only valid once UpdateTransforms has run: straight after a
+            // scene load every Transform is dirty and its cache is still
+            // identity. Building from that silently produced unscaled bodies
+            // at the origin -- a 300x-scaled ground became a 1x1 box and
+            // everything fell through it, in the player but not the editor
+            // (which had already ticked for frames before Play).
+            //
+            // Resolving from the local TRS chain instead makes Build correct
+            // no matter when it is called. It costs a parent walk per body,
+            // once per build, which is nothing next to creating the bodies.
+            const glm::mat4 world = t.dirty ? ResolveWorldMatrix(reg, e)
+                                            : t.modelMatrix;
             const glm::vec3 scale = matrixScale(world);
 
             // Bake the entity's scale into the shape — physics shapes are

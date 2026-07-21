@@ -406,6 +406,58 @@ TEST(PhysicsWorldTest, StepWritesPosesBackIntoTransforms) {
     }
 }
 
+// REGRESSION (shipped player: "the backpack fell through the floor").
+// Bodies are built from WORLD poses, but Transform::modelMatrix is a CACHE
+// that UpdateTransforms fills — right after a scene load it is still
+// identity. Building then made a 300x-scaled ground at y=-3 into a 1x1 box
+// at the origin, so dynamics fell straight past it. The editor never saw it
+// because Play happens after many ticks; the player builds immediately.
+// Build must therefore be correct even with dirty transforms.
+TEST(PhysicsWorldTest, BuildUsesWorldPoseEvenWithDirtyTransforms) {
+    for (const auto& name : AllBackends()) {
+        Scene scene;
+
+        // big, low, scaled ground — exactly the shape of the real bug
+        Entity ground = scene.createEntity();
+        Transform gt{};
+        gt.position = { 0.f, -3.f, 0.f };
+        gt.scale = { 300.f, 1.f, 300.f };
+        ground.addComponent<Transform>(gt);
+        ground.addComponent<RigidBody>(RigidBody{ BodyType::Static });
+        ground.addComponent<BoxCollider>(BoxCollider{ glm::vec3(0.5f), glm::vec3(0.f, 0.5f, 0.f) });
+
+        Entity box = scene.createEntity();
+        Transform bt{};
+        bt.position = { 0.f, 5.f, 0.f };
+        box.addComponent<Transform>(bt);
+        RigidBody rb{};
+        rb.type = BodyType::Dynamic;
+        box.addComponent<RigidBody>(rb);
+        box.addComponent<BoxCollider>(BoxCollider{ glm::vec3(0.5f) });
+
+        // DELIBERATELY no UpdateTransforms() here: this is the player's
+        // load-then-build order, and the caches are identity.
+        PhysicsWorld world;
+        ASSERT_TRUE(world.SetBackend(name)) << name;
+        world.Build(scene.registry);
+        EXPECT_EQ(world.BodyCount(), 2u) << name;
+
+        for (int i = 0; i < 300; ++i) {
+            world.Step(scene.registry, 1.f / 60.f);
+            scene.UpdateTransforms();
+        }
+
+        // ground top = -3 + (0.5 offset * 1) + (0.5 half * 1) = -2.0,
+        // so a 0.5-half box rests near -1.5. Falling through would leave it
+        // far below (it never stops).
+        const float y = scene.registry.get<Transform>(box).position.y;
+        EXPECT_GT(y, -3.f)
+            << name << ": body fell THROUGH the ground (y=" << y
+            << ") — bodies were built from stale identity transforms";
+        EXPECT_NEAR(y, -1.5f, 0.6f) << name << ": did not come to rest on the ground";
+    }
+}
+
 TEST(PhysicsWorldTest, RigidBodyWithoutColliderIsSkippedNotSimulated) {
     Scene scene;
     Entity e = scene.createEntity();
