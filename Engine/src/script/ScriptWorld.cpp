@@ -189,6 +189,18 @@ namespace MyCoreEngine {
     }
 
     ScriptWorld::~ScriptWorld() {
+        // Sever the capability pointers BEFORE Clear() fires OnDestroy. The
+        // Scene (and its registry) is typically a shorter-lived local than
+        // this ScriptWorld member, so at process/app teardown it is already
+        // gone. Every host accessor null-checks these, so an OnDestroy that
+        // touches the world during teardown becomes a safe no-op instead of a
+        // use-after-free. A normal play-stop still fires OnDestroy against a
+        // live registry, because the host calls Clear() explicitly first.
+        if (host_) {
+            host_->reg = nullptr;
+            host_->physics = nullptr;
+            host_->input = nullptr;
+        }
         Clear();
         if (backend_) backend_->shutdown();
     }
@@ -220,12 +232,52 @@ namespace MyCoreEngine {
     void ScriptWorld::SetInput(InputMap* i) { host_->input = i; }
     void ScriptWorld::SetSourceResolver(SourceResolver r) { resolver_ = std::move(r); }
 
+    // Rejects a scene-supplied relative path that would escape `base`. The
+    // path comes straight out of an untrusted scene file, and fs::path's
+    // operator/ REPLACES the base entirely when the right side is absolute or
+    // carries a drive/UNC root -- so "C:/Windows/x" or "//host/share/x" or
+    // "../../secret" would otherwise read (and, via the Lua loader, the old
+    // build could execute) a file well outside the project.
+    static bool pathIsContained(const std::string& baseDir, const std::string& rel,
+                                std::filesystem::path& outFull) {
+        namespace fs = std::filesystem;
+        const fs::path relp(rel);
+        // No absolute paths, no drive/UNC roots.
+        if (relp.is_absolute() || relp.has_root_name() || relp.has_root_directory())
+            return false;
+        // No ".." components (a plain lexical check, before any filesystem
+        // access, so a symlink cannot be used to slip past canonicalization).
+        for (const auto& part : relp)
+            if (part == "..") return false;
+
+        std::error_code ec;
+        const fs::path base = baseDir.empty() ? fs::current_path(ec)
+                                              : fs::path(baseDir);
+        const fs::path joined = base / relp;
+        // weakly_canonical resolves any surviving . or symlink and does not
+        // require the file to exist yet.
+        const fs::path canon = fs::weakly_canonical(joined, ec);
+        if (ec) return false;
+        const fs::path canonBase = fs::weakly_canonical(base, ec);
+        if (ec) return false;
+
+        // Prefix check on the normalized component sequences.
+        auto b = canonBase.begin();
+        auto c = canon.begin();
+        for (; b != canonBase.end(); ++b, ++c) {
+            if (c == canon.end() || *c != *b) return false;
+        }
+        outFull = canon;
+        return true;
+    }
+
     bool ScriptWorld::defaultResolve_(const std::string& path, std::string& out) const {
         namespace fs = std::filesystem;
         std::error_code ec;
-        fs::path full = settings_.scriptDirectory.empty()
-                            ? fs::path(path)
-                            : fs::path(settings_.scriptDirectory) / path;
+        fs::path full;
+        // Containment failure returns false like any unreadable path; Build
+        // reports it to the console as "could not read script '<path>'".
+        if (!pathIsContained(settings_.scriptDirectory, path, full)) return false;
         if (!fs::exists(full, ec)) return false;
         std::ifstream in(full, std::ios::binary);
         if (!in) return false;

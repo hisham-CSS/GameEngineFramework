@@ -524,3 +524,142 @@ TEST(LuaScripting, UnboundActionWarnsOnceInsteadOfFailingSilently) {
     EXPECT_EQ(warnings, 1) << "expected exactly one unbound-action warning";
     EXPECT_EQ(f.world.FailedCount(), 0u) << "an unbound action must not fail the script";
 }
+
+// --- sandbox hardening ------------------------------------------------------
+//
+// The Lua backend is the engine's trust boundary for untrusted script content
+// ("a shipped game may run scripts it did not author"). These pin the escapes
+// a security review found in the first cut.
+
+TEST(LuaSandbox, BytecodeLoadersAreRemovedByDefault) {
+    if (!luaAvailable()) GTEST_SKIP() << "Lua backend not built";
+    ScriptFixture f;
+    ASSERT_TRUE(f.world.SetBackend("Lua")); // default = untrusted config
+
+    // load/loadstring/loadfile/dofile are the primitives that execute
+    // UNVERIFIED bytecode (a memory-corruption vector in Lua 5.4) and read
+    // arbitrary files. They must not exist in the sandbox. A script that
+    // records which are present lets us assert all four are gone.
+    f.sources["probe.lua"] = R"(
+        function OnStart()
+            local present = 0
+            if load then present = present + 1 end
+            if loadstring then present = present + 1 end
+            if loadfile then present = present + 1 end
+            if dofile then present = present + 1 end
+            self:setPosition(vec3.new(present, 0, 0))
+        end
+    )";
+    const entt::entity e = f.makeEntity("p", "probe.lua");
+    f.world.Build(f.reg);
+    f.world.Start(f.reg);
+
+    EXPECT_EQ(f.world.FailedCount(), 0u);
+    EXPECT_FLOAT_EQ(f.pos(e).x, 0.0f) << "a bytecode loader is still reachable";
+}
+
+TEST(LuaSandbox, LoadersReturnableWithUnsafeLibraries) {
+    if (!luaAvailable()) GTEST_SKIP() << "Lua backend not built";
+    ScriptFixture f;
+    ScriptSettings s;
+    s.allowUnsafeLibraries = true; // trusted/editor config
+    ASSERT_TRUE(f.world.SetBackend("Lua", s));
+
+    f.sources["probe.lua"] =
+        "function OnStart() if load then self:setPosition(vec3.new(1,0,0)) end end";
+    const entt::entity e = f.makeEntity("p", "probe.lua");
+    f.world.Build(f.reg);
+    f.world.Start(f.reg);
+
+    // Trusted content keeps the full language; the gate is opt-in, not a
+    // permanent amputation.
+    EXPECT_FLOAT_EQ(f.pos(e).x, 1.0f);
+}
+
+TEST(LuaSandbox, CoroutineLibraryIsWithheldByDefault) {
+    if (!luaAvailable()) GTEST_SKIP() << "Lua backend not built";
+    ScriptFixture f;
+    ASSERT_TRUE(f.world.SetBackend("Lua"));
+
+    // The instruction-limit hook is per-thread; a coroutine would run
+    // unbounded. Until every coroutine thread is hooked, the library stays out
+    // of untrusted content.
+    f.sources["co.lua"] =
+        "function OnStart() if coroutine == nil then self:setPosition(vec3.new(7,0,0)) end end";
+    const entt::entity e = f.makeEntity("c", "co.lua");
+    f.world.Build(f.reg);
+    f.world.Start(f.reg);
+
+    EXPECT_FLOAT_EQ(f.pos(e).x, 7.0f) << "coroutine library is exposed to untrusted scripts";
+}
+
+TEST(LuaSandbox, PcalledInfiniteLoopStillAborts) {
+    if (!luaAvailable()) GTEST_SKIP() << "Lua backend not built";
+    ScriptFixture f;
+    ScriptSettings s;
+    s.instructionLimit = 100000;
+    ASSERT_TRUE(f.world.SetBackend("Lua", s));
+
+    // The instruction-limit hook used to self-disarm before raising, so a
+    // pcall around the loop swallowed the error and the rest of the callback
+    // ran with no limit. Left armed, the post-pcall statement's abort escapes
+    // and the script fails cleanly. If this regresses the test HANGS, which is
+    // exactly the editor freeze the limit exists to prevent -- hence the
+    // suite-level TIMEOUT.
+    f.sources["evade.lua"] =
+        "function OnUpdate(dt)\n"
+        "  pcall(function() while true do end end)\n"
+        "  while true do end\n"
+        "end\n";
+    f.makeEntity("evade", "evade.lua");
+    f.world.Build(f.reg);
+    f.world.Start(f.reg);
+    f.world.Update(f.reg, 0.1f);
+
+    EXPECT_EQ(f.world.FailedCount(), 1u) << "pcall defeated the instruction limit";
+}
+
+TEST(LuaSandbox, HugeAllocationErrorsRatherThanCrashing) {
+    if (!luaAvailable()) GTEST_SKIP() << "Lua backend not built";
+    ScriptFixture f;
+    ScriptSettings s;
+    s.memoryLimitBytes = 64ull * 1024 * 1024; // 64 MB ceiling
+    ASSERT_TRUE(f.world.SetBackend("Lua", s));
+
+    // A single C-library call the instruction hook cannot see. Without a
+    // capping allocator this ~2GB string OOMs the host process; with one it
+    // is an ordinary Lua error that fails just this script.
+    f.sources["oom.lua"] =
+        "function OnStart() local s = string.rep('x', 2000000000) end";
+    f.makeEntity("oom", "oom.lua");
+    f.world.Build(f.reg);
+    f.world.Start(f.reg);
+
+    EXPECT_EQ(f.world.FailedCount(), 1u) << "oversized allocation was not bounded";
+}
+
+TEST(LuaSandbox, ScriptPathTraversalIsRejected) {
+    if (!luaAvailable()) GTEST_SKIP() << "Lua backend not built";
+    // Uses the REAL default resolver (no injected sources), so the containment
+    // check in defaultResolve_ is what is under test.
+    entt::registry reg;
+    ScriptWorld world;
+    RegisterBuiltinScriptBackends();
+    ScriptSettings s;
+    s.scriptDirectory = "Exported/Scripts";
+    ASSERT_TRUE(world.SetBackend("Lua", s));
+
+    for (const char* evil : { "../../../etc/passwd",
+                              R"(..\..\windows\system32\x)",
+                              "/etc/shadow" }) {
+        reg.clear();
+        const entt::entity e = reg.create();
+        reg.emplace<Name>(e, Name{ "evil" });
+        reg.emplace<Transform>(e);
+        reg.emplace<ScriptComponent>(e, ScriptComponent{ evil, true });
+        world.Rebuild(reg);
+        // The instance is created but must have FAILED to resolve -- the path
+        // never reaches the filesystem read.
+        EXPECT_EQ(world.FailedCount(), 1u) << "traversal path accepted: " << evil;
+    }
+}

@@ -7,6 +7,7 @@
 #include <stb_image.h>
 
 #include <cstdio>
+#include <filesystem>
 
 namespace MyCoreEngine {
 
@@ -223,6 +224,24 @@ namespace MyCoreEngine {
 
     bool IBLBaker::BakeFromFile(const std::string& hdrPath, const Settings& s) {
         GLState saved;
+
+        // hdrPath comes from an untrusted scene's EnvironmentSettings. Reject
+        // anything that reaches outside the project: absolute paths, drive/UNC
+        // roots, and ".." components. stbi only parses image data (no code
+        // execution), so this is defence-in-depth against reading arbitrary
+        // files by path rather than a critical hole -- but it costs nothing
+        // and keeps a hostile scene from probing the filesystem.
+        {
+            namespace fs = std::filesystem;
+            const fs::path p(hdrPath);
+            bool bad = p.is_absolute() || p.has_root_name() || p.has_root_directory();
+            for (const auto& part : p) if (part == "..") bad = true;
+            if (bad) {
+                error_ = "rejected HDRi path outside the project: '" + hdrPath + "'";
+                return false; // previous bake left intact
+            }
+        }
+
         if (!ensureResources_()) return false;
 
         // Radiance files are float and bottom-up; stbi's flip flag is what

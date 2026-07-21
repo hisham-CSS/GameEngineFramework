@@ -103,7 +103,8 @@ takes down the editor:
 
 Runaway loops are handled too. Each callback runs under an instruction budget
 (`ScriptSettings::instructionLimit`, default 2,000,000); `while true do end`
-is aborted and the script disabled instead of freezing the editor.
+is aborted and the script disabled instead of freezing the editor. See
+[Security](#security) for the full set of sandbox limits.
 
 ## Isolation
 
@@ -113,10 +114,37 @@ not shared state.
 
 ## Security
 
-`io`, `os`, `package`, and `debug` are **not** loaded by default. A shipped
-game may run scripts it did not author, and those libraries hand over the
-filesystem and process control. Set `ScriptSettings::allowUnsafeLibraries` to
-opt in (which also enables `require` from the script directory).
+The sandbox is the trust boundary for the "run scripts you did not author" case
+(mods, workshop content). In the default (untrusted) configuration:
+
+- **`io`, `os`, `package`, `debug` are not loaded** — no filesystem or process
+  control.
+- **`load`, `loadstring`, `loadfile`, `dofile` are removed.** `load` accepts
+  *unverified binary bytecode*, which Lua 5.4 explicitly does not validate — a
+  single `load(bytes)()` is a memory-corruption primitive. `loadfile`/`dofile`
+  additionally read and run arbitrary files. Withholding `io` means nothing
+  while these remain, so they go too.
+- **`coroutine` is not loaded.** The instruction-limit hook is per-thread and a
+  new coroutine starts unhooked, so a loop inside one would run unbounded.
+- **Memory is capped** (`ScriptSettings::memoryLimitBytes`, default 256 MB). A
+  single `string.rep("x", 2^31)` allocates in one C call the instruction hook
+  cannot see; the cap turns that from a host crash into a script error.
+- **Instruction budget** (`instructionLimit`, default 2,000,000) aborts runaway
+  loops. The abort survives being wrapped in `pcall`.
+- **Script and HDRi paths from a scene file are containment-checked** — absolute
+  paths, drive/UNC roots, and `..` are rejected, so a hostile scene cannot point
+  a script or environment path outside the project.
+
+`ScriptSettings::allowUnsafeLibraries` opts back into the full language
+(io/os/package/debug, the loaders, coroutines, and `require` from the script
+directory) for **trusted** content — the editor sets it; a shipped game running
+downloaded scripts should not.
+
+**One known residual:** a script that both wraps a loop in `pcall` *and* loops
+around that (`while true do pcall(function() while true do end end) end`) can
+still peg one core, because each interrupt is caught and retried. Bounding that
+cleanly needs an out-of-band watchdog thread, which is [tracked separately].
+Everything above holds regardless.
 
 ## Adding another language
 

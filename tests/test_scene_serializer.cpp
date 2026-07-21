@@ -812,3 +812,24 @@ TEST(SceneSerializer, SceneWithoutEnvironmentBlockGetsTheProceduralSky) {
 
     std::remove(path);
 }
+
+TEST(SceneSerializer, MalformedFieldTypeDoesNotCrash) {
+    const char* path = "test_scene_hostile.json";
+    // Wrong-TYPED fields (not a syntax error): version is an object, a
+    // transform position is a string. nlohmann throws type_error on these,
+    // which used to escape uncaught and crash the editor/player -- a
+    // denial-of-service via a hand-edited or hostile scene file.
+    const char* hostile =
+        "{ \"version\": {}, \"entities\": ["
+        "  { \"name\": \"x\", \"transform\": { \"position\": \"north\" } } ] }";
+    std::ofstream(path) << hostile;
+
+    AssetManager assets;
+    Scene scene;
+    SceneSerializer load(scene, assets);
+    // Must return false, not throw. (If it threw, the process would abort and
+    // this test would not complete.)
+    EXPECT_FALSE(load.Load(path));
+
+    std::remove(path);
+}

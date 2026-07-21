@@ -242,6 +242,13 @@ namespace MyCoreEngine {
             std::cerr << "ERROR::SCENE::LOAD_FAILED '" << path << "' is not a scene file" << std::endl;
             return false;
         }
+
+      try {
+        // A wrong-TYPED field ("version": {}, "position": "north") throws
+        // json::type_error, NOT a parse error, so the parse-only guard above
+        // does not cover it. Every .value()/get<> below is on untrusted data;
+        // one catch here turns a hostile or hand-corrupted file into a clean
+        // load failure instead of a crash that takes the editor down.
         const int version = root.value("version", 0);
         if (version <= 0 || version > kVersion) {
             std::cerr << "ERROR::SCENE::LOAD_FAILED unsupported scene version " << version
@@ -491,6 +498,12 @@ namespace MyCoreEngine {
         }
 
         return true;
+      }
+      catch (const json::exception& e) {
+        std::cerr << "ERROR::SCENE::LOAD_FAILED malformed field in '" << path
+                  << "': " << e.what() << std::endl;
+        return false;
+      }
     }
 
 } // namespace MyCoreEngine

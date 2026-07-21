@@ -4,6 +4,7 @@
 #define SOL_ALL_SAFETIES_ON 1
 #include <sol/sol.hpp>
 
+#include <cstdlib>
 #include <unordered_map>
 
 namespace MyCoreEngine {
@@ -49,10 +50,43 @@ namespace MyCoreEngine {
         // The instruction-limit hook. Fires every N VM instructions and
         // aborts the running chunk. This is what stops `while true do end` in
         // a user's script from hanging the editor with no recovery.
+        //
+        // It does NOT self-disarm. An earlier version cleared the hook before
+        // raising, which pcall then permanently defeated: the first overflow
+        // fired, disarmed, and raised; a surrounding pcall swallowed the
+        // error; and the rest of the callback ran with no limit at all. Left
+        // armed, the hook re-fires every N instructions, so a plain runaway
+        // loop still aborts out of the callback. (A script that both wraps its
+        // loop in pcall AND loops around that can still peg one core until the
+        // frame's watchdog would kill it; a true fix for that pathological
+        // case needs an out-of-band watchdog thread and is tracked separately.)
         void InstructionLimitHook(lua_State* L, lua_Debug*) {
-            lua_sethook(L, nullptr, 0, 0); // avoid re-entering while erroring
             luaL_error(L, "script exceeded the instruction limit "
                           "(infinite loop?) - script disabled");
+        }
+
+        // Capping allocator. Wraps the default realloc and refuses to grow
+        // past a byte ceiling, so an oversized allocation becomes a Lua error
+        // instead of a process OOM. ud points at a LuaMemory.
+        struct LuaMemory {
+            size_t used = 0;
+            size_t limit = 0; // 0 = unlimited
+        };
+        void* LimitedAlloc(void* ud, void* ptr, size_t osize, size_t nsize) {
+            auto* mem = static_cast<LuaMemory*>(ud);
+            if (nsize == 0) {
+                if (ptr) { std::free(ptr); mem->used -= osize; }
+                return nullptr;
+            }
+            // osize is meaningful only when ptr != null.
+            const size_t prev = ptr ? osize : 0;
+            if (mem->limit && nsize > prev && mem->used + (nsize - prev) > mem->limit) {
+                return nullptr; // Lua raises "not enough memory"
+            }
+            void* np = std::realloc(ptr, nsize);
+            if (!np) return nullptr;
+            mem->used += nsize - prev;
+            return np;
         }
 
     } // namespace
@@ -62,6 +96,7 @@ namespace MyCoreEngine {
         IScriptHost* host = nullptr;
         ScriptSettings settings{};
         uint64_t     nextId = 1;
+        LuaMemory    mem{};
 
         struct Instance {
             sol::environment env;
@@ -246,20 +281,40 @@ namespace MyCoreEngine {
         impl_->host = host;
         impl_->settings = settings;
 
+        // Swap in the capping allocator BEFORE anything substantial is loaded,
+        // so the ceiling covers library and script allocations too.
+        impl_->mem.limit = settings.memoryLimitBytes;
+        lua_setallocf(impl_->lua.lua_state(), LimitedAlloc, &impl_->mem);
+
         // Deliberately WITHOUT io/os/package/debug unless asked: a shipped
         // game may run scripts it did not author, and those libraries hand
         // over the filesystem and process control.
+        //
+        // coroutine is ALSO gated. The instruction-limit hook is per-thread
+        // and a new coroutine starts with no hook, so a loop inside one runs
+        // unbounded. Safely hooking every coroutine thread means wrapping
+        // create/wrap; until that exists, coroutines belong to trusted content
+        // only. (We already advertise no coroutine scheduler, so nothing that
+        // shipped depended on them by default.)
         impl_->lua.open_libraries(sol::lib::base, sol::lib::string, sol::lib::math,
-                                  sol::lib::table, sol::lib::coroutine);
+                                  sol::lib::table);
         if (settings.allowUnsafeLibraries) {
             impl_->lua.open_libraries(sol::lib::io, sol::lib::os, sol::lib::package,
-                                      sol::lib::debug);
+                                      sol::lib::debug, sol::lib::coroutine);
             if (!settings.scriptDirectory.empty()) {
                 const std::string dir = settings.scriptDirectory;
                 impl_->lua["package"]["path"] =
                     dir + "/?.lua;" + dir + "/?/init.lua;"
                     + impl_->lua["package"]["path"].get<std::string>();
             }
+        } else {
+            // Remove the base-library CHUNK LOADERS from the sandbox. `load`
+            // accepts unverified BINARY bytecode (a memory-corruption
+            // primitive in Lua 5.4), and loadfile/dofile additionally read and
+            // execute arbitrary files off disk regardless of io being closed.
+            // Withholding io/os is meaningless while these remain reachable.
+            const char* kLoaders[] = { "load", "loadstring", "loadfile", "dofile" };
+            for (const char* n : kLoaders) impl_->lua[n] = sol::nil;
         }
 
         impl_->bindApi();
