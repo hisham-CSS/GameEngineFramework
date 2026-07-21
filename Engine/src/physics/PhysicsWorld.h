@@ -85,6 +85,12 @@ namespace MyCoreEngine {
         // Maps a query result back to the entity that owns the body.
         entt::entity EntityFromHit(const RayHit& hit) const;
 
+        // Entity-level actuation. The entity -> body map is private, so
+        // without these a caller (gameplay code, a script backend) has no way
+        // to push an object it can name. false when the entity has no body.
+        bool ApplyImpulse(entt::entity e, const glm::vec3& impulse);
+        bool SetLinearVelocity(entt::entity e, const glm::vec3& v);
+
         void      SetGravity(const glm::vec3& g);
         glm::vec3 Gravity() const;
 

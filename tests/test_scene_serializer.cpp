@@ -272,6 +272,65 @@ TEST(SceneSerializer, SceneCameraSurvivesRoundTripAndDrivesThePlayer) {
     std::remove(path);
 }
 
+TEST(SceneSerializer, RoundTripScriptComponent) {
+    const char* path = "test_scene_script.json";
+
+    Scene a;
+    Entity spinner = a.createEntity();
+    spinner.addComponent<Name>(Name{ "Spinner" });
+    spinner.addComponent<Transform>(Transform{});
+    a.registry.emplace<ScriptComponent>(spinner, ScriptComponent{ "spinner.lua", true });
+
+    // A disabled script must stay disabled across a save: reloading a scene
+    // and having every muted script start running is a nasty surprise.
+    Entity muted = a.createEntity();
+    muted.addComponent<Name>(Name{ "Muted" });
+    muted.addComponent<Transform>(Transform{});
+    a.registry.emplace<ScriptComponent>(muted, ScriptComponent{ "noisy.lua", false });
+
+    // Half-authored: the component exists but no file is chosen yet. It must
+    // survive rather than silently vanishing when the author saves mid-edit.
+    Entity empty = a.createEntity();
+    empty.addComponent<Name>(Name{ "Empty" });
+    empty.addComponent<Transform>(Transform{});
+    a.registry.emplace<ScriptComponent>(empty, ScriptComponent{});
+
+    AssetManager assets;
+    SceneSerializer save(a, assets);
+    ASSERT_TRUE(save.Save(path));
+
+    Scene b;
+    SceneSerializer load(b, assets);
+    ASSERT_TRUE(load.Load(path));
+
+    entt::entity eSpin = entt::null, eMute = entt::null, eEmpty = entt::null;
+    for (auto [e, n] : b.registry.view<Name>().each()) {
+        if (n.value == "Spinner") eSpin = e;
+        else if (n.value == "Muted") eMute = e;
+        else if (n.value == "Empty") eEmpty = e;
+    }
+    // != rather than ASSERT_NE: gtest tries to print the operands, and
+    // entt::null_t does not survive that instantiation (see the note above).
+    ASSERT_TRUE(eSpin != entt::null);
+    ASSERT_TRUE(eMute != entt::null);
+    ASSERT_TRUE(eEmpty != entt::null);
+
+    const auto* s1 = b.registry.try_get<ScriptComponent>(eSpin);
+    ASSERT_NE(s1, nullptr) << "ScriptComponent dropped by save/load";
+    EXPECT_EQ(s1->path, "spinner.lua");
+    EXPECT_TRUE(s1->enabled);
+
+    const auto* s2 = b.registry.try_get<ScriptComponent>(eMute);
+    ASSERT_NE(s2, nullptr);
+    EXPECT_FALSE(s2->enabled) << "a muted script came back enabled";
+
+    const auto* s3 = b.registry.try_get<ScriptComponent>(eEmpty);
+    ASSERT_NE(s3, nullptr) << "empty script slot lost on reload";
+    EXPECT_TRUE(s3->path.empty());
+
+    std::remove(path);
+}
+
 TEST(SceneSerializer, RoundTripLightComponent) {
     const char* path = "test_scene_light.json";
 

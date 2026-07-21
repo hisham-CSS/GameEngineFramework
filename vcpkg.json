@@ -12,8 +12,19 @@
     "joltphysics",
     "physx",
     {
-        "name": "imgui",
-        "features": [ "docking-experimental", "glfw-binding", "opengl3-binding" ]
+      "name": "imgui",
+      "features": [
+        "docking-experimental",
+        "glfw-binding",
+        "opengl3-binding"
+      ]
+    },
+    "sol2",
+    {
+      "name": "lua",
+      "features": [
+        "cpp"
+      ]
     }
   ]
 }

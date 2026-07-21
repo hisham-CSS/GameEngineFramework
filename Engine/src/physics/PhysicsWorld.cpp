@@ -295,6 +295,26 @@ namespace MyCoreEngine {
         return (it != bodyToEntity_.end()) ? it->second : entt::null;
     }
 
+    bool PhysicsWorld::ApplyImpulse(entt::entity e, const glm::vec3& impulse) {
+        if (!backend_) return false;
+        const auto it = entityToBody_.find(e);
+        if (it == entityToBody_.end()) return false;
+        backend_->applyImpulse(it->second, impulse);
+        // A sleeping body ignores an impulse until woken; without this a
+        // script that nudges a settled object appears to do nothing.
+        backend_->wakeBody(it->second);
+        return true;
+    }
+
+    bool PhysicsWorld::SetLinearVelocity(entt::entity e, const glm::vec3& v) {
+        if (!backend_) return false;
+        const auto it = entityToBody_.find(e);
+        if (it == entityToBody_.end()) return false;
+        backend_->setLinearVelocity(it->second, v);
+        backend_->wakeBody(it->second);
+        return true;
+    }
+
     void PhysicsWorld::SetGravity(const glm::vec3& g) {
         settings_.gravity = g;
         if (backend_) backend_->setGravity(g);

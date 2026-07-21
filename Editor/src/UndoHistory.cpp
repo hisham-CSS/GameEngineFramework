@@ -34,6 +34,12 @@ namespace {
                            a.light.enabled != b.light.enabled)) return false;
         // physics: without these, an edit that ONLY changes a physics field
         // compares equal and the undo entry is dropped as a no-op
+        // scripting: same reasoning -- retargeting an entity to a different
+        // .lua file changes nothing else, so without this the edit is
+        // swallowed as a no-op and cannot be undone
+        if (a.hasScript != b.hasScript) return false;
+        if (a.hasScript && (a.script.path != b.script.path ||
+                            a.script.enabled != b.script.enabled)) return false;
         if (a.hasRigidBody != b.hasRigidBody) return false;
         if (a.hasRigidBody && (a.rigidBody.type != b.rigidBody.type ||
                                a.rigidBody.mass != b.rigidBody.mass ||
@@ -99,6 +105,7 @@ EntitySnapshot UndoHistory::capture(entt::registry& reg, entt::entity e) {
     if (auto* p = reg.try_get<Parent>(e)) { s.hasParent = true; s.parent = p->value; }
     if (auto* c = reg.try_get<CameraComponent>(e)) { s.hasCamera = true; s.camera = *c; }
     if (auto* c = reg.try_get<LightComponent>(e))  { s.hasLight = true; s.light = *c; }
+    if (auto* c = reg.try_get<ScriptComponent>(e)) { s.hasScript = true; s.script = *c; }
     if (auto* c = reg.try_get<RigidBody>(e))       { s.hasRigidBody = true; s.rigidBody = *c; }
     if (auto* c = reg.try_get<BoxCollider>(e))     { s.hasBoxCollider = true; s.boxCollider = *c; }
     if (auto* c = reg.try_get<SphereCollider>(e))  { s.hasSphereCollider = true; s.sphereCollider = *c; }
@@ -163,6 +170,9 @@ void UndoHistory::apply(entt::registry& reg, MyCoreEngine::AssetManager* assets,
 
     if (s.hasLight) reg.emplace_or_replace<LightComponent>(e, s.light);
     else reg.remove<LightComponent>(e);
+
+    if (s.hasScript) reg.emplace_or_replace<ScriptComponent>(e, s.script);
+    else reg.remove<ScriptComponent>(e);
 
     // physics (see EntitySnapshot: absent flag => component removed)
     if (s.hasRigidBody) reg.emplace_or_replace<RigidBody>(e, s.rigidBody);
