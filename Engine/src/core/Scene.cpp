@@ -3,6 +3,7 @@
 #include <vector>
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <GLFW/glfw3.h>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/euler_angles.hpp> // extractEulerAngleYXZ (matches localMatrix's Y*X*Z)
@@ -298,6 +299,78 @@ bool Scene::HasDynamicCasterInViewRange(const glm::vec3& camPos, const glm::vec3
     return false;
 }
 
+void Scene::SelectPunctualLights(entt::registry& reg, const glm::vec3& camPos,
+                                 std::vector<PunctualLight>& out, size_t maxLights,
+                                 unsigned* culledOut)
+{
+    out.clear();
+    unsigned culled = 0;
+    if (maxLights == 0) {
+        if (culledOut) *culledOut = 0;
+        return;
+    }
+
+    // score = influence at the camera. Brightness falls off with the square of
+    // distance, so this ranks "how much can this light possibly matter to what
+    // I am looking at" — a dim lamp at your feet outranks a floodlight a
+    // kilometre away, which is the behaviour you want when the array overflows.
+    struct Scored { PunctualLight light; float score; };
+    std::vector<Scored> scored;
+
+    auto view = reg.view<LightComponent, Transform>();
+    for (auto e : view) {
+        const auto& lc = view.get<LightComponent>(e);
+        const auto& t = view.get<Transform>(e);
+        if (!lc.enabled || lc.intensity <= 0.f || lc.range <= 0.f) { ++culled; continue; }
+
+        // modelMatrix is a CACHE filled by UpdateTransforms; right after a
+        // scene load it is still identity, so resolve dirty entities properly
+        // (same trap that put physics bodies at the origin).
+        const glm::mat4 world = t.dirty ? ResolveWorldMatrix(reg, e) : t.modelMatrix;
+
+        PunctualLight p;
+        p.position = glm::vec3(world[3]);
+        p.range = lc.range;
+        p.color = lc.color;
+        p.intensity = lc.intensity;
+        p.type = static_cast<int>(lc.type);
+
+        if (lc.type == LightType::Spot) {
+            // aim down the entity's -Z, matching the camera convention
+            const glm::vec3 fwd = -glm::vec3(world[2]);
+            const float len = glm::length(fwd);
+            p.spotDir = (len > 1e-6f) ? fwd / len : glm::vec3(0.f, 0.f, -1.f);
+            // clamp so outer >= inner; an inverted cone would make smoothstep
+            // run backwards and light everything OUTSIDE the cone instead
+            const float inner = glm::clamp(lc.innerAngleDeg, 0.f, 89.9f);
+            const float outer = glm::clamp(std::max(lc.outerAngleDeg, inner), 0.f, 89.9f);
+            p.cosInner = std::cos(glm::radians(inner));
+            p.cosOuter = std::cos(glm::radians(outer));
+        }
+
+        // Range cull: a light whose sphere of influence cannot reach anywhere
+        // near the camera cannot affect a visible fragment.
+        const float d = glm::length(p.position - camPos);
+        const float reach = d - p.range;
+
+        Scored s;
+        s.light = p;
+        s.score = lc.intensity / (std::max(reach, 1.f) * std::max(reach, 1.f));
+        scored.push_back(s);
+    }
+
+    if (scored.size() > maxLights) {
+        std::partial_sort(scored.begin(), scored.begin() + maxLights, scored.end(),
+            [](const Scored& a, const Scored& b) { return a.score > b.score; });
+        culled += static_cast<unsigned>(scored.size() - maxLights);
+        scored.resize(maxLights);
+    }
+
+    out.reserve(scored.size());
+    for (const auto& s : scored) out.push_back(s.light);
+    if (culledOut) *culledOut = culled;
+}
+
 // Renderer calls this; we keep signature identical.
 // Now builds a draw list with frustum culling, sorts, then batches by texture key.
 void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camera,
@@ -465,6 +538,26 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
     shader.setVec3("uLightDir", lightDir_);
     shader.setVec3("uLightColor", lightColor_);
     shader.setFloat("uLightIntensity", lightIntensity_);
+
+    // Punctual lights: selection is a pure function (testable headlessly),
+    // this is just the upload. The array is bounded, so a scene with 500
+    // lamps uploads the 16 that matter most to this camera.
+    SelectPunctualLights(registry, camera.Position, punctualScratch_,
+                         kMaxPunctualLights, &stats.lightsCulled);
+    stats.lightsActive = static_cast<unsigned>(punctualScratch_.size());
+    shader.setInt("uNumLights", static_cast<int>(punctualScratch_.size()));
+    for (size_t i = 0; i < punctualScratch_.size(); ++i) {
+        const PunctualLight& L = punctualScratch_[i];
+        char name[40];
+        std::snprintf(name, sizeof(name), "uLightPosRange[%zu]", i);
+        shader.setVec4(name, glm::vec4(L.position, L.range));
+        std::snprintf(name, sizeof(name), "uLightColorInt[%zu]", i);
+        shader.setVec4(name, glm::vec4(L.color, L.intensity));
+        std::snprintf(name, sizeof(name), "uLightSpotDir[%zu]", i);
+        shader.setVec4(name, glm::vec4(L.spotDir, L.cosOuter));
+        std::snprintf(name, sizeof(name), "uLightSpotMisc[%zu]", i);
+        shader.setVec4(name, glm::vec4(L.cosInner, float(L.type), 0.f, 0.f));
+    }
     shader.setInt("uUseMetallicMap", metallicMapEnabled_ ? 1 : 0);
     shader.setInt("uUseRoughnessMap", roughnessMapEnabled_ ? 1 : 0);
     shader.setInt("uUseAOMap", aoMapEnabled_ ? 1 : 0);

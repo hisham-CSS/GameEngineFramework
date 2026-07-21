@@ -42,6 +42,7 @@ struct EntitySnapshot {
     // Physics. This struct is a CLOSED list: apply() removes any tracked
     // component whose flag is false, and never restores an untracked one, so
     // a component missing here is destroyed by play-stop and undo.
+    bool hasLight = false;          LightComponent light{};
     bool hasRigidBody = false;      RigidBody rigidBody{};
     bool hasBoxCollider = false;    BoxCollider boxCollider{};
     bool hasSphereCollider = false; SphereCollider sphereCollider{};

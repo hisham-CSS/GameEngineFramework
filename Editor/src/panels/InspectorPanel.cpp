@@ -298,6 +298,58 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
             }
         }
 
+        // ---- Light ---------------------------------------------------------
+        if (auto* lc = reg.try_get<LightComponent>(selected)) {
+            bool keep = true;
+            if (ImGui::CollapsingHeader("Light", &keep, ImGuiTreeNodeFlags_DefaultOpen)) {
+                const char* kTypes[] = { "Point", "Spot" };
+                int type = static_cast<int>(lc->type);
+                if (ImGui::Combo("Type", &type, kTypes, IM_ARRAYSIZE(kTypes))) {
+                    undo.record(reg, selected, "Change light type", [&] {
+                        reg.get<LightComponent>(selected).type = static_cast<LightType>(type);
+                    });
+                }
+
+                bool on = lc->enabled;
+                if (ImGui::Checkbox("Enabled", &on)) {
+                    undo.record(reg, selected, "Toggle light", [&] {
+                        reg.get<LightComponent>(selected).enabled = on;
+                    });
+                }
+
+                ImGui::ColorEdit3("Color", &lc->color.x);
+                trackItem("Change light color");
+                ImGui::DragFloat("Intensity", &lc->intensity, 0.25f, 0.f, 10000.f);
+                trackItem("Change light intensity");
+                ImGui::DragFloat("Range", &lc->range, 0.25f, 0.f, 10000.f, "%.2f m");
+                trackItem("Change light range");
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Distance at which the light reaches zero.\n"
+                                      "Also the cull bound — smaller is cheaper.");
+                }
+
+                if (lc->type == LightType::Spot) {
+                    ImGui::DragFloat("Inner angle", &lc->innerAngleDeg, 0.5f, 0.f, 89.9f, "%.1f deg");
+                    trackItem("Change spot inner angle");
+                    ImGui::DragFloat("Outer angle", &lc->outerAngleDeg, 0.5f, 0.f, 89.9f, "%.1f deg");
+                    trackItem("Change spot outer angle");
+                    // An outer cone smaller than the inner makes the falloff run
+                    // backwards and lights everything OUTSIDE the cone instead.
+                    if (lc->outerAngleDeg < lc->innerAngleDeg) {
+                        ImGui::TextColored(ImVec4(1.f, 0.6f, 0.2f, 1.f),
+                                           "Outer angle is clamped to the inner angle.");
+                    }
+                    ImGui::TextDisabled("Aims down the entity's -Z axis.");
+                }
+
+                ImGui::TextDisabled("Unshadowed. The sun (Settings > Sun) casts shadows.");
+            }
+            if (!keep) {
+                undo.record(reg, selected, "Remove light",
+                            [&] { reg.remove<LightComponent>(selected); });
+            }
+        }
+
         // ---- Rigid Body ---------------------------------------------------
         if (auto* rb = reg.try_get<RigidBody>(selected)) {
             bool keep = true;
@@ -454,6 +506,15 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
                 if (ImGui::MenuItem("Camera")) {
                     undo.record(reg, selected, "Add camera", [&] {
                         reg.emplace<CameraComponent>(selected);
+                        if (!reg.any_of<Transform>(selected)) reg.emplace<Transform>(selected);
+                    });
+                }
+            }
+            if (!reg.any_of<LightComponent>(selected)) {
+                ++missing;
+                if (ImGui::MenuItem("Light")) {
+                    undo.record(reg, selected, "Add light", [&] {
+                        reg.emplace<LightComponent>(selected);
                         if (!reg.any_of<Transform>(selected)) reg.emplace<Transform>(selected);
                     });
                 }

@@ -39,6 +39,31 @@ struct CameraComponent {
 	bool enabled = true;
 };
 
+// A local light source. The scene's DIRECTIONAL light (the sun) is scene-level
+// state, not a component, because it is the one light that casts the cascaded
+// shadow maps — see Scene::LightDir(). These are additional, unshadowed lights
+// placed in the world by an entity's Transform.
+enum class LightType {
+	Point = 0, // radiates in every direction from the entity's position
+	Spot = 1   // cone aimed down the entity's -Z axis, like a camera
+};
+
+struct LightComponent {
+	LightType type = LightType::Point;
+	glm::vec3 color{ 1.0f };
+	// Radiant power. Punctual lights fall off with distance, so this is much
+	// larger than the sun's intensity for a comparable look.
+	float intensity = 10.0f;
+	// Distance at which the light reaches exactly zero. Also the culling
+	// bound — a fragment further than this is skipped outright.
+	float range = 15.0f;
+	// Spot cone, in degrees from the aim axis. Between inner and outer the
+	// light falls off smoothly; outer is clamped to be >= inner on use.
+	float innerAngleDeg = 20.0f;
+	float outerAngleDeg = 30.0f;
+	bool  enabled = true;
+};
+
 // Smallest legal far plane for a given near plane. The relative term
 // matters: a plain absolute epsilon is absorbed by float rounding above
 // ~32k (ULP(50000) ≈ 0.004 > 1e-3), which would let near == far reach

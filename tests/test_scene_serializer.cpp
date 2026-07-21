@@ -272,6 +272,71 @@ TEST(SceneSerializer, SceneCameraSurvivesRoundTripAndDrivesThePlayer) {
     std::remove(path);
 }
 
+TEST(SceneSerializer, RoundTripLightComponent) {
+    const char* path = "test_scene_light.json";
+
+    Scene a;
+    Entity spot = a.createEntity();
+    spot.addComponent<Name>(Name{ "Lamp" });
+    spot.addComponent<Transform>(Transform{});
+    LightComponent lc;
+    lc.type = LightType::Spot;
+    lc.color = { 0.9f, 0.4f, 0.1f };
+    lc.intensity = 42.5f;
+    lc.range = 12.25f;
+    lc.innerAngleDeg = 15.f;
+    lc.outerAngleDeg = 35.f;
+    a.registry.emplace<LightComponent>(spot, lc);
+
+    // an inverted cone must come back clamped, not inverted: the shader's
+    // smoothstep would otherwise light everything OUTSIDE the cone
+    Entity bad = a.createEntity();
+    bad.addComponent<Name>(Name{ "Bad" });
+    bad.addComponent<Transform>(Transform{});
+    LightComponent inv;
+    inv.type = LightType::Spot;
+    inv.innerAngleDeg = 40.f;
+    inv.outerAngleDeg = 5.f;
+    a.registry.emplace<LightComponent>(bad, inv);
+
+    AssetManager assets;
+    SceneSerializer save(a, assets);
+    ASSERT_TRUE(save.Save(path));
+
+    Scene b;
+    SceneSerializer load(b, assets);
+    ASSERT_TRUE(load.Load(path));
+
+    bool foundLamp = false, foundBad = false;
+    auto view = b.registry.view<Name>();
+    for (auto e : view) {
+        const auto& n = view.get<Name>(e).value;
+        if (n == "Lamp") {
+            foundLamp = true;
+            const auto* l = b.registry.try_get<LightComponent>(e);
+            ASSERT_NE(l, nullptr) << "LightComponent dropped by save/load";
+            EXPECT_EQ(l->type, LightType::Spot);
+            EXPECT_FLOAT_EQ(l->intensity, 42.5f);
+            EXPECT_FLOAT_EQ(l->range, 12.25f);
+            EXPECT_FLOAT_EQ(l->color.r, 0.9f);
+            EXPECT_FLOAT_EQ(l->innerAngleDeg, 15.f);
+            EXPECT_FLOAT_EQ(l->outerAngleDeg, 35.f);
+            EXPECT_TRUE(l->enabled);
+        }
+        else if (n == "Bad") {
+            foundBad = true;
+            const auto* l = b.registry.try_get<LightComponent>(e);
+            ASSERT_NE(l, nullptr);
+            EXPECT_GE(l->outerAngleDeg, l->innerAngleDeg)
+                << "an inverted spot cone must be clamped on load";
+        }
+    }
+    EXPECT_TRUE(foundLamp);
+    EXPECT_TRUE(foundBad);
+
+    std::remove(path);
+}
+
 TEST(SceneSerializer, RoundTripParentLinks) {
     const char* path = "test_scene_parents.json";
 

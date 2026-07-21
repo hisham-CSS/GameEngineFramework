@@ -55,6 +55,7 @@ engine_test(test_asset_index)      # asset filesystem domain: scan/cache/find (p
 engine_test(test_job_system)       # P4-3 thread pool + main-thread completion pump (pure CPU)
 engine_test(test_model_decode)     # P4-3 model decode stage (pure CPU — no GL by design)
 engine_test(test_asset_manager_async) # P4-3 async RequestModel: states/dedupe/cap (pure CPU)
+engine_test(test_lights)           # punctual light selection + culling (pure CPU)
 engine_test(test_physics)          # backend-conformance suite + PhysicsWorld/ECS (pure CPU)
 engine_test(test_import_settings)  # P4-3 phase 4: .import sidecar round-trip (pure CPU)
 engine_test(test_asset_validator)  # P4-3 phase 4: cooker validate logic (pure CPU)

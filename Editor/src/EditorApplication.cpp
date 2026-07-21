@@ -1104,6 +1104,7 @@ void EditorApplication::DrawInformationPanel(const MyCoreEngine::Scene& scene, f
         ImGui::Text("Culled (frustum): %u", rs.culled);
         ImGui::Text("Culled (size):    %u", rs.culledSmall);
         ImGui::Text("Submitted:        %u", rs.submitted);
+        ImGui::Text("Lights (act/cull):%u / %u", rs.lightsActive, rs.lightsCulled);
         ImGui::Text("LOD 0/1/2:        %u / %u / %u",
             rs.lodInstances[0], rs.lodInstances[1], rs.lodInstances[2]);
         unsigned totalCalls = rs.draws + rs.instancedDraws;

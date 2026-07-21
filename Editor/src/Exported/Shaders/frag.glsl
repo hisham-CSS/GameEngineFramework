@@ -27,6 +27,18 @@ uniform vec3 uCamPos;
 uniform vec3 uLightDir;
 uniform vec3 uLightColor;
 uniform float uLightIntensity;
+
+// --- punctual lights (point / spot) ---------------------------------------
+// The directional light above is the SUN: it is the one that casts the
+// cascaded shadow maps. These extra lights are unshadowed, which is why they
+// are a separate, bounded array rather than an extension of the sun path.
+// Packed into vec4s to keep the uniform component count down.
+#define MAX_PUNCTUAL_LIGHTS 16
+uniform int  uNumLights;                              // how many are live
+uniform vec4 uLightPosRange[MAX_PUNCTUAL_LIGHTS];     // xyz world pos, w range
+uniform vec4 uLightColorInt[MAX_PUNCTUAL_LIGHTS];     // rgb colour,   a intensity
+uniform vec4 uLightSpotDir[MAX_PUNCTUAL_LIGHTS];      // xyz spot dir, w cos(outer)
+uniform vec4 uLightSpotMisc[MAX_PUNCTUAL_LIGHTS];     // x cos(inner), y type (0 point, 1 spot)
 uniform float uMetallic;
 uniform float uRoughness;
 uniform float uAO;
@@ -172,6 +184,44 @@ float sampleShadow(int ci, vec4 lightClip, vec3 N, vec3 L)
     return sum / 9.0;
 }
 
+// Cook-Torrance direct lighting for ONE light direction, without the light's
+// own colour/intensity/attenuation. Factored out so the sun and every
+// punctual light are shaded by exactly the same BRDF -- if this drifts, lights
+// of different types stop matching and the scene looks subtly wrong.
+vec3 pbrDirect(vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float roughness)
+{
+    vec3  H = normalize(V + L);
+    float NdotV = max(dot(N, V), 0.0);
+    float NdotL = max(dot(N, L), 0.0);
+    float NdotH = max(dot(N, H), 0.0);
+    float VdotH = max(dot(V, H), 0.0);
+
+    vec3  F0 = mix(vec3(0.04), albedo, metallic);
+    float a  = roughness;
+    float k  = (a + 1.0); k = (k * k) / 8.0;
+
+    float D = D_GGX(NdotH, a);
+    float G = G_Smith(NdotV, NdotL, k);
+    vec3  F = F_Schlick(F0, VdotH);
+
+    vec3 spec = (F * (D * G)) / max(4.0 * max(NdotV, 1e-4) * max(NdotL, 1e-4), 1e-4);
+    vec3 kd   = (1.0 - F) * (1.0 - metallic);
+    vec3 diff = kd * albedo / 3.14159265;
+
+    return (diff + spec) * NdotL;
+}
+
+// Distance falloff: physically-plausible inverse square, windowed so a light
+// reaches exactly zero at its range instead of being clipped mid-gradient
+// (a hard cutoff shows up as a visible disc edge on the floor).
+float distanceAttenuation(float dist, float range)
+{
+    float t   = dist / max(range, 1e-4);
+    float t2  = t * t;
+    float win = clamp(1.0 - t2 * t2, 0.0, 1.0);
+    return (win * win) / (dist * dist + 1.0);
+}
+
 void main()
 {
     vec3 albedo = texture(diffuseMap, fs_in.uv).rgb * uBaseColor;
@@ -245,23 +295,7 @@ void main()
     float ao       = (uUseAOMap==1 && uHasAOMap==1) ? texture(aoMap, fs_in.uv).r : uAO;
     ao = saturate(ao);
 
-    vec3  H = normalize(V + L);
-    float NdotV = max(dot(N, V), 0.0);
-    float NdotL = max(dot(N, L), 0.0);
-    float NdotH = max(dot(N, H), 0.0);
-    float VdotH = max(dot(V, H), 0.0);
-
-    vec3 F0 = mix(vec3(0.04), albedo, metallic);
-    float a = roughness;
-    float k = (a + 1.0); k = (k*k) / 8.0;
-
-    float  D = D_GGX(NdotH, a);
-    float  G = G_Smith(NdotV, NdotL, k);
-    vec3   F = F_Schlick(F0, VdotH);
-    vec3 specular = (F * (D * G)) / max(4.0 * max(NdotV,1e-4) * max(NdotL,1e-4), 1e-4);
-
-    vec3 kd = (1.0 - F) * (1.0 - metallic);
-    vec3 diffuse = kd * albedo / 3.14159265;
+    float NdotV = max(dot(N, V), 0.0);   // still needed by the IBL term below
 
     // shadow only modulates the direct term
     float shadow = 1.0;
@@ -305,7 +339,34 @@ void main()
         }
     }
 
-    vec3 Lo = shadow * (diffuse + specular) * uLightColor * uLightIntensity * NdotL;
+    // --- sun (shadowed) ---
+    vec3 Lo = shadow * pbrDirect(N, V, L, albedo, metallic, roughness)
+            * uLightColor * uLightIntensity;
+
+    // --- punctual lights (unshadowed) ---
+    // Bounded loop: the CPU already sorted by influence and uploaded at most
+    // MAX_PUNCTUAL_LIGHTS, so this is the strongest set, not an arbitrary one.
+    for (int i = 0; i < uNumLights && i < MAX_PUNCTUAL_LIGHTS; ++i) {
+        vec3  toLight = uLightPosRange[i].xyz - fs_in.worldPos;
+        float dist    = length(toLight);
+        float range   = uLightPosRange[i].w;
+        if (dist > range) continue;
+
+        vec3  Li    = toLight / max(dist, 1e-4);
+        float atten = distanceAttenuation(dist, range);
+
+        // spot cone: angle between the light's aim and the direction from the
+        // light TO this fragment (-Li), softened between the inner and outer
+        // cone so the edge is not a hard stencil.
+        if (uLightSpotMisc[i].y > 0.5) {
+            float cd = dot(normalize(uLightSpotDir[i].xyz), -Li);
+            atten *= smoothstep(uLightSpotDir[i].w, uLightSpotMisc[i].x, cd);
+        }
+        if (atten <= 0.0) continue;
+
+        Lo += pbrDirect(N, V, Li, albedo, metallic, roughness)
+            * uLightColorInt[i].rgb * uLightColorInt[i].a * atten;
+    }
 
     // IBL
     vec3 ambient;

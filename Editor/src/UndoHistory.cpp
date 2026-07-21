@@ -24,6 +24,14 @@ namespace {
                             a.camera.farClip != b.camera.farClip ||
                             a.camera.priority != b.camera.priority ||
                             a.camera.enabled != b.camera.enabled)) return false;
+        if (a.hasLight != b.hasLight) return false;
+        if (a.hasLight && (a.light.type != b.light.type ||
+                           a.light.color != b.light.color ||
+                           a.light.intensity != b.light.intensity ||
+                           a.light.range != b.light.range ||
+                           a.light.innerAngleDeg != b.light.innerAngleDeg ||
+                           a.light.outerAngleDeg != b.light.outerAngleDeg ||
+                           a.light.enabled != b.light.enabled)) return false;
         // physics: without these, an edit that ONLY changes a physics field
         // compares equal and the undo entry is dropped as a no-op
         if (a.hasRigidBody != b.hasRigidBody) return false;
@@ -90,6 +98,7 @@ EntitySnapshot UndoHistory::capture(entt::registry& reg, entt::entity e) {
     s.noShadow = reg.any_of<NoShadow>(e);
     if (auto* p = reg.try_get<Parent>(e)) { s.hasParent = true; s.parent = p->value; }
     if (auto* c = reg.try_get<CameraComponent>(e)) { s.hasCamera = true; s.camera = *c; }
+    if (auto* c = reg.try_get<LightComponent>(e))  { s.hasLight = true; s.light = *c; }
     if (auto* c = reg.try_get<RigidBody>(e))       { s.hasRigidBody = true; s.rigidBody = *c; }
     if (auto* c = reg.try_get<BoxCollider>(e))     { s.hasBoxCollider = true; s.boxCollider = *c; }
     if (auto* c = reg.try_get<SphereCollider>(e))  { s.hasSphereCollider = true; s.sphereCollider = *c; }
@@ -151,6 +160,9 @@ void UndoHistory::apply(entt::registry& reg, MyCoreEngine::AssetManager* assets,
 
     if (s.hasCamera) reg.emplace_or_replace<CameraComponent>(e, s.camera);
     else reg.remove<CameraComponent>(e);
+
+    if (s.hasLight) reg.emplace_or_replace<LightComponent>(e, s.light);
+    else reg.remove<LightComponent>(e);
 
     // physics (see EntitySnapshot: absent flag => component removed)
     if (s.hasRigidBody) reg.emplace_or_replace<RigidBody>(e, s.rigidBody);

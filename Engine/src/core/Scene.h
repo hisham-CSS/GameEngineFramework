@@ -41,6 +41,22 @@ namespace MyCoreEngine {
         unsigned itemsBuilt = 0;      // items_ after culling (meshes that passed)
         unsigned entitiesTotal = 0;   // 'total' (as you already increment)
         unsigned lodInstances[3] = { 0, 0, 0 }; // submitted instances per LOD level
+        unsigned lightsActive = 0;    // punctual lights uploaded this frame
+        unsigned lightsCulled = 0;    // in the scene but out of range / disabled
+    };
+
+    // One punctual light resolved to world space and ready to upload. Kept
+    // separate from LightComponent so the selection step is pure data and can
+    // be unit-tested without a GL context.
+    struct PunctualLight {
+        glm::vec3 position{ 0.f };
+        float     range = 0.f;
+        glm::vec3 color{ 1.f };
+        float     intensity = 0.f;
+        glm::vec3 spotDir{ 0.f, 0.f, -1.f }; // world-space aim (spot only)
+        float     cosOuter = -1.f;
+        float     cosInner = 1.f;
+        int       type = 0;                  // matches LightType
     };
 
     // --- transform hierarchy helpers (P2-8) --------------------------------
@@ -108,6 +124,22 @@ namespace MyCoreEngine {
         // Toggle instancing at runtime
         void SetInstancingEnabled(bool enabled) { instancingEnabled_ = enabled; }
         bool GetInstancingEnabled() const { return instancingEnabled_; }
+
+        // Punctual lights are a BOUNDED set: the shader carries a fixed array,
+        // so when a scene has more lights than this the strongest ones win
+        // rather than an arbitrary prefix. Must match MAX_PUNCTUAL_LIGHTS in
+        // Exported/Shaders/frag.glsl.
+        static constexpr size_t kMaxPunctualLights = 16;
+
+        // Gathers every enabled LightComponent with a Transform, resolves it to
+        // world space, drops lights whose range cannot reach the camera's
+        // neighbourhood, and keeps the kMaxPunctualLights most influential
+        // (brightest per unit distance-squared). Pure function of the registry
+        // — no GL, no renderer state — so it is directly testable.
+        static void SelectPunctualLights(entt::registry& reg, const glm::vec3& camPos,
+                                         std::vector<PunctualLight>& out,
+                                         size_t maxLights = kMaxPunctualLights,
+                                         unsigned* culledOut = nullptr);
 
         // Mesh LOD: level picked per entity from camera distance vs object size
         void  SetLODEnabled(bool v) { lodEnabled_ = v; }
@@ -238,6 +270,9 @@ namespace MyCoreEngine {
          };
          std::vector<DrawRun> runs_;
          std::vector<glm::mat4> instanceMats_;
+         // per-frame scratch for the selected punctual lights (reused so the
+         // light upload does not allocate every frame)
+         std::vector<PunctualLight> punctualScratch_;
 
          // world-space bounding spheres of casters whose transforms changed
          // this frame

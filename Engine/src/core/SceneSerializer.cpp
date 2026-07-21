@@ -110,6 +110,18 @@ namespace MyCoreEngine {
                     { "enabled",  cam->enabled },
                 };
             }
+            if (auto* lc = reg.try_get<LightComponent>(e)) {
+                je["light"] = {
+                    { "type",      static_cast<int>(lc->type) },
+                    { "color",     vec3ToJson(lc->color) },
+                    { "intensity", lc->intensity },
+                    { "range",     lc->range },
+                    { "innerAngleDeg", lc->innerAngleDeg },
+                    { "outerAngleDeg", lc->outerAngleDeg },
+                    { "enabled",   lc->enabled },
+                };
+            }
+
             // --- physics: body + whichever collider shape the entity has.
             // Backend-agnostic by construction (these are engine enums and
             // plain floats), so a scene authored against Jolt loads under
@@ -310,6 +322,24 @@ namespace MyCoreEngine {
                 }
                 reg.emplace<CameraComponent>(entity, cam);
             }
+            if (je.contains("light") && je["light"].is_object()) {
+                const json& jl = je["light"];
+                LightComponent lc;
+                const int t = jl.value("type", static_cast<int>(lc.type));
+                lc.type = (t == static_cast<int>(LightType::Spot)) ? LightType::Spot
+                                                                   : LightType::Point;
+                lc.color = vec3FromJson(jl.value("color", json()), lc.color);
+                lc.intensity = std::max(0.f, jl.value("intensity", lc.intensity));
+                lc.range = std::max(0.f, jl.value("range", lc.range));
+                // clamp the cone: an outer smaller than the inner would make
+                // the spot falloff run backwards and light everything outside
+                lc.innerAngleDeg = glm::clamp(jl.value("innerAngleDeg", lc.innerAngleDeg), 0.f, 89.9f);
+                lc.outerAngleDeg = glm::clamp(jl.value("outerAngleDeg", lc.outerAngleDeg),
+                                              lc.innerAngleDeg, 89.9f);
+                lc.enabled = jl.value("enabled", lc.enabled);
+                reg.emplace<LightComponent>(entity, lc);
+            }
+
             // --- physics (see the save side). Every field falls back to the
             // component default, and the enum is range-checked: a hand-edited
             // or newer-build file must not index BodyType out of range.

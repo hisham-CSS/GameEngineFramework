@@ -56,6 +56,44 @@ struct IRenderPass {
 `FrameParams` is the immutable per-frame view: `view`, `proj`, `deltaTime`,
 `frameIndex`, `viewportW`, `viewportH`.
 
+### Lights
+
+The scene has one **directional light** — the sun — held as scene-level state
+(`Scene::LightDir()`, `LightColor()`, `LightIntensity()`, edited under
+**Settings → Sun / Shadows**). It is scene-level rather than a component
+because it is the light that casts the cascaded shadow maps.
+
+Everything else is a **`LightComponent`** on an entity, positioned by that
+entity's `Transform`:
+
+| Type | Behaviour |
+| --- | --- |
+| `LightType::Point` | radiates in all directions from the entity's position |
+| `LightType::Spot` | cone aimed down the entity's **-Z** axis (same convention as a camera) |
+
+Punctual lights use a windowed inverse-square falloff, so brightness drops off
+physically but reaches exactly zero at `range` — a hard cutoff would show up as
+a visible disc edge on the floor. Spot lights fade between `innerAngleDeg` and
+`outerAngleDeg`; an outer angle smaller than the inner is clamped, because an
+inverted cone would run the falloff backwards and light everything *outside*
+the cone.
+
+> **Punctual lights do not cast shadows.** Only the sun does. This is why they
+> are a separate, bounded array rather than an extension of the sun path.
+
+**The array is bounded** (`Scene::kMaxPunctualLights`, currently 16, matching
+`MAX_PUNCTUAL_LIGHTS` in `frag.glsl`). A scene may contain any number of
+lights; each frame `Scene::SelectPunctualLights` resolves them to world space,
+drops the disabled and zero-contribution ones, and keeps the most influential
+for the current camera — intensity over distance-squared, so a nearby lamp
+outranks a distant floodlight. Overflow therefore degrades by dropping the
+lights that matter least, not an arbitrary tail. The Rendering Stats panel
+shows `Lights (act/cull)`.
+
+Selection is a pure function of the registry — no GL, no renderer state — so it
+is unit-tested headlessly in `tests/test_lights.cpp`. If you raise the limit,
+change **both** constants.
+
 ### HDR target and tonemap
 
 The forward pass renders to an offscreen `GL_RGBA16F` colour texture with a
