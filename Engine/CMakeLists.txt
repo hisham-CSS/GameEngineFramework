@@ -26,6 +26,8 @@ add_library(Engine SHARED
     src/core/CameraDirector.cpp
     src/core/AssetManager.h
     src/core/AssetManager.cpp
+    src/core/PathSandbox.h
+    src/core/PathSandbox.cpp
     src/core/Scene.cpp
     src/core/Material.h
     src/core/SceneSerializer.h

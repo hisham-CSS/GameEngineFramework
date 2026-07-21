@@ -3,12 +3,14 @@
 #include "Components.h"
 #include "AssetManager.h"
 #include "Model.h"
+#include "PathSandbox.h"
 #include "../physics/PhysicsComponents.h"
 #include "../script/ScriptComponent.h"
 
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 
@@ -337,8 +339,26 @@ namespace MyCoreEngine {
             std::shared_ptr<Model> model;
             if (je.contains("model")) {
                 const std::string modelPath = je["model"].get<std::string>();
+                std::filesystem::path containedPath;
                 if (modelPath.empty()) {
                     // component present, no model loaded yet
+                    entity.addComponent<ModelComponent>(ModelComponent{});
+                }
+                else if (!PathIsContained(/*baseDir=*/"", modelPath, containedPath)) {
+                    // The model path is untrusted (authored scene content) and
+                    // flows straight into Assimp, whose mesh importers have a
+                    // history of heap-overflow CVEs on malformed files. Refuse
+                    // absolute/root/".." paths (see PathSandbox.h) BEFORE the
+                    // loader ever opens them: a "../../evil.obj" or "C:/..."
+                    // could otherwise point the importer at an arbitrary file.
+                    // Base is empty => the working directory the loader itself
+                    // resolves against; model paths are stored project-relative
+                    // (e.g. "Exported/Model/backpack.obj"). Keep the entity with
+                    // an empty ModelComponent, exactly like the empty-path case,
+                    // so a rejected asset degrades gracefully instead of
+                    // dropping the whole entity (and its parent-index slot).
+                    std::cerr << "[SceneSerializer] rejected model path outside the project: '"
+                              << modelPath << "'\n";
                     entity.addComponent<ModelComponent>(ModelComponent{});
                 }
                 else {

@@ -1,8 +1,10 @@
 // Scene serialization round-trip tests (CPU only — no GL context needed).
 #include <gtest/gtest.h>
 #include "Engine.h"
+#include "../Engine/src/core/PathSandbox.h"
 
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <nlohmann/json.hpp>
 
@@ -811,6 +813,80 @@ TEST(SceneSerializer, SceneWithoutEnvironmentBlockGetsTheProceduralSky) {
     EXPECT_TRUE(b.Environment().drawSkybox);
 
     std::remove(path);
+}
+
+// A hostile scene must not be able to aim the model loader at a file outside
+// the project. Model paths flow straight from authored (possibly malicious)
+// scene JSON into Assimp, whose mesh importers have a history of heap-overflow
+// CVEs — so absolute paths and ".." traversal are refused BEFORE the loader
+// ever opens them. The load itself still SUCCEEDS (a rejected path is not a
+// parse error); only the offending model is dropped to an empty
+// ModelComponent, so the rest of the scene — and the entity's parent-index
+// slot — stays intact.
+TEST(SceneSerializer, RejectsTraversalAndAbsoluteModelPaths) {
+    const char* path = "test_scene_evil_model.json";
+    for (const char* evil : { "../../evil.obj",
+                              R"(..\..\evil.obj)",
+                              "Exported/Model/../../../../evil.obj",
+                              "C:/Windows/System32/evil.obj",
+                              "/etc/passwd" }) {
+        {
+            nlohmann::json root;
+            root["version"] = SceneSerializer::kVersion;
+            nlohmann::json e;
+            e["name"] = "Evil";
+            e["transform"]["position"] = nlohmann::json::array({ 0, 0, 0 });
+            e["model"] = evil;
+            root["entities"] = nlohmann::json::array({ e });
+            std::ofstream(path) << root.dump(2);
+        }
+
+        Scene s;
+        AssetManager assets;
+        SceneSerializer load(s, assets);
+        // Rejecting a model path is graceful degradation, not a load failure.
+        ASSERT_TRUE(load.Load(path)) << "load failed outright for: " << evil;
+
+        // The entity survives, but carries NO model: the traversal/absolute
+        // path was refused before it could reach the loader.
+        bool found = false;
+        for (auto ent : s.registry.view<Name>()) {
+            if (s.registry.get<Name>(ent).value != "Evil") continue;
+            found = true;
+            auto* mc = s.registry.try_get<ModelComponent>(ent);
+            ASSERT_NE(mc, nullptr) << "entity dropped entirely for: " << evil;
+            EXPECT_EQ(mc->model, nullptr)
+                << "an out-of-project model path was loaded: " << evil;
+            EXPECT_FALSE(s.registry.any_of<AABB>(ent))
+                << "AABB present for a rejected model: " << evil;
+        }
+        EXPECT_TRUE(found) << "entity missing after rejected model: " << evil;
+    }
+    std::remove(path);
+}
+
+// The containment gate must keep legitimate, project-relative asset paths
+// loadable — the whole point of deferring this change was to not break real
+// scenes. These are the shapes the shipped scene.json actually stores.
+TEST(SceneSerializer, ContainmentAcceptsRelativeExportedPaths) {
+    namespace fs = std::filesystem;
+    fs::path out;
+    // base = "" resolves against the working directory, exactly how the model
+    // loader resolves these paths at runtime.
+    EXPECT_TRUE(PathIsContained("", "Exported/Model/backpack.obj", out));
+    EXPECT_TRUE(PathIsContained("", "Exported/Model/plane.obj", out));
+    EXPECT_TRUE(PathIsContained("", "Exported/Env/kloofendal_puresky_2k.hdr", out));
+    // an explicit asset-root base with a relative remainder is contained too
+    EXPECT_TRUE(PathIsContained("Exported", "Model/backpack.obj", out));
+
+    // ...and the escapes stay rejected, including a ".." buried mid-path that
+    // still climbs back out of the tree.
+    EXPECT_FALSE(PathIsContained("", "../../evil.obj", out));
+    EXPECT_FALSE(PathIsContained("", R"(..\..\evil.obj)", out));
+    EXPECT_FALSE(PathIsContained("", "Exported/Model/../../../etc/passwd", out));
+    EXPECT_FALSE(PathIsContained("", "/etc/passwd", out));
+    EXPECT_FALSE(PathIsContained("", "C:/Windows/System32/evil.obj", out));
+    EXPECT_FALSE(PathIsContained("", R"(\\host\share\evil.obj)", out));
 }
 
 TEST(SceneSerializer, MalformedFieldTypeDoesNotCrash) {

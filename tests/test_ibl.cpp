@@ -154,6 +154,28 @@ TEST_F(IBLTest, MissingHDRiFailsAndKeepsThePreviousBake) {
     EXPECT_TRUE(baker.textures().valid());
 }
 
+TEST_F(IBLTest, RejectsHDRiPathOutsideTheProject) {
+    // hdriPath is untrusted scene content. A traversal or absolute path must be
+    // refused before stbi ever opens it (shared containment gate, PathSandbox),
+    // and — like a mistyped path — must leave the previous bake lit.
+    IBLBaker baker;
+    ASSERT_TRUE(baker.BakeProceduralSky({}));
+    const unsigned goodIrr = baker.textures().irradiance;
+    ASSERT_NE(goodIrr, 0u);
+
+    for (const char* evil : { "../../evil.hdr",
+                              R"(..\..\evil.hdr)",
+                              "Exported/Env/../../../etc/passwd",
+                              "C:/Windows/System32/evil.hdr",
+                              "/etc/passwd" }) {
+        EXPECT_FALSE(baker.BakeFromFile(evil)) << "accepted out-of-project HDRi: " << evil;
+        EXPECT_NE(baker.lastError().find("rejected"), std::string::npos)
+            << "rejection must be reported for: " << evil;
+        // the good bake from before the attempt survives untouched
+        EXPECT_EQ(baker.textures().irradiance, goodIrr) << "rejected path disturbed the bake: " << evil;
+    }
+}
+
 TEST_F(IBLTest, BakeRestoresGLState) {
     // The baker runs mid-frame-loop, so leaving GL altered corrupts the very
     // next pass in ways that look nothing like an IBL bug.

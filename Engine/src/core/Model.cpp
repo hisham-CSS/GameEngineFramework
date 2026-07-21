@@ -511,6 +511,21 @@ namespace MyCoreEngine {
             aiProcess_JoinIdenticalVertices |
             aiProcess_GenNormals |
             aiProcess_CalcTangentSpace |
+            // Untrusted-input hardening. The scene serializer already refuses
+            // to point us at a file outside the project (see PathSandbox), but
+            // a hostile mesh *inside* the tree can still carry face indices
+            // that reference vertices past the end of the array. collectMeshes
+            // copies those indices verbatim, and they later feed meshopt (LOD)
+            // and the GL element buffer — an out-of-range index is a CPU-side
+            // out-of-bounds read. ValidateDataStructure fails such a scene
+            // (INCOMPLETE below rejects it) instead of letting the bad indices
+            // through. NOTE: this is a post-parse pass and cannot prevent a
+            // heap overflow *inside* an importer's parser — the only real
+            // defence there is not opening attacker-chosen files, which the
+            // containment gate provides. Well-formed assets validate clean;
+            // a mere fixable issue sets VALIDATION_WARNING, not INCOMPLETE, so
+            // this does not reject legitimate models.
+            aiProcess_ValidateDataStructure |
             aiProcess_FlipUVs);
 
         if (!scene || (scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) || !scene->mRootNode) {
