@@ -4,6 +4,7 @@
 
 #include <cstdio>
 #include <fstream>
+#include <nlohmann/json.hpp>
 
 using namespace MyCoreEngine;
 
@@ -737,6 +738,75 @@ TEST(SceneSerializer, LoadUnsupportedVersionFails) {
     AssetManager assets;
     SceneSerializer sz(s, assets);
     EXPECT_FALSE(sz.Load(path));
+
+    std::remove(path);
+}
+
+TEST(SceneSerializer, RoundTripEnvironmentSettings) {
+    const char* path = "test_scene_env.json";
+
+    Scene a;
+    EnvironmentSettings e;
+    e.source = EnvironmentSettings::Source::HDRi;
+    e.hdriPath = "Exported/Env/studio.hdr";
+    e.skyIntensity = 0.75f;
+    e.drawSkybox = false;
+    e.zenith = { 0.05f, 0.10f, 0.30f };
+    e.horizon = { 0.80f, 0.60f, 0.40f };
+    e.ground = { 0.10f, 0.09f, 0.08f };
+    e.sunIntensity = 7.5f;
+    a.SetEnvironment(e);
+    a.SetIBLIntensity(2.25f); // lives in settings, NOT in EnvironmentSettings
+
+    AssetManager assets;
+    SceneSerializer save(a, assets);
+    ASSERT_TRUE(save.Save(path));
+
+    Scene b;
+    SceneSerializer load(b, assets);
+    ASSERT_TRUE(load.Load(path));
+
+    const EnvironmentSettings& r = b.Environment();
+    EXPECT_EQ(r.source, EnvironmentSettings::Source::HDRi);
+    EXPECT_EQ(r.hdriPath, "Exported/Env/studio.hdr");
+    EXPECT_FLOAT_EQ(r.skyIntensity, 0.75f);
+    EXPECT_FALSE(r.drawSkybox);
+    EXPECT_FLOAT_EQ(r.zenith.z, 0.30f);
+    EXPECT_FLOAT_EQ(r.horizon.r, 0.80f);
+    EXPECT_FLOAT_EQ(r.sunIntensity, 7.5f);
+    // The two intensities are deliberately separate knobs; make sure the
+    // environment block did not swallow the scene-level one.
+    EXPECT_FLOAT_EQ(b.GetIBLIntensity(), 2.25f);
+
+    std::remove(path);
+}
+
+TEST(SceneSerializer, SceneWithoutEnvironmentBlockGetsTheProceduralSky) {
+    const char* path = "test_scene_noenv.json";
+
+    // A scene saved before environment settings existed.
+    Scene a;
+    AssetManager assets;
+    SceneSerializer save(a, assets);
+    ASSERT_TRUE(save.Save(path));
+
+    std::ifstream in(path);
+    nlohmann::json root;
+    in >> root;
+    in.close();
+    root["settings"].erase("environment");
+    std::ofstream out(path);
+    out << root.dump(2);
+    out.close();
+
+    Scene b;
+    SceneSerializer load(b, assets);
+    ASSERT_TRUE(load.Load(path));
+
+    // Must default to a lit scene, not an unlit one: an old file should gain
+    // environment lighting, never load black.
+    EXPECT_EQ(b.Environment().source, EnvironmentSettings::Source::ProceduralSky);
+    EXPECT_TRUE(b.Environment().drawSkybox);
 
     std::remove(path);
 }

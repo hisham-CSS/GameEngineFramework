@@ -29,6 +29,46 @@ struct DrawItem {
 struct NoShadow {};
 
 namespace MyCoreEngine {
+
+    // Environment lighting for a scene. PURE DATA — the renderer bakes GL
+    // resources from it; nothing here is a texture id, so it serializes and
+    // survives undo/restore like any other scene setting.
+    struct EnvironmentSettings {
+        enum class Source { ProceduralSky = 0, HDRi = 1 };
+
+        // ProceduralSky by default so image-based lighting works with NO
+        // asset. An engine whose flagship lighting feature first requires the
+        // user to go find a 20MB .hdr is a feature nobody turns on.
+        Source      source = Source::ProceduralSky;
+        std::string hdriPath;             // used when source == HDRi
+
+        // NOTE: how strongly the environment LIGHTS the scene lives in
+        // Scene::SetIBLIntensity, which already existed and is already
+        // serialized. Duplicating it here would give the Inspector two
+        // sliders that disagree.
+        float skyIntensity = 1.0f;        // scales the DRAWN sky only
+        bool  drawSkybox = true;
+
+        // Procedural sky. Defaults are a clear-ish daytime sky; the sun
+        // direction is taken from the scene's sun so the environment and the
+        // shadow-casting light cannot disagree about where it is.
+        glm::vec3 zenith{ 0.10f, 0.22f, 0.45f };
+        glm::vec3 horizon{ 0.62f, 0.72f, 0.86f };
+        glm::vec3 ground{ 0.22f, 0.20f, 0.18f };
+        float     sunIntensity = 3.0f;
+
+        // Cheap value comparison so hosts can re-bake only on a real change:
+        // baking is milliseconds, far too slow to do every frame.
+        bool operator==(const EnvironmentSettings& o) const {
+            return source == o.source && hdriPath == o.hdriPath &&
+                   skyIntensity == o.skyIntensity &&
+                   drawSkybox == o.drawSkybox && zenith == o.zenith &&
+                   horizon == o.horizon && ground == o.ground &&
+                   sunIntensity == o.sunIntensity;
+        }
+        bool operator!=(const EnvironmentSettings& o) const { return !(*this == o); }
+    };
+
     struct RenderStats {
         unsigned draws = 0;           // non-instanced draw calls
         unsigned instancedDraws = 0;  // instanced draw calls
@@ -179,6 +219,13 @@ namespace MyCoreEngine {
         
         // Read-only stats for the last frame
         const RenderStats &GetRenderStats() const { return lastStats_; }
+
+        // Environment lighting. Scene-level (like the sun) rather than a
+        // component: there is exactly one environment, and it is what the
+        // single CSM-casting sun is lighting alongside.
+        EnvironmentSettings&       Environment() { return environment_; }
+        const EnvironmentSettings& Environment() const { return environment_; }
+        void SetEnvironment(const EnvironmentSettings& e) { environment_ = e; }
         bool GetNormalMapEnabled() const { return normalMapEnabled_; }
         void SetNormalMapEnabled(bool v) { normalMapEnabled_ = v; }
         
@@ -201,6 +248,12 @@ namespace MyCoreEngine {
         void SetAOMapEnabled(bool v) { aoMapEnabled_ = v; }
         bool  GetIBLEnabled() const { return iblEnabled_; }
         void  SetIBLEnabled(bool v) { iblEnabled_ = v; }
+        // Whether the environment maps actually EXIST this frame. Runtime
+        // state set by the render pass, deliberately NOT serialized: it
+        // describes GL resources, not authoring intent. IBL needs both this
+        // and the user's iblEnabled_ toggle.
+        void  SetIBLAvailable(bool v) { iblAvailable_ = v; }
+        bool  GetIBLAvailable() const { return iblAvailable_; }
         float GetIBLIntensity() const { return iblIntensity_; }
         void  SetIBLIntensity(float v) { iblIntensity_ = std::max(0.0f, v); }
         // add a forward-only method (public)
@@ -280,6 +333,7 @@ namespace MyCoreEngine {
          std::vector<DirtyCaster> dirtyCasters_;
 
          RenderStats lastStats_;
+         EnvironmentSettings environment_{};
          bool normalMapEnabled_ = true;
 
          bool  pbrEnabled_ = true;
@@ -293,6 +347,7 @@ namespace MyCoreEngine {
          bool roughnessMapEnabled_ = true;
          bool aoMapEnabled_ = true;
          bool  iblEnabled_ = true;
+         bool  iblAvailable_ = false; // runtime; set by the render pass
          float iblIntensity_ = 1.0f;
     };
 

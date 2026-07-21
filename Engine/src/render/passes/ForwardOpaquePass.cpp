@@ -73,9 +73,17 @@ bool ForwardOpaquePass::execute(PassContext& ctx, Scene& scene, Camera& cam, con
 		glBindTexture(GL_TEXTURE_2D, ctx.ibl.brdfLUT);
 		shader_->setInt("brdfLUT", 7);
 		shader_->setFloat("uPrefilterMipCount", ctx.ibl.mipCount);
-	}	
+		scene.SetIBLAvailable(true);
+	}
 	else {
 		shader_->setFloat("uPrefilterMipCount", 0.0f);
+		// Tell the scene the maps are NOT there. Scene::RenderScene sets
+		// uUseIBL from its own iblEnabled_ flag, which defaults to true and
+		// runs AFTER this block -- so before this, the shader took the IBL
+		// branch and sampled unbound cubemaps. Those read as black, making
+		// ambient exactly ZERO rather than the intended 0.03 fallback, which
+		// is why unlit surfaces were pure black instead of merely dim.
+		scene.SetIBLAvailable(false);
 	}
 	
 	// draw scene — culling frustum must use the same clip planes as the

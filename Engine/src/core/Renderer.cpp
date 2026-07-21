@@ -156,10 +156,24 @@ namespace MyCoreEngine {
             forwardPass_ = &pipeline_.add<ForwardOpaquePass>(shader);
             pipeline_.setup(passCtx_); // idempotent
         }
+        // ORDER IS LOAD-BEARING and is encoded ONLY by the sequence of these
+        // blocks, because RenderPipeline::add appends. Skybox must sit between
+        // forward and tonemap: it needs the depth buffer forward produced, and
+        // it writes linear HDR that tonemap must still process. Moving either
+        // block past the other silently changes the frame.
+        if (!skyboxPass_) {
+            skyboxPass_ = &pipeline_.add<SkyboxPass>();
+            pipeline_.setup(passCtx_);
+        }
         if (!tonemapPass_) {
             tonemapPass_ = &pipeline_.add<TonemapPass>();
             pipeline_.setup(passCtx_);
         }
+
+        // Bake the environment if it changed. Driven from here so BOTH hosts
+        // get it without either having to remember, which is what keeps Play
+        // and the shipped build lit identically.
+        SyncEnvironment(scene.Environment(), sunDir_);
 
         // Clear screen
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
@@ -196,6 +210,7 @@ namespace MyCoreEngine {
         passCtx_.shadowBiasConst = shadowBiasConst_;
         passCtx_.shadowBiasSlope = shadowBiasSlope_;
         passCtx_.cascadeKernel = cascadeKernel_;
+        passCtx_.ibl.environment = iblEnvironment_;
         passCtx_.ibl.irradiance = iblIrradiance_;
         passCtx_.ibl.prefiltered = iblPrefiltered_;
         passCtx_.ibl.brdfLUT = iblBRDFLUT_;
@@ -211,6 +226,63 @@ namespace MyCoreEngine {
         iblPrefiltered_ = pre;
         iblBRDFLUT_ = lut;
         iblPrefilterMipCount_ = mipCount;
+    }
+
+    void Renderer::SyncEnvironment(const EnvironmentSettings& env, const glm::vec3& sunDir) {
+        bool needsBake = !envApplied_ || env != appliedEnv_;
+
+        // The procedural sky bakes the sun INTO the environment, so moving the
+        // sun must re-bake or the sky keeps yesterday's sun while the shadows
+        // move. Thresholded because baking costs milliseconds and dragging the
+        // sun slider would otherwise re-bake every frame of the drag.
+        if (!needsBake && env.source == EnvironmentSettings::Source::ProceduralSky) {
+            needsBake = degBetween(sunDir, appliedSunDir_) > 1.5f;
+        }
+        if (!needsBake) return;
+
+        if (ApplyEnvironment(env, sunDir)) {
+            appliedEnv_ = env;
+            appliedSunDir_ = sunDir;
+            envApplied_ = true;
+        } else {
+            // Record the attempt anyway. Without this a permanently failing
+            // bake (a bad HDRi path) retries every single frame, which turns
+            // one mistake into a stutter the user cannot connect to anything.
+            appliedEnv_ = env;
+            appliedSunDir_ = sunDir;
+            envApplied_ = true;
+        }
+    }
+
+    bool Renderer::ApplyEnvironment(const EnvironmentSettings& env, const glm::vec3& sunDir) {
+        bool ok = false;
+        if (env.source == EnvironmentSettings::Source::HDRi && !env.hdriPath.empty()) {
+            ok = ibl_.BakeFromFile(env.hdriPath);
+            if (!ok) {
+                // Fall back rather than going black. A mistyped path in the
+                // Inspector should not leave the author staring at an unlit
+                // scene with no idea which setting broke it; the error string
+                // is surfaced next to the field instead.
+                std::printf("[ibl] %s - falling back to the procedural sky\n",
+                            ibl_.lastError().c_str());
+            }
+        }
+        if (!ok) {
+            IBLBaker::SkyParams sky;
+            sky.sunDir = sunDir;
+            sky.zenith = env.zenith;
+            sky.horizon = env.horizon;
+            sky.ground = env.ground;
+            sky.sunIntensity = env.sunIntensity;
+            ok = ibl_.BakeProceduralSky(sky);
+        }
+        if (!ok) return false;
+
+        const IBLTextures& t = ibl_.textures();
+        SetIBLTextures(t.irradiance, t.prefiltered, t.brdfLUT, t.maxMip);
+        SetEnvironmentCube(env.drawSkybox ? t.environment : 0u);
+        if (skyboxPass_) skyboxPass_->setIntensity(env.skyIntensity);
+        return true;
     }
 
     void Renderer::recreateHDR_(int w, int h) {

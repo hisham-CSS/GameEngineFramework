@@ -31,9 +31,12 @@ struct CSMSnapshot {
 
 // IBL bindings (optional)
 struct IBLSnapshot {
+    unsigned int environment = 0;    // GL texture (cube) — drawn by SkyboxPass
     unsigned int irradiance = 0;     // GL texture (cube)
     unsigned int prefiltered = 0;    // GL texture (cube)
     unsigned int brdfLUT = 0;        // GL texture (2D)
+    // MAX MIP INDEX of `prefiltered` (frag.glsl multiplies roughness by it),
+    // not the number of mips. See IBLTextures::maxMip.
     float mipCount = 0.0f;
 };
 

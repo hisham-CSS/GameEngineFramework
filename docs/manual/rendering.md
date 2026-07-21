@@ -122,6 +122,64 @@ a window resize in the player, a Viewport panel resize in the editor.
 > again (the editor's Game view) to the `Setup` size. If you add another size
 > path, keep the tracking seeded.
 
+## Environment lighting (skybox + IBL)
+
+Image-based lighting is what stops surfaces facing away from the sun reading as
+flat black. The engine bakes four things from an environment:
+
+| Product | What it is | Used for |
+| --- | --- | --- |
+| environment cube | the sky itself, mipped | drawn by `SkyboxPass` |
+| irradiance cube | cosine-convolved, 32³ | the diffuse ambient term |
+| prefiltered cube | GGX-importance-sampled, mipped by roughness | glossy reflections |
+| BRDF LUT | 512² RG16F, view- and environment-independent | the split-sum scale/bias |
+
+### Choosing an environment
+
+**Settings → IBL/HDR → Environment.**
+
+- **Procedural sky** (default) — an analytic gradient with a sun lobe, driven by
+  the sun direction from *Sun / Shadows Controls*. Needs no asset, so IBL works
+  in a brand-new scene.
+- **HDRi file** — an equirectangular `.hdr`. If the path fails to load, the
+  engine falls back to the procedural sky and shows the error next to the field
+  rather than going black.
+
+`IBL Intensity` controls how much the environment *lights the scene*.
+`Sky brightness` dims only the *drawn* sky. They are deliberately separate: a
+dim backdrop with bright lighting is a normal thing to want.
+
+### When it re-bakes
+
+Baking costs milliseconds, so `Renderer::SyncEnvironment` re-bakes only when the
+settings actually change — or, for the procedural sky, when the sun moves more
+than 1.5°, since that sky has the sun baked into it. It is driven from
+`RenderFrame`, so neither the editor nor the player has to remember to call it
+and Play cannot end up lit differently from the shipped build.
+
+### Two failure modes worth knowing
+
+**IBL requires both a toggle and resources.** `uUseIBL` is set from
+`iblEnabled_ && iblAvailable_`. The second flag is runtime state published by
+the forward pass. Before it existed, `iblEnabled_` defaulted to `true` with no
+maps bound, so the shader sampled unbound cubemaps — which read as black,
+making ambient exactly **zero** rather than the intended `0.03` fallback.
+
+**`uPrefilterMipCount` is a max mip INDEX, not a count.** The shader does
+`mip = roughness * uPrefilterMipCount`, so roughness 1.0 must land on the last
+mip. Off by one and rough metal samples a sharp mip and sparkles.
+
+### Cost
+
+About 0.3 ms/frame at 1080p (the skybox pass plus real IBL sampling in the
+fragment shader). The bake itself is one-off per change, not per frame.
+
+### Not built yet
+
+No cubemap disk cache (every run re-bakes), no reflection probes or parallax-
+corrected boxes (one global environment for the whole scene), and the HDRi path
+is typed rather than browsed.
+
 ## PBR material inputs
 
 A `Material` (`Engine/src/core/Material.h`) is scalar parameters plus optional

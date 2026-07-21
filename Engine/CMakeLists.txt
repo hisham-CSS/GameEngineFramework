@@ -53,6 +53,11 @@ add_library(Engine SHARED
     src/render/passes/ShadowCSMPass.cpp 
     src/render/passes/ForwardOpaquePass.cpp 
     src/render/passes/TonemapPass.cpp "src/core/GLInit.h" "src/core/GLInit.cpp" "src/render/CSMSplits.h"
+    # --- environment lighting: bake + skybox ---
+    src/render/IBLBaker.h
+    src/render/IBLBaker.cpp
+    src/render/passes/SkyboxPass.h
+    src/render/passes/SkyboxPass.cpp
     # --- physics: backend-agnostic core + pluggable backends ---
     src/physics/PhysicsTypes.h
     src/physics/PhysicsComponents.h

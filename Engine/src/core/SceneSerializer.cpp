@@ -52,6 +52,24 @@ namespace MyCoreEngine {
         settings["lodEnabled"] = scene_.GetLODEnabled();
         settings["lodDistanceScale"] = scene_.GetLODDistanceScale();
         settings["depthPrepass"] = scene_.GetDepthPrepassEnabled();
+
+        // --- environment (skybox + image-based lighting) ---
+        // How strongly the environment LIGHTS the scene stays in
+        // settings["iblIntensity"] above; this block is only about WHICH
+        // environment and how the sky is drawn.
+        {
+            const EnvironmentSettings& e = scene_.Environment();
+            json env;
+            env["source"]       = static_cast<int>(e.source);
+            env["hdriPath"]     = e.hdriPath;
+            env["skyIntensity"] = e.skyIntensity;
+            env["drawSkybox"]   = e.drawSkybox;
+            env["zenith"]       = vec3ToJson(e.zenith);
+            env["horizon"]      = vec3ToJson(e.horizon);
+            env["ground"]       = vec3ToJson(e.ground);
+            env["sunIntensity"] = e.sunIntensity;
+            settings["environment"] = std::move(env);
+        }
         root["settings"] = std::move(settings);
 
         // --- entities ---
@@ -253,6 +271,26 @@ namespace MyCoreEngine {
             scene_.SetLODEnabled(s.value("lodEnabled", scene_.GetLODEnabled()));
             scene_.SetLODDistanceScale(s.value("lodDistanceScale", scene_.GetLODDistanceScale()));
             scene_.SetDepthPrepassEnabled(s.value("depthPrepass", scene_.GetDepthPrepassEnabled()));
+
+            // --- environment (see the save side). Absent block => the
+            // defaults, which is the procedural sky: an older scene file
+            // gains environment lighting rather than loading unlit.
+            if (s.contains("environment") && s["environment"].is_object()) {
+                const json& je = s["environment"];
+                EnvironmentSettings e;
+                const int src = je.value("source", static_cast<int>(e.source));
+                e.source = (src == static_cast<int>(EnvironmentSettings::Source::HDRi))
+                    ? EnvironmentSettings::Source::HDRi
+                    : EnvironmentSettings::Source::ProceduralSky;
+                e.hdriPath     = je.value("hdriPath", e.hdriPath);
+                e.skyIntensity = std::max(0.f, je.value("skyIntensity", e.skyIntensity));
+                e.drawSkybox   = je.value("drawSkybox", e.drawSkybox);
+                e.zenith       = vec3FromJson(je.value("zenith", json()), e.zenith);
+                e.horizon      = vec3FromJson(je.value("horizon", json()), e.horizon);
+                e.ground       = vec3FromJson(je.value("ground", json()), e.ground);
+                e.sunIntensity = std::max(0.f, je.value("sunIntensity", e.sunIntensity));
+                scene_.SetEnvironment(e);
+            }
         }
 
         // parent links resolve in a second pass: a child can precede its

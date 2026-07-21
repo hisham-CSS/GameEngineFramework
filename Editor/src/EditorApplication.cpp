@@ -901,6 +901,51 @@ void EditorApplication::DrawIBLHDRControls(MyCoreEngine::Scene& scene)
 
     float exposure = renderer().exposure();
     if (ImGui::SliderFloat("Exposure", &exposure, 0.2f, 5.0f)) renderer().setExposure(exposure);
+
+    ImGui::Separator();
+    ImGui::TextUnformatted("Environment");
+
+    // Edited in place; the renderer re-bakes when the value actually changes,
+    // so dragging a colour is fine but every committed change costs a bake.
+    MyCoreEngine::EnvironmentSettings& env = scene.Environment();
+
+    const char* kSources[] = { "Procedural sky", "HDRi file" };
+    int src = static_cast<int>(env.source);
+    if (ImGui::Combo("Source", &src, kSources, IM_ARRAYSIZE(kSources))) {
+        env.source = static_cast<MyCoreEngine::EnvironmentSettings::Source>(src);
+    }
+
+    if (env.source == MyCoreEngine::EnvironmentSettings::Source::HDRi) {
+        char buf[512];
+        std::snprintf(buf, sizeof(buf), "%s", env.hdriPath.c_str());
+        if (ImGui::InputText("HDRi", buf, sizeof(buf))) env.hdriPath = buf;
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Equirectangular .hdr, relative to the working directory\n"
+                              "e.g. Exported/Env/studio.hdr");
+        }
+        // A bad path falls back to the procedural sky rather than going black,
+        // so say so here or the scene silently looks 'wrong but lit'.
+        if (!renderer().EnvironmentError().empty()) {
+            ImGui::TextColored(ImVec4(1.f, 0.55f, 0.25f, 1.f), "%s",
+                               renderer().EnvironmentError().c_str());
+            ImGui::TextDisabled("Using the procedural sky instead.");
+        }
+    } else {
+        ImGui::ColorEdit3("Zenith", &env.zenith.x);
+        ImGui::ColorEdit3("Horizon", &env.horizon.x);
+        ImGui::ColorEdit3("Ground", &env.ground.x);
+        ImGui::SliderFloat("Sun brightness", &env.sunIntensity, 0.f, 20.f);
+        ImGui::TextDisabled("Sun position follows Sun / Shadows Controls.");
+    }
+
+    ImGui::Checkbox("Draw skybox", &env.drawSkybox);
+    if (env.drawSkybox) {
+        ImGui::SliderFloat("Sky brightness", &env.skyIntensity, 0.f, 4.f);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Dims the DRAWN sky only.\n"
+                              "Use IBL Intensity to change how much it lights the scene.");
+        }
+    }
 }
 
 void EditorApplication::DrawMaterialControls(MyCoreEngine::Scene& scene)

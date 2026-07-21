@@ -18,6 +18,8 @@
 #include "../render/passes/ShadowCSMPass.h"
 #include "../render/passes/TonemapPass.h"
 #include "../render/passes/ForwardOpaquePass.h"
+#include "../render/passes/SkyboxPass.h"
+#include "../render/IBLBaker.h"
 
 namespace MyCoreEngine {
 
@@ -48,6 +50,22 @@ namespace MyCoreEngine {
 
         // public API:
         void SetIBLTextures(unsigned int irradianceCube, unsigned int prefilteredCube, unsigned int brdfLUT2D, float prefilteredMipCount);
+        // The cube the skybox draws. Separate from SetIBLTextures because a
+        // project may want lighting from an environment it does not display.
+        void SetEnvironmentCube(unsigned int cube) { iblEnvironment_ = cube; }
+
+        // Bakes `env` and wires the result into the shader and the skybox.
+        // ONE call for hosts; owns the GL side so editor and player cannot
+        // drift. Costs milliseconds — call it on change, never per frame.
+        // Returns false and keeps the previous environment on failure.
+        bool ApplyEnvironment(const EnvironmentSettings& env, const glm::vec3& sunDir);
+        const std::string& EnvironmentError() const { return ibl_.lastError(); }
+
+        // Re-bakes ONLY when the settings (or, for the procedural sky, the sun
+        // direction) actually changed. Called from RenderFrame, so neither host
+        // has to remember to bake and the editor cannot end up lit differently
+        // from the shipped game. Cheap on the frames where nothing changed.
+        void SyncEnvironment(const EnvironmentSettings& env, const glm::vec3& sunDir);
 
         // Light exposure
         float exposure() const { return exposure_; }
@@ -137,6 +155,12 @@ namespace MyCoreEngine {
         uint64_t frameIndex_ = 0;
         int lastFbW_ = 0, lastFbH_ = 0; // HDR pipeline size tracking
 
+        SkyboxPass* skyboxPass_ = nullptr;
+        IBLBaker    ibl_;
+        unsigned int iblEnvironment_ = 0;
+        EnvironmentSettings appliedEnv_{};
+        glm::vec3           appliedSunDir_{ 0.f };
+        bool                envApplied_ = false;
         unsigned int iblIrradiance_ = 0; // GL texture ids (0 = not set)
         unsigned int iblPrefiltered_ = 0;
         unsigned int iblBRDFLUT_ = 0;
