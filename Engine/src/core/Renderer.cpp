@@ -41,6 +41,7 @@ namespace MyCoreEngine {
         if (hdrDepthRBO_) glDeleteRenderbuffers(1, &hdrDepthRBO_);
         if (hdrColorTex_) glDeleteTextures(1, &hdrColorTex_);
         if (hdrFBO_) glDeleteFramebuffers(1, &hdrFBO_);
+        releaseLDR_();
     }
 
     void Renderer::Setup(int fbWidth, int fbHeight) {
@@ -144,7 +145,15 @@ namespace MyCoreEngine {
         // resize in the player, viewport-panel resize in the editor)
         if (fbWidth != lastFbW_ || fbHeight != lastFbH_) {
             if (hdrFBO_) recreateHDR_(fbWidth, fbHeight);
+            if (ldrFBO_) recreateLDR_(fbWidth, fbHeight);
             lastFbW_ = fbWidth; lastFbH_ = fbHeight;
+            // RenderPipeline::resize() existed but NOTHING had ever called it,
+            // so any pass owning a size-dependent resource would silently keep
+            // a stale one forever. Called now, before the passes run at the
+            // new size.
+            passCtx_.hdrColorTex = hdrColorTex_;
+            passCtx_.ldrColorTex = ldrColorTex_;
+            pipeline_.resize(passCtx_, fbWidth, fbHeight);
         }
         passCtx_.defaultFBO = targetFBO;
         passCtx_.hdrFBO = hdrFBO_;
@@ -169,6 +178,21 @@ namespace MyCoreEngine {
             tonemapPass_ = &pipeline_.add<TonemapPass>();
             pipeline_.setup(passCtx_);
         }
+        // LAST: resolves the LDR intermediate to the real output.
+        if (!fxaaPass_) {
+            fxaaPass_ = &pipeline_.add<FXAAPass>();
+            pipeline_.setup(passCtx_);
+        }
+
+        // Post-AA needs an LDR surface between tonemap and the output.
+        // Allocated lazily and released when switched off, so a project that
+        // never enables AA pays no memory for it.
+        const bool wantAA = scene.GetAAEnabled();
+        if (wantAA && !ldrFBO_) recreateLDR_(fbWidth, fbHeight);
+        else if (!wantAA && ldrFBO_) releaseLDR_();
+        passCtx_.postAAEnabled = wantAA && ldrFBO_ != 0;
+        passCtx_.ldrFBO = ldrFBO_;
+        passCtx_.ldrColorTex = ldrColorTex_;
 
         // Bake the environment if it changed. Driven from here so BOTH hosts
         // get it without either having to remember, which is what keeps Play
@@ -283,6 +307,41 @@ namespace MyCoreEngine {
         SetEnvironmentCube(env.drawSkybox ? t.environment : 0u);
         if (skyboxPass_) skyboxPass_->setIntensity(env.skyIntensity);
         return true;
+    }
+
+    void Renderer::releaseLDR_() {
+        if (ldrColorTex_) { glDeleteTextures(1, &ldrColorTex_); ldrColorTex_ = 0; }
+        if (ldrFBO_) { glDeleteFramebuffers(1, &ldrFBO_); ldrFBO_ = 0; }
+    }
+
+    void Renderer::recreateLDR_(int w, int h) {
+        releaseLDR_();
+        const int fw = std::max(1, w), fh = std::max(1, h);
+        glGenFramebuffers(1, &ldrFBO_);
+        glBindFramebuffer(GL_FRAMEBUFFER, ldrFBO_);
+        glGenTextures(1, &ldrColorTex_);
+        glBindTexture(GL_TEXTURE_2D, ldrColorTex_);
+        // RGBA8: this is post-tonemap, already gamma-encoded. Deliberately
+        // NOT an sRGB format -- GL would then linearize on sample and FXAA
+        // would be reading linear values while using perceptual thresholds.
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, fw, fh, 0, GL_RGBA,
+                     GL_UNSIGNED_BYTE, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        // CLAMP_TO_EDGE matters: FXAA's edge walk samples past the border,
+        // and wrapping would pull the opposite side of the screen into the
+        // blend as a bright fringe along every edge of the image.
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                               GL_TEXTURE_2D, ldrColorTex_, 0);
+        if (const GLenum st = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+            st != GL_FRAMEBUFFER_COMPLETE) {
+            std::cerr << "ERROR::LDR FBO incomplete, status 0x" << std::hex << st
+                      << std::dec << std::endl;
+            releaseLDR_();
+        }
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
     void Renderer::recreateHDR_(int w, int h) {

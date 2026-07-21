@@ -902,6 +902,15 @@ void EditorApplication::DrawIBLHDRControls(MyCoreEngine::Scene& scene)
     float exposure = renderer().exposure();
     if (ImGui::SliderFloat("Exposure", &exposure, 0.2f, 5.0f)) renderer().setExposure(exposure);
 
+    bool aa = scene.GetAAEnabled();
+    if (ImGui::Checkbox("Anti-aliasing (FXAA)", &aa)) scene.SetAAEnabled(aa);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Post-process edge antialiasing, applied after tonemapping.\n"
+                          "Costs ~0.2ms and one full-resolution LDR target.\n"
+                          "Smooths staircased edges; perfectly axis-aligned ones\n"
+                          "have no sub-pixel coverage to recover and are left as-is.");
+    }
+
     ImGui::Separator();
     ImGui::TextUnformatted("Environment");
 

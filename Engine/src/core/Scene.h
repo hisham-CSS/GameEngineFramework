@@ -254,6 +254,12 @@ namespace MyCoreEngine {
         void SetMetallicMapEnabled(bool v) { metallicMapEnabled_ = v; }
         void SetRoughnessMapEnabled(bool v) { roughnessMapEnabled_ = v; }
         void SetAOMapEnabled(bool v) { aoMapEnabled_ = v; }
+        // Post-process antialiasing (FXAA). On by default: every edge in the
+        // renderer aliases without it, and measurement says fill rate is the
+        // resource with headroom here.
+        bool  GetAAEnabled() const { return aaEnabled_; }
+        void  SetAAEnabled(bool v) { aaEnabled_ = v; }
+
         bool  GetIBLEnabled() const { return iblEnabled_; }
         void  SetIBLEnabled(bool v) { iblEnabled_ = v; }
         // Whether the environment maps actually EXIST this frame. Runtime
@@ -354,6 +360,7 @@ namespace MyCoreEngine {
          bool metallicMapEnabled_ = true;
          bool roughnessMapEnabled_ = true;
          bool aoMapEnabled_ = true;
+         bool  aaEnabled_ = true;
          bool  iblEnabled_ = true;
          bool  iblAvailable_ = false; // runtime; set by the render pass
          float iblIntensity_ = 1.0f;

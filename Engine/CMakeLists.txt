@@ -58,6 +58,8 @@ add_library(Engine SHARED
     src/render/IBLBaker.cpp
     src/render/passes/SkyboxPass.h
     src/render/passes/SkyboxPass.cpp
+    src/render/passes/FXAAPass.h
+    src/render/passes/FXAAPass.cpp
     # --- physics: backend-agnostic core + pluggable backends ---
     src/physics/PhysicsTypes.h
     src/physics/PhysicsComponents.h

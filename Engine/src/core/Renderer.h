@@ -19,6 +19,7 @@
 #include "../render/passes/TonemapPass.h"
 #include "../render/passes/ForwardOpaquePass.h"
 #include "../render/passes/SkyboxPass.h"
+#include "../render/passes/FXAAPass.h"
 #include "../render/IBLBaker.h"
 
 namespace MyCoreEngine {
@@ -156,6 +157,11 @@ namespace MyCoreEngine {
         int lastFbW_ = 0, lastFbH_ = 0; // HDR pipeline size tracking
 
         SkyboxPass* skyboxPass_ = nullptr;
+        FXAAPass*   fxaaPass_ = nullptr;
+        // LDR intermediate, allocated only while post-AA is on.
+        unsigned int ldrFBO_ = 0, ldrColorTex_ = 0;
+        void recreateLDR_(int w, int h);
+        void releaseLDR_();
         IBLBaker    ibl_;
         unsigned int iblEnvironment_ = 0;
         EnvironmentSettings appliedEnv_{};

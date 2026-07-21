@@ -48,6 +48,17 @@ struct PassContext {
     unsigned hdrColorTex{ 0 };
     unsigned hdrDepthRBO{ 0 };
 
+    // Intermediate LDR (gamma-space) surface between tonemap and the final
+    // output. Only used when a post-AA pass is active: FXAA has to read
+    // perceptual luma, which does not exist until after tonemapping.
+    unsigned ldrFBO{ 0 };
+    unsigned ldrColorTex{ 0 };
+    // When true, TonemapPass renders into ldrFBO instead of defaultFBO and a
+    // post pass is responsible for producing the final image. Kept as an
+    // explicit flag rather than inferred from ldrFBO != 0 so the target can
+    // stay allocated across a toggle without changing where tonemap writes.
+    bool     postAAEnabled{ false };
+
     // Fullscreen quad for post
     unsigned fsQuadVAO{ 0 };
 

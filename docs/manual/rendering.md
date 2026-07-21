@@ -122,6 +122,46 @@ a window resize in the player, a Viewport panel resize in the editor.
 > again (the editor's Game view) to the `Setup` size. If you add another size
 > path, keep the tracking seeded.
 
+## Anti-aliasing (FXAA)
+
+**Settings -> IBL/HDR -> Anti-aliasing (FXAA)**, on by default.
+
+FXAA runs as the LAST pass, resolving an intermediate LDR surface to the final
+output. That intermediate exists because FXAA is a *post-tonemap* filter: every
+threshold in it is tuned against perceptual luma, so it has to see gamma-space
+LDR. Run on linear HDR the same constants mean something else entirely --
+highlights smear and dark detail is ignored. So `TonemapPass` writes into
+`ctx.ldrFBO` instead of the output whenever `ctx.postAAEnabled` is set.
+
+### Why FXAA and not MSAA
+
+MSAA costs rasterization, and this renderer is **rasterization-bound** at ~40k
+instances -- it would attack the exact bottleneck. Measurement showed fill rate
+is the resource with headroom (a 16x reduction in pixel count barely moved
+frame time), and FXAA spends only fill. It also needs no multisampled targets,
+which matters against the 4 GB VRAM ceiling.
+
+### Cost
+
+**+0.197 ms**, measured by A/B *inside a single run* (`PerfFixture.FXAA_CostIsSmall`).
+That last part matters: comparing against a previous run suggested 2 ms, but CPU
+time moved just as much, and FXAA cannot affect CPU time. Machine drift between
+runs exceeded the effect. Back-to-back on the same scene, CPU time is identical
+and the delta is real.
+
+### What it does and does not fix
+
+It smooths **staircased** edges -- the sloped geometry edges that alias. A
+perfectly axis-aligned edge lands exactly on a pixel boundary, leaving no
+sub-pixel coverage to recover, and FXAA correctly leaves it alone. Flat regions
+are rejected by an early-out, which is both why it is cheap and why the image
+does not go soft; `test_fxaa.cpp` asserts both halves of that contract, because
+"the image changed" alone would pass for a filter that blurs everything.
+
+### Not built
+
+No MSAA option, no TAA, and no sharpening pass to offset FXAA's slight softness.
+
 ## Environment lighting (skybox + IBL)
 
 Image-based lighting is what stops surfaces facing away from the sun reading as

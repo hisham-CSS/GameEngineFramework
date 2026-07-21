@@ -301,6 +301,36 @@ TEST_F(PerfFixture, SmallObjectCull_DropsDistantInstances) {
         << "size cull should never be slower than the un-culled frame";
 }
 
+// FXAA cost, measured as an A/B inside ONE run.
+//
+// Comparing against numbers from a previous run does not work: this machine's
+// frame times drift by more than the effect being measured (a run-to-run
+// comparison appeared to show FXAA costing 2ms, while CPU time — which FXAA
+// cannot touch — moved just as much). Back-to-back on the same scene, same
+// thermal state, is the only way to isolate one full-screen pass.
+TEST_F(PerfFixture, FXAA_CostIsSmall) {
+    Scene scene;
+    buildGrid(scene, 20, 20);
+    Camera cam;
+    aim(cam, { 0.f, 10.f, 40.f }, { 0.f, 0.f, 0.f });
+
+    scene.SetAAEnabled(false);
+    const auto off = measure("FXAA off", scene, cam);
+    scene.SetAAEnabled(true);
+    const auto on = measure("FXAA on", scene, cam);
+
+    const double deltaMs = on.medianMs - off.medianMs;
+    std::printf("[PERF] FXAA delta            %+7.3f ms (off %.2f -> on %.2f)\n",
+                deltaMs, off.medianMs, on.medianMs);
+
+    // FXAA is one fullscreen pass over an RGBA8 target, and measurement has
+    // repeatedly shown fill rate is the resource with headroom here. If this
+    // ever costs more than a millisecond, something is wrong -- most likely
+    // the early-out in the shader no longer rejecting flat pixels.
+    EXPECT_LT(deltaMs, 1.0 * budgetScale())
+        << "FXAA is costing far more than one fullscreen pass should";
+}
+
 // Scenario 1: static camera over the editor's default 20x20 spawn grid.
 TEST_F(PerfFixture, AtRest_SpawnView) {
     Scene scene;

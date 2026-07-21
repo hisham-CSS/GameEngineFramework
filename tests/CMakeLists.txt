@@ -70,6 +70,7 @@ engine_test(test_lights)           # punctual light selection + culling (pure CP
 engine_test(test_physics)          # backend-conformance suite + PhysicsWorld/ECS (pure CPU)
 engine_test(test_scripting)        # script seam + Lua isolation/error policy (pure CPU)
 engine_test(test_ibl)              # IBL bake: needs a real GL context
+engine_test(test_fxaa)             # FXAA edge/flat behaviour: needs a real GL context
 engine_test(test_import_settings)  # P4-3 phase 4: .import sidecar round-trip (pure CPU)
 engine_test(test_asset_validator)  # P4-3 phase 4: cooker validate logic (pure CPU)
 

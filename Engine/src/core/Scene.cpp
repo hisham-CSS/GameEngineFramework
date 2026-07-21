@@ -191,6 +191,7 @@ void Scene::ResetToDefaults() {
     metallicMapEnabled_ = true;
     roughnessMapEnabled_ = true;
     aoMapEnabled_ = true;
+    aaEnabled_ = true;
     iblEnabled_ = true;
     iblIntensity_ = 1.0f;
 }

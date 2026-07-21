@@ -52,6 +52,7 @@ namespace MyCoreEngine {
         settings["lodEnabled"] = scene_.GetLODEnabled();
         settings["lodDistanceScale"] = scene_.GetLODDistanceScale();
         settings["depthPrepass"] = scene_.GetDepthPrepassEnabled();
+        settings["aaEnabled"] = scene_.GetAAEnabled();
 
         // --- environment (skybox + image-based lighting) ---
         // How strongly the environment LIGHTS the scene stays in
@@ -271,6 +272,7 @@ namespace MyCoreEngine {
             scene_.SetLODEnabled(s.value("lodEnabled", scene_.GetLODEnabled()));
             scene_.SetLODDistanceScale(s.value("lodDistanceScale", scene_.GetLODDistanceScale()));
             scene_.SetDepthPrepassEnabled(s.value("depthPrepass", scene_.GetDepthPrepassEnabled()));
+            scene_.SetAAEnabled(s.value("aaEnabled", scene_.GetAAEnabled()));
 
             // --- environment (see the save side). Absent block => the
             // defaults, which is the procedural sky: an older scene file
