@@ -122,6 +122,23 @@ TEST_F(IBLTest, BakesFromTheExampleHDRi) {
     EXPECT_GT(lum, 0.01f) << "HDRi produced no irradiance";
 }
 
+TEST_F(IBLTest, TheDefaultSceneEnvironmentActuallyBakes) {
+    // Every new scene defaults to a shipped HDRi, and a missing file falls
+    // back to the procedural sky SILENTLY. That fallback is good behaviour and
+    // bad for regressions: rename or drop the asset and every scene quietly
+    // loses its intended sky with nothing failing. This is the check that
+    // makes the default a promise rather than a hope.
+    const EnvironmentSettings defaults{};
+    ASSERT_EQ(defaults.source, EnvironmentSettings::Source::HDRi);
+    ASSERT_FALSE(defaults.hdriPath.empty());
+
+    IBLBaker baker;
+    EXPECT_TRUE(baker.BakeFromFile(defaults.hdriPath))
+        << "the default environment '" << defaults.hdriPath
+        << "' did not load: " << baker.lastError();
+    EXPECT_GT(faceLuminance(baker.textures().irradiance, 32), 0.01f);
+}
+
 TEST_F(IBLTest, MissingHDRiFailsAndKeepsThePreviousBake) {
     IBLBaker baker;
     ASSERT_TRUE(baker.BakeProceduralSky({}));

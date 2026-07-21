@@ -36,11 +36,19 @@ namespace MyCoreEngine {
     struct EnvironmentSettings {
         enum class Source { ProceduralSky = 0, HDRi = 1 };
 
-        // ProceduralSky by default so image-based lighting works with NO
-        // asset. An engine whose flagship lighting feature first requires the
-        // user to go find a 20MB .hdr is a feature nobody turns on.
-        Source      source = Source::ProceduralSky;
-        std::string hdriPath;             // used when source == HDRi
+        // Defaults to the SHIPPED sky, so a brand-new scene is properly lit
+        // without the author configuring anything. Safe to default to a file
+        // because a missing/unreadable path falls back to the procedural sky
+        // (see Renderer::ApplyEnvironment) — both paths are tested, so a
+        // project that deletes the asset still gets an environment rather
+        // than a black scene.
+        //
+        // The shipped default is a PURE SKY (no ground/terrain baked in): a
+        // location-specific HDRi imposes someone else's horizon on every
+        // scene, which reads as wrong as soon as your own geometry does not
+        // line up with it.
+        Source      source = Source::HDRi;
+        std::string hdriPath = "Exported/Env/kloofendal_puresky_2k.hdr";
 
         // NOTE: how strongly the environment LIGHTS the scene lives in
         // Scene::SetIBLIntensity, which already existed and is already

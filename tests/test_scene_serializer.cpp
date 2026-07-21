@@ -804,8 +804,10 @@ TEST(SceneSerializer, SceneWithoutEnvironmentBlockGetsTheProceduralSky) {
     ASSERT_TRUE(load.Load(path));
 
     // Must default to a lit scene, not an unlit one: an old file should gain
-    // environment lighting, never load black.
-    EXPECT_EQ(b.Environment().source, EnvironmentSettings::Source::ProceduralSky);
+    // environment lighting, never load black. The default is the shipped sky,
+    // which falls back to the procedural one if the asset is absent.
+    EXPECT_EQ(b.Environment().source, EnvironmentSettings::Source::HDRi);
+    EXPECT_FALSE(b.Environment().hdriPath.empty());
     EXPECT_TRUE(b.Environment().drawSkybox);
 
     std::remove(path);
