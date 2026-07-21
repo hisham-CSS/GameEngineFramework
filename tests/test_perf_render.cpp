@@ -45,7 +45,7 @@ using namespace MyCoreEngine;
 // the whole benchmark silently measures the Intel iGPU (~5-10x slower).
 extern "C" {
     __declspec(dllexport) unsigned long NvOptimusEnablement = 1;
-    __declspec(dllexport) int AmdPowerXpressRequestHighPerformanceGpu = 1;
+    __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
 }
 
 namespace {

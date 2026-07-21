@@ -356,15 +356,14 @@ The fix is an export in each executable, exactly as in `tests/test_perf_render.c
 ```c++
 extern "C" {
     __declspec(dllexport) unsigned long NvOptimusEnablement = 1;
-    __declspec(dllexport) int AmdPowerXpressRequestHighPerformanceGpu = 1;
+    __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
 }
 ```
 
-> **Note:** the tree currently uses two spellings of the AMD symbol —
-> `AmdPowerXpressRequestHighPerformance` in `Editor/src/EditorMain.cpp` and
-> `Player/src/PlayerMain.cpp`, and `AmdPowerXpressRequestHighPerformanceGpu`
-> in the perf test above. AMD documents the first. Neither affects NVIDIA
-> hardware, where `NvOptimusEnablement` is what matters.
+> **Note:** use exactly these two symbol names. `AmdPowerXpressRequestHighPerformance`
+> is the spelling AMD documents — a near-miss such as adding a `Gpu` suffix
+> compiles and links happily, exports a symbol no driver looks for, and leaves
+> the executable on the integrated GPU with nothing to indicate why.
 
 > **Important:** any new GL-heavy executable or test you add needs these exports
 > too, or it will silently benchmark the iGPU and your budgets will be nonsense.
