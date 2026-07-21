@@ -11,6 +11,15 @@
 file(COPY "${SRC}/Model" DESTINATION "${DST}")
 file(COPY "${SRC}/Shaders" DESTINATION "${DST}")
 
+# Scripts/ is static in the same sense as Shaders/ -- authored in the source
+# tree, re-copied so edits show up. Guarded (unlike the two above) because a
+# project with no scripts at all is legitimate: scripting is optional and the
+# Null backend keeps such a build running. A missing Shaders/ is a broken
+# build and SHOULD fail loudly; a missing Scripts/ should not.
+if(EXISTS "${SRC}/Scripts")
+    file(COPY "${SRC}/Scripts" DESTINATION "${DST}")
+endif()
+
 file(GLOB seedFiles "${SRC}/*.json")
 foreach(f ${seedFiles})
     get_filename_component(name "${f}" NAME)
