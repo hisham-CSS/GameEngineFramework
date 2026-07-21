@@ -2,23 +2,26 @@
 #   cmake -DSRC=<source Exported dir> -DDST=<runtime Exported dir> -P stage_runtime_assets.cmake
 #
 # Two classes of content, handled differently:
-# - STATIC assets (Model/, Shaders/): owned by the source tree, re-copied
-#   every build so shader/model edits show up.
-# - AUTHORED files (scene.json — anything the EDITOR writes at runtime into
-#   the same directory): seeded only when missing. A blind copy_directory
-#   here silently reverted editor-saved scenes to the checked-in copy on
-#   every build, which also meant the packaged game shipped a stale scene.
-file(COPY "${SRC}/Model" DESTINATION "${DST}")
-file(COPY "${SRC}/Shaders" DESTINATION "${DST}")
-
-# Scripts/ is static in the same sense as Shaders/ -- authored in the source
-# tree, re-copied so edits show up. Guarded (unlike the two above) because a
-# project with no scripts at all is legitimate: scripting is optional and the
-# Null backend keeps such a build running. A missing Shaders/ is a broken
-# build and SHOULD fail loudly; a missing Scripts/ should not.
-if(EXISTS "${SRC}/Scripts")
-    file(COPY "${SRC}/Scripts" DESTINATION "${DST}")
-endif()
+#
+# - STATIC assets live in SUBDIRECTORIES (Model/, Shaders/, Scripts/, Env/...).
+#   They are owned by the source tree and re-copied every build so edits show
+#   up. Every subdirectory is copied, deliberately: this list used to be
+#   hardcoded, and adding Scripts/ and then Env/ each silently shipped a
+#   feature whose assets never reached the runtime directory. The symptom is
+#   always the same and always misleading -- the file is visibly right there
+#   in the source tree, and the engine reports it missing.
+#
+# - AUTHORED files are the *.json at the TOP LEVEL (scene.json, project.json --
+#   anything the EDITOR writes back into this same directory). Seeded only when
+#   missing. A blind copy here silently reverted editor-saved scenes to the
+#   checked-in copy on every build, which also meant the packaged game shipped
+#   a stale scene.
+file(GLOB children RELATIVE "${SRC}" "${SRC}/*")
+foreach(child ${children})
+    if(IS_DIRECTORY "${SRC}/${child}")
+        file(COPY "${SRC}/${child}" DESTINATION "${DST}")
+    endif()
+endforeach()
 
 file(GLOB seedFiles "${SRC}/*.json")
 foreach(f ${seedFiles})
