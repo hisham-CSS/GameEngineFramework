@@ -1,0 +1,79 @@
+# Doxygen configuration for the Cat Splat Engine API reference.
+#
+# This is the "Scripting API"-style half of the docs: exhaustive per-class
+# detail generated FROM THE HEADERS, so it cannot drift out of sync with the
+# code the way a hand-written reference does. The narrative half lives in
+# docs/manual/ and is written by hand.
+#
+# Configured by CMake (see docs/CMakeLists.txt) -> build with:
+#     cmake --build <build> --target docs
+# Output: <build>/docs/api/html/index.html
+
+PROJECT_NAME           = "Cat Splat Engine"
+PROJECT_NUMBER         = "@CSE_VERSION@"
+PROJECT_BRIEF          = "C++17 / OpenGL 3.3 game engine"
+OUTPUT_DIRECTORY       = "@DOXYGEN_OUTPUT_DIR@"
+
+# --- what to document -------------------------------------------------------
+# The PUBLIC surface only: Engine/include is the façade, and Engine/src holds
+# the headers it pulls in. Editor/Player/Cooker are applications, not API.
+INPUT                  = "@DOXYGEN_INPUT_DIRS@"
+FILE_PATTERNS          = *.h *.hpp *.md
+RECURSIVE              = YES
+# Third-party vendored code and the backend .cpp files that include SDK
+# headers are noise in an API reference.
+EXCLUDE_PATTERNS       = */thirdparty/* */backends/*.cpp
+USE_MDFILE_AS_MAINPAGE = "@DOXYGEN_MAINPAGE@"
+
+# --- how much to document ---------------------------------------------------
+# The headers carry the design rationale in comments; that context is the most
+# valuable thing here, so extract generously but keep private/static internals
+# out of the public reference.
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = NO
+EXTRACT_LOCAL_CLASSES  = NO
+HIDE_UNDOC_MEMBERS     = NO
+JAVADOC_AUTOBRIEF      = YES
+# Plain // comments above a declaration become its documentation, which is how
+# this codebase is already commented — without this most docs would be lost.
+MULTILINE_CPP_IS_BRIEF = NO
+INHERIT_DOCS           = YES
+BUILTIN_STL_SUPPORT    = YES
+
+# --- output -----------------------------------------------------------------
+GENERATE_HTML          = YES
+HTML_OUTPUT            = api/html
+GENERATE_LATEX         = NO
+GENERATE_TREEVIEW      = YES
+DISABLE_INDEX          = NO
+FULL_SIDEBAR           = NO
+SEARCHENGINE           = YES
+SORT_MEMBER_DOCS       = NO
+SOURCE_BROWSER         = YES
+INLINE_SOURCES         = NO
+REFERENCED_BY_RELATION = YES
+
+# --- preprocessing ----------------------------------------------------------
+# ENGINE_API is a dllexport/dllimport macro; expanding it to nothing keeps it
+# out of every signature in the output.
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = YES
+PREDEFINED             = ENGINE_API= \
+                         CSE_WITH_JOLT \
+                         CSE_WITH_PHYSX
+
+# --- diagrams ---------------------------------------------------------------
+# Class diagrams need Graphviz; CMake turns this on only when dot is found.
+HAVE_DOT               = @DOXYGEN_HAVE_DOT@
+CLASS_DIAGRAMS         = YES
+COLLABORATION_GRAPH    = NO
+INCLUDE_GRAPH          = NO
+INCLUDED_BY_GRAPH      = NO
+
+# --- noise control ----------------------------------------------------------
+QUIET                  = YES
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = NO
+WARN_IF_DOC_ERROR      = YES

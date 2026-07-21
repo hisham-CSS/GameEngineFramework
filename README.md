@@ -10,6 +10,17 @@ The renderer is the most mature part of the engine. Scene authoring, persistence
 systems are still in development — see [Development Status](#development-status) below and the
 full audit + roadmap in [docs/ENGINE_AUDIT_2026-07.md](docs/ENGINE_AUDIT_2026-07.md).
 
+## Documentation
+
+| | |
+|---|---|
+| **[Manual](docs/manual/index.md)** | How the engine works and how to build things with it — architecture, editor, components, physics, rendering, shipping a build |
+| **[Getting Started](docs/manual/getting-started.md)** | Prerequisites, build configurations, running the editor and player |
+| **[API Reference](docs/api-index.md)** | Generated per-class reference. Build it with the `docs` CMake target (requires Doxygen) |
+
+New here? Read [Getting Started](docs/manual/getting-started.md), then
+[Engine Architecture](docs/manual/architecture.md).
+
 ## What Works Today
 
 - **Modern C++17 architecture**: separate Engine DLL and Editor executable.

@@ -18,6 +18,9 @@ add_subdirectory(Engine)
 add_subdirectory(Editor)
 add_subdirectory(Player)
 add_subdirectory(Cooker)
+# API reference (optional): defines a 'docs' target when Doxygen is installed,
+# and quietly skips it otherwise. Never a build dependency.
+add_subdirectory(docs)
 
 # The editor invokes AssetCooker.exe at runtime (Validate button): building
 # the Editor must produce/refresh the cooker too, or a dev-loop build ships
