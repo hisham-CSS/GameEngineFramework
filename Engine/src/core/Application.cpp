@@ -77,20 +77,26 @@ namespace MyCoreEngine
 			updateDeltaTime_();
 
 			bool capK = false, capM = false;
+			bool typing = false;
 			if (captureFn_) {
-				auto caps = captureFn_();
-				capK = caps.first; capM = caps.second;
+				const UICapture caps = captureFn_();
+				capK = caps.keyboard; capM = caps.mouse; typing = caps.textInput;
 			}
 
 			// Poll every frame so edge states stay coherent; only APPLY the
 			// default camera/quit behavior when the UI isn't capturing keys.
 			input_->update(window_.getGLFWwindow());
 			// Polling stays unconditional so edge state remains coherent, but
-			// a press made while the UI owns the keyboard must not reach
+			// a press made while a TEXT WIDGET has focus must not reach
 			// gameplay: "Jump" is bound to Space, so typing a space into the
 			// entity-name or script-path field during Play would otherwise
 			// launch the player.
-			if (capK) input_->clearPressLatches();
+			//
+			// Deliberately NOT capK -- see UICapture. capK is also set when
+			// the host simply is not pointing at its 3D viewport, which is
+			// true whenever the Game panel has focus, so clearing on it threw
+			// away every press at exactly the moment the game deserved one.
+			if (typing) input_->clearPressLatches();
 			if (!capK) {
 				if (input_->wasPressed("Quit")) {
 					glfwSetWindowShouldClose(window_.getGLFWwindow(), true);

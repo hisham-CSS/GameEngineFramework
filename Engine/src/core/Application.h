@@ -82,7 +82,22 @@ namespace MyCoreEngine
 		using UIDrawFn = std::function<void(float /*deltaTime*/)>;
 		void SetUIDraw(UIDrawFn fn) { uiDraw_ = std::move(fn); }
 
-		using UICaptureFn = std::function<std::pair<bool, bool>()>;
+		// What the UI is currently taking away from the engine.
+		//
+		// `keyboard` and `mouse` gate the built-in fly camera, and a host may
+		// set them for reasons that have NOTHING to do with typing (the editor
+		// sets keyboard whenever the Scene viewport is not focused). They are
+		// therefore useless as a "the user is typing" signal -- reusing
+		// `keyboard` for that dropped every gameplay keypress the moment the
+		// Game panel took focus, i.e. exactly when the game should have had
+		// input. `textInput` is the narrow signal: a text widget has focus, so
+		// keystrokes are characters, not commands.
+		struct UICapture {
+			bool keyboard = false;
+			bool mouse = false;
+			bool textInput = false;
+		};
+		using UICaptureFn = std::function<UICapture()>;
 		void SetUICaptureProvider(UICaptureFn fn) { captureFn_ = std::move(fn); }
 
 		using OnContextReadyFn = std::function<void()>;

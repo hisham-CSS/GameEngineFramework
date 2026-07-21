@@ -70,12 +70,16 @@ void EditorApplication::Run() {
             // scrolling/keyboarding in panels on other monitors. Text editing
             // still blocks regardless (WantTextInput).
             const bool inViewport = viewportFocused_ || viewportHovered_ || camLooking_;
-            return std::pair<bool, bool>{
-                ui_.WantTextInput() || !inViewport,
-                    // the viewport is an ImGui window too — camera controls
-                    // must keep working while the mouse is over it
-                    ui_.WantCaptureMouse() && !viewportHovered_
-            };
+            MyCoreEngine::Application::UICapture caps;
+            caps.keyboard = ui_.WantTextInput() || !inViewport;
+            // the viewport is an ImGui window too — camera controls
+            // must keep working while the mouse is over it
+            caps.mouse = ui_.WantCaptureMouse() && !viewportHovered_;
+            // Reported separately because `keyboard` above is mostly about
+            // WHERE the pointer is, not about typing. Gameplay input keys off
+            // this narrow flag alone.
+            caps.textInput = ui_.WantTextInput();
+            return caps;
         });
     });
 
