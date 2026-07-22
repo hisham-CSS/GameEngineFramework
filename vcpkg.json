@@ -10,7 +10,10 @@
     "meshoptimizer",
     "imguizmo",
     "joltphysics",
-    "physx",
+    {
+      "name": "physx",
+      "platform": "windows"
+    },
     {
       "name": "imgui",
       "features": [

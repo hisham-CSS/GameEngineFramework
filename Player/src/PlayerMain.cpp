@@ -49,10 +49,10 @@ public:
         }
 
         // Startup scene: command line beats project settings beats default.
+        // commandLine() is captured portably by Main.h (argv), so `Player
+        // <scene.json>` works on Windows and Linux alike.
         std::string scenePath;
-#ifdef _WIN32
-        if (__argc > 1 && __argv && __argv[1]) scenePath = __argv[1];
-#endif
+        if (commandLine().size() > 1) scenePath = commandLine()[1];
         if (scenePath.empty()) {
             ProjectSettings settings;
             settings.Load(); // Exported/project.json, written by the editor

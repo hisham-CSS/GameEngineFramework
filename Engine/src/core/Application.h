@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <functional>
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -31,6 +32,18 @@ namespace MyCoreEngine
 		Application& operator=(const Application&) = delete;
 
 		virtual void Run() = 0;
+
+		// Command line captured by the entry point (Main.h): argv[0] is the
+		// program, argv[1..] the arguments. Portable replacement for Windows'
+		// __argc/__argv — the Player reads argv[1] as an optional startup-scene
+		// override, and it works the same on Linux where main() gets argc/argv.
+		void SetCommandLine(int argc, char** argv) {
+			commandLine_.clear();
+			commandLine_.reserve(argc > 0 ? static_cast<size_t>(argc) : 0);
+			for (int i = 0; i < argc; ++i)
+				commandLine_.emplace_back(argv && argv[i] ? argv[i] : "");
+		}
+		const std::vector<std::string>& commandLine() const { return commandLine_; }
 
 		// Loads GLAD, sets up the renderer + window callbacks, applies vsync,
 		// and fires the OnContextReady hook. Call once before RunLoop().
@@ -199,6 +212,8 @@ namespace MyCoreEngine
 		void SetSceneRenderTarget(RenderTarget* target) { sceneTarget_ = target; }
 
 	private:
+		std::vector<std::string> commandLine_; // set by SetCommandLine (Main.h)
+
 		void updateDeltaTime_();
 		void handleMouseLook_();
 		void bindDefaultInput_();

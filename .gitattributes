@@ -1,0 +1,3 @@
+# Shell scripts must stay LF-terminated or they won't run on Linux
+# (a CRLF shebang line makes the kernel fail to find the interpreter).
+*.sh text eol=lf

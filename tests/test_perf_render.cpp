@@ -43,10 +43,15 @@ using namespace MyCoreEngine;
 // by default; these exports ask the NVIDIA/AMD drivers for the discrete
 // GPU (the shipping target), same as a real game exe would. Without them
 // the whole benchmark silently measures the Intel iGPU (~5-10x slower).
+// Windows-only: __declspec is an MSVC extension (a hard error under gcc/clang),
+// and Linux dGPU offload is driven by env vars at launch (DRI_PRIME=1 /
+// __NV_PRIME_RENDER_OFFLOAD=1) rather than an export symbol.
+#ifdef _WIN32
 extern "C" {
     __declspec(dllexport) unsigned long NvOptimusEnablement = 1;
     __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
 }
+#endif
 
 namespace {
 

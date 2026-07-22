@@ -5,6 +5,7 @@
 #include "panels/SceneHierarchyPanel.h"
 #include "panels/InspectorPanel.h"
 #include "panels/AssetBrowserPanel.h"
+#include "Subprocess.h"
 
 #include <atomic>
 #include <thread>
@@ -145,10 +146,10 @@ private:
     // RunLoop exit drain). stderr stays on the editor console.
     struct ValidateRun {
         std::thread reader;
-        void* process = nullptr;      // HANDLE
+        editor::Subprocess proc;      // the child; killable, stdout piped
         std::atomic<bool> done{ false };
         std::string output;           // reader-owned until done
-        unsigned long exitCode = 0;
+        // exit code is read via proc.wait() on the main thread after join
     };
     std::unique_ptr<ValidateRun> validateRun_;
     void cancelValidate_();           // kill + join (shutdown path)

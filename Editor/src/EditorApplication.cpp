@@ -21,9 +21,6 @@
 #include <filesystem>
 #include <vector>
 
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <windows.h> // CreateProcess/pipes: the AssetCooker child process
 
 //for the future for any initalization things that are required
 void EditorApplication::Initialize()
@@ -172,12 +169,11 @@ void EditorApplication::Run() {
             // finished AssetCooker run: collect the report, free the child
             if (validateRun_ && validateRun_->done) {
                 validateRun_->reader.join();
-                const unsigned long rc = validateRun_->exitCode;
+                const int rc = validateRun_->proc.wait(); // reap on the main thread
                 validateReport_ = std::move(validateRun_->output);
                 validateReport_ += "\n(exit code " + std::to_string(rc) +
                     (rc == 0 ? " - clean)" : rc == 1 ? " - errors found)" : ")");
-                CloseHandle((HANDLE)validateRun_->process);
-                validateRun_.reset();
+                validateRun_.reset(); // Subprocess dtor closes the child handles
                 validateRunning_ = false;
                 validateOpen_ = true; // reopen even if closed mid-run
             }
@@ -1651,54 +1647,27 @@ void EditorApplication::startValidate_()
     validateOpen_ = true;
     validateReport_.clear();
 
-    // CreateProcess (not _popen): we keep the process HANDLE so shutdown
-    // can TerminateProcess a hung cooker — crash isolation AND hang
-    // isolation. Only stdout is piped (the WARN/ERR/DONE protocol);
-    // stderr (engine [Model] logs) stays on the editor console.
-    SECURITY_ATTRIBUTES sa{ sizeof(sa), nullptr, TRUE };
-    HANDLE readEnd = nullptr, writeEnd = nullptr;
-    if (!CreatePipe(&readEnd, &writeEnd, &sa, 0)) {
-        validateReport_ = "failed to create pipe for AssetCooker";
+    // Spawn the cooker as a child (Subprocess seam): we keep its handle/pid so
+    // shutdown can KILL a hung cooker — crash isolation AND hang isolation.
+    // Only stdout is captured (the WARN/ERR/DONE protocol); stderr (engine
+    // [Model] logs) stays on the editor console.
+    editor::Subprocess sub = editor::Subprocess::Spawn(
+        { "AssetCooker", "validate", "Exported" });
+    if (!sub.ok()) {
+        validateReport_ = "failed to launch AssetCooker (" + sub.error() + ")";
         validateRunning_ = false;
         return;
     }
-    SetHandleInformation(readEnd, HANDLE_FLAG_INHERIT, 0);
-
-    STARTUPINFOA si{};
-    si.cb = sizeof(si);
-    si.dwFlags = STARTF_USESTDHANDLES;
-    si.hStdOutput = writeEnd;
-    si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
-    si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
-    PROCESS_INFORMATION pi{};
-    // explicit .\ path: resolved against the CWD (the exe dir), immune to
-    // PATH search rules like NoDefaultCurrentDirectoryInExePath
-    char cmd[] = ".\\AssetCooker.exe validate Exported";
-    const BOOL ok = CreateProcessA(nullptr, cmd, nullptr, nullptr, TRUE,
-                                   CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
-    CloseHandle(writeEnd); // ours closes now so EOF arrives when the child exits
-    if (!ok) {
-        CloseHandle(readEnd);
-        validateReport_ = "failed to launch AssetCooker.exe (is it built?)";
-        validateRunning_ = false;
-        return;
-    }
-    CloseHandle(pi.hThread);
 
     auto run = std::make_unique<ValidateRun>();
-    run->process = pi.hProcess;
+    run->proc = std::move(sub);
     ValidateRun* raw = run.get();
-    run->reader = std::thread([raw, readEnd] {
-        char buf[512];
-        DWORD got = 0;
-        while (ReadFile(readEnd, buf, sizeof(buf), &got, nullptr) && got > 0) {
-            raw->output.append(buf, got);
-        }
-        CloseHandle(readEnd);
-        WaitForSingleObject((HANDLE)raw->process, INFINITE);
-        DWORD code = 0;
-        GetExitCodeProcess((HANDLE)raw->process, &code);
-        raw->exitCode = code;
+    // The reader ONLY drains stdout. Reaping (proc.wait) is left to the main
+    // thread after it joins, so proc.kill() (cancel, main thread) and the reap
+    // never run concurrently -- otherwise a kill could target a pid the reader
+    // had already reaped, and the kernel could have recycled it.
+    run->reader = std::thread([raw] {
+        while (raw->proc.readChunk(raw->output)) { /* drain until EOF */ }
         raw->done = true;
     });
     validateRun_ = std::move(run);
@@ -1710,11 +1679,11 @@ void EditorApplication::cancelValidate_()
     // a hung child would block the reader forever: kill it, which EOFs the
     // pipe and lets the reader thread finish
     if (!validateRun_->done) {
-        TerminateProcess((HANDLE)validateRun_->process, 1);
+        validateRun_->proc.kill();
     }
     if (validateRun_->reader.joinable()) validateRun_->reader.join();
-    CloseHandle((HANDLE)validateRun_->process);
-    validateRun_.reset();
+    validateRun_->proc.wait(); // reap on the main thread (no zombie left behind)
+    validateRun_.reset();      // Subprocess dtor closes the child handles
     validateRunning_ = false;
 }
 
