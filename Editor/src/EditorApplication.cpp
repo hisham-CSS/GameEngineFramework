@@ -117,15 +117,41 @@ void EditorApplication::Run() {
         // window makes them a first-class dockable panel.
         ImGui::SetNextWindowSize(ImVec2(360, 540), ImGuiCond_FirstUseEver);
         if (ImGui::Begin("Settings")) {
-            DrawScenePersistence(scene);
-            DrawTimeControls();
-            DrawInputPanel();
-            DrawRenderingToggles(scene);
-            DrawLightControls(scene);
-            DrawSunShadowControls(scene);
-            DrawMaterialControls(scene);
-            DrawIBLHDRControls(scene);
-            DrawLayoutControls();
+            // Grouped into tabs so rendering options live in one place and
+            // editor/workflow options in another, instead of one flat list of
+            // headers mixing "save scene" with "shadow bias". Scene = the file
+            // + world; Rendering = everything visual; Editor = the tool itself.
+            if (ImGui::BeginTabBar("SettingsTabs")) {
+                if (ImGui::BeginTabItem("Scene")) {
+                    DrawScenePersistence(scene);
+                    ImGui::EndTabItem();
+                }
+                if (ImGui::BeginTabItem("Rendering")) {
+                    // Lighting: the sun + its shadows and the scene's direct
+                    // light, together -- editing one usually means the other.
+                    if (ImGui::CollapsingHeader("Lighting", ImGuiTreeNodeFlags_DefaultOpen)) {
+                        if (ImGui::TreeNodeEx("Sun & Shadows", ImGuiTreeNodeFlags_DefaultOpen)) {
+                            DrawSunShadowControls(scene);
+                            ImGui::TreePop();
+                        }
+                        if (ImGui::TreeNode("Direct Light")) {
+                            DrawLightControls(scene);
+                            ImGui::TreePop();
+                        }
+                    }
+                    DrawIBLHDRControls(scene);   // "Environment"
+                    DrawMaterialControls(scene);
+                    DrawRenderingToggles(scene); // "Post & Toggles"
+                    ImGui::EndTabItem();
+                }
+                if (ImGui::BeginTabItem("Editor")) {
+                    DrawTimeControls();
+                    DrawInputPanel();
+                    DrawLayoutControls();
+                    ImGui::EndTabItem();
+                }
+                ImGui::EndTabBar();
+            }
         }
         ImGui::End();
 
@@ -877,13 +903,14 @@ void EditorApplication::DrawScenePersistence(MyCoreEngine::Scene& scene)
     if (!buildSettingsStatus_.empty()) ImGui::TextDisabled("%s", buildSettingsStatus_.c_str());
 }
 
+// Body only -- the caller (the Rendering tab's "Lighting" header) provides the
+// section. The scene's directional light and the shadow-casting sun both live
+// under Lighting now, since editing one usually means editing the other.
 void EditorApplication::DrawLightControls(MyCoreEngine::Scene& scene)
 {
-    if (!ImGui::CollapsingHeader("Lights (Shading)", ImGuiTreeNodeFlags_None)) return;
     auto& Ld = scene.LightDir();
     auto& Lc = scene.LightColor();
     auto& Li = scene.LightIntensity();
-    ImGui::SeparatorText("Direct Light");
     ImGui::DragFloat3("Dir", &Ld.x, 0.01f);
     ImGui::ColorEdit3("Color", &Lc.x);
     ImGui::SliderFloat("Intensity", &Li, 0.0f, 10.0f);
@@ -891,7 +918,7 @@ void EditorApplication::DrawLightControls(MyCoreEngine::Scene& scene)
 
 void EditorApplication::DrawIBLHDRControls(MyCoreEngine::Scene& scene)
 {
-    if (!ImGui::CollapsingHeader("IBL/HDR", ImGuiTreeNodeFlags_None)) return;
+    if (!ImGui::CollapsingHeader("Environment", ImGuiTreeNodeFlags_None)) return;
 
     bool ibl = scene.GetIBLEnabled();
     if (ImGui::Checkbox("Enable IBL", &ibl)) scene.SetIBLEnabled(ibl);
@@ -902,17 +929,10 @@ void EditorApplication::DrawIBLHDRControls(MyCoreEngine::Scene& scene)
     float exposure = renderer().exposure();
     if (ImGui::SliderFloat("Exposure", &exposure, 0.2f, 5.0f)) renderer().setExposure(exposure);
 
-    bool aa = scene.GetAAEnabled();
-    if (ImGui::Checkbox("Anti-aliasing (FXAA)", &aa)) scene.SetAAEnabled(aa);
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Post-process edge antialiasing, applied after tonemapping.\n"
-                          "Costs ~0.2ms and one full-resolution LDR target.\n"
-                          "Smooths staircased edges; perfectly axis-aligned ones\n"
-                          "have no sub-pixel coverage to recover and are left as-is.");
-    }
+    // (Anti-aliasing moved to Post & Toggles.)
 
     ImGui::Separator();
-    ImGui::TextUnformatted("Environment");
+    ImGui::TextUnformatted("Sky / IBL source");
 
     // Edited in place; the renderer re-bakes when the value actually changes,
     // so dragging a colour is fine but every committed change costs a bake.
@@ -944,7 +964,7 @@ void EditorApplication::DrawIBLHDRControls(MyCoreEngine::Scene& scene)
         ImGui::ColorEdit3("Horizon", &env.horizon.x);
         ImGui::ColorEdit3("Ground", &env.ground.x);
         ImGui::SliderFloat("Sun brightness", &env.sunIntensity, 0.f, 20.f);
-        ImGui::TextDisabled("Sun position follows Sun / Shadows Controls.");
+        ImGui::TextDisabled("Sun position follows the Lighting section.");
     }
 
     ImGui::Checkbox("Draw skybox", &env.drawSkybox);
@@ -974,9 +994,9 @@ void EditorApplication::DrawMaterialControls(MyCoreEngine::Scene& scene)
     if (ImGui::Checkbox("Use AO Map", &enAO))           scene.SetAOMapEnabled(enAO);
 }
 
+// Body only -- drawn under the Rendering tab's "Lighting" header.
 void EditorApplication::DrawSunShadowControls(MyCoreEngine::Scene& scene)
 {
-    if (!ImGui::CollapsingHeader("Sun / Shadows Controls", ImGuiTreeNodeFlags_None)) return;
     // --- Directional light (Unity-style) ---
     ImGui::SeparatorText("Directional Light");
 
@@ -1090,7 +1110,16 @@ void EditorApplication::DrawSunShadowControls(MyCoreEngine::Scene& scene)
 
 void EditorApplication::DrawRenderingToggles(MyCoreEngine::Scene& scene)
 {
-    if (!ImGui::CollapsingHeader("Rendering Toggles", ImGuiTreeNodeFlags_None)) return;
+    if (!ImGui::CollapsingHeader("Post & Toggles", ImGuiTreeNodeFlags_None)) return;
+
+    bool aa = scene.GetAAEnabled();
+    if (ImGui::Checkbox("Anti-aliasing (FXAA)", &aa)) scene.SetAAEnabled(aa);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Post-process edge antialiasing, applied after tonemapping.\n"
+                          "Costs ~0.2ms and one full-resolution LDR target.\n"
+                          "Smooths staircased edges; perfectly axis-aligned ones\n"
+                          "have no sub-pixel coverage to recover and are left as-is.");
+    }
 
     bool vsync = vsyncEnabled();
     if (ImGui::Checkbox("VSync", &vsync)) setVSync(vsync);
