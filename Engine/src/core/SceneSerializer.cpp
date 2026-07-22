@@ -56,6 +56,17 @@ namespace MyCoreEngine {
         settings["depthPrepass"] = scene_.GetDepthPrepassEnabled();
         settings["aaEnabled"] = scene_.GetAAEnabled();
 
+        // --- post-process stack ---
+        {
+            const auto& p = scene_.PostFX();
+            json post;
+            post["vignetteEnabled"]    = p.vignette.enabled;
+            post["vignetteIntensity"]  = p.vignette.intensity;
+            post["vignetteRoundness"]  = p.vignette.roundness;
+            post["vignetteSmoothness"] = p.vignette.smoothness;
+            settings["postFX"] = post;
+        }
+
         // --- environment (skybox + image-based lighting) ---
         // How strongly the environment LIGHTS the scene stays in
         // settings["iblIntensity"] above; this block is only about WHICH
@@ -286,6 +297,17 @@ namespace MyCoreEngine {
             scene_.SetLODDistanceScale(s.value("lodDistanceScale", scene_.GetLODDistanceScale()));
             scene_.SetDepthPrepassEnabled(s.value("depthPrepass", scene_.GetDepthPrepassEnabled()));
             scene_.SetAAEnabled(s.value("aaEnabled", scene_.GetAAEnabled()));
+
+            // --- post-process stack (see the save side). Absent => defaults
+            // (all effects off), so an older scene loads unchanged.
+            if (s.contains("postFX") && s["postFX"].is_object()) {
+                const json& jp = s["postFX"];
+                auto& p = scene_.PostFX();
+                p.vignette.enabled    = jp.value("vignetteEnabled",    p.vignette.enabled);
+                p.vignette.intensity  = jp.value("vignetteIntensity",  p.vignette.intensity);
+                p.vignette.roundness  = jp.value("vignetteRoundness",  p.vignette.roundness);
+                p.vignette.smoothness = jp.value("vignetteSmoothness", p.vignette.smoothness);
+            }
 
             // --- environment (see the save side). Absent block => the
             // defaults, which is the procedural sky: an older scene file

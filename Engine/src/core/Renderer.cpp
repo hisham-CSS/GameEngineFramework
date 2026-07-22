@@ -152,7 +152,6 @@ namespace MyCoreEngine {
             // a stale one forever. Called now, before the passes run at the
             // new size.
             passCtx_.hdrColorTex = hdrColorTex_;
-            passCtx_.ldrColorTex = ldrColorTex_;
             pipeline_.resize(passCtx_, fbWidth, fbHeight);
         }
         passCtx_.defaultFBO = targetFBO;
@@ -185,21 +184,31 @@ namespace MyCoreEngine {
             tonemapPass_ = &pipeline_.add<TonemapPass>();
             pipeline_.setup(passCtx_);
         }
-        // LAST: resolves the LDR intermediate to the real output.
+        // LDR post-process chain runs after tonemap, in insertion order.
+        // Vignette before FXAA so AA resolves the final composited image.
+        if (!vignettePass_) {
+            vignettePass_ = &pipeline_.add<VignettePass>();
+            pipeline_.setup(passCtx_);
+        }
+        // LAST: resolves the chain to the real output.
         if (!fxaaPass_) {
             fxaaPass_ = &pipeline_.add<FXAAPass>();
             pipeline_.setup(passCtx_);
         }
 
-        // Post-AA needs an LDR surface between tonemap and the output.
-        // Allocated lazily and released when switched off, so a project that
-        // never enables AA pays no memory for it.
-        const bool wantAA = scene.GetAAEnabled();
-        if (wantAA && !ldrFBO_) recreateLDR_(fbWidth, fbHeight);
-        else if (!wantAA && ldrFBO_) releaseLDR_();
-        passCtx_.postAAEnabled = wantAA && ldrFBO_ != 0;
-        passCtx_.ldrFBO = ldrFBO_;
-        passCtx_.ldrColorTex = ldrColorTex_;
+        // LDR post-process chain: allocate the ping-pong pair iff at least one
+        // LDR post pass is enabled this frame; release it when the chain empties
+        // so a project using no post pays no memory. postPassesLeft + postSrcTex
+        // drive the ping-pong routing (see PassContext::nextPostTarget).
+        const int  postCount   = countLdrPostPasses_(scene);
+        const bool wantChain   = postCount > 0;
+        if (wantChain && !ldrFBO_) recreateLDR_(fbWidth, fbHeight);
+        else if (!wantChain && ldrFBO_) releaseLDR_();
+        const bool haveBuffers = (ldrFBO_ != 0 && ldrFBO2_ != 0);
+        passCtx_.ldrFBO_A = ldrFBO_;  passCtx_.ldrTex_A = ldrColorTex_;
+        passCtx_.ldrFBO_B = ldrFBO2_; passCtx_.ldrTex_B = ldrColorTex2_;
+        passCtx_.postPassesLeft = (wantChain && haveBuffers) ? postCount : 0;
+        passCtx_.postSrcTex = ldrColorTex_; // tonemap writes buffer A first
 
         // Bake the environment if it changed. Driven from here so BOTH hosts
         // get it without either having to remember, which is what keeps Play
@@ -316,36 +325,51 @@ namespace MyCoreEngine {
         return true;
     }
 
+    int Renderer::countLdrPostPasses_(const Scene& scene) const {
+        // MUST agree with each LDR post pass's own enable predicate, or the
+        // ping-pong routing (nextPostTarget) desyncs and the final image lands
+        // in an off-screen buffer. Order here is irrelevant (it's a count); the
+        // decrement order is the pipeline insertion order: vignette, then FXAA.
+        int n = 0;
+        if (scene.PostFX().vignette.enabled) ++n;
+        if (scene.GetAAEnabled())            ++n; // FXAA, always last
+        return n;
+    }
+
     void Renderer::releaseLDR_() {
-        if (ldrColorTex_) { glDeleteTextures(1, &ldrColorTex_); ldrColorTex_ = 0; }
-        if (ldrFBO_) { glDeleteFramebuffers(1, &ldrFBO_); ldrFBO_ = 0; }
+        if (ldrColorTex_)  { glDeleteTextures(1, &ldrColorTex_);  ldrColorTex_ = 0; }
+        if (ldrFBO_)       { glDeleteFramebuffers(1, &ldrFBO_);   ldrFBO_ = 0; }
+        if (ldrColorTex2_) { glDeleteTextures(1, &ldrColorTex2_); ldrColorTex2_ = 0; }
+        if (ldrFBO2_)      { glDeleteFramebuffers(1, &ldrFBO2_);  ldrFBO2_ = 0; }
     }
 
     void Renderer::recreateLDR_(int w, int h) {
         releaseLDR_();
         const int fw = std::max(1, w), fh = std::max(1, h);
-        glGenFramebuffers(1, &ldrFBO_);
-        glBindFramebuffer(GL_FRAMEBUFFER, ldrFBO_);
-        glGenTextures(1, &ldrColorTex_);
-        glBindTexture(GL_TEXTURE_2D, ldrColorTex_);
-        // RGBA8: this is post-tonemap, already gamma-encoded. Deliberately
-        // NOT an sRGB format -- GL would then linearize on sample and FXAA
-        // would be reading linear values while using perceptual thresholds.
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, fw, fh, 0, GL_RGBA,
-                     GL_UNSIGNED_BYTE, nullptr);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        // CLAMP_TO_EDGE matters: FXAA's edge walk samples past the border,
-        // and wrapping would pull the opposite side of the screen into the
-        // blend as a bright fringe along every edge of the image.
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                               GL_TEXTURE_2D, ldrColorTex_, 0);
-        if (const GLenum st = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-            st != GL_FRAMEBUFFER_COMPLETE) {
-            std::cerr << "ERROR::LDR FBO incomplete, status 0x" << std::hex << st
-                      << std::dec << std::endl;
+        // One RGBA8 (post-tonemap, already gamma-encoded -- deliberately NOT
+        // sRGB, or GL would linearise on sample and FXAA would compare linear
+        // values against perceptual thresholds). CLAMP_TO_EDGE matters: post
+        // effects sample past the border and wrapping pulls the far side of the
+        // screen in as a bright fringe.
+        auto makeOne = [&](unsigned& fbo, unsigned& tex) -> bool {
+            glGenFramebuffers(1, &fbo);
+            glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+            glGenTextures(1, &tex);
+            glBindTexture(GL_TEXTURE_2D, tex);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, fw, fh, 0, GL_RGBA,
+                         GL_UNSIGNED_BYTE, nullptr);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                                   GL_TEXTURE_2D, tex, 0);
+            return glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+        };
+        const bool okA = makeOne(ldrFBO_, ldrColorTex_);
+        const bool okB = makeOne(ldrFBO2_, ldrColorTex2_);
+        if (!okA || !okB) {
+            std::cerr << "ERROR::LDR ping-pong FBO incomplete" << std::endl;
             releaseLDR_();
         }
         glBindFramebuffer(GL_FRAMEBUFFER, 0);

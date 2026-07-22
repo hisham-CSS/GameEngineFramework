@@ -1351,6 +1351,19 @@ void EditorApplication::DrawRenderingToggles(MyCoreEngine::Scene& scene)
                           "have no sub-pixel coverage to recover and are left as-is.");
     }
 
+    // Post-process stack (tonemap -> effects -> FXAA). Effects chain through a
+    // ping-pong pair allocated only while at least one is enabled.
+    if (ImGui::TreeNodeEx("Post-process", ImGuiTreeNodeFlags_DefaultOpen)) {
+        auto& v = scene.PostFX().vignette;
+        ImGui::Checkbox("Vignette", &v.enabled);
+        if (v.enabled) {
+            ImGui::SliderFloat("Intensity##vig",  &v.intensity,  0.f, 1.f);
+            ImGui::SliderFloat("Roundness##vig",  &v.roundness,  0.f, 1.f);
+            ImGui::SliderFloat("Smoothness##vig", &v.smoothness, 0.f, 1.f);
+        }
+        ImGui::TreePop();
+    }
+
     bool vsync = vsyncEnabled();
     if (ImGui::Checkbox("VSync", &vsync)) setVSync(vsync);
     ImGui::SameLine(); ImGui::TextDisabled("(off = uncapped, for benchmarking)");

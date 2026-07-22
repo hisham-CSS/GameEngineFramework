@@ -3,11 +3,10 @@
 #include <glad/glad.h>
 
 bool TonemapPass::execute(PassContext& ctx, Scene& scene, Camera& camera, const FrameParams& fp) {
-	// With a post-AA pass active this is no longer the last step: tonemap
-	// lands in the LDR intermediate and FXAA resolves that to the output.
-	const unsigned target = (ctx.postAAEnabled && ctx.ldrFBO) ? ctx.ldrFBO
-	                                                          : ctx.defaultFBO;
-	glBindFramebuffer(GL_FRAMEBUFFER, target);
+	// With any LDR post pass active this is no longer the last step: tonemap
+	// lands in ping-pong buffer A and the chain (vignette/outline/FXAA/...)
+	// resolves to the output. With none, it writes straight to defaultFBO.
+	glBindFramebuffer(GL_FRAMEBUFFER, ctx.tonemapTarget());
 	glViewport(0, 0, fp.viewportW, fp.viewportH);
 	glDisable(GL_DEPTH_TEST);
 	

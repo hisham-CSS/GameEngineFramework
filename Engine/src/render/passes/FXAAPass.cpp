@@ -12,16 +12,17 @@ void FXAAPass::setup(PassContext&) {
         "Exported/Shaders/tonemap_vert.glsl", "Exported/Shaders/fxaa_frag.glsl");
 }
 
-bool FXAAPass::execute(PassContext& ctx, MyCoreEngine::Scene&, Camera&,
+bool FXAAPass::execute(PassContext& ctx, MyCoreEngine::Scene& scene, Camera&,
                        const FrameParams& fp) {
-    // ctx.postAAEnabled is what routes TonemapPass into the LDR target. If it
-    // is off, tonemap already wrote the final output and there is nothing here
-    // to resolve -- running anyway would read an LDR texture nobody filled.
-    if (!ctx.postAAEnabled || !ctx.ldrColorTex || !shader_ || !shader_->isValid()) {
+    // Runs last in the LDR chain when AA is on. The predicate here MUST match
+    // what the Renderer counted into postPassesLeft, or the ping-pong routing
+    // desyncs; !ldrTex_A additionally guards the (rare) FBO-alloc-failed case.
+    if (!scene.GetAAEnabled() || !ctx.ldrTex_A || !shader_ || !shader_->isValid()) {
         return false;
     }
+    const PassContext::PostTarget t = ctx.nextPostTarget();
 
-    glBindFramebuffer(GL_FRAMEBUFFER, ctx.defaultFBO);
+    glBindFramebuffer(GL_FRAMEBUFFER, t.dstFBO);
     glViewport(0, 0, fp.viewportW, fp.viewportH);
     glDisable(GL_DEPTH_TEST);
 
@@ -38,7 +39,7 @@ bool FXAAPass::execute(PassContext& ctx, MyCoreEngine::Scene&, Camera&,
     shader_->setFloat("uSubpixel", subpixel_);
 
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, ctx.ldrColorTex);
+    glBindTexture(GL_TEXTURE_2D, t.srcTex);
 
     glBindVertexArray(ctx.fsQuadVAO);
     glDrawArrays(GL_TRIANGLES, 0, 6);

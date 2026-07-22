@@ -21,6 +21,7 @@
 #include "../render/passes/SkyboxPass.h"
 #include "../render/passes/TransparentPass.h"
 #include "../render/passes/FXAAPass.h"
+#include "../render/passes/VignettePass.h"
 #include "../render/IBLBaker.h"
 
 namespace MyCoreEngine {
@@ -160,10 +161,16 @@ namespace MyCoreEngine {
         SkyboxPass* skyboxPass_ = nullptr;
         TransparentPass* transparentPass_ = nullptr;
         FXAAPass*   fxaaPass_ = nullptr;
-        // LDR intermediate, allocated only while post-AA is on.
-        unsigned int ldrFBO_ = 0, ldrColorTex_ = 0;
+        VignettePass* vignettePass_ = nullptr;
+        // LDR ping-pong pair for the post-process chain (tonemap -> effects ->
+        // FXAA), allocated only while at least one LDR post pass is enabled.
+        unsigned int ldrFBO_ = 0, ldrColorTex_ = 0;    // buffer A
+        unsigned int ldrFBO2_ = 0, ldrColorTex2_ = 0;  // buffer B
         void recreateLDR_(int w, int h);
         void releaseLDR_();
+        // How many LDR post passes are enabled this frame (vignette, FXAA, ...).
+        // The chain buffers are needed iff this is > 0.
+        int  countLdrPostPasses_(const Scene& scene) const;
         IBLBaker    ibl_;
         unsigned int iblEnvironment_ = 0;
         EnvironmentSettings appliedEnv_{};

@@ -127,9 +127,9 @@ namespace {
         std::vector<unsigned char> runPass(bool enabled) {
             PassContext ctx{};
             ctx.defaultFBO = dstFBO;
-            ctx.ldrColorTex = srcTex;
-            ctx.ldrFBO = 1;              // non-zero: tonemap would have used it
-            ctx.postAAEnabled = enabled;
+            ctx.ldrTex_A = srcTex;       // the chain source (tonemap's output)
+            ctx.postSrcTex = srcTex;     // what nextPostTarget() hands the pass
+            ctx.postPassesLeft = 1;      // FXAA is the sole/final pass -> defaultFBO
             ctx.fsQuadVAO = quadVAO;
 
             FrameParams fp{};
@@ -147,6 +147,7 @@ namespace {
             glClear(GL_COLOR_BUFFER_BIT);
 
             Scene scene;
+            scene.SetAAEnabled(enabled); // FXAA now gates on the scene AA toggle
             Camera cam;
             pass.execute(ctx, scene, cam, fp);
 

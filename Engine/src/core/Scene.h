@@ -275,6 +275,20 @@ namespace MyCoreEngine {
         bool  GetAAEnabled() const { return aaEnabled_; }
         void  SetAAEnabled(bool v) { aaEnabled_ = v; }
 
+        // Post-process stack, applied after tonemapping: tonemap -> [effects]
+        // -> FXAA. Scene-level and serialized like the other render settings.
+        // Grows as effects land (vignette, colour grade, outline, bloom, ...).
+        struct PostFXSettings {
+            struct Vignette {
+                bool  enabled    = false;
+                float intensity  = 0.35f; // corner darkening, 0..1
+                float roundness  = 1.0f;  // 0 = frame rectangle .. 1 = circular
+                float smoothness = 0.5f;  // falloff softness, 0..1
+            } vignette;
+        };
+        PostFXSettings&       PostFX()       { return postFX_; }
+        const PostFXSettings& PostFX() const { return postFX_; }
+
         bool  GetIBLEnabled() const { return iblEnabled_; }
         void  SetIBLEnabled(bool v) { iblEnabled_ = v; }
         // Whether the environment maps actually EXIST this frame. Runtime
@@ -372,6 +386,7 @@ namespace MyCoreEngine {
 
          RenderStats lastStats_;
          EnvironmentSettings environment_{};
+         PostFXSettings postFX_{};
          bool normalMapEnabled_ = true;
 
          bool  pbrEnabled_ = true;

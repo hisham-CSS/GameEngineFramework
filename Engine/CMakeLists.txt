@@ -65,6 +65,8 @@ add_library(Engine SHARED
     src/render/passes/ForwardShading.h
     src/render/passes/FXAAPass.h
     src/render/passes/FXAAPass.cpp
+    src/render/passes/VignettePass.h
+    src/render/passes/VignettePass.cpp
     # --- physics: backend-agnostic core + pluggable backends ---
     src/physics/PhysicsTypes.h
     src/physics/PhysicsComponents.h

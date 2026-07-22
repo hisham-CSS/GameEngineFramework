@@ -48,16 +48,42 @@ struct PassContext {
     unsigned hdrColorTex{ 0 };
     unsigned hdrDepthRBO{ 0 };
 
-    // Intermediate LDR (gamma-space) surface between tonemap and the final
-    // output. Only used when a post-AA pass is active: FXAA has to read
-    // perceptual luma, which does not exist until after tonemapping.
-    unsigned ldrFBO{ 0 };
-    unsigned ldrColorTex{ 0 };
-    // When true, TonemapPass renders into ldrFBO instead of defaultFBO and a
-    // post pass is responsible for producing the final image. Kept as an
-    // explicit flag rather than inferred from ldrFBO != 0 so the target can
-    // stay allocated across a toggle without changing where tonemap writes.
-    bool     postAAEnabled{ false };
+    // --- LDR post-process chain (ping-pong) ---
+    // After tonemapping, an arbitrary number of full-screen LDR (gamma-space)
+    // effects can run -- vignette, colour grade, depth outline, FXAA, ... They
+    // bounce colour between two buffers A and B via nextPostTarget(); the LAST
+    // enabled one resolves to defaultFBO. When none are enabled, tonemap writes
+    // straight to defaultFBO and neither buffer is touched (nor allocated), so
+    // a project using no post pays nothing. The Renderer sets postPassesLeft to
+    // the count of enabled LDR passes each frame and seeds postSrcTex = ldrTex_A
+    // (tonemap's first target); each pass decrements as it consumes a slot.
+    unsigned ldrFBO_A{ 0 }, ldrTex_A{ 0 };
+    unsigned ldrFBO_B{ 0 }, ldrTex_B{ 0 };
+    int      postPassesLeft{ 0 };
+    unsigned postSrcTex{ 0 };
+
+    // Where TonemapPass writes: buffer A if any LDR post pass follows this
+    // frame, else the final output.
+    unsigned tonemapTarget() const { return postPassesLeft > 0 ? ldrFBO_A : defaultFBO; }
+
+    struct PostTarget { unsigned srcTex{ 0 }; unsigned dstFBO{ 0 }; bool isFinal{ false }; };
+    // Called by each enabled LDR post pass: returns the texture to sample and
+    // the FBO to draw into, advancing the ping-pong. The final pass (nothing
+    // left after it) resolves to defaultFBO.
+    PostTarget nextPostTarget() {
+        PostTarget t;
+        t.srcTex = postSrcTex;
+        --postPassesLeft;
+        t.isFinal = (postPassesLeft <= 0);
+        if (t.isFinal) {
+            t.dstFBO = defaultFBO;
+        } else {
+            const bool srcIsA = (postSrcTex == ldrTex_A);
+            t.dstFBO   = srcIsA ? ldrFBO_B : ldrFBO_A;
+            postSrcTex = srcIsA ? ldrTex_B : ldrTex_A;
+        }
+        return t;
+    }
 
     // Fullscreen quad for post
     unsigned fsQuadVAO{ 0 };
