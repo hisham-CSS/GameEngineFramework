@@ -720,18 +720,50 @@ void Scene::RenderTransparent(Shader& shader, Camera& camera) {
     RenderStats scratch{}; // transparent lights fold into the opaque stats; not published
     uploadGlobalShadingUniforms_(shader, camera, scratch);
 
+    // Establish a KNOWN cull state rather than trusting the incoming one.
+    // (Belt-and-braces with SkyboxPass restoring it -- this pass must not
+    // depend on another pass's cleanup.)
+    glEnable(GL_CULL_FACE);
+
+    // --- depth pre-pass ---------------------------------------------------
+    // Blended geometry does not write depth, so within a single CONCAVE mesh
+    // (a backpack, a bottle) the far interior faces blend over the near ones
+    // in draw order and the object reads as turned inside-out. Prime the depth
+    // buffer with the FRONTMOST transparent surface per pixel first (colour
+    // off, depth write on, GL_LESS), then let the blend pass draw only that
+    // surface (GL_LEQUAL). Cost is one extra colour-less draw per item.
+    //
+    // Tradeoff: where two transparent objects overlap you see only the nearer
+    // one, not through it. That is the price of cheap sorted transparency;
+    // true multi-layer needs order-independent transparency (tracked
+    // separately). No material bind here -- the depth pre-pass only needs the
+    // geometry, and the main shader is already current with view/proj set.
+    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+    glDepthMask(GL_TRUE);
+    glDepthFunc(GL_LESS);
+    {
+        bool cullOff = false;
+        for (const auto& di : transparentItems_) {
+            const bool wantCullOff = di.doubleSided;
+            if (wantCullOff != cullOff) {
+                if (wantCullOff) glDisable(GL_CULL_FACE); else glEnable(GL_CULL_FACE);
+                cullOff = wantCullOff;
+            }
+            glBindVertexArray(di.mesh->VAO());
+            shader.setMat4("model", di.model);
+            di.mesh->IssueDraw(di.lod);
+        }
+        if (cullOff) glEnable(GL_CULL_FACE);
+    }
+
+    // --- blend pass -------------------------------------------------------
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    // Blend happens in LINEAR HDR here, before tonemapping -- so a 50%-opacity
-    // surface is a true 50% radiance mix, then the whole frame is tonemapped
-    // together. Compositing after tonemap would double-apply the curve.
+    // Blend happens in LINEAR HDR here, before tonemapping -- a 50%-opacity
+    // surface is a true 50% radiance mix, tonemapped once with the frame.
     glDepthMask(GL_FALSE);
-    glDepthFunc(GL_LESS);
-    // Establish a KNOWN cull state rather than trusting the incoming one: the
-    // cullOff tracker below starts at "cull on", so cull must actually be on
-    // here. (Belt-and-braces with SkyboxPass now restoring it -- this pass must
-    // not depend on another pass's cleanup.)
-    glEnable(GL_CULL_FACE);
+    glDepthFunc(GL_LEQUAL); // == the frontmost surface primed above
 
     bool cullOff = false;
     const Mesh* currentMesh = nullptr;
@@ -750,6 +782,7 @@ void Scene::RenderTransparent(Shader& shader, Camera& camera) {
     // Restore the state the rest of the pipeline assumes.
     if (cullOff) glEnable(GL_CULL_FACE);
     glDepthMask(GL_TRUE);
+    glDepthFunc(GL_LESS);
     glDisable(GL_BLEND);
     glBindVertexArray(0);
     glActiveTexture(GL_TEXTURE0);
