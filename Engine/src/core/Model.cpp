@@ -353,6 +353,19 @@ namespace MyCoreEngine {
         shader.setFloat("uRoughness", m.roughness);
         shader.setFloat("uAO", m.ao);
 
+        // Alpha: 1 Mask (discard below cutoff), 2 Blend (output opacity*alpha).
+        // Uploaded ONLY for non-opaque materials, so an opaque bind emits the
+        // exact same uniform traffic it did before transparency existed -- the
+        // opaque hot path must not pay 3 extra glUniform calls per bind. Opaque
+        // relies on the per-frame uAlphaMode=0 default set in
+        // uploadGlobalShadingUniforms_, and opaque runs are always drawn before
+        // any masked run, so uAlphaMode is never left stale at an opaque draw.
+        if (m.alphaMode != MyCoreEngine::AlphaMode::Opaque) {
+            shader.setInt("uAlphaMode", static_cast<int>(m.alphaMode));
+            shader.setFloat("uOpacity", m.opacity);
+            shader.setFloat("uAlphaCutoff", m.alphaCutoff);
+        }
+
         // Textures: identical layout to your existing BindForDraw(...)
         // 0: albedo (sRGB), 1: normal (linear), 2: metallic, 3: roughness, 4: AO, 5: emissive (optional)
         const bool hasNormal = (m.normalTex != 0);

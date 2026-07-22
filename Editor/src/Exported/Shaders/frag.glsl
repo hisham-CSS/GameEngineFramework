@@ -62,6 +62,11 @@ uniform float uPrefilterMipCount;
 uniform vec3 uBaseColor;
 uniform vec3 uEmissive;
 
+// Transparency. 0 Opaque, 1 Mask, 2 Blend.
+uniform int   uAlphaMode;
+uniform float uOpacity;
+uniform float uAlphaCutoff;
+
 // -------- CSM uniforms (4 cascades) --------
 uniform mat4 uLightVP[4];
 uniform sampler2D uShadowCascade[4];
@@ -224,7 +229,19 @@ float distanceAttenuation(float dist, float range)
 
 void main()
 {
-    vec3 albedo = texture(diffuseMap, fs_in.uv).rgb * uBaseColor;
+    vec4 albedoSample = texture(diffuseMap, fs_in.uv);
+    vec3 albedo = albedoSample.rgb * uBaseColor;
+
+    // Alpha coverage. uAlphaMode: 0 Opaque, 1 Mask, 2 Blend. The albedo
+    // texture's alpha is LINEAR even in an sRGB texture (sRGB affects only
+    // RGB), so it is used directly. Mask discards early -- before any lighting
+    // -- so a cut-out fragment costs nothing to shade and never writes depth.
+    float alpha = 1.0;
+    if (uAlphaMode == 2) {          // Blend
+        alpha = albedoSample.a * uOpacity;
+    } else if (uAlphaMode == 1) {   // Mask
+        if (albedoSample.a < uAlphaCutoff) discard;
+    }
 
     vec3 N = getNormal();
     vec3 V = normalize(uCamPos - fs_in.worldPos);
@@ -285,7 +302,7 @@ void main()
         float sh  = pcfShadowCascade(ci, lightClip, N, L);
         if (sh < 0.0) sh = 1.0; // out of coverage
         vec3 color = albedo * (0.05 + sh * uLightColor * uLightIntensity * ndl);
-        FragColor = vec4(color, 1.0);
+        FragColor = vec4(color, alpha);
         return;
     }
 
@@ -388,7 +405,9 @@ void main()
     }
 
     vec3 color = ambient + Lo + uEmissive;
-    FragColor = vec4(color, 1.0);
+    // alpha is 1.0 for Opaque/Mask; for Blend it is albedoAlpha*uOpacity, which
+    // the transparent pass composites with SRC_ALPHA/ONE_MINUS_SRC_ALPHA.
+    FragColor = vec4(color, alpha);
 }
 
 // old helper: linearize depth from [0,1] back to view-space meters

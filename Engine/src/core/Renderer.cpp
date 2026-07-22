@@ -174,6 +174,13 @@ namespace MyCoreEngine {
             skyboxPass_ = &pipeline_.add<SkyboxPass>();
             pipeline_.setup(passCtx_);
         }
+        // AFTER skybox, so transparents composite over both opaque and sky;
+        // before tonemap, so the blend happens in linear HDR. Shares the same
+        // forward shader as ForwardOpaquePass (same lighting inputs).
+        if (!transparentPass_) {
+            transparentPass_ = &pipeline_.add<TransparentPass>(shader);
+            pipeline_.setup(passCtx_);
+        }
         if (!tonemapPass_) {
             tonemapPass_ = &pipeline_.add<TonemapPass>();
             pipeline_.setup(passCtx_);

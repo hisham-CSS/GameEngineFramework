@@ -261,6 +261,42 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
                                     const float preAO = editing->ao;
                                     ImGui::SliderFloat("AO", &editing->ao, 0.0f, 1.0f);
                                     trackSliderItem(lblAO, editing->ao, preAO);
+
+                                    // --- Transparency ---
+                                    const char* kAlpha[] = { "Opaque", "Mask (cutout)", "Blend" };
+                                    int am = static_cast<int>(editing->alphaMode);
+                                    if (ImGui::Combo("Alpha mode", &am, kAlpha, IM_ARRAYSIZE(kAlpha))) {
+                                        char lbl[48];
+                                        snprintf(lbl, sizeof(lbl), "Material %d alpha mode", (int)i + 1);
+                                        undo.record(reg, selected, lbl, [&] {
+                                            editing->alphaMode = static_cast<MyCoreEngine::AlphaMode>(am);
+                                        });
+                                    }
+                                    if (ImGui::IsItemHovered()) {
+                                        ImGui::SetTooltip("Blend: true translucency (glass/water), sorted and composited.\n"
+                                                          "Mask: hard cutout (foliage) via the albedo alpha channel.\n"
+                                                          "Both need an albedo texture with an alpha channel to vary per-pixel.");
+                                    }
+                                    if (editing->alphaMode == MyCoreEngine::AlphaMode::Blend) {
+                                        const float preOp = editing->opacity;
+                                        ImGui::SliderFloat("Opacity", &editing->opacity, 0.0f, 1.0f);
+                                        char lbl[48]; snprintf(lbl, sizeof(lbl), "Material %d opacity", (int)i + 1);
+                                        trackSliderItem(lbl, editing->opacity, preOp);
+                                    }
+                                    if (editing->alphaMode == MyCoreEngine::AlphaMode::Mask) {
+                                        const float preCut = editing->alphaCutoff;
+                                        ImGui::SliderFloat("Cutoff", &editing->alphaCutoff, 0.0f, 1.0f);
+                                        char lbl[48]; snprintf(lbl, sizeof(lbl), "Material %d cutoff", (int)i + 1);
+                                        trackSliderItem(lbl, editing->alphaCutoff, preCut);
+                                    }
+                                    if (editing->alphaMode != MyCoreEngine::AlphaMode::Opaque) {
+                                        bool ds = editing->doubleSided;
+                                        if (ImGui::Checkbox("Double sided", &ds)) {
+                                            char lbl[52]; snprintf(lbl, sizeof(lbl), "Material %d double sided", (int)i + 1);
+                                            undo.record(reg, selected, lbl, [&] { editing->doubleSided = ds; });
+                                        }
+                                    }
+
                                     if (ImGui::Button("Revert to shared")) {
                                         char lbl[48];
                                         snprintf(lbl, sizeof(lbl), "Revert material %d to shared", (int)i + 1);

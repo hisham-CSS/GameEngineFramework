@@ -122,6 +122,51 @@ a window resize in the player, a Viewport panel resize in the editor.
 > again (the editor's Game view) to the `Setup` size. If you add another size
 > path, keep the tracking seeded.
 
+## Transparency
+
+Materials carry an **alpha mode** (glTF's model):
+
+| Mode | Use | How it draws |
+| --- | --- | --- |
+| Opaque | default | the fast path — writes depth, batches, no blending |
+| Mask | foliage, chain-link | binary cutout: albedo alpha below `alphaCutoff` is discarded |
+| Blend | glass, water | true translucency: sorted back-to-front, alpha-composited |
+
+Set it per material in the Inspector: expand **Materials -> Material N -> Edit**,
+then **Alpha mode**. Blend adds an **Opacity** slider; Mask a **Cutoff**; both
+add **Double sided** (draw back faces too — glass and foliage usually want it).
+Both Mask and Blend read the per-pixel alpha from the albedo texture, so a
+texture with an alpha channel varies coverage across the surface; opacity/cutoff
+scale it uniformly.
+
+### How it renders
+
+Blend geometry is pulled out of the opaque draw list into a separate list that
+is **sorted back-to-front** (a near surface must blend over what is behind it)
+and drawn by a dedicated pass **after the skybox** — so it composites over the
+whole scene — and **before tonemapping**, so the blend happens in linear HDR (a
+50%-opacity surface is a true radiance mix, tonemapped once with everything
+else). It is depth-tested but does not write depth, so two transparent surfaces
+do not occlude each other by depth order. It is lit and shadowed exactly like
+opaque geometry (same sun, punctual lights, IBL, and cascades).
+
+Mask geometry stays in the forward pass — it is effectively opaque coverage —
+and just discards cut-out fragments in the shader.
+
+The **opaque path is unchanged**: a scene with no transparent materials sorts,
+batches, and performs exactly as before, and the transparent pass early-outs.
+
+### Limitations (not built yet)
+
+- **Sort is per-object, not per-mesh-centroid**, and uses the object origin, so
+  overlapping transparents with off-centre pivots can mis-order.
+- **Sorted blending only** — no order-independent transparency, so heavily
+  overlapping translucent surfaces can still show sort artefacts.
+- The shared forward shader's Mask `discard` can cost early-Z on some GPUs when
+  the (opt-in, off-by-default) depth prepass is enabled; a discard-free opaque
+  shader variant is tracked.
+- No refraction / distortion behind glass.
+
 ## Anti-aliasing (FXAA)
 
 **Settings -> IBL/HDR -> Anti-aliasing (FXAA)**, on by default.

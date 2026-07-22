@@ -205,6 +205,10 @@ namespace MyCoreEngine {
                         { "metallic",  mat->metallic },
                         { "roughness", mat->roughness },
                         { "ao",        mat->ao },
+                        { "alphaMode",   static_cast<int>(mat->alphaMode) },
+                        { "opacity",     mat->opacity },
+                        { "alphaCutoff", mat->alphaCutoff },
+                        { "doubleSided", mat->doubleSided },
                     });
                 }
                 if (!jov.empty()) je["materialOverrides"] = std::move(jov);
@@ -494,6 +498,15 @@ namespace MyCoreEngine {
                     mat->metallic = jo.value("metallic", mat->metallic);
                     mat->roughness = jo.value("roughness", mat->roughness);
                     mat->ao = jo.value("ao", mat->ao);
+                    // Transparency. Absent (older files) => the material's own
+                    // default, i.e. Opaque -- so pre-transparency scenes load
+                    // exactly as before.
+                    const int am = jo.value("alphaMode", static_cast<int>(mat->alphaMode));
+                    mat->alphaMode = (am >= 0 && am <= static_cast<int>(AlphaMode::Blend))
+                        ? static_cast<AlphaMode>(am) : AlphaMode::Opaque;
+                    mat->opacity = glm::clamp(jo.value("opacity", mat->opacity), 0.f, 1.f);
+                    mat->alphaCutoff = glm::clamp(jo.value("alphaCutoff", mat->alphaCutoff), 0.f, 1.f);
+                    mat->doubleSided = jo.value("doubleSided", mat->doubleSided);
                     ov.byIndex[slot] = std::move(mat);
                 }
                 if (!ov.byIndex.empty()) {

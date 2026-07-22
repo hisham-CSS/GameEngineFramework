@@ -381,6 +381,7 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
     RenderStats stats{}; // local accumulator for this frame
     items_.clear();
     items_.reserve(1024);
+    transparentItems_.clear(); // rebuilt below; consumed by RenderTransparent
 
     // Projected-size cull needs the vertical-FOV factor and a pixel height.
     // Object pixel height ~= viewportH * (2*radius) / (2*dist*tan(fovY/2))
@@ -442,20 +443,38 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
             // Batch key is derived from the material actually used by this entity
             if (const Material* m = chooseMaterial_(entity, mesh)) {
                 di.texKey = texKeyFromMaterial_(*m);
+                di.alphaMode = static_cast<int>(m->alphaMode);
+                di.doubleSided = m->doubleSided;
             }
             else {
             // Fallback: keep old key if no material (rare)
                 di.texKey = mesh.TextureSignature();
             }
-            items_.push_back(di);
+            // Blend geometry is drawn separately (sorted, composited, no depth
+            // write); everything else joins the opaque list. When no material
+            // is transparent -- the overwhelmingly common case -- this is a
+            // straight push to items_ exactly as before.
+            if (di.alphaMode == static_cast<int>(AlphaMode::Blend))
+                transparentItems_.push_back(di);
+            else
+                items_.push_back(di);
         }
     }
     stats.itemsBuilt = static_cast<unsigned>(items_.size());
 
-    // 2) Sort: primarily by texKey to minimize texture/VAO rebinds
-    // (If you later add camera depth, sort by {depth asc, texKey asc})
+    // 2) Sort: Opaque (0) before Mask (1) so the opaque runs form a contiguous
+    // prefix (the depth prepass and GL_EQUAL color path cover only them), then
+    // by texKey to minimize texture/VAO rebinds. When every item is Opaque --
+    // the usual case -- alphaMode is 0 for all and this reduces EXACTLY to the
+    // previous {texKey, mesh, lod, depth} order, so opaque scenes are byte-for-
+    // byte unchanged.
     std::sort(items_.begin(), items_.end(),
         [](const DrawItem& a, const DrawItem& b) {
+            if (a.alphaMode != b.alphaMode) return a.alphaMode < b.alphaMode;  // opaque prefix, masked suffix
+            // Single-sided before double-sided so the prepass-covered runs
+            // (opaque + single-sided) form a contiguous prefix. All-false for a
+            // conventional opaque scene, so the order is unchanged there.
+            if (a.doubleSided != b.doubleSided) return !a.doubleSided;         // false (0) sorts first
             if (a.texKey != b.texKey) return a.texKey < b.texKey;              // bucket by textures
             if (a.mesh != b.mesh)   return (uintptr_t)a.mesh < (uintptr_t)b.mesh; // group identical VAOs
             if (a.lod != b.lod)     return a.lod < b.lod;                       // instanced runs share a LOD
@@ -473,15 +492,19 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
         const auto key = items_[i].texKey;
         const Mesh* mesh = items_[i].mesh;
         const int lod = items_[i].lod;
+        const int amode = items_[i].alphaMode;
+        const bool ds = items_[i].doubleSided;
         std::size_t runEnd = i + 1;
         while (runEnd < items_.size() &&
             items_[runEnd].texKey == key &&
             items_[runEnd].mesh == mesh &&
-            items_[runEnd].lod == lod) {
+            items_[runEnd].lod == lod &&
+            items_[runEnd].alphaMode == amode &&
+            items_[runEnd].doubleSided == ds) { // homogeneous in mode AND cull state
             ++runEnd;
         }
         const std::size_t count = runEnd - i;
-        runs_.push_back({ key, mesh, lod, i, count, instanceMats_.size() });
+        runs_.push_back({ key, mesh, lod, i, count, instanceMats_.size(), amode });
         if (instancingEnabled_ && count >= 2) {
             for (std::size_t k = 0; k < count; ++k)
                 instanceMats_.push_back(items_[i + k].model);
@@ -505,6 +528,17 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
 
         const Mesh* prevMesh = nullptr;
         for (const auto& r : runs_) {
+            // Only opaque, single-sided runs belong in the prepass:
+            //  - Masked runs would write depth for fragments the color pass
+            //    discards (the prepass shader has no alpha test), punching
+            //    solid holes into the depth buffer.
+            //  - Double-sided runs are drawn front-only here (cull is on in the
+            //    prepass), so their back-face depth would be missing and the
+            //    color pass's back faces would fail GL_EQUAL and vanish.
+            // Both depth-test and write normally in the color pass instead.
+            const bool inPrepass = (r.alphaMode == static_cast<int>(AlphaMode::Opaque))
+                                   && !items_[r.first].doubleSided;
+            if (!inPrepass) continue;
             if (r.mesh != prevMesh) {
                 glBindVertexArray(r.mesh->VAO());
                 prevMesh = r.mesh;
@@ -531,50 +565,48 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
 
     shader.use();
     shader.setInt("uUseInstancing", 0);
-
-    shader.setInt("uUsePBR", pbrEnabled_ ? 1 : 0);
-    shader.setFloat("uMetallic", metallic_);
-    shader.setFloat("uRoughness", roughness_);
-    shader.setFloat("uAO", ao_);
-    shader.setVec3("uLightDir", lightDir_);
-    shader.setVec3("uLightColor", lightColor_);
-    shader.setFloat("uLightIntensity", lightIntensity_);
-
-    // Punctual lights: selection is a pure function (testable headlessly),
-    // this is just the upload. The array is bounded, so a scene with 500
-    // lamps uploads the 16 that matter most to this camera.
-    SelectPunctualLights(registry, camera.Position, punctualScratch_,
-                         kMaxPunctualLights, &stats.lightsCulled);
-    stats.lightsActive = static_cast<unsigned>(punctualScratch_.size());
-    shader.setInt("uNumLights", static_cast<int>(punctualScratch_.size()));
-    for (size_t i = 0; i < punctualScratch_.size(); ++i) {
-        const PunctualLight& L = punctualScratch_[i];
-        char name[40];
-        std::snprintf(name, sizeof(name), "uLightPosRange[%zu]", i);
-        shader.setVec4(name, glm::vec4(L.position, L.range));
-        std::snprintf(name, sizeof(name), "uLightColorInt[%zu]", i);
-        shader.setVec4(name, glm::vec4(L.color, L.intensity));
-        std::snprintf(name, sizeof(name), "uLightSpotDir[%zu]", i);
-        shader.setVec4(name, glm::vec4(L.spotDir, L.cosOuter));
-        std::snprintf(name, sizeof(name), "uLightSpotMisc[%zu]", i);
-        shader.setVec4(name, glm::vec4(L.cosInner, float(L.type), 0.f, 0.f));
-    }
-    shader.setInt("uUseMetallicMap", metallicMapEnabled_ ? 1 : 0);
-    shader.setInt("uUseRoughnessMap", roughnessMapEnabled_ ? 1 : 0);
-    shader.setInt("uUseAOMap", aoMapEnabled_ ? 1 : 0);
-    shader.setInt("uUseIBL", (iblEnabled_ && iblAvailable_) ? 1 : 0);
-    shader.setFloat("uIBLIntensity", iblIntensity_);
-
-    shader.setInt("uNormalMapEnabled", normalMapEnabled_ ? 1 : 0);
+    uploadGlobalShadingUniforms_(shader, camera, stats);
 
     uint64_t currentKey = ~0ull;
     const Mesh* currentMesh = nullptr;
+    int  boundAlphaMode = -1;      // alpha mode of the last-bound material
+    bool cullOff = false;
+    bool depthSwitchedToNormal = false;
 
     for (const auto& r : runs_) {
-        // bind textures+VAO bucket
-        if (r.texKey != currentKey) {
+        // The prepass covered only opaque + single-sided runs and left the
+        // color pass in GL_EQUAL + depthMask FALSE. Everything else (masked,
+        // or double-sided opaque) skipped the prepass and must depth-test and
+        // write normally. Runs are sorted so all prepass-covered runs form the
+        // prefix, so this one-way switch fires at most once. No-op when the
+        // prepass is off (that state is already active).
+        const bool inPrepass = (r.alphaMode == static_cast<int>(AlphaMode::Opaque))
+                               && !items_[r.first].doubleSided;
+        if (prepass && !inPrepass && !depthSwitchedToNormal) {
+            glDepthFunc(GL_LESS);
+            glDepthMask(GL_TRUE);
+            depthSwitchedToNormal = true;
+        }
+
+        // Double-sided materials draw their back faces too (foliage seen edge
+        // on, glass interiors). Toggled per run; single-sided is the norm, so
+        // this rarely fires on the opaque hot path.
+        const bool wantCullOff = items_[r.first].doubleSided;
+        if (wantCullOff != cullOff) {
+            if (wantCullOff) glDisable(GL_CULL_FACE); else glEnable(GL_CULL_FACE);
+            cullOff = wantCullOff;
+        }
+
+        // bind textures+VAO bucket. Also re-bind when the alpha mode changes
+        // even if the textures match: an Opaque and a Mask material with the
+        // SAME texture set hash to the same texKey (texKeyFromMaterial_ hashes
+        // textures only), and the opaque run sorts first -- without this the
+        // masked run would skip the bind, keep the opaque run's uAlphaMode=0,
+        // and silently render with no cutout.
+        if (r.texKey != currentKey || r.alphaMode != boundAlphaMode) {
             bindMaterialForItem_(items_[r.first], shader);
             currentKey = r.texKey;
+            boundAlphaMode = r.alphaMode;
             currentMesh = r.mesh;
             stats.textureBinds++;
             stats.vaoBinds++; // BindForDraw set VAO
@@ -616,10 +648,111 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
         glDepthFunc(GL_LESS);
         glDepthMask(GL_TRUE);
     }
+    if (cullOff) glEnable(GL_CULL_FACE); // a double-sided run left culling off
     glBindVertexArray(0);
     glActiveTexture(GL_TEXTURE0);
 
     lastStats_ = stats; // publish render stats for the last frame
+}
+
+// Uploads the per-frame lighting/material-fallback uniforms shared by the
+// opaque and transparent passes. Extracted so a transparent draw shades with
+// EXACTLY the same sun, punctual lights, and IBL as the opaque geometry --
+// otherwise glass would be lit by a different (or empty) light set and read as
+// obviously wrong.
+void Scene::uploadGlobalShadingUniforms_(Shader& shader, Camera& camera, RenderStats& stats) {
+    shader.setInt("uUsePBR", pbrEnabled_ ? 1 : 0);
+    shader.setFloat("uMetallic", metallic_);
+    shader.setFloat("uRoughness", roughness_);
+    shader.setFloat("uAO", ao_);
+    shader.setVec3("uLightDir", lightDir_);
+    shader.setVec3("uLightColor", lightColor_);
+    shader.setFloat("uLightIntensity", lightIntensity_);
+
+    // Punctual lights: selection is a pure function (testable headlessly),
+    // this is just the upload. The array is bounded, so a scene with 500
+    // lamps uploads the 16 that matter most to this camera.
+    SelectPunctualLights(registry, camera.Position, punctualScratch_,
+                         kMaxPunctualLights, &stats.lightsCulled);
+    stats.lightsActive = static_cast<unsigned>(punctualScratch_.size());
+    shader.setInt("uNumLights", static_cast<int>(punctualScratch_.size()));
+    for (size_t i = 0; i < punctualScratch_.size(); ++i) {
+        const PunctualLight& L = punctualScratch_[i];
+        char name[40];
+        std::snprintf(name, sizeof(name), "uLightPosRange[%zu]", i);
+        shader.setVec4(name, glm::vec4(L.position, L.range));
+        std::snprintf(name, sizeof(name), "uLightColorInt[%zu]", i);
+        shader.setVec4(name, glm::vec4(L.color, L.intensity));
+        std::snprintf(name, sizeof(name), "uLightSpotDir[%zu]", i);
+        shader.setVec4(name, glm::vec4(L.spotDir, L.cosOuter));
+        std::snprintf(name, sizeof(name), "uLightSpotMisc[%zu]", i);
+        shader.setVec4(name, glm::vec4(L.cosInner, float(L.type), 0.f, 0.f));
+    }
+    shader.setInt("uUseMetallicMap", metallicMapEnabled_ ? 1 : 0);
+    shader.setInt("uUseRoughnessMap", roughnessMapEnabled_ ? 1 : 0);
+    shader.setInt("uUseAOMap", aoMapEnabled_ ? 1 : 0);
+    shader.setInt("uUseIBL", (iblEnabled_ && iblAvailable_) ? 1 : 0);
+    shader.setFloat("uIBLIntensity", iblIntensity_);
+    shader.setInt("uNormalMapEnabled", normalMapEnabled_ ? 1 : 0);
+    // Default alpha mode = Opaque. Per-material binds override it; this covers
+    // the no-material (legacy BindForDraw) item, which would otherwise inherit
+    // a stale uAlphaMode (e.g. Blend from the previous frame's transparent
+    // pass) and wrongly discard or blend.
+    shader.setInt("uAlphaMode", 0);
+}
+
+// Blend-mode geometry, drawn after the skybox so it composites over the whole
+// scene. Sorted back-to-front (the order alpha blending REQUIRES: a near
+// surface must blend over what is already behind it), depth-tested but not
+// depth-writing (so two transparent surfaces do not occlude each other by
+// depth), and never instanced (the sort order is per-item, not per-batch).
+void Scene::RenderTransparent(Shader& shader, Camera& camera) {
+    if (transparentItems_.empty()) return;
+
+    // Back-to-front by view-space depth. depth was computed in RenderScene as
+    // dot(centre - camPos, camFront), so larger = farther; draw farthest first.
+    std::sort(transparentItems_.begin(), transparentItems_.end(),
+        [](const DrawItem& a, const DrawItem& b) { return a.depth > b.depth; });
+
+    shader.use();
+    shader.setVec3("uCamPos", camera.Position);
+    shader.setInt("uUseInstancing", 0);
+    RenderStats scratch{}; // transparent lights fold into the opaque stats; not published
+    uploadGlobalShadingUniforms_(shader, camera, scratch);
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    // Blend happens in LINEAR HDR here, before tonemapping -- so a 50%-opacity
+    // surface is a true 50% radiance mix, then the whole frame is tonemapped
+    // together. Compositing after tonemap would double-apply the curve.
+    glDepthMask(GL_FALSE);
+    glDepthFunc(GL_LESS);
+    // Establish a KNOWN cull state rather than trusting the incoming one: the
+    // cullOff tracker below starts at "cull on", so cull must actually be on
+    // here. (Belt-and-braces with SkyboxPass now restoring it -- this pass must
+    // not depend on another pass's cleanup.)
+    glEnable(GL_CULL_FACE);
+
+    bool cullOff = false;
+    const Mesh* currentMesh = nullptr;
+    for (const auto& di : transparentItems_) {
+        const bool wantCullOff = di.doubleSided;
+        if (wantCullOff != cullOff) {
+            if (wantCullOff) glDisable(GL_CULL_FACE); else glEnable(GL_CULL_FACE);
+            cullOff = wantCullOff;
+        }
+        bindMaterialForItem_(di, shader); // sets uAlphaMode=Blend, uOpacity, VAO
+        if (di.mesh != currentMesh) currentMesh = di.mesh; // BindForDraw set the VAO
+        shader.setMat4("model", di.model);
+        di.mesh->IssueDraw(di.lod);
+    }
+
+    // Restore the state the rest of the pipeline assumes.
+    if (cullOff) glEnable(GL_CULL_FACE);
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+    glBindVertexArray(0);
+    glActiveTexture(GL_TEXTURE0);
 }
 
 void Scene::ensureInstanceBuffer_() {

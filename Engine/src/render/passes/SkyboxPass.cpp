@@ -69,7 +69,12 @@ bool SkyboxPass::execute(PassContext& ctx, MyCoreEngine::Scene&, Camera&,
     glDrawArrays(GL_TRIANGLES, 0, 36);
     glBindVertexArray(0);
 
-    // Restore what the rest of the pipeline assumes.
+    // Restore what the rest of the pipeline assumes. The pipeline baseline is
+    // culling ON (Renderer::Setup) and nothing re-enables it per frame, so
+    // leaving it off here leaked disabled culling into the transparent pass
+    // (single-sided glass drew both shells) and into the next frame's opaque
+    // pass. Restore all three states this pass changed.
+    glEnable(GL_CULL_FACE);
     glDepthMask(GL_TRUE);
     glDepthFunc(GL_LESS);
     return true;

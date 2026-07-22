@@ -909,3 +909,78 @@ TEST(SceneSerializer, MalformedFieldTypeDoesNotCrash) {
 
     std::remove(path);
 }
+
+TEST(SceneSerializer, RoundTripMaterialTransparency) {
+    const char* path = "test_scene_transparency.json";
+
+    // A material override needs a model to attach to; the headless stub has no
+    // meshes but carries a Materials() list of the right shape for slot 0.
+    Scene a;
+    Entity glass = a.createEntity();
+    glass.addComponent<Name>(Name{ "Glass" });
+    glass.addComponent<Transform>(Transform{});
+    auto model = std::make_shared<Model>("missing.obj");
+    glass.addComponent<ModelComponent>(ModelComponent{ model });
+
+    MaterialOverrides ov;
+    auto mat = std::make_shared<Material>();
+    mat->alphaMode = AlphaMode::Blend;
+    mat->opacity = 0.4f;
+    mat->alphaCutoff = 0.6f;
+    mat->doubleSided = true;
+    mat->baseColor = { 0.2f, 0.6f, 0.9f };
+    ov.byIndex[0] = mat;
+    a.registry.emplace<MaterialOverrides>(glass, std::move(ov));
+
+    AssetManager assets;
+    SceneSerializer save(a, assets);
+    ASSERT_TRUE(save.Save(path));
+
+    Scene b;
+    SceneSerializer load(b, assets);
+    ASSERT_TRUE(load.Load(path));
+
+    entt::entity e = entt::null;
+    for (auto [ent, n] : b.registry.view<Name>().each())
+        if (n.value == "Glass") e = ent;
+    ASSERT_TRUE(e != entt::null);
+
+    const auto* mo = b.registry.try_get<MaterialOverrides>(e);
+    ASSERT_NE(mo, nullptr) << "material override dropped by save/load";
+    auto it = mo->byIndex.find(0);
+    ASSERT_NE(it, mo->byIndex.end());
+    const Material& m = *it->second;
+    EXPECT_EQ(m.alphaMode, AlphaMode::Blend);
+    EXPECT_FLOAT_EQ(m.opacity, 0.4f);
+    EXPECT_FLOAT_EQ(m.alphaCutoff, 0.6f);
+    EXPECT_TRUE(m.doubleSided);
+    EXPECT_FLOAT_EQ(m.baseColor.b, 0.9f) << "existing fields must still round-trip";
+
+    std::remove(path);
+}
+
+TEST(SceneSerializer, OldMaterialOverrideDefaultsToOpaque) {
+    const char* path = "test_scene_oldmat.json";
+    // A material override written before transparency existed: no alphaMode /
+    // opacity keys. It must load as Opaque, not as some out-of-range garbage.
+    const char* old =
+        "{ \"version\": 1, \"entities\": [ { \"name\": \"Old\","
+        "  \"model\": \"missing.obj\","
+        "  \"materialOverrides\": [ { \"slot\": 0, \"metallic\": 0.5 } ] } ] }";
+    std::ofstream(path) << old;
+
+    AssetManager assets;
+    Scene b;
+    SceneSerializer load(b, assets);
+    ASSERT_TRUE(load.Load(path));
+
+    entt::entity e = entt::null;
+    for (auto [ent, n] : b.registry.view<Name>().each())
+        if (n.value == "Old") e = ent;
+    ASSERT_TRUE(e != entt::null);
+    const auto* mo = b.registry.try_get<MaterialOverrides>(e);
+    ASSERT_NE(mo, nullptr);
+    EXPECT_EQ(mo->byIndex.at(0)->alphaMode, AlphaMode::Opaque);
+
+    std::remove(path);
+}

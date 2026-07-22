@@ -15,7 +15,7 @@
 //forward declaration of glad unit
 typedef unsigned int GLuint;
 
-// Batched draw item (opaque)
+// Batched draw item
 struct DrawItem {
     uint64_t texKey = 0;
     const Mesh* mesh = nullptr;
@@ -23,6 +23,12 @@ struct DrawItem {
     float     depth = 0.0f;
     int       lod = 0;                 // mesh LOD level chosen for this item
     entt::entity entity = entt::null;  // producer entity (for material overrides)
+    // 0 Opaque, 1 Mask, 2 Blend. Cached from the resolved material so the sort
+    // and the opaque/masked split do not re-resolve it per comparison. Leads
+    // the opaque sort so Opaque runs precede Mask runs; Blend items never enter
+    // items_ at all (they go to a separately sorted transparent list).
+    int       alphaMode = 0;
+    bool      doubleSided = false;
 };
 
 // Tag component: add to an entity to skip it from shadow maps.
@@ -166,6 +172,15 @@ namespace MyCoreEngine {
         virtual void RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camera,
                                  int viewportHeightPx = 0);
 
+        // Draws the Blend-mode geometry collected by the most recent
+        // RenderScene, back-to-front and alpha-composited. MUST run after the
+        // skybox and with the SAME forward shader, so transparents blend over
+        // the opaque scene and the sky. Global lighting uniforms are re-uploaded
+        // here (RenderScene set them, but this keeps the pass self-contained).
+        // No-op when the last frame collected no transparent geometry.
+        void RenderTransparent(Shader& shader, Camera& camera);
+        bool HasTransparent() const { return !transparentItems_.empty(); }
+
         // Depth-only shadow pass (directional)
         void RenderShadowDepth(Shader & shadowShader, const glm::mat4 & lightVP);
 
@@ -288,6 +303,11 @@ namespace MyCoreEngine {
 
      private:
          std::vector<DrawItem> items_;
+         // Blend-mode items, built by RenderScene and consumed by
+         // RenderTransparent later in the same frame (after the skybox, so they
+         // composite over it). Kept OUT of items_ because they sort back-to-
+         // front, do not write depth, and cannot batch like opaque geometry.
+         std::vector<DrawItem> transparentItems_;
          // Reusable storage for shadow items per cascade (up to 4)
          std::vector<DrawItem> shadowCascadeItems_[4];
          // private:
@@ -308,6 +328,9 @@ namespace MyCoreEngine {
          const Material * chooseMaterial_(entt::entity e, const Mesh & mesh) const;
          void bindMaterialForItem_(const DrawItem & di, Shader & shader) const;
          static uint64_t texKeyFromMaterial_(const Material & m);
+         // Per-frame sun/punctual-light/IBL uniform upload shared by the
+         // opaque and transparent passes so both shade identically.
+         void uploadGlobalShadingUniforms_(Shader& shader, Camera& camera, RenderStats& stats);
 
          bool instancingEnabled_ = true;
          bool lodEnabled_ = true;
@@ -334,6 +357,7 @@ namespace MyCoreEngine {
              std::size_t first;     // index into items_
              std::size_t count;
              std::size_t matOffset; // index into instanceMats_
+             int alphaMode = 0;     // homogeneous within a run (0 Opaque, 1 Mask)
          };
          std::vector<DrawRun> runs_;
          std::vector<glm::mat4> instanceMats_;
