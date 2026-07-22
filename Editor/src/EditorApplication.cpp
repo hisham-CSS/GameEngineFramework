@@ -105,21 +105,22 @@ void EditorApplication::Run() {
         // viewport picks/drops count as "newly selected this frame" too
         const entt::entity selAtFrameStart = selected_;
 
-        DrawViewport(scene);
+        if (panels_.scene) DrawViewport(scene);
 
         //Information Panel (reads the SCENE view's render stats — draw it
         //before the Game view renders and overwrites them)
-        DrawInformationPanel(scene, dt);
+        if (panels_.information) DrawInformationPanel(scene, dt);
 
         //Game view: what the primary camera entity sees
-        DrawGameViewport(scene, *sceneShader_, dt);
+        if (panels_.game) DrawGameViewport(scene, *sceneShader_, dt);
 
         // Engine/render controls. These used to be bare CollapsingHeaders,
         // which ImGui collects into its implicit "Debug##Default" fallback
         // window — and the fallback window can never dock. A real named
         // window makes them a first-class dockable panel.
+        if (panels_.settings) {
         ImGui::SetNextWindowSize(ImVec2(360, 540), ImGuiCond_FirstUseEver);
-        if (ImGui::Begin("Settings")) {
+        if (ImGui::Begin("Settings", &panels_.settings)) {
             // Grouped into tabs so rendering options live in one place and
             // editor/workflow options in another, instead of one flat list of
             // headers mixing "save scene" with "shadow bias". Scene = the file
@@ -153,6 +154,7 @@ void EditorApplication::Run() {
             }
         }
         ImGui::End();
+        }
 
         //asset browser (P2-5) + async model ops (P4-3 phase 3).
         // Drawn BEFORE hierarchy/inspector so an asset click can hand the
@@ -178,26 +180,30 @@ void EditorApplication::Run() {
             // disabled), and be silently destroyed by Stop's restore —
             // deferring applies it to the restored edit scene instead
             if (!playing_) pollPendingModelOps_(scene);
-            const AssetBrowserActions aba = assetBrowser_.Draw(
-                scene.registry, selected_, assetIndex_, playing_,
-                (int)pendingModelOps_.size(), validateRunning_);
-            if (!aba.loadScene.empty() && !playing_) {
-                loadSceneFromFile_(scene, aba.loadScene);
+            // The asset SCAN tick above always runs; only the panel draw and
+            // its action handling are gated by visibility.
+            if (panels_.assets) {
+                const AssetBrowserActions aba = assetBrowser_.Draw(
+                    scene.registry, selected_, assetIndex_, playing_,
+                    (int)pendingModelOps_.size(), validateRunning_);
+                if (!aba.loadScene.empty() && !playing_) {
+                    loadSceneFromFile_(scene, aba.loadScene);
+                }
+                if (!aba.setStartup.empty()) {
+                    setStartupScene_(aba.setStartup);
+                }
+                if (!aba.spawnModel.empty()) {
+                    spawnModelEntity_(scene, aba.spawnModel,
+                                      camera().Position + camera().Front * 10.f);
+                }
+                if (!aba.assignModel.empty()) {
+                    assignModelToEntity_(scene, aba.assignModel, selected_);
+                }
+                if (aba.validateRequested && !validateRunning_) startValidate_();
+                // hand the INSPECTOR to the asset view; the entity selection
+                // itself survives — "Assign to Selected Entity" depends on it
+                if (aba.assetClicked) inspectorShowsAsset_ = true;
             }
-            if (!aba.setStartup.empty()) {
-                setStartupScene_(aba.setStartup);
-            }
-            if (!aba.spawnModel.empty()) {
-                spawnModelEntity_(scene, aba.spawnModel,
-                                  camera().Position + camera().Front * 10.f);
-            }
-            if (!aba.assignModel.empty()) {
-                assignModelToEntity_(scene, aba.assignModel, selected_);
-            }
-            if (aba.validateRequested && !validateRunning_) startValidate_();
-            // hand the INSPECTOR to the asset view; the entity selection
-            // itself survives — "Assign to Selected Entity" depends on it
-            if (aba.assetClicked) inspectorShowsAsset_ = true;
         }
 
         // validation report window (AssetCooker child-process output)
@@ -218,11 +224,12 @@ void EditorApplication::Run() {
         }
 
 		//scene hierarchy
-        hierarchy_.Draw(scene.registry, selected_, undo_);
+        if (panels_.hierarchy) hierarchy_.Draw(scene.registry, selected_, undo_);
 
 		//inspector: an entity newly selected this frame (hierarchy click,
 		// viewport pick, spawn landing) reclaims it from the asset view;
 		// a highlighted asset that vanished from disk drops back too
+        if (panels_.inspector) {
         if (selected_ != entt::null && selected_ != selAtFrameStart) {
             inspectorShowsAsset_ = false;
         }
@@ -244,13 +251,14 @@ void EditorApplication::Run() {
             // remove / shadow toggle): stale shadows stay baked otherwise
             forceAllCSMUpdate_();
         }
+        }
 
         // commit any edit whose widget stopped being submitted this frame
         // (deselect while a text field was focused, tab switch, collapse)
         undo_.tickFrame(scene.registry);
 
         //undo/redo history (P2-7)
-        DrawEditHistory(scene);
+        if (panels_.edit) DrawEditHistory(scene);
 
         // Ctrl+Z / Ctrl+Y (+ Ctrl+Shift+Z). Not while typing in a text
         // field (ImGui's own text-edit undo owns Ctrl+Z there), not while
@@ -888,6 +896,41 @@ void EditorApplication::DrawMainMenuBar(MyCoreEngine::Scene& scene)
             ImGui::Separator();
             if (ImGui::MenuItem("Exit"))
                 glfwSetWindowShouldClose(GetNativeWindow(), 1);
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("Edit")) {
+            const bool canU = undo_.canUndo();
+            const bool canR = undo_.canRedo();
+            const auto& entries = undo_.entries();
+            const size_t cur = undo_.cursor();
+            // Show WHAT would be undone/redone, like a real editor -- the
+            // history deque is [0, cursor) applied, so cursor-1 is the next
+            // undo and cursor the next redo.
+            std::string uL = "Undo", rL = "Redo";
+            if (canU && cur >= 1 && cur - 1 < entries.size()) uL += "  " + entries[cur - 1].label;
+            if (canR && cur < entries.size())                 rL += "  " + entries[cur].label;
+            if (ImGui::MenuItem(uL.c_str(), "Ctrl+Z", false, canU)) doUndo_(scene);
+            if (ImGui::MenuItem(rL.c_str(), "Ctrl+Y", false, canR)) doRedo_(scene);
+            ImGui::Separator();
+            if (ImGui::MenuItem("Clear History", nullptr, false, canU || canR)) undo_.clear();
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("Window")) {
+            // Checkbox items bound straight to the visibility bools the UI loop
+            // gates each panel on.
+            ImGui::MenuItem("Scene View",  nullptr, &panels_.scene);
+            ImGui::MenuItem("Game View",   nullptr, &panels_.game);
+            ImGui::MenuItem("Hierarchy",   nullptr, &panels_.hierarchy);
+            ImGui::MenuItem("Inspector",   nullptr, &panels_.inspector);
+            ImGui::MenuItem("Assets",      nullptr, &panels_.assets);
+            ImGui::MenuItem("Information", nullptr, &panels_.information);
+            ImGui::MenuItem("Edit History",nullptr, &panels_.edit);
+            ImGui::MenuItem("Settings",    nullptr, &panels_.settings);
+            ImGui::Separator();
+            if (ImGui::MenuItem("Show All Panels")) panels_ = PanelVis{};
+            ImGui::TextDisabled("Layouts: Settings > Editor tab");
             ImGui::EndMenu();
         }
 

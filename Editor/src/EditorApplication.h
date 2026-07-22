@@ -203,6 +203,13 @@ private:
     char        currentScenePath_[260] = "Exported/scene.json"; // File menu target
     std::string sceneStatus_;   // last save/load result, shown in the menu bar
 
+    // Panel visibility, toggled from the Window menu. All on by default;
+    // hiding one skips its draw (and, for the Game view, its render).
+    struct PanelVis {
+        bool scene = true, game = true, hierarchy = true, inspector = true,
+             assets = true, information = true, edit = true, settings = true;
+    } panels_;
+
     // layout .ini to load before the next frame (empty = none). Deferred
     // because settings must be (re)applied outside NewFrame/Render.
     std::string pendingLayoutLoad_;
