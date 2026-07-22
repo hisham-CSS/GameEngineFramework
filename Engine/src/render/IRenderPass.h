@@ -46,7 +46,7 @@ struct PassContext {
     unsigned defaultFBO{ 0 };
     unsigned hdrFBO{ 0 };
     unsigned hdrColorTex{ 0 };
-    unsigned hdrDepthRBO{ 0 };
+    unsigned hdrDepthTex{ 0 };  // sampleable scene depth (DEPTH_COMPONENT24)
 
     // --- LDR post-process chain (ping-pong) ---
     // After tonemapping, an arbitrary number of full-screen LDR (gamma-space)

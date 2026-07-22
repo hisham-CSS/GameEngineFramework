@@ -22,6 +22,8 @@
 #include "../render/passes/TransparentPass.h"
 #include "../render/passes/FXAAPass.h"
 #include "../render/passes/VignettePass.h"
+#include "../render/passes/OutlinePass.h"
+#include "../render/passes/ColorGradePass.h"
 #include "../render/IBLBaker.h"
 
 namespace MyCoreEngine {
@@ -161,7 +163,9 @@ namespace MyCoreEngine {
         SkyboxPass* skyboxPass_ = nullptr;
         TransparentPass* transparentPass_ = nullptr;
         FXAAPass*   fxaaPass_ = nullptr;
-        VignettePass* vignettePass_ = nullptr;
+        VignettePass*   vignettePass_ = nullptr;
+        OutlinePass*    outlinePass_ = nullptr;
+        ColorGradePass* colorGradePass_ = nullptr;
         // LDR ping-pong pair for the post-process chain (tonemap -> effects ->
         // FXAA), allocated only while at least one LDR post pass is enabled.
         unsigned int ldrFBO_ = 0, ldrColorTex_ = 0;    // buffer A
@@ -198,10 +202,13 @@ namespace MyCoreEngine {
         // A simple dirty bit that forces shadow pass to re-render
         bool shadowParamsDirty_ = true;
 
-        // HDR resources
+        // HDR resources. Depth is a sampleable DEPTH_COMPONENT24 TEXTURE (not a
+        // renderbuffer) so post passes can read scene depth (ink outline / fog /
+        // DoF). No stencil -- nothing in the renderer uses it.
         GLuint hdrFBO_ = 0;
         GLuint hdrColorTex_ = 0;
-        GLuint hdrDepthRBO_ = 0;
+        GLuint hdrDepthTex_ = 0;
+        void   makeDepthTex_(int w, int h); // (re)allocate hdrDepthTex_
 
         // Fullscreen quad
         GLuint fsQuadVAO_ = 0;

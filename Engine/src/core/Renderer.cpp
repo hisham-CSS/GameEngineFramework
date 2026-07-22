@@ -38,7 +38,7 @@ namespace MyCoreEngine {
         // context.
         if (fsQuadVBO_) glDeleteBuffers(1, &fsQuadVBO_);
         if (fsQuadVAO_) glDeleteVertexArrays(1, &fsQuadVAO_);
-        if (hdrDepthRBO_) glDeleteRenderbuffers(1, &hdrDepthRBO_);
+        if (hdrDepthTex_) glDeleteTextures(1, &hdrDepthTex_);
         if (hdrColorTex_) glDeleteTextures(1, &hdrColorTex_);
         if (hdrFBO_) glDeleteFramebuffers(1, &hdrFBO_);
         releaseLDR_();
@@ -65,12 +65,10 @@ namespace MyCoreEngine {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-        // depth renderbuffer
-        glGenRenderbuffers(1, &hdrDepthRBO_);
-        glBindRenderbuffer(GL_RENDERBUFFER, hdrDepthRBO_);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, fbw, fbh);
+        // depth TEXTURE (sampleable) -- post passes read scene depth from it
+        makeDepthTex_(fbw, fbh);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, hdrColorTex_, 0);
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, hdrDepthRBO_);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, hdrDepthTex_, 0);
 
         if (const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER); status != GL_FRAMEBUFFER_COMPLETE) {
             std::cerr << "ERROR::HDR FBO incomplete, status 0x" << std::hex << status << std::dec << std::endl;
@@ -114,7 +112,7 @@ namespace MyCoreEngine {
         passCtx_.defaultFBO = 0;
         passCtx_.hdrFBO = hdrFBO_;
         passCtx_.hdrColorTex = hdrColorTex_;
-        passCtx_.hdrDepthRBO = hdrDepthRBO_;
+        passCtx_.hdrDepthTex = hdrDepthTex_;
         passCtx_.fsQuadVAO = fsQuadVAO_;
         passCtx_.tonemapShader = tonemapShader_.get();
         passCtx_.exposure = exposure_;
@@ -157,7 +155,7 @@ namespace MyCoreEngine {
         passCtx_.defaultFBO = targetFBO;
         passCtx_.hdrFBO = hdrFBO_;
         passCtx_.hdrColorTex = hdrColorTex_;
-        passCtx_.hdrDepthRBO = hdrDepthRBO_;
+        passCtx_.hdrDepthTex = hdrDepthTex_;
 
         // ensure forward & tonemap passes exist (CSM was added in Setup)
         if (!forwardPass_) {
@@ -184,8 +182,17 @@ namespace MyCoreEngine {
             tonemapPass_ = &pipeline_.add<TonemapPass>();
             pipeline_.setup(passCtx_);
         }
-        // LDR post-process chain runs after tonemap, in insertion order.
-        // Vignette before FXAA so AA resolves the final composited image.
+        // LDR post-process chain runs after tonemap, in insertion order:
+        // outline -> colour grade -> vignette -> FXAA. Outline stylises first,
+        // grade sets the overall look, vignette frames, AA resolves last.
+        if (!outlinePass_) {
+            outlinePass_ = &pipeline_.add<OutlinePass>();
+            pipeline_.setup(passCtx_);
+        }
+        if (!colorGradePass_) {
+            colorGradePass_ = &pipeline_.add<ColorGradePass>();
+            pipeline_.setup(passCtx_);
+        }
         if (!vignettePass_) {
             vignettePass_ = &pipeline_.add<VignettePass>();
             pipeline_.setup(passCtx_);
@@ -331,8 +338,11 @@ namespace MyCoreEngine {
         // in an off-screen buffer. Order here is irrelevant (it's a count); the
         // decrement order is the pipeline insertion order: vignette, then FXAA.
         int n = 0;
-        if (scene.PostFX().vignette.enabled) ++n;
-        if (scene.GetAAEnabled())            ++n; // FXAA, always last
+        const auto& p = scene.PostFX();
+        if (p.outline.enabled)    ++n;
+        if (p.colorGrade.enabled) ++n;
+        if (p.vignette.enabled)   ++n;
+        if (scene.GetAAEnabled()) ++n; // FXAA, always last
         return n;
     }
 
@@ -375,10 +385,24 @@ namespace MyCoreEngine {
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
+    void Renderer::makeDepthTex_(int w, int h) {
+        // A plain DEPTH_COMPONENT24 texture -- NEAREST (depth must not be
+        // interpolated when reconstructed for edge detection), CLAMP so the
+        // outline's neighbour taps don't wrap the far edge in.
+        if (hdrDepthTex_) { glDeleteTextures(1, &hdrDepthTex_); hdrDepthTex_ = 0; }
+        glGenTextures(1, &hdrDepthTex_);
+        glBindTexture(GL_TEXTURE_2D, hdrDepthTex_);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, std::max(1, w), std::max(1, h),
+                     0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
+
     void Renderer::recreateHDR_(int w, int h) {
         // delete old
         if (hdrColorTex_) { glDeleteTextures(1, &hdrColorTex_); hdrColorTex_ = 0; }
-        if (hdrDepthRBO_) { glDeleteRenderbuffers(1, &hdrDepthRBO_); hdrDepthRBO_ = 0; }
         // color
         glBindFramebuffer(GL_FRAMEBUFFER, hdrFBO_);
         glGenTextures(1, &hdrColorTex_);
@@ -389,11 +413,9 @@ namespace MyCoreEngine {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, hdrColorTex_, 0);
-        // depth-stencil
-        glGenRenderbuffers(1, &hdrDepthRBO_);
-        glBindRenderbuffer(GL_RENDERBUFFER, hdrDepthRBO_);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, w, h);
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, hdrDepthRBO_);
+        // depth (sampleable texture)
+        makeDepthTex_(w, h);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, hdrDepthTex_, 0);
         if (const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER); status != GL_FRAMEBUFFER_COMPLETE) {
             std::cerr << "ERROR::HDR FBO incomplete after resize, status 0x" << std::hex << status << std::dec << std::endl;
         }

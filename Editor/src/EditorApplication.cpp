@@ -1354,7 +1354,30 @@ void EditorApplication::DrawRenderingToggles(MyCoreEngine::Scene& scene)
     // Post-process stack (tonemap -> effects -> FXAA). Effects chain through a
     // ping-pong pair allocated only while at least one is enabled.
     if (ImGui::TreeNodeEx("Post-process", ImGuiTreeNodeFlags_DefaultOpen)) {
-        auto& v = scene.PostFX().vignette;
+        auto& pfx = scene.PostFX();
+
+        // Ink outline (depth-edge) -- pairs with cel shading.
+        ImGui::Checkbox("Ink outline", &pfx.outline.enabled);
+        if (pfx.outline.enabled) {
+            ImGui::SliderFloat("Thickness##out", &pfx.outline.thickness, 0.5f, 4.f, "%.1f px");
+            ImGui::SliderFloat("Sensitivity##out", &pfx.outline.threshold, 0.02f, 0.6f);
+            ImGui::SliderFloat("Strength##out", &pfx.outline.strength, 0.f, 1.f);
+            ImGui::ColorEdit3("Ink colour##out", &pfx.outline.color.x);
+        }
+
+        // Procedural colour grade (LUT-style look-dev without an asset).
+        ImGui::Checkbox("Colour grade", &pfx.colorGrade.enabled);
+        if (pfx.colorGrade.enabled) {
+            ImGui::SliderFloat("Contrast##cg",    &pfx.colorGrade.contrast,    0.5f, 2.f);
+            ImGui::SliderFloat("Saturation##cg",  &pfx.colorGrade.saturation,  0.f, 2.f);
+            ImGui::SliderFloat("Temperature##cg", &pfx.colorGrade.temperature, -1.f, 1.f);
+            ImGui::SliderFloat("Tint##cg",        &pfx.colorGrade.tint,        -1.f, 1.f);
+            ImGui::SliderFloat("Lift##cg",        &pfx.colorGrade.lift,        -0.5f, 0.5f);
+            ImGui::SliderFloat("Gain##cg",        &pfx.colorGrade.gain,        0.5f, 2.f);
+        }
+
+        // Vignette (radial framing).
+        auto& v = pfx.vignette;
         ImGui::Checkbox("Vignette", &v.enabled);
         if (v.enabled) {
             ImGui::SliderFloat("Intensity##vig",  &v.intensity,  0.f, 1.f);

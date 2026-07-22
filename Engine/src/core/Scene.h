@@ -285,6 +285,29 @@ namespace MyCoreEngine {
                 float roundness  = 1.0f;  // 0 = frame rectangle .. 1 = circular
                 float smoothness = 0.5f;  // falloff softness, 0..1
             } vignette;
+
+            // Ink outline from scene-depth discontinuities (silhouettes +
+            // depth edges) -- the comic-book line that pairs with cel shading.
+            struct Outline {
+                bool  enabled   = false;
+                float thickness = 1.5f;   // neighbour tap offset, pixels
+                float threshold = 0.15f;  // edge sensitivity (relative depth)
+                float strength  = 0.9f;   // ink opacity, 0..1
+                glm::vec3 color{ 0.02f, 0.02f, 0.03f }; // near-black ink
+            } outline;
+
+            // Procedural colour grade (no external LUT asset needed): white
+            // balance + lift/gain + contrast + saturation, applied to the
+            // tonemapped image. Covers the day-to-day of a LUT workflow.
+            struct ColorGrade {
+                bool  enabled     = false;
+                float contrast    = 1.0f; // 1 = neutral
+                float saturation  = 1.0f; // 1 = neutral, 0 = greyscale
+                float temperature = 0.0f; // -1 cool .. +1 warm
+                float tint        = 0.0f; // -1 green .. +1 magenta
+                float lift        = 0.0f; // black-point offset, -0.5..0.5
+                float gain        = 1.0f; // white-point scale, 0.5..2
+            } colorGrade;
         };
         PostFXSettings&       PostFX()       { return postFX_; }
         const PostFXSettings& PostFX() const { return postFX_; }

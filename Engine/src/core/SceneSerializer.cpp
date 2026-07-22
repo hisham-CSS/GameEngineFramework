@@ -64,6 +64,18 @@ namespace MyCoreEngine {
             post["vignetteIntensity"]  = p.vignette.intensity;
             post["vignetteRoundness"]  = p.vignette.roundness;
             post["vignetteSmoothness"] = p.vignette.smoothness;
+            post["outlineEnabled"]   = p.outline.enabled;
+            post["outlineThickness"] = p.outline.thickness;
+            post["outlineThreshold"] = p.outline.threshold;
+            post["outlineStrength"]  = p.outline.strength;
+            post["outlineColor"]     = { p.outline.color.x, p.outline.color.y, p.outline.color.z };
+            post["gradeEnabled"]     = p.colorGrade.enabled;
+            post["gradeContrast"]    = p.colorGrade.contrast;
+            post["gradeSaturation"]  = p.colorGrade.saturation;
+            post["gradeTemperature"] = p.colorGrade.temperature;
+            post["gradeTint"]        = p.colorGrade.tint;
+            post["gradeLift"]        = p.colorGrade.lift;
+            post["gradeGain"]        = p.colorGrade.gain;
             settings["postFX"] = post;
         }
 
@@ -307,6 +319,22 @@ namespace MyCoreEngine {
                 p.vignette.intensity  = jp.value("vignetteIntensity",  p.vignette.intensity);
                 p.vignette.roundness  = jp.value("vignetteRoundness",  p.vignette.roundness);
                 p.vignette.smoothness = jp.value("vignetteSmoothness", p.vignette.smoothness);
+                p.outline.enabled   = jp.value("outlineEnabled",   p.outline.enabled);
+                p.outline.thickness = jp.value("outlineThickness", p.outline.thickness);
+                p.outline.threshold = jp.value("outlineThreshold", p.outline.threshold);
+                p.outline.strength  = jp.value("outlineStrength",  p.outline.strength);
+                if (jp.contains("outlineColor") && jp["outlineColor"].is_array() &&
+                    jp["outlineColor"].size() == 3) {
+                    const auto& c = jp["outlineColor"];
+                    p.outline.color = { c[0].get<float>(), c[1].get<float>(), c[2].get<float>() };
+                }
+                p.colorGrade.enabled     = jp.value("gradeEnabled",     p.colorGrade.enabled);
+                p.colorGrade.contrast    = jp.value("gradeContrast",    p.colorGrade.contrast);
+                p.colorGrade.saturation  = jp.value("gradeSaturation",  p.colorGrade.saturation);
+                p.colorGrade.temperature = jp.value("gradeTemperature", p.colorGrade.temperature);
+                p.colorGrade.tint        = jp.value("gradeTint",        p.colorGrade.tint);
+                p.colorGrade.lift        = jp.value("gradeLift",        p.colorGrade.lift);
+                p.colorGrade.gain        = jp.value("gradeGain",        p.colorGrade.gain);
             }
 
             // --- environment (see the save side). Absent block => the

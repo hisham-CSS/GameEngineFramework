@@ -148,12 +148,17 @@ namespace {
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-            glGenRenderbuffers(1, &ctx.hdrDepthRBO);
-            glBindRenderbuffer(GL_RENDERBUFFER, ctx.hdrDepthRBO);
-            glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, w, h);
+            // Depth is now a sampleable texture (matches Renderer): a plain
+            // DEPTH_COMPONENT24 texture at GL_DEPTH_ATTACHMENT.
+            glGenTextures(1, &ctx.hdrDepthTex);
+            glBindTexture(GL_TEXTURE_2D, ctx.hdrDepthTex);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, w, h, 0,
+                         GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, ctx.hdrColorTex, 0);
-            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, ctx.hdrDepthRBO);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, ctx.hdrDepthTex, 0);
             ASSERT_EQ(glCheckFramebufferStatus(GL_FRAMEBUFFER), GL_FRAMEBUFFER_COMPLETE);
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
