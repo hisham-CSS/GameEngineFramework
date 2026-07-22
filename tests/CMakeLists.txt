@@ -69,6 +69,7 @@ engine_test(test_asset_manager_async) # P4-3 async RequestModel: states/dedupe/c
 engine_test(test_lights)           # punctual light selection + culling (pure CPU)
 engine_test(test_physics)          # backend-conformance suite + PhysicsWorld/ECS (pure CPU)
 engine_test(test_scripting)        # script seam + Lua isolation/error policy (pure CPU)
+engine_test(test_mesh_material)  # mesh->material-slot mapping (GL)
 engine_test(test_ibl)              # IBL bake: needs a real GL context
 engine_test(test_fxaa)             # FXAA edge/flat behaviour: needs a real GL context
 engine_test(test_import_settings)  # P4-3 phase 4: .import sidecar round-trip (pure CPU)

@@ -93,7 +93,17 @@ namespace MyCoreEngine {
         void BindForDrawWith(MyCoreEngine::Shader& shader, const MyCoreEngine::Material& mat) const;
         void IssueDraw(int lod = 0) const;                    // just glDrawElements
         void IssueDrawInstanced(GLsizei instanceCount, int lod = 0) const;
-        void SetMaterial(const MyCoreEngine::MaterialHandle& m) { material_ = m; }
+        // slot is the material's index in the owning Model's Materials() list.
+        // It MUST be passed: MaterialIndex() is the key the editor's per-entity
+        // MaterialOverrides are stored under, and chooseMaterial_ looks an
+        // override up by it. Left at the default 0, every mesh claims slot 0,
+        // so overrides land on (and only affect) whatever material happens to
+        // be slot 0 -- which for an OBJ is usually the empty import default,
+        // making "make unique" either do nothing or turn the mesh black.
+        void SetMaterial(const MyCoreEngine::MaterialHandle& m, size_t slot) {
+            material_ = m;
+            materialIndex_ = slot;
+        }
         const MyCoreEngine::MaterialHandle& GetMaterial() const { return material_; }
         size_t MaterialIndex() const { return materialIndex_; }
 

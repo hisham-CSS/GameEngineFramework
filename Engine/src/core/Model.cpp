@@ -658,7 +658,9 @@ namespace MyCoreEngine {
             Mesh mesh(std::move(md.vertices), std::move(md.indices), std::move(md.lodIndices));
             if (md.materialIndex >= 0 && (size_t)md.materialIndex < materials_.size() &&
                 materials_[md.materialIndex]) {
-                mesh.SetMaterial(materials_[md.materialIndex]); // share the same Material object
+                // Pass the SLOT too, not just the shared Material object -- the
+                // editor keys per-entity material overrides by this index.
+                mesh.SetMaterial(materials_[md.materialIndex], (size_t)md.materialIndex);
             }
             meshes_.push_back(std::move(mesh));
         }
