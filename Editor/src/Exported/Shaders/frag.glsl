@@ -245,6 +245,11 @@ void main()
     }
 
     vec3 N = getNormal();
+    // Two-sided materials (foliage / cloth / glass) rasterize back faces with
+    // the front-facing normal; flip it toward the viewer so their shading
+    // (diffuse, rim, specular) is correct instead of collapsing to flat-dark
+    // with a maxed rim. No-op for single-sided geometry (its back faces cull).
+    if (!gl_FrontFacing) N = -N;
     vec3 V = normalize(uCamPos - fs_in.worldPos);
     vec3 L = normalize(-uLightDir);
 
@@ -303,13 +308,26 @@ void main()
     // glint + a rim light, over a flat environment-tinted ambient. Pairs with
     // the depth-edge ink outline for a full cartoon look.
     if (uShadingModel == 1) {
-        float sh = (uShadowsOn == 1) ? pcfShadowCascade(ci, lightClip, N, L) : 1.0;
-        if (sh < 0.0) sh = 1.0;                     // out of cascade coverage
+        // Sun shadow: mirror the PBR cascade recovery so shadows don't pop to
+        // fully-lit at distance-driven cascade seams (a single-cascade -1 read
+        // as lit is what made toon shadows vanish as the camera dollied).
+        float sh = 1.0;
+        if (uShadowsOn == 1) {
+            sh = pcfShadowCascade(ci, lightClip, N, L);
+            if (sh < 0.0 && ci + 1 < uCascadeCount) {
+                vec4 lcNext = uLightVP[ci + 1] * vec4(fs_in.worldPos, 1.0);
+                sh = pcfShadowCascade(ci + 1, lcNext, N, L); // larger cascade covers the gap
+            }
+            if (sh < 0.0) sh = 1.0;
+        }
         const float bands = 4.0;                    // hard diffuse steps
 
-        float sunNL   = max(dot(N, L), 0.0) * sh;
-        float sunStep = floor(sunNL * bands + 0.5) / bands;
-        vec3  sun     = albedo * uLightColor * uLightIntensity * sunStep;
+        // Quantize the LIGHTING (N.L) only, then apply the shadow AFTER, so the
+        // soft PCF penumbra stays continuous instead of being re-banded (and an
+        // sh discontinuity can't jump several bands at once).
+        float NdotL   = max(dot(N, L), 0.0);
+        float sunStep = floor(NdotL * bands + 0.5) / bands;
+        vec3  sun     = albedo * uLightColor * uLightIntensity * sunStep * sh;
 
         vec3 pl = vec3(0.0);
         for (int i = 0; i < uNumLights && i < MAX_PUNCTUAL_LIGHTS; ++i) {
@@ -324,14 +342,19 @@ void main()
                 at *= smoothstep(uLightSpotDir[i].w, uLightSpotMisc[i].x, cd);
             }
             if (at <= 0.0) continue;
-            float nl = max(dot(N, Li), 0.0) * at;
+            // Band the diffuse direction; keep the distance falloff continuous.
+            float nl = max(dot(N, Li), 0.0);
             pl += albedo * uLightColorInt[i].rgb * uLightColorInt[i].a
-                * (floor(nl * bands + 0.5) / bands);
+                * (floor(nl * bands + 0.5) / bands) * at;
         }
 
+        // Hard specular glint, analytically antialiased (fwidth) so it doesn't
+        // flicker on/off across a flat facet or drop out at distance. Killed
+        // where the sun is shadowed or the surface faces away.
         vec3  H  = normalize(V + L);
         float sp = pow(max(dot(N, H), 0.0), 48.0);
-        float specMask = smoothstep(0.5, 0.52, sp) * step(1e-3, sunNL);
+        float e  = fwidth(sp) + 1e-3;
+        float specMask = smoothstep(0.5 - e, 0.5 + e, sp) * step(1e-3, NdotL * sh);
         float rim = smoothstep(0.65, 0.85, 1.0 - max(dot(N, V), 0.0));
 
         vec3 amb = (uUseIBL == 1)

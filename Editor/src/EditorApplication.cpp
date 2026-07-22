@@ -145,7 +145,6 @@ void EditorApplication::Run() {
                         }
                     }
                     DrawIBLHDRControls(scene);   // "Environment"
-                    DrawMaterialControls(scene);
                     DrawRenderingToggles(scene); // "Post & Toggles"
                     ImGui::EndTabItem();
                 }
@@ -1207,17 +1206,6 @@ void EditorApplication::DrawIBLHDRControls(MyCoreEngine::Scene& scene)
     }
 }
 
-void EditorApplication::DrawMaterialControls(MyCoreEngine::Scene& /*scene*/)
-{
-    if (!ImGui::CollapsingHeader("Materials", ImGuiTreeNodeFlags_None)) return;
-    // The old global metallic/roughness/AO sliders here were overridden per
-    // draw by each material's own values, so they did nothing. Materials are
-    // authored per-object now -- point there instead of showing dead controls.
-    ImGui::TextWrapped("Materials are edited per-object in the Inspector:");
-    ImGui::BulletText("Select an entity and expand its model's materials.");
-    ImGui::BulletText("\"Make Unique\" to edit just that object's copy.");
-    ImGui::BulletText("Set base colour, PBR/Toon shading, and transparency.");
-}
 
 // Body only -- drawn under the Rendering tab's "Lighting" header.
 void EditorApplication::DrawSunShadowControls(MyCoreEngine::Scene& scene)

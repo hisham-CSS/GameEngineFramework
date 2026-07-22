@@ -51,8 +51,6 @@ public:
 
     void DrawIBLHDRControls(MyCoreEngine::Scene& scene);
 
-    void DrawMaterialControls(MyCoreEngine::Scene& scene);
-
     void DrawSunShadowControls(MyCoreEngine::Scene& scene);
 
     void DrawRenderingToggles(MyCoreEngine::Scene& scene);
