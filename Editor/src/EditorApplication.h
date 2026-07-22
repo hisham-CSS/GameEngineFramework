@@ -38,7 +38,13 @@ public:
 
     void DrawTimeControls();
 
-    void DrawScenePersistence(MyCoreEngine::Scene& scene);
+    // Main menu bar (File menu) + its New/Open/Save-As modals. Replaces the
+    // old "Scene" settings tab; scene file operations belong under the title
+    // bar, Unity-style, not buried in a tab.
+    void DrawMainMenuBar(MyCoreEngine::Scene& scene);
+    bool saveScene_(MyCoreEngine::Scene& scene);      // -> currentScenePath_
+    void saveAll_(MyCoreEngine::Scene& scene);        // scene + editor layout
+    void newScene_(MyCoreEngine::Scene& scene);       // reset + default content
 
     void DrawLightControls(MyCoreEngine::Scene& scene);
 
@@ -194,6 +200,8 @@ private:
     // the Scene view stays navigable with the same keys while playing.
     bool gameViewFocused_ = false;
     std::string bootStatus_;    // what happened at startup (loaded / defaulted)
+    char        currentScenePath_[260] = "Exported/scene.json"; // File menu target
+    std::string sceneStatus_;   // last save/load result, shown in the menu bar
 
     // layout .ini to load before the next frame (empty = none). Deferred
     // because settings must be (re)applied outside NewFrame/Render.

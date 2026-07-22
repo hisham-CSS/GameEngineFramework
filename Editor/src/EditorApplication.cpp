@@ -98,6 +98,9 @@ void EditorApplication::Run() {
         // one dockspace over the whole window: every panel becomes dockable
         ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
 
+        // File menu under the title bar (scene new/open/save/save-all).
+        DrawMainMenuBar(scene);
+
         // Inspector arbitration baseline: captured BEFORE any panel runs so
         // viewport picks/drops count as "newly selected this frame" too
         const entt::entity selAtFrameStart = selected_;
@@ -122,10 +125,6 @@ void EditorApplication::Run() {
             // headers mixing "save scene" with "shadow bias". Scene = the file
             // + world; Rendering = everything visual; Editor = the tool itself.
             if (ImGui::BeginTabBar("SettingsTabs")) {
-                if (ImGui::BeginTabItem("Scene")) {
-                    DrawScenePersistence(scene);
-                    ImGui::EndTabItem();
-                }
                 if (ImGui::BeginTabItem("Rendering")) {
                     // Lighting: the sun + its shadows and the scene's direct
                     // light, together -- editing one usually means the other.
@@ -824,83 +823,150 @@ void EditorApplication::DrawTimeControls()
     if (ImGui::SliderFloat("Fixed Tick (Hz)", &hz, 15.f, 240.f, "%.0f")) setFixedTimestepHz(hz);
 }
 
-void EditorApplication::DrawScenePersistence(MyCoreEngine::Scene& scene)
+bool EditorApplication::saveScene_(MyCoreEngine::Scene& scene)
 {
-    if (!ImGui::CollapsingHeader("Scene", ImGuiTreeNodeFlags_None)) return;
-
-    static char scenePath[260] = "Exported/scene.json";
-    static std::string lastStatus;
-    // What happened at boot — makes "why am I looking at this scene?"
-    // answerable without digging through the console.
-    if (!bootStatus_.empty()) ImGui::TextDisabled("%s", bootStatus_.c_str());
-    ImGui::InputText("Scene file", scenePath, sizeof(scenePath));
-
     MyCoreEngine::SceneSerializer serializer(scene, *assets_);
-    // Saving mid-play would persist transient play state; loading/newing
-    // would be overwritten by Stop's snapshot restore anyway.
-    if (playing_) ImGui::BeginDisabled();
-    if (ImGui::Button("New Scene")) {
-        ImGui::OpenPopup("New Scene?");
+    const bool ok = serializer.Save(currentScenePath_);
+    sceneStatus_ = ok ? (std::string("Saved ") + currentScenePath_)
+                      : "Save FAILED (see console)";
+    return ok;
+}
+
+void EditorApplication::saveAll_(MyCoreEngine::Scene& scene)
+{
+    // "Everything currently saveable": the scene, plus the editor layout, which
+    // ImGui otherwise only persists on a clean shutdown. Startup-scene is a
+    // deliberate build setting, not dirty state, so it stays its own action.
+    const bool sceneOk = saveScene_(scene);
+    if (const char* ini = ImGui::GetIO().IniFilename) ImGui::SaveIniSettingsToDisk(ini);
+    sceneStatus_ = sceneOk ? "Saved all (scene + layout)"
+                           : "Scene save FAILED (layout saved)";
+}
+
+void EditorApplication::newScene_(MyCoreEngine::Scene& scene)
+{
+    scene.ResetToDefaults();
+    // Seed the same minimal content the editor boots with when no scene file
+    // exists. A truly EMPTY scene has no camera, and a camera-less scene makes
+    // the Game view and the shipped player fall back to a debug fly-cam — the
+    // exact trap that made a built game look like it ignored the scene's camera.
+    createDefaultScene_(scene);
+    selected_ = entt::null;   // every entity handle is gone
+    undo_.clear();            // ...including all of the history's
+    gameDirector_.reset();    // ...and the Game view's camera handles
+    pendingModelOps_.clear(); // in-flight ops were aimed at the old scene
+    physics_.Clear();         // bodies referred to the old entities
+    scripts_.Clear();         // ...and so did every script instance
+    // wholesale caster removal bypasses the departure-sphere flow: the old
+    // scene's shadows would stay baked otherwise
+    forceAllCSMUpdate_();
+    sceneStatus_ = "New scene";
+}
+
+void EditorApplication::DrawMainMenuBar(MyCoreEngine::Scene& scene)
+{
+    // Scene file ops are disabled during Play: saving would persist transient
+    // play state, and loading/newing gets overwritten by Stop's restore anyway.
+    const bool canEdit = !playing_;
+    bool openNew = false, openOpen = false, openSaveAs = false;
+
+    if (ImGui::BeginMainMenuBar()) {
+        if (ImGui::BeginMenu("File")) {
+            if (ImGui::MenuItem("New Scene", nullptr, false, canEdit))  openNew = true;
+            if (ImGui::MenuItem("Open Scene...", nullptr, false, canEdit)) openOpen = true;
+            ImGui::Separator();
+            if (ImGui::MenuItem("Save Scene", "Ctrl+S", false, canEdit)) saveScene_(scene);
+            if (ImGui::MenuItem("Save Scene As...", nullptr, false, canEdit)) openSaveAs = true;
+            if (ImGui::MenuItem("Save All", "Ctrl+Shift+S", false, canEdit)) saveAll_(scene);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Save the scene AND the editor layout.");
+            ImGui::Separator();
+            if (ImGui::MenuItem("Set Current Scene as Player Startup", nullptr, false, canEdit)) {
+                setStartupScene_(currentScenePath_);
+                sceneStatus_ = buildSettingsStatus_; // surface the result in the bar
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Exit"))
+                glfwSetWindowShouldClose(GetNativeWindow(), 1);
+            ImGui::EndMenu();
+        }
+
+        // Right-aligned context: the last save/load result if there is one,
+        // otherwise the current scene file, plus a Play indicator -- so "which
+        // scene / did my save work / am I editing or playing?" is answerable at
+        // a glance without a console.
+        const char* base = currentScenePath_;
+        for (const char* p = currentScenePath_; *p; ++p)
+            if (*p == '/' || *p == '\\') base = p + 1;
+        char right[384];
+        std::snprintf(right, sizeof(right), "%s%s  ",
+                      playing_ ? "[PLAYING]  " : "",
+                      sceneStatus_.empty() ? base : sceneStatus_.c_str());
+        const float w = ImGui::CalcTextSize(right).x;
+        ImGui::SameLine(ImGui::GetWindowWidth() - w - 8.f);
+        ImGui::TextDisabled("%s", right);
+        ImGui::EndMainMenuBar();
     }
+
+    // Keyboard shortcuts. Gated on not-typing so Ctrl+S in a text field is a
+    // normal keystroke, and on canEdit for the same reason as the menu items.
+    ImGuiIO& io = ImGui::GetIO();
+    if (canEdit && io.KeyCtrl && !io.WantTextInput &&
+        ImGui::IsKeyPressed(ImGuiKey_S, false)) {
+        if (io.KeyShift) saveAll_(scene); else saveScene_(scene);
+    }
+
+    if (openNew)    ImGui::OpenPopup("New Scene?");
+    if (openOpen)   ImGui::OpenPopup("Open Scene");
+    if (openSaveAs) ImGui::OpenPopup("Save Scene As");
+
+    // --- New Scene confirmation ---
     if (ImGui::BeginPopupModal("New Scene?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextUnformatted("Replace the current scene with a new one?");
         ImGui::TextUnformatted("You get a Main Camera and a ground plane.");
         ImGui::TextUnformatted("Unsaved changes will be lost.");
         ImGui::Separator();
         if (ImGui::Button("New Scene", ImVec2(120, 0))) {
-            scene.ResetToDefaults();
-            // Seed the same minimal content the editor boots with when no
-            // scene file exists. A truly EMPTY scene has no camera, and a
-            // camera-less scene makes the Game view and the shipped player
-            // fall back to a debug fly-cam — the exact trap that made a
-            // built game look like it ignored the scene's camera.
-            createDefaultScene_(scene);
-            selected_ = entt::null; // every entity handle is gone
-            undo_.clear();          // ...including all of the history's
-            gameDirector_.reset();  // ...and the Game view's camera handles
-            pendingModelOps_.clear(); // in-flight ops were aimed at the old scene
-            physics_.Clear();       // bodies referred to the old entities
-            scripts_.Clear();       // ...and so did every script instance
-            // wholesale caster removal bypasses the departure-sphere flow:
-            // the old scene's shadows would stay baked otherwise
-            forceAllCSMUpdate_();
-            lastStatus = "New scene";
+            newScene_(scene);
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
-            ImGui::CloseCurrentPopup();
-        }
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
-    ImGui::SameLine();
-    if (ImGui::Button("Save Scene")) {
-        lastStatus = serializer.Save(scenePath)
-            ? std::string("Saved to ") + scenePath
-            : std::string("Save FAILED (see console)");
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Load Scene")) {
-        lastStatus = loadSceneFromFile_(scene, scenePath)
-            ? std::string("Loaded ") + scenePath
-            : std::string("Load FAILED (see console)");
-    }
-    if (playing_) ImGui::EndDisabled();
-    if (!lastStatus.empty()) ImGui::TextDisabled("%s", lastStatus.c_str());
 
-    // --- Build Settings: which scene the standalone player boots into ---
-    ImGui::SeparatorText("Build Settings");
-    if (!startupSceneLoaded_) {
-        MyCoreEngine::ProjectSettings s;
-        s.Load();
-        startupSceneDisplay_ = s.startupScene;
-        startupSceneLoaded_ = true;
+    // --- Open Scene ---
+    if (ImGui::BeginPopupModal("Open Scene", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("Scene file to open:");
+        ImGui::SetNextItemWidth(360.f);
+        ImGui::InputText("##openpath", currentScenePath_, sizeof(currentScenePath_));
+        ImGui::TextDisabled("Tip: double-clicking a .json in the Asset browser also loads it.");
+        ImGui::Separator();
+        if (ImGui::Button("Open", ImVec2(120, 0))) {
+            sceneStatus_ = loadSceneFromFile_(scene, currentScenePath_)
+                ? (std::string("Loaded ") + currentScenePath_)
+                : "Load FAILED (see console)";
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
     }
-    ImGui::Text("Player startup scene: %s", startupSceneDisplay_.c_str());
-    if (ImGui::Button("Set Current File as Startup Scene")) {
-        setStartupScene_(scenePath); // outcome lands in buildSettingsStatus_
+
+    // --- Save Scene As ---
+    if (ImGui::BeginPopupModal("Save Scene As", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("Save the scene to:");
+        ImGui::SetNextItemWidth(360.f);
+        ImGui::InputText("##savepath", currentScenePath_, sizeof(currentScenePath_));
+        ImGui::Separator();
+        if (ImGui::Button("Save", ImVec2(120, 0))) {
+            saveScene_(scene);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
     }
-    if (!buildSettingsStatus_.empty()) ImGui::TextDisabled("%s", buildSettingsStatus_.c_str());
 }
 
 // Body only -- the caller (the Rendering tab's "Lighting" header) provides the
