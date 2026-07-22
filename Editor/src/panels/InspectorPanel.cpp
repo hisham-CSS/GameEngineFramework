@@ -285,6 +285,22 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
                                     ImGui::SliderFloat("AO", &editing->ao, 0.0f, 1.0f);
                                     trackSliderItem(lblAO, editing->ao, preAO);
 
+                                    // --- Shading model (per-material) ---
+                                    const char* kShading[] = { "PBR", "Toon (cel)" };
+                                    int sm = static_cast<int>(editing->shadingModel);
+                                    if (ImGui::Combo("Shading", &sm, kShading, IM_ARRAYSIZE(kShading))) {
+                                        char lbl[48];
+                                        snprintf(lbl, sizeof(lbl), "Material %d shading", (int)i + 1);
+                                        undo.record(reg, selected, lbl, [&] {
+                                            editing->shadingModel = static_cast<MyCoreEngine::ShadingModel>(sm);
+                                        });
+                                    }
+                                    if (ImGui::IsItemHovered()) {
+                                        ImGui::SetTooltip("Toon: banded cel shading + hard specular + rim light.\n"
+                                                          "Pair it with the Ink outline post effect\n"
+                                                          "(Settings > Rendering > Post & Toggles > Post-process).");
+                                    }
+
                                     // --- Transparency ---
                                     const char* kAlpha[] = { "Opaque", "Mask (cutout)", "Blend" };
                                     int am = static_cast<int>(editing->alphaMode);

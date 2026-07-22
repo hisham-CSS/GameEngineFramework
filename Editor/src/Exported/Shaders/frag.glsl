@@ -61,6 +61,7 @@ uniform float uPrefilterMipCount;
 
 uniform vec3 uBaseColor;
 uniform vec3 uEmissive;
+uniform int  uShadingModel;   // per-material: 0 PBR, 1 Toon/cel
 
 // Transparency. 0 Opaque, 1 Mask, 2 Blend.
 uniform int   uAlphaMode;
@@ -294,6 +295,52 @@ void main()
     if (uCSMDebug == 5) {
         bool o = (proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0);
         FragColor = o ? vec4(1,0,0,1) : vec4(proj.xy, 0.0, 1.0); // UV heatmap; red=outside
+        return;
+    }
+
+    // --- Toon / cel shading (per-material), independent of the global PBR
+    // toggle. Banded diffuse (sun + punctual, shadowed sun) + a hard specular
+    // glint + a rim light, over a flat environment-tinted ambient. Pairs with
+    // the depth-edge ink outline for a full cartoon look.
+    if (uShadingModel == 1) {
+        float sh = (uShadowsOn == 1) ? pcfShadowCascade(ci, lightClip, N, L) : 1.0;
+        if (sh < 0.0) sh = 1.0;                     // out of cascade coverage
+        const float bands = 4.0;                    // hard diffuse steps
+
+        float sunNL   = max(dot(N, L), 0.0) * sh;
+        float sunStep = floor(sunNL * bands + 0.5) / bands;
+        vec3  sun     = albedo * uLightColor * uLightIntensity * sunStep;
+
+        vec3 pl = vec3(0.0);
+        for (int i = 0; i < uNumLights && i < MAX_PUNCTUAL_LIGHTS; ++i) {
+            vec3  toL  = uLightPosRange[i].xyz - fs_in.worldPos;
+            float dist = length(toL);
+            float rng  = uLightPosRange[i].w;
+            if (dist > rng) continue;
+            vec3  Li = toL / max(dist, 1e-4);
+            float at = distanceAttenuation(dist, rng);
+            if (uLightSpotMisc[i].y > 0.5) {
+                float cd = dot(normalize(uLightSpotDir[i].xyz), -Li);
+                at *= smoothstep(uLightSpotDir[i].w, uLightSpotMisc[i].x, cd);
+            }
+            if (at <= 0.0) continue;
+            float nl = max(dot(N, Li), 0.0) * at;
+            pl += albedo * uLightColorInt[i].rgb * uLightColorInt[i].a
+                * (floor(nl * bands + 0.5) / bands);
+        }
+
+        vec3  H  = normalize(V + L);
+        float sp = pow(max(dot(N, H), 0.0), 48.0);
+        float specMask = smoothstep(0.5, 0.52, sp) * step(1e-3, sunNL);
+        float rim = smoothstep(0.65, 0.85, 1.0 - max(dot(N, V), 0.0));
+
+        vec3 amb = (uUseIBL == 1)
+                 ? texture(irradianceMap, N).rgb * albedo * uIBLIntensity
+                 : 0.12 * albedo;
+
+        vec3 color = amb + sun + pl + vec3(specMask) * 0.5
+                   + rim * 0.25 * uLightColor + uEmissive;
+        FragColor = vec4(color, alpha);
         return;
     }
 

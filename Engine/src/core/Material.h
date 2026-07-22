@@ -20,6 +20,12 @@ namespace MyCoreEngine {
     //            (glass, water). Does NOT write depth.
     enum class AlphaMode : uint8_t { Opaque = 0, Mask = 1, Blend = 2 };
 
+    // How a material is lit. PBR is the physically-based default; Toon is a
+    // stylised cel look (banded diffuse + hard specular + rim), which pairs
+    // with the depth-edge ink outline. Per-material, so a toon character can
+    // sit inside a PBR environment.
+    enum class ShadingModel : uint8_t { PBR = 0, Toon = 1 };
+
     struct Material {
         // Scalar params (used when map missing / disabled)
         glm::vec3 baseColor = glm::vec3(1.0f);
@@ -37,6 +43,9 @@ namespace MyCoreEngine {
         // you see the inside surface through the outside. Off by default so the
         // opaque fast path keeps back-face culling.
         bool doubleSided = false;
+
+        // Lit as PBR (default) or Toon/cel.
+        ShadingModel shadingModel = ShadingModel::PBR;
 
         // Texture ids (0 = none) � GL handles, linear unless noted
         unsigned albedoTex = 0; // sRGB internal format at upload time

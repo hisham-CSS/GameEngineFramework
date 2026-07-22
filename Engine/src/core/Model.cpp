@@ -353,6 +353,11 @@ namespace MyCoreEngine {
         shader.setFloat("uRoughness", m.roughness);
         shader.setFloat("uAO", m.ao);
 
+        // Shading model: 0 PBR, 1 Toon. Set on EVERY bind (unlike the alpha
+        // uniforms below) -- draws are NOT grouped by shading model, so a toon
+        // draw must not leave the flag stale for a following PBR draw.
+        shader.setInt("uShadingModel", static_cast<int>(m.shadingModel));
+
         // Alpha: 1 Mask (discard below cutoff), 2 Blend (output opacity*alpha).
         // Uploaded ONLY for non-opaque materials, so an opaque bind emits the
         // exact same uniform traffic it did before transparency existed -- the

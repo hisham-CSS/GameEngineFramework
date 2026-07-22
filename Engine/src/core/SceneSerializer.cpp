@@ -232,6 +232,7 @@ namespace MyCoreEngine {
                         { "opacity",     mat->opacity },
                         { "alphaCutoff", mat->alphaCutoff },
                         { "doubleSided", mat->doubleSided },
+                        { "shadingModel", static_cast<int>(mat->shadingModel) },
                     });
                 }
                 if (!jov.empty()) je["materialOverrides"] = std::move(jov);
@@ -557,6 +558,9 @@ namespace MyCoreEngine {
                     mat->opacity = glm::clamp(jo.value("opacity", mat->opacity), 0.f, 1.f);
                     mat->alphaCutoff = glm::clamp(jo.value("alphaCutoff", mat->alphaCutoff), 0.f, 1.f);
                     mat->doubleSided = jo.value("doubleSided", mat->doubleSided);
+                    const int sm = jo.value("shadingModel", static_cast<int>(mat->shadingModel));
+                    mat->shadingModel = (sm == static_cast<int>(ShadingModel::Toon))
+                        ? ShadingModel::Toon : ShadingModel::PBR;
                     ov.byIndex[slot] = std::move(mat);
                 }
                 if (!ov.byIndex.empty()) {
