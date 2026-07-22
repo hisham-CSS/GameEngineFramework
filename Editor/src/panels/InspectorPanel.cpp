@@ -196,12 +196,28 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
                 // --- material overrides (per model slot) ---
                 if (mc && mc->model) {
                     const auto& mats = mc->model->Materials();
+                    // Only show material slots that meshes actually USE. Import
+                    // often leaves a spurious empty default material (e.g.
+                    // Assimp adds one for OBJ) that no mesh references -- listing
+                    // it as "Material 1" is pure confusion: making it unique or
+                    // editing it has no visible effect because nothing renders
+                    // with it. Slots are relabelled with a running 1-based
+                    // number over the USED ones, so the first real material is
+                    // "Material 1" even if its import slot is 1.
+                    std::vector<bool> slotUsed(mats.size(), false);
+                    for (const auto& mesh : mc->model->Meshes()) {
+                        const size_t s = mesh.MaterialIndex();
+                        if (s < slotUsed.size()) slotUsed[s] = true;
+                    }
                     if (!mats.empty() && ImGui::TreeNodeEx("Materials", ImGuiTreeNodeFlags_DefaultOpen)) {
                         auto* overrides = reg.try_get<MaterialOverrides>(selected);
+                        int shownNo = 0; // friendly 1-based number over used slots
                         for (size_t i = 0; i < mats.size(); ++i) {
+                            if (!slotUsed[i]) continue; // hide phantom/unused slots
                             auto& shared = mats[i];
+                            ++shownNo;
                             ImGui::PushID((int)i);
-                            if (ImGui::TreeNode("Mat", "Material %d", (int)i + 1)) {
+                            if (ImGui::TreeNode("Mat", "Material %d", shownNo)) {
                                 char lblBase[48], lblEmi[48], lblMet[48], lblRgh[48], lblAO[48];
                                 snprintf(lblBase, sizeof(lblBase), "Material %d base color", (int)i + 1);
                                 snprintf(lblEmi,  sizeof(lblEmi),  "Material %d emissive",   (int)i + 1);
@@ -248,6 +264,13 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
                                     ImGui::TextDisabled("(override)");
                                     float base[3] = { editing->baseColor.r, editing->baseColor.g, editing->baseColor.b };
                                     if (ImGui::ColorEdit3("Base Color", base)) editing->baseColor = { base[0], base[1], base[2] };
+                                    if (ImGui::IsItemHovered()) {
+                                        ImGui::SetTooltip(
+                                            "TINT, multiplied over the albedo texture -- not a fill colour.\n"
+                                            "White (1,1,1) leaves the texture untouched; black makes the whole\n"
+                                            "material black. It applies to EVERY mesh that uses this material,\n"
+                                            "so on a single-material model it recolours the whole object.");
+                                    }
                                     trackItem(lblBase);
                                     float emi[3] = { editing->emissive.r,  editing->emissive.g,  editing->emissive.b };
                                     if (ImGui::ColorEdit3("Emissive", emi))  editing->emissive = { emi[0], emi[1], emi[2] };
