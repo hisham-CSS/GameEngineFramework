@@ -4,11 +4,13 @@
 
 #include "Engine.h"                 // Renderer/Scene/Shader headers aggregated or include individually
 #include "EditorImGuiLayer.h"
+#include "EditorTitleBar.h"         // borderless window + custom title-bar caption
 #include "ImGuiInputMap.h"
 #include "panels/SceneHierarchyPanel.h"
 #include "panels/InspectorPanel.h"
 
 #include "imgui.h"
+#include "imgui_internal.h"  // BeginViewportSideBar: stack the title + menu rows
 #include "ImGuizmo.h"
 
 #include <glm/gtc/type_ptr.hpp>
@@ -38,6 +40,12 @@ void EditorApplication::Run() {
     SetOnContextReady([this, &scene]() {
         // GL context + GLAD are ready here
         ui_.Init(GetNativeWindow());
+
+        // Strip the OS title bar and drive our own (drawn in DrawMainMenuBar).
+        // Must run after ui_.Init so we subclass ON TOP of ImGui's GLFW
+        // wndproc hook and chain to it. Native resize/snap/maximise survive;
+        // on non-Windows this is a no-op and the OS title bar stays.
+        EditorTitleBar::Install(GetNativeWindow());
 
         // Multi-viewport input routing: keyboard/mouse polls go through
         // ImGui (aggregated across detached OS windows), and the editor
@@ -185,7 +193,7 @@ void EditorApplication::Run() {
             if (panels_.assets) {
                 const AssetBrowserActions aba = assetBrowser_.Draw(
                     scene.registry, selected_, assetIndex_, playing_,
-                    (int)pendingModelOps_.size(), validateRunning_);
+                    (int)pendingModelOps_.size(), validateRunning_, &panels_.assets);
                 if (!aba.loadScene.empty() && !playing_) {
                     loadSceneFromFile_(scene, aba.loadScene);
                 }
@@ -224,7 +232,7 @@ void EditorApplication::Run() {
         }
 
 		//scene hierarchy
-        if (panels_.hierarchy) hierarchy_.Draw(scene.registry, selected_, undo_);
+        if (panels_.hierarchy) hierarchy_.Draw(scene.registry, selected_, undo_, &panels_.hierarchy);
 
 		//inspector: an entity newly selected this frame (hierarchy click,
 		// viewport pick, spawn landing) reclaims it from the asset view;
@@ -244,9 +252,10 @@ void EditorApplication::Run() {
             }
         }
         if (assetNode) {
-            inspector_.DrawAsset(assetNode);
+            inspector_.DrawAsset(assetNode, &panels_.inspector);
         }
-        else if (inspector_.Draw(scene.registry, selected_, undo_, assets_.get(), &scripts_)) {
+        else if (inspector_.Draw(scene.registry, selected_, undo_, assets_.get(), &scripts_,
+                                 &panels_.inspector)) {
             // caster set changed without a transform dirtying (model swap /
             // remove / shadow toggle): stale shadows stay baked otherwise
             forceAllCSMUpdate_();
@@ -376,7 +385,7 @@ void EditorApplication::DrawViewport(MyCoreEngine::Scene& scene)
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(2, 2));
     // "Scene" = the editor god camera; the "Game" panel shows the primary
     // camera entity's view (renamed from "Viewport" — re-dock once)
-    const bool open = ImGui::Begin("Scene", nullptr,
+    const bool open = ImGui::Begin("Scene", &panels_.scene,
         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::PopStyleVar();
     if (!open) {
@@ -575,7 +584,7 @@ void EditorApplication::DrawGameViewport(MyCoreEngine::Scene& scene,
 
     ImGui::SetNextWindowSize(ImVec2(640, 400), ImGuiCond_FirstUseEver);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(2, 2));
-    const bool open = ImGui::Begin("Game", nullptr,
+    const bool open = ImGui::Begin("Game", &panels_.game,
         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::PopStyleVar();
     if (!open) {
@@ -878,78 +887,194 @@ void EditorApplication::DrawMainMenuBar(MyCoreEngine::Scene& scene)
     const bool canEdit = !playing_;
     bool openNew = false, openOpen = false, openSaveAs = false;
 
-    if (ImGui::BeginMainMenuBar()) {
-        if (ImGui::BeginMenu("File")) {
-            if (ImGui::MenuItem("New Scene", nullptr, false, canEdit))  openNew = true;
-            if (ImGui::MenuItem("Open Scene...", nullptr, false, canEdit)) openOpen = true;
-            ImGui::Separator();
-            if (ImGui::MenuItem("Save Scene", "Ctrl+S", false, canEdit)) saveScene_(scene);
-            if (ImGui::MenuItem("Save Scene As...", nullptr, false, canEdit)) openSaveAs = true;
-            if (ImGui::MenuItem("Save All", "Ctrl+Shift+S", false, canEdit)) saveAll_(scene);
+    GLFWwindow* win = GetNativeWindow();
+    ImGuiViewport* vp = ImGui::GetMainViewport();
+    const float rowH = ImGui::GetFrameHeight();
+
+    // ======================= Row 1: custom title bar ========================
+    // The window is borderless (EditorTitleBar stripped the OS caption), so we
+    // draw our own top strip: the engine mark (left), the scene/document name
+    // (centre, like a real title bar), and the window buttons (right). Two Up
+    // side bars stack here -- this one on top, the menu row below -- and each
+    // reserves work-area height so the dockspace sits under both. The empty
+    // remainder is reported as the draggable caption, keeping native move /
+    // Aero-snap / double-click-maximise.
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    if (ImGui::BeginViewportSideBar("##CatSplatTitleBar", vp, ImGuiDir_Up, rowH,
+            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
+            ImGuiWindowFlags_NoSavedSettings)) {
+        const ImVec2 barPos = ImGui::GetWindowPos();   // screen-space origin
+        const float  barW   = ImGui::GetWindowWidth();
+        const float  barH   = ImGui::GetWindowHeight();
+        EditorTitleBar::SetBarHeight(barH);
+        const float textY = (barH - ImGui::GetTextLineHeight()) * 0.5f;
+
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        // Paint the strip in the menu-bar tone so both rows read as one slab
+        // of chrome (the side bar's own bg is the lighter window colour).
+        dl->AddRectFilled(barPos, ImVec2(barPos.x + barW, barPos.y + barH),
+                          ImGui::GetColorU32(ImGuiCol_MenuBarBg));
+
+        // Engine mark, far left, in the accent amber.
+        ImGui::SetCursorPos(ImVec2(12.f, textY));
+        ImGui::TextColored(ImVec4(0.945f, 0.631f, 0.251f, 1.f), "Cat Splat Engine");
+
+        // Window buttons (minimise / maximise-restore / close), hard right,
+        // drawn on the draw list so they don't depend on font glyphs.
+        const float btnW = 46.f;
+        const float btnsX = barW - btnW * 3.f;          // local X of first button
+        const float btnsScreenX = barPos.x + btnsX;
+
+        auto winBtn = [&](const char* id, int kind, bool danger, float lx) -> bool {
+            ImGui::SetCursorPos(ImVec2(lx, 0.f));
+            const ImVec2 p0 = ImGui::GetCursorScreenPos();
+            ImGui::InvisibleButton(id, ImVec2(btnW, barH));
+            const bool clk = ImGui::IsItemClicked();
+            ImDrawList* d = ImGui::GetWindowDrawList();
+            const ImVec2 p1(p0.x + btnW, p0.y + barH);
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Save the scene AND the editor layout.");
-            ImGui::Separator();
-            if (ImGui::MenuItem("Set Current Scene as Player Startup", nullptr, false, canEdit)) {
-                setStartupScene_(currentScenePath_);
-                sceneStatus_ = buildSettingsStatus_; // surface the result in the bar
+                d->AddRectFilled(p0, p1, danger ? IM_COL32(200, 60, 55, 255)
+                                                : ImGui::GetColorU32(ImGuiCol_ButtonHovered));
+            const ImU32 fg = ImGui::GetColorU32(ImGuiCol_Text);
+            const ImVec2 c((p0.x + p1.x) * 0.5f, (p0.y + p1.y) * 0.5f);
+            const float r = 5.f;
+            if (kind == 0) {                    // minimise: a low bar
+                d->AddLine(ImVec2(c.x - r, c.y + r), ImVec2(c.x + r, c.y + r), fg, 1.5f);
+            } else if (kind == 1) {             // maximise / restore
+                if (glfwGetWindowAttrib(win, GLFW_MAXIMIZED)) {
+                    // two offset squares == "restore"
+                    d->AddRect(ImVec2(c.x - r + 2, c.y - r), ImVec2(c.x + r, c.y + r - 2), fg, 0.f, 0, 1.4f);
+                    d->AddRectFilled(ImVec2(c.x - r, c.y - r + 2), ImVec2(c.x + r - 2, c.y + r),
+                                     ImGui::GetColorU32(ImGuiCol_MenuBarBg));
+                    d->AddRect(ImVec2(c.x - r, c.y - r + 2), ImVec2(c.x + r - 2, c.y + r), fg, 0.f, 0, 1.4f);
+                } else {
+                    d->AddRect(ImVec2(c.x - r, c.y - r), ImVec2(c.x + r, c.y + r), fg, 0.f, 0, 1.4f);
+                }
+            } else {                            // close: an X
+                d->AddLine(ImVec2(c.x - r, c.y - r), ImVec2(c.x + r, c.y + r), fg, 1.5f);
+                d->AddLine(ImVec2(c.x - r, c.y + r), ImVec2(c.x + r, c.y - r), fg, 1.5f);
             }
-            ImGui::Separator();
-            if (ImGui::MenuItem("Exit"))
-                glfwSetWindowShouldClose(GetNativeWindow(), 1);
-            ImGui::EndMenu();
-        }
+            return clk;
+        };
 
-        if (ImGui::BeginMenu("Edit")) {
-            const bool canU = undo_.canUndo();
-            const bool canR = undo_.canRedo();
-            const auto& entries = undo_.entries();
-            const size_t cur = undo_.cursor();
-            // Show WHAT would be undone/redone, like a real editor -- the
-            // history deque is [0, cursor) applied, so cursor-1 is the next
-            // undo and cursor the next redo.
-            std::string uL = "Undo", rL = "Redo";
-            if (canU && cur >= 1 && cur - 1 < entries.size()) uL += "  " + entries[cur - 1].label;
-            if (canR && cur < entries.size())                 rL += "  " + entries[cur].label;
-            if (ImGui::MenuItem(uL.c_str(), "Ctrl+Z", false, canU)) doUndo_(scene);
-            if (ImGui::MenuItem(rL.c_str(), "Ctrl+Y", false, canR)) doRedo_(scene);
-            ImGui::Separator();
-            if (ImGui::MenuItem("Clear History", nullptr, false, canU || canR)) undo_.clear();
-            ImGui::EndMenu();
-        }
-
-        if (ImGui::BeginMenu("Window")) {
-            // Checkbox items bound straight to the visibility bools the UI loop
-            // gates each panel on.
-            ImGui::MenuItem("Scene View",  nullptr, &panels_.scene);
-            ImGui::MenuItem("Game View",   nullptr, &panels_.game);
-            ImGui::MenuItem("Hierarchy",   nullptr, &panels_.hierarchy);
-            ImGui::MenuItem("Inspector",   nullptr, &panels_.inspector);
-            ImGui::MenuItem("Assets",      nullptr, &panels_.assets);
-            ImGui::MenuItem("Information", nullptr, &panels_.information);
-            ImGui::MenuItem("Edit History",nullptr, &panels_.edit);
-            ImGui::MenuItem("Settings",    nullptr, &panels_.settings);
-            ImGui::Separator();
-            if (ImGui::MenuItem("Show All Panels")) panels_ = PanelVis{};
-            ImGui::TextDisabled("Layouts: Settings > Editor tab");
-            ImGui::EndMenu();
-        }
-
-        // Right-aligned context: the last save/load result if there is one,
-        // otherwise the current scene file, plus a Play indicator -- so "which
-        // scene / did my save work / am I editing or playing?" is answerable at
-        // a glance without a console.
+        // Scene/document status, CENTRED like a real title bar: the last
+        // save/load result, else the scene file name, with a play flag.
         const char* base = currentScenePath_;
         for (const char* p = currentScenePath_; *p; ++p)
             if (*p == '/' || *p == '\\') base = p + 1;
-        char right[384];
-        std::snprintf(right, sizeof(right), "%s%s  ",
+        char titleText[384];
+        std::snprintf(titleText, sizeof(titleText), "%s%s",
                       playing_ ? "[PLAYING]  " : "",
                       sceneStatus_.empty() ? base : sceneStatus_.c_str());
-        const float w = ImGui::CalcTextSize(right).x;
-        ImGui::SameLine(ImGui::GetWindowWidth() - w - 8.f);
-        ImGui::TextDisabled("%s", right);
-        ImGui::EndMainMenuBar();
+        // Confine the title to the free span between the engine mark and the
+        // window buttons, centred within it, and clip so a long scene path
+        // elides at the edges instead of drawing over the mark or the buttons.
+        const float titleW = ImGui::CalcTextSize(titleText).x;
+        const float markW  = ImGui::CalcTextSize("Cat Splat Engine").x;
+        const float freeL  = 12.f + markW + 16.f;   // just past the mark
+        const float freeR  = btnsX - 16.f;          // just before the buttons
+        if (freeR - freeL > 24.f) {                 // enough room to bother
+            float sx = freeL + ((freeR - freeL) - titleW) * 0.5f;
+            if (sx < freeL) sx = freeL;             // never start before the zone
+            ImGui::PushClipRect(ImVec2(barPos.x + freeL, barPos.y),
+                                ImVec2(barPos.x + freeR, barPos.y + barH), true);
+            ImGui::SetCursorPos(ImVec2(sx, textY));
+            ImGui::TextDisabled("%s", titleText);
+            ImGui::PopClipRect();
+        }
+
+        if (winBtn("##min", 0, false, btnsX))         glfwIconifyWindow(win);
+        if (winBtn("##max", 1, false, btnsX + btnW)) {
+            if (glfwGetWindowAttrib(win, GLFW_MAXIMIZED)) glfwRestoreWindow(win);
+            else                                          glfwMaximizeWindow(win);
+        }
+        if (winBtn("##close", 2, true, btnsX + btnW * 2)) glfwSetWindowShouldClose(win, 1);
+
+        // The whole strip except the buttons is the drag caption -- but NOT
+        // while a menu/modal popup is open, or clicking the strip would drag the
+        // window out from under it instead of dismissing it. The buttons get
+        // their own exclusion so their top/right edges click, not resize.
+        const bool popupOpen = ImGui::IsPopupOpen(
+            "", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+        if (popupOpen)
+            EditorTitleBar::SetDragRegion(0, 0, 0, 0);
+        else
+            EditorTitleBar::SetDragRegion(barPos.x, barPos.y, btnsScreenX, barPos.y + barH);
+        EditorTitleBar::SetButtonsRegion(btnsScreenX, barPos.y,
+                                         barPos.x + barW, barPos.y + barH);
     }
+    ImGui::End();
+    ImGui::PopStyleVar(2);
+
+    // ========================= Row 2: menu bar ==============================
+    // File / Edit / Window on their own row directly under the title bar
+    // (Unity-style). A second Up side bar whose window carries a real menu bar.
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    if (ImGui::BeginViewportSideBar("##CatSplatMenuBar", vp, ImGuiDir_Up, rowH,
+            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings |
+            ImGuiWindowFlags_MenuBar)) {
+        if (ImGui::BeginMenuBar()) {
+            if (ImGui::BeginMenu("File")) {
+                if (ImGui::MenuItem("New Scene", nullptr, false, canEdit))  openNew = true;
+                if (ImGui::MenuItem("Open Scene...", nullptr, false, canEdit)) openOpen = true;
+                ImGui::Separator();
+                if (ImGui::MenuItem("Save Scene", "Ctrl+S", false, canEdit)) saveScene_(scene);
+                if (ImGui::MenuItem("Save Scene As...", nullptr, false, canEdit)) openSaveAs = true;
+                if (ImGui::MenuItem("Save All", "Ctrl+Shift+S", false, canEdit)) saveAll_(scene);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Save the scene AND the editor layout.");
+                ImGui::Separator();
+                if (ImGui::MenuItem("Set Current Scene as Player Startup", nullptr, false, canEdit)) {
+                    setStartupScene_(currentScenePath_);
+                    sceneStatus_ = buildSettingsStatus_; // surface the result in the bar
+                }
+                ImGui::Separator();
+                if (ImGui::MenuItem("Exit"))
+                    glfwSetWindowShouldClose(GetNativeWindow(), 1);
+                ImGui::EndMenu();
+            }
+
+            if (ImGui::BeginMenu("Edit")) {
+                const bool canU = undo_.canUndo();
+                const bool canR = undo_.canRedo();
+                const auto& entries = undo_.entries();
+                const size_t cur = undo_.cursor();
+                // Show WHAT would be undone/redone, like a real editor -- the
+                // history deque is [0, cursor) applied, so cursor-1 is the next
+                // undo and cursor the next redo.
+                std::string uL = "Undo", rL = "Redo";
+                if (canU && cur >= 1 && cur - 1 < entries.size()) uL += "  " + entries[cur - 1].label;
+                if (canR && cur < entries.size())                 rL += "  " + entries[cur].label;
+                if (ImGui::MenuItem(uL.c_str(), "Ctrl+Z", false, canU)) doUndo_(scene);
+                if (ImGui::MenuItem(rL.c_str(), "Ctrl+Y", false, canR)) doRedo_(scene);
+                ImGui::Separator();
+                if (ImGui::MenuItem("Clear History", nullptr, false, canU || canR)) undo_.clear();
+                ImGui::EndMenu();
+            }
+
+            if (ImGui::BeginMenu("Window")) {
+                // Checkbox items bound straight to the visibility bools the UI
+                // loop gates each panel on.
+                ImGui::MenuItem("Scene View",  nullptr, &panels_.scene);
+                ImGui::MenuItem("Game View",   nullptr, &panels_.game);
+                ImGui::MenuItem("Hierarchy",   nullptr, &panels_.hierarchy);
+                ImGui::MenuItem("Inspector",   nullptr, &panels_.inspector);
+                ImGui::MenuItem("Assets",      nullptr, &panels_.assets);
+                ImGui::MenuItem("Information", nullptr, &panels_.information);
+                ImGui::MenuItem("Edit History",nullptr, &panels_.edit);
+                ImGui::MenuItem("Settings",    nullptr, &panels_.settings);
+                ImGui::Separator();
+                if (ImGui::MenuItem("Show All Panels")) panels_ = PanelVis{};
+                ImGui::TextDisabled("Layouts: Settings > Editor tab");
+                ImGui::EndMenu();
+            }
+            ImGui::EndMenuBar();
+        }
+    }
+    ImGui::End();
+    ImGui::PopStyleVar(2);
 
     // Keyboard shortcuts. Gated on not-typing so Ctrl+S in a text field is a
     // normal keystroke, and on canEdit for the same reason as the menu items.
@@ -1312,7 +1437,7 @@ void EditorApplication::DrawRenderingToggles(MyCoreEngine::Scene& scene)
 void EditorApplication::DrawInformationPanel(const MyCoreEngine::Scene& scene, float dt)
 {
     const auto& rs = scene.GetRenderStats();
-    ImGui::Begin("Information", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+    ImGui::Begin("Information", &panels_.information, ImGuiWindowFlags_AlwaysAutoResize);
     if (ImGui::CollapsingHeader("Rendering Stats", ImGuiTreeNodeFlags_None)) {
         ImGui::Text("dt: %.3f ms (%.1f FPS)", dt * 1000.f, dt > 0.f ? 1.f / dt : 0.f);
         // GPU string: a hybrid laptop silently on the Intel iGPU is ~4-5x
@@ -1674,7 +1799,7 @@ void EditorApplication::doRedo_(MyCoreEngine::Scene& scene)
 void EditorApplication::DrawEditHistory(MyCoreEngine::Scene& scene)
 {
     ImGui::SetNextWindowSize(ImVec2(280, 320), ImGuiCond_FirstUseEver);
-    if (ImGui::Begin("Edit")) {
+    if (ImGui::Begin("Edit", &panels_.edit)) {
         if (playing_) {
             // play-mode changes are discarded by Stop, not undone; rewinding
             // history against play state would corrupt both

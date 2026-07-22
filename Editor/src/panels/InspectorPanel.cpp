@@ -22,9 +22,9 @@ static bool DragFloat3(const char* label, float v[3], float speed = 0.1f) {
 
 bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
                           UndoHistory& undo, MyCoreEngine::AssetManager* assets,
-                          const MyCoreEngine::ScriptWorld* scripts) {
+                          const MyCoreEngine::ScriptWorld* scripts, bool* pOpen) {
     bool shadowsDirty = false;
-    if (ImGui::Begin("Inspector")) {
+    if (ImGui::Begin("Inspector", pOpen)) {
         if (selected == entt::null || !reg.valid(selected)) {
             ImGui::TextUnformatted("No entity selected.");
             ImGui::End();
@@ -681,7 +681,7 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
     return shadowsDirty;
 };
 
-void InspectorPanel::DrawAsset(const void* indexNode) {
+void InspectorPanel::DrawAsset(const void* indexNode, bool* pOpen) {
     using MyCoreEngine::AssetIndex;
     const auto& node = *static_cast<const AssetIndex::Node*>(indexNode);
 
@@ -695,7 +695,7 @@ void InspectorPanel::DrawAsset(const void* indexNode) {
         importMaxDim_ = MyCoreEngine::LoadImportSettings(node.relPath).maxDimension;
     }
 
-    if (ImGui::Begin("Inspector")) {
+    if (ImGui::Begin("Inspector", pOpen)) {
         ImGui::TextWrapped("%s", node.name.c_str());
         const char* kindLabel = "Asset";
         switch (node.kind) {

@@ -30,9 +30,12 @@ public:
     // panel never mutates the tree itself. `loadingCount` = async model
     // loads in flight (toolbar indicator); `validating` disables the
     // Validate button while a cooker run is active.
+    // pOpen (optional) drives the window's close button; the editor gates the
+    // whole Draw on the same bool so the tab X hides the Assets panel.
     AssetBrowserActions Draw(entt::registry& reg, entt::entity selected,
                              MyCoreEngine::AssetIndex& index, bool playing,
-                             int loadingCount, bool validating);
+                             int loadingCount, bool validating,
+                             bool* pOpen = nullptr);
 
     static constexpr const char* kAssetPayload = "CSE_ASSET_MODEL"; // char[260] path
 

@@ -17,9 +17,12 @@ public:
     // dirtying (model assign/replace/remove, Casts Shadows toggle) — the
     // editor must force a CSM rebuild or stale shadows stay baked while
     // the camera is stationary.
+    // pOpen (optional) drives the window's close button; the editor gates the
+    // whole Draw on the same bool so the tab X hides the Inspector.
     bool Draw(entt::registry& reg, entt::entity selected, UndoHistory& undo,
               MyCoreEngine::AssetManager* assets = nullptr,
-              const MyCoreEngine::ScriptWorld* scripts = nullptr);
+              const MyCoreEngine::ScriptWorld* scripts = nullptr,
+              bool* pOpen = nullptr);
 
     // Asset view (P4-3 phase 4): drawn INSTEAD of the entity view when an
     // asset is highlighted in the Assets panel (Unity-style: the last
@@ -27,7 +30,7 @@ public:
     // this header engine-include-free, matching the browser panel).
     // Textures get an Import Settings section backed by the .import
     // sidecar; other kinds show file info only for now.
-    void DrawAsset(const void* indexNode);
+    void DrawAsset(const void* indexNode, bool* pOpen = nullptr);
 
 private:
     // asset-view cache, refreshed when the highlighted path changes

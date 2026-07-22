@@ -4,6 +4,8 @@ add_executable(Editor
     src/EditorApplication.h
     src/EditorImGuiLayer.cpp
     src/EditorImGuiLayer.h
+    src/EditorTitleBar.cpp
+    src/EditorTitleBar.h
     src/ImGuiInputMap.h
     src/UndoHistory.cpp
     src/UndoHistory.h

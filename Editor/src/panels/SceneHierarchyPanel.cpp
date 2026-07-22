@@ -26,9 +26,10 @@ namespace {
     constexpr const char* kDragPayload = "CSE_ENTITY";
 }
 
-bool SceneHierarchyPanel::Draw(entt::registry& reg, entt::entity& selected, UndoHistory& undo) {
+bool SceneHierarchyPanel::Draw(entt::registry& reg, entt::entity& selected, UndoHistory& undo,
+                               bool* pOpen) {
     bool changed = false;
-    if (ImGui::Begin("Scene Hierarchy")) {
+    if (ImGui::Begin("Scene Hierarchy", pOpen)) {
         if (ImGui::Button("+ Create Entity")) {
             entt::entity e = reg.create();
             reg.emplace<Name>(e, Name{ "Entity" });

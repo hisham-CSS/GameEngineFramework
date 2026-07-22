@@ -185,13 +185,14 @@ AssetBrowserActions AssetBrowserPanel::drawContents_(const void* nodePtr,
 
 AssetBrowserActions AssetBrowserPanel::Draw(entt::registry& reg, entt::entity selected,
                                             AssetIndex& index, bool playing,
-                                            int loadingCount, bool validating) {
+                                            int loadingCount, bool validating,
+                                            bool* pOpen) {
     AssetBrowserActions actions;
 
     if (selectedDir_.empty()) selectedDir_ = index.root().relPath;
 
     ImGui::SetNextWindowSize(ImVec2(460, 380), ImGuiCond_FirstUseEver);
-    if (ImGui::Begin("Assets")) {
+    if (ImGui::Begin("Assets", pOpen)) {
         // the selected folder can vanish between rescans — or be REPLACED
         // by a file with the same name: fall back to the nearest existing
         // ancestor DIRECTORY (worst case the root itself)
