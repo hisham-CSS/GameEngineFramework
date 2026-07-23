@@ -79,7 +79,36 @@ A build with neither still works — the dependency-free "Simple" backend is alw
 
 ## Configuring and building
 
+The repo ships a committed **`CMakePresets.json`**, so the same named configurations show
+up everywhere the project is opened — Visual Studio 2022, VS Code, CLion, and the command
+line all read it. It needs one thing from the environment: **`VCPKG_ROOT`**, pointing at
+your vcpkg checkout, so the toolchain resolves without a machine-specific path baked into
+the file.
+
+> Visual Studio and the *Developer* command prompts set `VCPKG_ROOT` to VS's bundled vcpkg
+> automatically, so inside VS you usually need to do nothing. For a plain shell, set it once:
+> `setx VCPKG_ROOT C:\path\to\vcpkg` (then restart the shell). On Linux, export it from your
+> profile.
+
 From the repo root:
+
+```bat
+cmake --list-presets
+cmake --preset x64-relwithdebinfo
+cmake --build --preset x64-relwithdebinfo
+```
+
+| Preset | Build type | Unit tests |
+| --- | --- | --- |
+| `x64-debug` / `x64-release` / `x64-relwithdebinfo` | Debug / Release / RelWithDebInfo | **off** |
+| `x64-relwithdebinfo-tests` | RelWithDebInfo | **on** — run with `ctest --preset x64-relwithdebinfo-tests` |
+
+The app presets leave tests **off** so the editor and player are the only launch targets in
+the IDE's Startup Item list; build and run the suite from the `-tests` preset. In Visual
+Studio, pick a preset from the configuration dropdown.
+
+**Without presets** (or on a machine where you'd rather not set `VCPKG_ROOT`), pass the
+toolchain explicitly — this is the raw build the presets wrap:
 
 ```bat
 cmake -B out/build/x64-Release -S . -G Ninja ^
@@ -89,12 +118,10 @@ cmake --build out/build/x64-Release
 ```
 
 (`^` is the `cmd.exe` line continuation. In PowerShell use a backtick, in bash a backslash.)
-
-Substitute `Debug` or `RelWithDebInfo` for `Release` to get the other two configurations.
-
-If you open the folder in Visual Studio 2022 instead, VS drives the same CMake with a
-`CMakeSettings.json`. Note that `CMakeSettings.json` and `out/` are both in `.gitignore` —
-your local configuration list is yours, not part of the repo.
+Substitute `Debug` or `RelWithDebInfo` for `Release` to get the other configurations. A
+manual configure builds the tests by default (`ENABLE_TESTS` defaults `ON` in
+`CMakeLists.txt`); pass `-DENABLE_TESTS=OFF` to skip them. `out/` is in `.gitignore`, so your
+build trees are yours; `CMakePresets.json` is committed so the configuration *list* is shared.
 
 The first configure is slow: vcpkg has to build the manifest's dependencies. That cost is
 one-time per toolchain, but an MSVC update invalidates the vcpkg binary cache and re-triggers
