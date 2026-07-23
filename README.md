@@ -108,18 +108,31 @@ if its package is absent, so a minimal build still runs (with the Simple/Null ba
 - **CMake** 3.21+, **Ninja**
 - **vcpkg** (manifest mode)
 - A **C++17 compiler** — MSVC 2022 (Windows) or gcc ≥ 11 / clang ≥ 14 (Linux)
+- **`CSE_VCPKG_ROOT`** set to your vcpkg checkout. The committed CMake presets read it — this
+  is **per machine** (it is not, and can't be, stored in the repo).
 
 ### Windows
+
+Set `CSE_VCPKG_ROOT` once (then restart the shell / Visual Studio so it's picked up):
+
+```bash
+setx CSE_VCPKG_ROOT C:\path\to\vcpkg
+```
+
+Then build with the committed presets:
 
 ```bash
 git clone https://github.com/hisham-CSS/GameEngineFramework
 cd GameEngineFramework
-cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=[vcpkg]/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo
-cmake --build build
+cmake --preset x64-relwithdebinfo
+cmake --build --preset x64-relwithdebinfo
 ```
 
-(Visual Studio users can open the folder directly — `CMakeSettings.json` provides the
-`x64-Debug` / `x64-Release` / `x64-RelWithDebInfo` configurations.)
+Visual Studio users can open the folder directly and pick a preset from the configuration
+dropdown — `CMakePresets.json` provides `x64-debug` / `x64-release` / `x64-relwithdebinfo`
+(tests off) plus `x64-relwithdebinfo-tests`. Without setting `CSE_VCPKG_ROOT` first, configure
+fails with `Could not find toolchain file`. (To skip the variable, pass the toolchain by hand
+instead: `cmake -B build -S . -G Ninja -DCMAKE_TOOLCHAIN_FILE=[vcpkg]/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo`.)
 
 ### Linux
 
@@ -133,13 +146,16 @@ scripts/linux-build.sh
 ### Running
 
 Executables share one output directory, so a scene saved in the Editor is immediately
-runnable in the Player:
+runnable in the Player. `<build>` is your configure output dir — `out/build/<preset>` for a
+preset build (e.g. `out/build/x64-relwithdebinfo`), or `build` for the manual/Linux commands
+above:
 
-- `build/build/bin/<Config>/Editor.exe`
-- `build/build/bin/<Config>/Player.exe [scene.json]` (defaults to `Exported/scene.json`)
-- `build/build/bin/<Config>/AssetCooker.exe validate Exported`
+- `<build>/build/bin/<Config>/Editor.exe`
+- `<build>/build/bin/<Config>/Player.exe [scene.json]` (defaults to `Exported/scene.json`)
+- `<build>/build/bin/<Config>/AssetCooker.exe validate Exported`
 
-Tests: `ctest --test-dir build` (or run the `test_*` executables directly).
+Tests: `ctest --preset x64-relwithdebinfo-tests` (or `ctest --test-dir <build>`, or run the
+`test_*` executables directly).
 
 ### Shipping a build
 

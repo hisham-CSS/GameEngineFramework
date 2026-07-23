@@ -44,6 +44,16 @@ Unit tests are built by default; `option(ENABLE_TESTS "Build unit tests" ON)` tu
 4. **vcpkg**, used in **manifest mode**. There is a `vcpkg.json` at the repo root, so you do
    not install packages by hand — pointing CMake at the vcpkg toolchain file is enough and
    vcpkg restores the manifest during configure.
+5. **`CSE_VCPKG_ROOT` — set this once on *every* machine you build on.** The committed CMake
+   presets read your vcpkg location from this variable (it is deliberately not the standard
+   `VCPKG_ROOT` — see [Configuring and building](#configuring-and-building) for why). Set it,
+   then restart Visual Studio / your shell so it is inherited:
+   ```bat
+   setx CSE_VCPKG_ROOT C:\path\to\vcpkg
+   ```
+   It is not stored in the repo (every machine's vcpkg lives somewhere different), so a fresh
+   clone will not have it. Skip this step and every preset fails to configure with
+   `Could not find toolchain file: /scripts/buildsystems/vcpkg.cmake`.
 
 `vcpkg-configuration.json` pins the default registry to a specific vcpkg baseline commit, so
 everyone resolves the same package versions.
