@@ -41,20 +41,28 @@ def run_ffmpeg(args):
         sys.exit(f"ffmpeg failed: {r.stderr.strip()}")
 
 
-def render(src, crop, size, margin_pct, bg, out_path, pix_fmt):
+def render(src, crop, size, margin_pct, bg, fit, out_path, pix_fmt):
     """Crop the art, centre it on a size x size tile, write raw/png output."""
     inner = size - 2 * max(0, round(size * margin_pct / 100.0))
     art = f"[0:v]crop={crop}[c];" if crop else "[0:v]null[c];"
+    if fit == "cover":
+        # fill the square and centre-crop the overflow: a non-square logo
+        # otherwise only occupies its short axis and looks undersized next to
+        # square app icons in the taskbar
+        shape = (f"scale=w={inner}:h={inner}:"
+                 f"force_original_aspect_ratio=increase:flags=lanczos,"
+                 f"crop={inner}:{inner}")
+    else:  # contain: the whole artwork stays visible
+        shape = (f"scale=w={inner}:h={inner}:"
+                 f"force_original_aspect_ratio=decrease:flags=lanczos")
     if bg.lower() == "none":
         # transparent tile: pad instead of overlaying onto a colour source
-        graph = (f"{art}[c]scale=w={inner}:h={inner}:"
-                 f"force_original_aspect_ratio=decrease:flags=lanczos,"
+        graph = (f"{art}[c]{shape},"
                  f"pad={size}:{size}:(ow-iw)/2:(oh-ih)/2:color=black@0.0,"
                  f"format={pix_fmt}")
     else:
         graph = (f"{art}color=c={bg}:s={size}x{size}[bg];"
-                 f"[c]scale=w={inner}:h={inner}:"
-                 f"force_original_aspect_ratio=decrease:flags=lanczos[a];"
+                 f"[c]{shape}[a];"
                  f"[bg][a]overlay=(W-w)/2:(H-h)/2,format={pix_fmt}")
     fmt = ["-f", "rawvideo"] if str(out_path).endswith(".raw") else []
     run_ffmpeg(["-i", str(src), "-filter_complex", graph, "-frames:v", "1"]
@@ -78,6 +86,9 @@ def main():
     ap.add_argument("source", help="source image (anything ffmpeg decodes)")
     ap.add_argument("--crop", default=None, help="x,y,w,h emblem crop in source pixels")
     ap.add_argument("--bg", default="white", help="tile colour, or 'none' (default: white)")
+    ap.add_argument("--fit", default="contain", choices=["contain", "cover"],
+                    help="contain: whole art visible; cover: fill the square, "
+                         "centre-cropping a non-square logo (default: contain)")
     ap.add_argument("--margin", type=float, default=10.0, help="art padding %% (default 10)")
     ap.add_argument("--ico", required=True, help="output .ico path")
     ap.add_argument("--png", default=None, help="optional 256px png (runtime window icon)")
@@ -93,10 +104,10 @@ def main():
         images = []  # (size, ico-entry payload, is_png)
         for s in SIZES_DIB:
             raw = td / f"{s}.raw"
-            render(a.source, crop, s, a.margin, a.bg, raw, "bgra")
+            render(a.source, crop, s, a.margin, a.bg, a.fit, raw, "bgra")
             images.append((s, dib_entry(s, raw.read_bytes()), False))
         png256 = td / "256.png"
-        render(a.source, crop, SIZE_PNG, a.margin, a.bg, png256, "rgba")
+        render(a.source, crop, SIZE_PNG, a.margin, a.bg, a.fit, png256, "rgba")
         images.append((SIZE_PNG, png256.read_bytes(), True))
 
         # assemble: ICONDIR + one ICONDIRENTRY per image + payloads
