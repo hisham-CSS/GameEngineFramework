@@ -29,6 +29,12 @@ struct DrawItem {
     // items_ at all (they go to a separately sorted transparent list).
     int       alphaMode = 0;
     bool      doubleSided = false;
+    // 0 PBR, 1 Toon. MUST be part of the batch key: a run is drawn with ONE
+    // material bind (items_[first]), so instances with different shading models
+    // that share textures would otherwise merge into one run and all render as
+    // whichever item happened to be first after culling -- a whole batch of
+    // objects flipping PBR<->Toon as the camera moved.
+    int       shadingModel = 0;
 };
 
 // Tag component: add to an entity to skip it from shadow maps.

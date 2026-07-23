@@ -445,6 +445,7 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
                 di.texKey = texKeyFromMaterial_(*m);
                 di.alphaMode = static_cast<int>(m->alphaMode);
                 di.doubleSided = m->doubleSided;
+                di.shadingModel = static_cast<int>(m->shadingModel);
             }
             else {
             // Fallback: keep old key if no material (rare)
@@ -475,6 +476,7 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
             // (opaque + single-sided) form a contiguous prefix. All-false for a
             // conventional opaque scene, so the order is unchanged there.
             if (a.doubleSided != b.doubleSided) return !a.doubleSided;         // false (0) sorts first
+            if (a.shadingModel != b.shadingModel) return a.shadingModel < b.shadingModel; // PBR/Toon split into separate runs
             if (a.texKey != b.texKey) return a.texKey < b.texKey;              // bucket by textures
             if (a.mesh != b.mesh)   return (uintptr_t)a.mesh < (uintptr_t)b.mesh; // group identical VAOs
             if (a.lod != b.lod)     return a.lod < b.lod;                       // instanced runs share a LOD
@@ -494,13 +496,15 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
         const int lod = items_[i].lod;
         const int amode = items_[i].alphaMode;
         const bool ds = items_[i].doubleSided;
+        const int sm = items_[i].shadingModel;
         std::size_t runEnd = i + 1;
         while (runEnd < items_.size() &&
             items_[runEnd].texKey == key &&
             items_[runEnd].mesh == mesh &&
             items_[runEnd].lod == lod &&
             items_[runEnd].alphaMode == amode &&
-            items_[runEnd].doubleSided == ds) { // homogeneous in mode AND cull state
+            items_[runEnd].doubleSided == ds &&
+            items_[runEnd].shadingModel == sm) { // homogeneous in mode, cull state AND shading
             ++runEnd;
         }
         const std::size_t count = runEnd - i;
@@ -570,6 +574,7 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
     uint64_t currentKey = ~0ull;
     const Mesh* currentMesh = nullptr;
     int  boundAlphaMode = -1;      // alpha mode of the last-bound material
+    int  boundShadingModel = -1;   // shading model of the last-bound material
     bool cullOff = false;
     bool depthSwitchedToNormal = false;
 
@@ -603,10 +608,15 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
         // textures only), and the opaque run sorts first -- without this the
         // masked run would skip the bind, keep the opaque run's uAlphaMode=0,
         // and silently render with no cutout.
-        if (r.texKey != currentKey || r.alphaMode != boundAlphaMode) {
+        // Re-bind on shadingModel change too: a Toon run and a PBR run can share
+        // the same textures + alpha mode (same texKey), so without this the
+        // second would skip the bind and inherit the first's uShadingModel.
+        if (r.texKey != currentKey || r.alphaMode != boundAlphaMode ||
+            items_[r.first].shadingModel != boundShadingModel) {
             bindMaterialForItem_(items_[r.first], shader);
             currentKey = r.texKey;
             boundAlphaMode = r.alphaMode;
+            boundShadingModel = items_[r.first].shadingModel;
             currentMesh = r.mesh;
             stats.textureBinds++;
             stats.vaoBinds++; // BindForDraw set VAO
