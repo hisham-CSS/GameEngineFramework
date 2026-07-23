@@ -81,14 +81,24 @@ A build with neither still works — the dependency-free "Simple" backend is alw
 
 The repo ships a committed **`CMakePresets.json`**, so the same named configurations show
 up everywhere the project is opened — Visual Studio 2022, VS Code, CLion, and the command
-line all read it. It needs one thing from the environment: **`VCPKG_ROOT`**, pointing at
+line all read it. It needs one thing from the environment: **`CSE_VCPKG_ROOT`**, pointing at
 your vcpkg checkout, so the toolchain resolves without a machine-specific path baked into
-the file.
+the file. Set it once per machine:
 
-> Visual Studio and the *Developer* command prompts set `VCPKG_ROOT` to VS's bundled vcpkg
-> automatically, so inside VS you usually need to do nothing. For a plain shell, set it once:
-> `setx VCPKG_ROOT C:\path\to\vcpkg` (then restart the shell). On Linux, export it from your
-> profile.
+```bat
+setx CSE_VCPKG_ROOT C:\path\to\vcpkg
+```
+
+then restart Visual Studio / the shell so it is picked up. On Linux, export it from your
+shell profile.
+
+> **Why a custom variable and not `VCPKG_ROOT`?** Visual Studio's developer environment
+> forces `VCPKG_ROOT` to the vcpkg it bundles, overriding whatever you set. That bundled
+> vcpkg uses a different package baseline, so it ignores your populated binary cache and tries
+> to rebuild every dependency from source — and under a long project path (e.g. inside
+> OneDrive) that source build can outright fail, because some headers (draco's) run past
+> Windows' 260-character path limit. Routing the toolchain through `CSE_VCPKG_ROOT`, which VS
+> leaves alone, keeps the build on *your* vcpkg and its cache.
 
 From the repo root:
 
@@ -107,7 +117,7 @@ The app presets leave tests **off** so the editor and player are the only launch
 the IDE's Startup Item list; build and run the suite from the `-tests` preset. In Visual
 Studio, pick a preset from the configuration dropdown.
 
-**Without presets** (or on a machine where you'd rather not set `VCPKG_ROOT`), pass the
+**Without presets** (or on a machine where you'd rather not set `CSE_VCPKG_ROOT`), pass the
 toolchain explicitly — this is the raw build the presets wrap:
 
 ```bat
