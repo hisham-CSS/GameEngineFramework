@@ -4,6 +4,7 @@
 #include "GLInit.h"
 #include "Scene.h"
 #include "Shader.h"
+#include "WindowIcon.h"
 
 #include <chrono>
 #include <stdexcept>
@@ -46,6 +47,11 @@ namespace MyCoreEngine
 
 		glfwSetWindowUserPointer(window_.getGLFWwindow(), this);
 		glfwSetScrollCallback(window_.getGLFWwindow(), &Application::ScrollThunk_);
+
+		// Window-manager icon, staged with the other runtime assets. On
+		// Windows the exe's icon resource already covers this; on Linux this
+		// call is the only mechanism. Best-effort: missing file = no icon.
+		TrySetWindowIconFromFile(window_.getGLFWwindow(), "Exported/Icon/icon.png");
 		// (no framebuffer-size callback: RenderFrame tracks its output size
 		// every frame and resizes the HDR pipeline itself)
 

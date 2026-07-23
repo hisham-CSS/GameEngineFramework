@@ -16,6 +16,13 @@ add_executable(Editor
     src/panels/SceneHierarchyPanel.h "src/panels/SceneHierarchyPanel.cpp" "src/panels/InspectorPanel.h" "src/panels/InspectorPanel.cpp" "src/EditorMain.cpp")
 
 
+# App icon (Explorer/taskbar/alt-tab + GLFW window class — see resources/app.rc).
+# Windows resource script; other platforms get the icon at runtime via
+# TrySetWindowIconFromFile (Exported/Icon/icon.png).
+if(WIN32)
+    target_sources(Editor PRIVATE ${CMAKE_SOURCE_DIR}/resources/app.rc)
+endif()
+
 find_package(imgui CONFIG REQUIRED)
 find_package(imguizmo CONFIG REQUIRED)
 

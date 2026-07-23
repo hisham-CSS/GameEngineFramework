@@ -81,7 +81,8 @@ GameEngineFramework/
 ├── docs/            # Manual (docs/manual/), API index, Linux build guide, audit/roadmap
 ├── tests/           # GoogleTest unit tests
 ├── cmake/           # Build helpers (runtime-asset staging, etc.)
-├── scripts/         # Build scripts (e.g. linux-build.sh)
+├── resources/       # App icon (.ico + shared .rc; regenerate via scripts/make_icon.py)
+├── scripts/         # Build scripts (linux-build.sh, make_icon.py)
 ├── tools/           # Small dev tools
 ├── CMakeLists.txt
 ├── vcpkg.json

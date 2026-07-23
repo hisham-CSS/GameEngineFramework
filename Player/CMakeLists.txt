@@ -10,6 +10,11 @@ foreach(tgt PlayerDebug PlayerShipping)
     target_link_libraries(${tgt} PRIVATE Engine)
     target_compile_definitions(${tgt} PRIVATE GLFW_INCLUDE_NONE)
 
+    # App icon (see resources/app.rc; regenerate via scripts/make_icon.py)
+    if(WIN32)
+        target_sources(${tgt} PRIVATE ${CMAKE_SOURCE_DIR}/resources/app.rc)
+    endif()
+
     # Same output dir as the Editor so they share Exported/ (a scene saved in
     # the editor is immediately runnable in the player).
     set_target_properties(${tgt} PROPERTIES

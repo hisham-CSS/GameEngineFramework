@@ -6,6 +6,11 @@ add_executable(AssetCooker src/CookerMain.cpp)
 target_link_libraries(AssetCooker PRIVATE Engine)
 target_compile_definitions(AssetCooker PRIVATE GLFW_INCLUDE_NONE)
 
+# App icon (see resources/app.rc; regenerate via scripts/make_icon.py)
+if(WIN32)
+    target_sources(AssetCooker PRIVATE ${CMAKE_SOURCE_DIR}/resources/app.rc)
+endif()
+
 # Same output dir as the Editor/Player: shares Engine.dll + Exported/,
 # and the editor finds it next to its own exe.
 set_target_properties(AssetCooker PROPERTIES

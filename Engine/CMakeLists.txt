@@ -17,8 +17,10 @@ add_library(Engine SHARED
     src/core/Event.h 
     src/core/EventBus.h  
     src/thirdparty/stb_impl.cpp 
-    src/core/ImageIO.h 
-    src/core/ImageIO.cpp 
+    src/core/ImageIO.h
+    src/core/ImageIO.cpp
+    src/core/WindowIcon.h
+    src/core/WindowIcon.cpp 
     src/core/Model.cpp 
     src/core/Shader.cpp 
     src/core/Camera.cpp

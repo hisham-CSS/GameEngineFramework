@@ -1,0 +1,9 @@
+// Shared Windows resource script: gives every Cat Splat executable the studio
+// icon (Explorer, taskbar, alt-tab). The resource is named GLFW_ICON because
+// that is the name GLFW's Win32 backend looks up for the window-class icon —
+// one resource covers both the file icon and the live window.
+//
+// To change the icon, regenerate resources/CatSplat.ico with
+// scripts/make_icon.py (see its header for the exact command) — no code or
+// build changes needed.
+GLFW_ICON ICON "CatSplat.ico"

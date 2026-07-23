@@ -10,6 +10,8 @@ Source of truth for everything on this page: `Editor/src/EditorApplication.h`, `
 
 The editor opens a 1280x720 window titled "Cat Splat Engine" (`EditorApplication.h`). A single dockspace covers the whole window, so **every panel is dockable** — and, because multi-viewports are enabled, a panel dragged outside the main window becomes a real OS window that can live on another monitor (`EditorImGuiLayer.cpp`).
 
+Every executable carries the Cat Splat Studios splat-cat icon. On Windows it is compiled in as a resource (`resources/app.rc` → `resources/CatSplat.ico`, named `GLFW_ICON` so GLFW also uses it as the window-class icon); on Linux the engine sets the window-manager icon at runtime from the staged `Exported/Icon/icon.png` (`TrySetWindowIconFromFile`, called in `Application::InitGL`, best-effort). To change the icon, regenerate both assets with `scripts/make_icon.py` — its header documents the exact command; no code changes needed.
+
 Two ImGui settings are deliberately non-default:
 
 | Setting | Effect |
