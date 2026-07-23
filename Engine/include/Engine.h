@@ -48,3 +48,9 @@
 #include "../src/script/ScriptWorld.h"
 #include "../src/script/ScriptInstall.h"
 
+// Audio: same seam pattern. miniaudio stays behind the backend .cpp, so no
+// consumer includes <miniaudio.h>.
+#include "../src/audio/AudioTypes.h"
+#include "../src/audio/IAudioBackend.h"
+#include "../src/audio/AudioBackendRegistry.h"
+

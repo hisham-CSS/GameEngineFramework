@@ -9,6 +9,7 @@
     "nlohmann-json",
     "meshoptimizer",
     "imguizmo",
+    "miniaudio",
     "joltphysics",
     {
       "name": "physx",

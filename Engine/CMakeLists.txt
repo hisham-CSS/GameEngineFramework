@@ -73,6 +73,14 @@ add_library(Engine SHARED
     src/render/passes/ColorGradePass.cpp
     src/render/passes/BloomPass.h
     src/render/passes/BloomPass.cpp
+    src/audio/AudioTypes.h
+    src/audio/IAudioBackend.h
+    src/audio/AudioBackendRegistry.h
+    src/audio/AudioBackendRegistry.cpp
+    src/audio/backends/NullAudioBackend.h
+    src/audio/backends/MiniaudioBackend.h
+    src/audio/backends/MiniaudioBackend.cpp
+    src/audio/miniaudio_impl.cpp
     # --- physics: backend-agnostic core + pluggable backends ---
     src/physics/PhysicsTypes.h
     src/physics/PhysicsComponents.h
