@@ -301,6 +301,34 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
                                                           "(Settings > Rendering > Post & Toggles > Post-process).");
                                     }
 
+                                    // Shader-specific settings: shown only for the active shading
+                                    // model, so the panel stays relevant to what's selected.
+                                    if (editing->shadingModel == MyCoreEngine::ShadingModel::Toon) {
+                                        ImGui::SeparatorText("Toon settings");
+                                        int tb = editing->toonBands;
+                                        if (ImGui::SliderInt("Bands##toon", &tb, 2, 8)) {
+                                            char lbl[52]; snprintf(lbl, sizeof(lbl), "Material %d toon bands", (int)i + 1);
+                                            undo.record(reg, selected, lbl, [&] { editing->toonBands = tb; });
+                                        }
+                                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Number of hard diffuse steps.");
+
+                                        const float preSS = editing->toonSpecStrength;
+                                        ImGui::SliderFloat("Specular##toon", &editing->toonSpecStrength, 0.0f, 1.0f);
+                                        char lS[52]; snprintf(lS, sizeof(lS), "Material %d toon specular", (int)i + 1);
+                                        trackSliderItem(lS, editing->toonSpecStrength, preSS);
+
+                                        const float preSZ = editing->toonSpecSize;
+                                        ImGui::SliderFloat("Spec size##toon", &editing->toonSpecSize, 0.0f, 1.0f);
+                                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("0 = tiny sharp dot, 1 = broad soft sheen.");
+                                        char lZ[52]; snprintf(lZ, sizeof(lZ), "Material %d toon spec size", (int)i + 1);
+                                        trackSliderItem(lZ, editing->toonSpecSize, preSZ);
+
+                                        const float preRim = editing->toonRimStrength;
+                                        ImGui::SliderFloat("Rim##toon", &editing->toonRimStrength, 0.0f, 1.0f);
+                                        char lR[52]; snprintf(lR, sizeof(lR), "Material %d toon rim", (int)i + 1);
+                                        trackSliderItem(lR, editing->toonRimStrength, preRim);
+                                    }
+
                                     // --- Transparency ---
                                     const char* kAlpha[] = { "Opaque", "Mask (cutout)", "Blend" };
                                     int am = static_cast<int>(editing->alphaMode);

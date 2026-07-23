@@ -61,7 +61,12 @@ uniform float uPrefilterMipCount;
 
 uniform vec3 uBaseColor;
 uniform vec3 uEmissive;
-uniform int  uShadingModel;   // per-material: 0 PBR, 1 Toon/cel
+uniform int   uShadingModel;   // per-material: 0 PBR, 1 Toon/cel
+// Toon look (per-material; only read on the toon path).
+uniform float uToonBands;        // diffuse quantization steps
+uniform float uToonSpecStrength; // specular intensity
+uniform float uToonSpecSize;     // 0 = sharp small dot .. 1 = broad soft sheen
+uniform float uToonRimStrength;  // rim-light intensity
 
 // Transparency. 0 Opaque, 1 Mask, 2 Blend.
 uniform int   uAlphaMode;
@@ -320,7 +325,7 @@ void main()
             }
             if (sh < 0.0) sh = 1.0;
         }
-        const float bands = 4.0;                    // hard diffuse steps
+        float bands = max(uToonBands, 1.0);         // hard diffuse steps
 
         // Quantize the LIGHTING (N.L) only, then apply the shadow AFTER, so the
         // soft PCF penumbra stays continuous instead of being re-banded (and an
@@ -356,7 +361,8 @@ void main()
         // exponent also makes it a broader sheen rather than a tiny dot. Still
         // gated by the shadow so it never lights the dark side.
         vec3  H  = normalize(V + L);
-        float sp = pow(max(dot(N, H), 0.0), 24.0);
+        float exponent = mix(64.0, 8.0, clamp(uToonSpecSize, 0.0, 1.0)); // size -> tightness
+        float sp = pow(max(dot(N, H), 0.0), exponent);
         float specMask = smoothstep(0.20, 0.55, sp) * step(1e-3, NdotL * sh);
         float rim = smoothstep(0.65, 0.85, 1.0 - max(dot(N, V), 0.0));
 
@@ -364,8 +370,8 @@ void main()
                  ? texture(irradianceMap, N).rgb * albedo * uIBLIntensity
                  : 0.12 * albedo;
 
-        vec3 color = amb + sun + pl + vec3(specMask) * 0.35
-                   + rim * 0.25 * uLightColor + uEmissive;
+        vec3 color = amb + sun + pl + vec3(specMask) * uToonSpecStrength
+                   + rim * uToonRimStrength * uLightColor + uEmissive;
         FragColor = vec4(color, alpha);
         return;
     }

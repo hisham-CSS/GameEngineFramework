@@ -47,6 +47,14 @@ namespace MyCoreEngine {
         // Lit as PBR (default) or Toon/cel.
         ShadingModel shadingModel = ShadingModel::PBR;
 
+        // Toon/cel look, used only when shadingModel == Toon. Folded into the
+        // batch key (texKeyFromMaterial_) so instanced toon materials with
+        // different looks split into separate runs.
+        int   toonBands        = 4;     // diffuse quantization steps (2..8)
+        float toonSpecStrength = 0.35f; // specular highlight intensity, 0..1
+        float toonSpecSize     = 0.5f;  // 0 = tiny sharp dot .. 1 = broad soft sheen
+        float toonRimStrength  = 0.25f; // rim-light intensity, 0..1
+
         // Texture ids (0 = none) � GL handles, linear unless noted
         unsigned albedoTex = 0; // sRGB internal format at upload time
         unsigned normalTex = 0; // linear

@@ -233,6 +233,10 @@ namespace MyCoreEngine {
                         { "alphaCutoff", mat->alphaCutoff },
                         { "doubleSided", mat->doubleSided },
                         { "shadingModel", static_cast<int>(mat->shadingModel) },
+                        { "toonBands",        mat->toonBands },
+                        { "toonSpecStrength", mat->toonSpecStrength },
+                        { "toonSpecSize",     mat->toonSpecSize },
+                        { "toonRimStrength",  mat->toonRimStrength },
                     });
                 }
                 if (!jov.empty()) je["materialOverrides"] = std::move(jov);
@@ -561,6 +565,10 @@ namespace MyCoreEngine {
                     const int sm = jo.value("shadingModel", static_cast<int>(mat->shadingModel));
                     mat->shadingModel = (sm == static_cast<int>(ShadingModel::Toon))
                         ? ShadingModel::Toon : ShadingModel::PBR;
+                    mat->toonBands        = jo.value("toonBands",        mat->toonBands);
+                    mat->toonSpecStrength = jo.value("toonSpecStrength", mat->toonSpecStrength);
+                    mat->toonSpecSize     = jo.value("toonSpecSize",     mat->toonSpecSize);
+                    mat->toonRimStrength  = jo.value("toonRimStrength",  mat->toonRimStrength);
                     ov.byIndex[slot] = std::move(mat);
                 }
                 if (!ov.byIndex.empty()) {

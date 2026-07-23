@@ -132,7 +132,17 @@ uint64_t Scene::texKeyFromMaterial_(const Material & m) {
     h = fnv1a64_(h, m.metallicTex);
     h = fnv1a64_(h, m.roughnessTex);
     h = fnv1a64_(h, m.aoTex);
-    return h;    
+    // Shading model + toon look are part of the batch key: an instanced run is
+    // drawn with ONE material bind, so Toon/PBR (and different toon looks) must
+    // not merge into one run. Quantise the floats into the hash.
+    h = fnv1a64_(h, static_cast<uint32_t>(m.shadingModel));
+    if (m.shadingModel == ShadingModel::Toon) {
+        h = fnv1a64_(h, static_cast<uint32_t>(m.toonBands));
+        h = fnv1a64_(h, static_cast<uint32_t>(m.toonSpecStrength * 255.0f));
+        h = fnv1a64_(h, static_cast<uint32_t>(m.toonSpecSize    * 255.0f));
+        h = fnv1a64_(h, static_cast<uint32_t>(m.toonRimStrength  * 255.0f));
+    }
+    return h;
 }
 
 Scene::~Scene() {

@@ -357,6 +357,14 @@ namespace MyCoreEngine {
         // uniforms below) -- draws are NOT grouped by shading model, so a toon
         // draw must not leave the flag stale for a following PBR draw.
         shader.setInt("uShadingModel", static_cast<int>(m.shadingModel));
+        // Toon look, only for toon materials (PBR ignores these uniforms). The
+        // batch key folds these in, so a toon run's params are consistent.
+        if (m.shadingModel == MyCoreEngine::ShadingModel::Toon) {
+            shader.setFloat("uToonBands", static_cast<float>(m.toonBands));
+            shader.setFloat("uToonSpecStrength", m.toonSpecStrength);
+            shader.setFloat("uToonSpecSize", m.toonSpecSize);
+            shader.setFloat("uToonRimStrength", m.toonRimStrength);
+        }
 
         // Alpha: 1 Mask (discard below cutoff), 2 Blend (output opacity*alpha).
         // Uploaded ONLY for non-opaque materials, so an opaque bind emits the
