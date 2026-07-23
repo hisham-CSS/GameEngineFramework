@@ -352,7 +352,9 @@ lives on the Audio Source component.
 
 Type a name and press **Save Layout** to write `Layouts/<name>.ini` (the name is filtered to alphanumerics, `-`, `_`, and spaces). Saved layouts are listed with **Load** and **Delete** buttons. The session layout keeps auto-saving to `imgui.ini` on top of named ones.
 
-> **Note:** loading a layout is deferred to *between* frames. `LoadIniSettingsFromDisk` re-applies settings to live windows through the settings handlers, which must run outside `NewFrame`/`Render`.
+A **default docking layout ships with the editor** (`Exported/Layouts/DefaultLayout.ini`). On a fresh install — no `imgui.ini` yet — it is copied to `imgui.ini` so the editor opens in the intended docked arrangement instead of every panel floating stacked on top of each other. It is also seeded into `Layouts/` so you can re-apply it from the list after moving things around. Delete `imgui.ini` (next to the executable) and relaunch to return to it.
+
+> **Note:** loading a layout is deferred to *between* frames. `LoadIniSettingsFromDisk` re-applies settings to live windows through the settings handlers, which must run outside `NewFrame`/`Render`. The first-run default is an exception — it is *copied* to `imgui.ini` at startup and picked up by ImGui's normal load, because pre-loading settings before the first `NewFrame` trips an ImGui assert.
 
 ---
 
