@@ -348,20 +348,23 @@ void main()
                 * (floor(nl * bands + 0.5) / bands) * at;
         }
 
-        // Hard specular glint, analytically antialiased (fwidth) so it doesn't
-        // flicker on/off across a flat facet or drop out at distance. Killed
-        // where the sun is shadowed or the surface faces away.
+        // Toon specular: a broad, soft glint. The WIDE angular fade is the key
+        // -- on a flat/gently-curved facet N.H is near-uniform, so a narrow
+        // (near-binary) window pops the whole facet white at once as the view
+        // crosses the highlight angle and then drops it; a wide fade ramps it
+        // in/out smoothly and keeps it present over more angles. A lower
+        // exponent also makes it a broader sheen rather than a tiny dot. Still
+        // gated by the shadow so it never lights the dark side.
         vec3  H  = normalize(V + L);
-        float sp = pow(max(dot(N, H), 0.0), 48.0);
-        float e  = fwidth(sp) + 1e-3;
-        float specMask = smoothstep(0.5 - e, 0.5 + e, sp) * step(1e-3, NdotL * sh);
+        float sp = pow(max(dot(N, H), 0.0), 24.0);
+        float specMask = smoothstep(0.20, 0.55, sp) * step(1e-3, NdotL * sh);
         float rim = smoothstep(0.65, 0.85, 1.0 - max(dot(N, V), 0.0));
 
         vec3 amb = (uUseIBL == 1)
                  ? texture(irradianceMap, N).rgb * albedo * uIBLIntensity
                  : 0.12 * albedo;
 
-        vec3 color = amb + sun + pl + vec3(specMask) * 0.5
+        vec3 color = amb + sun + pl + vec3(specMask) * 0.35
                    + rim * 0.25 * uLightColor + uEmissive;
         FragColor = vec4(color, alpha);
         return;
