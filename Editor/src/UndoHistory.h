@@ -49,6 +49,11 @@ struct EntitySnapshot {
     bool hasSphereCollider = false; SphereCollider sphereCollider{};
     bool hasCapsuleCollider = false; CapsuleCollider capsuleCollider{};
     bool hasPlaneCollider = false;  PlaneCollider planeCollider{};
+    // Audio. Same closed-list rule as physics: omit these and play-stop or
+    // undo silently destroy the source (clip/volume/distances) and the
+    // listener tag, exactly the way an untracked component vanishes on restore.
+    bool hasAudioSource = false;    AudioSourceComponent audioSource{};
+    bool hasAudioListener = false;  // empty tag: presence is the whole state
 };
 
 class UndoHistory {

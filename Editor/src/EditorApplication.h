@@ -81,6 +81,9 @@ private:
     // scene exists and by New Scene. Never leaves the scene camera-less.
     void createDefaultScene_(MyCoreEngine::Scene& scene);
     bool setStartupScene_(const std::string& path); // updates buildSettingsStatus_
+    // Write masterVolume_ back to project.json, preserving the other fields
+    // (load-modify-save, like setStartupScene_).
+    void saveMasterVolume_();
     // Shadow rebuilds must hit BOTH renderers — the Game view keeps its own
     // CSM state and would otherwise hold stale baked shadows.
     void forceAllCSMUpdate_() {
@@ -198,6 +201,9 @@ private:
     // Audio: same lifecycle as physics/scripting. Voices start on Play and stop
     // on Stop, so the edit-mode scene the author is looking at stays silent.
     MyCoreEngine::AudioWorld audio_;
+    // Editor-side mirror of the master volume: AudioWorld only has a setter,
+    // so the Settings slider reads from here. Persisted in project.json.
+    float masterVolume_ = 1.0f;
 
     // Game panel focus. Gameplay receives input only while this is true, so
     // the Scene view stays navigable with the same keys while playing.

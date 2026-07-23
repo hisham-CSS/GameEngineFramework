@@ -134,6 +134,30 @@ Maps a mesh's material slot index to an override. `MaterialHandle` is `std::shar
 Each entity gets its own instance with isolated globals, even when several
 entities share one file. See [Lua Scripting](lua-scripting.md).
 
+**`AudioSourceComponent`** (in `namespace MyCoreEngine`)
+
+| Field | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `clip` | `std::string` | `""` | sound file path relative to the working dir |
+| `volume` | `float` | `1.0f` | 0..1 |
+| `pitch` | `float` | `1.0f` | 1 = normal; also scales playback speed |
+| `loop` | `bool` | `false` | |
+| `spatial` | `bool` | `true` | 3D positioned vs. plain 2D |
+| `playOnStart` | `bool` | `true` | begins on Play / Player boot |
+| `minDistance` | `float` | `1.0f` | 3D: full volume within this radius |
+| `maxDistance` | `float` | `100.0f` | 3D: attenuated to silence out here |
+
+Positioned from the entity's `Transform` (world matrix) each frame while
+playing. `AudioWorld` is the only place the ECS meets audio; see the audio seam
+under `Engine/src/audio/`.
+
+**`AudioListenerComponent`** (in `namespace MyCoreEngine`)
+
+An empty tag: presence marks the entity whose transform is the audio listener
+(the "ears"), usually the camera. The first one found wins; with none, the
+rendering camera is used. Add it through the registry like other tags (`emplace`
+returns `void` for empty types).
+
 **`LightComponent`**
 
 | Field | Type | Default | Notes |

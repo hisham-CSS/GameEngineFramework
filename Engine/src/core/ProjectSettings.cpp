@@ -2,6 +2,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 
@@ -14,6 +15,7 @@ namespace MyCoreEngine {
         try {
             nlohmann::json root = nlohmann::json::parse(in);
             startupScene = root.value("startupScene", startupScene);
+            masterVolume = std::clamp(root.value("masterVolume", masterVolume), 0.0f, 1.0f);
             return true;
         }
         catch (const std::exception& e) {
@@ -26,6 +28,7 @@ namespace MyCoreEngine {
     bool ProjectSettings::Save(const std::string& path) const {
         nlohmann::json root;
         root["startupScene"] = startupScene;
+        root["masterVolume"] = masterVolume;
 
         std::ofstream out(path);
         if (!out.is_open()) {

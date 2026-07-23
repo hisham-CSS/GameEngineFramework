@@ -12,6 +12,8 @@ namespace MyCoreEngine {
     // Settings"); the player reads it at boot to pick the startup scene.
     struct ENGINE_API ProjectSettings {
         std::string startupScene = "Exported/scene.json";
+        float masterVolume = 1.0f; // 0..1, scales the whole audio mix; the
+                                   // editor writes it, the player boots at it
 
         static const char* DefaultPath() { return "Exported/project.json"; }
 

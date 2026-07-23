@@ -386,6 +386,77 @@ TEST(UndoHistoryTest, PhysicsOnlyEditIsUndoable) {
     EXPECT_FLOAT_EQ(reg.get<RigidBody>(e).mass, 1.0f) << "undo did not revert mass";
 }
 
+// Audio components are on the same closed-list snapshot as physics: if they
+// are omitted, pressing Play then Stop silently destroys every authored
+// AudioSource / AudioListener. This pins that they survive the restore.
+TEST(SceneSnapshot, AudioComponentsSurvivePlayStopRestore) {
+    entt::registry reg;
+
+    auto speaker = makeEntity(reg, "Speaker");
+    MyCoreEngine::AudioSourceComponent as;
+    as.clip = "Exported/Audio/hum.wav";
+    as.volume = 0.4f;
+    as.pitch = 1.25f;
+    as.loop = true;
+    as.spatial = true;
+    as.playOnStart = false;
+    as.minDistance = 3.f;
+    as.maxDistance = 55.f;
+    reg.emplace<MyCoreEngine::AudioSourceComponent>(speaker, as);
+
+    auto ears = makeEntity(reg, "Ears");
+    reg.emplace<MyCoreEngine::AudioListenerComponent>(ears);
+
+    const auto snap = UndoHistory::captureScene(reg);
+
+    // "play": gameplay mutates and strips audio state
+    reg.get<MyCoreEngine::AudioSourceComponent>(speaker).volume = 1.f;
+    reg.remove<MyCoreEngine::AudioSourceComponent>(speaker);
+    reg.remove<MyCoreEngine::AudioListenerComponent>(ears);
+
+    UndoHistory::restoreScene(reg, nullptr, snap);
+
+    ASSERT_TRUE(reg.any_of<MyCoreEngine::AudioSourceComponent>(speaker))
+        << "AudioSource lost across play-stop";
+    const auto& r = reg.get<MyCoreEngine::AudioSourceComponent>(speaker);
+    EXPECT_EQ(r.clip, "Exported/Audio/hum.wav");
+    EXPECT_FLOAT_EQ(r.volume, 0.4f) << "play-time mutation leaked past Stop";
+    EXPECT_FLOAT_EQ(r.pitch, 1.25f);
+    EXPECT_TRUE(r.loop);
+    EXPECT_FALSE(r.playOnStart);
+    EXPECT_FLOAT_EQ(r.minDistance, 3.f);
+    EXPECT_FLOAT_EQ(r.maxDistance, 55.f);
+
+    EXPECT_TRUE(reg.any_of<MyCoreEngine::AudioListenerComponent>(ears))
+        << "AudioListener tag lost across play-stop";
+}
+
+// An edit that changes ONLY an audio field — or removes the source — must
+// produce a real undo entry (same_() drops entries it considers unchanged).
+TEST(UndoHistoryTest, AudioOnlyEditIsUndoable) {
+    entt::registry reg;
+    UndoHistory h;
+    auto e = makeEntity(reg, "Speaker");
+    reg.emplace<MyCoreEngine::AudioSourceComponent>(e, MyCoreEngine::AudioSourceComponent{});
+
+    h.record(reg, e, "Change volume",
+             [&] { reg.get<MyCoreEngine::AudioSourceComponent>(e).volume = 0.3f; });
+    ASSERT_EQ(h.entries().size(), 1u) << "a volume-only edit must record an undo entry";
+
+    h.record(reg, e, "Remove audio source",
+             [&] { reg.remove<MyCoreEngine::AudioSourceComponent>(e); });
+    ASSERT_EQ(h.entries().size(), 2u) << "removing the source must record an undo entry";
+
+    h.undo(reg, nullptr); // restores the removed source
+    ASSERT_TRUE(reg.any_of<MyCoreEngine::AudioSourceComponent>(e))
+        << "undo did not bring the removed source back";
+    EXPECT_FLOAT_EQ(reg.get<MyCoreEngine::AudioSourceComponent>(e).volume, 0.3f);
+
+    h.undo(reg, nullptr); // reverts the volume edit
+    EXPECT_FLOAT_EQ(reg.get<MyCoreEngine::AudioSourceComponent>(e).volume, 1.0f)
+        << "undo did not revert volume";
+}
+
 TEST(SceneSnapshot, UndoHistoryStaysValidAcrossPlaySession) {
     entt::registry reg;
     UndoHistory h;

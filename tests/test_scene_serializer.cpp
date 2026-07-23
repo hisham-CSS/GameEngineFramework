@@ -399,6 +399,125 @@ TEST(SceneSerializer, RoundTripLightComponent) {
     std::remove(path);
 }
 
+TEST(SceneSerializer, RoundTripAudioComponents) {
+    const char* path = "test_scene_audio.json";
+
+    Scene a;
+    // A fully-tuned 3D source.
+    Entity speaker = a.createEntity();
+    speaker.addComponent<Name>(Name{ "Speaker" });
+    speaker.addComponent<Transform>(Transform{});
+    AudioSourceComponent as;
+    as.clip = "Exported/Audio/hum.wav";
+    as.volume = 0.6f;
+    as.pitch = 1.5f;
+    as.loop = true;
+    as.spatial = true;
+    as.playOnStart = false;
+    as.minDistance = 2.f;
+    as.maxDistance = 40.f;
+    a.registry.emplace<AudioSourceComponent>(speaker, as);
+
+    // A 2D music bed: spatial off must round-trip (a music track that reloads
+    // as a positional 3D source would go silent off-camera).
+    Entity music = a.createEntity();
+    music.addComponent<Name>(Name{ "Music" });
+    music.addComponent<Transform>(Transform{});
+    AudioSourceComponent bed;
+    bed.clip = "Exported/Audio/theme.ogg";
+    bed.spatial = false;
+    bed.loop = true;
+    a.registry.emplace<AudioSourceComponent>(music, bed);
+
+    // Half-authored: the component exists but no clip is chosen yet. It must
+    // survive rather than vanish when the author saves mid-edit.
+    Entity pending = a.createEntity();
+    pending.addComponent<Name>(Name{ "Pending" });
+    pending.addComponent<Transform>(Transform{});
+    a.registry.emplace<AudioSourceComponent>(pending, AudioSourceComponent{});
+
+    // The listener tag: presence is the whole state.
+    Entity ears = a.createEntity();
+    ears.addComponent<Name>(Name{ "Ears" });
+    ears.addComponent<Transform>(Transform{});
+    a.registry.emplace<AudioListenerComponent>(ears);
+
+    AssetManager assets;
+    SceneSerializer save(a, assets);
+    ASSERT_TRUE(save.Save(path));
+
+    Scene b;
+    SceneSerializer load(b, assets);
+    ASSERT_TRUE(load.Load(path));
+
+    entt::entity eSpk = entt::null, eMus = entt::null,
+                 ePend = entt::null, eEars = entt::null;
+    for (auto [e, n] : b.registry.view<Name>().each()) {
+        if (n.value == "Speaker") eSpk = e;
+        else if (n.value == "Music") eMus = e;
+        else if (n.value == "Pending") ePend = e;
+        else if (n.value == "Ears") eEars = e;
+    }
+    ASSERT_TRUE(eSpk != entt::null);
+    ASSERT_TRUE(eMus != entt::null);
+    ASSERT_TRUE(ePend != entt::null);
+    ASSERT_TRUE(eEars != entt::null);
+
+    const auto* s1 = b.registry.try_get<AudioSourceComponent>(eSpk);
+    ASSERT_NE(s1, nullptr) << "AudioSourceComponent dropped by save/load";
+    EXPECT_EQ(s1->clip, "Exported/Audio/hum.wav");
+    EXPECT_FLOAT_EQ(s1->volume, 0.6f);
+    EXPECT_FLOAT_EQ(s1->pitch, 1.5f);
+    EXPECT_TRUE(s1->loop);
+    EXPECT_TRUE(s1->spatial);
+    EXPECT_FALSE(s1->playOnStart);
+    EXPECT_FLOAT_EQ(s1->minDistance, 2.f);
+    EXPECT_FLOAT_EQ(s1->maxDistance, 40.f);
+
+    const auto* s2 = b.registry.try_get<AudioSourceComponent>(eMus);
+    ASSERT_NE(s2, nullptr);
+    EXPECT_FALSE(s2->spatial) << "a 2D source came back spatial";
+    EXPECT_TRUE(s2->loop);
+
+    const auto* s3 = b.registry.try_get<AudioSourceComponent>(ePend);
+    ASSERT_NE(s3, nullptr) << "empty audio source lost on reload";
+    EXPECT_TRUE(s3->clip.empty());
+
+    EXPECT_TRUE(b.registry.any_of<AudioListenerComponent>(eEars))
+        << "listener tag dropped by save/load";
+    EXPECT_FALSE(b.registry.any_of<AudioListenerComponent>(eSpk));
+
+    std::remove(path);
+}
+
+// A hand-edited file with max <= min distance must load with a strictly
+// ordered span, or the 3D attenuation curve divides by a zero/negative range.
+TEST(SceneSerializer, AudioInvertedDistancesLoadOrdered) {
+    const char* path = "test_scene_audio_bad.json";
+    {
+        std::ofstream out(path);
+        out << R"({"version":1,"entities":[
+            {"name":"Bad","transform":{"position":[0,0,0]},
+             "audioSource":{"clip":"x.wav","minDistance":10.0,"maxDistance":3.0}}
+        ]})";
+    }
+    Scene s;
+    AssetManager assets;
+    SceneSerializer load(s, assets);
+    ASSERT_TRUE(load.Load(path));
+
+    entt::entity e = entt::null;
+    for (auto [ent, n] : s.registry.view<Name>().each())
+        if (n.value == "Bad") e = ent;
+    ASSERT_TRUE(e != entt::null);
+    const auto* as = s.registry.try_get<AudioSourceComponent>(e);
+    ASSERT_NE(as, nullptr);
+    EXPECT_GT(as->maxDistance, as->minDistance)
+        << "an inverted distance span must be clamped on load";
+
+    std::remove(path);
+}
+
 TEST(SceneSerializer, RoundTripParentLinks) {
     const char* path = "test_scene_parents.json";
 

@@ -26,7 +26,7 @@ The panels are:
 | **Scene Hierarchy** | Entity tree: create, delete, drag-to-parent. |
 | **Inspector** | Components of the selected entity, or import settings of the selected asset. |
 | **Assets** | Browser over `Exported/`: folder tree, contents, drag-to-spawn. |
-| **Settings** | Two tabs — **Rendering** (quality tier, lighting/shadows, environment/IBL, post-processing, physics) and **Editor** (time, input, layouts). Scene file I/O is in the title-bar **File** menu. |
+| **Settings** | Three tabs — **Rendering** (quality tier, lighting/shadows, environment/IBL, post-processing, physics), **Editor** (time, input, layouts), and **Audio** (backend + master volume). Scene file I/O is in the title-bar **File** menu. |
 | **Information** | Rendering statistics and the per-frame CPU breakdown. |
 | **Edit** | Undo/redo buttons and the clickable command history. |
 | **Asset Validation** | Output of an `AssetCooker validate` run (opens on demand). |
@@ -224,9 +224,27 @@ Mass/damping/velocity are hidden on non-dynamic bodies — they mean nothing the
 
 > **Gotcha:** colliders are effectively **mutually exclusive**. `PhysicsWorld` uses the first shape it finds (Box, Sphere, Capsule, Plane in that order), so the Add Component menu only offers colliders when the entity has none — a second one would silently do nothing.
 
+### Audio Source
+
+| Field | Default | Notes |
+| --- | --- | --- |
+| `clip` | `""` | sound file path relative to the working dir (WAV/MP3/FLAC/OGG). |
+| `volume` | `1.0f` | Slider 0–1. |
+| `pitch` | `1.0f` | Slider 0.25–4×; also scales playback speed. |
+| `loop` | `false` | |
+| `playOnStart` | `true` | begins on Play / when the shipped game boots. |
+| `spatial` | `true` | 3D: attenuates with distance from the listener. 2D: constant volume (music/UI). |
+| `minDistance` / `maxDistance` | `1` / `100` m | 3D only: full volume within min, silent past max. Shown only when **Spatial** is on; max is kept above min. |
+
+The **Preview** button auditions the clip through the editor's always-on audio backend, so no Play press is needed. It plays **2D and one-shot** (so it is always audible and a stray audition self-stops even if you click away); **Stop** cuts a long one short.
+
+### Audio Listener
+
+A tag component (no fields): it marks the entity whose transform is the audio "ears". The first listener in the scene wins; with none, the render camera is used.
+
 ### Add Component
 
-The popup lists only what the entity is missing: `Name`, `Transform`, `Model`, `Camera`, `Rigid Body`, and the four colliders. Every component that needs a transform adds one if it is absent. When nothing is left it shows `(all components added)`.
+The popup lists only what the entity is missing: `Name`, `Transform`, `Model`, `Camera`, `Light`, `Script`, `Audio Source`, `Audio Listener`, `Rigid Body`, and the four colliders. Every component that needs a transform adds one if it is absent. When nothing is left it shows `(all components added)`.
 
 ### Asset view
 
@@ -278,8 +296,8 @@ same clearing through `loadSceneFromFile_`.
 
 ## Settings
 
-A dockable window split into two tabs — **Rendering** (everything visual) and
-**Editor** (the tool itself).
+A dockable window split into three tabs — **Rendering** (everything visual),
+**Editor** (the tool itself), and **Audio** (the global mix).
 
 ### Rendering tab
 
@@ -320,6 +338,15 @@ refused during Play.
 **Time** — `Paused`, `Time Scale` (0–4), `Fixed Tick (Hz)` (15–240); gameplay
 time only (editor camera ignores pause/time scale). **Input** — read-only
 gamepad + axis diagnostics. **Layouts** — save/load named `.ini` window layouts.
+
+### Audio tab
+
+Shows the active **Backend** (`Miniaudio`, or `Null` when no device could be
+opened — headless / no sound card, in which case everything runs but stays
+silent) and a **Master volume** slider (0–1) scaling the whole mix. The change
+applies live and is saved to `Exported/project.json` once the drag settles, so
+the shipped player boots at the same volume. Per-source volume is separate — it
+lives on the Audio Source component.
 
 ### Layouts
 

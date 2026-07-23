@@ -22,8 +22,25 @@ static bool DragFloat3(const char* label, float v[3], float speed = 0.1f) {
 
 bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
                           UndoHistory& undo, MyCoreEngine::AssetManager* assets,
-                          const MyCoreEngine::ScriptWorld* scripts, bool* pOpen) {
+                          const MyCoreEngine::ScriptWorld* scripts,
+                          MyCoreEngine::AudioWorld* audio, bool* pOpen) {
     bool shadowsDirty = false;
+
+    // Stop an orphaned preview voice the instant its Audio Source section will
+    // no longer be drawn — selection moved, the entity was deleted (stale
+    // handle), or the component was removed. Without this the Stop button
+    // vanishes with a still-playing voice. (Previews are also one-shot below,
+    // so anything this misses — e.g. the asset-view path — self-reaps anyway.)
+    if (previewVoice_) {
+        const bool ownerStillDraws =
+            previewEntity_ == selected && reg.valid(previewEntity_) &&
+            reg.any_of<MyCoreEngine::AudioSourceComponent>(previewEntity_);
+        if (!ownerStillDraws && audio && audio->Backend()) {
+            audio->Backend()->stop(previewVoice_);
+            previewVoice_ = 0;
+            previewEntity_ = entt::null;
+        }
+    }
     if (ImGui::Begin("Inspector", pOpen)) {
         if (selected == entt::null || !reg.valid(selected)) {
             ImGui::TextUnformatted("No entity selected.");
@@ -500,6 +517,139 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
             }
         }
 
+        // ---- Audio Source --------------------------------------------------
+        if (auto* as = reg.try_get<MyCoreEngine::AudioSourceComponent>(selected)) {
+            bool keep = true;
+            if (ImGui::CollapsingHeader("Audio Source", &keep, ImGuiTreeNodeFlags_DefaultOpen)) {
+                char buf[260];
+                std::snprintf(buf, sizeof(buf), "%s", as->clip.c_str());
+                if (ImGui::InputText("Clip", buf, sizeof(buf))) {
+                    as->clip = buf;
+                }
+                trackItem("Change audio clip");
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Sound file path relative to the working dir,\n"
+                                      "e.g. Exported/Audio/footstep.wav (WAV/MP3/FLAC/OGG).");
+                }
+
+                const float preVol = as->volume;
+                ImGui::SliderFloat("Volume", &as->volume, 0.0f, 1.0f);
+                trackSliderItem("Change audio volume", as->volume, preVol);
+
+                const float prePitch = as->pitch;
+                ImGui::SliderFloat("Pitch", &as->pitch, 0.25f, 4.0f, "%.2fx",
+                                   ImGuiSliderFlags_AlwaysClamp);
+                trackSliderItem("Change audio pitch", as->pitch, prePitch);
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Also scales playback speed.");
+
+                bool loop = as->loop;
+                if (ImGui::Checkbox("Loop", &loop)) {
+                    undo.record(reg, selected, "Toggle audio loop", [&] {
+                        reg.get<MyCoreEngine::AudioSourceComponent>(selected).loop = loop;
+                    });
+                }
+                ImGui::SameLine();
+                bool playOnStart = as->playOnStart;
+                if (ImGui::Checkbox("Play on start", &playOnStart)) {
+                    undo.record(reg, selected, "Toggle play on start", [&] {
+                        reg.get<MyCoreEngine::AudioSourceComponent>(selected).playOnStart = playOnStart;
+                    });
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Begins automatically on Play / when the shipped game boots.");
+                }
+
+                bool spatial = as->spatial;
+                if (ImGui::Checkbox("Spatial (3D)", &spatial)) {
+                    undo.record(reg, selected, "Toggle audio spatial", [&] {
+                        reg.get<MyCoreEngine::AudioSourceComponent>(selected).spatial = spatial;
+                    });
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("3D: attenuates with distance from the listener.\n"
+                                      "2D: constant volume, ignores position (music/UI).");
+                }
+
+                // Distance falloff only means anything for a 3D source.
+                if (as->spatial) {
+                    ImGui::DragFloat("Min distance", &as->minDistance, 0.05f, 0.f, 100000.f, "%.2f m");
+                    as->minDistance = std::max(0.f, as->minDistance);
+                    trackItem("Change audio min distance");
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Full volume within this radius.");
+                    ImGui::DragFloat("Max distance", &as->maxDistance, 0.25f, 0.f, 100000.f, "%.2f m");
+                    // keep max strictly past min so the falloff span never collapses
+                    as->maxDistance = std::max(as->maxDistance, as->minDistance + 1e-3f);
+                    trackItem("Change audio max distance");
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Attenuated to silence out here.");
+                }
+
+                // Preview auditions the clip through the editor's always-on
+                // audio backend, so no Play press is needed. Forced to 2D (so
+                // it is always audible regardless of the entity's distance from
+                // the listener) and one-shot (so an orphaned audition always
+                // self-reaps even if this panel stops being drawn). The Stop
+                // button just cuts a long audition short.
+                ImGui::Spacing();
+                if (audio && audio->HasBackend()) {
+                    const bool playing = previewVoice_ != 0 && previewEntity_ == selected &&
+                                         audio->Backend() && audio->Backend()->isPlaying(previewVoice_);
+                    if (!playing && previewVoice_ != 0 && previewEntity_ == selected) {
+                        // The audition finished on its own. In EDIT mode the
+                        // AudioWorld::Update reaper never runs (it's gated on
+                        // gameplay), so the backend won't free this voice for us
+                        // — stop() it explicitly (safe on an already-finished id)
+                        // or the decoded buffer leaks until the next stopAll().
+                        if (auto* b = audio->Backend()) b->stop(previewVoice_);
+                        previewVoice_ = 0;
+                    }
+                    ImGui::BeginDisabled(as->clip.empty() && !playing);
+                    if (ImGui::Button(playing ? "Stop##audiopreview" : "Preview##audiopreview",
+                                      ImVec2(90, 0))) {
+                        if (auto* b = audio->Backend()) {
+                            if (previewVoice_) { b->stop(previewVoice_); previewVoice_ = 0; }
+                            if (!playing && !as->clip.empty()) {
+                                MyCoreEngine::SoundParams p;
+                                p.spatial = false;     // audition 2D so it's always heard
+                                p.loop    = false;     // one-shot: an orphan self-reaps
+                                p.volume  = as->volume;
+                                p.pitch   = as->pitch;
+                                previewVoice_  = b->play(as->clip, p);
+                                previewEntity_ = selected;
+                            }
+                        }
+                    }
+                    ImGui::EndDisabled();
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("Auditions the clip (2D) in the editor.");
+                } else {
+                    ImGui::TextDisabled("No audio backend available for preview.");
+                }
+            }
+            if (!keep) {
+                // Stop a preview owned by the component being removed.
+                if (previewVoice_ && previewEntity_ == selected && audio && audio->Backend()) {
+                    audio->Backend()->stop(previewVoice_);
+                    previewVoice_ = 0; previewEntity_ = entt::null;
+                }
+                undo.record(reg, selected, "Remove audio source",
+                            [&] { reg.remove<MyCoreEngine::AudioSourceComponent>(selected); });
+            }
+        }
+
+        // ---- Audio Listener (tag: the "ears", usually the camera) ----------
+        if (reg.any_of<MyCoreEngine::AudioListenerComponent>(selected)) {
+            bool keep = true;
+            if (ImGui::CollapsingHeader("Audio Listener", &keep, ImGuiTreeNodeFlags_DefaultOpen)) {
+                ImGui::TextDisabled("This entity's transform is the audio listener.");
+                ImGui::TextDisabled("With none in the scene, the render camera is used.");
+                ImGui::TextDisabled("The first listener found wins.");
+            }
+            if (!keep) {
+                undo.record(reg, selected, "Remove audio listener",
+                            [&] { reg.remove<MyCoreEngine::AudioListenerComponent>(selected); });
+            }
+        }
+
         // ---- Rigid Body ---------------------------------------------------
         if (auto* rb = reg.try_get<RigidBody>(selected)) {
             bool keep = true;
@@ -674,6 +824,24 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
                 if (ImGui::MenuItem("Script")) {
                     undo.record(reg, selected, "Add script", [&] {
                         reg.emplace<MyCoreEngine::ScriptComponent>(selected);
+                        if (!reg.any_of<Transform>(selected)) reg.emplace<Transform>(selected);
+                    });
+                }
+            }
+            if (!reg.any_of<MyCoreEngine::AudioSourceComponent>(selected)) {
+                ++missing;
+                if (ImGui::MenuItem("Audio Source")) {
+                    undo.record(reg, selected, "Add audio source", [&] {
+                        reg.emplace<MyCoreEngine::AudioSourceComponent>(selected);
+                        if (!reg.any_of<Transform>(selected)) reg.emplace<Transform>(selected);
+                    });
+                }
+            }
+            if (!reg.any_of<MyCoreEngine::AudioListenerComponent>(selected)) {
+                ++missing;
+                if (ImGui::MenuItem("Audio Listener")) {
+                    undo.record(reg, selected, "Add audio listener", [&] {
+                        reg.emplace<MyCoreEngine::AudioListenerComponent>(selected);
                         if (!reg.any_of<Transform>(selected)) reg.emplace<Transform>(selected);
                     });
                 }

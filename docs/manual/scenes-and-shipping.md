@@ -14,7 +14,7 @@ Scenes are plain JSON written with `nlohmann::json` at two-space indent. The top
 | `settings` | Scene-level lighting/shading/render state — the light (`lightDir`/`lightColor`/`lightIntensity`), PBR + map toggles, `instancingEnabled`, `iblEnabled`/`iblIntensity`, LOD + cull knobs, `depthPrepass`, `aaEnabled`, the `qualityLevel` tier, an `environment` object (sky/IBL source, HDRi path, skybox + procedural sky colours), and a `postFX` object (vignette, ink outline, colour grade, bloom). |
 | `entities` | Array of entity objects, in creation order. |
 
-Each entity object carries only the components that entity actually has: `name`, `parent`, `transform`, `model`, `noShadow`, `camera`, `light`, `rigidBody`, one of `boxCollider` / `sphereCollider` / `capsuleCollider` / `planeCollider`, `script`, and `materialOverrides` (per-slot base colour, PBR scalars, transparency, and `shadingModel` + toon params). See `Engine/src/core/SceneSerializer.cpp` for the exact per-component field lists.
+Each entity object carries only the components that entity actually has: `name`, `parent`, `transform`, `model`, `noShadow`, `camera`, `light`, `rigidBody`, one of `boxCollider` / `sphereCollider` / `capsuleCollider` / `planeCollider`, `script`, `audioSource` (clip path, volume, pitch, loop, spatial, playOnStart, min/max distance), `audioListener` (a bare `true` tag), and `materialOverrides` (per-slot base colour, PBR scalars, transparency, and `shadingModel` + toon params). See `Engine/src/core/SceneSerializer.cpp` for the exact per-component field lists.
 
 Two structural rules are worth knowing if you ever hand-edit a file:
 
@@ -98,6 +98,7 @@ Which scene the player boots is stored in `Exported/project.json`, read and writ
 ```c++
 struct ENGINE_API ProjectSettings {
     std::string startupScene = "Exported/scene.json";
+    float       masterVolume = 1.0f; // 0..1, scales the whole audio mix
 
     static const char* DefaultPath() { return "Exported/project.json"; }
 
@@ -107,6 +108,8 @@ struct ENGINE_API ProjectSettings {
 ```
 
 `Load` treats a missing file as success — the defaults simply stand. Malformed JSON logs to `stderr` and returns `false`, again keeping the defaults.
+
+`masterVolume` is the global audio mix level, edited under **Settings > Audio** and clamped to `0..1`. Because it lives in `project.json` (not the scene), both the editor and the shipped player boot at the same volume, and it is unaffected by loading a different scene.
 
 To set it: put the path in the **Scene file** box and press **Set Current File as Startup Scene**, or right-click the scene in the Asset Browser and choose **Set as Startup Scene**. The status line confirms `Saved to Exported/project.json (ships with the game)`. The editor loads existing settings before rewriting the file, so the fields `ProjectSettings` models are preserved. `Save` rewrites project.json from scratch, so any keys the struct does not model are dropped.
 

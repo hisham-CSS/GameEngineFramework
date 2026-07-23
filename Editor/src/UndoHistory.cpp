@@ -61,6 +61,19 @@ namespace {
                                      a.capsuleCollider.offset != b.capsuleCollider.offset)) return false;
         if (a.hasPlaneCollider != b.hasPlaneCollider) return false;
         if (a.hasPlaneCollider && a.planeCollider.offset != b.planeCollider.offset) return false;
+        // audio: without these, an edit that ONLY changes an audio field (or
+        // adds/removes the source or listener) compares equal and the undo
+        // entry is dropped as a no-op — the mutation happens but can't be undone
+        if (a.hasAudioSource != b.hasAudioSource) return false;
+        if (a.hasAudioSource && (a.audioSource.clip != b.audioSource.clip ||
+                                 a.audioSource.volume != b.audioSource.volume ||
+                                 a.audioSource.pitch != b.audioSource.pitch ||
+                                 a.audioSource.loop != b.audioSource.loop ||
+                                 a.audioSource.spatial != b.audioSource.spatial ||
+                                 a.audioSource.playOnStart != b.audioSource.playOnStart ||
+                                 a.audioSource.minDistance != b.audioSource.minDistance ||
+                                 a.audioSource.maxDistance != b.audioSource.maxDistance)) return false;
+        if (a.hasAudioListener != b.hasAudioListener) return false;
         if (a.hasParent != b.hasParent) return false;
         if (a.hasParent && a.parent != b.parent) return false;
         if (a.hasOverrides != b.hasOverrides) return false;
@@ -111,6 +124,8 @@ EntitySnapshot UndoHistory::capture(entt::registry& reg, entt::entity e) {
     if (auto* c = reg.try_get<SphereCollider>(e))  { s.hasSphereCollider = true; s.sphereCollider = *c; }
     if (auto* c = reg.try_get<CapsuleCollider>(e)) { s.hasCapsuleCollider = true; s.capsuleCollider = *c; }
     if (auto* c = reg.try_get<PlaneCollider>(e))   { s.hasPlaneCollider = true; s.planeCollider = *c; }
+    if (auto* c = reg.try_get<AudioSourceComponent>(e)) { s.hasAudioSource = true; s.audioSource = *c; }
+    s.hasAudioListener = reg.any_of<AudioListenerComponent>(e);
     return s;
 }
 
@@ -185,6 +200,12 @@ void UndoHistory::apply(entt::registry& reg, MyCoreEngine::AssetManager* assets,
     else reg.remove<CapsuleCollider>(e);
     if (s.hasPlaneCollider) reg.emplace_or_replace<PlaneCollider>(e, s.planeCollider);
     else reg.remove<PlaneCollider>(e);
+
+    // audio (see EntitySnapshot: absent flag => component removed)
+    if (s.hasAudioSource) reg.emplace_or_replace<AudioSourceComponent>(e, s.audioSource);
+    else reg.remove<AudioSourceComponent>(e);
+    if (s.hasAudioListener) { if (!reg.any_of<AudioListenerComponent>(e)) reg.emplace<AudioListenerComponent>(e); }
+    else reg.remove<AudioListenerComponent>(e);
 
     // parent link — skipped if the target doesn't exist (yet); batch paths
     // (multi-op entries, restoreScene) run a fixup pass afterwards

@@ -40,12 +40,13 @@ Legend: ✅ working · 🟡 partial · 🔲 planned
 | **Post-processing** | ✅ | Chainable LDR ping-pong stack: bloom (HDR), depth-edge ink outline, procedural colour grade, vignette, FXAA |
 | **Materials** | ✅ | Per-material PBR + textures, alpha mode, double-sided, per-entity overrides, and **cel/toon shading** with per-material controls |
 | **Quality tiers** | ✅ | HDRP-lite `Low` / `Medium` / `High` / `Custom` presets fanned out across LOD, culling, shadows, bloom, AA |
-| **ECS / components** | ✅ | EnTT registry: Transform (hierarchy), Model, Material overrides, Camera, Light, RigidBody/Collider, Script, Name, Parent, NoShadow |
+| **ECS / components** | ✅ | EnTT registry: Transform (hierarchy), Model, Material overrides, Camera, Light, RigidBody/Collider, Script, Audio source/listener, Name, Parent, NoShadow |
 | **Editor** | ✅ | Dockable ImGui workspace, custom title bar + theme + File/Edit/Window menus + panel visibility, gizmos, click-picking, hierarchy, inspector, asset browser, deep render settings |
 | **Play-in-editor** | ✅ | Play/Stop with a scene snapshot + restore; gameplay input focus-gated to the Game view |
 | **Undo / redo** | ✅ | Command history with clickable entries |
 | **Physics** | ✅ | `IPhysicsBackend` seam — **Jolt**, **PhysX**, or a **Simple** built-in, one backend per world; fixed-tick; collision/trigger events |
 | **Scripting** | ✅ | `IScriptBackend` seam — sandboxed **Lua** (sol2), per-entity isolated environments; a Null backend |
+| **Audio** | ✅ | `IAudioBackend` seam — **miniaudio** (cross-platform, no link deps) or a Null backend; 2D/3D positional sources, a listener, master volume; authorable + serialized |
 | **Assets** | 🟡 | Assimp import + texture caching + by-path dedup; async worker-pool loading; **AssetCooker validates** (no binary cooked format yet) |
 | **Serialization** | ✅ | Versioned JSON: entities, components, material overrides, lighting, environment, post-FX, quality tier |
 | **Project system** | ✅ | `project.json` with a startup scene the Player boots |
@@ -53,8 +54,7 @@ Legend: ✅ working · 🟡 partial · 🔲 planned
 | **Packaging** | ✅ | `cpack -G ZIP` → self-contained Windows game bundle |
 | **Job system** | ✅ | Worker-pool `JobSystem` backing async asset loads |
 | **Platform** | 🟡 | Windows (primary) + **Linux** (port phases 0–1: compiles under gcc/clang; PhysX is Windows-only there) |
-| **Tests** | ✅ | GoogleTest: CSM math, shadow stability, render passes, serialization, physics, scripting, IBL/FXAA, input |
-| **Audio** | 🔲 | Not started |
+| **Tests** | ✅ | GoogleTest: CSM math, shadow stability, render passes, serialization, physics, scripting, audio, IBL/FXAA, input |
 | **Skeletal animation** | 🔲 | Static meshes only today |
 | **In-game / runtime UI** | 🔲 | ImGui is editor-only; no HUD/menu/text path yet |
 | **Networking** | 🔲 | Not started |
@@ -63,7 +63,6 @@ Legend: ✅ working · 🟡 partial · 🔲 planned
 
 Honest gaps, roughly in impact order:
 
-- **Audio** — no audio subsystem of any kind.
 - **Skeletal / skinned animation** — the renderer draws static meshes only.
 - **In-game / runtime UI + text** — ImGui is editor-only; shipped games have no menus/HUD/text.
 - **Networking** — none.

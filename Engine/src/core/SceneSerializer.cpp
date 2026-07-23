@@ -6,6 +6,7 @@
 #include "PathSandbox.h"
 #include "../physics/PhysicsComponents.h"
 #include "../script/ScriptComponent.h"
+#include "../audio/AudioComponents.h"
 
 #include <nlohmann/json.hpp>
 
@@ -219,6 +220,23 @@ namespace MyCoreEngine {
             }
             if (auto* c = reg.try_get<PlaneCollider>(e)) {
                 je["planeCollider"] = { { "offset", vec3ToJson(c->offset) } };
+            }
+
+            if (auto* as = reg.try_get<AudioSourceComponent>(e)) {
+                je["audioSource"] = {
+                    { "clip",        as->clip },
+                    { "volume",      as->volume },
+                    { "pitch",       as->pitch },
+                    { "loop",        as->loop },
+                    { "spatial",     as->spatial },
+                    { "playOnStart", as->playOnStart },
+                    { "minDistance", as->minDistance },
+                    { "maxDistance", as->maxDistance },
+                };
+            }
+            // Empty tag: its presence is the whole state (mirrors noShadow).
+            if (reg.any_of<AudioListenerComponent>(e)) {
+                je["audioListener"] = true;
             }
 
             if (auto* ov = reg.try_get<MaterialOverrides>(e)) {
@@ -548,6 +566,26 @@ namespace MyCoreEngine {
                 PlaneCollider c;
                 c.offset = vec3FromJson(je["planeCollider"].value("offset", json()), c.offset);
                 reg.emplace<PlaneCollider>(entity, c);
+            }
+
+            if (je.contains("audioSource") && je["audioSource"].is_object()) {
+                const json& ja = je["audioSource"];
+                AudioSourceComponent as;
+                as.clip        = ja.value("clip", as.clip);
+                as.volume      = glm::clamp(ja.value("volume", as.volume), 0.f, 1.f);
+                as.pitch       = std::max(1e-3f, ja.value("pitch", as.pitch));
+                as.loop        = ja.value("loop", as.loop);
+                as.spatial     = ja.value("spatial", as.spatial);
+                as.playOnStart = ja.value("playOnStart", as.playOnStart);
+                as.minDistance = std::max(0.f, ja.value("minDistance", as.minDistance));
+                // max must stay strictly above min or the 3D falloff span
+                // collapses (divide-by-zero / inverted attenuation).
+                as.maxDistance = std::max(ja.value("maxDistance", as.maxDistance),
+                                          as.minDistance + 1e-3f);
+                reg.emplace<AudioSourceComponent>(entity, as);
+            }
+            if (je.value("audioListener", false)) {
+                reg.emplace<AudioListenerComponent>(entity);
             }
 
             if (je.contains("materialOverrides") && model) {

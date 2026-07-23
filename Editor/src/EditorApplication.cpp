@@ -175,6 +175,25 @@ void EditorApplication::Run() {
                     DrawLayoutControls();
                     ImGui::EndTabItem();
                 }
+                if (ImGui::BeginTabItem("Audio")) {
+                    // The active backend after fallback: "Null" here means the
+                    // device failed to open (headless / no sound card), so
+                    // everything runs but stays silent.
+                    ImGui::TextDisabled("Backend: %s", audio_.BackendName().c_str());
+                    ImGui::Spacing();
+                    ImGui::SetNextItemWidth(200.f);
+                    if (ImGui::SliderFloat("Master volume", &masterVolume_, 0.0f, 1.0f)) {
+                        audio_.SetMasterVolume(masterVolume_); // live while dragging
+                    }
+                    // Persist once the drag settles, not every frame: master
+                    // volume ships in project.json and the player boots at it.
+                    if (ImGui::IsItemDeactivatedAfterEdit()) saveMasterVolume_();
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Scales the whole mix. Saved to project.json;\n"
+                                          "the shipped player boots at this volume.\n"
+                                          "Per-source volume is on the Audio Source component.");
+                    ImGui::EndTabItem();
+                }
                 ImGui::EndTabBar();
             }
         }
@@ -271,7 +290,7 @@ void EditorApplication::Run() {
             inspector_.DrawAsset(assetNode, &panels_.inspector);
         }
         else if (inspector_.Draw(scene.registry, selected_, undo_, assets_.get(), &scripts_,
-                                 &panels_.inspector)) {
+                                 &audio_, &panels_.inspector)) {
             // caster set changed without a transform dirtying (model swap /
             // remove / shadow toggle): stale shadows stay baked otherwise
             forceAllCSMUpdate_();
@@ -346,6 +365,7 @@ void EditorApplication::Run() {
     {
         MyCoreEngine::ProjectSettings settings;
         settings.Load(); // Exported/project.json
+        masterVolume_ = settings.masterVolume; // mirror it (AudioWorld has no getter)
         const std::string startup = settings.startupScene.empty()
             ? std::string("Exported/scene.json") : settings.startupScene;
 
@@ -381,8 +401,10 @@ void EditorApplication::Run() {
         MyCoreEngine::InstallScripting(*this, scene, scripts_, &physics_, nullptr, {}, ss);
 
         // Audio: per-frame listener/source update installed for the app's life;
-        // voices are populated by audio_.Start() on Play.
-        MyCoreEngine::InstallAudio(*this, scene, audio_);
+        // voices are populated by audio_.Start() on Play. Boots at the saved
+        // master volume so the editor and shipped player agree.
+        MyCoreEngine::InstallAudio(*this, scene, audio_, {},
+                                   MyCoreEngine::AudioSettings{ masterVolume_ });
     }
 
     RunLoop(scene, *shader);
@@ -1601,6 +1623,14 @@ bool EditorApplication::setStartupScene_(const std::string& path)
         buildSettingsStatus_ = "Save FAILED (see console)";
     }
     return ok;
+}
+
+void EditorApplication::saveMasterVolume_()
+{
+    MyCoreEngine::ProjectSettings s;
+    s.Load(); // preserve startupScene (and any future fields) before rewriting
+    s.masterVolume = masterVolume_;
+    s.Save();  // best-effort; a failed write just means it won't persist
 }
 
 void EditorApplication::spawnModelEntity_(MyCoreEngine::Scene& scene,

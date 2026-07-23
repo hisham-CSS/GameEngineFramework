@@ -52,13 +52,14 @@ public:
         // Startup scene: command line beats project settings beats default.
         // commandLine() is captured portably by Main.h (argv), so `Player
         // <scene.json>` works on Windows and Linux alike.
+        // Project settings ship in project.json: the startup scene and the
+        // master volume the game boots at. Always load them (the master volume
+        // is honoured even when a scene is passed on the command line).
+        ProjectSettings settings;
+        settings.Load(); // Exported/project.json, written by the editor
         std::string scenePath;
         if (commandLine().size() > 1) scenePath = commandLine()[1];
-        if (scenePath.empty()) {
-            ProjectSettings settings;
-            settings.Load(); // Exported/project.json, written by the editor
-            scenePath = settings.startupScene;
-        }
+        if (scenePath.empty()) scenePath = settings.startupScene;
 
         Scene scene;
         SceneSerializer serializer(scene, assets);
@@ -100,8 +101,9 @@ public:
         scripts_.Build(scene.registry);
         scripts_.Start(scene.registry);
 
-        // Audio: the shipped game plays immediately, same as scripts.
-        InstallAudio(*this, scene, audio_);
+        // Audio: the shipped game plays immediately, same as scripts. Boots at
+        // the saved master volume so it matches what the editor previewed.
+        InstallAudio(*this, scene, audio_, {}, AudioSettings{ settings.masterVolume });
         audio_.Start(scene.registry);
         // The per-frame tick is an AddUpdate SUBSCRIBER installed by
         // InstallScripting, not the primary SetUpdate slot -- that slot stays
