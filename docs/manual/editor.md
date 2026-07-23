@@ -26,7 +26,7 @@ The panels are:
 | **Scene Hierarchy** | Entity tree: create, delete, drag-to-parent. |
 | **Inspector** | Components of the selected entity, or import settings of the selected asset. |
 | **Assets** | Browser over `Exported/`: folder tree, contents, drag-to-spawn. |
-| **Settings** | Scene file I/O, time, input, rendering, lights, sun/shadows, materials, IBL, physics, layouts. |
+| **Settings** | Two tabs — **Rendering** (quality tier, lighting/shadows, environment/IBL, post-processing, physics) and **Editor** (time, input, layouts). Scene file I/O is in the title-bar **File** menu. |
 | **Information** | Rendering statistics and the per-frame CPU breakdown. |
 | **Edit** | Undo/redo buttons and the clickable command history. |
 | **Asset Validation** | Output of an `AssetCooker validate` run (opens on demand). |
@@ -257,71 +257,69 @@ Model loads are asynchronous: spawn/assign *request* the model and return immedi
 
 ---
 
+## Scene file operations (File menu)
+
+Scene file I/O lives in the **File** menu on the custom title bar (Unity-style),
+not in Settings: **New Scene**, **Open Scene…**, **Save Scene** (`Ctrl+S`),
+**Save Scene As…**, **Save All** (`Ctrl+Shift+S`, scene + editor layout), and
+**Set Current Scene as Player Startup** (writes `Exported/project.json`, the file
+the Player reads at boot). All the scene-changing items are disabled during Play.
+The **Edit** menu holds Undo/Redo (with the entry labels) and Clear History; the
+**Window** menu toggles each panel's visibility.
+
+**New Scene** re-seeds a default Main Camera + Ground and clears the selection,
+undo history, Game-view director, in-flight model ops, and physics world, then
+forces a CSM rebuild. Loading a scene (File menu or the Assets panel) does the
+same clearing through `loadSceneFromFile_`.
+
+> **Important:** wholesale scene replacement bypasses the departure-sphere
+> dirty-caster flow. Without the forced rebuild, the old scene's shadows stay
+> baked in cascades the new content never touches.
+
 ## Settings
 
-One dockable window holding every engine/render control as a collapsing header, drawn in this order.
+A dockable window split into two tabs — **Rendering** (everything visual) and
+**Editor** (the tool itself).
 
-### Scene
+### Rendering tab
 
-Shows the boot status line, a `Scene file` path field (default `Exported/scene.json`), and **New Scene** / **Save Scene** / **Load Scene**. All three are disabled during Play — saving mid-play would persist transient state, and loading would be overwritten by Stop's restore anyway.
+**Quality** — a `Low` / `Medium` / `High` / `Custom` preset combo at the top.
+Picking a tier calls `Renderer::ApplyQualityTier`, which fans out across AA, mesh
+LOD + distance, projected-size culling, the depth pre-pass, shadow
+cascades/resolution, and bloom. `Custom` leaves the individual controls below
+untouched. See **[Post-processing & Quality Tiers](post-processing.md)**.
 
-**New Scene** asks for confirmation, then calls `Scene::ResetToDefaults()` and re-seeds the default Main Camera + Ground. It also clears the selection, the entire undo history, the Game view's director, in-flight model ops, and the physics world, then forces a CSM rebuild — every entity handle from the old scene is gone.
+**Lighting** (collapsing header) merges the sun and the scene's direct light:
 
-Loading a scene (from this button or the Assets panel) does the same clearing through `loadSceneFromFile_`.
+- *Direct Light*: `Dir` (drag), `Color`, `Intensity` (0–10).
+- *Sun & Shadows*: a `Rotate Sun (Yaw/Pitch)` toggle (yaw −180–180 / pitch −89–89) or a direct `Sun dir` drag, plus `Use Sun Dir for Shading Light`; then the **Cascaded Shadows** controls — `CSM Enabled`, `Cascades` (1–4), `Base Resolution` (512–4096), `Split Lambda`, `Max Shadow Distance`, padding/margin/stability epsilons, `Update Budget`, dynamic-caster interval, acne biases + `Cull Front Faces`, per-cascade `PCF Radius`, **Force Rebuild CSM**, and a **CSM Debug** mode picker.
 
-> **Important:** wholesale scene replacement bypasses the departure-sphere dirty-caster flow. Without the forced rebuild, the old scene's shadows stay baked in cascades the new content never touches.
+**Environment** — the sky/IBL source: a `Procedural sky` vs `HDRi file` picker
+(an unreadable HDRi path falls back to the procedural sky, reported inline),
+`Enable IBL`, `IBL Intensity` (0–4), `Exposure`, `Draw skybox`, `Sky brightness`,
+and the procedural sky colours when that source is chosen.
 
-**Build Settings** below shows `Player startup scene:` and a **Set Current File as Startup Scene** button, which writes `Exported/project.json` — the file that ships with the game and that the player reads at boot.
+**Post & Toggles** — anti-aliasing (FXAA), VSync, instancing, depth prepass, mesh
+LOD + distance, and the projected-size **Cull tiny objects** control, plus a
+**Post-process** tree with **Bloom**, **Ink outline**, **Colour grade**, and
+**Vignette** (each with its own sliders when enabled). A **Physics** section
+follows: a **Backend** combo (only what this build registered), `Gravity`, a live
+`Bodies: N` count, and a warning for collider-less bodies; switching backend is
+refused during Play.
 
-### Time
+> **Tip from the code:** the projected-size cull is the lever that actually
+> speeds up wide/bird's-eye views — those are vertex/instance-bound, and
+> shadows/fill are effectively free there.
 
-`Paused` checkbox, `Time Scale` slider (0–4), and `Fixed Tick (Hz)` slider (15–240). These affect gameplay time only; editor camera input deliberately ignores pause and time scale.
+> The old scene-wide **Materials** sliders were removed: they were overridden
+> per-draw by each material's own values. Materials — including **PBR/Toon
+> shading** — are authored per-object in the Inspector's Model section.
 
-### Input
+### Editor tab
 
-Read-only diagnostics: gamepad connection state and live `MoveForward`, `MoveRight`, `LookX`, `LookY` axis values, plus a reminder that bindings are rebindable via `Application::input()`.
-
-### Rendering Toggles
-
-| Control | Notes |
-| --- | --- |
-| VSync | Off = uncapped, for benchmarking. |
-| Enable instancing | |
-| Depth prepass | Shade each pixel once. |
-| Enable mesh LOD + LOD distance scale | 0.25–4; higher = detail farther. |
-| Cull tiny objects + Min on-screen px | 0–48 px. |
-| Enable normal mapping | |
-| Enable PBR (Cook-Torrance) | |
-
-> **Tip from the code:** the projected-size cull is the lever that actually speeds up wide and bird's-eye views — those are vertex/instance-bound, and shadows/fill are effectively free there. Low values (2–4 px) are sub-visible; higher values cull more but can pop distant objects and, with a low sun, briefly leave their still-cast shadows visible.
-
-Then a **Physics** section: a **Backend** combo listing only what this build actually registered (`PhysicsBackendRegistry::Available()`), a `Gravity` drag, a live `Bodies: N` count, and an orange warning counting bodies skipped for having no collider. Switching backend is refused during Play (`Stop play before switching backend.`) — bodies would vanish and every simulated pose would snap back. The footer reads `Simulating.` while playing and `Bodies build on Play.` otherwise.
-
-### Lights (Shading)
-
-Direct light `Dir` (drag), `Color`, and `Intensity` (0–10) on the `Scene`.
-
-### Sun / Shadows Controls
-
-**Directional Light**: a `Rotate Sun (Yaw/Pitch)` checkbox switching between yaw (−180–180) / pitch (−89–89) sliders and a direct `Sun dir` drag (normalized on edit), plus `Use Sun Dir for Shading Light`.
-
-**Cascaded Shadows**: `CSM Enabled`, `Cascades` (1–4), `Base Resolution` (512–4096), `Split Lambda` (0–1), `Max Shadow Distance` (10–2000), `Cascade Padding (m)` (0–50), `Depth Margin (m)` (0–50), `Stability Pos Epsilon (m)` (0–0.5), `Stability Ang Epsilon (deg)` (0–5), and `Update Budget (cascades/frame)` (0 = all).
-
-**Dynamic Caster Cost**: `Far Re-render Interval (frames)` (1–4; 1 = every frame).
-
-**Shadow Acne Controls**: `Slope Depth Bias` (0–8), `Constant Depth Bias` (0–16), `Cull Front Faces`.
-
-**Shadow Filtering (PCF)**: `Receiver Bias Const (texels)` and `Receiver Bias Slope (texels)` (0–8), plus one `PCF Radius (cascade N)` slider (0–4) per active cascade.
-
-**Force Rebuild CSM** rebuilds both renderers. **CSM Debug** offers modes `Off`, `Cascade index`, `Shadow factor`, `Light depth`, `Sampled depth`, `Projected UV`.
-
-### Materials
-
-Scene-wide `Metallic`, `Roughness`, `AO` sliders (0–1) and `Use Metallic Map` / `Use Roughness Map` / `Use AO Map` checkboxes. Per-entity overrides live in the Inspector's Model section.
-
-### IBL/HDR
-
-`Enable IBL`, `IBL Intensity` (0–4), and `Exposure` (0.2–5, on the renderer).
+**Time** — `Paused`, `Time Scale` (0–4), `Fixed Tick (Hz)` (15–240); gameplay
+time only (editor camera ignores pause/time scale). **Input** — read-only
+gamepad + axis diagnostics. **Layouts** — save/load named `.ini` window layouts.
 
 ### Layouts
 

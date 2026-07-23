@@ -33,9 +33,11 @@ generated [API Reference](../api-index.md).
 
 | Page | Covers |
 |---|---|
-| [Rendering](rendering.md) | The pass pipeline, shadows, LOD, culling, instancing |
+| [Rendering](rendering.md) | The pass pipeline, shadows, PBR/IBL, sky, transparency, LOD, culling, instancing |
+| [Post-processing & Quality Tiers](post-processing.md) | Bloom, ink outline, colour grade, vignette, FXAA, and the Low/Med/High tiers |
 | [Assets](assets.md) | Model and texture loading, async requests, import settings, the cooker |
 | [Performance](performance.md) | Measuring frames, reading the stats panel, and what actually costs time |
+| [Building on Linux](../BUILDING_LINUX.md) | The Linux build path (the engine targets Windows and Linux) |
 
 ## Design principles
 

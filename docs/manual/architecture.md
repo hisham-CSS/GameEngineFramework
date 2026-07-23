@@ -243,9 +243,18 @@ The order is fixed by construction order:
 |---|---|---|---|---|
 | 1 | ShadowCSM | `ShadowCSMPass` | its own shadow FBO / depth textures | **Publishes** `PassContext::csm` (a `CSMSnapshot`) |
 | 2 | ForwardOpaque | `ForwardOpaquePass` | `ctx.hdrFBO` (RGBA16F) | **Consumes** `ctx.csm` and `ctx.ibl`; optional depth prepass |
-| 3 | Tonemap | `TonemapPass` | `ctx.defaultFBO` | Samples `ctx.hdrColorTex`, applies `ctx.exposure` |
+| 3 | Skybox | `SkyboxPass` | `ctx.hdrFBO` | Draws the environment cube behind the scene (`LEQUAL`) |
+| 4 | Transparent | `TransparentPass` | `ctx.hdrFBO` | Sorted back-to-front alpha-blend/cutout, depth-primed |
+| 5 | Bloom *(opt)* | `BloomPass` | `ctx.hdrFBO` | Bright-pass + blur composited additively into HDR |
+| 6 | Tonemap | `TonemapPass` | `ctx.defaultFBO` or the LDR chain | ACES tonemap + gamma of `ctx.hdrColorTex` |
+| 7–10 | Outline / ColorGrade / Vignette / FXAA *(opt)* | resp. passes | LDR ping-pong → `ctx.defaultFBO` | Gamma-space post effects; the last resolves to the output |
 
-`ShadowCSMPass` is added in `Renderer::Setup`. `ForwardOpaquePass` and `TonemapPass` are created lazily on the first `RenderFrame` (the forward pass needs the `Shader&` that `RenderFrame` receives). `pipeline_.setup(ctx)` is idempotent and re-run after each add.
+`ShadowCSMPass` is added in `Renderer::Setup`; the rest are created lazily on
+the first `RenderFrame` (the forward/transparent passes need the `Shader&` that
+`RenderFrame` receives). Ordering is purely insertion order. The optional passes
+self-skip when their effect is off; the LDR post passes route through a
+ping-pong buffer pair (see **[Post-processing](post-processing.md)**).
+`pipeline_.setup(ctx)` is idempotent and re-run after each add.
 
 `PassContext` is the shared blackboard: GL target IDs, the fullscreen quad VAO, the tonemap shader, `sunDir`, `exposure`, `splitBlend`, `csmDebug`, the receiver-side shadow bias/kernel values, and the `csm` / `ibl` snapshots. `FrameParams` is the immutable per-frame view: `view`, `proj`, `deltaTime`, `frameIndex`, `viewportW`, `viewportH`.
 

@@ -1,9 +1,11 @@
 # Rendering
 
-The renderer draws one frame as a short, fixed sequence of passes: cascaded
-shadow maps, a forward opaque pass into an HDR target, then a tonemap blit to
-the output framebuffer. Everything else — culling, LOD, instancing, batching —
-happens inside the scene traversal that the forward pass drives.
+The renderer draws one frame as a fixed sequence of passes: cascaded shadow
+maps, a forward PBR pass into an HDR target, the sky, sorted transparency,
+bloom, a tonemap, and then a chain of LDR post effects (ink outline, colour
+grade, vignette, anti-aliasing) into the output framebuffer. Everything else —
+culling, LOD, instancing, batching — happens inside the scene traversal that
+the forward pass drives.
 
 This page explains that pipeline, the knobs that control it, and — importantly
 — which of those knobs actually change your frame time. The last section is
@@ -31,11 +33,26 @@ its Viewport panel.
 Passes are held in a `RenderPipeline` (`Engine/src/render/RenderPipeline.h`), a
 flat vector of `IRenderPass` that runs in insertion order:
 
-| Order | Pass | Source | Does |
+| Order | Pass | Space | Does |
 |---|---|---|---|
-| 1 | `ShadowCSMPass` | `Engine/src/render/passes/ShadowCSMPass.cpp` | Renders depth-only cascade maps from the sun |
-| 2 | `ForwardOpaquePass` | `Engine/src/render/passes/ForwardOpaquePass.cpp` | Shades the scene into the HDR framebuffer |
-| 3 | `TonemapPass` | `Engine/src/render/passes/TonemapPass.cpp` | ACES tonemap + gamma, fullscreen quad into `targetFBO` |
+| 1 | `ShadowCSMPass` | — | Renders depth-only cascade maps from the sun |
+| 2 | `ForwardOpaquePass` | HDR | Shades the opaque scene into the HDR framebuffer (with a depth pre-pass) |
+| 3 | `SkyboxPass` | HDR | Draws the environment behind the scene, depth-tested `LEQUAL` |
+| 4 | `TransparentPass` | HDR | Sorted back-to-front alpha-blend/cutout, depth-primed |
+| 5 | `BloomPass` *(if on)* | HDR | Bright-pass + blur, composited additively back into the HDR buffer |
+| 6 | `TonemapPass` | HDR→LDR | ACES tonemap + gamma; writes the output, or the first LDR buffer if a chain follows |
+| 7 | `OutlinePass` *(if on)* | LDR | Depth-edge ink outline |
+| 8 | `ColorGradePass` *(if on)* | LDR | Procedural colour grade |
+| 9 | `VignettePass` *(if on)* | LDR | Radial edge darkening |
+| 10 | `FXAAPass` *(if on)* | LDR | Post-process anti-aliasing |
+
+Passes marked *(if on)* self-skip when their effect is disabled. The LDR post
+passes (7–10) ping-pong through a pair of gamma-space buffers and the last one
+resolves to the output; the pair is allocated only while at least one is
+enabled (see `Renderer::countLdrPostPasses_`). Each is per-scene and serialized
+(`Scene::PostFX()`). See **[Post-processing](post-processing.md)** for the
+effects and the **[quality tiers](post-processing.md#quality-tiers)** that gate
+them.
 
 Passes never talk to each other directly. They read and write a shared
 `PassContext` (`Engine/src/render/IRenderPass.h`), which carries the GL targets,

@@ -1,6 +1,6 @@
 # Entities and Components
 
-Everything in a Cat Splat scene is an **entity**: an id with a bag of **components** attached to it. There is no `GameObject` base class and no scripting component — an entity *is* its components, and systems (rendering, physics, camera selection, serialization) find work by asking for entities that have a particular combination of them.
+Everything in a Cat Splat scene is an **entity**: an id with a bag of **components** attached to it. There is no `GameObject` base class — an entity *is* its components, and systems (rendering, physics, scripting, camera selection, serialization) find work by asking for entities that have a particular combination of them.
 
 The ECS is [EnTT](https://github.com/skypjack/entt). `MyCoreEngine::Scene` owns the registry directly:
 

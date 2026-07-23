@@ -1,78 +1,89 @@
-# GameEngineFramework
+# Cat Splat Engine
 
-## Project Overview
+A working C++17 / OpenGL 3.3 **game engine, editor, and runtime** — not just a renderer.
+It ships a separate **Engine** (DLL), a dockable ImGui **Editor** with its own borderless
+title bar and theme, a standalone **Player**, and a headless **AssetCooker**, on a
+CMake + vcpkg build.
 
-This project is a modular game engine framework built with modern C++17. It features a clean
-architecture with a separate Engine (DLL) and Editor, a render-pass-based OpenGL pipeline with
-PBR, IBL, and cascaded shadow maps, and a CMake + vcpkg build system.
-
-The renderer is the most mature part of the engine. Scene authoring, persistence, and gameplay
-systems are still in development — see [Development Status](#development-status) below and the
-full audit + roadmap in [docs/ENGINE_AUDIT_2026-07.md](docs/ENGINE_AUDIT_2026-07.md).
+Rendering is AAA-lite: a chainable multi-pass pipeline with cascaded shadow maps, PBR +
+image-based lighting, a procedural sky/skybox, sorted transparency, bloom, ACES tonemapping,
+and a stack of post effects (ink outline, colour grade, vignette, FXAA), plus per-material
+cel/toon shading and HDRP-lite quality tiers. On top sits a real game layer: an EnTT ECS,
+physics and scripting behind swappable backends, versioned scene serialization, a project
+system, and full editor authoring (play-in-editor, undo/redo, asset browser, entity
+create/delete).
 
 ## Documentation
 
 | | |
 |---|---|
-| **[Manual](docs/manual/index.md)** | How the engine works and how to build things with it — architecture, editor, components, physics, rendering, shipping a build |
+| **[Manual](docs/manual/index.md)** | How the engine works and how to build things with it — architecture, editor, components, physics, scripting, rendering, shipping a build |
 | **[Getting Started](docs/manual/getting-started.md)** | Prerequisites, build configurations, running the editor and player |
+| **[Building on Linux](docs/BUILDING_LINUX.md)** | The Linux build path (the engine targets Windows **and** Linux) |
 | **[API Reference](docs/api-index.md)** | Generated per-class reference. Build it with the `docs` CMake target (requires Doxygen) |
+| **[Engine Audit & Roadmap](docs/ENGINE_AUDIT_2026-07.md)** | The phased roadmap ledger and its status |
 
 New here? Read [Getting Started](docs/manual/getting-started.md), then
 [Engine Architecture](docs/manual/architecture.md).
 
-## What Works Today
+## Feature Matrix
 
-- **Modern C++17 architecture**: separate Engine DLL and Editor executable.
-- **Render-pass pipeline**: `IRenderPass` interface with ShadowCSM → ForwardOpaque → Tonemap
-  passes composed by a `RenderPipeline`.
-- **Cascaded Shadow Maps**: up to 4 cascades with texel-snap stabilization, per-cascade
-  update budgeting, split blending, PCF filtering, and extensive editor tuning controls.
-- **PBR shading**: Cook-Torrance GGX with optional metallic/roughness/AO/normal maps, plus
-  image-based lighting (irradiance/prefiltered/BRDF LUT inputs).
-- **HDR pipeline**: RGBA16F render target with ACES tonemapping and gamma correction.
-- **Performance paths**: frustum culling, material/mesh-sorted draw batching, and GPU
-  instancing (the demo scene draws ~7,600 mesh instances in ~80 draw calls).
-- **ECS scene**: EnTT-based registry with Transform/Model/Material components.
-- **Asset loading**: assimp model import with texture caching and by-path deduplication.
-- **Editor**: dockable ImGui workspace with a scene **Viewport panel** (render-to-texture,
-  resizes with the panel), **transform gizmos** (ImGuizmo translate/rotate/scale) and
-  **click-to-select picking**, plus panels for scene hierarchy, transform/material
-  inspection, scene save/load, and deep renderer tuning (lighting, shadows, IBL/HDR,
-  toggles, live stats).
-- **Scene serialization**: versioned JSON save/load of entities (name, transform, model
-  by asset path, material overrides, flags) plus scene lighting/shading settings.
-- **Standalone Player**: `Player.exe [scene.json]` boots the engine and runs a serialized
-  scene with no editor dependencies (defaults to `Exported/scene.json`).
-- **Game update hooks**: fixed-timestep tick (default 60 Hz, accumulator with
-  spiral-of-death guard) plus a per-frame variable update, with time scale and pause.
-- **Input action maps**: named actions/axes with rebindable keyboard, mouse-button, and
-  gamepad bindings (stick deadzone included). WASD + gamepad sticks fly the camera by
-  default; games query `renderer.input()` by name.
-- **Unit tests**: GoogleTest suite covering CSM split math, shadow stability, render-pass
-  wiring, scene serialization round-trips, and input/event basics.
+Legend: ✅ working · 🟡 partial · 🔲 planned
 
-## Current Limitations (Honest Edition)
+| Area | Status | Notes |
+|---|:---:|---|
+| **Render pipeline** | ✅ | Multi-pass `IRenderPass`/`RenderPipeline`: CSM → forward PBR → skybox → sorted transparent → bloom → tonemap → ink outline → colour grade → vignette → FXAA |
+| **Shadows** | ✅ | Cascaded shadow maps (≤4), texel-snap stabilization, split blending, PCF, per-cascade update budgeting |
+| **Lighting** | ✅ | Directional sun (shadowed) + up to 16 point/spot lights (unshadowed); Cook-Torrance GGX PBR |
+| **IBL / Sky** | ✅ | Split-sum IBL (irradiance / prefiltered / BRDF LUT) baked from an `.hdr` **or** a procedural sky; drawn skybox |
+| **Transparency** | ✅ | glTF-style `Opaque` / `Mask` (cutout) / `Blend`, sorted back-to-front with a depth pre-pass |
+| **Post-processing** | ✅ | Chainable LDR ping-pong stack: bloom (HDR), depth-edge ink outline, procedural colour grade, vignette, FXAA |
+| **Materials** | ✅ | Per-material PBR + textures, alpha mode, double-sided, per-entity overrides, and **cel/toon shading** with per-material controls |
+| **Quality tiers** | ✅ | HDRP-lite `Low` / `Medium` / `High` / `Custom` presets fanned out across LOD, culling, shadows, bloom, AA |
+| **ECS / components** | ✅ | EnTT registry: Transform (hierarchy), Model, Material overrides, Camera, Light, RigidBody/Collider, Script, Name, Parent, NoShadow |
+| **Editor** | ✅ | Dockable ImGui workspace, custom title bar + theme + File/Edit/Window menus + panel visibility, gizmos, click-picking, hierarchy, inspector, asset browser, deep render settings |
+| **Play-in-editor** | ✅ | Play/Stop with a scene snapshot + restore; gameplay input focus-gated to the Game view |
+| **Undo / redo** | ✅ | Command history with clickable entries |
+| **Physics** | ✅ | `IPhysicsBackend` seam — **Jolt**, **PhysX**, or a **Simple** built-in, one backend per world; fixed-tick; collision/trigger events |
+| **Scripting** | ✅ | `IScriptBackend` seam — sandboxed **Lua** (sol2), per-entity isolated environments; a Null backend |
+| **Assets** | 🟡 | Assimp import + texture caching + by-path dedup; async worker-pool loading; **AssetCooker validates** (no binary cooked format yet) |
+| **Serialization** | ✅ | Versioned JSON: entities, components, material overrides, lighting, environment, post-FX, quality tier |
+| **Project system** | ✅ | `project.json` with a startup scene the Player boots |
+| **Player** | ✅ | `Player.exe [scene.json]` runs a saved scene with no editor deps |
+| **Packaging** | ✅ | `cpack -G ZIP` → self-contained Windows game bundle |
+| **Job system** | ✅ | Worker-pool `JobSystem` backing async asset loads |
+| **Platform** | 🟡 | Windows (primary) + **Linux** (port phases 0–1: compiles under gcc/clang; PhysX is Windows-only there) |
+| **Tests** | ✅ | GoogleTest: CSM math, shadow stability, render passes, serialization, physics, scripting, IBL/FXAA, input |
+| **Audio** | 🔲 | Not started |
+| **Skeletal animation** | 🔲 | Static meshes only today |
+| **In-game / runtime UI** | 🔲 | ImGui is editor-only; no HUD/menu/text path yet |
+| **Networking** | 🔲 | Not started |
 
-- **No project system** — window size, startup camera, and renderer defaults are hardcoded;
-  there is no per-game settings file yet.
-- **Editor authoring is partial** — viewport, docking, gizmos, and picking exist; entity
-  create/delete UI, undo, asset browser, and play mode are still missing.
-- **Single directional light** — no point/spot lights or additional shadow casters.
-- **Opaque-only rendering** — no transparency pass, anti-aliasing, skybox, or post-processing
-  beyond tonemapping.
-- **No physics, animation, audio, scripting, or in-game UI** — planned (see roadmap).
-- **Single-threaded** — no job system or async asset loading yet.
+## Not Yet Built
+
+Honest gaps, roughly in impact order:
+
+- **Audio** — no audio subsystem of any kind.
+- **Skeletal / skinned animation** — the renderer draws static meshes only.
+- **In-game / runtime UI + text** — ImGui is editor-only; shipped games have no menus/HUD/text.
+- **Networking** — none.
+- **Shadowed punctual lights** — the 16 point/spot lights are unshadowed and use a bounded uniform array (not a UBO).
+- **Binary cooked-asset pipeline** — the AssetCooker only *validates*; models are still Assimp-imported at load time.
+- **Scripting breadth** — Lua only, a thin API (transform / input / raycast / time), no hot-reload.
 
 ## Project Structure
 
 ```
 GameEngineFramework/
-├── Editor/         # Editor application (ImGui) + Exported/ shaders & sample assets
-├── Engine/         # Core engine (DLL): core systems + render passes
-├── Player/         # Standalone player (loads a scene.json, no editor UI)
-├── docs/           # Audit and roadmap documentation
-├── tests/          # GoogleTest unit tests
+├── Engine/          # Core engine (DLL): core systems, render passes, physics + script backends
+├── Editor/          # Editor application (ImGui) + Exported/ shaders & sample assets
+├── Player/          # Standalone player (loads a scene.json, no editor UI)
+├── Cooker/          # Headless AssetCooker (asset validation)
+├── docs/            # Manual (docs/manual/), API index, Linux build guide, audit/roadmap
+├── tests/           # GoogleTest unit tests
+├── cmake/           # Build helpers (runtime-asset staging, etc.)
+├── scripts/         # Build scripts (e.g. linux-build.sh)
+├── tools/           # Small dev tools
 ├── CMakeLists.txt
 ├── vcpkg.json
 └── vcpkg-configuration.json
@@ -80,37 +91,56 @@ GameEngineFramework/
 
 ## Dependencies
 
-- **GLFW** — window and input
-- **GLAD** — OpenGL loading (GL 3.3 core)
-- **GLM** — math
-- **STB** — image loading
-- **ASSIMP** — model import
-- **EnTT** — entity-component-system
-- **ImGui** — editor UI
+Resolved via the vcpkg manifest (`vcpkg.json`):
+
+- **GLFW** — window and input · **GLAD** — GL 3.3 core loader · **GLM** — math · **STB** — image loading
+- **Assimp** — model import · **meshoptimizer** — mesh optimization/LODs · **EnTT** — ECS
+- **nlohmann-json** — scene serialization · **ImGui** (docking) + **ImGuizmo** — editor UI / gizmos
+- **Jolt** and **PhysX** — physics backends (PhysX is Windows-only) · **Lua** + **sol2** — scripting
+- **GoogleTest** — tests
+
+The physics and scripting backends are built as optional libraries; each disables gracefully
+if its package is absent, so a minimal build still runs (with the Simple/Null backends).
 
 ## Building the Project
 
 ### Prerequisites
 
-1. **CMake** (3.20+)
-2. **vcpkg**
-3. **C++17 compiler** (MSVC 2022 tested)
+- **CMake** 3.21+, **Ninja**
+- **vcpkg** (manifest mode)
+- A **C++17 compiler** — MSVC 2022 (Windows) or gcc ≥ 11 / clang ≥ 14 (Linux)
 
-### Build Steps
+### Windows
 
 ```bash
 git clone https://github.com/hisham-CSS/GameEngineFramework
 cd GameEngineFramework
-cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=[path-to-vcpkg]/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=Release
+cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=[vcpkg]/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build
 ```
 
-Run the Editor or Player from their output directory (assets are loaded by relative path):
-`build/build/bin/<Config>/Editor.exe` or `build/build/bin/<Config>/Player.exe [scene.json]`.
-Scenes saved in the editor (default `Exported/scene.json`) are immediately runnable in the
-player — both executables share the same output directory.
+(Visual Studio users can open the folder directly — `CMakeSettings.json` provides the
+`x64-Debug` / `x64-Release` / `x64-RelWithDebInfo` configurations.)
 
-Tests: `ctest --test-dir build` (or run the `test_*` executables in `build/tests`).
+### Linux
+
+See **[docs/BUILDING_LINUX.md](docs/BUILDING_LINUX.md)** — in short, install the GLFW X11 dev
+packages, export `VCPKG_ROOT`, and run:
+
+```bash
+scripts/linux-build.sh
+```
+
+### Running
+
+Executables share one output directory, so a scene saved in the Editor is immediately
+runnable in the Player:
+
+- `build/build/bin/<Config>/Editor.exe`
+- `build/build/bin/<Config>/Player.exe [scene.json]` (defaults to `Exported/scene.json`)
+- `build/build/bin/<Config>/AssetCooker.exe validate Exported`
+
+Tests: `ctest --test-dir build` (or run the `test_*` executables directly).
 
 ### Shipping a build
 
@@ -118,31 +148,14 @@ Tests: `ctest --test-dir build` (or run the `test_*` executables in `build/tests
 cd build && cpack -G ZIP
 ```
 
-Produces `CatSplatGame-<version>-win64.zip` containing `Player.exe`, `Engine.dll`, all
-third-party DLLs, and the `Exported/` assets + scene — a self-contained game bundle.
-(`cmake --install build --prefix <dir>` stages the same layout to a directory.)
-
-## Development Status
-
-- ✅ **Rendering pipeline (opaque + CSM + HDR + PBR/IBL)**: Working, actively tuned
-- ✅ **Build system (CMake + vcpkg)**: Working
-- 🔨 **Editor**: Renderer tuning panels working; scene authoring tools not started
-- 🔨 **Testing**: CSM/render passes covered; most other systems untested
-- ✅ **Scene serialization (save/load)**: Working (versioned JSON, editor Save/Load panel)
-- ✅ **Standalone player**: Working (`Player.exe [scene.json]`)
-- ✅ **Packaging/export**: Working (`cpack -G ZIP` → self-contained game bundle)
-- 🔲 **Physics integration**: Planned (Jolt)
-- 🔲 **Animation system**: Planned
-- 🔲 **Audio system**: Planned
-- 🔲 **Scripting system**: Planned
-
-The phased roadmap (P0 fixes → persistence/player → editor authoring → gameplay features →
-performance/scale) lives in [docs/ENGINE_AUDIT_2026-07.md](docs/ENGINE_AUDIT_2026-07.md).
+Produces `CatSplatGame-<version>-win64.zip` containing `Player.exe`, `Engine.dll`, the
+third-party DLLs, and the `Exported/` assets + startup scene — a self-contained game bundle.
+(`cmake --install build --prefix <dir>` stages the same layout.)
 
 ## Contributing
 
-Contributions are welcome! Please open an issue or pull request to discuss any changes.
+Contributions are welcome — please open an issue or pull request to discuss any changes.
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE.txt](LICENSE.txt) file for details.
+MIT — see [LICENSE.txt](LICENSE.txt).
