@@ -132,6 +132,27 @@ void EditorApplication::Run() {
             // + world; Rendering = everything visual; Editor = the tool itself.
             if (ImGui::BeginTabBar("SettingsTabs")) {
                 if (ImGui::BeginTabItem("Rendering")) {
+                    // Quality preset (HDRP-lite tiers): applies a performance
+                    // preset across the render settings below. Custom = leave the
+                    // individual settings untouched.
+                    {
+                        const char* kQ[] = { "Low", "Medium", "High", "Custom" };
+                        int q = static_cast<int>(scene.GetQualityLevel());
+                        ImGui::SetNextItemWidth(160.f);
+                        if (ImGui::Combo("Quality", &q, kQ, IM_ARRAYSIZE(kQ))) {
+                            renderer().ApplyQualityTier(
+                                static_cast<MyCoreEngine::Scene::QualityLevel>(q), scene);
+                            forceAllCSMUpdate_(); // shadow cascades/res may have changed
+                        }
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip(
+                                "Low / Medium / High apply a performance preset\n"
+                                "(geometry LOD, projected-size cull, shadows, bloom, AA).\n"
+                                "Aesthetic post (outline/grade/vignette) is left as you set it.\n"
+                                "Custom leaves everything untouched.");
+                        ImGui::Separator();
+                    }
+
                     // Lighting: the sun + its shadows and the scene's direct
                     // light, together -- editing one usually means the other.
                     if (ImGui::CollapsingHeader("Lighting", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -1339,6 +1360,14 @@ void EditorApplication::DrawRenderingToggles(MyCoreEngine::Scene& scene)
     if (ImGui::TreeNodeEx("Post-process", ImGuiTreeNodeFlags_DefaultOpen)) {
         auto& pfx = scene.PostFX();
 
+        // Bloom (HDR glow, composited before tonemap). The signature AAA
+        // effect and the one real fill cost here, so it's tier-gated.
+        ImGui::Checkbox("Bloom", &pfx.bloom.enabled);
+        if (pfx.bloom.enabled) {
+            ImGui::SliderFloat("Threshold##bloom", &pfx.bloom.threshold, 0.f, 4.f);
+            ImGui::SliderFloat("Intensity##bloom", &pfx.bloom.intensity, 0.f, 2.f);
+        }
+
         // Ink outline (depth-edge) -- pairs with cel shading.
         ImGui::Checkbox("Ink outline", &pfx.outline.enabled);
         if (pfx.outline.enabled) {
@@ -1530,6 +1559,11 @@ bool EditorApplication::loadSceneFromFile_(MyCoreEngine::Scene& scene, const std
 {
     MyCoreEngine::SceneSerializer serializer(scene, *assets_);
     if (!serializer.Load(path)) return false;
+    // Re-apply the quality tier: the perf toggles serialize, but the CSM
+    // cascade/resolution part of a tier lives in the Renderer (not serialized),
+    // so a reloaded High scene would otherwise get default shadows.
+    if (scene.GetQualityLevel() != MyCoreEngine::Scene::QualityLevel::Custom)
+        renderer().ApplyQualityTier(scene.GetQualityLevel(), scene);
     selected_ = entt::null; // old entity handles are invalid after a load
     // ...and so is every handle in the undo history: undoing a pre-load
     // entry would resurrect ghosts into the loaded scene

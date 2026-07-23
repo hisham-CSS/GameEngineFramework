@@ -24,6 +24,7 @@
 #include "../render/passes/VignettePass.h"
 #include "../render/passes/OutlinePass.h"
 #include "../render/passes/ColorGradePass.h"
+#include "../render/passes/BloomPass.h"
 #include "../render/IBLBaker.h"
 
 namespace MyCoreEngine {
@@ -71,6 +72,13 @@ namespace MyCoreEngine {
         // has to remember to bake and the editor cannot end up lit differently
         // from the shipped game. Cheap on the frames where nothing changed.
         void SyncEnvironment(const EnvironmentSettings& env, const glm::vec3& sunDir);
+
+        // HDRP-lite quality tiers: one choke point that fans a preset out into
+        // the perf-critical knobs (AA, LOD, projected-size cull, shadow
+        // resolution/cascades, bloom). Aesthetic post (outline/grade/vignette)
+        // is left to the author. Custom leaves everything untouched. Stored on
+        // the scene so the editor and Player boot to the same tier.
+        void ApplyQualityTier(Scene::QualityLevel level, Scene& scene);
 
         // Light exposure
         float exposure() const { return exposure_; }
@@ -166,6 +174,7 @@ namespace MyCoreEngine {
         VignettePass*   vignettePass_ = nullptr;
         OutlinePass*    outlinePass_ = nullptr;
         ColorGradePass* colorGradePass_ = nullptr;
+        BloomPass*      bloomPass_ = nullptr;
         // LDR ping-pong pair for the post-process chain (tonemap -> effects ->
         // FXAA), allocated only while at least one LDR post pass is enabled.
         unsigned int ldrFBO_ = 0, ldrColorTex_ = 0;    // buffer A

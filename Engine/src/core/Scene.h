@@ -302,6 +302,14 @@ namespace MyCoreEngine {
                 glm::vec3 color{ 0.02f, 0.02f, 0.03f }; // near-black ink
             } outline;
 
+            // Bloom: bright-pass + blurred glow composited back into the HDR
+            // image before tonemap (an HDR pass, not part of the LDR chain).
+            struct Bloom {
+                bool  enabled   = false;
+                float threshold = 1.0f; // HDR luminance above which pixels bloom
+                float intensity = 0.5f; // composite strength
+            } bloom;
+
             // Procedural colour grade (no external LUT asset needed): white
             // balance + lift/gain + contrast + saturation, applied to the
             // tonemapped image. Covers the day-to-day of a LUT workflow.
@@ -317,6 +325,14 @@ namespace MyCoreEngine {
         };
         PostFXSettings&       PostFX()       { return postFX_; }
         const PostFXSettings& PostFX() const { return postFX_; }
+
+        // HDRP-lite quality tiers. A preset (Low/Med/High) is applied by
+        // Renderer::ApplyQualityTier, which fans out into all the individual
+        // render toggles; Custom means "leave the individual settings alone".
+        // Stored so the editor and the Player boot to the same tier.
+        enum class QualityLevel { Low = 0, Medium = 1, High = 2, Custom = 3 };
+        QualityLevel GetQualityLevel() const { return qualityLevel_; }
+        void SetQualityLevel(QualityLevel q) { qualityLevel_ = q; }
 
         bool  GetIBLEnabled() const { return iblEnabled_; }
         void  SetIBLEnabled(bool v) { iblEnabled_ = v; }
@@ -416,6 +432,7 @@ namespace MyCoreEngine {
          RenderStats lastStats_;
          EnvironmentSettings environment_{};
          PostFXSettings postFX_{};
+         QualityLevel qualityLevel_ = QualityLevel::Custom;
          bool normalMapEnabled_ = true;
 
          bool  pbrEnabled_ = true;

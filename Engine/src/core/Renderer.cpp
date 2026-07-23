@@ -178,6 +178,13 @@ namespace MyCoreEngine {
             transparentPass_ = &pipeline_.add<TransparentPass>(shader);
             pipeline_.setup(passCtx_);
         }
+        // Bloom is an HDR pass: it composites its glow back into the HDR buffer
+        // AFTER the scene is drawn and BEFORE tonemap picks it up. Not part of
+        // the LDR ping-pong chain.
+        if (!bloomPass_) {
+            bloomPass_ = &pipeline_.add<BloomPass>();
+            pipeline_.setup(passCtx_);
+        }
         if (!tonemapPass_) {
             tonemapPass_ = &pipeline_.add<TonemapPass>();
             pipeline_.setup(passCtx_);
@@ -265,6 +272,55 @@ namespace MyCoreEngine {
 
         // execute the whole pipeline (CSM → forward → tonemap)
         pipeline_.executeAll(passCtx_, scene, camera, fp);
+    }
+
+    void Renderer::ApplyQualityTier(Scene::QualityLevel level, Scene& scene) {
+        scene.SetQualityLevel(level);
+        auto& p = scene.PostFX();
+        // Perf reality (docs/ENGINE_AUDIT): the target content is vertex/instance
+        // bound and fill-heavy post dominates the integrated GPU, so tiers scale
+        // on GEOMETRY (LOD, projected-size cull, draw distance) and gate BLOOM
+        // (the one expensive post pass). Shadow-resolution cuts buy ~0ms on this
+        // content, but lowering them still frees memory/bandwidth on low-end.
+        // Aesthetic post (outline / grade / vignette) is the author's choice and
+        // is intentionally NOT touched here.
+        switch (level) {
+        case Scene::QualityLevel::Low:
+            scene.SetAAEnabled(false);
+            scene.SetLODEnabled(true);
+            scene.SetLODDistanceScale(0.6f);
+            scene.SetSmallCullEnabled(true);
+            scene.SetSmallCullPixels(24.0f);
+            scene.SetDepthPrepassEnabled(true);
+            p.bloom.enabled = false;
+            setCSMNumCascades(2);
+            setCSMBaseResolution(1024);
+            break;
+        case Scene::QualityLevel::Medium:
+            scene.SetAAEnabled(true);
+            scene.SetLODEnabled(true);
+            scene.SetLODDistanceScale(1.0f);
+            scene.SetSmallCullEnabled(true);
+            scene.SetSmallCullPixels(8.0f);
+            scene.SetDepthPrepassEnabled(true);
+            p.bloom.enabled = true;
+            setCSMNumCascades(3);
+            setCSMBaseResolution(2048);
+            break;
+        case Scene::QualityLevel::High:
+            scene.SetAAEnabled(true);
+            scene.SetLODEnabled(true);
+            scene.SetLODDistanceScale(2.0f);
+            scene.SetSmallCullEnabled(false);
+            scene.SetDepthPrepassEnabled(true);
+            p.bloom.enabled = true;
+            setCSMNumCascades(4);
+            setCSMBaseResolution(4096);
+            break;
+        case Scene::QualityLevel::Custom:
+        default:
+            break; // leave every individual setting as the author left it
+        }
     }
 
 

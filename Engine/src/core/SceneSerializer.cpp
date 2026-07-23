@@ -76,8 +76,12 @@ namespace MyCoreEngine {
             post["gradeTint"]        = p.colorGrade.tint;
             post["gradeLift"]        = p.colorGrade.lift;
             post["gradeGain"]        = p.colorGrade.gain;
+            post["bloomEnabled"]   = p.bloom.enabled;
+            post["bloomThreshold"] = p.bloom.threshold;
+            post["bloomIntensity"] = p.bloom.intensity;
             settings["postFX"] = post;
         }
+        settings["qualityLevel"] = static_cast<int>(scene_.GetQualityLevel());
 
         // --- environment (skybox + image-based lighting) ---
         // How strongly the environment LIGHTS the scene stays in
@@ -340,7 +344,15 @@ namespace MyCoreEngine {
                 p.colorGrade.tint        = jp.value("gradeTint",        p.colorGrade.tint);
                 p.colorGrade.lift        = jp.value("gradeLift",        p.colorGrade.lift);
                 p.colorGrade.gain        = jp.value("gradeGain",        p.colorGrade.gain);
+                p.bloom.enabled   = jp.value("bloomEnabled",   p.bloom.enabled);
+                p.bloom.threshold = jp.value("bloomThreshold", p.bloom.threshold);
+                p.bloom.intensity = jp.value("bloomIntensity", p.bloom.intensity);
             }
+
+            const int ql = s.value("qualityLevel",
+                                   static_cast<int>(scene_.GetQualityLevel()));
+            if (ql >= 0 && ql <= static_cast<int>(Scene::QualityLevel::Custom))
+                scene_.SetQualityLevel(static_cast<Scene::QualityLevel>(ql));
 
             // --- environment (see the save side). Absent block => the
             // defaults, which is the procedural sky: an older scene file

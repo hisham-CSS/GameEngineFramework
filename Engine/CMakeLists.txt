@@ -71,6 +71,8 @@ add_library(Engine SHARED
     src/render/passes/OutlinePass.cpp
     src/render/passes/ColorGradePass.h
     src/render/passes/ColorGradePass.cpp
+    src/render/passes/BloomPass.h
+    src/render/passes/BloomPass.cpp
     # --- physics: backend-agnostic core + pluggable backends ---
     src/physics/PhysicsTypes.h
     src/physics/PhysicsComponents.h

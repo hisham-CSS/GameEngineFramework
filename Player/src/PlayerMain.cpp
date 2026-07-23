@@ -69,6 +69,11 @@ public:
             return;
         }
 
+        // Apply the saved quality tier so the shipped game boots at the same
+        // tier as the editor (the CSM part of a tier isn't serialized).
+        if (scene.GetQualityLevel() != Scene::QualityLevel::Custom)
+            renderer().ApplyQualityTier(scene.GetQualityLevel(), scene);
+
         // The player is always "playing": ticks run from frame one
         // (Application::gameplayEnabled_ defaults on; only the editor gates
         // it). There is no Play button here, so physics bodies are built
