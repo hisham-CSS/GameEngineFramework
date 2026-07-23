@@ -1,5 +1,7 @@
 #pragma once
 #include <cstdio>
+#include <filesystem>
+#include <system_error>
 #include "EditorImGuiLayer.h"
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
@@ -120,6 +122,32 @@ void EditorImGuiLayer::Init(GLFWwindow* window) {
     }
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 330");
+
+    // First-run docking layout. With no saved session (no imgui.ini yet) ImGui
+    // opens every panel free-floating, stacked on top of each other. Seed the
+    // session ini from the shipped default so a fresh install starts in the
+    // intended docked arrangement, and ImGui's own first-frame auto-load picks
+    // it up normally. (We COPY the file rather than LoadIniSettingsFromDisk
+    // here: pre-loading settings before the first NewFrame trips ImGui's
+    // "settings not yet loaded" assert, whereas seeding the ini it is about to
+    // read does not.) Once the user rearranges anything it auto-saves over this
+    // copy, so the branch never runs again.
+    {
+        namespace fs = std::filesystem;
+        const char* userIni = io.IniFilename ? io.IniFilename : "imgui.ini";
+        const char* shipped = "Exported/Layouts/DefaultLayout.ini";
+        std::error_code ec;
+        if (!fs::exists(userIni, ec) && fs::exists(shipped, ec)) {
+            fs::copy_file(shipped, userIni, fs::copy_options::overwrite_existing, ec);
+            // Also expose it under Settings > Editor > Layouts so it can be
+            // re-applied after the user moves things around (best-effort).
+            fs::create_directories("Layouts", ec);
+            if (!fs::exists("Layouts/DefaultLayout.ini", ec))
+                fs::copy_file(shipped, "Layouts/DefaultLayout.ini",
+                              fs::copy_options::overwrite_existing, ec);
+        }
+    }
+
     initialized_ = true;
 }
 
