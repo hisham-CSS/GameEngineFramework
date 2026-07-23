@@ -11,10 +11,10 @@ Scenes are plain JSON written with `nlohmann::json` at two-space indent. The top
 | Key | Contents |
 | --- | --- |
 | `version` | Integer format version. Written from `SceneSerializer::kVersion` (currently `1`). |
-| `settings` | Scene-level lighting and shading state — `lightDir`, `lightColor`, `lightIntensity`, `pbrEnabled`, `normalMapEnabled`, `instancingEnabled`, `metallic`, `roughness`, `ao`, `metallicMapEnabled`, `roughnessMapEnabled`, `aoMapEnabled`, `iblEnabled`, `iblIntensity`, `lodEnabled`, `lodDistanceScale`, `depthPrepass`. |
+| `settings` | Scene-level lighting/shading/render state — the light (`lightDir`/`lightColor`/`lightIntensity`), PBR + map toggles, `instancingEnabled`, `iblEnabled`/`iblIntensity`, LOD + cull knobs, `depthPrepass`, `aaEnabled`, the `qualityLevel` tier, an `environment` object (sky/IBL source, HDRi path, skybox + procedural sky colours), and a `postFX` object (vignette, ink outline, colour grade, bloom). |
 | `entities` | Array of entity objects, in creation order. |
 
-Each entity object carries only the components that entity actually has: `name`, `parent`, `transform`, `model`, `noShadow`, `camera`, `rigidBody`, one of `boxCollider` / `sphereCollider` / `capsuleCollider` / `planeCollider`, and `materialOverrides`. See `Engine/src/core/SceneSerializer.cpp` for the exact per-component field lists.
+Each entity object carries only the components that entity actually has: `name`, `parent`, `transform`, `model`, `noShadow`, `camera`, `light`, `rigidBody`, one of `boxCollider` / `sphereCollider` / `capsuleCollider` / `planeCollider`, `script`, and `materialOverrides` (per-slot base colour, PBR scalars, transparency, and `shadingModel` + toon params). See `Engine/src/core/SceneSerializer.cpp` for the exact per-component field lists.
 
 Two structural rules are worth knowing if you ever hand-edit a file:
 

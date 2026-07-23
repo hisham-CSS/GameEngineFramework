@@ -34,8 +34,10 @@ Unit tests are built by default; `option(ENABLE_TESTS "Build unit tests" ON)` tu
 
 ## Prerequisites
 
-1. **Visual Studio 2022** with the C++ desktop workload. MSVC is the tested compiler; the
-   build has MSVC-specific pieces (`/Zi`, `/ENTRY:mainCRTStartup` for the shipping player).
+1. **A C++17 compiler.** On Windows, **Visual Studio 2022** with the C++ desktop workload is
+   the primary path (the build has MSVC-specific pieces like `/Zi` and
+   `/ENTRY:mainCRTStartup`, all guarded behind `if(MSVC)`). The engine also builds on
+   **Linux** (gcc ≥ 11 / clang ≥ 14) — see **[Building on Linux](../BUILDING_LINUX.md)**.
 2. **CMake 3.20 or newer** (`cmake_minimum_required(VERSION 3.20)`).
 3. **Ninja** — the generator this project is normally built with. Visual Studio 2022 ships it
    with the C++ workload; from a plain terminal, run inside a `vcvars64` environment.
@@ -49,8 +51,8 @@ everyone resolves the same package versions.
 ### Dependencies (from `vcpkg.json`)
 
 `glfw3`, `glad`, `stb`, `glm`, `assimp`, `entt`, `nlohmann-json`, `meshoptimizer`, `imguizmo`,
-`joltphysics`, `physx`, and `imgui` with the `docking-experimental`, `glfw-binding`, and
-`opengl3-binding` features.
+`miniaudio` (audio), `joltphysics`, `physx` (Windows-only), `sol2` + `lua[cpp]` (scripting),
+and `imgui` with the `docking-experimental`, `glfw-binding`, and `opengl3-binding` features.
 
 **The two physics SDKs are optional.** `Engine/CMakeLists.txt` looks for them with
 `find_package(... CONFIG QUIET)` behind the `CSE_ENABLE_JOLT` and `CSE_ENABLE_PHYSX` options

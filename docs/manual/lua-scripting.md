@@ -179,8 +179,10 @@ nothing.
 - **Hot reload.** Editing a `.lua` file requires Stop/Play.
 - **No component access beyond transform + physics.** Scripts cannot add or
   remove components, spawn entities, or read materials and lights.
-- **No coroutine scheduler.** The `coroutine` library is available, but the
-  engine does not resume anything for you.
+- **No coroutines in the default sandbox.** The `coroutine` library is *not*
+  loaded for untrusted scripts (the instruction-limit hook is per-thread and a
+  new coroutine would start unhooked). It only reopens under
+  `allowUnsafeLibraries`, and even then nothing schedules or resumes for you.
 - **One environment per instance, chunk recompiled per entity.** Fine for
   dozens of scripted objects; a shared-chunk cache is the obvious next step
   if thousands are needed.

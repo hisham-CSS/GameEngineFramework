@@ -22,16 +22,21 @@ The API divides into a few areas:
 |---|---|---|
 | Application & main loop | `MyCoreEngine::Application` | Window, input, camera, timing, the frame loop, update hooks |
 | Scene & entities | `MyCoreEngine::Scene`, `Entity` | The EnTT registry, draw submission, culling, LOD |
-| Components | `Transform`, `ModelComponent`, `CameraComponent`, `RigidBody` | The data you attach to entities |
-| Rendering | `MyCoreEngine::Renderer` | Render passes, shadows, tonemapping, render targets |
+| Components | `Transform`, `ModelComponent`, `CameraComponent`, `LightComponent` (global); `MyCoreEngine::{RigidBody, ScriptComponent, AudioSourceComponent}` | The data you attach to entities |
+| Rendering | `MyCoreEngine::Renderer` | Render passes, shadows, PBR/IBL, post-processing, quality tiers, render targets |
 | Physics | `MyCoreEngine::PhysicsWorld`, `IPhysicsBackend` | Bodies, colliders, collision events, backend selection |
+| Scripting | `MyCoreEngine::ScriptWorld`, `IScriptBackend`, `ScriptComponent` | Sandboxed Lua scripts on entities, backend selection |
+| Audio | `MyCoreEngine::AudioWorld`, `IAudioBackend`, `AudioSourceComponent` | 3D/2D sounds, listener, backend selection |
 | Assets | `MyCoreEngine::AssetManager`, `Model` | Loading models and textures, async requests |
 | Serialization | `MyCoreEngine::SceneSerializer` | Saving and loading scenes |
 
 ## Conventions
 
-- Everything public lives in namespace `MyCoreEngine`. Component structs are
-  the exception: they sit at global scope so ECS code reads cleanly.
+- Everything public lives in namespace `MyCoreEngine`. The **core** ECS
+  components (`Transform`, `ModelComponent`, `CameraComponent`,
+  `LightComponent` in `Components.h`) are the exception — they sit at global
+  scope so ECS code reads cleanly. Newer subsystem components (`RigidBody`,
+  `ScriptComponent`, `AudioSourceComponent`) stay in `MyCoreEngine`.
 - `ENGINE_API` marks the DLL boundary. It is stripped from these pages.
 - Types whose names end in `Desc` are plain parameter structs, filled in and
   passed by value.

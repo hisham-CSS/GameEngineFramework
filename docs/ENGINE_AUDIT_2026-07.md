@@ -3,6 +3,15 @@
 Audit of the GameEngineFramework codebase, graded against the development/target hardware
 (ASUS laptop: i5-11400H, RTX 3050 Laptop 4GB, 8GB RAM, NVMe SSD, Windows 11 Home).
 
+> **Historical note.** Sections §1–§3 (the executive summary, grades, and the
+> original findings) are a **frozen 2026-07-09 snapshot** and describe a
+> pre-game-layer engine — most of what they call "missing" (serialization,
+> player, physics, scripting, audio, full editor authoring, transparency, AA,
+> the post-process stack, quality tiers) has since shipped. For the current
+> state see the **[README](../README.md)** feature matrix and the manual. The
+> **§4 roadmap ledger below is kept up to date** and remains the source of
+> truth for what's done vs. planned.
+
 ---
 
 ## 1. Executive summary
