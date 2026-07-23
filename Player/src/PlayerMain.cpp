@@ -33,6 +33,7 @@ class PlayerApplication : public MyCoreEngine::Application {
     // Outlives RunLoop: the fixed-tick subscriber captures it by reference.
     MyCoreEngine::PhysicsWorld physics_;
     MyCoreEngine::ScriptWorld  scripts_; // same lifetime requirement
+    MyCoreEngine::AudioWorld   audio_;   // same lifetime requirement
 public:
     PlayerApplication() : Application(1280, 720, "Cat Splat Player") {}
 
@@ -98,6 +99,10 @@ public:
         }
         scripts_.Build(scene.registry);
         scripts_.Start(scene.registry);
+
+        // Audio: the shipped game plays immediately, same as scripts.
+        InstallAudio(*this, scene, audio_);
+        audio_.Start(scene.registry);
         // The per-frame tick is an AddUpdate SUBSCRIBER installed by
         // InstallScripting, not the primary SetUpdate slot -- that slot stays
         // free for a game's own hook, and both hosts now run scripts at the

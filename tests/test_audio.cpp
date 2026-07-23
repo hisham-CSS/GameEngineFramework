@@ -58,4 +58,32 @@ TEST(Audio, MiniaudioInitIsGracefulWithOrWithoutDevice) {
     SUCCEED() << "miniaudio init returned " << (up ? "device-ready" : "no-device");
 }
 
+// AudioWorld drives sources/listener from the ECS. On the Null backend (always
+// available, headless) the whole lifecycle must run without crashing.
+TEST(Audio, WorldLifecycleOnNullBackend) {
+    AudioWorld world;
+    EXPECT_TRUE(world.SetBackend("Null"));
+    EXPECT_EQ(world.BackendName(), "Null");
+    EXPECT_TRUE(world.HasBackend());
+
+    entt::registry reg;
+
+    auto src = reg.create();
+    reg.emplace<Transform>(src);
+    auto& s = reg.emplace<AudioSourceComponent>(src);
+    s.clip = "sfx.wav"; s.spatial = true; s.playOnStart = true;
+
+    auto listener = reg.create();
+    reg.emplace<Transform>(listener);
+    reg.emplace<AudioListenerComponent>(listener);
+
+    Camera cam;
+    world.Start(reg);          // Null.play -> 0, so no active voice tracked
+    world.Update(reg, cam);    // listener from the AudioListenerComponent entity
+    world.SetMasterVolume(0.5f);
+    EXPECT_EQ(world.PlayOneShot("boom.wav", { 1, 2, 3 }), 0u); // Null -> no id
+    world.Clear();
+    SUCCEED();
+}
+
 } // namespace

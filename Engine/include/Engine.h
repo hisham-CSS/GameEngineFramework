@@ -53,4 +53,7 @@
 #include "../src/audio/AudioTypes.h"
 #include "../src/audio/IAudioBackend.h"
 #include "../src/audio/AudioBackendRegistry.h"
+#include "../src/audio/AudioComponents.h"
+#include "../src/audio/AudioWorld.h"
+#include "../src/audio/AudioInstall.h"
 

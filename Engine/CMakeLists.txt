@@ -77,6 +77,10 @@ add_library(Engine SHARED
     src/audio/IAudioBackend.h
     src/audio/AudioBackendRegistry.h
     src/audio/AudioBackendRegistry.cpp
+    src/audio/AudioComponents.h
+    src/audio/AudioWorld.h
+    src/audio/AudioWorld.cpp
+    src/audio/AudioInstall.h
     src/audio/backends/NullAudioBackend.h
     src/audio/backends/MiniaudioBackend.h
     src/audio/backends/MiniaudioBackend.cpp

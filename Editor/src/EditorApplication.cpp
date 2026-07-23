@@ -379,6 +379,10 @@ void EditorApplication::Run() {
         MyCoreEngine::ScriptSettings ss;
         ss.scriptDirectory = "Exported/Scripts";
         MyCoreEngine::InstallScripting(*this, scene, scripts_, &physics_, nullptr, {}, ss);
+
+        // Audio: per-frame listener/source update installed for the app's life;
+        // voices are populated by audio_.Start() on Play.
+        MyCoreEngine::InstallAudio(*this, scene, audio_);
     }
 
     RunLoop(scene, *shader);
@@ -890,6 +894,7 @@ void EditorApplication::newScene_(MyCoreEngine::Scene& scene)
     pendingModelOps_.clear(); // in-flight ops were aimed at the old scene
     physics_.Clear();         // bodies referred to the old entities
     scripts_.Clear();         // ...and so did every script instance
+    audio_.Clear();           // ...and so did any voices
     // wholesale caster removal bypasses the departure-sphere flow: the old
     // scene's shadows would stay baked otherwise
     forceAllCSMUpdate_();
@@ -1577,6 +1582,7 @@ bool EditorApplication::loadSceneFromFile_(MyCoreEngine::Scene& scene, const std
     // ...and every entity->body pair now refers to the OLD scene's entities
     physics_.Clear();
     scripts_.Clear(); // ...as does every entity->script-instance pair
+    audio_.Clear();   // stop any voices from the old scene
     return true;
 }
 
@@ -1758,6 +1764,7 @@ void EditorApplication::startPlay_(MyCoreEngine::Scene& scene)
     scripts_.SetInput(&input());
     scripts_.Rebuild(scene.registry);
     scripts_.Start(scene.registry);
+    audio_.Start(scene.registry); // play-on-start sources begin now
 
     setGameplayEnabled(true);
     playing_ = true;
@@ -1777,6 +1784,7 @@ void EditorApplication::stopPlay_(MyCoreEngine::Scene& scene)
     // would survive looking valid while pointing at a destroyed instance.
     // Clearing here also fires OnDestroy while the entities still exist.
     scripts_.Clear();
+    audio_.Clear();   // stop all voices when leaving Play
     UndoHistory::restoreScene(scene.registry, assets_.get(), playSnapshot_);
     playSnapshot_.clear();
     undo_.setRecordingEnabled(true);
