@@ -276,24 +276,54 @@ namespace MyCoreEngine {
 
     void Renderer::CopyShadowSettingsFrom(const Renderer& src) {
         if (&src == this) return;
-        setCSMEnabled(src.getCSMEnabled());
-        setCSMNumCascades(src.getCSMNumCascades());
-        setCSMBaseResolution(src.getCSMBaseResolution());
-        setCSMMaxShadowDistance(src.getCSMMaxShadowDistance());
-        setCSMCascadePadding(src.getCSMCascadePadding());
-        setCSMDepthMargin(src.getCSMDepthMargin());
-        setCSMSlopeDepthBias(src.getCSMSlopeDepthBias());
-        setCSMConstantDepthBias(src.getCSMConstantDepthBias());
-        setCSMCullFrontFaces(src.getCSMCullFrontFaces());
-        setShadowBiasConst(src.getShadowBiasConst());
-        setShadowBiasSlope(src.getShadowBiasSlope());
-        for (int i = 0; i < 4; ++i) setCascadeKernel(i, src.getCascadeKernel(i));
-        setCSMUpdatePolicy(src.getCSMUpdatePolicy());
-        setCSMCascadeBudget(src.getCSMCascadeBudget());
-        setCSMDynamicIntervalCap(src.getCSMDynamicIntervalCap());
-        float posEps = 0.f, angEps = 0.f;
-        src.getCSMEpsilons(posEps, angEps);
-        setCSMEpsilons(posEps, angEps);
+
+        // EVERY assignment below is change-gated, and that is load-bearing, not
+        // tidiness. Most CSM setters call markDirty_() unconditionally, which
+        // sets forceFullUpdateOnce_ — so calling them blindly from a per-frame
+        // mirror re-rendered ALL cascades EVERY frame. On a 31k-instance scene
+        // that added a second full 4x2048 shadow render per frame and halved the
+        // editor's frame rate. In the steady state this must be a no-op.
+        auto assign = [](auto current, auto wanted, auto&& apply) {
+            if (current != wanted) apply(wanted);
+        };
+
+        assign(getCSMEnabled(), src.getCSMEnabled(),
+               [&](bool v) { setCSMEnabled(v); });
+        assign(getCSMNumCascades(), src.getCSMNumCascades(),
+               [&](int v) { setCSMNumCascades(v); });
+        assign(getCSMBaseResolution(), src.getCSMBaseResolution(),
+               [&](int v) { setCSMBaseResolution(v); });
+        assign(getCSMMaxShadowDistance(), src.getCSMMaxShadowDistance(),
+               [&](float v) { setCSMMaxShadowDistance(v); });
+        assign(getCSMCascadePadding(), src.getCSMCascadePadding(),
+               [&](float v) { setCSMCascadePadding(v); });
+        assign(getCSMDepthMargin(), src.getCSMDepthMargin(),
+               [&](float v) { setCSMDepthMargin(v); });
+        assign(getCSMSlopeDepthBias(), src.getCSMSlopeDepthBias(),
+               [&](float v) { setCSMSlopeDepthBias(v); });
+        assign(getCSMConstantDepthBias(), src.getCSMConstantDepthBias(),
+               [&](float v) { setCSMConstantDepthBias(v); });
+        assign(getCSMCullFrontFaces(), src.getCSMCullFrontFaces(),
+               [&](bool v) { setCSMCullFrontFaces(v); });
+        assign(getShadowBiasConst(), src.getShadowBiasConst(),
+               [&](float v) { setShadowBiasConst(v); });
+        assign(getShadowBiasSlope(), src.getShadowBiasSlope(),
+               [&](float v) { setShadowBiasSlope(v); });
+        for (int i = 0; i < 4; ++i) {
+            assign(getCascadeKernel(i), src.getCascadeKernel(i),
+                   [&](int v) { setCascadeKernel(i, v); });
+        }
+        assign(getCSMUpdatePolicy(), src.getCSMUpdatePolicy(),
+               [&](ShadowCSMPass::UpdatePolicy v) { setCSMUpdatePolicy(v); });
+        assign(getCSMCascadeBudget(), src.getCSMCascadeBudget(),
+               [&](int v) { setCSMCascadeBudget(v); });
+        assign(getCSMDynamicIntervalCap(), src.getCSMDynamicIntervalCap(),
+               [&](int v) { setCSMDynamicIntervalCap(v); });
+        float srcPos = 0.f, srcAng = 0.f, myPos = 0.f, myAng = 0.f;
+        src.getCSMEpsilons(srcPos, srcAng);
+        getCSMEpsilons(myPos, myAng);
+        if (srcPos != myPos || srcAng != myAng) setCSMEpsilons(srcPos, srcAng);
+
         // NOT copied: lambda/split mode. setCSMLambda switches the pass into
         // Lambda split mode as a side effect, so mirroring it would silently
         // change how the destination splits its cascades.
