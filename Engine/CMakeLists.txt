@@ -69,6 +69,11 @@ add_library(Engine SHARED
     src/render/passes/FXAAPass.cpp
     src/render/passes/VignettePass.h
     src/render/passes/VignettePass.cpp
+    # 2D layer: a general-purpose batched sprite/quad renderer. The in-game UI
+    # is its first consumer, but it is deliberately independent of UI so a 2D
+    # game can be built on the same code (world-space camera mode).
+    src/render2d/Renderer2D.h
+    src/render2d/Renderer2D.cpp
     src/render/passes/OutlinePass.h
     src/render/passes/OutlinePass.cpp
     src/render/passes/ColorGradePass.h
