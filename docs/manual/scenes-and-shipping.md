@@ -11,7 +11,7 @@ Scenes are plain JSON written with `nlohmann::json` at two-space indent. The top
 | Key | Contents |
 | --- | --- |
 | `version` | Integer format version. Written from `SceneSerializer::kVersion` (currently `1`). |
-| `settings` | Scene-level lighting/shading/render state — the light (`lightDir`/`lightColor`/`lightIntensity`), PBR + map toggles, `instancingEnabled`, `iblEnabled`/`iblIntensity`, LOD + cull knobs, `depthPrepass`, `aaEnabled`, the `qualityLevel` tier, an `environment` object (sky/IBL source, HDRi path, skybox + procedural sky colours), and a `postFX` object (vignette, ink outline, colour grade, bloom). |
+| `settings` | Scene-level lighting/shading/render state — the light (`lightDir`/`lightColor`/`lightIntensity`), PBR + map toggles, `instancingEnabled`, `iblEnabled`/`iblIntensity`, `lodEnabled`/`lodDistanceScale`, the projected-size cull (`smallCullEnabled`/`smallCullPixels`), `depthPrepass`, `aaEnabled`, the `qualityLevel` tier, an `environment` object (sky/IBL source, HDRi path, skybox + procedural sky colours), and a `postFX` object (vignette, ink outline, colour grade, bloom). |
 | `entities` | Array of entity objects, in creation order. |
 
 Each entity object carries only the components that entity actually has: `name`, `parent`, `transform`, `model`, `noShadow`, `camera`, `light`, `rigidBody`, one of `boxCollider` / `sphereCollider` / `capsuleCollider` / `planeCollider`, `script`, `audioSource` (clip path, volume, pitch, loop, spatial, playOnStart, min/max distance), `audioListener` (a bare `true` tag), and `materialOverrides` (per-slot base colour, PBR scalars, transparency, and `shadingModel` + toon params). See `Engine/src/core/SceneSerializer.cpp` for the exact per-component field lists.
@@ -33,7 +33,9 @@ ERROR::SCENE::LOAD_FAILED unsupported scene version N in '<path>'
 
 A file that is not an object, or has no `entities` array, is rejected the same way.
 
-**Important:** `Load` parses and validates the entire file *before* touching the registry. A bad file returns `false` and leaves your current scene completely intact — you never lose work to a corrupt or newer-format scene.
+**Important:** `Load` parses and validates the entire file *before* touching the registry. A bad file returns `false` and leaves your current scene completely intact — you never lose work to a corrupt or newer-format scene. That guarantee covers wrong-*typed* fields too, not just syntax errors: `Load` first runs the whole load against a throwaway `Scene` (the `dryRun_` probe, which performs every JSON read but skips model I/O), so by the time the real pass starts, nothing left in the file can throw. Re-using `Load` itself as the validator rather than a parallel schema check means the two can never disagree.
+
+Once the file is known good, the load calls `Scene::ResetToDefaults()` before applying the `settings` block. Every setting is read with the current scene value as its fallback, so **an absent key means "the default"**, not "keep whatever the previously loaded scene had" — which used to let one scene's bloom, HDRi or quality tier follow you into the next one and then get written into *its* file on the next save. `ResetToDefaults` restores the whole `postFX` and `environment` structs and the `qualityLevel` along with the individual knobs, so adding a field to either struct cannot quietly escape the reset.
 
 Hand-edited values are also range-checked on load, not on trust:
 
@@ -65,17 +67,20 @@ Physics components serialize as engine enums and plain floats, never backend han
 
 ## Saving and loading in the editor
 
-Scene persistence lives in the **Settings** window, under the **Scene** collapsing header (`EditorApplication::DrawScenePersistence` in `Editor/src/EditorApplication.cpp`).
+Scene persistence lives in the **File** menu on the editor's title bar (`EditorApplication::DrawMainMenuBar` in `Editor/src/EditorApplication.cpp`). The current scene path defaults to `Exported/scene.json` and is shown, centred, in the title bar itself alongside the last save/load result.
 
-| Control | Effect |
+| Menu item | Effect |
 | --- | --- |
-| **Scene file** | Path used by Save and Load. Defaults to `Exported/scene.json`. |
 | **New Scene** | Confirmation popup, then replaces the scene with a Main Camera plus a ground plane. |
-| **Save Scene** | `SceneSerializer::Save` to the Scene file path. |
-| **Load Scene** | `SceneSerializer::Load`, plus the editor-side invalidation described below. |
-| **Set Current File as Startup Scene** | Writes the path into `Exported/project.json`. |
+| **Open Scene…** | Popup for the path, then `SceneSerializer::Load` plus the editor-side invalidation described below. |
+| **Save Scene** (`Ctrl+S`) | `SceneSerializer::Save` to the current scene path. |
+| **Save Scene As…** | Popup for a new path, then saves — the new path becomes the current one. |
+| **Save All** (`Ctrl+Shift+S`) | The scene *and* the editor layout (ImGui otherwise only persists the layout on a clean shutdown). |
+| **Set Current Scene as Player Startup** | Writes the current path into `Exported/project.json`. |
 
-New / Save / Load are disabled while in Play mode. Saving mid-play would persist transient play state, and loading would be overwritten by Stop's snapshot restore anyway.
+Every scene-changing item — and the `Ctrl+S` shortcuts — is disabled while in Play mode. Saving mid-play would persist transient play state, and loading would be overwritten by Stop's snapshot restore anyway. `Ctrl+S` is also gated on not typing, so it stays a plain keystroke inside a text field.
+
+The **Settings** window has no scene section. Its three tabs are **Rendering**, **Editor** and **Audio**.
 
 You can also act on a scene from the Asset Browser: double-click a `.json` scene to load it, or right-click for **Load Scene**, **Set as Startup Scene**, and **Copy Path**. Loading is blocked during play there too; setting the startup scene is safe at any time.
 
@@ -89,7 +94,7 @@ You can also act on a scene from the Asset Browser: double-click a `.json` scene
 
 The editor loads the same startup scene the player ships with — boot content comes from the scene file, never from code. This used to build a hardcoded demo grid at launch, which made the editor lie about what a scene contained: authored components (physics especially) looked like they "didn't save" when in fact the hardcoded scene had replaced them before you ever saw them.
 
-If the startup scene fails to load, the editor falls back to `createDefaultScene_`. Either way the outcome is shown as `bootStatus_` at the top of the Scene section, so "why am I looking at this scene?" is answerable without reading the console.
+If the startup scene fails to load, the editor falls back to `createDefaultScene_`. Either way the outcome is shown as `bootStatus_` under **Settings > Editor**, at the top of the tab, so "why am I looking at this scene?" is answerable without reading the console.
 
 ## The startup scene and project.json
 
@@ -111,7 +116,7 @@ struct ENGINE_API ProjectSettings {
 
 `masterVolume` is the global audio mix level, edited under **Settings > Audio** and clamped to `0..1`. Because it lives in `project.json` (not the scene), both the editor and the shipped player boot at the same volume, and it is unaffected by loading a different scene.
 
-To set it: put the path in the **Scene file** box and press **Set Current File as Startup Scene**, or right-click the scene in the Asset Browser and choose **Set as Startup Scene**. The status line confirms `Saved to Exported/project.json (ships with the game)`. The editor loads existing settings before rewriting the file, so the fields `ProjectSettings` models are preserved. `Save` rewrites project.json from scratch, so any keys the struct does not model are dropped.
+To set it: open or save the scene you want, then choose **File > Set Current Scene as Player Startup**, or right-click the scene in the Asset Browser and choose **Set as Startup Scene**. The title bar confirms `Saved to Exported/project.json (ships with the game)`. The editor loads existing settings before rewriting the file, so the fields `ProjectSettings` models are preserved. `Save` rewrites project.json from scratch, so any keys the struct does not model are dropped.
 
 The file lives next to the assets specifically so it ships inside the packaged bundle.
 
@@ -260,7 +265,7 @@ The two `Exported/` layers matter: the source-tree copy provides the baseline, a
 ## Checklist before shipping
 
 1. Open the scene in the editor and confirm the **Game** view renders (not "No camera in the scene.").
-2. **Save Scene**, then **Set Current File as Startup Scene** if it is not already.
+2. **File > Save Scene**, then **File > Set Current Scene as Player Startup** if it is not already.
 3. Run `PlayerDebug.exe` from the same output directory and confirm the console prints `PLAYER: rendering from scene camera.`
 4. `cpack -G ZIP -C <the configuration you just authored in>`, and check the output for `Bundling editor-authored content from ...` rather than the `No editor-authored Exported/` warning.
 5. Unzip elsewhere and run `Player.exe`.
@@ -274,7 +279,7 @@ The two `Exported/` layers matter: the source-tree copy provides the baseline, a
 | `Engine/src/core/CameraDirector.h` | Camera selection and blending |
 | `Engine/src/core/Components.h` | `CameraComponent`, `MinFarClipFor`, `Parent` |
 | `Engine/src/physics/PhysicsInstall.h` | Shared physics install for editor and player |
-| `Editor/src/EditorApplication.cpp` | Scene panel, Build Settings, boot-from-scene-file, load invalidation |
+| `Editor/src/EditorApplication.cpp` | File menu (new/open/save/startup scene), boot-from-scene-file, load invalidation |
 | `Editor/src/panels/AssetBrowserPanel.cpp` | Scene context menu |
 | `Player/src/PlayerMain.cpp` | Player boot sequence |
 | `Player/CMakeLists.txt` | Player targets and the bundle's install rules |

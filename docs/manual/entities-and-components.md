@@ -144,19 +144,32 @@ entities share one file. See [Lua Scripting](lua-scripting.md).
 | `loop` | `bool` | `false` | |
 | `spatial` | `bool` | `true` | 3D positioned vs. plain 2D |
 | `playOnStart` | `bool` | `true` | begins on Play / Player boot |
-| `minDistance` | `float` | `1.0f` | 3D: full volume within this radius |
-| `maxDistance` | `float` | `100.0f` | 3D: attenuated to silence out here |
+| `minDistance` | `float` | `1.0f` | 3D: full volume within this radius. Must be **> 0** |
+| `maxDistance` | `float` | `100.0f` | 3D: gain falls linearly from `minDistance` and reaches **zero** here |
 
 Positioned from the entity's `Transform` (world matrix) each frame while
 playing. `AudioWorld` is the only place the ECS meets audio; see the audio seam
 under `Engine/src/audio/`.
 
+3D sources use a **linear** attenuation model, so the two distances mean exactly
+what they say: full volume inside `minDistance`, a straight ramp to silence at
+`maxDistance`, and raising `maxDistance` makes a source carry further. (The
+backend's default inverse model clamps the *distance* rather than the gain, so a
+source never actually reaches zero and the control reads backwards.)
+
+`minDistance` is clamped to at least `kMinAudibleDistance` (`0.01`, in
+`AudioTypes.h`) and `maxDistance` to at least `minDistance + kMinAudibleDistance`
+by the Inspector, the serializer *and* the backend. Zero is not a harmless value
+here: every attenuation model divides by `minDistance`, so `0` silences the
+source at every distance, with no warning.
+
 **`AudioListenerComponent`** (in `namespace MyCoreEngine`)
 
 An empty tag: presence marks the entity whose transform is the audio listener
-(the "ears"), usually the camera. The first one found wins; with none, the
-rendering camera is used. Add it through the registry like other tags (`emplace`
-returns `void` for empty types).
+(the "ears"), usually the camera. The first one found wins; with none, the host's
+fallback listener is used — the rendering camera in the player, and the **Game**
+camera in the editor, so Play and the shipped build hear the same mix. Add it
+through the registry like other tags (`emplace` returns `void` for empty types).
 
 **`LightComponent`**
 
@@ -358,7 +371,9 @@ serializer.Load("scenes/level1.scene");
 | `sphereCollider` | `SphereCollider` | `radius`, `offset` |
 | `capsuleCollider` | `CapsuleCollider` | `radius`, `halfHeight`, `offset` |
 | `planeCollider` | `PlaneCollider` | `offset` |
-| `materialOverrides` | `MaterialOverrides` | array of `{ slot, baseColor, emissive, metallic, roughness, ao }` |
+| `audioSource` | `AudioSourceComponent` | `clip`, `volume`, `pitch`, `loop`, `spatial`, `playOnStart`, `minDistance`, `maxDistance` |
+| `audioListener` | `AudioListenerComponent` | `true` (an empty tag — presence is the whole state, like `noShadow`) |
+| `materialOverrides` | `MaterialOverrides` | array of `{ slot, baseColor, emissive, metallic, roughness, ao, alphaMode, opacity, alphaCutoff, doubleSided, shadingModel, toonBands, toonSpecStrength, toonSpecSize, toonRimStrength }`; slots whose override is null are skipped, and the key is omitted entirely when nothing survives |
 
 `AABB` is **not** serialized. It is derived data, regenerated from the model on load — and skipped entirely for models that loaded with zero meshes, whose bounds would be garbage.
 
@@ -377,6 +392,8 @@ Hand-edited or corrupt files are defended against rather than trusted:
 - `fovDeg` clamped to `[1, 179]`; `nearClip` to at least `1e-3`; `farClip` to at least `MinFarClipFor(nearClip)`.
 - `RigidBody::type` range-checked against `BodyType` (out of range ⇒ `Dynamic`); `friction` ≥ 0, `restitution` clamped to `[0,1]`, damping ≥ 0.
 - `BoxCollider::halfExtents` ≥ `1e-3` per axis, `SphereCollider::radius`/`CapsuleCollider::radius` ≥ `1e-3`, `CapsuleCollider::halfHeight` ≥ `1e-4`. Zero extents degenerate every backend.
+- `AudioSourceComponent::volume` clamped to `[0,1]`, `pitch` ≥ `1e-3`, `minDistance` ≥ `kMinAudibleDistance` (`0.01`) and `maxDistance` ≥ `minDistance + kMinAudibleDistance`. A `minDistance` of `0` is not merely odd: every attenuation model divides by it, so it silences the source at *every* distance.
+- **Asset paths are containment-checked.** `model`, `script`, `audioSource.clip` and the environment's HDRi path all go through `PathIsContained` (`Engine/src/core/PathSandbox.h`), which rejects absolute paths, drive/UNC roots and `..`, so a hostile or hand-edited scene cannot reach outside the project. A rejected path is cleared and logged; the component itself survives, so the asset degrades gracefully instead of taking the load down.
 - Material overrides clone the model's shared material first (so texture ids carry over), then apply the serialized scalars on top. Overrides are dropped if the model failed to load.
 
 Because physics fields are plain engine enums and floats, a scene authored against Jolt loads under PhysX unchanged.

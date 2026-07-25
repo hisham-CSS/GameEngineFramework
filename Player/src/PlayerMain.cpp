@@ -65,8 +65,8 @@ public:
         SceneSerializer serializer(scene, assets);
         if (!serializer.Load(scenePath)) {
             fatal("failed to load scene '" + scenePath +
-                  "' — save one from the editor (and set it as the startup "
-                  "scene under Settings > Scene > Build Settings), or pass a "
+                  "' — save one from the editor (File > Save Scene, then File > "
+                  "Set Current Scene as Player Startup), or pass a "
                   "path: Player.exe <scene.json>");
             return;
         }

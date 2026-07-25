@@ -12,7 +12,7 @@ Everything is declared in the top-level `CMakeLists.txt`, which adds `Engine`, `
 
 | Target | Output | Subsystem | Purpose |
 |---|---|---|---|
-| `Editor` | `Editor.exe` | console | The authoring tool. Links `Engine` plus `imgui` and `imguizmo`. Renders the scene into an offscreen target shown in its Viewport panel. |
+| `Editor` | `Editor.exe` | console | The authoring tool. Links `Engine` plus `imgui` and `imguizmo`. Renders the scene into an offscreen target shown in its Scene panel. |
 | `PlayerDebug` | `PlayerDebug.exe` | console | The standalone game, with a terminal attached so `std::cout` logs are visible during development. |
 | `PlayerShipping` | `Player.exe` | `WIN32` (no console) | The same source as `PlayerDebug`, built with `MYCE_SHIPPING=1` and `OUTPUT_NAME "Player"`. This is what gets packaged. |
 | `AssetCooker` | `AssetCooker.exe` | console | Headless asset work. Links `Engine` but **never initializes GL** — every operation is CPU-only. Spawned by the editor as a child process. |
@@ -156,7 +156,7 @@ void  SetSceneRenderTarget(RenderTarget* target); // null = straight to backbuff
 
 The Player leaves `gameplayEnabled` on (it defaults to `true`); the editor calls `setGameplayEnabled(false)` at startup and flips it on only between Play and Stop, so gameplay never mutates the edit-mode scene.
 
-`SetSceneRenderTarget` is how the editor gets the 3D scene into its Viewport panel. **The UI callback always draws to the window backbuffer**, regardless of this setting.
+`SetSceneRenderTarget` is how the editor gets the 3D scene into its Scene panel. **The UI callback always draws to the window backbuffer**, regardless of this setting.
 
 ---
 

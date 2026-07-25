@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Configure + build Cat Splat Engine on Linux.
 #
-# Windows devs keep using Visual Studio via CMakeSettings.json — this script is
-# the Linux equivalent, kept separate so it never disturbs the VS workflow.
+# A convenience wrapper for the Linux build. The committed CMakePresets.json is
+# the shared source of configurations (its presets are gated to Windows hosts);
+# this script is the Linux equivalent, kept separate so it never disturbs that.
 #
 # Prerequisites (see docs/BUILDING_LINUX.md for the full list):
 #   - CMake >= 3.21, Ninja, a C++17 compiler (gcc >= 11 or clang >= 14)

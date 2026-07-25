@@ -102,8 +102,8 @@ Diagnostic recipe:
 `tests/test_perf_render.cpp` renders headless benchmark scenes through the real
 pipeline (`Renderer::RenderFrame`: CSM → forward PBR → skybox → transparent →
 tonemap and the rest of the pass chain, into an offscreen 1920x1080
-`RenderTarget`) and asserts frame-time budgets, so regressions surface in CI
-instead of in a manual A/B session.
+`RenderTarget`) and asserts frame-time budgets, so a regression surfaces as a
+failing `ctest` run instead of a manual A/B session.
 
 ### Running it
 

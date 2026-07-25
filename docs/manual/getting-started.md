@@ -218,7 +218,7 @@ do not resolve.
 At boot the editor reads `Exported/project.json` (a `MyCoreEngine::ProjectSettings`) and opens
 `startupScene`, falling back to `Exported/scene.json` when the setting is empty. If that file
 cannot be loaded it creates a default scene instead. Either way the outcome is reported in the
-console and shown under **Settings → Scene**, e.g. `Loaded startup scene: Exported/scene.json`.
+console and shown under **Settings → Editor**, e.g. `Loaded startup scene: Exported/scene.json`.
 
 > **Important:** the editor's boot content comes from the scene file, never from code. The
 > comment at `Editor/src/EditorApplication.cpp` records why: it used to build a hardcoded
@@ -243,6 +243,7 @@ whose default value is `Exported/scene.json` (`Engine/src/core/ProjectSettings.h
 ```c++
 struct ENGINE_API ProjectSettings {
     std::string startupScene = "Exported/scene.json";
+    float masterVolume = 1.0f; // 0..1; the editor writes it, the player boots at it
 
     static const char* DefaultPath() { return "Exported/project.json"; }
 
@@ -253,8 +254,8 @@ struct ENGINE_API ProjectSettings {
 };
 ```
 
-You set `startupScene` from the editor: **Settings → Scene → Build Settings → "Set Current
-File as Startup Scene"**.
+You set `startupScene` from the editor: **File → "Set Current Scene as Player Startup"** (the
+File menu on the editor's title bar).
 
 Unlike the editor, the player is always "playing" — ticks run from frame one. It calls
 `setRenderFromSceneCamera(true)` so it renders through the scene's camera entity, exactly like
@@ -319,8 +320,8 @@ not revert it.
 
 `Exported/project.json` is not seeded at all — the staging script only copies `*.json` files
 that exist in the source asset tree, and that one does not. It appears the first time the
-editor writes it (Settings → Scene → Build Settings), and the same seed-only-if-missing rule
-protects it from then on.
+editor writes it (File → Set Current Scene as Player Startup, or the Audio tab's master-volume
+slider), and the same seed-only-if-missing rule protects it from then on.
 
 > **Important — never add another copy step into `bin/Exported`.** Both failure modes here
 > were reproduced in practice and are recorded in `Editor/CMakeLists.txt` and
@@ -403,11 +404,11 @@ they are editor-only metadata, like Unity's `.meta` files, and the player never 
 
 1. Configure and build `x64-Release` (or `x64-RelWithDebInfo` if you plan to debug).
 2. `cd` into `<binary-dir>/build/bin/<Config>/`.
-3. Run `Editor.exe`. Confirm the boot status line under **Settings → Scene** says it loaded
+3. Run `Editor.exe`. Confirm the boot status line under **Settings → Editor** says it loaded
    `Exported/scene.json`.
-4. Author something and save the scene (the editor writes to `Exported/scene.json` by
-   default).
-5. Set it as the startup scene: **Settings → Scene → Build Settings**.
+4. Author something and save the scene with **File → Save Scene** (`Ctrl+S`; the editor writes
+   to `Exported/scene.json` by default).
+5. Set it as the startup scene: **File → Set Current Scene as Player Startup**.
 6. Run `PlayerDebug.exe` from the same directory. It should load your scene and render through
    its camera; the console will print `PLAYER: rendering from scene camera.`
 7. Rebuild. Re-run the player. Your scene is still there — that is the seed-only-if-missing

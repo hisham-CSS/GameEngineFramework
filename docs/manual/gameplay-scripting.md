@@ -1,14 +1,26 @@
 # Writing Gameplay
 
-Cat Splat Engine has no script component and no scripting VM. Gameplay is C++
-installed into the running `Application` through callbacks: one variable-rate
-`Update`, and a fixed-rate tick that also drives physics. This page covers the
-update model, how to install your logic over a `Scene`, reading input, and
-reacting to collisions.
+This page is about gameplay written in **C++**: logic installed into the running
+`Application` through callbacks — one variable-rate `Update`, and a fixed-rate
+tick that also drives physics. It covers the update model, how to install your
+logic over a `Scene`, reading input, and reacting to collisions.
+
+The engine also ships a **per-entity scripting layer**, which is the other way
+to write behaviour: a `ScriptComponent` (script path + enabled flag), an
+`IScriptBackend`/`IScriptHost` seam mirroring the physics one, and a Lua 5.4 +
+sol2 backend driving `OnStart` / `OnUpdate` / `OnFixedUpdate` / `OnCollision` /
+`OnDestroy` per scripted entity. It lives in `Engine/src/script/`, is owned by
+`ScriptWorld`, and is installed into both hosts by `InstallScripting`
+(`ScriptInstall.h`) exactly the way physics is. Use scripts when one entity
+needs behaviour authored as data; use the C++ hooks below when you are writing a
+system that runs for the whole scene. See **[Lua Scripting](lua-scripting.md)**
+for the scripting side.
 
 Everything here is available from the single umbrella header
 (`Engine/include/Engine.h`), which pulls in `Application.h`, `Scene.h`,
-`InputMap.h`, `FixedTimestep.h` and the physics core.
+`InputMap.h`, `FixedTimestep.h`, and the physics, scripting and audio seams —
+each of which keeps its SDK (Jolt/PhysX, sol2/Lua, miniaudio) behind a backend
+`.cpp`, so including this header never drags an SDK header into your build.
 
 ## The update model
 

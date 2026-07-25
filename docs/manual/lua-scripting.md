@@ -141,9 +141,13 @@ The sandbox is the trust boundary for the "run scripts you did not author" case
   instead of returning, so the abort climbs out past every `pcall` level and
   the callback ends. Generous by design — the instruction budget already caps a
   callback at ~1–2 ms of work, so only a true runaway reaches it.
-- **Script and HDRi paths from a scene file are containment-checked** — absolute
-  paths, drive/UNC roots, and `..` are rejected, so a hostile scene cannot point
-  a script or environment path outside the project.
+- **Asset paths from a scene file are containment-checked** — absolute paths,
+  drive/UNC roots, and `..` are rejected, so a hostile scene cannot point outside
+  the project. This covers script paths, model paths, the environment's HDRi
+  path, and **audio clip paths** (a clip flows straight into miniaudio's
+  WAV/MP3/FLAC/OGG decoders, which parse attacker-controlled binary). A rejected
+  path is cleared and logged, leaving the component in place, so the asset
+  degrades gracefully rather than failing the load.
 
 `ScriptSettings::allowUnsafeLibraries` opts back into the full language
 (io/os/package/debug, the loaders, coroutines, and `require` from the script

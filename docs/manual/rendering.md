@@ -28,7 +28,7 @@ void RenderFrame(Scene& scene, Shader& shader, Camera& camera,
 `Setup` requires a current GL context with GLAD loaded (`Application::InitGL`
 does both). `RenderFrame` renders into `targetFBO` — `0` is the window
 backbuffer; the editor passes a `RenderTarget`'s FBO so the scene appears inside
-its Viewport panel.
+its Scene panel.
 
 Passes are held in a `RenderPipeline` (`Engine/src/render/RenderPipeline.h`), a
 flat vector of `IRenderPass` that runs in insertion order:
@@ -131,7 +131,7 @@ void  setExposure(float e); // clamped to >= 0.01
 The editor exposes this as **IBL/HDR → Exposure** (range 0.2–5.0).
 
 The HDR pipeline reallocates automatically whenever the output size changes —
-a window resize in the player, a Viewport panel resize in the editor.
+a window resize in the player, a Scene panel resize in the editor.
 
 > **Gotcha** — `Setup` seeds `lastFbW_`/`lastFbH_` with the size it actually
 > allocated. An earlier `lastFbW_ != 0` guard skipped the *first* differing
@@ -436,11 +436,18 @@ Splits always start at the camera's real near plane and stop at
 `min(maxShadowDistance, camera.FarClip)`. Changing the camera's near or far clip
 at runtime refits the cascades even if the camera never moved.
 
-> **Gotcha** — `Renderer::setCSMLambda` forwards to `ShadowCSMPass::setLambda`,
-> which only clamps and stores the value; it does **not** switch the split mode.
-> Since the pass starts in `Fixed`, moving the editor's **Split Lambda** slider
-> has no visible effect unless something calls `ShadowCSMPass::setSplitMode(
-> SplitMode::Lambda)` or `ShadowCSMPass::setCSMLambda` on the pass directly.
+Setting a lambda **selects** Lambda mode. `Renderer::setCSMLambda` forwards to
+`ShadowCSMPass::setLambda`, which clamps the value, sets `splitMode_` to
+`Lambda`, and marks the cascades dirty — so the editor's **Split Lambda** slider
+switches the pass out of its `Fixed` default and the new split takes effect that
+frame rather than whenever something else next invalidates the cascades. To go
+back, call `setSplitMode(SplitMode::Fixed)`.
+
+> **Note** — this is also why `Renderer::CopyShadowSettingsFrom` (which the
+> editor uses to keep the Game view's second renderer in step with the Scene
+> view's) mirrors every other CSM setting but deliberately **not** the lambda:
+> copying it would silently switch the destination's split mode as a side
+> effect.
 
 > **Gotcha** — the Fixed table used to be indexed such that the 5 % entry was
 > skipped, producing splits of `{15, 40, 100, 100}%`: cascade 0 stretched to
@@ -741,21 +748,56 @@ struct DrawItem {
     const Mesh* mesh = nullptr;
     glm::mat4 model{ 1.0f };
     float     depth = 0.0f;
-    int       lod = 0;
-    entt::entity entity = entt::null;
+    int       lod = 0;                 // mesh LOD level chosen for this item
+    entt::entity entity = entt::null;  // producer entity (for material overrides)
+    int       alphaMode = 0;           // 0 Opaque, 1 Mask, 2 Blend
+    bool      doubleSided = false;
+    int       shadingModel = 0;        // 0 PBR, 1 Toon
 };
 ```
 
-**The sort key** is, in order: `texKey`, then mesh pointer, then LOD, then view
-depth front-to-back. `texKey` is an FNV-1a hash of the material's five bound
-texture ids (albedo, normal, metallic, roughness, AO) via
-`Scene::texKeyFromMaterial_` — the material actually chosen for that entity, so
-overrides bucket correctly. If an item has no material at all, it falls back to
+**The sort key** is, in order: `alphaMode`, then `doubleSided` (single-sided
+first), then `shadingModel`, then `texKey`, then mesh pointer, then LOD, then
+view depth front-to-back. The three leading fields are cached from the resolved
+material so the comparator never re-resolves it, and they put the runs the depth
+prepass covers — opaque *and* single-sided — in a contiguous prefix. In an
+all-opaque, all-single-sided, all-PBR scene they are constant and the order
+collapses exactly to the old `{texKey, mesh, lod, depth}`.
+
+`texKey` is an FNV-1a hash from `Scene::texKeyFromMaterial_`, over the material
+actually chosen for that entity (so overrides bucket correctly). It covers
+**everything `BindForDrawWith` uploads on a bind**, not just textures:
+
+- the five bound texture ids — albedo, normal, metallic, roughness, AO
+  (`emissiveTex` is deliberately absent: the bind never touches it, so it cannot
+  affect the draw);
+- the per-material scalars — `baseColor`, `emissive`, `metallic`, `roughness`,
+  `ao` — hashed by their exact float bits;
+- `shadingModel`, plus `toonBands` / `toonSpecStrength` / `toonSpecSize` /
+  `toonRimStrength` **for toon materials only**;
+- for non-opaque materials only, `alphaMode` / `opacity` / `alphaCutoff`.
+
+The two conditional groups mirror the bind exactly, which is what keeps them
+easy to keep in sync. They matter because a run is drawn from *one* bind: two
+entities that "Make unique for this entity" and then differ only in base colour
+share every texture id, and two cutout materials differing only in cutoff both
+draw on the instanced opaque path — either would otherwise collapse into a
+single run and render with whichever item happened to sort first.
+
+If an item has no material at all, `texKey` falls back to
 `Mesh::TextureSignature()`.
 
-**The run key** is the triple `(texKey, mesh, lod)`. A run of 2 or more items
-sharing all three becomes a single `glDrawElementsInstanced`; a run of 1 is a
-plain `glDrawElements` with a `model` uniform.
+**The run key** is `(texKey, mesh, lod, alphaMode, doubleSided, shadingModel)` —
+a run is a maximal span of consecutive items agreeing on all six, so it is
+homogeneous in textures, geometry, LOD, blend mode, cull state and shading
+model. A run of 2 or more becomes a single `glDrawElementsInstanced`; a run of 1
+is a plain `glDrawElements` with a `model` uniform.
+
+> **The rule behind all of this**: an instanced run is drawn with a *single*
+> bind of `items_[first]`'s material, and the sort's last tiebreaker is camera
+> depth. Any value the bind uploads that is missing from the key therefore makes
+> the whole batch visibly flip as the camera crosses the midpoint between two
+> entities. Adding a uniform to `BindForDrawWith` means adding it here too.
 
 Instance matrices for the whole frame go into one buffer:
 `uploadInstanceMats_` orphans `instanceVBO_` at its high-water capacity with

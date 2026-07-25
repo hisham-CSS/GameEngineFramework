@@ -42,7 +42,7 @@ The editor **does not build content in code**. At boot it reads `Exported/projec
 * If the load succeeds, the status line reads `Loaded startup scene: <path>`.
 * If it fails, `createDefaultScene_` builds minimal content — a **Main Camera** entity and a **Ground** plane (visual plane + `RigidBody{Static}` + `PlaneCollider`) — and the status reads `No scene at '<path>' — created a default scene`.
 
-Either way the status string is printed to the console and shown at the top of **Settings > Scene**.
+Either way the status string is printed to the console and shown at the top of the **Settings > Editor** tab, under `Startup`.
 
 > **Why this matters.** This used to be a hardcoded demo scene built on every launch, which made the editor lie about what a scene contained: your saved file was never what you saw at startup, so authored components (physics especially) looked like they "didn't save". They saved fine — the hardcoded scene replaced them before you ever saw them. The editor and the shipped player now open the same file, so they agree by construction.
 
@@ -137,7 +137,9 @@ Select an entity and use Inspector > Add Component > Camera.
 
 ### What is shared with the Scene view
 
-Scene-level state (lights, materials, rendering toggles) lives on the `Scene` and is shared automatically. A few values live on the renderer and are mirrored each frame: sun direction, exposure, and the CSM enable flag. The Game renderer is forced out of yaw/pitch sun mode first (`setUseSunYawPitch(false)`) — otherwise its own yaw/pitch default would overwrite the mirrored direction and your sun edits would never reach the Game view.
+Scene-level state (lights, materials, rendering toggles) lives on the `Scene` and is shared automatically. The values that live on the renderer are mirrored each frame: sun direction, exposure, and — through `Renderer::CopyShadowSettingsFrom` — **every** CSM/shadow setting, not just the enable flag: cascade count, base resolution, max shadow distance, padding, depth margin, the slope/constant depth biases, front-face culling, the shadow biases, the per-cascade PCF kernels, the update policy, the cascade budget and the dynamic interval cap. Mirroring only the enable flag left the Game view on its construction defaults (4 cascades at 2048) while the quality tier and every Sun & Shadows slider moved the Scene view alone — the panel whose whole job is to preview the shipped build was showing better, longer-range shadows than the build.
+
+The Game renderer is forced out of yaw/pitch sun mode first (`setUseSunYawPitch(false)`) — otherwise its own yaw/pitch default would overwrite the mirrored direction and your sun edits would never reach the Game view. The **split lambda** is deliberately *not* copied: setting a lambda also switches the pass into Lambda split mode, so mirroring it would silently change how the Game view splits its cascades.
 
 > **Gotcha:** because the Game view keeps its **own** CSM state, any operation that invalidates shadows must rebuild **both** renderers. The editor does this through `forceAllCSMUpdate_()`, which calls `forceCSMUpdate()` on `renderer()` and `gameRenderer_`.
 
@@ -236,13 +238,17 @@ Mass/damping/velocity are hidden on non-dynamic bodies — they mean nothing the
 | `loop` | `false` | |
 | `playOnStart` | `true` | begins on Play / when the shipped game boots. |
 | `spatial` | `true` | 3D: attenuates with distance from the listener. 2D: constant volume (music/UI). |
-| `minDistance` / `maxDistance` | `1` / `100` m | 3D only: full volume within min, silent past max. Shown only when **Spatial** is on; max is kept above min. |
+| `minDistance` / `maxDistance` | `1` / `100` m | 3D only: full volume within min, falling **linearly** to silence at max. Shown only when **Spatial** is on; min is kept strictly positive and max above min. |
+
+Attenuation is linear, so `maxDistance` means what it says: gain reaches zero there, and raising it makes a source carry *further*. `minDistance` must stay above zero — every attenuation model divides by it, so `0` would silence the source at every distance instead of making it loud everywhere. The editor, the serializer and the backend all clamp to the same `kMinAudibleDistance` floor, so they cannot disagree.
 
 The **Preview** button auditions the clip through the editor's always-on audio backend, so no Play press is needed. It plays **2D and one-shot** (so it is always audible and a stray audition self-stops even if you click away); **Stop** cuts a long one short.
 
 ### Audio Listener
 
-A tag component (no fields): it marks the entity whose transform is the audio "ears". The first listener in the scene wins; with none, the render camera is used.
+A tag component (no fields): it marks the entity whose transform is the audio "ears". The first listener in the scene wins; with none, the fallback listener is used.
+
+In the editor that fallback is the **Game** camera, not the Scene view's fly camera. Mixing for wherever you had flown to made distance-attenuated sources behave differently in Play than in the shipped player — the same scene could be quiet in the build and loud in the editor.
 
 ### Add Component
 
@@ -307,7 +313,11 @@ A dockable window split into three tabs — **Rendering** (everything visual),
 Picking a tier calls `Renderer::ApplyQualityTier`, which fans out across AA, mesh
 LOD + distance, projected-size culling, the depth pre-pass, shadow
 cascades/resolution, and bloom. `Custom` leaves the individual controls below
-untouched. See **[Post-processing & Quality Tiers](post-processing.md)**.
+untouched. Editing any control the tier owns flips the combo to `Custom` — the
+value you set stands, only the label changes, so the box never claims "High"
+while showing settings High would not produce. The tier is re-applied when the
+editor boots a scene and whenever you load one. See
+**[Post-processing & Quality Tiers](post-processing.md)**.
 
 **Lighting** (collapsing header) merges the sun and the scene's direct light:
 
@@ -354,7 +364,9 @@ lives on the Audio Source component.
 
 Type a name and press **Save Layout** to write `Layouts/<name>.ini` (the name is filtered to alphanumerics, `-`, `_`, and spaces). Saved layouts are listed with **Load** and **Delete** buttons. The session layout keeps auto-saving to `imgui.ini` on top of named ones.
 
-A **default docking layout ships with the editor** (`Exported/Layouts/DefaultLayout.ini`). On a fresh install — no `imgui.ini` yet — it is copied to `imgui.ini` so the editor opens in the intended docked arrangement instead of every panel floating stacked on top of each other. It is also seeded into `Layouts/` so you can re-apply it from the list after moving things around. Delete `imgui.ini` (next to the executable) and relaunch to return to it.
+A **default docking layout ships with the editor** (`Exported/Layouts/DefaultLayout.ini`). On a fresh install — no `imgui.ini` yet — it is copied to `imgui.ini` so the editor opens in the intended docked arrangement instead of every panel floating stacked on top of each other. Delete `imgui.ini` (next to the executable) and relaunch to return to it.
+
+Separately, and **on every launch regardless of install age**, the shipped default is published into `Layouts/DefaultLayout.ini` (if it is not already there) so it always appears in the list above and you can re-apply it after moving things around. This step used to sit inside the fresh-install branch, which meant anyone who had ever run the editor before saw `(no saved layouts)` and had no way back to the default short of deleting `imgui.ini`.
 
 > **Note:** loading a layout is deferred to *between* frames. `LoadIniSettingsFromDisk` re-applies settings to live windows through the settings handlers, which must run outside `NewFrame`/`Render`. The first-run default is an exception — it is *copied* to `imgui.ini` at startup and picked up by ImGui's normal load, because pre-loading settings before the first `NewFrame` trips an ImGui assert.
 
@@ -430,7 +442,7 @@ What Stop does (`stopPlay_`): disables gameplay, destroys every physics body *be
 >
 > **Anything you change to an entity during Play is discarded when you press Stop.** Play captures the registry and Stop rebuilds it from that capture, under the original entity handles. Moving something, editing a component, or spawning an entity mid-play does not survive. Undo cannot recover it either — play-mode changes are *discarded*, not undone, which is exactly why undo/redo is disabled while playing.
 >
-> The snapshot is a **closed list** of components (`EntitySnapshot` in `Editor/src/UndoHistory.h`): a component not tracked there is removed by the restore and never resurrected. Today it covers `Name`, `Transform`, `ModelComponent` (by asset path, presence tracked separately so an empty component survives), `AABB`, `MaterialOverrides`, `NoShadow`, `Parent`, `CameraComponent`, `RigidBody`, and the four colliders.
+> The snapshot is a **closed list** of components (`EntitySnapshot` in `Editor/src/UndoHistory.h`): a component not tracked there is removed by the restore and never resurrected. Today it covers `Name`, `Transform`, `ModelComponent` (by asset path, presence tracked separately so an empty component survives), `AABB`, `MaterialOverrides`, `NoShadow`, `Parent`, `CameraComponent`, `LightComponent`, `ScriptComponent`, `RigidBody`, the four colliders, `AudioSourceComponent`, and the `AudioListenerComponent` tag (an empty type, so its presence is the whole state).
 >
 > Scene-*level* settings are **outside** the snapshot and do stick: lights, materials, rendering toggles, sun/shadow settings. Only registry contents revert.
 >
@@ -444,11 +456,11 @@ Physics bodies exist only for the duration of a play session, so the solver neve
 
 ## A typical session
 
-1. The editor opens your startup scene. Check **Settings > Scene** for the boot status if you are unsure what loaded.
+1. The editor opens your startup scene. Check **Settings > Editor** for the boot status if you are unsure what loaded.
 2. Frame the shot in the **Scene** panel: hold RMB to look, `WASD` to fly, wheel to zoom. Remember the viewport must be focused or hovered.
 3. Drag a model from **Assets** onto the viewport, or `+ Create Entity` in **Scene Hierarchy**.
 4. Position it with the gizmo, or type exact numbers into the **Inspector**'s Transform.
 5. Add a `Rigid Body` and one collider from **Add Component**. Watch for the `No collider: this body will be skipped.` warning.
 6. Give the scene a camera if it has none, and check the framing in the **Game** panel.
 7. **Ctrl+P** to play, **Ctrl+P** again to stop — and remember Stop throws away everything the session did to entities.
-8. **Save Scene** in **Settings > Scene**, then **Set Current File as Startup Scene** so the player boots into it.
+8. **File > Save Scene** (`Ctrl+S`), then **File > Set Current Scene as Player Startup** so the player boots into it.

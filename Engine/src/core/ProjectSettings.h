@@ -8,8 +8,9 @@ namespace MyCoreEngine {
 
     // Build/launch settings shared between the editor and the player.
     // Stored as JSON next to the assets (Exported/project.json) so it ships
-    // inside the packaged game bundle. The editor writes it ("Build
-    // Settings"); the player reads it at boot to pick the startup scene.
+    // inside the packaged game bundle. The editor writes it (File > Set Current
+    // Scene as Player Startup, and Settings > Audio for the master volume); the
+    // player reads it at boot.
     struct ENGINE_API ProjectSettings {
         std::string startupScene = "Exported/scene.json";
         float masterVolume = 1.0f; // 0..1, scales the whole audio mix; the

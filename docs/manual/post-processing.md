@@ -89,8 +89,20 @@ the author's choice and are left untouched by a tier. **Custom** applies no
 preset — the individual settings stand as-is.
 
 The chosen tier is stored on the scene, so the editor and the shipped Player
-boot to the same tier. Because the shadow portion of a tier isn't itself
-serialized, the tier is re-applied on scene load and at Player boot.
+boot to the same tier. Because the shadow portion of a tier lives on the
+`Renderer` and isn't itself serialized, the tier is re-applied at **every**
+entry into a scene file: the editor's boot load, the editor's Open/Load path,
+and Player boot. Without all three, opening the editor and then re-loading the
+very same file visibly changed shadow quality, and only the second state matched
+the shipped build.
+
+**Editing a knob a tier owns demotes the tier to `Custom`.** Anti-aliasing, mesh
+LOD and LOD distance scale, the projected-size cull (both the toggle and the
+pixel threshold), the depth prepass, bloom, and the shadow cascade count and base
+resolution each call the demotion when you change them. Nothing else happens —
+the value you just chose stands; only the label changes, because `Custom` means
+precisely "don't fan a preset over these". Aesthetic post (outline, colour grade,
+vignette) is not tier-owned, so editing it leaves the tier alone.
 
 Choose a tier from **Settings → Rendering → Quality**, or configure the
 individual knobs below it.
