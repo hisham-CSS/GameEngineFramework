@@ -156,6 +156,16 @@ namespace MyCoreEngine {
 
         const CSMSnapshot& getCSMSnapshot() const; // for debug UI
 
+        // Copy every shadow/CSM setting from another renderer.
+        // A host that renders the same scene through TWO Renderers (the editor
+        // draws the Game view with its own) must keep their shadow state in
+        // sync, or the preview of the shipped build silently renders different
+        // shadows from the build. Mirroring by hand at the call site missed the
+        // quality tier's cascade count/resolution and every Sun & Shadows
+        // slider; keeping the list here means new CSM settings only have to be
+        // added in one place.
+        void CopyShadowSettingsFrom(const Renderer& src);
+
     private:
         PassContext passCtx_{};
         RenderPipeline pipeline_;

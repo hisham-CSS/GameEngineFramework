@@ -81,6 +81,12 @@ private:
     // scene exists and by New Scene. Never leaves the scene camera-less.
     void createDefaultScene_(MyCoreEngine::Scene& scene);
     bool setStartupScene_(const std::string& path); // updates buildSettingsStatus_
+    // A quality tier OWNS the AA / LOD / cull / depth-prepass / bloom / cascade
+    // settings, and both load paths re-apply the tier whenever it is not
+    // Custom. So editing any of those individually while a tier is selected has
+    // to demote to Custom -- otherwise the edit is saved to the file correctly
+    // and then discarded by the re-apply on the next load, permanently.
+    void demoteQualityToCustom_(MyCoreEngine::Scene& scene);
     // Write masterVolume_ back to project.json, preserving the other fields
     // (load-modify-save, like setStartupScene_).
     void saveMasterVolume_();

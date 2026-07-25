@@ -274,6 +274,31 @@ namespace MyCoreEngine {
         pipeline_.executeAll(passCtx_, scene, camera, fp);
     }
 
+    void Renderer::CopyShadowSettingsFrom(const Renderer& src) {
+        if (&src == this) return;
+        setCSMEnabled(src.getCSMEnabled());
+        setCSMNumCascades(src.getCSMNumCascades());
+        setCSMBaseResolution(src.getCSMBaseResolution());
+        setCSMMaxShadowDistance(src.getCSMMaxShadowDistance());
+        setCSMCascadePadding(src.getCSMCascadePadding());
+        setCSMDepthMargin(src.getCSMDepthMargin());
+        setCSMSlopeDepthBias(src.getCSMSlopeDepthBias());
+        setCSMConstantDepthBias(src.getCSMConstantDepthBias());
+        setCSMCullFrontFaces(src.getCSMCullFrontFaces());
+        setShadowBiasConst(src.getShadowBiasConst());
+        setShadowBiasSlope(src.getShadowBiasSlope());
+        for (int i = 0; i < 4; ++i) setCascadeKernel(i, src.getCascadeKernel(i));
+        setCSMUpdatePolicy(src.getCSMUpdatePolicy());
+        setCSMCascadeBudget(src.getCSMCascadeBudget());
+        setCSMDynamicIntervalCap(src.getCSMDynamicIntervalCap());
+        float posEps = 0.f, angEps = 0.f;
+        src.getCSMEpsilons(posEps, angEps);
+        setCSMEpsilons(posEps, angEps);
+        // NOT copied: lambda/split mode. setCSMLambda switches the pass into
+        // Lambda split mode as a side effect, so mirroring it would silently
+        // change how the destination splits its cascades.
+    }
+
     void Renderer::ApplyQualityTier(Scene::QualityLevel level, Scene& scene) {
         scene.SetQualityLevel(level);
         auto& p = scene.PostFX();

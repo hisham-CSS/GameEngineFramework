@@ -372,6 +372,14 @@ void EditorApplication::Run() {
         MyCoreEngine::SceneSerializer bootSerializer(scene, *assets_);
         if (bootSerializer.Load(startup)) {
             bootStatus_ = "Loaded startup scene: " + startup;
+            // Same re-apply loadSceneFromFile_ does. The CSM half of a tier
+            // lives on the Renderer and is deliberately not serialized, so
+            // without this the boot path was the ONE entry into a file that
+            // left default shadows: opening the editor and then pressing Load
+            // Scene on the very same file visibly changed shadow quality, and
+            // only the second state matched the shipped player.
+            if (scene.GetQualityLevel() != MyCoreEngine::Scene::QualityLevel::Custom)
+                renderer().ApplyQualityTier(scene.GetQualityLevel(), scene);
         }
         else {
             createDefaultScene_(scene);
@@ -731,7 +739,12 @@ void EditorApplication::DrawGameViewport(MyCoreEngine::Scene& scene,
     gameRenderer_.setUseSunYawPitch(false);
     gameRenderer_.setSunDir(renderer().sunDir());
     gameRenderer_.setExposure(renderer().exposure());
-    gameRenderer_.setCSMEnabled(renderer().getCSMEnabled());
+    // Every shadow/CSM setting, not just the enable flag. Only setCSMEnabled was
+    // mirrored, so the Game view kept its own construction defaults (4 cascades
+    // @2048) while the quality tier and every Sun & Shadows slider moved the
+    // Scene view's renderer alone — the panel meant to preview the shipped build
+    // showed better, longer-range shadows than the build itself.
+    gameRenderer_.CopyShadowSettingsFrom(renderer());
 
     if (gameTarget_.fbo() && gameTarget_.width() > 0) {
         gameRenderer_.RenderFrame(scene, shader, gameCamera_,
@@ -1292,10 +1305,16 @@ void EditorApplication::DrawSunShadowControls(MyCoreEngine::Scene& scene)
     if (ImGui::Checkbox("CSM Enabled", &on)) renderer().setCSMEnabled(on);
 
     int casc = renderer().getCSMNumCascades();
-    if (ImGui::SliderInt("Cascades", &casc, 1, 4)) renderer().setCSMNumCascades(casc);
+    if (ImGui::SliderInt("Cascades", &casc, 1, 4)) {
+        renderer().setCSMNumCascades(casc);
+        demoteQualityToCustom_(scene);
+    }
 
     int res = renderer().getCSMBaseResolution();
-    if (ImGui::SliderInt("Base Resolution", &res, 512, 4096)) renderer().setCSMBaseResolution(res);
+    if (ImGui::SliderInt("Base Resolution", &res, 512, 4096)) {
+        renderer().setCSMBaseResolution(res);
+        demoteQualityToCustom_(scene);
+    }
 
     float lambda = renderer().getCSMLambda();
     if (ImGui::SliderFloat("Split Lambda", &lambda, 0.f, 1.f)) renderer().setCSMLambda(lambda);
@@ -1374,7 +1393,7 @@ void EditorApplication::DrawRenderingToggles(MyCoreEngine::Scene& scene)
     if (!ImGui::CollapsingHeader("Post & Toggles", ImGuiTreeNodeFlags_None)) return;
 
     bool aa = scene.GetAAEnabled();
-    if (ImGui::Checkbox("Anti-aliasing (FXAA)", &aa)) scene.SetAAEnabled(aa);
+    if (ImGui::Checkbox("Anti-aliasing (FXAA)", &aa)) { scene.SetAAEnabled(aa); demoteQualityToCustom_(scene); }
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("Post-process edge antialiasing, applied after tonemapping.\n"
                           "Costs ~0.2ms and one full-resolution LDR target.\n"
@@ -1389,7 +1408,7 @@ void EditorApplication::DrawRenderingToggles(MyCoreEngine::Scene& scene)
 
         // Bloom (HDR glow, composited before tonemap). The signature AAA
         // effect and the one real fill cost here, so it's tier-gated.
-        ImGui::Checkbox("Bloom", &pfx.bloom.enabled);
+        if (ImGui::Checkbox("Bloom", &pfx.bloom.enabled)) demoteQualityToCustom_(scene);
         if (pfx.bloom.enabled) {
             ImGui::SliderFloat("Threshold##bloom", &pfx.bloom.threshold, 0.f, 4.f);
             ImGui::SliderFloat("Intensity##bloom", &pfx.bloom.intensity, 0.f, 2.f);
@@ -1434,22 +1453,22 @@ void EditorApplication::DrawRenderingToggles(MyCoreEngine::Scene& scene)
     if (ImGui::Checkbox("Enable instancing", &inst)) scene.SetInstancingEnabled(inst);
 
     bool prepass = scene.GetDepthPrepassEnabled();
-    if (ImGui::Checkbox("Depth prepass", &prepass)) scene.SetDepthPrepassEnabled(prepass);
+    if (ImGui::Checkbox("Depth prepass", &prepass)) { scene.SetDepthPrepassEnabled(prepass); demoteQualityToCustom_(scene); }
     ImGui::SameLine(); ImGui::TextDisabled("(shade each pixel once)");
 
     bool lod = scene.GetLODEnabled();
-    if (ImGui::Checkbox("Enable mesh LOD", &lod)) scene.SetLODEnabled(lod);
+    if (ImGui::Checkbox("Enable mesh LOD", &lod)) { scene.SetLODEnabled(lod); demoteQualityToCustom_(scene); }
     float lodScale = scene.GetLODDistanceScale();
-    if (ImGui::SliderFloat("LOD distance scale", &lodScale, 0.25f, 4.f)) scene.SetLODDistanceScale(lodScale);
+    if (ImGui::SliderFloat("LOD distance scale", &lodScale, 0.25f, 4.f)) { scene.SetLODDistanceScale(lodScale); demoteQualityToCustom_(scene); }
     ImGui::SameLine(); ImGui::TextDisabled("(higher = detail farther)");
 
     // Projected-size cull: the lever that actually speeds up wide/bird's-eye
     // views (they're vertex/instance-bound; shadows/fill are effectively free).
     // Higher pixel floor = more culled + more distant popping.
     bool smallCull = scene.GetSmallCullEnabled();
-    if (ImGui::Checkbox("Cull tiny objects", &smallCull)) scene.SetSmallCullEnabled(smallCull);
+    if (ImGui::Checkbox("Cull tiny objects", &smallCull)) { scene.SetSmallCullEnabled(smallCull); demoteQualityToCustom_(scene); }
     float smallPx = scene.GetSmallCullPixels();
-    if (ImGui::SliderFloat("Min on-screen px", &smallPx, 0.f, 48.f, "%.1f px")) scene.SetSmallCullPixels(smallPx);
+    if (ImGui::SliderFloat("Min on-screen px", &smallPx, 0.f, 48.f, "%.1f px")) { scene.SetSmallCullPixels(smallPx); demoteQualityToCustom_(scene); }
     ImGui::SameLine(); ImGui::TextDisabled("(?)");
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip(
@@ -1623,6 +1642,13 @@ bool EditorApplication::setStartupScene_(const std::string& path)
         buildSettingsStatus_ = "Save FAILED (see console)";
     }
     return ok;
+}
+
+void EditorApplication::demoteQualityToCustom_(MyCoreEngine::Scene& scene)
+{
+    // Only the label changes -- every individual setting keeps the value the
+    // author just chose. Custom is precisely "don't fan a preset over these".
+    scene.SetQualityLevel(MyCoreEngine::Scene::QualityLevel::Custom);
 }
 
 void EditorApplication::saveMasterVolume_()
