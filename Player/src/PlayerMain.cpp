@@ -34,6 +34,9 @@ class PlayerApplication : public MyCoreEngine::Application {
     MyCoreEngine::PhysicsWorld physics_;
     MyCoreEngine::ScriptWorld  scripts_; // same lifetime requirement
     MyCoreEngine::AudioWorld   audio_;   // same lifetime requirement
+    // Same requirement again: the UI draw callback captures this by reference
+    // and is invoked from the render pass for the app's whole life.
+    MyCoreEngine::ui::DemoHud  hud_;
 public:
     PlayerApplication() : Application(1280, 720, "Cat Splat Player") {}
 
@@ -109,6 +112,17 @@ public:
         // InstallScripting, not the primary SetUpdate slot -- that slot stays
         // free for a game's own hook, and both hosts now run scripts at the
         // same point in the loop.
+
+        // In-game UI, drawn after all post-processing. Same HUD the editor's
+        // Game view shows, from one definition, so the preview and the shipped
+        // build cannot drift.
+        if (!hud_.Init()) {
+            std::cerr << "PLAYER: HUD font missing (Exported/Fonts/Roboto.ttf) — "
+                         "drawing the HUD without text." << std::endl;
+        }
+        renderer().SetUIDraw([this](MyCoreEngine::Renderer2D& r2d, int w, int h) {
+            hud_.Draw(r2d, w, h);
+        });
 
         // Render through the scene's camera entity, exactly like the editor's
         // Game view: same CameraDirector selection, same blending.

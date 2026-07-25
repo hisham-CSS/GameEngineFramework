@@ -16,6 +16,8 @@
 #include "Model.h"
 #include "../render/RenderPipeline.h"
 #include "../render/passes/ShadowCSMPass.h"
+#include "../render/passes/UIPass.h"   // UIDrawFn
+#include "../render2d/Renderer2D.h"
 #include "../render/passes/TonemapPass.h"
 #include "../render/passes/ForwardOpaquePass.h"
 #include "../render/passes/SkyboxPass.h"
@@ -166,6 +168,22 @@ namespace MyCoreEngine {
         // added in one place.
         void CopyShadowSettingsFrom(const Renderer& src);
 
+        // -------- 2D / UI overlay --------
+        // Called once per frame, after ALL post-processing, with a Renderer2D
+        // already in screen space for the current viewport. Draw only; the pass
+        // owns Begin/End so GL state is always restored.
+        //
+        // The engine deliberately does not mandate a UI model here: a UIDocument
+        // is one thing you can draw, and a 2D game can use the same hook (switch
+        // the given renderer to BeginWorld yourself if you want world space).
+        // Set an empty function to disable.
+        //
+        // Per-Renderer, which is what lets the editor show game UI in the Game
+        // view while keeping the Scene view (the authoring camera) clean.
+        void SetUIDraw(UIDrawFn fn) { uiDraw_ = std::move(fn); }
+        bool hasUIDraw() const { return static_cast<bool>(uiDraw_); }
+        Renderer2D& renderer2D() { return renderer2D_; }
+
     private:
         PassContext passCtx_{};
         RenderPipeline pipeline_;
@@ -181,6 +199,11 @@ namespace MyCoreEngine {
         SkyboxPass* skyboxPass_ = nullptr;
         TransparentPass* transparentPass_ = nullptr;
         FXAAPass*   fxaaPass_ = nullptr;
+        UIPass*     uiPass_ = nullptr;
+        // Owned here so both the pass and hosts can reach one batcher per
+        // renderer (the editor has two renderers and must not share one).
+        Renderer2D  renderer2D_;
+        UIDrawFn    uiDraw_;
         VignettePass*   vignettePass_ = nullptr;
         OutlinePass*    outlinePass_ = nullptr;
         ColorGradePass* colorGradePass_ = nullptr;

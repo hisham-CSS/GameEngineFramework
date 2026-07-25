@@ -57,3 +57,11 @@
 #include "../src/audio/AudioWorld.h"
 #include "../src/audio/AudioInstall.h"
 
+// 2D layer + in-game UI. Renderer2D is general-purpose (a 2D game can use it
+// directly); the UI tree is one consumer of it.
+#include "../src/render2d/Renderer2D.h"
+#include "../src/render2d/Font.h"
+#include "../src/ui/UIStyle.h"
+#include "../src/ui/UIElement.h"
+#include "../src/ui/DemoHud.h"
+

@@ -204,9 +204,17 @@ namespace MyCoreEngine {
             vignettePass_ = &pipeline_.add<VignettePass>();
             pipeline_.setup(passCtx_);
         }
-        // LAST: resolves the chain to the real output.
+        // LAST of the LDR chain: resolves it to the real output.
         if (!fxaaPass_) {
             fxaaPass_ = &pipeline_.add<FXAAPass>();
+            pipeline_.setup(passCtx_);
+        }
+        // AFTER everything, including FXAA: the 2D/UI overlay paints on top of
+        // the finished frame. It is NOT a chain stage — it never consumes a
+        // ping-pong slot and is deliberately absent from countLdrPostPasses_ —
+        // so UI is never bloomed, graded, vignetted or anti-aliased.
+        if (!uiPass_) {
+            uiPass_ = &pipeline_.add<UIPass>(&renderer2D_, &uiDraw_);
             pipeline_.setup(passCtx_);
         }
 

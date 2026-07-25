@@ -81,6 +81,10 @@ add_library(Engine SHARED
     src/ui/UIStyle.h
     src/ui/UIElement.h
     src/ui/UIElement.cpp
+    src/ui/DemoHud.h
+    src/ui/DemoHud.cpp
+    src/render/passes/UIPass.h
+    src/render/passes/UIPass.cpp
     src/render/passes/OutlinePass.h
     src/render/passes/OutlinePass.cpp
     src/render/passes/ColorGradePass.h

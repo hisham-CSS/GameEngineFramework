@@ -440,6 +440,18 @@ void EditorApplication::Run() {
         ss.scriptDirectory = "Exported/Scripts";
         MyCoreEngine::InstallScripting(*this, scene, scripts_, &physics_, nullptr, {}, ss);
 
+        // In-game UI on the GAME renderer only. The Scene view is the authoring
+        // camera, so game UI would just be in the way there; the Game view is
+        // the "what ships" preview and must show the same HUD the Player draws,
+        // built from the same definition so the two cannot drift.
+        if (!hud_.Init()) {
+            std::cout << "EDITOR: HUD font missing (Exported/Fonts/Roboto.ttf) — "
+                         "drawing the HUD without text." << std::endl;
+        }
+        gameRenderer_.SetUIDraw([this](MyCoreEngine::Renderer2D& r2d, int w, int h) {
+            hud_.Draw(r2d, w, h);
+        });
+
         // Audio: per-frame listener/source update installed for the app's life;
         // voices are populated by audio_.Start() on Play. Boots at the saved
         // master volume so the editor and shipped player agree.

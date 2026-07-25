@@ -216,6 +216,12 @@ private:
     // latch (see DrawSunShadowControls).
     bool syncShadingLightToSun_ = false;
 
+    // In-game UI. Bound to the GAME renderer only: the Scene view is the
+    // authoring camera and must stay free of game UI (same split Unity makes),
+    // while the Game view has to show exactly what the Player ships. Outlives
+    // RunLoop because the draw callback captures it by reference.
+    MyCoreEngine::ui::DemoHud hud_;
+
     // Game panel focus. Gameplay receives input only while this is true, so
     // the Scene view stays navigable with the same keys while playing.
     bool gameViewFocused_ = false;
