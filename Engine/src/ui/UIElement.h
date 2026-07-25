@@ -57,6 +57,19 @@ namespace MyCoreEngine::ui {
         const std::string& name() const { return name_; }
         void setName(std::string n) { name_ = std::move(n); }
 
+        // Selector identity, mirroring CSS/USS: `type` is the element kind
+        // ("Element", "Label", "Button" — matched by a bare type selector),
+        // `name` is the #id, and classes are the .class list. All three exist
+        // so a stylesheet can target elements without the code knowing about
+        // the stylesheet.
+        const std::string& type() const { return type_; }
+        void setType(std::string t) { type_ = std::move(t); }
+
+        const std::vector<std::string>& classes() const { return classes_; }
+        bool HasClass(const std::string& c) const;
+        void AddClass(std::string c);      // no-op if already present
+        void RemoveClass(const std::string& c);
+
         // Mutate freely; the next Layout() picks changes up. Style writes are
         // pushed into the layout engine on Layout, and yoga only re-solves
         // subtrees whose values actually changed, so setting a style to the
@@ -107,6 +120,8 @@ namespace MyCoreEngine::ui {
         UIElement* parent_ = nullptr;
         std::vector<std::unique_ptr<UIElement>> children_;
         std::string name_;
+        std::string type_ = "Element";
+        std::vector<std::string> classes_;
         Style style_{};
         ComputedLayout layout_{};
 

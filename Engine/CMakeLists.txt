@@ -82,6 +82,8 @@ add_library(Engine SHARED
     src/ui/UIEvent.h
     src/ui/UIElement.h
     src/ui/UIElement.cpp
+    src/ui/UIStyleSheet.h
+    src/ui/UIStyleSheet.cpp
     src/ui/DemoHud.h
     src/ui/DemoHud.cpp
     src/render/passes/UIPass.h

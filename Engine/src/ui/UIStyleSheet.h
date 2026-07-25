@@ -1,0 +1,105 @@
+#pragma once
+// USS-like stylesheets: a CSS subset for the in-game UI.
+//
+// Hand-written parser, no dependency. A full CSS engine is enormous and most of
+// it is meaningless for game UI (floats, tables, inline layout, @media...), so
+// this implements the part that maps onto the Style struct and refuses the rest
+// loudly rather than half-supporting it.
+//
+// SUPPORTED
+//   rules        selector-list { prop: value; ... }
+//   selectors    Type, .class, #name, *, and compounds like Button.primary#ok
+//   cascade      CSS specificity (#id, .class, type) with later-wins on ties
+//   comments     C-style
+//
+// NOT SUPPORTED (deliberately, and reported as errors rather than ignored)
+//   combinators (descendant/child/sibling), pseudo-classes (:hover — interaction
+//   state is queried in code today), at-rules, variables, inheritance. Nothing
+//   here cascades from parent to child: every element is styled independently.
+#include "../core/Core.h"
+#include "UIStyle.h"
+
+#include <glm/glm.hpp>
+
+#include <string>
+#include <vector>
+
+namespace MyCoreEngine::ui {
+
+    class UIElement;
+
+    // One `prop: value` pair, parsed once at load so applying a sheet is not a
+    // string-parsing exercise every frame.
+    struct ENGINE_API UIDeclaration {
+        enum class Prop {
+            FlexDirection, JustifyContent, AlignItems, AlignSelf,
+            FlexGrow, FlexShrink,
+            Width, Height, MinWidth, MinHeight, MaxWidth, MaxHeight,
+            Margin, Padding, Gap,
+            Position, Left, Top, Right, Bottom,
+            BackgroundColor, Color, FontScale,
+            Overflow, PointerEvents,
+        };
+
+        Prop        prop{};
+        StyleLength length{};   // length-valued props
+        glm::vec4   color{ 0.0f };
+        float       number = 0.0f;
+        int         enumValue = 0;
+        Edges       edges{};
+        bool        boolean = false;
+
+        void ApplyTo(Style& s) const;
+    };
+
+    // A compound selector: all parts must match the same element. Empty type +
+    // no name/classes means the universal selector.
+    struct ENGINE_API UISelector {
+        std::string type;                  // "" = any
+        std::string name;                  // "" = any
+        std::vector<std::string> classes;  // all must be present
+
+        bool Matches(const UIElement& el) const;
+        // CSS specificity, compared as an ordered triple.
+        void Specificity(int& ids, int& cls, int& types) const;
+    };
+
+    struct ENGINE_API UIRule {
+        std::vector<UISelector> selectors;  // comma-separated list
+        std::vector<UIDeclaration> declarations;
+        int order = 0;                      // source order, breaks ties
+    };
+
+    class ENGINE_API UIStyleSheet {
+    public:
+        // Both return false and leave the sheet UNCHANGED on a parse error, so
+        // a typo during hot-reload cannot blank a working UI. Details land in
+        // errors().
+        bool ParseString(const std::string& text, const std::string& originName = "<string>");
+        // Reads from disk. The path is NOT sandboxed here — callers taking a
+        // path from scene/asset content must run PathIsContained first, exactly
+        // as the model, script, clip and HDRi loaders do.
+        bool LoadFromFile(const std::string& path);
+
+        void Clear();
+        bool empty() const { return rules_.empty(); }
+        const std::vector<UIRule>& rules() const { return rules_; }
+
+        // Parse diagnostics from the last attempt: one line per problem, with
+        // the line number. A stylesheet that silently ignores what it does not
+        // understand is the single most frustrating thing to debug.
+        const std::vector<std::string>& errors() const { return errors_; }
+
+        // Applies every matching rule to `el` and its whole subtree, in
+        // specificity then source order. Existing style values survive where no
+        // rule sets them, so code-set styles and sheets compose.
+        void ApplyTo(UIElement& root) const;
+        // Just this element (no recursion).
+        void ApplyToElement(UIElement& el) const;
+
+    private:
+        std::vector<UIRule> rules_;
+        std::vector<std::string> errors_;
+    };
+
+} // namespace MyCoreEngine::ui

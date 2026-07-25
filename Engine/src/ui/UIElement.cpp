@@ -202,6 +202,19 @@ void UIElement::setText(std::string t) {
     }
 }
 
+bool UIElement::HasClass(const std::string& c) const {
+    return std::find(classes_.begin(), classes_.end(), c) != classes_.end();
+}
+
+void UIElement::AddClass(std::string c) {
+    if (c.empty() || HasClass(c)) return;
+    classes_.push_back(std::move(c));
+}
+
+void UIElement::RemoveClass(const std::string& c) {
+    classes_.erase(std::remove(classes_.begin(), classes_.end(), c), classes_.end());
+}
+
 void UIElement::AddEventListener(UIEventType type, UIEventHandler handler) {
     if (handler) listeners_.emplace_back(type, std::move(handler));
 }
