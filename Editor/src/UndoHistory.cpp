@@ -3,9 +3,23 @@
 namespace {
 
     bool materialEq(const MyCoreEngine::Material& a, const MyCoreEngine::Material& b) {
-        // scalar params only: the editor never edits texture bindings
+        // EVERY field the Inspector can edit — texture bindings are still
+        // excluded because the editor never edits those.
+        //
+        // This compared only the five PBR scalars, so an edit that touched
+        // nothing else (alpha mode, opacity, cutoff, double-sided, shading
+        // model, any toon param) produced before/after snapshots that compared
+        // EQUAL. record()/endEdit() then dropped the entry as a no-op while the
+        // live mutation stood — so those edits could not be undone, and the
+        // next Ctrl+Z silently reverted an older, unrelated action instead.
         return a.baseColor == b.baseColor && a.emissive == b.emissive &&
-               a.metallic == b.metallic && a.roughness == b.roughness && a.ao == b.ao;
+               a.metallic == b.metallic && a.roughness == b.roughness && a.ao == b.ao &&
+               a.alphaMode == b.alphaMode && a.opacity == b.opacity &&
+               a.alphaCutoff == b.alphaCutoff && a.doubleSided == b.doubleSided &&
+               a.shadingModel == b.shadingModel && a.toonBands == b.toonBands &&
+               a.toonSpecStrength == b.toonSpecStrength &&
+               a.toonSpecSize == b.toonSpecSize &&
+               a.toonRimStrength == b.toonRimStrength;
     }
 
     bool snapEq(const EntitySnapshot& a, const EntitySnapshot& b) {

@@ -457,6 +457,57 @@ TEST(UndoHistoryTest, AudioOnlyEditIsUndoable) {
         << "undo did not revert volume";
 }
 
+// snapEq compares material overrides via materialEq, which only looked at the
+// five PBR scalars. An edit touching anything else (alpha mode, opacity,
+// cutoff, double-sided, shading model, toon params) produced before/after
+// snapshots that compared EQUAL, so record()/endEdit() dropped the entry as a
+// no-op while the live mutation stood: the edit could not be undone, and the
+// next Ctrl+Z reverted an older unrelated action instead.
+TEST(UndoHistoryTest, MaterialOnlyEditsAreUndoable) {
+    using namespace MyCoreEngine;
+
+    struct Case { const char* what; void (*mutate)(Material&); };
+    const Case cases[] = {
+        { "alphaMode",        [](Material& m) { m.alphaMode = AlphaMode::Blend; } },
+        { "opacity",          [](Material& m) { m.opacity = 0.25f; } },
+        { "alphaCutoff",      [](Material& m) { m.alphaCutoff = 0.9f; } },
+        { "doubleSided",      [](Material& m) { m.doubleSided = true; } },
+        { "shadingModel",     [](Material& m) { m.shadingModel = ShadingModel::Toon; } },
+        { "toonBands",        [](Material& m) { m.toonBands = 7; } },
+        { "toonSpecStrength", [](Material& m) { m.toonSpecStrength = 0.9f; } },
+        { "toonSpecSize",     [](Material& m) { m.toonSpecSize = 0.8f; } },
+        { "toonRimStrength",  [](Material& m) { m.toonRimStrength = 0.7f; } },
+        { "baseColor",        [](Material& m) { m.baseColor = { 1.f, 0.f, 0.f }; } },
+    };
+
+    for (const auto& c : cases) {
+        entt::registry reg;
+        UndoHistory h;
+        auto e = makeEntity(reg, "Painted");
+        MaterialOverrides ov;
+        ov.byIndex[0] = std::make_shared<Material>();
+        reg.emplace<MaterialOverrides>(e, std::move(ov));
+
+        h.record(reg, e, "Edit material", [&] {
+            c.mutate(*reg.get<MaterialOverrides>(e).byIndex[0]);
+        });
+        EXPECT_EQ(h.entries().size(), 1u)
+            << "a " << c.what << "-only edit recorded no undo entry, so it cannot be undone";
+
+        h.undo(reg, nullptr);
+        const Material& back = *reg.get<MaterialOverrides>(e).byIndex[0];
+        const Material fresh{};
+        EXPECT_EQ(back.alphaMode, fresh.alphaMode) << c.what;
+        EXPECT_FLOAT_EQ(back.opacity, fresh.opacity) << c.what;
+        EXPECT_FLOAT_EQ(back.alphaCutoff, fresh.alphaCutoff) << c.what;
+        EXPECT_EQ(back.doubleSided, fresh.doubleSided) << c.what;
+        EXPECT_EQ(back.shadingModel, fresh.shadingModel) << c.what;
+        EXPECT_EQ(back.toonBands, fresh.toonBands) << c.what;
+        EXPECT_FLOAT_EQ(back.toonSpecStrength, fresh.toonSpecStrength) << c.what;
+        EXPECT_EQ(back.baseColor, fresh.baseColor) << c.what;
+    }
+}
+
 TEST(SceneSnapshot, UndoHistoryStaysValidAcrossPlaySession) {
     entt::registry reg;
     UndoHistory h;

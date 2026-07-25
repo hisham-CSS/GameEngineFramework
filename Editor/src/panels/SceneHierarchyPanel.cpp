@@ -27,7 +27,7 @@ namespace {
 }
 
 bool SceneHierarchyPanel::Draw(entt::registry& reg, entt::entity& selected, UndoHistory& undo,
-                               bool* pOpen) {
+                               bool* pOpen, bool* outCasterSetChanged) {
     bool changed = false;
     if (ImGui::Begin("Scene Hierarchy", pOpen)) {
         if (ImGui::Button("+ Create Entity")) {
@@ -137,6 +137,9 @@ bool SceneHierarchyPanel::Draw(entt::registry& reg, entt::entity& selected, Undo
             undo.recordDelete(reg, action.target, std::move(label)); // snapshots subtree, destroys
             if (!reg.valid(selected)) selected = entt::null;
             changed = true;
+            // Destroying a caster changes the caster set without dirtying any
+            // transform, so the cascades must be rebuilt explicitly.
+            if (outCasterSetChanged) *outCasterSetChanged = true;
             break;
         }
         case PendingAction::Kind::CreateChild: {

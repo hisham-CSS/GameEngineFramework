@@ -211,6 +211,11 @@ private:
     // so the Settings slider reads from here. Persisted in project.json.
     float masterVolume_ = 1.0f;
 
+    // "Use Sun Dir for Shading Light": drives scene.LightDir() from the sun
+    // while on. Must persist across frames — as a function-local it could never
+    // latch (see DrawSunShadowControls).
+    bool syncShadingLightToSun_ = false;
+
     // Game panel focus. Gameplay receives input only while this is true, so
     // the Scene view stays navigable with the same keys while playing.
     bool gameViewFocused_ = false;

@@ -137,10 +137,18 @@ void EditorImGuiLayer::Init(GLFWwindow* window) {
         const char* userIni = io.IniFilename ? io.IniFilename : "imgui.ini";
         const char* shipped = "Exported/Layouts/DefaultLayout.ini";
         std::error_code ec;
-        if (!fs::exists(userIni, ec) && fs::exists(shipped, ec)) {
-            fs::copy_file(shipped, userIni, fs::copy_options::overwrite_existing, ec);
-            // Also expose it under Settings > Editor > Layouts so it can be
-            // re-applied after the user moves things around (best-effort).
+        if (fs::exists(shipped, ec)) {
+            // Only seed the SESSION ini on a genuinely fresh install, so an
+            // existing arrangement is never overwritten.
+            if (!fs::exists(userIni, ec))
+                fs::copy_file(shipped, userIni, fs::copy_options::overwrite_existing, ec);
+
+            // ...but always publish it under Settings > Editor > Layouts, which
+            // is unconditional on purpose: this used to sit inside the
+            // fresh-install branch, so anyone who had ever run the editor before
+            // saw "(no saved layouts)" and had no way to get back to the default
+            // short of deleting imgui.ini — exactly what the manual says the
+            // list is for.
             fs::create_directories("Layouts", ec);
             if (!fs::exists("Layouts/DefaultLayout.ini", ec))
                 fs::copy_file(shipped, "Layouts/DefaultLayout.ini",

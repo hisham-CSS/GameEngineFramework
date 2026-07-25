@@ -118,6 +118,15 @@ void EditorApplication::Run() {
 
         //Game view: what the primary camera entity sees
         if (panels_.game) DrawGameViewport(scene, *sceneShader_, dt);
+        else {
+            // The gate is only updated INSIDE the panel, so closing the Game
+            // view while it had focus during Play left gameplay input enabled
+            // forever: Scene-view keys then drove the fly camera AND the
+            // running scripts at once, with the explanatory hint hidden along
+            // with the panel. No panel means no game focus.
+            gameViewFocused_ = false;
+            setGameplayInputEnabled(false);
+        }
 
         // Engine/render controls. These used to be bare CollapsingHeaders,
         // which ImGui collects into its implicit "Debug##Default" fallback
@@ -170,6 +179,17 @@ void EditorApplication::Run() {
                     ImGui::EndTabItem();
                 }
                 if (ImGui::BeginTabItem("Editor")) {
+                    // What happened at startup: loaded the project's startup
+                    // scene, or fell back to a generated default. This was
+                    // computed and only ever printed to stdout, so a user with
+                    // no terminal could not tell a loaded scene from a
+                    // defaulted one — while four doc pages told them to read it
+                    // here.
+                    if (!bootStatus_.empty()) {
+                        ImGui::TextDisabled("Startup");
+                        ImGui::TextWrapped("%s", bootStatus_.c_str());
+                        ImGui::Separator();
+                    }
                     DrawTimeControls();
                     DrawInputPanel();
                     DrawLayoutControls();
@@ -267,7 +287,15 @@ void EditorApplication::Run() {
         }
 
 		//scene hierarchy
-        if (panels_.hierarchy) hierarchy_.Draw(scene.registry, selected_, undo_, &panels_.hierarchy);
+        if (panels_.hierarchy) {
+            bool casterSetChanged = false;
+            hierarchy_.Draw(scene.registry, selected_, undo_, &panels_.hierarchy,
+                            &casterSetChanged);
+            // A deleted entity leaves its shadow baked into the cascades: the
+            // caster set changed but no transform dirtied, which is the only
+            // thing the incremental CSM update watches.
+            if (casterSetChanged) forceAllCSMUpdate_();
+        }
 
 		//inspector: an entity newly selected this frame (hierarchy click,
 		// viewport pick, spawn landing) reclaims it from the asset view;
@@ -1292,12 +1320,22 @@ void EditorApplication::DrawSunShadowControls(MyCoreEngine::Scene& scene)
         }
     }
 
-    // Optionally sync scene shading light with sun
-    bool useSunForShading = true;
-    if (ImGui::Checkbox("Use Sun Dir for Shading Light", &useSunForShading)) {
-        if (useSunForShading) scene.LightDir() = renderer().sunDir();
+    // Link the scene's shading light to the sun. This was a FRAME-LOCAL bool
+    // initialised to true, which made it permanently dead: ImGui::Checkbox
+    // reports the frame the value CHANGES, and by then the local had already
+    // been flipped to false, so `if (useSunForShading)` never ran. It rendered
+    // as checked while doing nothing, so shadows could swing round while the
+    // diffuse shading stayed put. It is now real persisted state, and it
+    // defaults OFF because that is what it has actually been doing.
+    if (ImGui::Checkbox("Use Sun Dir for Shading Light", &syncShadingLightToSun_)) {
+        if (syncShadingLightToSun_) scene.LightDir() = renderer().sunDir();
     }
-    //if (useSunForShading) scene.LightDir() = renderer().sunDir();
+    // Keep following while enabled, so dragging the sun carries the shading
+    // direction with it rather than only syncing on the click.
+    if (syncShadingLightToSun_) {
+        scene.LightDir() = renderer().sunDir();
+        ImGui::TextDisabled("Direct Light > Dir is driven by the sun.");
+    }
     // --- CSM Controls ---
     ImGui::SeparatorText("Cascaded Shadows");
 
