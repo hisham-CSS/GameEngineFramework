@@ -27,6 +27,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace MyCoreEngine {
@@ -88,6 +89,17 @@ namespace MyCoreEngine {
                                float rotationDeg, const glm::vec2& origin,
                                unsigned texture, const TexRegion& region = {},
                                const glm::vec4& tint = glm::vec4(1.0f), int layer = 0);
+
+        // ---- text ----
+        // `pos` is the TOP-LEFT of the text box, not the baseline — that is the
+        // CSS box convention, so it drops straight into a layout rect without
+        // the caller doing baseline maths. '\n' starts a new line.
+        // Glyphs batch with everything else: the atlas is swizzled to read as
+        // (1,1,1,coverage), so a glyph is just a white sprite with an alpha mask
+        // and needs no separate shader path.
+        void DrawText(const Font& font, const std::string& utf8,
+                      const glm::vec2& pos, const glm::vec4& color,
+                      int layer = 0, float scale = 1.0f);
 
         // ---- clipping ----
         // Rectangles nest: a pushed rect is INTERSECTED with the one below, so a

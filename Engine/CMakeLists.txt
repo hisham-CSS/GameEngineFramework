@@ -74,6 +74,8 @@ add_library(Engine SHARED
     # game can be built on the same code (world-space camera mode).
     src/render2d/Renderer2D.h
     src/render2d/Renderer2D.cpp
+    src/render2d/Font.h
+    src/render2d/Font.cpp
     src/render/passes/OutlinePass.h
     src/render/passes/OutlinePass.cpp
     src/render/passes/ColorGradePass.h

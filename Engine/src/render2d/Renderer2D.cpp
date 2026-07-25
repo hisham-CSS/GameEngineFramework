@@ -1,6 +1,7 @@
 #include <glad/glad.h>
 
 #include "Renderer2D.h"
+#include "Font.h"
 #include "../core/Shader.h"
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -260,6 +261,35 @@ void Renderer2D::DrawSpriteRotated(const glm::vec2& pos, const glm::vec2& size,
     v[2].uv = { region.uvMax.x, region.uvMax.y };
     v[3].uv = { region.uvMin.x, region.uvMax.y };
     pushQuad_(v, texture, layer);
+}
+
+void Renderer2D::DrawText(const Font& font, const std::string& utf8,
+                          const glm::vec2& pos, const glm::vec4& color,
+                          int layer, float scale) {
+    if (!inFrame_ || !font.IsValid() || utf8.empty()) return;
+
+    // pos is the box's top-left; the pen rides the BASELINE, which sits one
+    // ascent below it. Getting this wrong is the classic "text sits above its
+    // box" bug, and it only shows up once text shares a row with other content.
+    const float lineAdvance = font.lineHeight() * scale;
+    glm::vec2 pen{ pos.x, pos.y + font.ascent() * scale };
+
+    for (const std::uint32_t cp : Font::DecodeUTF8(utf8)) {
+        if (cp == '\n') {
+            pen.x = pos.x;
+            pen.y += lineAdvance;
+            continue;
+        }
+        const Glyph* g = font.FindGlyph(cp);
+        if (!g) continue; // not baked (or unprintable): skip, do not stall the pen
+        if (g->size.x > 0.0f && g->size.y > 0.0f) { // space has no quad
+            const glm::vec2 p = pen + g->offset * scale;
+            const glm::vec2 s = g->size * scale;
+            DrawSprite(p, s, font.atlasTexture(),
+                       TexRegion{ g->uvMin, g->uvMax }, color, layer);
+        }
+        pen.x += g->advance * scale;
+    }
 }
 
 void Renderer2D::flush_() {
