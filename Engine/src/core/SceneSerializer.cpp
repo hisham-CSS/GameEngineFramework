@@ -54,6 +54,12 @@ namespace MyCoreEngine {
         settings["iblIntensity"] = scene_.GetIBLIntensity();
         settings["lodEnabled"] = scene_.GetLODEnabled();
         settings["lodDistanceScale"] = scene_.GetLODDistanceScale();
+        // Projected-size cull. These were the only Scene render settings the
+        // block omitted, so ticking "Cull tiny objects" survived only until the
+        // next load and never reached the shipped player (the quality tier sets
+        // them too, but the default tier is Custom, which leaves them alone).
+        settings["smallCullEnabled"] = scene_.GetSmallCullEnabled();
+        settings["smallCullPixels"] = scene_.GetSmallCullPixels();
         settings["depthPrepass"] = scene_.GetDepthPrepassEnabled();
         settings["aaEnabled"] = scene_.GetAAEnabled();
 
@@ -278,6 +284,25 @@ namespace MyCoreEngine {
     }
 
     bool SceneSerializer::Load(const std::string& path) {
+        // Honour the documented guarantee that a bad file leaves the current
+        // scene intact. Only a JSON *syntax* error and a bad version were
+        // checked before the registry was cleared; every .value()/get<> after
+        // that point runs on untrusted data and throws json::type_error the
+        // moment it reaches the bad field -- by which time the user's unsaved
+        // scene was already gone, with no undo.
+        //
+        // So run the WHOLE load against a throwaway Scene first. If that
+        // survives, the real pass cannot fail on a type error. Re-using Load
+        // itself rather than a parallel validator means the two can never
+        // disagree about the schema; the probe skips asset loading, so it costs
+        // a JSON walk, not model I/O.
+        if (!dryRun_) {
+            Scene scratch;
+            SceneSerializer probe(scratch, assets_);
+            probe.dryRun_ = true;
+            if (!probe.Load(path)) return false; // scene_ untouched
+        }
+
         std::ifstream in(path);
         if (!in) {
             std::cerr << "ERROR::SCENE::LOAD_FAILED cannot open '" << path << "'" << std::endl;
@@ -313,8 +338,14 @@ namespace MyCoreEngine {
         }
 
         // File is valid — replace scene contents from here on.
+        // ResetToDefaults, not just registry.clear(): every setting below is
+        // applied with the CURRENT scene value as its .value() fallback, so a
+        // file whose settings block omits a key used to silently inherit
+        // whatever the PREVIOUSLY loaded scene had — and the next Save then
+        // wrote those strangers into the file. Resetting first makes an absent
+        // key mean "default", which is what the fallbacks now read.
+        scene_.ResetToDefaults();
         auto& reg = scene_.registry;
-        reg.clear();
 
         if (root.contains("settings")) {
             const json& s = root["settings"];
@@ -334,6 +365,8 @@ namespace MyCoreEngine {
             scene_.SetIBLIntensity(s.value("iblIntensity", scene_.GetIBLIntensity()));
             scene_.SetLODEnabled(s.value("lodEnabled", scene_.GetLODEnabled()));
             scene_.SetLODDistanceScale(s.value("lodDistanceScale", scene_.GetLODDistanceScale()));
+            scene_.SetSmallCullEnabled(s.value("smallCullEnabled", scene_.GetSmallCullEnabled()));
+            scene_.SetSmallCullPixels(s.value("smallCullPixels", scene_.GetSmallCullPixels()));
             scene_.SetDepthPrepassEnabled(s.value("depthPrepass", scene_.GetDepthPrepassEnabled()));
             scene_.SetAAEnabled(s.value("aaEnabled", scene_.GetAAEnabled()));
 
@@ -448,6 +481,13 @@ namespace MyCoreEngine {
                     // dropping the whole entity (and its parent-index slot).
                     std::cerr << "[SceneSerializer] rejected model path outside the project: '"
                               << modelPath << "'\n";
+                    entity.addComponent<ModelComponent>(ModelComponent{});
+                }
+                else if (dryRun_) {
+                    // Validation probe: the path has been read and sandboxed,
+                    // which is all this pass needs. Skip the actual import so
+                    // validating a scene costs a JSON walk rather than loading
+                    // every model twice.
                     entity.addComponent<ModelComponent>(ModelComponent{});
                 }
                 else {
@@ -588,6 +628,31 @@ namespace MyCoreEngine {
                 reg.emplace<AudioListenerComponent>(entity);
             }
 
+            // The probe never loads models, so `model` is always null there and
+            // this block would be skipped — leaving every field inside
+            // materialOverrides unvalidated, i.e. still able to throw during the
+            // real load after the scene had been reset. Walk it in the probe
+            // too, purely to force the same reads.
+            if (dryRun_ && je.contains("materialOverrides") && je["materialOverrides"].is_array()) {
+                for (const json& jo : je["materialOverrides"]) {
+                    (void)jo.value("slot", size_t{ 0 });
+                    Material probe;
+                    (void)vec3FromJson(jo.value("baseColor", json()), probe.baseColor);
+                    (void)vec3FromJson(jo.value("emissive", json()), probe.emissive);
+                    (void)jo.value("metallic", probe.metallic);
+                    (void)jo.value("roughness", probe.roughness);
+                    (void)jo.value("ao", probe.ao);
+                    (void)jo.value("alphaMode", static_cast<int>(probe.alphaMode));
+                    (void)jo.value("opacity", probe.opacity);
+                    (void)jo.value("alphaCutoff", probe.alphaCutoff);
+                    (void)jo.value("doubleSided", probe.doubleSided);
+                    (void)jo.value("shadingModel", static_cast<int>(probe.shadingModel));
+                    (void)jo.value("toonBands", probe.toonBands);
+                    (void)jo.value("toonSpecStrength", probe.toonSpecStrength);
+                    (void)jo.value("toonSpecSize", probe.toonSpecSize);
+                    (void)jo.value("toonRimStrength", probe.toonRimStrength);
+                }
+            }
             if (je.contains("materialOverrides") && model) {
                 const auto& shared = model->Materials();
                 MaterialOverrides ov;

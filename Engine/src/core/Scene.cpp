@@ -237,6 +237,15 @@ void Scene::ResetToDefaults() {
     aaEnabled_ = true;
     iblEnabled_ = true;
     iblIntensity_ = 1.0f;
+    // Whole-struct settings. Assigning a default-constructed instance (rather
+    // than listing fields) means adding a knob to PostFXSettings or
+    // EnvironmentSettings can never silently escape this reset again — which is
+    // exactly how New Scene used to inherit the previous scene's bloom,
+    // vignette, colour grade, HDRi and quality tier, and then write them into
+    // the new file on the next save.
+    postFX_ = PostFXSettings{};
+    environment_ = EnvironmentSettings{};
+    qualityLevel_ = QualityLevel::Custom;
 }
 
 void Scene::UpdateTransforms()

@@ -1029,6 +1029,136 @@ TEST(SceneSerializer, MalformedFieldTypeDoesNotCrash) {
     std::remove(path);
 }
 
+// The header and the manual both promise a bad file "leaves the current scene
+// intact". That only held for JSON syntax errors and a bad version: every
+// .value()/get<> after the registry was cleared ran on untrusted data, so one
+// wrong-typed field deep in the file destroyed the user's unsaved work with no
+// undo. Load now validates the whole document against a throwaway scene first.
+TEST(SceneSerializer, WrongTypedFieldLeavesTheOpenSceneIntact) {
+    AssetManager assets;
+
+    // Fields chosen to sit at different depths: scene settings, an entity's own
+    // field, a nested component, and inside materialOverrides (which the probe
+    // must walk explicitly, since it never loads the model that normally gates
+    // that block).
+    //
+    // NOTE these must be fields that genuinely throw. A wrong-typed vec3 (e.g.
+    // "position":"north") does NOT: vec3FromJson deliberately falls back for a
+    // non-array, so such a file is valid and SHOULD load.
+    const char* hostile[] = {
+        R"({"version":1,"settings":{"lightIntensity":"loud"},"entities":[]})",
+        R"({"version":1,"entities":[{"name":42}]})",
+        R"({"version":1,"entities":[{"name":"A","light":{"intensity":{}}}]})",
+        R"({"version":1,"entities":[{"name":"A","audioSource":{"volume":"loud"}}]})",
+        R"({"version":1,"entities":[{"name":"A","model":"missing.obj",
+             "materialOverrides":[{"slot":0,"metallic":"shiny"}]}]})",
+    };
+
+    for (const char* text : hostile) {
+        const char* path = "test_scene_hostile_typed.json";
+        std::ofstream(path) << text;
+
+        // A scene with real, unsaved content the user would hate to lose.
+        Scene s;
+        Entity keep = s.createEntity();
+        keep.addComponent<Name>(Name{ "Precious" });
+        keep.addComponent<Transform>(Transform{});
+        s.LightIntensity() = 7.5f;
+
+        SceneSerializer sz(s, assets);
+        EXPECT_FALSE(sz.Load(path)) << "a wrong-typed field must fail the load: " << text;
+
+        // ...and the scene must be exactly as it was.
+        EXPECT_EQ(CountNamed(s), 1) << "the open scene was destroyed by a failed load: " << text;
+        bool found = false;
+        for (auto e : s.registry.view<Name>())
+            if (s.registry.get<Name>(e).value == "Precious") found = true;
+        EXPECT_TRUE(found) << "entity lost to a failed load: " << text;
+        EXPECT_FLOAT_EQ(s.LightIntensity(), 7.5f)
+            << "scene settings clobbered by a failed load: " << text;
+
+        std::remove(path);
+    }
+}
+
+// Load applies each setting with the CURRENT value as its fallback, so a file
+// that omits a key used to inherit whatever the previously-loaded scene had --
+// and the next Save wrote those strangers into the file.
+TEST(SceneSerializer, AbsentSettingsResetToDefaultsNotThePreviousScene) {
+    const char* path = "test_scene_minimal_settings.json";
+    // A minimal file: no postFX, no environment, no qualityLevel, no aaEnabled.
+    { std::ofstream f(path); f << R"({"version":1,"settings":{},"entities":[]})"; }
+
+    Scene s;
+    AssetManager assets;
+    // Dirty every setting the minimal file does not mention.
+    s.PostFX().bloom.enabled = true;
+    s.PostFX().vignette.enabled = true;
+    s.PostFX().outline.enabled = true;
+    s.SetQualityLevel(Scene::QualityLevel::Low);
+    s.SetAAEnabled(false);
+    s.SetSmallCullEnabled(true);
+    EnvironmentSettings env;
+    env.hdriPath = "Exported/Env/somebody_elses_sky.hdr";
+    s.SetEnvironment(env);
+
+    SceneSerializer sz(s, assets);
+    ASSERT_TRUE(sz.Load(path));
+
+    EXPECT_FALSE(s.PostFX().bloom.enabled) << "bloom bled through from the previous scene";
+    EXPECT_FALSE(s.PostFX().vignette.enabled);
+    EXPECT_FALSE(s.PostFX().outline.enabled);
+    EXPECT_EQ(s.GetQualityLevel(), Scene::QualityLevel::Custom);
+    EXPECT_TRUE(s.GetAAEnabled());
+    EXPECT_FALSE(s.GetSmallCullEnabled());
+    EXPECT_EQ(s.Environment().hdriPath, EnvironmentSettings{}.hdriPath)
+        << "the previous scene's HDRi survived into a file that never named one";
+
+    std::remove(path);
+}
+
+// The projected-size cull was the one Scene render setting the settings block
+// omitted, so it silently reset on reload and never reached the player.
+TEST(SceneSerializer, RoundTripSmallObjectCull) {
+    const char* path = "test_scene_smallcull.json";
+
+    Scene a;
+    a.SetSmallCullEnabled(true);
+    a.SetSmallCullPixels(6.5f);
+
+    AssetManager assets;
+    ASSERT_TRUE(SceneSerializer(a, assets).Save(path));
+
+    Scene b;
+    ASSERT_TRUE(SceneSerializer(b, assets).Load(path));
+    EXPECT_TRUE(b.GetSmallCullEnabled());
+    EXPECT_FLOAT_EQ(b.GetSmallCullPixels(), 6.5f);
+
+    std::remove(path);
+}
+
+// New Scene must not inherit the previous scene's look.
+TEST(SceneReset, ResetToDefaultsClearsPostFXEnvironmentAndQuality) {
+    Scene s;
+    s.PostFX().bloom.enabled = true;
+    s.PostFX().colorGrade.enabled = true;
+    s.PostFX().vignette.intensity = 0.9f;
+    s.SetQualityLevel(Scene::QualityLevel::Low);
+    EnvironmentSettings env;
+    env.hdriPath = "Exported/Env/custom.hdr";
+    env.drawSkybox = false;
+    s.SetEnvironment(env);
+
+    s.ResetToDefaults();
+
+    EXPECT_FALSE(s.PostFX().bloom.enabled);
+    EXPECT_FALSE(s.PostFX().colorGrade.enabled);
+    EXPECT_FLOAT_EQ(s.PostFX().vignette.intensity, Scene::PostFXSettings{}.vignette.intensity);
+    EXPECT_EQ(s.GetQualityLevel(), Scene::QualityLevel::Custom);
+    EXPECT_EQ(s.Environment().hdriPath, EnvironmentSettings{}.hdriPath);
+    EXPECT_TRUE(s.Environment().drawSkybox);
+}
+
 TEST(SceneSerializer, RoundTripMaterialTransparency) {
     const char* path = "test_scene_transparency.json";
 

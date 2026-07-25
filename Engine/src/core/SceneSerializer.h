@@ -29,6 +29,11 @@ namespace MyCoreEngine {
     private:
         Scene& scene_;
         AssetManager& assets_;
+        // Set only on the internal probe Load runs against a throwaway Scene to
+        // validate the file before the real one touches anything. It performs
+        // every JSON read (so a wrong-typed field still throws) but skips model
+        // loading, which is the only expensive/observable side effect.
+        bool dryRun_ = false;
     };
 
 } // namespace MyCoreEngine
