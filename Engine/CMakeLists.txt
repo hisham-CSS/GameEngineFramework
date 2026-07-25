@@ -84,6 +84,8 @@ add_library(Engine SHARED
     src/ui/UIElement.cpp
     src/ui/UIStyleSheet.h
     src/ui/UIStyleSheet.cpp
+    src/ui/UIMarkup.h
+    src/ui/UIMarkup.cpp
     src/ui/DemoHud.h
     src/ui/DemoHud.cpp
     src/render/passes/UIPass.h
@@ -149,6 +151,11 @@ find_package(meshoptimizer CONFIG REQUIRED)
 # worth re-deriving. Linked PRIVATE: yoga is an implementation detail behind
 # UIElement/UIDocument, so no consumer of Engine ever sees a YG* type.
 find_package(yoga CONFIG REQUIRED)
+# UXML-like UI markup. Declared EXPLICITLY even though assimp already drags it
+# in transitively: relying on another package's dependency means an assimp
+# feature change could silently break our build, and the manifest should say
+# what we actually use.
+find_package(pugixml CONFIG REQUIRED)
 
 # --- physics backends (OPTIONAL by design) ------------------------------
 # Each SDK is compiled in only when found, and every backend sits behind
@@ -276,6 +283,7 @@ target_link_libraries(Engine PUBLIC glad::glad)
 target_link_libraries(Engine PUBLIC assimp::assimp)
 target_link_libraries(Engine PRIVATE glm::glm)
 target_link_libraries(Engine PRIVATE yoga::yogacore)
+target_link_libraries(Engine PRIVATE pugixml::pugixml)
 target_link_libraries(Engine PUBLIC EnTT::EnTT)
 target_link_libraries(Engine PRIVATE nlohmann_json::nlohmann_json)
 target_link_libraries(Engine PRIVATE meshoptimizer::meshoptimizer)

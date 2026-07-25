@@ -312,6 +312,29 @@ void UISelector::Specificity(int& ids, int& cls, int& types) const {
     types = type.empty() ? 0 : 1;
 }
 
+bool UIStyleSheet::ParseDeclarationList(const std::string& text,
+                                        std::vector<UIDeclaration>& out,
+                                        std::vector<std::string>& errors) {
+    bool ok = true;
+    for (const std::string& declText : split(text, ';')) {
+        const size_t colon = declText.find(':');
+        if (colon == std::string::npos) {
+            errors.push_back("declaration '" + trim(declText) + "' has no ':'");
+            ok = false;
+            continue;
+        }
+        UIDeclaration d;
+        std::string err;
+        if (!parseDeclaration(declText.substr(0, colon), declText.substr(colon + 1), d, err)) {
+            errors.push_back(err);
+            ok = false;
+            continue;
+        }
+        out.push_back(d);
+    }
+    return ok;
+}
+
 void UIStyleSheet::Clear() { rules_.clear(); errors_.clear(); }
 
 bool UIStyleSheet::ParseString(const std::string& text, const std::string& originName) {
@@ -464,6 +487,11 @@ void UIStyleSheet::ApplyToElement(UIElement& el) const {
     for (const Hit& h : hits) {
         for (const auto& d : h.rule->declarations) d.ApplyTo(el.style());
     }
+    // Inline last: in CSS an element's own style attribute outranks every
+    // selector rule regardless of specificity. Replaying it here (rather than
+    // baking it in at load) means a stylesheet hot-reload cannot silently drop
+    // the inline values authored alongside the markup.
+    for (const auto& d : el.inlineStyle()) d.ApplyTo(el.style());
 }
 
 void UIStyleSheet::ApplyTo(UIElement& root) const {

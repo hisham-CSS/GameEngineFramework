@@ -97,6 +97,7 @@ engine_test(test_ui_layout)        # element tree + flexbox against known CSS re
 engine_test(test_ui_pass)          # UI overlay: draws on the final image, no chain slot
 engine_test(test_ui_input)         # hit-testing, hover/press, bubbling events
 engine_test(test_ui_stylesheet)    # USS subset: selectors, cascade, diagnostics
+engine_test(test_ui_markup)        # UXML subset: tree building, inline style, sandbox
 engine_test(test_import_settings)  # P4-3 phase 4: .import sidecar round-trip (pure CPU)
 engine_test(test_asset_validator)  # P4-3 phase 4: cooker validate logic (pure CPU)
 

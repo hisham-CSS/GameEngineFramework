@@ -97,6 +97,16 @@ namespace MyCoreEngine::ui {
         // Just this element (no recursion).
         void ApplyToElement(UIElement& el) const;
 
+        // Parses a bare `prop: value; prop: value` list — the body of a markup
+        // `style="..."` attribute. Shared with the rule parser so the two can
+        // never disagree about what a property means. Returns false and appends
+        // to `errors` if anything failed; `out` then holds only the
+        // declarations that DID parse, so the caller can decide whether to use
+        // a partial result (markup loading does not).
+        static bool ParseDeclarationList(const std::string& text,
+                                         std::vector<UIDeclaration>& out,
+                                         std::vector<std::string>& errors);
+
     private:
         std::vector<UIRule> rules_;
         std::vector<std::string> errors_;

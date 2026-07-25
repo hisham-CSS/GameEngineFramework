@@ -11,6 +11,7 @@
     "imguizmo",
     "miniaudio",
     "yoga",
+    "pugixml",
     "joltphysics",
     {
       "name": "physx",

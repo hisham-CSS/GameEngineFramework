@@ -13,6 +13,7 @@
 #include "../core/Core.h"
 #include "UIStyle.h"
 #include "UIEvent.h"
+#include "UIStyleSheet.h"   // UIDeclaration (for inline styles)
 
 #include <glm/glm.hpp>
 
@@ -69,6 +70,14 @@ namespace MyCoreEngine::ui {
         bool HasClass(const std::string& c) const;
         void AddClass(std::string c);      // no-op if already present
         void RemoveClass(const std::string& c);
+        void ClearClasses() { classes_.clear(); }
+
+        // Declarations from a markup `style="..."` attribute. Stored rather
+        // than baked into style() because, exactly as in CSS, inline styles
+        // outrank EVERY selector rule: UIStyleSheet::ApplyToElement replays
+        // these last, so re-applying a sheet (hot reload) can never lose them.
+        const std::vector<UIDeclaration>& inlineStyle() const { return inlineStyle_; }
+        void setInlineStyle(std::vector<UIDeclaration> decls) { inlineStyle_ = std::move(decls); }
 
         // Mutate freely; the next Layout() picks changes up. Style writes are
         // pushed into the layout engine on Layout, and yoga only re-solves
@@ -122,6 +131,7 @@ namespace MyCoreEngine::ui {
         std::string name_;
         std::string type_ = "Element";
         std::vector<std::string> classes_;
+        std::vector<UIDeclaration> inlineStyle_;
         Style style_{};
         ComputedLayout layout_{};
 
