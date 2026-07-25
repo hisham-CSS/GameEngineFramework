@@ -84,6 +84,14 @@ namespace MyCoreEngine::ui {
 
         // Clip children to this element's box (CSS `overflow: hidden`).
         bool overflowHidden = false;
+
+        // Whether the pointer can hit this element (CSS `pointer-events`).
+        // Setting it false skips the element AND its subtree, which is what
+        // decorative overlays want — a full-screen crosshair or vignette layer
+        // must not eat every click meant for the UI beneath it. (CSS lets a
+        // descendant re-enable picking; that is deliberately not supported here
+        // because "the subtree is inert" is far easier to reason about.)
+        bool pickable = true;
     };
 
 } // namespace MyCoreEngine::ui

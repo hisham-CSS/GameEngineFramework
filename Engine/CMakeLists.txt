@@ -79,6 +79,7 @@ add_library(Engine SHARED
     # In-game UI: a retained element tree laid out with flexbox (yoga), painted
     # through Renderer2D. Modelled on web front-end / Unity UI Toolkit.
     src/ui/UIStyle.h
+    src/ui/UIEvent.h
     src/ui/UIElement.h
     src/ui/UIElement.cpp
     src/ui/DemoHud.h

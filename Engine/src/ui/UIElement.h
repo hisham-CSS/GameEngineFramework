@@ -12,11 +12,13 @@
 // touching a line of authored UI.
 #include "../core/Core.h"
 #include "UIStyle.h"
+#include "UIEvent.h"
 
 #include <glm/glm.hpp>
 
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace MyCoreEngine {
@@ -75,8 +77,31 @@ namespace MyCoreEngine::ui {
         // CSS-selector query would replace.
         UIElement* Find(const std::string& name);
 
+        // ---- events ----
+        // Multiple handlers per type are allowed and run in registration
+        // order, so a widget's own behaviour and a caller's extra listener can
+        // coexist without one clobbering the other.
+        void AddEventListener(UIEventType type, UIEventHandler handler);
+        void OnClick(UIEventHandler h)        { AddEventListener(UIEventType::Click, std::move(h)); }
+        void OnPointerDown(UIEventHandler h)  { AddEventListener(UIEventType::PointerDown, std::move(h)); }
+        void OnPointerUp(UIEventHandler h)    { AddEventListener(UIEventType::PointerUp, std::move(h)); }
+        void OnPointerEnter(UIEventHandler h) { AddEventListener(UIEventType::PointerEnter, std::move(h)); }
+        void OnPointerLeave(UIEventHandler h) { AddEventListener(UIEventType::PointerLeave, std::move(h)); }
+        void OnPointerMove(UIEventHandler h)  { AddEventListener(UIEventType::PointerMove, std::move(h)); }
+        void ClearEventListeners();
+
+        // Interaction state, maintained by UIDocument::UpdatePointer.
+        // `hovered` is true for the whole ancestor chain under the pointer
+        // (CSS :hover semantics), so a button and the panel containing it are
+        // both hovered. The system reports state; how it LOOKS is the app's
+        // choice — there is no pseudo-class styling yet.
+        bool isHovered() const { return hovered_; }
+        bool isPressed() const { return pressed_; }
+
     private:
         friend class UIDocument;
+
+        void dispatchLocal_(UIEvent& e);
 
         void* yogaNode_ = nullptr;   // YGNodeRef, opaque here on purpose
         UIElement* parent_ = nullptr;
@@ -84,6 +109,10 @@ namespace MyCoreEngine::ui {
         std::string name_;
         Style style_{};
         ComputedLayout layout_{};
+
+        std::vector<std::pair<UIEventType, UIEventHandler>> listeners_;
+        bool hovered_ = false;
+        bool pressed_ = false;
     };
 
     // Owns a UI tree and drives layout + painting for it.
@@ -108,6 +137,20 @@ namespace MyCoreEngine::ui {
         // rect for the subtree. Call between Renderer2D::BeginScreen/End.
         void Draw(Renderer2D& r2d, const Font* font = nullptr, int baseLayer = 0) const;
 
+        // ---- input ----
+        // Feed once per frame AFTER Layout (hit-testing needs computed rects)
+        // and before Draw. Runs the hover/press state machine and dispatches
+        // events; handlers may safely mutate styles, and even the tree.
+        void UpdatePointer(const UIPointerState& pointer);
+
+        // Deepest PICKABLE element containing `pos`, or null. Topmost wins:
+        // children are tested in reverse paint order, and an `overflowHidden`
+        // parent that does not contain the point rejects its whole subtree.
+        UIElement* HitTest(const glm::vec2& pos);
+
+        UIElement* hovered() const { return hovered_; }
+        UIElement* pressed() const { return pressed_; }
+
     private:
         // Recursion helpers. They live here, as members of the class that is
         // already UIElement's friend, so they can reach the layout node and
@@ -118,8 +161,23 @@ namespace MyCoreEngine::ui {
         static void readLayout_(UIElement& el, const glm::vec2& parentOrigin);
         static void draw_(const UIElement& el, Renderer2D& r2d,
                           const Font* font, int layer);
+        static UIElement* hitTest_(UIElement& el, const glm::vec2& pos);
+        // Bubbles `e` from `target` up through its ancestors, honouring
+        // StopPropagation.
+        static void bubble_(UIElement* target, UIEvent& e);
+        // True if `el` is still reachable from the root. Cached hover/press
+        // pointers must be validated this way because a handler (or gameplay)
+        // may have removed the element between frames; comparing addresses
+        // during a top-down walk never dereferences a dangling pointer, which
+        // walking parent_ upwards from a destroyed element would.
+        bool isInTree_(const UIElement* el) const;
 
         std::unique_ptr<UIElement> root_;
+        UIElement* hovered_ = nullptr;   // deepest element under the pointer
+        UIElement* pressed_ = nullptr;   // element that received PointerDown
+        bool  hadPointer_ = false;       // pointer was inside last frame
+        bool  wasDown_ = false;
+        glm::vec2 lastPos_{ 0.0f };
     };
 
 } // namespace MyCoreEngine::ui

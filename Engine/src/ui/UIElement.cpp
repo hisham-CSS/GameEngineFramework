@@ -202,6 +202,26 @@ void UIElement::setText(std::string t) {
     }
 }
 
+void UIElement::AddEventListener(UIEventType type, UIEventHandler handler) {
+    if (handler) listeners_.emplace_back(type, std::move(handler));
+}
+
+void UIElement::ClearEventListeners() { listeners_.clear(); }
+
+void UIElement::dispatchLocal_(UIEvent& e) {
+    // Iterate by INDEX over a snapshot of the count: a handler is allowed to
+    // add listeners (or mutate the tree), and a range-for over a vector that
+    // reallocates mid-dispatch is undefined behaviour. Handlers added during
+    // dispatch deliberately do not run until the next event.
+    const size_t n = listeners_.size();
+    for (size_t i = 0; i < n && i < listeners_.size(); ++i) {
+        if (listeners_[i].first != e.type) continue;
+        UIEventHandler h = listeners_[i].second; // copy: the vector may move
+        if (h) h(e);
+        if (e.propagationStopped) return;
+    }
+}
+
 UIElement* UIElement::Find(const std::string& n) {
     if (name_ == n) return this;
     for (auto& c : children_) {
@@ -272,6 +292,152 @@ void UIDocument::draw_(const UIElement& el, Renderer2D& r2d,
 
 void UIDocument::Draw(Renderer2D& r2d, const Font* font, int baseLayer) const {
     draw_(*root_, r2d, font, baseLayer);
+}
+
+// ------------------------------------------------------------------- input
+
+namespace {
+    bool contains(const ComputedLayout& L, const glm::vec2& p) {
+        return p.x >= L.position.x && p.x < L.position.x + L.size.x &&
+               p.y >= L.position.y && p.y < L.position.y + L.size.y;
+    }
+}
+
+UIElement* UIDocument::hitTest_(UIElement& el, const glm::vec2& pos) {
+    // pointer-events: none — the element and its whole subtree are inert.
+    if (!el.style_.pickable) return nullptr;
+
+    // A clipping parent that does not contain the point cannot have visible
+    // descendants there, so reject the subtree outright. Without this test a
+    // scrolled-away child would still be clickable through its own container.
+    if (el.style_.overflowHidden && !contains(el.layout_, pos)) return nullptr;
+
+    // Children in REVERSE order: they are painted front-to-back in order, so
+    // the last one drawn is the topmost and must win the hit.
+    for (auto it = el.children_.rbegin(); it != el.children_.rend(); ++it) {
+        if (UIElement* h = hitTest_(**it, pos)) return h;
+    }
+
+    // Only after the children: the deepest element wins. Note this is tested
+    // even when the parent's own rect misses, because an absolutely positioned
+    // child may legitimately paint outside its parent (that is why the
+    // overflowHidden check above is the thing that constrains a subtree).
+    return contains(el.layout_, pos) ? &el : nullptr;
+}
+
+UIElement* UIDocument::HitTest(const glm::vec2& pos) {
+    return hitTest_(*root_, pos);
+}
+
+void UIDocument::bubble_(UIElement* target, UIEvent& e) {
+    e.target = target;
+    for (UIElement* cur = target; cur; cur = cur->parent_) {
+        e.currentTarget = cur;
+        cur->dispatchLocal_(e);
+        if (e.propagationStopped) return;
+    }
+}
+
+bool UIDocument::isInTree_(const UIElement* el) const {
+    if (!el) return false;
+    // Address comparison only — never dereferences `el`, so this stays safe
+    // even if the element was destroyed since we cached the pointer.
+    struct W {
+        const UIElement* want;
+        bool operator()(const UIElement& n) const {
+            if (&n == want) return true;
+            for (const auto& c : n.children_) if ((*this)(*c)) return true;
+            return false;
+        }
+    };
+    return W{ el }(*root_);
+}
+
+void UIDocument::UpdatePointer(const UIPointerState& p) {
+    // Drop cached targets that are no longer in the tree. Gameplay or a handler
+    // may have removed the hovered/pressed element since last frame, and
+    // dispatching to it would be a use-after-free.
+    if (hovered_ && !isInTree_(hovered_)) hovered_ = nullptr;
+    if (pressed_ && !isInTree_(pressed_)) pressed_ = nullptr;
+
+    UIElement* hit = p.inside ? HitTest(p.position) : nullptr;
+
+    // ---- enter/leave over the ancestor CHAIN -----------------------------
+    // CSS :hover applies to every ancestor of the hovered element, so a button
+    // and the panel containing it are both hovered. Fire Leave on elements
+    // leaving the chain and Enter on those joining it; neither bubbles, since
+    // the chain walk already visits every affected element exactly once.
+    if (hit != hovered_) {
+        auto inChainOf = [](UIElement* node, UIElement* leaf) {
+            for (UIElement* c = leaf; c; c = c->parent_) if (c == node) return true;
+            return false;
+        };
+        for (UIElement* o = hovered_; o; o = o->parent_) {
+            if (inChainOf(o, hit)) break; // shared ancestors stay hovered
+            o->hovered_ = false;
+            UIEvent e;
+            e.type = UIEventType::PointerLeave;
+            e.position = p.position;
+            e.target = o;
+            e.currentTarget = o;
+            o->dispatchLocal_(e);
+        }
+        for (UIElement* n = hit; n; n = n->parent_) {
+            if (n->hovered_) break; // already in the chain
+            n->hovered_ = true;
+            UIEvent e;
+            e.type = UIEventType::PointerEnter;
+            e.position = p.position;
+            e.target = n;
+            e.currentTarget = n;
+            n->dispatchLocal_(e);
+        }
+        hovered_ = hit;
+    }
+
+    // ---- move -------------------------------------------------------------
+    if (hit && p.inside && (p.position != lastPos_ || !hadPointer_)) {
+        UIEvent e;
+        e.type = UIEventType::PointerMove;
+        e.position = p.position;
+        bubble_(hit, e);
+    }
+
+    // ---- press / release --------------------------------------------------
+    if (p.buttonDown && !wasDown_) {
+        if (pressed_) pressed_->pressed_ = false;
+        pressed_ = hit;
+        if (hit) {
+            hit->pressed_ = true;
+            UIEvent e;
+            e.type = UIEventType::PointerDown;
+            e.position = p.position;
+            bubble_(hit, e);
+        }
+    }
+    else if (!p.buttonDown && wasDown_) {
+        if (hit) {
+            UIEvent e;
+            e.type = UIEventType::PointerUp;
+            e.position = p.position;
+            bubble_(hit, e);
+        }
+        // A click requires press AND release on the same element: dragging off
+        // a button and letting go must NOT activate it, which is what users
+        // expect and what makes a mis-click recoverable.
+        if (hit && hit == pressed_ && isInTree_(hit)) {
+            UIEvent e;
+            e.type = UIEventType::Click;
+            e.position = p.position;
+            bubble_(hit, e);
+        }
+        if (pressed_ && isInTree_(pressed_)) pressed_->pressed_ = false;
+        pressed_ = nullptr;
+    }
+
+    hadPointer_ = p.inside;
+    wasDown_ = p.buttonDown;
+    lastPos_ = p.position;
 }
 
 } // namespace MyCoreEngine::ui

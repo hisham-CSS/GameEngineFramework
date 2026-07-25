@@ -121,6 +121,21 @@ public:
                          "drawing the HUD without text." << std::endl;
         }
         renderer().SetUIDraw([this](MyCoreEngine::Renderer2D& r2d, int w, int h) {
+            // The UI covers the whole window here, so window coords ARE UI
+            // coords — no mapping needed (the editor is the case that needs it).
+            // Read straight from GLFW: the engine's InputMap is action/axis
+            // based and has no notion of a cursor position.
+            GLFWwindow* win = GetNativeWindow();
+            MyCoreEngine::ui::UIPointerState p;
+            if (win) {
+                double mx = 0.0, my = 0.0;
+                glfwGetCursorPos(win, &mx, &my);
+                p.position = { float(mx), float(my) };
+                p.inside = (mx >= 0.0 && my >= 0.0 && mx < double(w) && my < double(h));
+                p.buttonDown =
+                    glfwGetMouseButton(win, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+            }
+            hud_.SetPointer(p);
             hud_.Draw(r2d, w, h);
         });
 

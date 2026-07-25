@@ -34,6 +34,11 @@ namespace MyCoreEngine::ui {
         // re-measured on the next layout.
         void SetHealth(float fraction01);
         void SetScore(int score);
+        int  score() const { return score_; }
+
+        // Pointer state in UI-LOCAL pixels, supplied by the host (see
+        // UIPointerState — only the host knows where the UI surface sits).
+        void SetPointer(const UIPointerState& p);
 
         // Lays out for this viewport and emits draws. Call from a
         // Renderer::SetUIDraw callback (the pass has already put the renderer
@@ -43,10 +48,19 @@ namespace MyCoreEngine::ui {
         UIDocument& document() { return doc_; }
 
     private:
+        // Interaction tints. Kept here rather than in Style because there is no
+        // pseudo-class (:hover/:active) styling yet — the app maps state to
+        // colour itself.
+        static constexpr glm::vec4 kButtonIdle{ 0.16f, 0.17f, 0.20f, 0.90f };
+        static constexpr glm::vec4 kButtonHover{ 0.26f, 0.28f, 0.33f, 0.95f };
+        static constexpr glm::vec4 kButtonPressed{ 0.85f, 0.55f, 0.15f, 1.00f };
+
         Font       font_;
         UIDocument doc_;
         UIElement* healthFill_ = nullptr;
         UIElement* scoreLabel_ = nullptr;
+        UIElement* button_ = nullptr;
+        UIPointerState pointer_{};
         float      health_ = 1.0f;
         int        score_ = 0;
         bool       built_ = false;

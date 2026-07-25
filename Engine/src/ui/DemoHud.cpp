@@ -38,6 +38,24 @@ bool DemoHud::Init(const std::string& fontPath, float fontPixelHeight) {
     scoreLabel_->setText("SCORE 0");
     scoreLabel_->style().textColor = { 1.0f, 1.0f, 1.0f, 0.95f };
 
+    // --- a real, clickable button -----------------------------------------
+    // Deliberately below the top bar in the same column, so it participates in
+    // normal flow. It exists to prove the input path end to end: hit-testing,
+    // hover/press state, and a Click handler that mutates the retained tree.
+    UIElement* buttonRow = root.AddChild("buttonRow");
+    buttonRow->style().direction = FlexDirection::Row;
+    buttonRow->style().margin = { 0.0f, 12.0f, 0.0f, 0.0f };
+
+    button_ = buttonRow->AddChild("scoreButton");
+    button_->style().padding = Edges::XY(14.0f, 8.0f);
+    button_->style().backgroundColor = kButtonIdle;
+    button_->setText("+100");
+    button_->style().textColor = { 1.0f, 1.0f, 1.0f, 1.0f };
+    // The click lands on the BUTTON even though the text is drawn by the same
+    // element; once this is a composite widget (icon + label children) bubbling
+    // is what keeps the handler working unchanged.
+    button_->OnClick([this](UIEvent&) { SetScore(score_ + 100); });
+
     // --- centre: crosshair -------------------------------------------------
     // Absolutely positioned and centred by flexbox rather than by arithmetic on
     // the viewport size, so it stays centred when the panel is resized.
@@ -46,6 +64,9 @@ bool DemoHud::Init(const std::string& fontPath, float fontPixelHeight) {
     centre->style().inset = { 0.0f, 0.0f, 0.0f, 0.0f };
     centre->style().justify = Justify::Center;
     centre->style().alignItems = Align::Center;
+    // A full-screen decorative layer MUST NOT eat the pointer, or it would sit
+    // over everything and swallow every click meant for the UI beneath it.
+    centre->style().pickable = false;
 
     UIElement* cross = centre->AddChild("crosshair");
     cross->style().width = StyleLength::Px(10.0f);
@@ -75,10 +96,27 @@ void DemoHud::SetScore(int score) {
     if (scoreLabel_) scoreLabel_->setText("SCORE " + std::to_string(score_));
 }
 
+void DemoHud::SetPointer(const UIPointerState& p) { pointer_ = p; }
+
 void DemoHud::Draw(Renderer2D& r2d, int widthPx, int heightPx) {
     if (!built_) return;
     const Font* f = font_.IsValid() ? &font_ : nullptr;
+
+    // Order matters: layout first (hit-testing reads computed rects), then
+    // input (handlers may change styles), then paint — so a press is visible on
+    // the very frame it happens rather than one frame late.
     doc_.Layout(float(widthPx), float(heightPx), f);
+    doc_.UpdatePointer(pointer_);
+
+    // The system reports interaction STATE; deciding what it looks like is the
+    // app's job, since there is no pseudo-class styling yet.
+    if (button_) {
+        button_->style().backgroundColor =
+            button_->isPressed() ? kButtonPressed
+          : button_->isHovered() ? kButtonHover
+                                 : kButtonIdle;
+    }
+
     doc_.Draw(r2d, f);
 }
 

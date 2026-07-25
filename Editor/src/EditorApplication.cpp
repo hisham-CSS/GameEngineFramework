@@ -781,6 +781,33 @@ void EditorApplication::DrawGameViewport(MyCoreEngine::Scene& scene,
         gameTarget_.Resize((int)avail.x, (int)avail.y);
     }
 
+    // Pointer for the in-game UI, in UI-LOCAL pixels.
+    //
+    // This mapping is the whole reason UIPointerState is host-supplied: the
+    // Game view is an image inside a dockable panel that can be moved, resized
+    // or dragged to another monitor, so raw window coordinates would only line
+    // up by accident. Captured HERE, before RenderFrame — the cursor position
+    // is where the image is about to be drawn, and the HUD is painted during
+    // that render, so reading it afterwards would be a frame late.
+    //
+    // `inside` is gated on the panel being hovered so the UI does not react to
+    // a pointer that is over some other panel entirely. ImGui::IsWindowHovered
+    // is used rather than IsItemHovered because the image item does not exist
+    // yet at this point in the frame.
+    {
+        const ImVec2 origin = ImGui::GetCursorScreenPos();
+        const ImVec2 m = ImGui::GetMousePos();
+        MyCoreEngine::ui::UIPointerState p;
+        p.position = { m.x - origin.x, m.y - origin.y };
+        p.inside = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) &&
+                   p.position.x >= 0.f && p.position.y >= 0.f &&
+                   p.position.x < avail.x && p.position.y < avail.y;
+        // Only route clicks to the game UI when ImGui is not using the mouse
+        // for its own dragging, so resizing the panel never presses a button.
+        p.buttonDown = p.inside && ImGui::IsMouseDown(ImGuiMouseButton_Left);
+        hud_.SetPointer(p);
+    }
+
     // Keep the look coherent with the Scene view: scene-level state (lights,
     // materials, toggles) is shared via the Scene itself; these few live on
     // the renderer and must be mirrored. Force direct-dir mode first —
