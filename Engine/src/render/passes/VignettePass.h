@@ -10,7 +10,10 @@ namespace MyCoreEngine { class Shader; }
 // current chain texture and writing the next. Cheap (one fullscreen pass, a
 // handful of ALU), so it is allowed at every quality tier. Parameters come from
 // the scene's PostFXSettings each frame.
-class VignettePass : public IRenderPass {
+// ENGINE_API so hosts and tests outside the DLL can construct it, matching
+// FXAAPass. Without it the LDR chain could only be exercised through
+// Renderer::RenderFrame, which is why its ping-pong routing went untested.
+class ENGINE_API VignettePass : public IRenderPass {
 public:
     VignettePass();
     ~VignettePass() override;

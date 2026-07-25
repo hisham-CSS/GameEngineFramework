@@ -10,7 +10,8 @@ namespace MyCoreEngine { class Shader; }
 // chain). Works at half resolution through a pair of RGBA16F buffers, so the
 // blur is cheap; the glow width comes from repeating the separable blur. Owns
 // its own buffers (rebuilt when the viewport size changes). Pure GL 3.3.
-class BloomPass : public IRenderPass {
+// ENGINE_API: see VignettePass — exported so the chain is testable outside the DLL.
+class ENGINE_API BloomPass : public IRenderPass {
 public:
     BloomPass();
     ~BloomPass() override;

@@ -10,7 +10,8 @@ namespace MyCoreEngine { class Shader; }
 // hdrDepthTex). Depth-only (a forward renderer has no normal buffer), so it
 // draws silhouettes and depth steps -- the contour line that pairs with cel
 // shading. Cheap fullscreen pass; parameters from the scene's PostFXSettings.
-class OutlinePass : public IRenderPass {
+// ENGINE_API: see VignettePass — exported so the chain is testable outside the DLL.
+class ENGINE_API OutlinePass : public IRenderPass {
 public:
     OutlinePass();
     ~OutlinePass() override;

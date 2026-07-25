@@ -9,7 +9,8 @@ namespace MyCoreEngine { class Shader; }
 // on the tonemapped image -- a self-contained stand-in for a LUT workflow, no
 // external asset. An LDR post pass on the ping-pong chain. Cheap fullscreen
 // pass; parameters from the scene's PostFXSettings.
-class ColorGradePass : public IRenderPass {
+// ENGINE_API: see VignettePass — exported so the chain is testable outside the DLL.
+class ENGINE_API ColorGradePass : public IRenderPass {
 public:
     ColorGradePass();
     ~ColorGradePass() override;
