@@ -1,0 +1,30 @@
+<!--
+  Sample HUD structure.
+
+  Structure only: appearance lives in hud.uss, and behaviour is attached in C++
+  by looking elements up by name (see DemoHud::Bind). Keep the names in sync
+  with that code — a renamed element silently loses its handler.
+
+  HOT RELOAD: the running app reads the STAGED copy next to the executable
+  (build/bin/<config>/Exported/UI/), which every build refreshes from this file.
+  Edit the staged copy to iterate live; copy your changes back here to keep
+  them, or edit here and rebuild.
+-->
+<UI name="hud">
+  <Element name="topBar" class="row">
+    <Element name="healthTrack" class="track">
+      <Element name="healthFill" class="fill"/>
+    </Element>
+    <Label name="scoreLabel" class="readout" text="SCORE 0"/>
+  </Element>
+
+  <Element name="buttonRow" class="row-left">
+    <Button name="scoreButton" class="btn" text="+100"/>
+  </Element>
+
+  <!-- Decorative overlay. pointer-events:none in the stylesheet, or this
+       full-screen layer would swallow every click meant for the UI below. -->
+  <Element name="centre" class="centre-overlay">
+    <Element name="crosshair" class="crosshair"/>
+  </Element>
+</UI>

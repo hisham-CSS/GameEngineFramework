@@ -32,7 +32,7 @@ bool UIPass::execute(PassContext& ctx, MyCoreEngine::Scene&, Camera&,
     // restore every GL bit the 2D layer touches, which the bare pass loop
     // (no inter-pass reset) depends on.
     r2d_->BeginScreen(fp.viewportW, fp.viewportH);
-    (*draw_)(*r2d_, fp.viewportW, fp.viewportH);
+    (*draw_)(*r2d_, fp.viewportW, fp.viewportH, fp.deltaTime);
     r2d_->End();
     return true;
 }

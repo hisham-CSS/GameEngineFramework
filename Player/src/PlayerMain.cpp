@@ -116,11 +116,13 @@ public:
         // In-game UI, drawn after all post-processing. Same HUD the editor's
         // Game view shows, from one definition, so the preview and the shipped
         // build cannot drift.
+        // Structure and appearance come from Exported/UI/*.uxml + *.uss, so a
+        // game's HUD is content, not a rebuild. Any failure is reported and
+        // survivable — see DemoHud::Init.
         if (!hud_.Init()) {
-            std::cerr << "PLAYER: HUD font missing (Exported/Fonts/Roboto.ttf) — "
-                         "drawing the HUD without text." << std::endl;
+            for (const auto& e : hud_.errors()) std::cerr << "PLAYER: UI: " << e << std::endl;
         }
-        renderer().SetUIDraw([this](MyCoreEngine::Renderer2D& r2d, int w, int h) {
+        renderer().SetUIDraw([this](MyCoreEngine::Renderer2D& r2d, int w, int h, float dt) {
             // The UI covers the whole window here, so window coords ARE UI
             // coords — no mapping needed (the editor is the case that needs it).
             // Read straight from GLFW: the engine's InputMap is action/axis
@@ -136,7 +138,7 @@ public:
                     glfwGetMouseButton(win, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
             }
             hud_.SetPointer(p);
-            hud_.Draw(r2d, w, h);
+            hud_.Draw(r2d, w, h, dt);
         });
 
         // Render through the scene's camera entity, exactly like the editor's

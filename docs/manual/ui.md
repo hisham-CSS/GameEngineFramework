@@ -1,0 +1,324 @@
+# In-game UI and the 2D layer
+
+The engine ships two related things:
+
+- **`Renderer2D`** — a general-purpose batched 2D renderer. It knows nothing
+  about UI, and is deliberately shaped so a **2D game** can be built directly on
+  it (world-space camera, sprite atlases, sort layers).
+- **The UI system** — a retained element tree with flexbox layout, CSS-like
+  stylesheets, XML-like markup, pointer events, and hot reload. It is the first
+  consumer of `Renderer2D`, not a privileged one.
+
+The UI model is modelled on web front-end and Unity's UI Toolkit: markup
+(`.uxml`) for structure, a stylesheet (`.uss`) for appearance, and C++ for
+behaviour. If you know CSS flexbox, you already know this system.
+
+> This is not the *editor's* UI. The editor is ImGui (immediate mode); this is
+> the UI your **game** draws, and it renders in both the editor's Game view and
+> the shipped Player.
+
+---
+
+## Quick start
+
+The shipped sample is `Editor/src/Exported/UI/hud.uxml` + `hud.uss`, driven by
+`MyCoreEngine::ui::DemoHud` (`Engine/src/ui/DemoHud.h`). Copy that trio as the
+starting point for your own HUD.
+
+```cpp
+// Once, after the GL context exists.
+ui::DemoHud hud;
+hud.Init("Exported/UI/hud.uxml", "Exported/UI/hud.uss",
+         "Exported/Fonts/Roboto.ttf", 18.0f);
+
+// Hand the renderer a draw callback. It runs inside UIPass, with a Renderer2D
+// already set up in screen space.
+renderer().SetUIDraw([&hud](Renderer2D& r2d, int w, int h, float dt) {
+    hud.SetPointer(pointerState);      // see "Input" below
+    hud.Draw(r2d, w, h, dt);
+});
+```
+
+Your own class does the same three things `DemoHud` does: own a
+`UIAssetDocument`, cache the elements it drives, and per frame call
+`Update(dt)` → `Layout` → `UpdatePointer` → `Draw`.
+
+---
+
+## Markup: `.uxml`
+
+Abridged from the shipped `hud.uxml`:
+
+```xml
+<UI name="hud">
+  <Element name="topBar" class="row">
+    <Element name="healthTrack" class="track">
+      <Element name="healthFill" class="fill"/>
+    </Element>
+    <Label name="scoreLabel" class="readout" text="SCORE 0"/>
+  </Element>
+
+  <Element name="buttonRow" class="row-left">
+    <Button name="scoreButton" class="btn" text="+100"/>
+  </Element>
+</UI>
+```
+
+Parsed by `UIMarkup` (`Engine/src/ui/UIMarkup.h`, pugixml).
+
+| Attribute | Means |
+|---|---|
+| *tag name* | the element **type**, matched by a bare type selector (`Button { ... }`) |
+| `name` | the `#id`, and the handle C++ uses to `Find()` the element |
+| `class` | space-separated class list, matched by `.class` selectors |
+| `text` | makes the element a text leaf that measures itself from the font |
+| `style` | inline declarations; outrank **every** stylesheet rule, as in CSS |
+
+The root tag maps onto the document's existing root, so `<UI name="hud">` names
+and styles the root itself rather than creating an extra wrapper.
+
+Tag names are free-form. `Label` and `Button` carry no built-in behaviour — they
+are conventions that give stylesheets something to select on. Behaviour comes
+from the handlers you attach.
+
+**Gotcha:** the file path is run through the same containment check as models,
+scripts, clips and HDRis (`PathIsContained`). Absolute paths and `..` are
+refused before the file is opened, because markup is authored content flowing
+into a parser.
+
+---
+
+## Stylesheets: `.uss`
+
+```css
+.row   { flex-direction: row; justify-content: space-between; align-items: center; }
+.track { width: 220px; height: 18px; padding: 3px; background-color: rgba(0,0,0,0.45); }
+.fill  { width: 100%; height: 100%; background-color: #d93a3d; }
+#hud   { flex-direction: column; padding: 16px; }
+```
+
+Parsed by `UIStyleSheet` (`Engine/src/ui/UIStyleSheet.h`) — a hand-written CSS
+subset, no dependency.
+
+**Selectors:** `Type`, `.class`, `#name`, `*`, and compounds
+(`Button.primary#ok`). Comma-separated lists. Standard CSS **specificity**
+(`#id` > `.class` > type), with later-in-file winning ties.
+
+**Properties:**
+
+| Group | Properties |
+|---|---|
+| Flex | `flex-direction`, `justify-content`, `align-items`, `align-self`, `flex-grow`, `flex-shrink`, `gap` |
+| Size | `width`, `height`, `min-width`, `min-height`, `max-width`, `max-height` |
+| Box | `margin`, `padding` (1–4 value CSS shorthand) |
+| Position | `position: relative\|absolute`, `left`, `top`, `right`, `bottom` |
+| Paint | `background-color`, `color`, `font-scale` |
+| Behaviour | `overflow: hidden\|visible`, `pointer-events: auto\|none` |
+
+Lengths are `auto`, `Npx`, `N%`, or a bare number (treated as px). Colours are
+`#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb(r,g,b)`, `rgba(r,g,b,a)` (channels 0–255,
+alpha 0–1), or a handful of names.
+
+**Not supported, and reported as errors rather than silently ignored:**
+combinators (descendant/child/sibling), pseudo-classes (`:hover`), at-rules,
+variables, and inheritance. Nothing cascades from parent to child — every
+element is styled independently.
+
+**Gotcha:** there is no `:hover`/`:active`. The system reports interaction
+*state* (`isHovered()`, `isPressed()`) and the app decides what it looks like.
+`DemoHud` captures the authored idle colour at bind time and only overrides it
+while hovered or pressed, so restyling the button in `.uss` still works.
+
+---
+
+## Layout: flexbox
+
+Layout is solved by **yoga** — the same engine Unity's UI Toolkit uses. No yoga
+type appears in any engine header: each `UIElement` holds an opaque handle, so
+the layout engine can be replaced without touching a line of authored UI.
+
+Everything behaves as CSS flexbox does, which means the usual reflexes apply:
+`justify-content: space-between` on a row pushes children to opposite ends at
+any width, and an absolutely-positioned child with `inset: 0` plus centring
+alignment stays centred at every viewport shape — no arithmetic on the viewport
+size anywhere.
+
+`UIDocument::Layout(w, h, font)` fills every element's `ComputedLayout`
+(absolute position + size, in screen pixels). The `font` may be null: text
+elements then measure as empty and still lay out, so a missing font costs you
+labels rather than the whole HUD.
+
+**Gotcha:** yoga snaps to the pixel grid, and rounds sizes and absolute
+positions independently — expect results to differ from hand arithmetic by up to
+a pixel. Also, `min-*`/`max-*` clamp the flex *base* size before free space is
+distributed (Flexbox §9.2 step 4), so a clamped item does not simply lose its
+clamped amount from the growth pool.
+
+---
+
+## Behaviour: elements and events
+
+`UIElement` (`Engine/src/ui/UIElement.h`) is retained: build the tree once and
+**mutate** it. That is the opposite of ImGui and the right model here, because
+layout is expensive, elements need identity for events, and most frames change
+nothing.
+
+```cpp
+UIElement* btn = doc.root().Find("scoreButton");
+btn->OnClick([&](UIEvent& e) { score += 100; });
+btn->style().backgroundColor = { 0.2f, 0.2f, 0.2f, 1.0f };
+label->setText("SCORE " + std::to_string(score));   // not style().text — see below
+```
+
+Events are DOM-style: they fire on the deepest hit element and **bubble** up
+through its ancestors, with `e.target` (what was hit) and `e.currentTarget`
+(whose handler is running) kept separate, and `e.StopPropagation()` to halt the
+walk. Multiple handlers per type run in registration order.
+
+Available: `OnClick`, `OnPointerDown/Up/Move/Enter/Leave`. A **click** requires
+press *and* release on the same element, so sliding off a button before letting
+go correctly cancels it.
+
+**Gotcha:** use `setText()`, not `style().text = ...`. Writing the style field
+directly does not invalidate the measured size, so the label keeps its old width
+until something else dirties it.
+
+---
+
+## Input
+
+The UI does not read the mouse itself, because only the host knows where the UI
+surface sits. Fill in a `UIPointerState` in **UI-local pixels** and hand it over:
+
+```cpp
+UIPointerState p;
+p.position   = { mouseX - uiOriginX, mouseY - uiOriginY };
+p.inside     = /* pointer is over the UI surface at all */;
+p.buttonDown = /* left button held */;
+```
+
+In the Player the UI covers the window, so window coords *are* UI coords. In the
+editor's Game view the UI lives inside a dock panel, so the panel origin is
+subtracted and clicks are routed only when ImGui is not using the mouse for its
+own dragging.
+
+`UIDocument::HitTest` returns the deepest **pickable** element containing the
+point. Topmost wins (children tested in reverse paint order), an
+`overflow: hidden` parent rejects its whole clipped-away subtree, and
+`pointer-events: none` makes an element *and its subtree* inert — which is what
+a full-screen decorative overlay needs, or it swallows every click beneath it.
+
+**Order matters** and `DemoHud::Draw` shows it: `Layout` first (hit-testing
+reads computed rects), then `UpdatePointer` (handlers may change styles), then
+`Draw`. Anything else makes a press visible a frame late.
+
+---
+
+## Hot reload
+
+`UIAssetDocument` (`Engine/src/ui/UIAssetDocument.h`) watches the markup and
+stylesheet and rebuilds when either changes. Edit `hud.uss`, alt-tab, and the
+running game has the new look — no rebuild, no restart, no losing the state you
+were testing.
+
+```cpp
+UIAssetDocument ui;
+ui.Load("Exported/UI/hud.uxml", "Exported/UI/hud.uss", [&](UIDocument& doc) {
+    // Runs after EVERY successful (re)load, on the finished tree.
+    button = doc.root().Find("scoreButton");
+    button->OnClick(...);
+    ApplyCurrentGameState();
+});
+...
+ui.Update(dt);   // once per frame; stats the files a few times a second
+```
+
+The bind callback is not optional politeness — a reload **rebuilds the tree**,
+so every element pointer and every registered handler is invalidated. That is
+the classic silent failure of hot-reload systems: the UI looks right and the
+buttons quietly stop working. The API makes re-binding the only way in.
+
+Behaviour worth knowing:
+
+- **A broken markup edit is a no-op.** Half-typed files are the normal state
+  while iterating, so a parse failure reports and keeps running the last good
+  tree rather than blanking the screen. Fixing the file reloads normally.
+- **A broken stylesheet is not fatal.** Structure loads, the last good styling
+  stays applied, and the errors are reported.
+- **Inline styles survive.** They are replayed after the sheet on every apply,
+  so re-applying a stylesheet can never drop them.
+- Polls every 0.25 s by default (`SetPollInterval`); `SetHotReloadEnabled(false)`
+  stops watching but leaves `Reload()` working.
+
+**Gotcha:** the running app reads the **staged** copy next to the executable
+(`build/bin/<config>/Exported/UI/`), which every build refreshes from
+`Editor/src/Exported/UI/`. Edit the staged copy to iterate live, then copy your
+changes back into the source tree to keep them.
+
+---
+
+## Text
+
+`Font` (`Engine/src/render2d/Font.h`) bakes a glyph atlas with stb_truetype at a
+fixed pixel height and packs it with stb_rect_pack, retrying larger atlases
+(512 → 4096) until the requested size fits. `Renderer2D::DrawText` takes the
+**top-left** of the text box, not the baseline, so it drops straight into a
+layout rect. UTF-8 input; undecodable bytes become U+FFFD. `\n` starts a line.
+
+Glyphs need no separate shader path: the atlas is uploaded with a swizzle that
+makes it read as `(1,1,1,coverage)`, so a glyph is just a white sprite with an
+alpha mask and batches with everything else.
+
+The engine ships **Roboto** (`Exported/Fonts/Roboto.ttf`, SIL Open Font License
+1.1 — see `LICENSE-Roboto.txt`).
+
+---
+
+## Using `Renderer2D` directly (2D games)
+
+Nothing about `Renderer2D` (`Engine/src/render2d/Renderer2D.h`) is UI-specific.
+The same `SetUIDraw` hook works for a 2D game's sprites.
+
+Two projection modes, each using its own domain's convention on purpose:
+
+| Mode | Origin | +y | Units | For |
+|---|---|---|---|---|
+| `BeginScreen(w, h)` | top-left | **down** | pixels | UI, HUDs — matches HTML/CSS |
+| `BeginWorld(cam, w, h)` | camera centre | **up** | world units | 2D gameplay — matches the 3D world |
+
+`Camera2D` carries position, zoom and rotation. Draws are `DrawQuad`,
+`DrawSprite` (with a `TexRegion` for atlases), `DrawSpriteRotated`, and
+`DrawText`, each taking a **sort layer**. Clip rects nest by intersection, so a
+child can never draw outside its parent.
+
+Batching accumulates draws into one CPU vertex buffer and flushes when the
+texture, clip rect, or buffer capacity forces it; sort layer is applied as a
+stable sort before flushing, so you can emit in any order. `stats()` reports
+draw calls, quads and flushes per frame.
+
+`Begin*`/`End` capture and restore every GL bit the 2D layer touches. That is
+load-bearing: the 3D pipeline runs passes in a bare loop with no inter-pass
+reset, so a leaked blend or depth state would corrupt the next pass.
+
+---
+
+## Where the pieces live
+
+| File | What |
+|---|---|
+| `Engine/src/render2d/Renderer2D.h` | Batched 2D renderer (general-purpose) |
+| `Engine/src/render2d/Font.h` | stb_truetype glyph atlas, UTF-8, measurement |
+| `Engine/src/ui/UIStyle.h` | The `Style` struct — the CSS-shaped subset |
+| `Engine/src/ui/UIElement.h` | `UIElement` + `UIDocument` (tree, layout, draw, input) |
+| `Engine/src/ui/UIEvent.h` | Event types, `UIEvent`, `UIPointerState` |
+| `Engine/src/ui/UIStyleSheet.h` | `.uss` parser, selectors, cascade |
+| `Engine/src/ui/UIMarkup.h` | `.uxml` loader |
+| `Engine/src/ui/UIAssetDocument.h` | Markup + stylesheet assets with hot reload |
+| `Engine/src/ui/DemoHud.h` | The worked sample |
+| `Engine/src/render/passes/UIPass.h` | The render pass and the `UIDrawFn` hook |
+
+## Not there yet
+
+Keyboard focus, tab navigation and text entry; data binding; `:hover`/`:active`
+pseudo-classes; descendant selectors; a `UIDocument` **component** so a scene
+can attach UI to an entity (today the host installs the draw callback).

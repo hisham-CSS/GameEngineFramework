@@ -290,10 +290,18 @@ TEST(UIInput, RemovingTheHoveredElementInAHandlerIsSafe) {
     SUCCEED();
 }
 
-// The shipped sample's button must actually work end to end.
+// The shipped sample's button must actually work end to end — loaded from the
+// SHIPPED assets, so a typo in hud.uxml/hud.uss (a renamed element, an
+// unparseable rule) fails here rather than silently shipping a dead button.
 TEST(UIInput, DemoHudButtonIncrementsTheScore) {
     ui::DemoHud hud;
-    hud.Init("definitely_not_a_font.ttf", 16.f); // geometry works without a font
+    // Geometry works without a font, so a deliberately missing one keeps this
+    // test free of a GL context while still exercising the real asset path.
+    hud.Init("Exported/UI/hud.uxml", "Exported/UI/hud.uss",
+             "definitely_not_a_font.ttf", 16.f);
+    ASSERT_TRUE(hud.errors().empty())
+        << "shipped HUD assets did not load: " << hud.errors()[0];
+    ASSERT_TRUE(hud.IsReady()) << "hud.uxml no longer has the elements DemoHud binds to";
 
     UIElement* button = hud.document().root().Find("scoreButton");
     ASSERT_NE(button, nullptr);

@@ -24,9 +24,11 @@
 namespace MyCoreEngine {
     class Renderer2D;
     // Called each frame with a Renderer2D already in screen space (origin
-    // top-left, +y down, pixel units) and the viewport size. Draw only —
-    // Begin/End are handled by the pass so GL state hygiene is guaranteed.
-    using UIDrawFn = std::function<void(Renderer2D&, int widthPx, int heightPx)>;
+    // top-left, +y down, pixel units), the viewport size, and the frame delta.
+    // Draw only — Begin/End are handled by the pass so GL state hygiene is
+    // guaranteed. dt is supplied because anything living here is frame-driven:
+    // asset hot-reload polling today, animation and transitions later.
+    using UIDrawFn = std::function<void(Renderer2D&, int widthPx, int heightPx, float dt)>;
 }
 
 class ENGINE_API UIPass final : public IRenderPass {

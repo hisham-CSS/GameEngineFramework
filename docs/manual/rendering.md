@@ -45,6 +45,7 @@ flat vector of `IRenderPass` that runs in insertion order:
 | 8 | `ColorGradePass` *(if on)* | LDR | Procedural colour grade |
 | 9 | `VignettePass` *(if on)* | LDR | Radial edge darkening |
 | 10 | `FXAAPass` *(if on)* | LDR | Post-process anti-aliasing |
+| 11 | `UIPass` *(if a callback is set)* | LDR | In-game 2D/UI overlay, painted onto the finished image |
 
 Passes marked *(if on)* self-skip when their effect is disabled. The LDR post
 passes (7–10) ping-pong through a pair of gamma-space buffers and the last one
@@ -53,6 +54,13 @@ enabled (see `Renderer::countLdrPostPasses_`). Each is per-scene and serialized
 (`Scene::PostFX()`). See **[Post-processing](post-processing.md)** for the
 effects and the **[quality tiers](post-processing.md#quality-tiers)** that gate
 them.
+
+`UIPass` is last and is **not** part of that chain: it paints onto the finished
+image rather than transforming it, so it never consumes a ping-pong slot and is
+excluded from `countLdrPostPasses_`. Running after tonemap and FXAA is
+deliberate — text and thin UI edges are the first things to suffer from bloom,
+grading and anti-aliasing tuned for the rendered world. See
+**[In-game UI](ui.md)**.
 
 Passes never talk to each other directly. They read and write a shared
 `PassContext` (`Engine/src/render/IRenderPass.h`), which carries the GL targets,

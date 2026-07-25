@@ -1,0 +1,74 @@
+/*
+  Sample HUD styling.
+
+  HOT RELOAD: the running app reads the STAGED copy next to the executable
+  (build/bin/<config>/Exported/UI/), which every build refreshes from this file.
+  Save that copy while the editor or player is running and the change appears
+  within a quarter of a second — no rebuild, no restart.
+
+  Supported subset (see UIStyleSheet.h): type / .class / #name selectors and
+  compounds, CSS specificity, flex properties, lengths as auto|px|%, edge
+  shorthands, colours as #hex / rgb() / rgba() / names, position + inset,
+  overflow, pointer-events. Anything else is reported as an error rather than
+  silently ignored — check the console if a rule seems to do nothing.
+*/
+
+#hud {
+  flex-direction: column;
+  padding: 16px;
+}
+
+/* Pushes the health bar and the score readout to opposite ends at ANY width,
+   with no arithmetic on the viewport size. */
+.row {
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.row-left {
+  flex-direction: row;
+  margin: 12px 0px 0px 0px;
+}
+
+/* Styled by CLASS, found by NAME: the stylesheet describes a kind of thing, and
+   the name is the handle C++ uses to reach one particular instance. */
+.track {
+  width: 220px;
+  height: 18px;
+  padding: 3px;
+  background-color: rgba(0, 0, 0, 0.45);
+}
+
+/* The fill is a percentage of its track, so "set health" is one style write and
+   flexbox does the rest. Its width and colour are driven from code. */
+.fill {
+  width: 100%;
+  height: 100%;
+  background-color: #d93a3d;
+}
+
+.readout {
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.btn {
+  padding: 8px 14px;
+  background-color: #292d33;
+  color: white;
+}
+
+/* Full-screen, centred by flexbox rather than by computing the middle. */
+.centre-overlay {
+  position: absolute;
+  left: 0; top: 0; right: 0; bottom: 0;
+  justify-content: center;
+  align-items: center;
+  pointer-events: none;
+}
+
+.crosshair {
+  width: 10px;
+  height: 10px;
+  background-color: rgba(255, 255, 255, 0.75);
+}

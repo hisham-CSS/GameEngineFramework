@@ -444,12 +444,14 @@ void EditorApplication::Run() {
         // camera, so game UI would just be in the way there; the Game view is
         // the "what ships" preview and must show the same HUD the Player draws,
         // built from the same definition so the two cannot drift.
+        // Loaded from Exported/UI/*.uxml + *.uss, which hot-reload: edit either
+        // file while the editor runs and the Game view updates in place, with
+        // no rebuild and without losing the scene you were testing.
         if (!hud_.Init()) {
-            std::cout << "EDITOR: HUD font missing (Exported/Fonts/Roboto.ttf) — "
-                         "drawing the HUD without text." << std::endl;
+            for (const auto& e : hud_.errors()) std::cout << "EDITOR: UI: " << e << std::endl;
         }
-        gameRenderer_.SetUIDraw([this](MyCoreEngine::Renderer2D& r2d, int w, int h) {
-            hud_.Draw(r2d, w, h);
+        gameRenderer_.SetUIDraw([this](MyCoreEngine::Renderer2D& r2d, int w, int h, float dt) {
+            hud_.Draw(r2d, w, h, dt);
         });
 
         // Audio: per-frame listener/source update installed for the app's life;

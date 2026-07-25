@@ -84,7 +84,7 @@ GLFWwindow* UIPassTest::win = nullptr;
 } // namespace
 
 TEST_F(UIPassTest, DrawsOntoTheDefaultFBOAndNeverConsumesAChainSlot) {
-    UIDrawFn draw = [](Renderer2D& r, int w, int h) {
+    UIDrawFn draw = [](Renderer2D& r, int w, int h, float) {
         r.DrawQuad({ 0.f, 0.f }, { float(w) * 0.5f, float(h) * 0.5f }, { 1, 0, 0, 1 });
     };
     UIPass pass(&r2d, &draw);
@@ -137,7 +137,7 @@ TEST_F(UIPassTest, IsANoOpWithoutACallback) {
 // or divide by zero.
 TEST_F(UIPassTest, SkipsAZeroSizedViewport) {
     bool called = false;
-    UIDrawFn draw = [&called](Renderer2D&, int, int) { called = true; };
+    UIDrawFn draw = [&called](Renderer2D&, int, int, float) { called = true; };
     UIPass pass(&r2d, &draw);
     PassContext ctx{};
     ctx.defaultFBO = fbo;
@@ -154,7 +154,7 @@ TEST_F(UIPassTest, SkipsAZeroSizedViewport) {
 // The pass runs inside the same bare pass loop as everything else, so it must
 // hand back the GL state it was given.
 TEST_F(UIPassTest, RestoresGLState) {
-    UIDrawFn draw = [](Renderer2D& r, int, int) {
+    UIDrawFn draw = [](Renderer2D& r, int, int, float) {
         r.DrawQuad({ 0.f, 0.f }, { 8.f, 8.f }, { 1, 1, 1, 1 });
     };
     UIPass pass(&r2d, &draw);
@@ -182,8 +182,13 @@ TEST_F(UIPassTest, RestoresGLState) {
 // odd aspect ratio is worse than no sample at all.
 TEST_F(UIPassTest, DemoHudLaysOutAtAnyAspectAndWithoutAFont) {
     ui::DemoHud hud;
-    hud.Init("definitely_not_a_font.ttf", 18.f); // font missing on purpose
-    EXPECT_FALSE(hud.IsReady());
+    // Real shipped assets, deliberately missing font: Init reports failure but
+    // the HUD must still be fully usable, because losing labels is not a reason
+    // to lose the whole HUD.
+    EXPECT_FALSE(hud.Init("Exported/UI/hud.uxml", "Exported/UI/hud.uss",
+                          "definitely_not_a_font.ttf", 18.f));
+    EXPECT_FALSE(hud.hasFont());
+    ASSERT_TRUE(hud.IsReady()) << "the shipped HUD assets did not load";
 
     ASSERT_TRUE(r2d.Init());
     for (auto wh : { std::pair<int,int>{1280, 720}, {480, 800}, {2560, 1080}, {64, 64} }) {
@@ -191,7 +196,7 @@ TEST_F(UIPassTest, DemoHudLaysOutAtAnyAspectAndWithoutAFont) {
         r2d.BeginScreen(wh.first, wh.second);
         hud.SetHealth(0.37f);
         hud.SetScore(1234);
-        hud.Draw(r2d, wh.first, wh.second); // must not crash
+        hud.Draw(r2d, wh.first, wh.second, 0.016f); // must not crash
         r2d.End();
 
         // The crosshair is centred by flexbox, not by arithmetic: check it
@@ -210,9 +215,32 @@ TEST_F(UIPassTest, DemoHudLaysOutAtAnyAspectAndWithoutAFont) {
     ASSERT_NE(track, nullptr);
     const float wAt37 = fill->layout().size.x;
     hud.SetHealth(1.0f);
-    hud.Draw(r2d, 1280, 720);
+    hud.Draw(r2d, 1280, 720, 0.016f);
     EXPECT_GT(fill->layout().size.x, wAt37) << "health did not widen the bar";
     hud.SetHealth(0.0f);
-    hud.Draw(r2d, 1280, 720);
+    hud.Draw(r2d, 1280, 720, 0.016f);
     EXPECT_NEAR(fill->layout().size.x, 0.f, 0.51f) << "zero health should empty the bar";
+}
+
+// dt has to reach the callback: UI work is frame-driven (hot-reload polling
+// today, animation next), and a pass that dropped it would leave every consumer
+// timing itself off some other clock.
+TEST_F(UIPassTest, ForwardsTheFrameDeltaToTheCallback) {
+    float seen = -1.f;
+    int w = 0, h = 0;
+    UIDrawFn draw = [&](Renderer2D&, int cw, int ch, float dt) {
+        seen = dt; w = cw; h = ch;
+    };
+    UIPass pass(&r2d, &draw);
+    PassContext ctx{};
+    ctx.defaultFBO = fbo;
+    pass.setup(ctx);
+
+    FrameParams f = fp();
+    f.deltaTime = 0.0321f;
+    Scene scene; Camera cam;
+    ASSERT_TRUE(pass.execute(ctx, scene, cam, f));
+    EXPECT_FLOAT_EQ(seen, 0.0321f);
+    EXPECT_EQ(w, kW);
+    EXPECT_EQ(h, kH);
 }
