@@ -76,6 +76,11 @@ add_library(Engine SHARED
     src/render2d/Renderer2D.cpp
     src/render2d/Font.h
     src/render2d/Font.cpp
+    # In-game UI: a retained element tree laid out with flexbox (yoga), painted
+    # through Renderer2D. Modelled on web front-end / Unity UI Toolkit.
+    src/ui/UIStyle.h
+    src/ui/UIElement.h
+    src/ui/UIElement.cpp
     src/render/passes/OutlinePass.h
     src/render/passes/OutlinePass.cpp
     src/render/passes/ColorGradePass.h
@@ -132,6 +137,11 @@ find_package(glm CONFIG REQUIRED)
 find_package(EnTT CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(meshoptimizer CONFIG REQUIRED)
+# Flexbox layout for the in-game UI. This is the SAME engine Unity UI Toolkit
+# uses; a correct flexbox implementation is a large, subtle job that is not
+# worth re-deriving. Linked PRIVATE: yoga is an implementation detail behind
+# UIElement/UIDocument, so no consumer of Engine ever sees a YG* type.
+find_package(yoga CONFIG REQUIRED)
 
 # --- physics backends (OPTIONAL by design) ------------------------------
 # Each SDK is compiled in only when found, and every backend sits behind
@@ -258,6 +268,7 @@ target_link_libraries(Engine PUBLIC glfw)
 target_link_libraries(Engine PUBLIC glad::glad)
 target_link_libraries(Engine PUBLIC assimp::assimp)
 target_link_libraries(Engine PRIVATE glm::glm)
+target_link_libraries(Engine PRIVATE yoga::yogacore)
 target_link_libraries(Engine PUBLIC EnTT::EnTT)
 target_link_libraries(Engine PRIVATE nlohmann_json::nlohmann_json)
 target_link_libraries(Engine PRIVATE meshoptimizer::meshoptimizer)

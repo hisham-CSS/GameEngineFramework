@@ -93,6 +93,7 @@ engine_test(test_fxaa)             # FXAA edge/flat behaviour: needs a real GL c
 engine_test(test_post_chain)       # LDR ping-pong routing + per-pass GL-state hygiene
 engine_test(test_renderer2d)       # 2D batcher: batching, layers, clip, projections
 engine_test(test_font_text)        # stb_truetype atlas bake, UTF-8, text layout
+engine_test(test_ui_layout)        # element tree + flexbox against known CSS results
 engine_test(test_import_settings)  # P4-3 phase 4: .import sidecar round-trip (pure CPU)
 engine_test(test_asset_validator)  # P4-3 phase 4: cooker validate logic (pure CPU)
 
