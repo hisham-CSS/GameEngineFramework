@@ -1,10 +1,12 @@
 // Font atlas baking + text layout (the 2D layer's text half).
 //
-// FONT SOURCE: the engine ships no .ttf yet (picking one is a licensing
-// decision), so these tests bake a font found on the host and SKIP with a clear
-// message when none is present. That keeps the suite honest on a bare CI box
-// instead of silently passing — and the pure-logic tests (UTF-8 decoding,
-// invalid-input handling) run everywhere because they need no font at all.
+// FONT SOURCE: the engine ships Roboto (staged to Exported/Fonts/Roboto.ttf),
+// so these tests normally exercise the FONT THE ENGINE ACTUALLY USES — which
+// makes them a real check that the vendored file bakes, not just that some
+// system font does. Host fonts are only a fallback, and the tests SKIP with a
+// clear message if neither exists, rather than passing vacuously. The
+// pure-logic tests (UTF-8 decoding, invalid input) need no font and run
+// everywhere.
 #include <gtest/gtest.h>
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
@@ -22,9 +24,12 @@ using namespace MyCoreEngine;
 
 namespace {
 
-// First readable candidate wins. Windows and the usual Linux distro paths.
+// First readable candidate wins. The ENGINE'S OWN font comes first so the tests
+// verify the file we actually ship; host fonts are only a fallback for a build
+// tree where assets have not been staged.
 std::string findSystemFont() {
     const char* candidates[] = {
+        "Exported/Fonts/Roboto.ttf",
         "C:/Windows/Fonts/segoeui.ttf",
         "C:/Windows/Fonts/arial.ttf",
         "C:/Windows/Fonts/consola.ttf",
