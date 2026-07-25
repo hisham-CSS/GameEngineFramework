@@ -984,6 +984,72 @@ TEST(SceneSerializer, RejectsTraversalAndAbsoluteModelPaths) {
     std::remove(path);
 }
 
+// A clip path is authored (untrusted) content that flows straight into
+// miniaudio's WAV/MP3/FLAC/OGG decoders, which parse attacker-controlled
+// binary. It must pass the same containment gate as model/script/HDRi paths.
+TEST(SceneSerializer, RejectsTraversalAndAbsoluteAudioClipPaths) {
+    const char* path = "test_scene_evil_clip.json";
+    for (const char* evil : { "../../evil.wav",
+                              R"(..\..\evil.wav)",
+                              "Exported/Audio/../../../../evil.wav",
+                              "C:/Windows/System32/evil.wav",
+                              "/etc/passwd" }) {
+        {
+            nlohmann::json root;
+            root["version"] = SceneSerializer::kVersion;
+            nlohmann::json e;
+            e["name"] = "Evil";
+            e["audioSource"] = { { "clip", evil }, { "volume", 1.0 } };
+            root["entities"] = nlohmann::json::array({ e });
+            std::ofstream(path) << root.dump(2);
+        }
+
+        Scene s;
+        AssetManager assets;
+        // Rejecting a clip is graceful degradation, not a load failure.
+        ASSERT_TRUE(SceneSerializer(s, assets).Load(path)) << "load failed outright for: " << evil;
+
+        bool found = false;
+        for (auto ent : s.registry.view<Name>()) {
+            if (s.registry.get<Name>(ent).value != "Evil") continue;
+            found = true;
+            const auto* as = s.registry.try_get<AudioSourceComponent>(ent);
+            ASSERT_NE(as, nullptr) << "entity dropped entirely for: " << evil;
+            EXPECT_TRUE(as->clip.empty())
+                << "an out-of-project clip path survived to the decoder: " << evil;
+        }
+        EXPECT_TRUE(found) << "entity missing after rejected clip: " << evil;
+    }
+    std::remove(path);
+}
+
+// minDistance must stay strictly positive: every attenuation model divides by
+// it, so a hand-edited 0 silences the source at every distance with no warning.
+TEST(SceneSerializer, AudioZeroMinDistanceIsClampedAudible) {
+    const char* path = "test_scene_audio_zeromin.json";
+    {
+        std::ofstream out(path);
+        out << R"({"version":1,"entities":[
+            {"name":"Silent","audioSource":{"clip":"Exported/Audio/x.wav",
+             "minDistance":0.0,"maxDistance":50.0}}
+        ]})";
+    }
+    Scene s;
+    AssetManager assets;
+    ASSERT_TRUE(SceneSerializer(s, assets).Load(path));
+
+    entt::entity e = entt::null;
+    for (auto [ent, n] : s.registry.view<Name>().each())
+        if (n.value == "Silent") e = ent;
+    ASSERT_TRUE(e != entt::null);
+    const auto* as = s.registry.try_get<AudioSourceComponent>(e);
+    ASSERT_NE(as, nullptr);
+    EXPECT_GT(as->minDistance, 0.f) << "minDistance 0 makes the source permanently inaudible";
+    EXPECT_GT(as->maxDistance, as->minDistance);
+
+    std::remove(path);
+}
+
 // The containment gate must keep legitimate, project-relative asset paths
 // loadable — the whole point of deferring this change was to not break real
 // scenes. These are the shapes the shipped scene.json actually stores.

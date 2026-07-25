@@ -29,8 +29,16 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
     // Stop an orphaned preview voice the instant its Audio Source section will
     // no longer be drawn — selection moved, the entity was deleted (stale
     // handle), or the component was removed. Without this the Stop button
-    // vanishes with a still-playing voice. (Previews are also one-shot below,
-    // so anything this misses — e.g. the asset-view path — self-reaps anyway.)
+    // vanishes with a still-playing voice.
+    //
+    // This runs at the top of Draw, so it only fires while the Inspector is
+    // drawing an ENTITY. If the panel stops being drawn entirely (closed, or
+    // switched to the asset view) a playing preview is not stopped here. It is
+    // one-shot, so it finishes on its own — but note the decoded buffer is only
+    // freed when the backend reaps it, and in EDIT mode nothing pumps
+    // AudioWorld::Update (it is gated on gameplay). Such a voice is therefore
+    // released by the next audio_.Clear() (Play, Stop, scene load/new) rather
+    // than promptly. Bounded and self-healing, but not instant.
     if (previewVoice_) {
         const bool ownerStillDraws =
             previewEntity_ == selected && reg.valid(previewEntity_) &&
@@ -533,7 +541,11 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
                 }
 
                 const float preVol = as->volume;
-                ImGui::SliderFloat("Volume", &as->volume, 0.0f, 1.0f);
+                // AlwaysClamp: Ctrl+Click types a raw value, and a >1 gain both
+                // blows out the mix and is saved, only to be silently clamped
+                // back on the next load.
+                ImGui::SliderFloat("Volume", &as->volume, 0.0f, 1.0f, "%.3f",
+                                   ImGuiSliderFlags_AlwaysClamp);
                 trackSliderItem("Change audio volume", as->volume, preVol);
 
                 const float prePitch = as->pitch;
@@ -572,13 +584,18 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
 
                 // Distance falloff only means anything for a 3D source.
                 if (as->spatial) {
-                    ImGui::DragFloat("Min distance", &as->minDistance, 0.05f, 0.f, 100000.f, "%.2f m");
-                    as->minDistance = std::max(0.f, as->minDistance);
+                    ImGui::DragFloat("Min distance", &as->minDistance, 0.05f,
+                                     MyCoreEngine::kMinAudibleDistance, 100000.f, "%.2f m");
+                    // Strictly positive: the attenuation model divides by this,
+                    // so 0 made the source permanently, silently inaudible at
+                    // every distance — and round-tripped through the scene file.
+                    as->minDistance = std::max(MyCoreEngine::kMinAudibleDistance, as->minDistance);
                     trackItem("Change audio min distance");
                     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Full volume within this radius.");
                     ImGui::DragFloat("Max distance", &as->maxDistance, 0.25f, 0.f, 100000.f, "%.2f m");
                     // keep max strictly past min so the falloff span never collapses
-                    as->maxDistance = std::max(as->maxDistance, as->minDistance + 1e-3f);
+                    as->maxDistance = std::max(as->maxDistance,
+                                               as->minDistance + MyCoreEngine::kMinAudibleDistance);
                     trackItem("Change audio max distance");
                     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Attenuated to silence out here.");
                 }

@@ -13,6 +13,13 @@ namespace MyCoreEngine {
         float masterVolume = 1.0f; // 0..1, applied to the whole mix
     };
 
+    // A 3D source's minDistance must stay strictly positive: every attenuation
+    // model divides by it, so 0 makes the source silent at EVERY distance with
+    // no warning (and 0/0 at the listener's exact position). Also the floor for
+    // the min..max span, which must not collapse. Shared by the backend, the
+    // serializer and the Inspector so the three cannot disagree about it.
+    inline constexpr float kMinAudibleDistance = 0.01f;
+
     // How one sound is played. A 2D sound (spatial=false) plays at a fixed
     // stereo balance; a 3D sound is positioned in the world and attenuates with
     // distance from the listener.

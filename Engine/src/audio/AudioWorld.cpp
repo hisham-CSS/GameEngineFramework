@@ -97,9 +97,21 @@ namespace MyCoreEngine {
 
         backend_->update(); // reap finished one-shots inside the backend
 
-        // Drop entries whose voice finished (id no longer playing).
+        // Drop entries whose voice finished (id no longer playing) OR whose
+        // owner is gone. The finished-check alone never releases a LOOPING
+        // voice, because a loop is always playing: deleting the entity (or
+        // removing its Audio Source) mid-play left the sound running forever at
+        // its last position, silenced only by Stop. The position-update loop
+        // above iterates the ECS view, so such a voice also stops tracking
+        // anything — it is unreachable state.
         for (auto it = active_.begin(); it != active_.end();) {
-            if (!backend_->isPlaying(it->second)) it = active_.erase(it);
+            const bool ownerGone = !reg.valid(it->first) ||
+                                   !reg.all_of<AudioSourceComponent>(it->first);
+            if (ownerGone) {
+                backend_->stop(it->second);
+                it = active_.erase(it);
+            }
+            else if (!backend_->isPlaying(it->second)) it = active_.erase(it);
             else ++it;
         }
     }

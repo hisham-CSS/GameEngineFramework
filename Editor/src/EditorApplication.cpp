@@ -202,7 +202,11 @@ void EditorApplication::Run() {
                     ImGui::TextDisabled("Backend: %s", audio_.BackendName().c_str());
                     ImGui::Spacing();
                     ImGui::SetNextItemWidth(200.f);
-                    if (ImGui::SliderFloat("Master volume", &masterVolume_, 0.0f, 1.0f)) {
+                    // AlwaysClamp: Ctrl+Click accepts a typed value, and a >1
+                    // master gain blew out the whole mix and was written to
+                    // project.json, then silently clamped back on next boot.
+                    if (ImGui::SliderFloat("Master volume", &masterVolume_, 0.0f, 1.0f, "%.2f",
+                                           ImGuiSliderFlags_AlwaysClamp)) {
                         audio_.SetMasterVolume(masterVolume_); // live while dragging
                     }
                     // Persist once the drag settles, not every frame: master
@@ -439,8 +443,14 @@ void EditorApplication::Run() {
         // Audio: per-frame listener/source update installed for the app's life;
         // voices are populated by audio_.Start() on Play. Boots at the saved
         // master volume so the editor and shipped player agree.
+        // Listen from the GAME camera, not app.camera(). The latter is the
+        // Scene-view fly camera in the editor, so distance-attenuated sources
+        // were mixed for wherever the author had flown to rather than for what
+        // the shipped game hears — the same scene was quiet in the Player and
+        // loud in Play. gameCamera_ is a member, so the pointer stays valid.
         MyCoreEngine::InstallAudio(*this, scene, audio_, {},
-                                   MyCoreEngine::AudioSettings{ masterVolume_ });
+                                   MyCoreEngine::AudioSettings{ masterVolume_ },
+                                   &gameCamera_);
     }
 
     RunLoop(scene, *shader);

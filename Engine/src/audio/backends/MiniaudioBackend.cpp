@@ -2,6 +2,7 @@
 
 #include <miniaudio.h> // declarations only; MINIAUDIO_IMPLEMENTATION is in miniaudio_impl.cpp
 
+#include <algorithm>
 #include <iostream>
 #include <unordered_map>
 
@@ -55,8 +56,24 @@ namespace MyCoreEngine {
         ma_sound_set_spatialization_enabled(snd, p.spatial ? MA_TRUE : MA_FALSE);
         if (p.spatial) {
             ma_sound_set_position(snd, p.position.x, p.position.y, p.position.z);
-            ma_sound_set_min_distance(snd, p.minDistance);
-            ma_sound_set_max_distance(snd, p.maxDistance);
+            // LINEAR attenuation, not miniaudio's default inverse model.
+            // Inverse clamps the DISTANCE, not the gain:
+            //   gain = min / (min + rolloff * (clamp(d,min,max) - min))
+            // so past maxDistance the gain is pinned at min/(min+(max-min)) --
+            // 0.01 for the shipped 1/100 defaults -- and NEVER reaches zero. A
+            // source stayed audible at 5 km, and the control read backwards:
+            // RAISING max made distant sources quieter. The component docs, the
+            // manual and the Inspector tooltip all promise "attenuated to
+            // silence out here", and linear is the model that actually does
+            // that (gain hits 0 at maxDistance and the range grows with max).
+            ma_sound_set_attenuation_model(snd, ma_attenuation_model_linear);
+            // minDistance must stay > 0: every model divides by it, so 0 makes
+            // the source silent at every distance with no warning. The authoring
+            // layers clamp too; this is the last line of defence for a
+            // hand-edited scene or a direct backend caller.
+            ma_sound_set_min_distance(snd, std::max(kMinAudibleDistance, p.minDistance));
+            ma_sound_set_max_distance(snd, std::max(p.maxDistance,
+                                                    p.minDistance + kMinAudibleDistance));
         }
         ma_sound_start(snd);
         const SoundId id = impl_->nextId++;

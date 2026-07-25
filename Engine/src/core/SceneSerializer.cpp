@@ -7,6 +7,7 @@
 #include "../physics/PhysicsComponents.h"
 #include "../script/ScriptComponent.h"
 #include "../audio/AudioComponents.h"
+#include "../audio/AudioTypes.h"   // kMinAudibleDistance (shared clamp floor)
 
 #include <nlohmann/json.hpp>
 
@@ -612,16 +613,33 @@ namespace MyCoreEngine {
                 const json& ja = je["audioSource"];
                 AudioSourceComponent as;
                 as.clip        = ja.value("clip", as.clip);
+                // Same containment gate as model/script/HDRi paths. A clip path
+                // is authored (i.e. untrusted) content that flows straight into
+                // miniaudio's WAV/MP3/FLAC/OGG decoders, which parse
+                // attacker-controlled binary — so "../../etc/passwd" or an
+                // absolute path must be refused BEFORE the decoder opens it.
+                // Drop just the clip, keeping the component, so a rejected asset
+                // degrades gracefully exactly like a rejected model.
+                if (!as.clip.empty()) {
+                    std::filesystem::path containedClip;
+                    if (!PathIsContained(/*baseDir=*/"", as.clip, containedClip)) {
+                        std::cerr << "[SceneSerializer] rejected audio clip path outside the project: '"
+                                  << as.clip << "'\n";
+                        as.clip.clear();
+                    }
+                }
                 as.volume      = glm::clamp(ja.value("volume", as.volume), 0.f, 1.f);
                 as.pitch       = std::max(1e-3f, ja.value("pitch", as.pitch));
                 as.loop        = ja.value("loop", as.loop);
                 as.spatial     = ja.value("spatial", as.spatial);
                 as.playOnStart = ja.value("playOnStart", as.playOnStart);
-                as.minDistance = std::max(0.f, ja.value("minDistance", as.minDistance));
-                // max must stay strictly above min or the 3D falloff span
-                // collapses (divide-by-zero / inverted attenuation).
+                // min must stay strictly POSITIVE (every attenuation model
+                // divides by it; 0 silences the source at every distance), and
+                // max strictly above min or the falloff span collapses.
+                as.minDistance = std::max(kMinAudibleDistance,
+                                          ja.value("minDistance", as.minDistance));
                 as.maxDistance = std::max(ja.value("maxDistance", as.maxDistance),
-                                          as.minDistance + 1e-3f);
+                                          as.minDistance + kMinAudibleDistance);
                 reg.emplace<AudioSourceComponent>(entity, as);
             }
             if (je.value("audioListener", false)) {

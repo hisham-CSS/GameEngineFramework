@@ -21,16 +21,27 @@ namespace MyCoreEngine {
     inline Application::TickHandle InstallAudio(Application& app, Scene& scene,
                                                 AudioWorld& world,
                                                 const std::string& backendName = {},
-                                                const AudioSettings& settings = {}) {
+                                                const AudioSettings& settings = {},
+                                                const Camera* listenerCamera = nullptr) {
         RegisterBuiltinAudioBackends();
         const std::string wanted = backendName.empty() ? DefaultAudioBackendName()
                                                        : backendName;
         world.SetBackend(wanted, settings);
 
-        // The listener falls back to the app camera; an AudioListenerComponent
-        // in the scene overrides it. Cheap no-op until Start() plays voices.
-        return app.AddUpdate([&scene, &world, &app](float /*dt*/) {
-            world.Update(scene.registry, app.camera());
+        // Listener priority: an AudioListenerComponent in the scene, else this
+        // fallback camera.
+        //
+        // `listenerCamera` exists because app.camera() is the WRONG fallback in
+        // the editor. In the Player it is the game camera (setRenderFromSceneCamera
+        // makes the director write the scene camera's pose into it), but the
+        // editor never calls that, so app.camera() is the Scene-view FLY camera:
+        // mixing distances while playing gave the answer for wherever the author
+        // had flown to, not for what the shipped game hears. Hosts that render
+        // through a separate camera pass it here. The pointer must outlive the
+        // app (both hosts pass a member).
+        const Camera* fallback = listenerCamera;
+        return app.AddUpdate([&scene, &world, &app, fallback](float /*dt*/) {
+            world.Update(scene.registry, fallback ? *fallback : app.camera());
         });
     }
 
