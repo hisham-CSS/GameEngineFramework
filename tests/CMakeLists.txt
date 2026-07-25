@@ -17,28 +17,45 @@ FetchContent_MakeAvailable(googletest)
 # (several tests copying the same file into tests/ at the same time).
 # vcpkg's Debug DLLs carry a 'd' suffix (assimp-vc143-mtd.dll, zlibd1.dll);
 # the generator expressions keep this working in both configs.
-add_custom_target(test_runtime_deps
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    $<TARGET_FILE:Engine>
-    "$<TARGET_FILE_DIR:Engine>/assimp-vc143-mt$<$<CONFIG:Debug>:d>.dll"
-    "$<TARGET_FILE_DIR:Engine>/poly2tri.dll"
-    "$<TARGET_FILE_DIR:Engine>/zlib$<$<CONFIG:Debug>:d>1.dll"
-    "$<TARGET_FILE_DIR:Engine>/minizip.dll"
-    "$<TARGET_FILE_DIR:Engine>/pugixml.dll"
-    "$<TARGET_FILE_DIR:Engine>/glfw3.dll"
-    ${CMAKE_CURRENT_BINARY_DIR}
-  COMMAND ${CMAKE_COMMAND} -E copy_directory
-    ${CMAKE_SOURCE_DIR}/Editor/src/Exported
-    ${CMAKE_CURRENT_BINARY_DIR}/Exported
-  COMMENT "Staging test runtime dependencies"
-  VERBATIM)
+#
+# The third-party DLL list is WINDOWS-ONLY. Those names (assimp-vc143-mt.dll,
+# zlib1.dll, ...) do not exist next to libEngine.so, and `cmake -E
+# copy_if_different` fails on a missing source — so on Linux this target aborted
+# the build with "Error copying file" naming an MSVC-suffixed DLL, taking the
+# Editor and Player down with it because every test target depends on it. Linux
+# needs no such staging: the loader resolves libEngine.so through the build
+# RPATH. Only the Exported/ assets are shared by both platforms.
+if (WIN32)
+  add_custom_target(test_runtime_deps
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      $<TARGET_FILE:Engine>
+      "$<TARGET_FILE_DIR:Engine>/assimp-vc143-mt$<$<CONFIG:Debug>:d>.dll"
+      "$<TARGET_FILE_DIR:Engine>/poly2tri.dll"
+      "$<TARGET_FILE_DIR:Engine>/zlib$<$<CONFIG:Debug>:d>1.dll"
+      "$<TARGET_FILE_DIR:Engine>/minizip.dll"
+      "$<TARGET_FILE_DIR:Engine>/pugixml.dll"
+      "$<TARGET_FILE_DIR:Engine>/glfw3.dll"
+      ${CMAKE_CURRENT_BINARY_DIR}
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+      ${CMAKE_SOURCE_DIR}/Editor/src/Exported
+      ${CMAKE_CURRENT_BINARY_DIR}/Exported
+    COMMENT "Staging test runtime dependencies"
+    VERBATIM)
+else()
+  add_custom_target(test_runtime_deps
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+      ${CMAKE_SOURCE_DIR}/Editor/src/Exported
+      ${CMAKE_CURRENT_BINARY_DIR}/Exported
+    COMMENT "Staging test runtime assets"
+    VERBATIM)
+endif()
 add_dependencies(test_runtime_deps Engine)
 
 # Staged separately because the Lua backend is optional: listing lua-c++.dll
 # in the copy above would break every test in a -DCSE_ENABLE_LUA=OFF build.
 # Uses the path Engine published rather than `TARGET lua-cpp`, which is not
 # visible here -- imported targets do not cross directory scopes.
-if (CSE_WITH_LUA_RUNTIME)
+if (CSE_WITH_LUA_RUNTIME AND WIN32)
   add_custom_command(TARGET test_runtime_deps POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
       "$<TARGET_FILE_DIR:Engine>/lua-c++.dll" ${CMAKE_CURRENT_BINARY_DIR}

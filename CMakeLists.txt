@@ -12,6 +12,25 @@ project(GameEngineFramework)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED true)
 
+# Gives an executable the Cat Splat icon (Explorer/taskbar/alt-tab, and the
+# GLFW window class — see resources/app.rc). Windows-only; other platforms set
+# the icon at runtime from Exported/Icon/icon.png.
+#
+# The OBJECT_DEPENDS is load-bearing. CMake compiles .rc through cmcldeps, which
+# discovers dependencies by scraping `cl /showIncludes` — that reports #included
+# HEADERS only, never a resource data file like `GLFW_ICON ICON "CatSplat.ico"`.
+# So regenerating the .ico rebuilt nothing and every exe silently kept the old
+# icon, exactly contradicting app.rc's own "no build changes needed" note.
+# Declaring it explicitly makes the .ico a real input.
+function(cse_add_app_icon tgt)
+    if (WIN32)
+        target_sources(${tgt} PRIVATE ${CMAKE_SOURCE_DIR}/resources/app.rc)
+        set_property(SOURCE ${CMAKE_SOURCE_DIR}/resources/app.rc
+                     APPEND PROPERTY OBJECT_DEPENDS
+                     ${CMAKE_SOURCE_DIR}/resources/CatSplat.ico)
+    endif()
+endfunction()
+
 # Add subdirectories for Engine, Editor, the standalone Player, and the
 # headless AssetCooker (batch asset work, spawned by the editor)
 add_subdirectory(Engine)

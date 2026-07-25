@@ -2,21 +2,30 @@
 """Regenerate the app icon from a source image. Pure stdlib + ffmpeg.
 
 The committed icon assets are DERIVED — this script is the source of truth for
-how they were made, so swapping the logo is a one-command operation:
+how they were made, so swapping the logo is a one-command operation.
+
+THE EXACT RECIPE THAT PRODUCED THE COMMITTED ASSETS (keep this in sync when the
+icon changes — a stale example here silently regresses both files):
 
     python scripts/make_icon.py path/to/logo.png \
-        --crop 81,46,771,508 \
+        --crop 150,46,612,508 --bg none --margin 0 \
         --ico resources/CatSplat.ico \
         --png Editor/src/Exported/Icon/icon.png
 
-- --crop x,y,w,h   optional; cuts the emblem out of a larger image (the shipped
-                   icon crops the splat-cat emblem out of the full wordmark
-                   logo scraped from catsplatstudios.com).
-- --bg COLOR       tile colour behind the art (default: white). The shipped
-                   logo is black ink on transparency, which would vanish on a
-                   dark taskbar — the tile is what keeps it visible. Pass
-                   "none" for a transparent background.
-- --margin PCT     padding around the art inside the tile (default 10).
+Note the non-default flags: the shipped icon is TRANSPARENT with a tight crop.
+Running this without them writes back a white-tiled, loosely-cropped icon.
+
+- --crop x,y,w,h   optional; cuts the emblem out of a larger image. The shipped
+                   crop takes the dense core of the splat-cat emblem out of the
+                   full wordmark logo, shedding the sparse outer droplets so the
+                   art fills the icon box instead of floating in it.
+- --bg COLOR       tile colour behind the art (default: white); "none" for a
+                   transparent background, which is what ships.
+- --fit MODE       contain (default, whole art visible) or cover (fill the
+                   square, centre-cropping a non-square logo).
+- --margin PCT     padding around the art inside the tile (default 10; the
+                   shipped icon uses 0, since a transparent icon has no tile
+                   edge to inset from).
 
 Output .ico contains classic 32-bit DIB entries for 16/24/32/48/64/128 plus a
 PNG-compressed 256 entry (the Vista+ convention). The optional --png output is
