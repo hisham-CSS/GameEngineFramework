@@ -357,8 +357,27 @@ namespace MyCoreEngine {
             glm::mat4 viewMatrix; // camera view matrix to check splitZ
         };
         // Culls and buckets entities for all cascades in one go.
-        // preDrawCallback(index) is called before drawing the bucket for cascade 'index', allowing FBO/Viewport switches.
+        // preDrawCallback(index) is invoked for EVERY cascade before its bucket
+        // is drawn -- including cascades whose bucket is empty, because the
+        // callback is what binds and CLEARS the cascade's depth target. Skipping
+        // it for empty buckets left last frame's depth baked in, so a scene that
+        // lost its last caster kept a permanent phantom shadow. Callers must
+        // therefore not treat "callback fired" as "geometry was drawn".
         virtual void RenderShadowsCombined(Shader& shadowShader, const std::vector<CascadeParam>& cascades, std::function<void(int)> preDrawCallback = nullptr);
+
+     protected:
+        // Test seam: the per-cascade caster buckets built by the last
+        // RenderShadowsCombined call, so culling can be asserted directly
+        // instead of inferred from callback invocations.
+        const std::vector<DrawItem>& shadowBucketForTest_(int cascade) const {
+            return shadowCascadeItems_[cascade];
+        }
+        // Test seam: the instanced batch key. Two materials that upload any
+        // different value MUST hash differently, or their draws merge into one
+        // run that binds only the first item's material.
+        static uint64_t batchKeyForTest_(const Material& m) {
+            return texKeyFromMaterial_(m);
+        }
 
      private:
          std::vector<DrawItem> items_;

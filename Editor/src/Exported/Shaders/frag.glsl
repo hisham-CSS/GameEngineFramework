@@ -378,7 +378,13 @@ void main()
 
     if (uUsePBR == 0) {
         float ndl = max(dot(N, L), 0.0);
-        float sh  = pcfShadowCascade(ci, lightClip, N, L);
+        // Same guard as the PBR and toon paths. Without it, "CSM Enabled" off
+        // still sampled uShadowCascade[0] -- which defaults to texture unit 0,
+        // i.e. the bound ALBEDO map -- so dark-albedo surfaces rendered fully
+        // shadowed. (The `sh < 0.0` fallback below cannot catch that: a texture
+        // fetch always returns [0,1], never a negative sentinel.)
+        float sh = 1.0;
+        if (uShadowsOn == 1) sh = pcfShadowCascade(ci, lightClip, N, L);
         if (sh < 0.0) sh = 1.0; // out of coverage
         vec3 color = albedo * (0.05 + sh * uLightColor * uLightIntensity * ndl);
         FragColor = vec4(color, alpha);

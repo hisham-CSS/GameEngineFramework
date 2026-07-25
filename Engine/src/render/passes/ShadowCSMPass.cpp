@@ -428,7 +428,14 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
 }
 
 void ShadowCSMPass::setLambda(float v) {
+    // Must match setCSMLambda (header): storing lambda_ alone left splitMode_ at
+    // its Fixed default, so rebuild_ never read the value and the editor's
+    // "Split Lambda" slider silently did nothing. markDirty_ is what makes the
+    // new split take effect this frame rather than whenever something else
+    // happened to invalidate the cascades.
     lambda_ = glm::clamp(v, 0.0f, 1.0f);
+    splitMode_ = SplitMode::Lambda;
+    markDirty_();
 }
 void ShadowCSMPass::setBaseResolution(int r) {
     baseRes_ = std::max(1, r);

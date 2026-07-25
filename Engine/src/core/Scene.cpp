@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>   // memcpy: exact float hashing in texKeyFromMaterial_
 #include <GLFW/glfw3.h>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/euler_angles.hpp> // extractEulerAngleYXZ (matches localMatrix's Y*X*Z)
@@ -125,6 +126,25 @@ bool MyCoreEngine::SetParentKeepWorld(entt::registry& reg, entt::entity child,
 
 // Simple FNV-1a hash of the material’s bound texture ids
 static uint64_t fnv1a64_(uint64_t h, uint32_t v) { h ^= v; return h * 1099511628211ull; }
+// Hash a float by its EXACT bits. A quantised compare (the old toon params used
+// *255) can collapse two materials that upload different values into one run,
+// which is precisely the bug this key exists to prevent — so don't approximate.
+static uint64_t fnv1aF_(uint64_t h, float f) {
+    uint32_t bits = 0;
+    std::memcpy(&bits, &f, sizeof(bits));
+    return fnv1a64_(h, bits);
+}
+// The batch key must cover EVERY value Mesh::BindForDrawWith uploads, because an
+// instanced run is drawn with a SINGLE bind of items_[r.first]'s material: any
+// uploaded value missing from this key makes every instance in the run render
+// with whichever item happened to sort first. Worse, the sort tiebreaker is
+// camera depth, so the whole batch visibly flips as the camera moves past the
+// midpoint between two entities.
+//
+// This mirrors BindForDrawWith field-for-field, INCLUDING its gating (toon params
+// only for Toon, alpha params only for non-Opaque) so the two stay easy to keep
+// in sync. Note emissiveTex is deliberately absent: BindForDrawWith never binds
+// it, so it cannot affect the draw.
 uint64_t Scene::texKeyFromMaterial_(const Material & m) {
     uint64_t h = 1469598103934665603ull;
     h = fnv1a64_(h, m.albedoTex);
@@ -132,15 +152,28 @@ uint64_t Scene::texKeyFromMaterial_(const Material & m) {
     h = fnv1a64_(h, m.metallicTex);
     h = fnv1a64_(h, m.roughnessTex);
     h = fnv1a64_(h, m.aoTex);
-    // Shading model + toon look are part of the batch key: an instanced run is
-    // drawn with ONE material bind, so Toon/PBR (and different toon looks) must
-    // not merge into one run. Quantise the floats into the hash.
+    // Per-material scalars, uploaded on every bind. These were the gap: two
+    // entities that "Make unique for this entity" and then differ only in, say,
+    // base colour share every texture id and so used to collapse into one run.
+    h = fnv1aF_(h, m.baseColor.r); h = fnv1aF_(h, m.baseColor.g); h = fnv1aF_(h, m.baseColor.b);
+    h = fnv1aF_(h, m.emissive.r);  h = fnv1aF_(h, m.emissive.g);  h = fnv1aF_(h, m.emissive.b);
+    h = fnv1aF_(h, m.metallic);
+    h = fnv1aF_(h, m.roughness);
+    h = fnv1aF_(h, m.ao);
     h = fnv1a64_(h, static_cast<uint32_t>(m.shadingModel));
     if (m.shadingModel == ShadingModel::Toon) {
         h = fnv1a64_(h, static_cast<uint32_t>(m.toonBands));
-        h = fnv1a64_(h, static_cast<uint32_t>(m.toonSpecStrength * 255.0f));
-        h = fnv1a64_(h, static_cast<uint32_t>(m.toonSpecSize    * 255.0f));
-        h = fnv1a64_(h, static_cast<uint32_t>(m.toonRimStrength  * 255.0f));
+        h = fnv1aF_(h, m.toonSpecStrength);
+        h = fnv1aF_(h, m.toonSpecSize);
+        h = fnv1aF_(h, m.toonRimStrength);
+    }
+    // Alpha params upload only for non-opaque materials. Mask is drawn on the
+    // INSTANCED opaque path, so two cutout materials differing only in cutoff
+    // would otherwise both use the first item's cutoff.
+    if (m.alphaMode != AlphaMode::Opaque) {
+        h = fnv1a64_(h, static_cast<uint32_t>(m.alphaMode));
+        h = fnv1aF_(h, m.opacity);
+        h = fnv1aF_(h, m.alphaCutoff);
     }
     return h;
 }
@@ -914,16 +947,21 @@ void Scene::RenderShadowsCombined(Shader& shadowShader, const std::vector<Cascad
 
     for (size_t c = 0; c < numCascades; ++c) {
         auto& bucket = shadowCascadeItems_[c];
-        if (bucket.empty()) continue;
+
+        // Bind + CLEAR this cascade before testing the bucket. The callback is
+        // the only thing that attaches depth_[c] to the FBO and clears it, so
+        // skipping it for an empty bucket left the previous frame's depth baked
+        // in: remove the last caster (delete it, or untick "Casts Shadows") and
+        // its shadow stayed painted on the ground forever, because the cascade
+        // was marked valid without ever being cleared.
+        if (preDrawCallback) {
+            preDrawCallback((int)c);
+        }
+        if (bucket.empty()) continue; // cleared above; nothing to draw into it
 
         // Shadow maps tolerate coarse geometry: near cascades use LOD 1,
         // far cascades LOD 2 (the cascade index is already a distance proxy).
         const int shadowLod = lodEnabled_ ? ((c <= 1) ? 1 : 2) : 0;
-
-        // NEW: Callback to bind FBO/Viewport for this cascade
-        if (preDrawCallback) {
-            preDrawCallback((int)c);
-        }
 
         // Set cascade-specific uniform
         shadowShader.setMat4("uLightVP", cascades[c].lightVP);

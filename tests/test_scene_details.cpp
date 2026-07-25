@@ -70,11 +70,60 @@ namespace {
 // OR just check the callback invocation count.
 class TestableScene : public Scene {
 public:
-    // We can't access shadowCascadeItems_ easily as it is private and no getter.
-    // But we can check if the CALLBACK is called.
-    // If bucket is empty, callback is NOT called.
-    // So we can verify culling by counting callback invocations for specific cascades.
+    // Callback invocations are NOT a culling signal: preDrawCallback fires for
+    // every cascade so each one gets bound and cleared (an empty cascade that is
+    // never cleared keeps stale depth, i.e. a phantom shadow). Assert culling
+    // against the buckets themselves via the protected test seam.
+    size_t shadowBucketSize(int cascade) const {
+        return shadowBucketForTest_(cascade).size();
+    }
+    static uint64_t batchKey(const MyCoreEngine::Material& m) {
+        return batchKeyForTest_(m);
+    }
 };
+
+// An instanced run is drawn with a SINGLE material bind (items_[r.first]), so
+// any value BindForDrawWith uploads must be part of the batch key. When it is
+// not, two entities sharing a model but carrying different per-entity material
+// overrides collapse into one run and BOTH render with whichever sorted first —
+// and because the sort tiebreaker is camera depth, the whole batch visibly flips
+// as the camera moves. That shipped once for shadingModel; this pins the rest.
+TEST(BatchKey, MaterialScalarsSplitInstancedRuns) {
+    using namespace MyCoreEngine;
+    const Material base{};
+
+    auto differs = [&](auto mutate, const char* what) {
+        Material m = base;
+        mutate(m);
+        EXPECT_NE(TestableScene::batchKey(m), TestableScene::batchKey(base))
+            << what << " does not affect the batch key, so instances differing "
+            << "only in it would all render with the first item's material";
+    };
+
+    differs([](Material& m) { m.baseColor = { 1.f, 0.f, 0.f }; }, "baseColor");
+    differs([](Material& m) { m.emissive  = { 0.f, 1.f, 0.f }; }, "emissive");
+    differs([](Material& m) { m.metallic  = 0.75f; },             "metallic");
+    differs([](Material& m) { m.roughness = 0.123f; },            "roughness");
+    differs([](Material& m) { m.ao        = 0.25f; },             "ao");
+    differs([](Material& m) { m.shadingModel = ShadingModel::Toon; }, "shadingModel");
+
+    // Mask is drawn on the INSTANCED opaque path, so its cutoff must split too.
+    Material maskA = base; maskA.alphaMode = AlphaMode::Mask; maskA.alphaCutoff = 0.25f;
+    Material maskB = maskA;                                    maskB.alphaCutoff = 0.75f;
+    EXPECT_NE(TestableScene::batchKey(maskA), TestableScene::batchKey(maskB))
+        << "two cutout materials differing only in alphaCutoff share a run";
+
+    // Toon params only upload for toon materials; they must split those runs.
+    Material toonA = base; toonA.shadingModel = ShadingModel::Toon; toonA.toonBands = 3;
+    Material toonB = toonA;                                         toonB.toonBands = 6;
+    EXPECT_NE(TestableScene::batchKey(toonA), TestableScene::batchKey(toonB));
+
+    // ...and identical materials must still batch, or we would have "fixed" this
+    // by simply never merging anything.
+    Material same = base;
+    EXPECT_EQ(TestableScene::batchKey(same), TestableScene::batchKey(base))
+        << "identical materials must still share a run (batching still works)";
+}
 
 // We need a valid Model to pass the "if (!mc.model)" check.
 // We can use the existing "AssetManager" or manual Model construction if headers allow.
@@ -176,8 +225,17 @@ TEST_F(SceneFixture, RenderShadowsCombined_CullsByLightFrustum) {
         calls[i]++;
     });
 
-    EXPECT_EQ(calls[0], 0) << "caster outside cascade 0's light frustum was drawn";
-    EXPECT_EQ(calls[1], 1) << "caster inside cascade 1's light frustum was Z-slice culled";
+    // Culling is asserted on the buckets: cascade 0 rejected the caster, cascade
+    // 1 kept it (its Z slice must not exclude a caster that shadows into it).
+    EXPECT_EQ(scene.shadowBucketSize(0), 0u)
+        << "caster outside cascade 0's light frustum was not culled";
+    EXPECT_GT(scene.shadowBucketSize(1), 0u)
+        << "caster inside cascade 1's light frustum was Z-slice culled";
+
+    // Every cascade must still be bound+cleared, empty or not — otherwise an
+    // emptied cascade keeps last frame's depth and its shadow never disappears.
+    EXPECT_EQ(calls[0], 1) << "empty cascade 0 was never bound/cleared (stale shadow)";
+    EXPECT_EQ(calls[1], 1);
 }
 
 // ---- P4-3 phase 2: decode/finalize split (GL half) ----------------------
