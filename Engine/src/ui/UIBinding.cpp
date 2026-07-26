@@ -550,6 +550,16 @@ UIBindTick UIBinder::UpdateToTarget() {
     return tick;
 }
 
+std::size_t UIBinder::ReapplyFor(const UIElement* el) {
+    if (!el) return 0;
+    std::size_t n = 0;
+    for (Entry& e : entries_) {
+        if (e.el != el) continue;
+        if (apply_(e)) ++n;
+    }
+    return n;
+}
+
 std::size_t UIBinder::unresolvedCount() const {
     std::size_t n = 0;
     for (const Entry& e : entries_) {

@@ -152,8 +152,13 @@ namespace MyCoreEngine::ui {
         // Interaction state, maintained by UIDocument::UpdatePointer.
         // `hovered` is true for the whole ancestor chain under the pointer
         // (CSS :hover semantics), so a button and the panel containing it are
-        // both hovered. The system reports state; how it LOOKS is the app's
-        // choice — there is no pseudo-class styling yet.
+        // both hovered. `pressed` is true only for the element the press landed
+        // on.
+        //
+        // These are what UIInteractionStyler reads to apply `:hover` and
+        // `:active` rules, so a stylesheet is usually the better place to
+        // express what interaction LOOKS like; these accessors are for
+        // behaviour that styling cannot express.
         bool isHovered() const { return hovered_; }
         bool isPressed() const { return pressed_; }
 
@@ -176,6 +181,10 @@ namespace MyCoreEngine::ui {
         std::vector<UIBoundAction> actions_;
         std::string   dataSource_;
         std::uint32_t textRevision_ = 0;
+        // Last fontScale handed to the layout engine, so pushStyles_ can tell
+        // when a text element needs re-measuring. See there for why yoga cannot
+        // work this out for itself.
+        float         pushedFontScale_ = 1.0f;
 
         std::vector<std::pair<UIEventType, UIEventHandler>> listeners_;
         bool hovered_ = false;

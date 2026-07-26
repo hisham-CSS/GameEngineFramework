@@ -101,6 +101,7 @@ engine_test(test_ui_markup)        # UXML subset: tree building, inline style, s
 engine_test(test_ui_hotreload)     # asset reload: change detection, re-binding, failure safety
 engine_test(test_ui_value)         # the bound-value transport: coercion refusals, non-finite gate
 engine_test(test_ui_binding)       # data sources, {hole} templates, the binder, hot-reload survival
+engine_test(test_ui_pseudo)        # :hover/:active — specificity, re-cascade, what it must not destroy
 engine_test(test_import_settings)  # P4-3 phase 4: .import sidecar round-trip (pure CPU)
 engine_test(test_asset_validator)  # P4-3 phase 4: cooker validate logic (pure CPU)
 

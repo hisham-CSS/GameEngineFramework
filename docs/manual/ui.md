@@ -42,7 +42,12 @@ renderer().SetUIDraw([&hud](Renderer2D& r2d, int w, int h, float dt) {
 
 Your own class does what `DemoHud` does: own a `UIAssetDocument` and a
 `UIDataSource`, register the source before loading, and per frame call
-`Update(dt)` → `UpdateToTarget()` → `Layout` → `UpdatePointer` → `Draw`.
+`Update(dt)` → `UpdateToTarget()` → `Layout` → `UpdatePointer` →
+`RestyleInteractive()` → `Draw`.
+
+`DemoHud` has no bind callback and holds no pointer into the tree at all: values
+arrive by binding, the click is a named action, and hover styling is `:hover` in
+the stylesheet. That is the target shape — a model plus a draw order.
 
 The binding pass runs **before** layout so a changed label is measured at its
 new width on the frame it changes. A `setText` from an input handler never was —
@@ -113,9 +118,11 @@ into a parser.
 Parsed by `UIStyleSheet` (`Engine/src/ui/UIStyleSheet.h`) — a hand-written CSS
 subset, no dependency.
 
-**Selectors:** `Type`, `.class`, `#name`, `*`, and compounds
-(`Button.primary#ok`). Comma-separated lists. Standard CSS **specificity**
-(`#id` > `.class` > type), with later-in-file winning ties.
+**Selectors:** `Type`, `.class`, `#name`, `*`, the `:hover` and `:active`
+pseudo-classes, and compounds (`Button.primary#ok`, `.btn:hover`).
+Comma-separated lists. Standard CSS **specificity** (`#id` > `.class` > type),
+with later-in-file winning ties — and a pseudo-class counts as a class, so
+`.btn:hover` outranks `.btn` without any ordering tricks.
 
 **Properties:**
 
@@ -133,14 +140,47 @@ Lengths are `auto`, `Npx`, `N%`, or a bare number (treated as px). Colours are
 alpha 0–1), or a handful of names.
 
 **Not supported, and reported as errors rather than silently ignored:**
-combinators (descendant/child/sibling), pseudo-classes (`:hover`), at-rules,
-variables, and inheritance. Nothing cascades from parent to child — every
-element is styled independently.
+combinators (descendant/child/sibling), pseudo-classes other than `:hover` and
+`:active`, at-rules, variables, and inheritance. Nothing cascades from parent to
+child — every element is styled independently.
 
-**Gotcha:** there is no `:hover`/`:active`. The system reports interaction
-*state* (`isHovered()`, `isPressed()`) and the app decides what it looks like.
-`DemoHud` captures the authored idle colour at bind time and only overrides it
-while hovered or pressed, so restyling the button in `.uss` still works.
+### Interaction styling
+
+```css
+.btn         { background-color: #292d33; }
+.btn:hover   { background-color: #424852; }
+.btn:active  { background-color: #d98c26; color: #14161a; }
+```
+
+`:hover` is true for the element under the pointer **and its ancestors**, as in
+CSS, so a button and the panel containing it are both hovered. `:active` is true
+only for the element the press landed on. Compounds work: `.btn:hover:active`
+requires both.
+
+Drive it by calling `RestyleInteractive()` once per frame, **after**
+`UpdatePointer` (which is where hover and press are decided):
+
+```cpp
+doc.UpdatePointer(pointer);
+if (assets.RestyleInteractive()) doc.Layout(w, h, font);  // a state rule can change a box
+```
+
+**How it works, and the one caveat.** The cascade has no undo — applying a rule
+copies its declarations in and records nothing about what they overwrote — so
+there is no way to "remove" a `:hover` rule when the pointer leaves. Instead the
+element is reset to defaults and the **whole cascade re-runs** for its current
+state. Text is carried across explicitly (it is not a cascadable property) and
+bindings are re-applied straight after, so both keep working.
+
+Everything else written straight into `style()` from C++ **does not survive a
+state change** on such an element. Only elements some pseudo rule can actually
+reach are watched, so this caveat is confined to exactly the elements an author
+opted in — and the fix is to author it as a class, a binding, or a rule.
+
+Only `:hover` and `:active` exist because they are the only states the system
+tracks. `:focus` would need keyboard focus and `:disabled` a disabled flag;
+neither exists yet, and a pseudo-class with nothing behind it is a selector that
+silently never matches.
 
 ---
 
@@ -160,6 +200,12 @@ size anywhere.
 (absolute position + size, in screen pixels). The `font` may be null: text
 elements then measure as empty and still lay out, so a missing font costs you
 labels rather than the whole HUD.
+
+**Gotcha:** `font-scale` is the one measurement input the layout engine knows
+nothing about — it feeds text measurement but is not a yoga style. The engine
+invalidates the cached measurement for you when it changes; if you ever add
+another property that only `measureText` reads, it needs the same treatment or
+glyphs get drawn at a size their own box was never measured for.
 
 **Gotcha:** yoga snaps to the pixel grid, and rounds sizes and absolute
 positions independently — expect results to differ from hand arithmetic by up to
@@ -190,7 +236,9 @@ walk. Multiple handlers per type run in registration order.
 
 Available: `OnClick`, `OnPointerDown/Up/Move/Enter/Leave`. A **click** requires
 press *and* release on the same element, so sliding off a button before letting
-go correctly cancels it.
+go correctly cancels it. Prefer an authored `on-click="actionName"` where you
+can — a bound action survives a hot reload by itself, while a handler attached
+in C++ has to be re-attached.
 
 **Gotcha:** use `setText()`, not `style().text = ...`. Writing the style field
 directly does not invalidate the measured size, so the label keeps its old width
@@ -435,15 +483,15 @@ reset, so a leaked blend or depth state would corrupt the next pass.
 | `Engine/src/ui/UIValue.h` | The bound-value transport and its coercions |
 | `Engine/src/ui/UIDataSource.h` | `UIDataSource`, converters, `UIBindingContext` |
 | `Engine/src/ui/UIBinding.h` | The `{hole}` template and `UIBinder` |
+| `Engine/src/ui/UIInteractionStyler.h` | `:hover` / `:active` re-cascading |
 | `Engine/src/ui/UIAssetDocument.h` | Markup + stylesheet assets with hot reload |
 | `Engine/src/ui/DemoHud.h` | The worked sample |
 | `Engine/src/render/passes/UIPass.h` | The render pass and the `UIDrawFn` hook |
 
 ## Not there yet
 
-Keyboard focus, tab navigation and text entry; `:hover`/`:active` pseudo-classes
-(interaction state is queried in code — see the button tint in `DemoHud`);
-descendant selectors; element→source (two-way) binding, which has no honest
-producer until text fields exist; class-toggle bindings; a `UIDocument`
-**component** so a scene can attach UI to an entity (today the host installs the
-draw callback).
+Keyboard focus, tab navigation and text entry; `:focus` and `:disabled`, which
+need the two states above; descendant selectors; element→source (two-way)
+binding, which has no honest producer until text fields exist; class-toggle
+bindings; a `UIDocument` **component** so a scene can attach UI to an entity
+(today the host installs the draw callback).

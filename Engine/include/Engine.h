@@ -68,6 +68,7 @@
 #include "../src/ui/UIElement.h"
 #include "../src/ui/UIStyleSheet.h"
 #include "../src/ui/UIMarkup.h"
+#include "../src/ui/UIInteractionStyler.h"
 #include "../src/ui/UIAssetDocument.h"
 #include "../src/ui/DemoHud.h"
 

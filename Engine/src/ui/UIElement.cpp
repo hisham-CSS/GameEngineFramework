@@ -289,6 +289,19 @@ UIDocument::~UIDocument() = default;
 
 void UIDocument::pushStyles_(UIElement& el) {
     const bool isTextLeaf = el.children_.empty() && !el.style_.text.empty();
+
+    // fontScale is the one measurement input yoga knows nothing about: it feeds
+    // measureText but is never pushed into a yoga style, so changing it leaves
+    // the cached measurement stale and the glyphs are drawn at a size their own
+    // box was never measured for. setText has the same hazard and solves it the
+    // same way; this closes it for every writer of fontScale — a stylesheet
+    // rule, a `:hover` restyle, or a `bind="font-scale: {x}"`.
+    if (isTextLeaf && el.style_.fontScale != el.pushedFontScale_ && el.yogaNode_) {
+        YGNodeRef n = static_cast<YGNodeRef>(el.yogaNode_);
+        if (YGNodeHasMeasureFunc(n)) YGNodeMarkDirty(n);
+    }
+    el.pushedFontScale_ = el.style_.fontScale;
+
     pushStyle(static_cast<YGNodeRef>(el.yogaNode_), el.style_, isTextLeaf);
     for (auto& c : el.children_) pushStyles_(*c);
 }

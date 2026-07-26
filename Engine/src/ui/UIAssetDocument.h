@@ -15,6 +15,7 @@
 #include "UIBinding.h"
 #include "UIDataSource.h"
 #include "UIElement.h"
+#include "UIInteractionStyler.h"
 #include "UIStyleSheet.h"
 
 #include <functional>
@@ -68,6 +69,18 @@ namespace MyCoreEngine::ui {
         UIBinder& binder() { return binder_; }
         const UIBinder& binder() const { return binder_; }
 
+        // Call once per frame AFTER UpdatePointer: re-applies the cascade to
+        // any element whose :hover / :active state just changed, and re-runs
+        // that element's bindings. Returns true if anything moved, in which
+        // case lay out again — a state rule may change padding or size, not
+        // only colour.
+        //
+        // Cheap by construction: only elements some pseudo-class rule could
+        // reach are watched at all, and of those only the ones whose state
+        // actually flipped are touched.
+        bool RestyleInteractive() { return styler_.Update(); }
+        UIInteractionStyler& styler() { return styler_; }
+
         // Diagnostics from the last load attempt (markup and stylesheet).
         const std::vector<std::string>& errors() const { return errors_; }
         bool ok() const { return errors_.empty(); }
@@ -87,8 +100,9 @@ namespace MyCoreEngine::ui {
         // AFTER doc_ and sheet_ on purpose: binder_ holds raw pointers into the
         // tree, and members are destroyed in reverse declaration order, so the
         // index dies before the thing it indexes.
-        UIBindingContext ctx_;
-        UIBinder         binder_;
+        UIBindingContext    ctx_;
+        UIBinder            binder_;
+        UIInteractionStyler styler_;
         std::string  markupPath_, stylePath_;
         BindFn       bind_;
         Stamp        markupStamp_{}, styleStamp_{};

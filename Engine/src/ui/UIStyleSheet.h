@@ -9,13 +9,17 @@
 // SUPPORTED
 //   rules        selector-list { prop: value; ... }
 //   selectors    Type, .class, #name, *, and compounds like Button.primary#ok
+//   states       :hover and :active, which count as a class for specificity
+//                (applied by UIInteractionStyler — see there for why undoing a
+//                state rule needs a whole re-cascade)
 //   cascade      CSS specificity (#id, .class, type) with later-wins on ties
 //   comments     C-style
 //
 // NOT SUPPORTED (deliberately, and reported as errors rather than ignored)
-//   combinators (descendant/child/sibling), pseudo-classes (:hover — interaction
-//   state is queried in code today), at-rules, variables, inheritance. Nothing
-//   here cascades from parent to child: every element is styled independently.
+//   combinators (descendant/child/sibling), any other pseudo-class (:focus and
+//   :disabled need states this system does not track), at-rules, variables,
+//   inheritance. Nothing here cascades from parent to child: every element is
+//   styled independently.
 #include "../core/Core.h"
 #include "UIStyle.h"
 
@@ -73,15 +77,36 @@ namespace MyCoreEngine::ui {
         static const char* NameOf(Prop p);
     };
 
+    // Interaction state a selector can require, as CSS pseudo-classes. A
+    // BITMASK, so `.btn:hover:active` requires both at once.
+    //
+    // Only these two exist because only these two states the system actually
+    // tracks: :focus needs keyboard focus, which does not exist yet, and
+    // :disabled needs a disabled flag, which does not either. Inventing a
+    // pseudo-class with nothing behind it would be a selector that silently
+    // never matches.
+    enum class UIPseudo : std::uint8_t {
+        None   = 0,
+        Hover  = 1 << 0,   // pointer is over this element OR a descendant
+        Active = 1 << 1,   // pointer is held down on this element
+    };
+
     // A compound selector: all parts must match the same element. Empty type +
     // no name/classes means the universal selector.
     struct ENGINE_API UISelector {
         std::string type;                  // "" = any
         std::string name;                  // "" = any
         std::vector<std::string> classes;  // all must be present
+        std::uint8_t pseudo = 0;           // UIPseudo bits; all must be set
 
         bool Matches(const UIElement& el) const;
-        // CSS specificity, compared as an ordered triple.
+        // Everything except the interaction state. Used to decide, once at
+        // load, WHICH elements a pseudo rule could ever apply to — an element
+        // no such rule can reach is never restyled and never pays for the
+        // feature.
+        bool MatchesIgnoringState(const UIElement& el) const;
+        // CSS specificity, compared as an ordered triple. A pseudo-class counts
+        // as a class, exactly as in CSS, so `.btn:hover` beats `.btn`.
         void Specificity(int& ids, int& cls, int& types) const;
     };
 
@@ -157,6 +182,13 @@ namespace MyCoreEngine::ui {
         // codebase reports errors to avoid.
         void DeclaredPropsFor(const UIElement& el,
                               std::vector<UIDeclaration::Prop>& out) const;
+
+        // True when some rule targets this element with a pseudo-class, i.e.
+        // its appearance can change with interaction. Asked ONCE per element at
+        // load, so an element no state rule can reach is never re-cascaded and
+        // never pays for the feature — which also confines the re-cascade's
+        // one caveat (see UIInteractionStyler) to elements the author opted in.
+        bool HasStateRuleFor(const UIElement& el) const;
 
     private:
         std::vector<UIRule> rules_;

@@ -368,16 +368,30 @@ void UIDeclaration::ApplyTo(Style& s) const {
     }
 }
 
-bool UISelector::Matches(const UIElement& el) const {
+bool UISelector::MatchesIgnoringState(const UIElement& el) const {
     if (!type.empty() && el.type() != type) return false;
     if (!name.empty() && el.name() != name) return false;
     for (const auto& c : classes) if (!el.HasClass(c)) return false;
     return true;
 }
 
+bool UISelector::Matches(const UIElement& el) const {
+    if (!MatchesIgnoringState(el)) return false;
+    if ((pseudo & std::uint8_t(UIPseudo::Hover)) && !el.isHovered()) return false;
+    if ((pseudo & std::uint8_t(UIPseudo::Active)) && !el.isPressed()) return false;
+    return true;
+}
+
 void UISelector::Specificity(int& ids, int& cls, int& types) const {
     ids = name.empty() ? 0 : 1;
-    cls = int(classes.size());
+    // A pseudo-class counts as a class, as in CSS, which is what makes
+    // `.btn:hover` outrank `.btn` without anyone having to think about it.
+    int pseudoCount = 0;
+    for (std::uint8_t bit = 1; bit; bit = std::uint8_t(bit << 1)) {
+        if (pseudo & bit) ++pseudoCount;
+        if (bit == 0x80) break;
+    }
+    cls = int(classes.size()) + pseudoCount;
     types = type.empty() ? 0 : 1;
 }
 
@@ -488,11 +502,29 @@ bool UIStyleSheet::ParseString(const std::string& text, const std::string& origi
         for (const std::string& selText : split(src.substr(selStart, brace - selStart), ',')) {
             UISelector sel;
             std::string cur;
-            char mode = 't'; // t=type, c=class, n=name
+            char mode = 't'; // t=type, c=class, n=name, p=pseudo
+            std::string pseudoErr;
             auto flush = [&] {
-                if (cur.empty()) return;
+                // An EMPTY pseudo name is an error, not nothing. `.btn: { }`
+                // would otherwise be pushed as a plain `.btn` rule that applies
+                // all the time — the state selector silently deleted — and a
+                // bare `:` would become the universal selector.
+                if (cur.empty()) {
+                    if (mode == 'p' && pseudoErr.empty()) pseudoErr = "<empty>";
+                    return;
+                }
                 if (mode == 'c') sel.classes.push_back(cur);
                 else if (mode == 'n') sel.name = cur;
+                else if (mode == 'p') {
+                    const std::string p = lower(cur);
+                    if (p == "hover")       sel.pseudo |= std::uint8_t(UIPseudo::Hover);
+                    else if (p == "active") sel.pseudo |= std::uint8_t(UIPseudo::Active);
+                    // Reported rather than ignored: a silently-dropped
+                    // pseudo-class turns `.btn:focus` into a plain `.btn` rule
+                    // that applies ALL the time, which looks like the styling
+                    // is simply broken.
+                    else if (pseudoErr.empty()) pseudoErr = cur;
+                }
                 else if (cur != "*") sel.type = cur;   // '*' = any
                 cur.clear();
             };
@@ -507,15 +539,25 @@ bool UIStyleSheet::ParseString(const std::string& text, const std::string& origi
                 }
                 if (ch == '.') { flush(); mode = 'c'; continue; }
                 if (ch == '#') { flush(); mode = 'n'; continue; }
+                if (ch == ':') { flush(); mode = 'p'; continue; }
                 cur.push_back(ch);
             }
-            if (bad) {
-                errs.push_back(originName + ":" + std::to_string(lineOf(selStart)) +
-                               ": combinators are not supported in '" + trim(selText) + "'");
+            if (!bad) {
+                flush();
+                if (!pseudoErr.empty()) {
+                    const std::string what =
+                        pseudoErr == "<empty>"
+                            ? std::string("a ':' with no pseudo-class after it")
+                            : std::string("unknown pseudo-class ':") + pseudoErr + "'";
+                    errs.push_back(originName + ":" + std::to_string(lineOf(selStart)) +
+                                   ": " + what + " in '" + trim(selText) + "' (hover|active)");
+                    continue;
+                }
+                rule.selectors.push_back(std::move(sel));
                 continue;
             }
-            flush();
-            rule.selectors.push_back(std::move(sel));
+            errs.push_back(originName + ":" + std::to_string(lineOf(selStart)) +
+                           ": combinators are not supported in '" + trim(selText) + "'");
         }
 
         // --- declarations ---
@@ -569,16 +611,30 @@ void UIStyleSheet::ApplyToElement(UIElement& el) const {
     // a .class rule no matter which came first in the file.
     struct Hit { int ids, cls, types, order; const UIRule* rule; };
     std::vector<Hit> hits;
+    // In CSS each selector in a comma list carries its OWN specificity, so a
+    // rule matched through several of them weighs as much as its strongest
+    // match. Taking the first match instead would make `.btn, .btn:hover { }`
+    // weigh as a bare class and lose to a plain `.btn` rule later in the file —
+    // an ordering bug that only shows up once pseudo-classes exist to make two
+    // selectors in one list differ in strength.
+    auto stronger = [](const Hit& a, const Hit& b) {
+        if (a.ids != b.ids) return a.ids > b.ids;
+        if (a.cls != b.cls) return a.cls > b.cls;
+        return a.types > b.types;
+    };
     for (const auto& r : rules_) {
+        Hit best{};
+        bool matched = false;
         for (const auto& s : r.selectors) {
             if (!s.Matches(el)) continue;
             Hit h{};
             s.Specificity(h.ids, h.cls, h.types);
-            h.order = r.order;
-            h.rule = &r;
-            hits.push_back(h);
-            break; // one match per rule is enough
+            if (!matched || stronger(h, best)) { best = h; matched = true; }
         }
+        if (!matched) continue;
+        best.order = r.order;
+        best.rule = &r;
+        hits.push_back(best);
     }
     std::stable_sort(hits.begin(), hits.end(), [](const Hit& a, const Hit& b) {
         if (a.ids != b.ids) return a.ids < b.ids;
@@ -601,13 +657,24 @@ void UIStyleSheet::ApplyTo(UIElement& root) const {
     for (const auto& c : root.children()) ApplyTo(*c);
 }
 
+bool UIStyleSheet::HasStateRuleFor(const UIElement& el) const {
+    for (const auto& r : rules_) {
+        for (const auto& s : r.selectors) {
+            if (s.pseudo && s.MatchesIgnoringState(el)) return true;
+        }
+    }
+    return false;
+}
+
 void UIStyleSheet::DeclaredPropsFor(const UIElement& el,
                                     std::vector<UIDeclaration::Prop>& out) const {
     // Matching only — no specificity sort needed, because the QUESTION is "does
-    // anything set this property", not "which rule wins".
+    // anything set this property", not "which rule wins". State is ignored for
+    // the same reason: a `:hover` rule still shadows a bound property, and the
+    // element is not hovered while the file is being loaded.
     for (const auto& r : rules_) {
         for (const auto& s : r.selectors) {
-            if (!s.Matches(el)) continue;
+            if (!s.MatchesIgnoringState(el)) continue;
             for (const auto& d : r.declarations) out.push_back(d.prop);
             break;
         }

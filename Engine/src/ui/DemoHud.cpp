@@ -10,8 +10,6 @@ namespace MyCoreEngine::ui {
 
 bool DemoHud::Init(const std::string& markupPath, const std::string& stylePath,
                    const std::string& fontPath, float fontPixelHeight) {
-    // Font first: the bind callback runs inside Load and may want to measure.
-    // A missing font costs you labels, not the HUD.
     const bool fontOk = font_.LoadFromFile(fontPath, fontPixelHeight);
     if (!fontOk) std::cerr << "[UI] HUD font not loaded: '" << fontPath << "'\n";
 
@@ -22,8 +20,8 @@ bool DemoHud::Init(const std::string& markupPath, const std::string& stylePath,
     source_.SetNumber("health", 1.0f);
     source_.SetInt("score", 0);
     source_.SetBool("lowHealth", false);
-    // A named action, so hud.uxml can write on-click="addScore" and the
-    // handler stops being something Bind has to re-attach after every reload.
+    // A named action, so hud.uxml can write on-click="addScore" and the handler
+    // is authored rather than attached.
     source_.AddAction("addScore", [this] { SetScore(score() + 100); });
     assets_.bindingContext().RegisterSource("hud", &source_);
 
@@ -46,46 +44,28 @@ bool DemoHud::Init(const std::string& markupPath, const std::string& stylePath,
             return true;
         });
 
-    const bool markupOk =
-        assets_.Load(markupPath, stylePath, [this](UIDocument& doc) { Bind(doc); });
+    // NO BIND CALLBACK. There is nothing left for one to do: values arrive by
+    // binding, the click is a named action, and hover/press styling is
+    // :hover / :active in hud.uss. Nothing in this class holds a pointer into
+    // the tree, so a hot reload has nothing to invalidate.
+    const bool markupOk = assets_.Load(markupPath, stylePath);
 
     return fontOk && markupOk;
 }
 
-void DemoHud::Bind(UIDocument& doc) {
-    // BEHAVIOUR only, and only the part binding cannot express yet. The
-    // "re-push everything you cached" step this function used to end with
-    // (SetHealth(health_); SetScore(score_);) is gone: the model is not in the
-    // tree, so a rebuild cannot lose it.
-    //
-    // The one element still cached here is cached for the hover/press tint in
-    // Draw, which is a missing :hover pseudo-class rather than a missing
-    // binding. Both lines disappear the day USS grows one.
-    button_ = doc.root().Find("scoreButton");
-    if (!button_) {
-        std::cerr << "[UI] HUD markup has no element named 'scoreButton'\n";
-        return;
-    }
-    // Bind runs after the cascade, so this is the authored idle colour.
-    buttonIdle_ = button_->style().backgroundColor;
-}
-
-// No style writes and no setText: hud.uxml binds the fill's width to
-// {health|percent}, its colour to {health|healthTint}, and the low-health
-// banner's visibility to if="lowHealth". The threshold is the one piece of
-// POLICY, so it stays in code; everything downstream of it is content.
+// No style writes and no setText anywhere below: hud.uxml binds the fill's
+// width to {health|percent}, its colour to {health|healthTint}, the readout to
+// "SCORE {score}", and the banner's visibility to if="lowHealth". The threshold
+// is the one piece of POLICY, so it stays in code; everything downstream of it
+// is content.
 void DemoHud::SetHealth(float fraction01) {
     const float h = std::clamp(fraction01, 0.0f, 1.0f);
     source_.SetNumber("health", h);
     source_.SetBool("lowHealth", h < 0.3f);
 }
 
-// No setText anywhere: hud.uxml says text="SCORE {score}", so writing the model
-// is the whole job and the label's format is hot-reloadable content.
 void DemoHud::SetScore(int score) { source_.SetInt("score", score); }
 int  DemoHud::score() const { return int(source_.GetInt("score")); }
-
-void DemoHud::SetPointer(const UIPointerState& p) { pointer_ = p; }
 
 void DemoHud::Draw(Renderer2D& r2d, int widthPx, int heightPx, float dt) {
     // Poll before laying out, so a reload takes effect on the same frame it is
@@ -100,29 +80,23 @@ void DemoHud::Draw(Renderer2D& r2d, int widthPx, int heightPx, float dt) {
     // lands after the layout solve and paints at the previous frame's size.
     assets_.binder().UpdateToTarget();
 
-    // Then layout (hit-testing reads computed rects), then input (handlers may
-    // change styles), then paint — so a press is visible on the very frame it
-    // happens rather than one frame late.
+    // Then layout (hit-testing reads computed rects), then input.
     doc.Layout(float(widthPx), float(heightPx), f);
     doc.UpdatePointer(pointer_);
 
-    // The system reports interaction STATE; deciding what it looks like is the
-    // app's job, since there is no pseudo-class styling yet.
-    if (button_) {
-        button_->style().backgroundColor =
-            button_->isPressed() ? kButtonPressed
-          : button_->isHovered() ? kButtonHover
-                                 : buttonIdle_;
-    }
+    // Hover and press are decided by UpdatePointer, so :hover / :active
+    // styling can only be applied after it. A state rule may change padding or
+    // size and not just colour, so a restyle means laying out again — which is
+    // why this is folded into the same condition as a binding write.
+    bool relayout = assets_.RestyleInteractive();
 
-    // A click handler wrote the model AFTER layout. Run the pass again and
-    // re-solve only if something that can change a box moved — a colour-only
-    // write costs nothing, and on a quiet frame this whole line is a handful of
-    // integer compares. This call also re-checks the structure epoch, which is
+    // A click handler wrote the model AFTER layout. Run the binding pass again
+    // and re-solve only if something that can change a box moved — a
+    // colour-only write costs nothing, and on a quiet frame this is a handful
+    // of integer compares. This also re-checks the structure epoch, which is
     // what makes a handler's RemoveChild safe.
-    if (assets_.binder().UpdateToTarget().wroteLayout) {
-        doc.Layout(float(widthPx), float(heightPx), f);
-    }
+    relayout |= assets_.binder().UpdateToTarget().wroteLayout;
+    if (relayout) doc.Layout(float(widthPx), float(heightPx), f);
 
     doc.Draw(r2d, f);
 }

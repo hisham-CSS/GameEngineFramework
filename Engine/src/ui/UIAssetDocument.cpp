@@ -38,6 +38,7 @@ bool UIAssetDocument::Reload() {
     // The invariant is that the binder never holds a pointer into a tree that
     // is being rebuilt, not even for the length of one function.
     binder_.Clear();
+    styler_.Clear();
 
     // Markup first. On failure the document is left exactly as it was (see
     // UIMarkup::LoadInto), so a broken edit never blanks a working UI — it
@@ -48,6 +49,7 @@ bool UIAssetDocument::Reload() {
         // re-collecting restores exactly what was running. A half-typed file
         // must not silently UNBIND a working UI any more than it may blank one.
         binder_.Rebuild(doc_, ctx_, markupPath_, &sheet_);
+        styler_.Rebuild(doc_, sheet_, &binder_);
         // Still refresh the stamps: without this a file that fails to parse is
         // re-read every poll, spamming the log until it is fixed.
         markupStamp_ = stampOf(markupPath_);
@@ -83,6 +85,10 @@ bool UIAssetDocument::Reload() {
         std::cerr << "[UI] " << e << "\n";
     }
     for (const auto& n : binder_.notes()) std::cerr << "[UI] note: " << n << "\n";
+
+    // After the binder, because the styler re-applies bindings when it
+    // re-cascades and needs a resolved one to do it with.
+    styler_.Rebuild(doc_, sheet_, &binder_);
 
     // Re-attach behaviour LAST, on the finished tree. Every pointer the app
     // held is dead after a rebuild, so this is the only safe place to re-cache.

@@ -92,6 +92,8 @@ add_library(Engine SHARED
     src/ui/UIStyleSheet.cpp
     src/ui/UIMarkup.h
     src/ui/UIMarkup.cpp
+    src/ui/UIInteractionStyler.h
+    src/ui/UIInteractionStyler.cpp
     src/ui/UIAssetDocument.h
     src/ui/UIAssetDocument.cpp
     src/ui/DemoHud.h

@@ -7,10 +7,11 @@
   within a quarter of a second — no rebuild, no restart.
 
   Supported subset (see UIStyleSheet.h): type / .class / #name selectors and
-  compounds, CSS specificity, flex properties, lengths as auto|px|%, edge
-  shorthands, colours as #hex / rgb() / rgba() / names, position + inset,
-  overflow, pointer-events. Anything else is reported as an error rather than
-  silently ignored — check the console if a rule seems to do nothing.
+  compounds, the :hover and :active pseudo-classes, CSS specificity, flex
+  properties, lengths as auto|px|%, edge shorthands, colours as #hex / rgb() /
+  rgba() / names, position + inset, display, overflow, pointer-events. Anything
+  else is reported as an error rather than silently ignored — check the console
+  if a rule seems to do nothing.
 */
 
 #hud {
@@ -64,10 +65,26 @@
   color: rgba(255, 255, 255, 0.95);
 }
 
+/* Interaction styling lives HERE now, not in C++. `:hover` and `:active` count
+   as a class for specificity, exactly as in CSS, so both of these outrank the
+   plain `.btn` rule with no ordering tricks — and `.btn:active` beats
+   `.btn:hover` on source order, which is right because you are always hovering
+   while you press.
+
+   Try it: change the pressed colour and save while the game is running. */
 .btn {
   padding: 8px 14px;
   background-color: #292d33;
   color: white;
+}
+
+.btn:hover {
+  background-color: #424852;
+}
+
+.btn:active {
+  background-color: #d98c26;
+  color: #14161a;
 }
 
 /* Full-screen, centred by flexbox rather than by computing the middle. */

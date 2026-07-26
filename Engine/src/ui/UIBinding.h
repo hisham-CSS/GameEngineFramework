@@ -133,6 +133,15 @@ namespace MyCoreEngine::ui {
         // at its new width on the frame it changes.
         UIBindTick UpdateToTarget();
 
+        // Re-applies every binding on ONE element, unconditionally.
+        //
+        // For callers that reset an element's Style and re-run the cascade —
+        // :hover restyling does exactly that. The version-compare in
+        // UpdateToTarget would skip these, because the SOURCE has not changed;
+        // what changed is that the value written into the element was thrown
+        // away. Returns the number applied.
+        std::size_t ReapplyFor(const UIElement* el);
+
         const std::vector<std::string>& errors() const { return errors_; }
         const std::vector<std::string>& notes()  const { return notes_;  }
         bool ok() const { return errors_.empty(); }
