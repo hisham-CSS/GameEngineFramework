@@ -307,10 +307,22 @@ set_target_properties(Engine PROPERTIES
 )
 
 # Optionally define different compile options based on the build configuration
+#
+# An unhandled enumerator in a default-less switch is an ERROR, not a warning.
+# The engine has several places where one enum is the single source of truth and
+# a switch elsewhere must stay exhaustive -- UIDeclaration::ApplyTo is the
+# clearest: adding a property to the Prop enum without a case there compiles
+# fine and produces a stylesheet property that parses, validates, and then does
+# absolutely nothing. That is the silent no-op this codebase reports errors to
+# avoid, so the compiler should refuse it.
+#
+# MSVC needs this spelled out: C4062 is off at the default /W3, so the "the
+# compiler will catch it" assumption was simply false on the primary platform.
+# Engine-only on purpose -- third-party headers are already /external:W0.
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(Engine PRIVATE -g)
+    target_compile_options(Engine PRIVATE -g -Werror=switch)
 elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-    target_compile_options(Engine PRIVATE /Zi)
+    target_compile_options(Engine PRIVATE /Zi /we4062)
 endif()
 
 
