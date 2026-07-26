@@ -69,9 +69,12 @@ namespace {
         for (pugi::xml_attribute a : node.attributes()) {
             const std::string n = a.name();
             if (n == "name" || n == "class" || n == "style" || n == "text" ||
-                n == "data-source" || n == "bind") {
+                n == "data-source" || n == "bind" || n == "if") {
                 continue;
             }
+            // The on-<event> family is validated in full below; here it only
+            // has to survive the allow-list.
+            if (n.rfind("on-", 0) == 0) continue;
             errors.push_back(loc + "unknown attribute '" + n + "'");
             return false;
         }
@@ -162,7 +165,82 @@ namespace {
                 bindings.push_back(std::move(b));
             }
         }
+
+        // `if="alive"` / `if="!dead"` — visibility from a bool, written as
+        // display. Deliberately its own attribute rather than
+        // `bind="display: {alive}"`: showing and hiding is the single most
+        // common dynamic-HUD requirement and deserves to read like one.
+        if (const char* cond = node.attribute("if").value(); cond && *cond) {
+            std::string path = trim(cond);
+            UIBinding b;
+            b.target.kind = UIBindTarget::Kind::Display;
+            b.label = "if";
+            if (!path.empty() && path[0] == '!') {
+                b.negate = true;
+                path = trim(path.substr(1));
+            }
+            if (path.empty()) {
+                errors.push_back(loc + "if: empty");
+                return false;
+            }
+            // Written as a bare path for readability, compiled as a one-hole
+            // template so it shares every code path with every other binding.
+            std::string err;
+            if (!UITextTemplate::Compile("{" + path + "}", b.tmpl, err)) {
+                errors.push_back(loc + "if: " + err);
+                return false;
+            }
+            bindings.push_back(std::move(b));
+        }
         el.setBindings(std::move(bindings));
+
+        // `on-click="addScore"` — a NAMED action the app registered. Not a
+        // statement: a real C++ function you can breakpoint, and a typo is
+        // answered with the actions that exist.
+        std::vector<UIBoundAction> boundActions;
+        for (pugi::xml_attribute a : node.attributes()) {
+            const std::string n = a.name();
+            if (n.rfind("on-", 0) != 0) continue;
+
+            const std::string evName = lower(n.substr(3));
+            UIEventType type{};
+            if      (evName == "click")         type = UIEventType::Click;
+            else if (evName == "pointer-down")  type = UIEventType::PointerDown;
+            else if (evName == "pointer-up")    type = UIEventType::PointerUp;
+            else if (evName == "pointer-enter") type = UIEventType::PointerEnter;
+            else if (evName == "pointer-leave") type = UIEventType::PointerLeave;
+            else if (evName == "pointer-move")  type = UIEventType::PointerMove;
+            else {
+                errors.push_back(loc + "unknown event '" + evName + "' in '" + n +
+                                 "' (click|pointer-down|pointer-up|pointer-enter|"
+                                 "pointer-leave|pointer-move)");
+                return false;
+            }
+
+            UIBoundAction act;
+            act.type = type;
+            act.label = n;
+            std::string target = trim(a.value());
+            if (target.empty()) {
+                errors.push_back(loc + n + ": empty action name");
+                return false;
+            }
+            // Same one-dot rule as a binding path: source.action.
+            const size_t dot = target.find('.');
+            if (dot != std::string::npos) {
+                if (target.find('.', dot + 1) != std::string::npos) {
+                    errors.push_back(loc + n + ": action '" + target +
+                                     "' has more than one '.' (write source.action)");
+                    return false;
+                }
+                act.sourceName = trim(target.substr(0, dot));
+                act.actionName = trim(target.substr(dot + 1));
+            } else {
+                act.actionName = target;
+            }
+            boundActions.push_back(std::move(act));
+        }
+        el.setBoundActions(std::move(boundActions));
 
         if (const char* s = node.attribute("style").value(); s && *s) {
             std::vector<UIDeclaration> decls;

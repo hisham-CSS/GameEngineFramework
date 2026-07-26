@@ -84,3 +84,14 @@
   height: 10px;
   background-color: rgba(255, 255, 255, 0.75);
 }
+
+/* Data-driven visibility starts OFF. `display` is the one property added for
+   `if=`, and starting hidden means a slow first frame cannot flash the banner
+   before the first value arrives. Unlike .fill above, this IS the value that
+   applies until the binding says otherwise — `if=` only ever overwrites it. */
+.warning {
+  color: #ffcc44;
+  align-self: center;
+  margin: 10px 0px 0px 0px;
+  display: none;
+}

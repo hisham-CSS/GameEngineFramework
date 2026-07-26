@@ -18,6 +18,8 @@
                              property .uss understands works here, and a bound
                              property outranks the stylesheet (which then acts
                              as the pre-bind default, and says so at load).
+    if="alive"  if="!dead"   visibility from a bool; writes display: flex|none
+    on-click="addScore"      calls a NAMED action the app registered
 
   A {hole} is `{path | converter | converter : decimals}`. There is no
   arithmetic and no ternary: derived values are named C++ converters, which are
@@ -52,8 +54,19 @@
   </Element>
 
   <Element name="buttonRow" class="row-left">
-    <Button name="scoreButton" class="btn" text="+100"/>
+    <!-- A named action, not a statement: `addScore` is a C++ lambda you can
+         breakpoint, and a typo is answered with the actions that exist. The
+         click still bubbles, so making this a composite widget later changes
+         nothing. -->
+    <Button name="scoreButton" class="btn" text="+100" on-click="addScore"/>
   </Element>
+
+  <!-- `if` writes display:none rather than removing the element, so it keeps
+       its identity, its handlers and its place in this file — and flipping it
+       is one style write. `.warning` starts hidden in hud.uss so a slow first
+       frame cannot flash the banner. -->
+  <Element name="lowHealth" class="warning" if="lowHealth"
+           text="LOW HEALTH  {health | ratio : 0}%"/>
 
   <!-- Decorative overlay. pointer-events:none in the stylesheet, or this
        full-screen layer would swallow every click meant for the UI below. -->

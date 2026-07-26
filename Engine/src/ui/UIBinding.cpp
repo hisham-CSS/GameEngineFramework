@@ -484,7 +484,20 @@ bool UIBinder::apply_(Entry& e) {
     }
     case UIBindTarget::Kind::Style:
         return applyStyle_(e);
-    case UIBindTarget::Kind::Display:
+    case UIBindTarget::Kind::Display: {
+        UIValue v;
+        if (!evalSingle_(e, v)) return false;
+        bool show = false;
+        if (!v.AsBool(show)) {
+            reportOnce_(e, v, std::string("if: needs a bool, got ") + v.KindName());
+            return false;
+        }
+        if (b.negate) show = !show;
+        // A style write, not tree surgery: the element keeps its identity, its
+        // handlers and its bindings, and showing it again costs one more write.
+        e.el->style().display = show ? DisplayMode::Flex : DisplayMode::None;
+        return true;
+    }
     case UIBindTarget::Kind::Class:
     case UIBindTarget::Kind::State:
         // Later milestones. Nothing is silently ignored: the markup parser

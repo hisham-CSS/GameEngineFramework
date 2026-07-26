@@ -244,6 +244,10 @@ namespace {
         { "font-scale",       Prop::FontScale,       UIPropValueKind::Number,  nullptr,     nullptr, nullptr },
         { "overflow",         Prop::Overflow,        UIPropValueKind::Boolean, nullptr,     "hidden", "visible" },
         { "pointer-events",   Prop::PointerEvents,   UIPropValueKind::Boolean, nullptr,     "auto",   "none" },
+        // Boolean rather than an enum because there are exactly two values and
+        // `if=` needs to write it from a bool. `true` means VISIBLE, so the
+        // spelling that maps to true is "flex".
+        { "display",          Prop::Display,         UIPropValueKind::Boolean, nullptr,     "flex",   "none" },
     };
 
     const PropSpec* specFor(Prop p) {
@@ -360,6 +364,7 @@ void UIDeclaration::ApplyTo(Style& s) const {
     case Prop::FontScale:      s.fontScale = number; break;
     case Prop::Overflow:       s.overflowHidden = boolean; break;
     case Prop::PointerEvents:  s.pickable = boolean; break;
+    case Prop::Display:        s.display = boolean ? DisplayMode::Flex : DisplayMode::None; break;
     }
 }
 

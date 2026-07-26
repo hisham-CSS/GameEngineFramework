@@ -6,12 +6,13 @@ The engine ships two related things:
   about UI, and is deliberately shaped so a **2D game** can be built directly on
   it (world-space camera, sprite atlases, sort layers).
 - **The UI system** — a retained element tree with flexbox layout, CSS-like
-  stylesheets, XML-like markup, pointer events, and hot reload. It is the first
-  consumer of `Renderer2D`, not a privileged one.
+  stylesheets, XML-like markup, pointer events, data binding, and hot reload. It
+  is the first consumer of `Renderer2D`, not a privileged one.
 
 The UI model is modelled on web front-end and Unity's UI Toolkit: markup
-(`.uxml`) for structure, a stylesheet (`.uss`) for appearance, and C++ for
-behaviour. If you know CSS flexbox, you already know this system.
+(`.uxml`) for structure, a stylesheet (`.uss`) for appearance, bindings for
+values, and C++ for behaviour. If you know CSS flexbox, you already know this
+system.
 
 > This is not the *editor's* UI. The editor is ImGui (immediate mode); this is
 > the UI your **game** draws, and it renders in both the editor's Game view and
@@ -39,9 +40,13 @@ renderer().SetUIDraw([&hud](Renderer2D& r2d, int w, int h, float dt) {
 });
 ```
 
-Your own class does the same three things `DemoHud` does: own a
-`UIAssetDocument`, cache the elements it drives, and per frame call
-`Update(dt)` → `Layout` → `UpdatePointer` → `Draw`.
+Your own class does what `DemoHud` does: own a `UIAssetDocument` and a
+`UIDataSource`, register the source before loading, and per frame call
+`Update(dt)` → `UpdateToTarget()` → `Layout` → `UpdatePointer` → `Draw`.
+
+The binding pass runs **before** layout so a changed label is measured at its
+new width on the frame it changes. A `setText` from an input handler never was —
+it lands after the solve and paints at the previous frame's size.
 
 ---
 
@@ -71,8 +76,16 @@ Parsed by `UIMarkup` (`Engine/src/ui/UIMarkup.h`, pugixml).
 | *tag name* | the element **type**, matched by a bare type selector (`Button { ... }`) |
 | `name` | the `#id`, and the handle C++ uses to `Find()` the element |
 | `class` | space-separated class list, matched by `.class` selectors |
-| `text` | makes the element a text leaf that measures itself from the font |
+| `text` | a text **template** — literal text with `{holes}`; see [Data binding](#data-binding) |
 | `style` | inline declarations; outrank **every** stylesheet rule, as in CSS |
+| `data-source` | names the data source this element and its whole subtree bind against |
+| `bind` | CSS declarations whose **values** carry `{holes}` |
+| `if` | visibility from a bool; writes `display: flex\|none` |
+| `on-<event>` | calls a named action the app registered |
+
+Anything else is a **load error**. That matters more than it sounds: this loader
+used to read the attributes it knew and ignore the rest, so `nmae="healthFill"`
+produced an element no stylesheet rule and no `Find()` could ever locate.
 
 The root tag maps onto the document's existing root, so `<UI name="hud">` names
 and styles the root itself rather than creating an extra wrapper.
@@ -113,7 +126,7 @@ subset, no dependency.
 | Box | `margin`, `padding` (1–4 value CSS shorthand) |
 | Position | `position: relative\|absolute`, `left`, `top`, `right`, `bottom` |
 | Paint | `background-color`, `color`, `font-scale` |
-| Behaviour | `overflow: hidden\|visible`, `pointer-events: auto\|none` |
+| Behaviour | `overflow: hidden\|visible`, `pointer-events: auto\|none`, `display: flex\|none` |
 
 Lengths are `auto`, `Npx`, `N%`, or a bare number (treated as px). Colours are
 `#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb(r,g,b)`, `rgba(r,g,b,a)` (channels 0–255,
@@ -214,6 +227,112 @@ reads computed rects), then `UpdatePointer` (handlers may change styles), then
 
 ---
 
+## Data binding
+
+Gameplay writes **values**; the markup decides how they read. That is the fourth
+pillar, and it is what lets a HUD's format, units and colour ramp be content
+rather than code.
+
+```cpp
+// The model. Register it BEFORE Load when you can.
+UIDataSource src;
+src.SetInt("score", 0);
+src.SetNumber("health", 1.0f);
+src.SetBool("lowHealth", false);
+src.AddAction("addScore", [&] { src.SetInt("score", src.GetInt("score") + 100); });
+assets.bindingContext().RegisterSource("hud", &src);
+```
+
+```xml
+<UI name="hud" data-source="hud">
+  <Element name="healthFill" class="fill"
+           bind="width: {health | percent};
+                 background-color: {health | healthTint}"/>
+  <Label name="scoreLabel" text="SCORE {score}"/>
+  <Button name="scoreButton" text="+100" on-click="addScore"/>
+  <Element name="lowHealth" class="warning" if="lowHealth" text="LOW HEALTH"/>
+</UI>
+```
+
+Then, once per frame, **before** `Layout`:
+
+```cpp
+assets.binder().UpdateToTarget();
+```
+
+**The load-bearing property: the data source is not in the element tree.** A hot
+reload destroys every element and every handler without touching one value, so
+unlike a cached `UIElement*`, a binding needs nothing re-attached in C++. The
+"re-push everything you cached" step disappears — and forgetting it is the
+mistake every hot-reloading UI makes exactly once.
+
+### Holes
+
+```
+{ path | converter | converter : decimals }
+```
+
+- `path` is `property`, resolved against the nearest `data-source` ancestor, or
+  `source.property` to name one explicitly. The dot **always** separates source
+  from property — one rule, no ambiguity.
+- Converters run left to right. Eleven ship: `percent` (0–1 → a CSS percentage,
+  unit included), `ratio` (0–1 → 0–100), `px`, `not`, `round`, `floor`, `ceil`,
+  `abs`, `int`, `upper`, `lower`. Register your own on
+  `bindingContext().converters()`.
+- `:N` formats to N decimals; omitted means `%g`, so an integral number prints
+  `100` and not `100.000000`.
+- `{{` and `}}` are literal braces.
+
+**There is no expression language, deliberately.** Arithmetic and comparison
+would need `<` and `&&` inside XML attribute values, which XML forbids — every
+comparison would have to be written backwards (`0.3 > health`) forever. Derived
+values are named C++ converters instead: real functions you can breakpoint and
+unit-test, whose typos are answered with the list of names that exist.
+
+### Values
+
+`UIValue` carries a bool, int, number, length, colour or string. **Coercion
+never guesses**: every conversion that is not obviously correct fails and names
+both kinds (`cannot use string 'rifle' as a length`). Without reflection, a
+value that converted to something plausible but wrong is indistinguishable from
+a UI that simply doesn't work.
+
+A string is never a bool, for the same reason — `"false"` is truthy under one
+obvious rule and falsy under another. Strings *do* parse as lengths and colours,
+through the stylesheet's own parsers, so `"50%"` and `"#d93a3d"` mean the same
+thing in a bound value as in a `.uss` file.
+
+### Two ways to supply a value
+
+| | Where the value lives | Cost per frame |
+|---|---|---|
+| `Set*(name, v)` | in the source | one integer compare |
+| `Observe(name, getter, setter)` | in **your** object | the getter runs every frame |
+
+`Set*` is equality-gated, so gameplay writing the same health every frame wakes
+nothing downstream. Prefer it for anything hot; `Observe` is for a value that
+already has a home you cannot hook.
+
+### Diagnostics
+
+| Problem | When | Effect |
+|---|---|---|
+| unknown attribute, malformed hole, unknown bound property, constant `bind` | load | **fails the load**, running UI untouched |
+| unknown source / property / converter / action | `Rebuild` | reported once **with the names that do exist**; that binding stays pending and resolves if you register later |
+| value won't convert, non-finite, negative size | runtime | reported once per binding, re-armed on a kind change; that write is skipped |
+| a bound property that the stylesheet also declares | load | a **note** — the rule is the pre-bind default, and saying so beats editing the `.uss` and watching nothing happen |
+
+`binder().Describe()` prints one line per live binding with its current value.
+"It is not in this list" is a one-call diagnosis of a frozen readout.
+
+### Cost
+
+An idle frame is one integer compare per source plus one per binding — no
+allocations, no tree walks, no string work. Only a write that can change a
+**box** triggers a re-layout, so a bound colour never does.
+
+---
+
 ## Hot reload
 
 `UIAssetDocument` (`Engine/src/ui/UIAssetDocument.h`) watches the markup and
@@ -311,14 +430,20 @@ reset, so a leaked blend or depth state would corrupt the next pass.
 | `Engine/src/ui/UIStyle.h` | The `Style` struct — the CSS-shaped subset |
 | `Engine/src/ui/UIElement.h` | `UIElement` + `UIDocument` (tree, layout, draw, input) |
 | `Engine/src/ui/UIEvent.h` | Event types, `UIEvent`, `UIPointerState` |
-| `Engine/src/ui/UIStyleSheet.h` | `.uss` parser, selectors, cascade |
+| `Engine/src/ui/UIStyleSheet.h` | `.uss` parser, selectors, cascade, the property table |
 | `Engine/src/ui/UIMarkup.h` | `.uxml` loader |
+| `Engine/src/ui/UIValue.h` | The bound-value transport and its coercions |
+| `Engine/src/ui/UIDataSource.h` | `UIDataSource`, converters, `UIBindingContext` |
+| `Engine/src/ui/UIBinding.h` | The `{hole}` template and `UIBinder` |
 | `Engine/src/ui/UIAssetDocument.h` | Markup + stylesheet assets with hot reload |
 | `Engine/src/ui/DemoHud.h` | The worked sample |
 | `Engine/src/render/passes/UIPass.h` | The render pass and the `UIDrawFn` hook |
 
 ## Not there yet
 
-Keyboard focus, tab navigation and text entry; data binding; `:hover`/`:active`
-pseudo-classes; descendant selectors; a `UIDocument` **component** so a scene
-can attach UI to an entity (today the host installs the draw callback).
+Keyboard focus, tab navigation and text entry; `:hover`/`:active` pseudo-classes
+(interaction state is queried in code — see the button tint in `DemoHud`);
+descendant selectors; element→source (two-way) binding, which has no honest
+producer until text fields exist; class-toggle bindings; a `UIDocument`
+**component** so a scene can attach UI to an entity (today the host installs the
+draw callback).

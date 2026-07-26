@@ -134,6 +134,9 @@ namespace {
             YGNodeStyleSetPosition(n, YGEdgeBottom, s.inset.bottom);
         }
 
+        YGNodeStyleSetDisplay(n, s.display == DisplayMode::None ? YGDisplayNone
+                                                                : YGDisplayFlex);
+
         // A measure function is only legal on a LEAF. Yoga asserts if a node
         // has both children and a measure func, so this must track the tree,
         // not just the presence of text.
@@ -318,6 +321,10 @@ void UIDocument::draw_(const UIElement& el, Renderer2D& r2d,
                        const Font* font, int layer) {
     const ComputedLayout& L = el.layout_;
     const Style& s = el.style_;
+    // Explicit, even though yoga zeroes a display:none subtree and the size
+    // test below would therefore cover it. "Invisible" must not depend on an
+    // implementation detail of whichever layout engine is underneath.
+    if (s.display == DisplayMode::None) return;
     if (L.size.x <= 0.0f || L.size.y <= 0.0f) return; // nothing to paint
 
     if (s.backgroundColor.a > 0.0f) {
@@ -353,6 +360,10 @@ namespace {
 }
 
 UIElement* UIDocument::hitTest_(UIElement& el, const glm::vec2& pos) {
+    // Hidden means hidden: an element you cannot see must not be clickable,
+    // and the same reasoning as in draw_ applies — assert it here rather than
+    // relying on the layout engine to have zeroed the rect.
+    if (el.style_.display == DisplayMode::None) return nullptr;
     // pointer-events: none — the element and its whole subtree are inert.
     if (!el.style_.pickable) return nullptr;
 

@@ -21,6 +21,10 @@ bool DemoHud::Init(const std::string& markupPath, const std::string& stylePath,
     // report is noise nobody needs.
     source_.SetNumber("health", 1.0f);
     source_.SetInt("score", 0);
+    source_.SetBool("lowHealth", false);
+    // A named action, so hud.uxml can write on-click="addScore" and the
+    // handler stops being something Bind has to re-attach after every reload.
+    source_.AddAction("addScore", [this] { SetScore(score() + 100); });
     assets_.bindingContext().RegisterSource("hud", &source_);
 
     // Registered on THIS DOCUMENT'S table, not a process-wide one. This lambda
@@ -64,17 +68,16 @@ void DemoHud::Bind(UIDocument& doc) {
     }
     // Bind runs after the cascade, so this is the authored idle colour.
     buttonIdle_ = button_->style().backgroundColor;
-    // The click lands on the BUTTON even though the text is drawn by the same
-    // element; once this is a composite widget (icon + label children) bubbling
-    // is what keeps this handler working unchanged.
-    button_->OnClick([this](UIEvent&) { SetScore(score() + 100); });
 }
 
-// No style writes at all: hud.uxml binds the fill's width to {health|percent}
-// and its colour to {health|healthTint}, so both the unit and the drain ramp
-// are hot-reloadable content now.
+// No style writes and no setText: hud.uxml binds the fill's width to
+// {health|percent}, its colour to {health|healthTint}, and the low-health
+// banner's visibility to if="lowHealth". The threshold is the one piece of
+// POLICY, so it stays in code; everything downstream of it is content.
 void DemoHud::SetHealth(float fraction01) {
-    source_.SetNumber("health", std::clamp(fraction01, 0.0f, 1.0f));
+    const float h = std::clamp(fraction01, 0.0f, 1.0f);
+    source_.SetNumber("health", h);
+    source_.SetBool("lowHealth", h < 0.3f);
 }
 
 // No setText anywhere: hud.uxml says text="SCORE {score}", so writing the model

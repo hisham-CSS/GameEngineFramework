@@ -60,6 +60,16 @@ std::string render(const char* text, UIDataSource& src, UIBindingContext& ctx) {
     return l ? l->style().text : std::string("<missing>");
 }
 
+// Press and release over the same point, which is what UIDocument requires for
+// a Click (sliding off a button before letting go correctly cancels it).
+void clickAt(UIDocument& doc, float x, float y) {
+    UIPointerState p;
+    p.inside = true;
+    p.position = { x, y };
+    p.buttonDown = true;  doc.UpdatePointer(p);
+    p.buttonDown = false; doc.UpdatePointer(p);
+}
+
 void writeFileAt(const std::string& path, const std::string& text, int secondsFromNow) {
     { std::ofstream o(path, std::ios::binary); o << text; }
     std::filesystem::last_write_time(
@@ -791,6 +801,226 @@ TEST(UIBindStyle, AColourWriteDoesNotForceALayout) {
     ASSERT_TRUE(g.Load("width: {health | percent}"));
     g.src.SetNumber("health", 0.9f);
     EXPECT_TRUE(g.binder.UpdateToTarget().wroteLayout) << "a width change must re-layout";
+}
+
+// ------------------------------------------- if= and named actions (U4c)
+
+namespace {
+
+struct IfFixture {
+    UIDocument doc;
+    UIDataSource src;
+    UIBindingContext ctx;
+    UIStyleSheet sheet;
+    UIBinder binder;
+    std::vector<std::string> errors;
+
+    bool Load(const std::string& attrs) {
+        src.SetBool("alive", true);
+        src.SetBool("dead", false);
+        ctx.RegisterSource("s", &src);
+        const std::string xml =
+            "<UI data-source=\"s\"><Element name=\"e\" " + attrs +
+            " style=\"width: 50px; height: 50px\"/></UI>";
+        if (!UIMarkup::LoadInto(doc, xml, errors, "t.uxml")) return false;
+        // Markup only STORES an inline style; the cascade is what replays it
+        // onto style() (that ordering is how inline outranks every selector).
+        // Same order UIAssetDocument uses: cascade, then bind.
+        sheet.ApplyTo(doc.root());
+        binder.Rebuild(doc, ctx, "t.uxml", &sheet);
+        return true;
+    }
+    UIElement* el() { return doc.root().Find("e"); }
+};
+
+} // namespace
+
+TEST(UIBindDisplay, IfShowsAndHides) {
+    IfFixture f;
+    ASSERT_TRUE(f.Load(R"(if="alive")")) << (f.errors.empty() ? "" : f.errors[0]);
+    ASSERT_TRUE(f.binder.ok()) << f.binder.errors()[0];
+    EXPECT_EQ(f.el()->style().display, DisplayMode::Flex);
+
+    f.src.SetBool("alive", false);
+    EXPECT_TRUE(f.binder.UpdateToTarget().wroteLayout) << "show/hide must re-layout";
+    EXPECT_EQ(f.el()->style().display, DisplayMode::None);
+}
+
+TEST(UIBindDisplay, LeadingBangNegates) {
+    IfFixture f;
+    ASSERT_TRUE(f.Load(R"(if="!dead")"));
+    ASSERT_TRUE(f.binder.ok()) << f.binder.errors()[0];
+    EXPECT_EQ(f.el()->style().display, DisplayMode::Flex);
+    f.src.SetBool("dead", true);
+    f.binder.UpdateToTarget();
+    EXPECT_EQ(f.el()->style().display, DisplayMode::None);
+}
+
+// The element keeps its identity: hiding is a style write, not tree surgery,
+// so a cached pointer and its handlers survive a hide/show cycle.
+TEST(UIBindDisplay, HidingKeepsTheElementAndItsHandlers) {
+    IfFixture f;
+    ASSERT_TRUE(f.Load(R"(if="alive")"));
+    UIElement* e = f.el();
+    ASSERT_NE(e, nullptr);
+    int clicks = 0;
+    e->OnClick([&](UIEvent&) { ++clicks; });
+
+    f.src.SetBool("alive", false);
+    f.binder.UpdateToTarget();
+    EXPECT_EQ(f.el(), e) << "hiding removed the element from the tree";
+
+    f.src.SetBool("alive", true);
+    f.binder.UpdateToTarget();
+    f.doc.Layout(200.f, 200.f);
+    clickAt(f.doc, 10.f, 10.f);
+    EXPECT_EQ(clicks, 1) << "the handler did not survive a hide/show cycle";
+}
+
+// Hidden means hidden: zero layout, no paint, and NOT clickable.
+TEST(UIBindDisplay, AHiddenElementHasNoBoxAndRefusesAHit) {
+    IfFixture f;
+    ASSERT_TRUE(f.Load(R"(if="alive")"));
+    f.doc.Layout(200.f, 200.f);
+    ASSERT_GT(f.el()->layout().size.x, 0.f);
+    EXPECT_EQ(f.doc.HitTest({ 10.f, 10.f }), f.el());
+
+    f.src.SetBool("alive", false);
+    f.binder.UpdateToTarget();
+    f.doc.Layout(200.f, 200.f);
+    EXPECT_FLOAT_EQ(f.el()->layout().size.x, 0.f) << "a hidden element still took space";
+    EXPECT_NE(f.doc.HitTest({ 10.f, 10.f }), f.el()) << "a hidden element was still clickable";
+}
+
+TEST(UIBindDisplay, DisplayIsAlsoAPlainStylesheetProperty) {
+    UIStyleSheet sheet;
+    ASSERT_TRUE(sheet.ParseString(".hidden { display: none; }", "t.uss"))
+        << (sheet.errors().empty() ? "" : sheet.errors()[0]);
+    UIDocument doc;
+    UIElement* e = doc.root().AddChild("e");
+    e->AddClass("hidden");
+    sheet.ApplyTo(doc.root());
+    EXPECT_EQ(e->style().display, DisplayMode::None);
+
+    UIStyleSheet bad;
+    EXPECT_FALSE(bad.ParseString(".x { display: sideways; }", "t.uss"));
+    ASSERT_FALSE(bad.errors().empty());
+    EXPECT_NE(bad.errors()[0].find("display must be flex|none"), std::string::npos)
+        << bad.errors()[0];
+}
+
+TEST(UIBindDisplay, AnEmptyOrNonBoolConditionIsReported) {
+    UIDocument doc;
+    std::vector<std::string> errors;
+    EXPECT_FALSE(UIMarkup::LoadInto(doc, R"(<UI><Element name="e" if=" ! "/></UI>)",
+                                    errors, "t.uxml"));
+    ASSERT_FALSE(errors.empty());
+    EXPECT_NE(errors[0].find("if: empty"), std::string::npos) << errors[0];
+
+    IfFixture f;
+    ASSERT_TRUE(f.Load(R"(if="alive")"));
+    ASSERT_TRUE(f.binder.ok());
+    // A string is never a bool — "false" is truthy under one obvious rule and
+    // falsy under another, so a visibility toggle must refuse rather than pick.
+    f.src.SetString("alive", "yes");
+    f.binder.UpdateToTarget();
+    EXPECT_FALSE(f.binder.ok());
+    ASSERT_FALSE(f.binder.errors().empty());
+    EXPECT_NE(f.binder.errors()[0].find("needs a bool"), std::string::npos)
+        << f.binder.errors()[0];
+}
+
+TEST(UIBindActions, OnClickInvokesTheNamedActionAndBubbles) {
+    UIDocument doc;
+    std::vector<std::string> errors;
+    ASSERT_TRUE(UIMarkup::LoadInto(doc, R"(<UI data-source="s">
+          <Element name="outer" style="width: 100px; height: 100px" on-click="outerHit">
+            <Element name="inner" style="width: 40px; height: 40px" on-click="innerHit"/>
+          </Element>
+        </UI>)", errors, "t.uxml")) << (errors.empty() ? "" : errors[0]);
+
+    UIDataSource s;
+    std::vector<std::string> order;
+    s.AddAction("outerHit", [&] { order.push_back("outer"); });
+    s.AddAction("innerHit", [&] { order.push_back("inner"); });
+    UIBindingContext ctx;
+    ctx.RegisterSource("s", &s);
+    UIStyleSheet sheet;
+    sheet.ApplyTo(doc.root());   // replays the inline styles that give the boxes size
+    UIBinder binder;
+    binder.Rebuild(doc, ctx, "t.uxml", &sheet);
+    ASSERT_TRUE(binder.ok()) << binder.errors()[0];
+
+    doc.Layout(200.f, 200.f);
+    clickAt(doc, 10.f, 10.f);
+    // Through the ordinary listener path, so a bound action bubbles exactly
+    // like a hand-written handler.
+    ASSERT_EQ(order.size(), 2u) << "a bound action did not bubble";
+    EXPECT_EQ(order[0], "inner");
+    EXPECT_EQ(order[1], "outer");
+}
+
+TEST(UIBindActions, AMisspeltActionIsReportedWithTheOnesThatExist) {
+    UIDocument doc;
+    std::vector<std::string> errors;
+    ASSERT_TRUE(UIMarkup::LoadInto(
+        doc, R"(<UI data-source="s"><Button name="b" on-click="addScre"/></UI>)",
+        errors, "t.uxml"));
+    UIDataSource s;
+    s.AddAction("addScore", [] {});
+    UIBindingContext ctx;
+    ctx.RegisterSource("s", &s);
+    UIBinder binder;
+    binder.Rebuild(doc, ctx, "t.uxml");
+
+    EXPECT_FALSE(binder.ok());
+    ASSERT_FALSE(binder.errors().empty());
+    EXPECT_NE(binder.errors()[0].find("unknown action 'addScre'"), std::string::npos)
+        << binder.errors()[0];
+    EXPECT_NE(binder.errors()[0].find("addScore"), std::string::npos) << binder.errors()[0];
+}
+
+TEST(UIBindActions, AnUnknownEventNameFailsTheLoad) {
+    UIDocument doc;
+    std::vector<std::string> errors;
+    EXPECT_FALSE(UIMarkup::LoadInto(doc, R"(<UI><Button name="b" on-hover="x"/></UI>)",
+                                    errors, "t.uxml"));
+    ASSERT_FALSE(errors.empty());
+    EXPECT_NE(errors[0].find("unknown event 'hover'"), std::string::npos) << errors[0];
+    EXPECT_NE(errors[0].find("pointer-enter"), std::string::npos)
+        << "must list the events that do exist";
+}
+
+// A reload rebuilds the tree and its listeners, so a bound action must come
+// back by itself — that is the whole reason to prefer it over an OnClick the
+// app re-attaches.
+TEST(UIBindActions, ABoundActionSurvivesAReloadWithNoReAttach) {
+    const std::string markup = "test_ui_action.uxml";
+    writeFileAt(markup, R"(<UI data-source="s">
+        <Element name="b" style="width: 50px; height: 50px" on-click="go"/></UI>)", 0);
+
+    UIDataSource s;
+    int calls = 0;
+    s.AddAction("go", [&] { ++calls; });
+
+    UIAssetDocument assets;
+    assets.bindingContext().RegisterSource("s", &s);
+    ASSERT_TRUE(assets.Load(markup, ""));
+    ASSERT_TRUE(assets.binder().ok()) << assets.binder().errors()[0];
+
+    assets.document().Layout(200.f, 200.f);
+    clickAt(assets.document(), 10.f, 10.f);
+    ASSERT_EQ(calls, 1);
+
+    assets.SetPollInterval(0.0f);
+    writeFileAt(markup, R"(<UI data-source="s">
+        <Element name="b" style="width: 60px; height: 60px" on-click="go"/></UI>)", 2);
+    ASSERT_TRUE(assets.Update(0.0f));
+
+    assets.document().Layout(200.f, 200.f);
+    clickAt(assets.document(), 10.f, 10.f);
+    EXPECT_EQ(calls, 2) << "the bound action did not survive the reload";
+    std::remove(markup.c_str());
 }
 
 // ------------------------------------------------- the whole thing, on disk

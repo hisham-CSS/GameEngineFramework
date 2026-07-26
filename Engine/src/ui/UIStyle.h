@@ -25,6 +25,16 @@ namespace MyCoreEngine::ui {
 
     enum class PositionType { Relative, Absolute };
 
+    // CSS `display`. `None` removes the element AND its subtree from layout,
+    // painting and hit-testing.
+    //
+    // This is what lets `if=` be a STYLE WRITE rather than tree surgery: the
+    // element keeps its identity, its handlers, its bindings and its place in
+    // the markup, and showing it again is one more style write. Removing and
+    // re-adding elements would invalidate every cached pointer in the app each
+    // time a banner flickered.
+    enum class DisplayMode { Flex, None };
+
     // A CSS length: auto, absolute points (pixels), or a percentage of the
     // parent. Point/percent are separate units rather than a bare float because
     // "50" and "50%" mean entirely different things and silently conflating
@@ -81,6 +91,8 @@ namespace MyCoreEngine::ui {
         std::string text;
         glm::vec4   textColor{ 1.0f, 1.0f, 1.0f, 1.0f };
         float       fontScale = 1.0f;
+
+        DisplayMode display = DisplayMode::Flex;
 
         // Clip children to this element's box (CSS `overflow: hidden`).
         bool overflowHidden = false;

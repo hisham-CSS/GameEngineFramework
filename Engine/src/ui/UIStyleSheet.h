@@ -47,7 +47,7 @@ namespace MyCoreEngine::ui {
             Margin, Padding, Gap,
             Position, Left, Top, Right, Bottom,
             BackgroundColor, Color, FontScale,
-            Overflow, PointerEvents,
+            Overflow, PointerEvents, Display,
         };
 
         Prop        prop{};
