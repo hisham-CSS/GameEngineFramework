@@ -65,6 +65,18 @@
   color: rgba(255, 255, 255, 0.95);
 }
 
+/* Toggled by `classes="alarm: {lowHealth}"` in hud.uxml. Nothing in C++ knows
+   this colour — gameplay sets a bool and the stylesheet decides what it means. */
+.alarm {
+  color: #ff6b6b;
+}
+
+/* A sibling combinator: the row that FOLLOWS the top bar. `+` is the element
+   immediately after, `~` is any later one. */
+.row + .row-left {
+  margin: 12px 0px 0px 0px;
+}
+
 /* Interaction styling lives HERE now, not in C++. `:hover` and `:active` count
    as a class for specificity, exactly as in CSS, so both of these outrank the
    plain `.btn` rule with no ordering tricks — and `.btn:active` beats

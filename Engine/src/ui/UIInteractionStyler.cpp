@@ -43,18 +43,10 @@ void UIInteractionStyler::Rebuild(UIDocument& doc, const UIStyleSheet& sheet,
 }
 
 void UIInteractionStyler::restyle_(UIElement& el) const {
-    // Text is not a cascadable property — there is no Prop::Text — so the reset
-    // would destroy it and no rule would put it back. Moved out and back rather
-    // than routed through setText, because the content is not actually
-    // changing: setText would mark the yoga node dirty and force a needless
-    // re-measure on every hover.
-    std::string keepText = std::move(el.style().text);
-    el.style() = Style{};
-    // Rules for the element's CURRENT state, in specificity order, then its
-    // inline style — the same call the initial load makes, which is what keeps
-    // hover styling and load styling from ever disagreeing.
-    sheet_->ApplyToElement(el);
-    el.style().text = std::move(keepText);
+    // The cascade has no undo, so a state ending means re-running it from
+    // scratch. Shared with class-toggle bindings, which need the identical
+    // operation for the identical reason.
+    sheet_->Recascade(el);
 
     // Bindings wrote into the Style that was just discarded, so they have to
     // run again. Without this, hovering a bound health bar would snap it back

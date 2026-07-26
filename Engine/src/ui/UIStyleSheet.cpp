@@ -414,6 +414,19 @@ namespace {
     // `stateAware` selects Matches vs MatchesIgnoringState uniformly across the
     // chain, so "could this rule ever apply here" asks the same shape of
     // question as "does it apply right now".
+    // The element immediately before `el` among its parent's children, or null
+    // when it is the first (or has no parent).
+    const UIElement* previousSibling(const UIElement& el) {
+        const UIElement* p = el.parent();
+        if (!p) return nullptr;
+        const UIElement* prev = nullptr;
+        for (const auto& c : p->children()) {
+            if (c.get() == &el) return prev;
+            prev = c.get();
+        }
+        return nullptr;
+    }
+
     bool matchChain(const std::vector<UISelector::Part>& parts, const UIElement& el,
                     bool stateAware) {
         auto hit = [stateAware](const UICompound& c, const UIElement& e) {
@@ -432,23 +445,50 @@ namespace {
         // Greedy is not fully general for pathological chains, and that is a
         // deliberate trade: the alternative is a backtracking matcher run on
         // every element of every load, for selectors nobody writes.
-        const UIElement* cur = el.parent();
+        // `cur` is where the NEXT compound to the left is looked for. An
+        // ancestor combinator moves it up the tree; a sibling combinator moves
+        // it sideways, which is why it is tracked as a position rather than
+        // just "the parent".
+        const UIElement* self = &el;
         for (int i = int(parts.size()) - 2; i >= 0; --i) {
-            const UISelector::Part& p = parts[size_t(i)];
+            const UICompound& want = parts[size_t(i)].compound;
             // The combinator recorded on a part describes its link to the part
             // BEFORE it, so the one that governs this hop is on the part to our
             // right.
-            const UICombinator comb = parts[size_t(i) + 1].combinator;
-            if (comb == UICombinator::Child) {
-                if (!cur || !hit(p.compound, *cur)) return false;
-                cur = cur->parent();
-                continue;
+            switch (parts[size_t(i) + 1].combinator) {
+            case UICombinator::Child: {
+                const UIElement* p = self->parent();
+                if (!p || !hit(want, *p)) return false;
+                self = p;
+                break;
             }
-            bool found = false;
-            for (const UIElement* n = cur; n; n = n->parent()) {
-                if (hit(p.compound, *n)) { cur = n->parent(); found = true; break; }
+            case UICombinator::AdjacentSibling: {
+                const UIElement* prev = previousSibling(*self);
+                if (!prev || !hit(want, *prev)) return false;
+                self = prev;
+                break;
             }
-            if (!found) return false;
+            case UICombinator::GeneralSibling: {
+                const UIElement* found = nullptr;
+                for (const UIElement* s = previousSibling(*self); s;
+                     s = previousSibling(*s)) {
+                    if (hit(want, *s)) { found = s; break; }
+                }
+                if (!found) return false;
+                self = found;
+                break;
+            }
+            case UICombinator::Descendant:
+            default: {
+                const UIElement* found = nullptr;
+                for (const UIElement* n = self->parent(); n; n = n->parent()) {
+                    if (hit(want, *n)) { found = n; break; }
+                }
+                if (!found) return false;
+                self = found;
+                break;
+            }
+            }
         }
         return true;
     }
@@ -646,14 +686,18 @@ bool UIStyleSheet::ParseString(const std::string& text, const std::string& origi
                     if (compoundHasToken || !cur.empty()) endPart();
                     continue;
                 }
-                if (ch == '>') {
+                if (ch == '>' || ch == '+' || ch == '~') {
                     if (compoundHasToken || !cur.empty()) endPart();
                     if (sel.parts.empty()) {
-                        if (structErr.empty()) structErr = "a leading '>'";
+                        if (structErr.empty()) {
+                            structErr = std::string("a leading '") + ch + "'";
+                        }
                     } else if (sawCombinator && structErr.empty()) {
                         structErr = "consecutive combinators";
                     }
-                    pendingComb = UICombinator::Child;
+                    pendingComb = ch == '>'   ? UICombinator::Child
+                                : ch == '+'   ? UICombinator::AdjacentSibling
+                                              : UICombinator::GeneralSibling;
                     sawCombinator = true;
                     continue;
                 }
@@ -778,6 +822,13 @@ void UIStyleSheet::ApplyToElement(UIElement& el) const {
 void UIStyleSheet::ApplyTo(UIElement& root) const {
     ApplyToElement(root);
     for (const auto& c : root.children()) ApplyTo(*c);
+}
+
+void UIStyleSheet::Recascade(UIElement& el) const {
+    std::string keepText = std::move(el.style().text);
+    el.style() = Style{};
+    ApplyToElement(el);   // rules for the current state + classes, then inline
+    el.style().text = std::move(keepText);
 }
 
 bool UIStyleSheet::HasStateRuleFor(const UIElement& el) const {

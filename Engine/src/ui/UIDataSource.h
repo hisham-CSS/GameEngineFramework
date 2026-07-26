@@ -205,6 +205,18 @@ namespace MyCoreEngine::ui {
         // removed or re-pointed source ends up still being read through.
         std::uint32_t revision() const { return rev_; }
 
+        // Sum of every registered source's version. Cheap (a handful of
+        // sources) and used for ONE thing: while a binding is still unresolved,
+        // this is the signal that a property it named may now exist.
+        //
+        // Registering a source bumps `revision`, but ADDING A PROPERTY to an
+        // already-registered one does not — and markup that binds `{ammo}`
+        // before gameplay ever calls SetInt("ammo") is completely ordinary.
+        // Without this the binding would report once and stay dead forever,
+        // which is exactly the silent-never-updates failure this system exists
+        // to avoid.
+        std::uint32_t sourceVersionSum() const;
+
     private:
         std::vector<std::pair<std::string, UIDataSource*>> sources_;
         UIConverterTable converters_;

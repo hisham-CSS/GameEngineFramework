@@ -140,9 +140,85 @@ TEST(UISelectors, WhitespaceAroundAChildCombinatorIsNotItselfACombinator) {
     }
 }
 
+// A sibling combinator looks SIDEWAYS rather than up, so it needs the parent's
+// child list. `+` is the element immediately before; `~` is any earlier one.
+TEST(UISelectors, AdjacentSiblingMatchesOnlyTheElementImmediatelyBefore) {
+    Tree t;
+    ASSERT_TRUE(t.Load(".row + .btn { background-color: #ff0000; }", R"(<UI name="root">
+          <Element name="panel" class="panel">
+            <Element name="row" class="row"/>
+            <Element name="first" class="btn"/>
+            <Element name="second" class="btn"/>
+          </Element>
+        </UI>)")) << (t.sheet.errors().empty() ? "" : t.sheet.errors()[0]);
+
+    EXPECT_NEAR(t.red("first"), 1.0f, 0.01f) << "the element right after .row";
+    EXPECT_NEAR(t.red("second"), 0.0f, 0.01f) << "one further along must not match";
+}
+
+TEST(UISelectors, GeneralSiblingMatchesAnyEarlierSibling) {
+    Tree t;
+    ASSERT_TRUE(t.Load(".row ~ .btn { background-color: #ff0000; }", R"(<UI name="root">
+          <Element name="panel" class="panel">
+            <Element name="before" class="btn"/>
+            <Element name="row" class="row"/>
+            <Element name="first" class="btn"/>
+            <Element name="second" class="btn"/>
+          </Element>
+        </UI>)")) << (t.sheet.errors().empty() ? "" : t.sheet.errors()[0]);
+
+    EXPECT_NEAR(t.red("first"), 1.0f, 0.01f);
+    EXPECT_NEAR(t.red("second"), 1.0f, 0.01f) << "any later sibling must match";
+    // Siblings look BACKWARD only, as in CSS — there is no "previous" selector.
+    EXPECT_NEAR(t.red("before"), 0.0f, 0.01f) << "a sibling BEFORE .row matched";
+}
+
+TEST(UISelectors, SiblingsComposeWithAncestorsAndStates) {
+    Tree t;
+    ASSERT_TRUE(t.Load(".panel > .row + .btn { background-color: #ff0000; }",
+                       R"(<UI name="root">
+          <Element name="panel" class="panel">
+            <Element name="row" class="row"/>
+            <Element name="hit" class="btn"/>
+          </Element>
+          <Element name="other" class="panel-like">
+            <Element name="row2" class="row"/>
+            <Element name="miss" class="btn"/>
+          </Element>
+        </UI>)")) << (t.sheet.errors().empty() ? "" : t.sheet.errors()[0]);
+    EXPECT_NEAR(t.red("hit"), 1.0f, 0.01f);
+    EXPECT_NEAR(t.red("miss"), 0.0f, 0.01f) << "no .panel above it";
+}
+
+// A sibling compound is one more compound, so it weighs like one.
+TEST(UISelectors, SiblingSpecificitySumsLikeAnyOtherCompound) {
+    UIStyleSheet s;
+    ASSERT_TRUE(s.ParseString(".a + .b { color: red; }\n"
+                              ".a ~ .b:hover { color: red; }\n", "t.uss"))
+        << (s.errors().empty() ? "" : s.errors()[0]);
+    EXPECT_EQ(classCount(s, 0), 2);
+    EXPECT_EQ(classCount(s, 1), 3);
+}
+
+// The first child has no previous sibling, and matching must simply fail
+// rather than walk off the front of the list.
+TEST(UISelectors, AFirstChildHasNoPreviousSibling) {
+    Tree t;
+    ASSERT_TRUE(t.Load(".x + .btn { background-color: #ff0000; }", R"(<UI name="root">
+          <Element name="only" class="btn"/>
+        </UI>)"));
+    EXPECT_NEAR(t.red("only"), 0.0f, 0.01f);
+    // ...and so does the root, which has no parent at all.
+    EXPECT_FALSE(t.sheet.rules()[0].selectors[0].Matches(t.doc.root()));
+}
+
 TEST(UISelectors, MalformedCombinatorsAreReported) {
     for (const char* css : { "> .btn { color: red; }",
+                             "+ .btn { color: red; }",
+                             "~ .btn { color: red; }",
                              ".panel > { color: red; }",
+                             ".panel + { color: red; }",
+                             ".panel > ~ .btn { color: red; }",
                              ".panel > > .btn { color: red; }" }) {
         UIStyleSheet s;
         EXPECT_FALSE(s.ParseString(css, "t.uss")) << css;

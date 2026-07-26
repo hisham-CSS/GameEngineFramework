@@ -346,6 +346,14 @@ UIDataSource* UIBindingContext::Find(const std::string& name) const {
     return nullptr;
 }
 
+std::uint32_t UIBindingContext::sourceVersionSum() const {
+    std::uint32_t sum = 0;
+    for (const auto& e : sources_) {
+        if (e.second) sum += e.second->version();
+    }
+    return sum;
+}
+
 std::vector<std::string> UIBindingContext::sourceNames() const {
     std::vector<std::string> out;
     out.reserve(sources_.size());

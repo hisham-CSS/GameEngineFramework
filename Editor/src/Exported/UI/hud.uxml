@@ -58,7 +58,12 @@
     </Element>
     <!-- The whole readout in one attribute: no placeholder text and no separate
          format string in C++, so there is nothing to drift out of sync. -->
-    <Label name="scoreLabel" class="readout" text="SCORE {score}"/>
+    <!-- `classes` toggles a class from a bool, so the LOOK of "low" lives in
+         hud.uss rather than in a colour written from C++. Removing a class
+         cannot un-apply its rules on its own — the cascade has no undo — so the
+         element is re-cascaded from scratch, exactly as :hover does. -->
+    <Label name="scoreLabel" class="readout" classes="alarm: {lowHealth}"
+           text="SCORE {score}"/>
   </Element>
 
   <Element name="buttonRow" class="row-left">

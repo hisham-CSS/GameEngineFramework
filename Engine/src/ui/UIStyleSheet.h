@@ -110,8 +110,10 @@ namespace MyCoreEngine::ui {
 
     // How a compound relates to the one before it in a selector.
     enum class UICombinator : std::uint8_t {
-        Descendant,   // `.panel .btn`  — any ancestor
-        Child,        // `.panel > .btn` — the immediate parent
+        Descendant,      // `.panel .btn`  — any ancestor
+        Child,           // `.panel > .btn` — the immediate parent
+        AdjacentSibling, // `.a + .b`      — the element immediately before it
+        GeneralSibling,  // `.a ~ .b`      — any earlier sibling
     };
 
     // A full selector: a chain of compounds read left to right, e.g.
@@ -223,6 +225,22 @@ namespace MyCoreEngine::ui {
         // never pays for the feature — which also confines the re-cascade's
         // one caveat (see UIInteractionStyler) to elements the author opted in.
         bool HasStateRuleFor(const UIElement& el) const;
+
+        // Resets `el` to defaults and re-runs the whole cascade for its CURRENT
+        // state and classes.
+        //
+        // THE CASCADE HAS NO UNDO: applying a rule copies its declarations in
+        // and records nothing about what they overwrote, so there is no way to
+        // "remove" one when a state ends or a class is dropped. Re-running from
+        // scratch is the only correct answer, and both `:hover` restyling and
+        // class-toggle bindings need exactly this — which is why it lives here
+        // rather than being written twice.
+        //
+        // Text is carried across explicitly (it is not a cascadable property,
+        // so no rule would put it back) and moved rather than routed through
+        // setText, because the content is not changing and a needless
+        // re-measure on every hover is not free.
+        void Recascade(UIElement& el) const;
 
     private:
         std::vector<UIRule> rules_;

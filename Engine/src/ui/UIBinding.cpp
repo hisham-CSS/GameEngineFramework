@@ -365,6 +365,7 @@ void UIBinder::Rebuild(UIDocument& doc, UIBindingContext& ctx, std::string origi
     // therefore does not move the epoch, but resolving may have.
     seenEpoch_ = UIElement::structureEpoch();
     seenCtxRev_ = ctx.revision();
+    seenSourceSum_ = ctx.sourceVersionSum();
 }
 
 void UIBinder::reportOnce_(Entry& e, const UIValue& v, const std::string& what) {
@@ -556,10 +557,37 @@ bool UIBinder::apply_(Entry& e) {
         // Element -> source only; UpdateToSource handles it. Not an error and
         // not a no-op: there is simply nothing to write in this direction.
         return false;
-    case UIBindTarget::Kind::Class:
-        // Not built. The markup parser refuses to produce this kind, so it is
-        // unreachable rather than silently ignored.
-        return false;
+    case UIBindTarget::Kind::Class: {
+        UIValue v;
+        if (!evalSingle_(e, v)) return false;
+        bool want = false;
+        if (!v.AsBool(want)) {
+            reportOnce_(e, v, std::string("needs a bool, got ") + v.KindName());
+            return false;
+        }
+        if (b.negate) want = !want;
+        const std::string& cls = b.target.className;
+        if (e.el->HasClass(cls) == want) return false;   // nothing to do
+
+        if (want) e.el->AddClass(cls);
+        else      e.el->RemoveClass(cls);
+
+        // Adding or removing a class changes WHICH rules match, and the cascade
+        // has no undo — so the element has to be re-cascaded from scratch, the
+        // same operation :hover needs. Without a sheet there is nothing to
+        // re-run and the class is still recorded, which is what a document with
+        // no stylesheet should do.
+        if (sheet_) {
+            // The re-cascade re-applies this element's bindings, and THIS is
+            // one of them. Without the guard, applying a class binding would
+            // re-enter itself.
+            inRecascade_ = true;
+            sheet_->Recascade(*e.el);
+            ReapplyFor(e.el);
+            inRecascade_ = false;
+        }
+        return true;
+    }
     }
     return false;
 }
@@ -621,7 +649,15 @@ UIBindTick UIBinder::UpdateToTarget() {
     // says so), and every Entry holds a raw UIElement*.
     const std::uint32_t epoch = UIElement::structureEpoch();
     const std::uint32_t rev = ctx_->revision();
-    if (epoch != seenEpoch_ || rev != seenCtxRev_) {
+    // While anything is still unresolved, a moving source version means a
+    // property it named may now exist. Registering a source bumps `revision`,
+    // but ADDING a property to an already-registered one does not — and markup
+    // that binds `{ammo}` before gameplay first writes it is ordinary. Without
+    // this the binding would report once and stay dead for the whole run.
+    // Costs nothing once everything resolves, which is the normal state.
+    const bool retryPending =
+        unresolvedCount() > 0 && ctx_->sourceVersionSum() != seenSourceSum_;
+    if (epoch != seenEpoch_ || rev != seenCtxRev_ || retryPending) {
         // A FULL re-resolve, not just the pending entries: partial
         // re-resolution is exactly how a removed or re-pointed source ends up
         // still being read through a stale pointer.
@@ -676,6 +712,11 @@ std::size_t UIBinder::ReapplyFor(const UIElement* el) {
     std::size_t n = 0;
     for (Entry& e : entries_) {
         if (e.el != el) continue;
+        // A class binding re-cascades and then calls this to restore what the
+        // reset discarded. Re-applying the class binding itself from inside its
+        // own application would recurse; the class is already correct by then,
+        // so skipping it loses nothing.
+        if (inRecascade_ && e.binding->target.kind == UIBindTarget::Kind::Class) continue;
         if (apply_(e)) ++n;
     }
     return n;

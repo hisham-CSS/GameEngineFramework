@@ -104,6 +104,7 @@ Parsed by `UIMarkup` (`Engine/src/ui/UIMarkup.h`, pugixml).
 | `value` / `maxlength` / `mask` | `<TextField>` only — see [Text entry](#text-entry) |
 | `bind-value` | `<TextField>` only — the one **two-way** binding |
 | `push-hovered` / `push-pressed` / `push-focused` | element state back to the source |
+| `classes` | toggles classes from bools — `classes="low-health: {isLow}"` |
 
 Anything else is a **load error**. That matters more than it sounds: this loader
 used to read the attributes it knew and ignore the rest, so `nmae="healthFill"`
@@ -142,8 +143,13 @@ subset, no dependency.
 ```css
 .panel .btn      { }   /* a .btn anywhere inside a .panel */
 .panel > .btn    { }   /* only an immediate child */
+.row + .btn      { }   /* the element immediately after a .row */
+.row ~ .btn      { }   /* any later sibling of a .row */
 .panel > .row .btn:hover { }   /* chains and states compose */
 ```
+
+Siblings look **backward only**, as in CSS — there is no "previous element"
+selector, because matching walks from the element being styled.
 
 Comma-separated lists. Standard CSS **specificity** (`#id` > `.class` > type),
 with later-in-file winning ties. A pseudo-class counts as a class, and
@@ -171,8 +177,7 @@ Lengths are `auto`, `Npx`, `N%`, or a bare number (treated as px). Colours are
 alpha 0–1), or a handful of names.
 
 **Not supported, and reported as errors rather than silently ignored:**
-sibling combinators (`+`, `~`), any other pseudo-class, at-rules, variables, and
-property inheritance. No PROPERTY cascades from parent to child — every element
+any other pseudo-class, at-rules, variables, and property inheritance. No PROPERTY cascades from parent to child — every element
 is styled independently, and a context selector constrains *which* elements a
 rule reaches rather than passing values down.
 
@@ -500,6 +505,23 @@ already has a home you cannot hook.
 
 `binder().Describe()` prints one line per live binding with its current value.
 "It is not in this list" is a one-call diagnosis of a frozen readout.
+
+### Toggling classes
+
+```xml
+<Label class="readout" classes="alarm: {lowHealth}; boosted: !{tired}"/>
+```
+
+Shaped like `bind=` rather than a `class-<name>=` family, which would sit beside
+`class=` meaning something quite different, and it goes through the same
+brace-aware splitter so the two can never disagree about where an entry ends. A
+leading `!` negates; a value with no `{}` is an error (use `class=` for a
+constant).
+
+Toggling changes **which rules match**, and the cascade has no undo — so the
+element is reset and re-cascaded, exactly as `:hover` is, and its other bindings
+are re-applied afterwards because that reset discards what they wrote. Writing
+the class an element already has does nothing at all.
 
 ### Element to source
 

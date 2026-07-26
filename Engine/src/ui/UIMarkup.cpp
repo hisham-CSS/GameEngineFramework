@@ -78,7 +78,7 @@ namespace {
             // below; here they only have to survive the allow-list.
             if (n.rfind("on-", 0) == 0) continue;
             if (n.rfind("push-", 0) == 0) continue;
-            if (n == "bind-value") continue;
+            if (n == "bind-value" || n == "classes") continue;
             errors.push_back(loc + "unknown attribute '" + n + "'");
             return false;
         }
@@ -219,6 +219,51 @@ namespace {
                 return false;
             }
             bindings.push_back(std::move(b));
+        }
+
+        // `classes="low-health: {isLow}; boosted: {hasBoost}"` — each entry
+        // toggles ONE class from a bool.
+        //
+        // Shaped like `bind=` rather than a `class-<name>=` attribute family,
+        // which would sit next to `class=` in an attribute list meaning
+        // something quite different. Same brace-aware splitter, so `classes=`
+        // and `bind=` can never come to disagree about where an entry ends.
+        if (const char* classAttr = node.attribute("classes").value(); classAttr && *classAttr) {
+            std::vector<std::pair<std::string, std::string>> decls;
+            std::vector<std::string> splitErrors;
+            UIStyleSheet::SplitDeclarations(classAttr, decls, splitErrors);
+            if (!splitErrors.empty()) {
+                for (const auto& e : splitErrors) errors.push_back(loc + "classes: " + e);
+                return false;
+            }
+            for (const auto& d : decls) {
+                const std::string cls = trim(d.first);
+                if (cls.empty() || cls.find_first_of(" \t.#:") != std::string::npos) {
+                    errors.push_back(loc + "classes: '" + cls +
+                                     "' is not a plain class name");
+                    return false;
+                }
+                UIBinding b;
+                b.target.kind = UIBindTarget::Kind::Class;
+                b.target.className = cls;
+                b.label = "classes " + cls;
+                std::string cond = trim(d.second);
+                if (!cond.empty() && cond[0] == '!') {
+                    b.negate = true;
+                    cond = trim(cond.substr(1));
+                }
+                std::string err;
+                if (!UITextTemplate::Compile(cond, b.tmpl, err)) {
+                    errors.push_back(loc + b.label + ": " + err);
+                    return false;
+                }
+                if (b.tmpl.isConstant()) {
+                    errors.push_back(loc + b.label +
+                                     ": value has no {} - use class= for a constant");
+                    return false;
+                }
+                bindings.push_back(std::move(b));
+            }
         }
 
         // ---- element -> source ----

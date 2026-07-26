@@ -228,6 +228,10 @@ namespace MyCoreEngine::ui {
         std::string         origin_;
         std::uint32_t     seenCtxRev_ = 0;
         std::uint32_t     seenEpoch_ = 0;
+        std::uint32_t     seenSourceSum_ = 0;
+        // Set while a class binding is re-cascading its element, so ReapplyFor
+        // cannot re-enter the binding that triggered it.
+        bool              inRecascade_ = false;
     };
 
 } // namespace MyCoreEngine::ui
