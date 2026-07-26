@@ -79,6 +79,11 @@ namespace MyCoreEngine::ui {
         // reach are watched at all, and of those only the ones whose state
         // actually flipped are touched.
         bool RestyleInteractive() { return styler_.Update(); }
+
+        // Element -> source, for `push-*` and a field's `bind-value`. Call
+        // AFTER UpdatePointer and UpdateKeyboard, which is where the state and
+        // the values it publishes are decided.
+        void PublishToSources() { binder_.UpdateToSource(); }
         UIInteractionStyler& styler() { return styler_; }
 
         // Diagnostics from the last load attempt (markup and stylesheet).

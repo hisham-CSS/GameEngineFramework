@@ -74,9 +74,11 @@ namespace {
                 n == "value" || n == "maxlength" || n == "mask") {
                 continue;
             }
-            // The on-<event> family is validated in full below; here it only
-            // has to survive the allow-list.
+            // The on-<event> and push-<state> families are validated in full
+            // below; here they only have to survive the allow-list.
             if (n.rfind("on-", 0) == 0) continue;
+            if (n.rfind("push-", 0) == 0) continue;
+            if (n == "bind-value") continue;
             errors.push_back(loc + "unknown attribute '" + n + "'");
             return false;
         }
@@ -218,6 +220,68 @@ namespace {
             }
             bindings.push_back(std::move(b));
         }
+
+        // ---- element -> source ----
+        // `push-hovered="isOver"`, `push-pressed="firing"`, `push-focused="typing"`
+        // and, on a text field, `bind-value="playerName"`.
+        //
+        // A BARE PATH, not a template: you cannot un-format a rendered string
+        // back into a value, so anything with a converter chain or literal text
+        // around it is one-directional by construction, and pretending
+        // otherwise would produce a binding that silently only worked one way.
+        auto splitPath = [&](const std::string& raw, UIBinding& b, const char* what) {
+            const std::string path = trim(raw);
+            if (path.empty()) { errors.push_back(loc + what + ": empty path"); return false; }
+            const size_t dot = path.find('.');
+            if (dot != std::string::npos) {
+                if (path.find('.', dot + 1) != std::string::npos) {
+                    errors.push_back(loc + what + ": path '" + path +
+                                     "' has more than one '.' (write source.property)");
+                    return false;
+                }
+                b.pushSource = trim(path.substr(0, dot));
+                b.pushProp = trim(path.substr(dot + 1));
+            } else {
+                b.pushProp = path;
+            }
+            if (b.pushProp.empty()) {
+                errors.push_back(loc + what + ": path '" + path + "' has no property");
+                return false;
+            }
+            return true;
+        };
+
+        for (pugi::xml_attribute a : node.attributes()) {
+            const std::string n = a.name();
+            if (n.rfind("push-", 0) != 0) continue;
+            const std::string what = lower(n.substr(5));
+            UIBinding b;
+            b.target.kind = UIBindTarget::Kind::State;
+            b.label = n;
+            if (what == "hovered")      b.target.state = UIBindTarget::StateProp::Hovered;
+            else if (what == "pressed") b.target.state = UIBindTarget::StateProp::Pressed;
+            else if (what == "focused") b.target.state = UIBindTarget::StateProp::Focused;
+            else {
+                errors.push_back(loc + "unknown state '" + what + "' in '" + n +
+                                 "' (hovered|pressed|focused)");
+                return false;
+            }
+            if (!splitPath(a.value(), b, n.c_str())) return false;
+            bindings.push_back(std::move(b));
+        }
+
+        if (const pugi::xml_attribute a = node.attribute("bind-value")) {
+            if (!isField) {
+                errors.push_back(loc + "'bind-value' is only valid on a <TextField>");
+                return false;
+            }
+            UIBinding b;
+            b.target.kind = UIBindTarget::Kind::Value;
+            b.label = "bind-value";
+            if (!splitPath(a.value(), b, "bind-value")) return false;
+            bindings.push_back(std::move(b));
+        }
+
         el.setBindings(std::move(bindings));
 
         // `on-click="addScore"` — a NAMED action the app registered. Not a

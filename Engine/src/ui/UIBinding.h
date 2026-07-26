@@ -67,11 +67,9 @@ namespace MyCoreEngine::ui {
     };
 
     struct UIBindTarget {
-        // Style/Display/Class/State arrive in later milestones; the enum is
-        // complete from the start so the switches that dispatch on it are
-        // written exhaustively once.
-        enum class Kind : std::uint8_t { Text, Style, Display, Class, State };
-        enum class StateProp : std::uint8_t { Hovered, Pressed };
+        enum class Kind : std::uint8_t { Text, Style, Display, Class, State, Value };
+        // Element state that can be pushed BACK to the source.
+        enum class StateProp : std::uint8_t { Hovered, Pressed, Focused };
 
         Kind kind = Kind::Text;
         UIDeclaration::Prop styleProp{};  // Kind::Style
@@ -85,9 +83,15 @@ namespace MyCoreEngine::ui {
         UIBindTarget   target{};
         UITextTemplate tmpl;
         bool           negate = false;   // Display/Class: a leading '!'
-        std::string    pushPath;         // Kind::State only
-        // "text", "bind width", "if" — used verbatim in messages, so a
-        // diagnostic always names the attribute the author actually wrote.
+        // Kind::State and Kind::Value: the source property WRITTEN to. These
+        // are the only bindings that flow element -> source, and they carry a
+        // bare path rather than a template because there is nothing to
+        // interpolate — you cannot un-format a rendered string back into a
+        // value, so a to-source binding is one path and nothing else.
+        std::string    pushSource;       // "" => inherit
+        std::string    pushProp;
+        // "text", "bind width", "if", "push-hovered" — used verbatim in
+        // messages, so a diagnostic always names what the author wrote.
         std::string    label;
     };
 
@@ -133,6 +137,15 @@ namespace MyCoreEngine::ui {
         // at its new width on the frame it changes.
         UIBindTick UpdateToTarget();
 
+        // Element -> source. Call AFTER UpdatePointer and UpdateKeyboard, which
+        // is where the state and the values it pushes are decided.
+        //
+        // Only `push-*` and a TextField's `value` flow this way. There is no
+        // general two-way binding, deliberately: you cannot un-format a
+        // rendered string back into a value, so anything with a converter chain
+        // or literal text around it is one-directional by construction.
+        UIBindTick UpdateToSource();
+
         // Re-applies every binding on ONE element, unconditionally.
         //
         // For callers that reset an element's Style and re-run the cascade —
@@ -170,6 +183,12 @@ namespace MyCoreEngine::ui {
             bool             layoutAffecting = false;
             bool             reported = false;   // latch, re-armed on a kind change
             std::uint8_t     reportedKind = 0;
+            // Kind::State / Kind::Value only: where to write back to. No cache
+            // of the last value written — UpdateToSource compares against what
+            // the SOURCE currently holds, which is both simpler and immune to a
+            // cache going stale when something else writes the same property.
+            std::int32_t     pushIndex = -1;
+            UIDataSource*    pushSrc = nullptr;
         };
         struct ActionEntry {
             UIElement*    el = nullptr;
@@ -179,6 +198,9 @@ namespace MyCoreEngine::ui {
 
         void collect_(UIElement& el, const std::string& inheritedSource);
         bool resolve_(Entry& e, const std::string& inheritedSource);
+        // Resolves the write-back target of a State/Value binding, reporting a
+        // read-only property rather than dropping the write in silence.
+        void resolvePush_(Entry& e, const std::string& inheritedSource);
         bool apply_(Entry& e);
         // Renders `tmpl` into scratch_; false with an error already reported if
         // a hole could not be read or converted.

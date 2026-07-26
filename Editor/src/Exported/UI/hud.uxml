@@ -20,6 +20,9 @@
                              as the pre-bind default, and says so at load).
     if="alive"  if="!dead"   visibility from a bool; writes display: flex|none
     on-click="addScore"      calls a NAMED action the app registered
+    bind-value="playerName"  TextField only, and the one TWO-WAY binding
+    push-hovered="isOver"    element state back to the source (also -pressed,
+                             -focused)
 
   A {hole} is `{path | converter | converter : decimals}`. There is no
   arithmetic and no ternary: derived values are named C++ converters, which are
@@ -68,8 +71,14 @@
          A TextField shows its `value`, never a `text` — the value is the one
          source of truth, and the two would otherwise disagree the moment
          anyone typed. -->
-    <TextField name="nameField" class="field" value="player one" maxlength="24"/>
+    <TextField name="nameField" class="field" bind-value="playerName" maxlength="24"/>
   </Element>
+
+  <!-- The other direction: what you type in the field above lands in the data
+       source, and this label reads it straight back out. `bind-value` is
+       two-way; `text` is one-way, because you cannot un-format a rendered
+       string ("SCORE {score}") back into a value. -->
+  <Label name="greeting" class="readout" text="HELLO {playerName | upper}"/>
 
   <!-- `if` writes display:none rather than removing the element, so it keeps
        its identity, its handlers and its place in this file — and flipping it

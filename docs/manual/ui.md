@@ -42,7 +42,8 @@ renderer().SetUIDraw([&hud](Renderer2D& r2d, int w, int h, float dt) {
 
 Your own class does what `DemoHud` does: own a `UIAssetDocument` and a
 `UIDataSource`, register the source before loading, and per frame call
-`Update(dt)` → `UpdateToTarget()` → `Layout` → `UpdatePointer` →
+`Update(dt)` → `UpdateToTarget()` → `AdvanceTime(dt)` → `Layout` →
+`UpdatePointer` → `UpdateKeyboard` → `PublishToSources()` →
 `RestyleInteractive()` → `Draw`.
 
 `DemoHud` has no bind callback and holds no pointer into the tree at all: values
@@ -94,6 +95,8 @@ Parsed by `UIMarkup` (`Engine/src/ui/UIMarkup.h`, pugixml).
 | `focusable` | `true`/`false` — puts the element in the tab order |
 | `disabled` | `true`/`false` (bare = true) — inert, skipped by Tab, matches `:disabled` |
 | `value` / `maxlength` / `mask` | `<TextField>` only — see [Text entry](#text-entry) |
+| `bind-value` | `<TextField>` only — the one **two-way** binding |
+| `push-hovered` / `push-pressed` / `push-focused` | element state back to the source |
 
 Anything else is a **load error**. That matters more than it sounds: this loader
 used to read the attributes it knew and ignore the rest, so `nmae="healthFill"`
@@ -491,6 +494,34 @@ already has a home you cannot hook.
 `binder().Describe()` prints one line per live binding with its current value.
 "It is not in this list" is a one-call diagnosis of a frozen readout.
 
+### Element to source
+
+Two families flow the other way:
+
+```xml
+<TextField bind-value="playerName"/>          <!-- two-way -->
+<Button push-hovered="isOver" push-pressed="firing" push-focused="typing"/>
+```
+
+Drive them with `PublishToSources()` once per frame, **after** `UpdatePointer`
+and `UpdateKeyboard` — that is where the state and the values they publish are
+decided.
+
+Both take a **bare path**, never a template, and that is a design limit rather
+than an omission: you cannot un-format a rendered string back into a value, so
+anything carrying a converter chain or literal text (`"SCORE {score}"`) is
+one-directional by construction. Pretending otherwise would ship a binding that
+silently only worked one way.
+
+A push target that does not exist yet is **created** — the element owns that
+value, so an app should not have to declare it before the UI can publish it. A
+**read-only** property (observed with no setter) is reported instead, because a
+push that silently did nothing looks exactly like a UI that was never wired up.
+
+Both directions are equality-gated against what the source actually holds, so a
+round trip settles immediately instead of oscillating, and an idle element never
+writes.
+
 ### Cost
 
 An idle frame is one integer compare per source plus one per binding — no
@@ -609,7 +640,6 @@ reset, so a leaked blend or depth state would corrupt the next pass.
 
 ## Not there yet
 
-Element→source (two-way) binding; class-toggle bindings; clipboard and undo in
-text fields; multi-line text; sibling combinators; a `UIDocument` **component**
-so a scene can attach UI to an entity (today the host installs the draw
-callback).
+Class-toggle bindings; clipboard and undo in text fields; multi-line text;
+sibling combinators; a `UIDocument` **component** so a scene can attach UI to an
+entity (today the host installs the draw callback).

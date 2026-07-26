@@ -20,6 +20,9 @@ bool DemoHud::Init(const std::string& markupPath, const std::string& stylePath,
     source_.SetNumber("health", 1.0f);
     source_.SetInt("score", 0);
     source_.SetBool("lowHealth", false);
+    // Seeded so the field starts with something; after that the field OWNS it,
+    // and hud.uxml's bind-value publishes every keystroke straight back here.
+    source_.SetString("playerName", "player one");
     // A named action, so hud.uxml can write on-click="addScore" and the handler
     // is authored rather than attached.
     source_.AddAction("addScore", [this] { SetScore(score() + 100); });
@@ -96,6 +99,11 @@ void DemoHud::Draw(Renderer2D& r2d, int widthPx, int heightPx, float dt) {
     // styling can only be applied after it. A state rule may change padding or
     // size and not just colour, so a restyle means laying out again — which is
     // why this is folded into the same condition as a binding write.
+    // Element -> source BEFORE the styler and the second binding pass, so a
+    // value the user just typed is in the model for anything reading it this
+    // frame rather than one frame stale.
+    assets_.PublishToSources();
+
     bool relayout = assets_.RestyleInteractive();
 
     // A click handler wrote the model AFTER layout. Run the binding pass again

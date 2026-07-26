@@ -163,6 +163,7 @@ void UIBinder::collect_(UIElement& el, const std::string& inheritedSource) {
              b.target.styleProp == UIDeclaration::Prop::Color);
         e.layoutAffecting = !colourOnly;
         resolve_(e, scope);
+        resolvePush_(e, scope);
         entries_.push_back(e);
     }
 
@@ -195,6 +196,42 @@ void UIBinder::collect_(UIElement& el, const std::string& inheritedSource) {
     if (sheet_) noteShadowedDeclarations_(el, *sheet_);
 
     for (const auto& c : el.children()) collect_(*c, scope);
+}
+
+void UIBinder::resolvePush_(Entry& e, const std::string& inheritedSource) {
+    const UIBinding& b = *e.binding;
+    e.pushSrc = nullptr;
+    e.pushIndex = -1;
+    if (b.pushProp.empty()) return;
+
+    const std::string srcName = b.pushSource.empty() ? inheritedSource : b.pushSource;
+    if (srcName.empty()) {
+        errors_.push_back(where_(*e.el, b) +
+                          ": no data source in scope - add data-source= to an "
+                          "ancestor, or write \"source.property\"");
+        return;
+    }
+    UIDataSource* src = ctx_->Find(srcName);
+    if (!src) {
+        errors_.push_back(where_(*e.el, b) + ": unknown data source '" + srcName +
+                          "' (registered: " + join(ctx_->sourceNames()) + ")");
+        return;
+    }
+    // A write-back target that does not exist yet is CREATED, unlike a read
+    // path: the whole point is that the element owns this value, so the app
+    // does not have to declare it before the UI can publish it.
+    if (src->IndexOf(b.pushProp) < 0) src->SetValue(b.pushProp, UIValue{});
+    const int idx = src->IndexOf(b.pushProp);
+    if (!src->IsWritableAt(idx)) {
+        // Reported rather than dropped: an observed property with no setter is
+        // read-only, and a push that silently did nothing would look exactly
+        // like a UI that is not wired up.
+        errors_.push_back(where_(*e.el, b) + ": '" + b.pushProp +
+                          "' is read-only, so it cannot be written");
+        return;
+    }
+    e.pushSrc = src;
+    e.pushIndex = idx;
 }
 
 bool UIBinder::resolve_(Entry& e, const std::string& inheritedSource) {
@@ -318,8 +355,10 @@ void UIBinder::Rebuild(UIDocument& doc, UIBindingContext& ctx, std::string origi
         apply_(e);
         // Record the version the force-apply just consumed, or the very next
         // UpdateToTarget would re-apply every binding for nothing — turning the
-        // first frame after a reload into a full re-layout.
+        // first frame after a reload into a full re-layout. A `bind-value`
+        // tracks its push source, which is the one it reads from.
         if (e.src) e.lastSourceVersion = e.src->version();
+        else if (e.pushSrc) e.lastSourceVersion = e.pushSrc->version();
     }
 
     // Record these AFTER collecting, because collect_ attaches listeners and
@@ -498,14 +537,79 @@ bool UIBinder::apply_(Entry& e) {
         e.el->style().display = show ? DisplayMode::Flex : DisplayMode::None;
         return true;
     }
-    case UIBindTarget::Kind::Class:
+    case UIBindTarget::Kind::Value: {
+        // The source -> element half of a text field's two-way binding. Guarded
+        // on inequality, because assigning the same string back would be a
+        // needless caret clamp every time the source version moves for some
+        // unrelated reason.
+        UITextEdit* ed = e.el->textEdit();
+        if (!ed || !e.pushSrc) return false;
+        UIValue v;
+        if (!e.pushSrc->ReadAt(e.pushIndex, v)) return false;
+        std::string s = v.kind == UIValue::Kind::None ? std::string() : v.ToDisplayString();
+        if (s == ed->value()) return false;
+        ed->setValue(std::move(s));
+        e.el->SyncTextFromEdit();
+        return true;
+    }
     case UIBindTarget::Kind::State:
-        // Later milestones. Nothing is silently ignored: the markup parser
-        // refuses to produce these kinds yet, so this is unreachable rather
-        // than a no-op.
+        // Element -> source only; UpdateToSource handles it. Not an error and
+        // not a no-op: there is simply nothing to write in this direction.
+        return false;
+    case UIBindTarget::Kind::Class:
+        // Not built. The markup parser refuses to produce this kind, so it is
+        // unreachable rather than silently ignored.
         return false;
     }
     return false;
+}
+
+UIBindTick UIBinder::UpdateToSource() {
+    UIBindTick tick;
+    if (!doc_ || !ctx_) return tick;
+
+    // The SAME guard as UpdateToTarget, and it matters more here: this runs
+    // immediately after UpdatePointer and UpdateKeyboard, which is the one
+    // point in the frame where a handler may have removed the very element
+    // being dispatched on.
+    if (UIElement::structureEpoch() != seenEpoch_ || ctx_->revision() != seenCtxRev_) {
+        UIDocument& doc = *doc_;
+        UIBindingContext& ctx = *ctx_;
+        const UIStyleSheet* sheet = sheet_;
+        std::string origin = origin_;
+        Rebuild(doc, ctx, std::move(origin), sheet);
+        return tick;
+    }
+
+    for (Entry& e : entries_) {
+        if (!e.pushSrc || e.pushIndex < 0) continue;
+        const UIBindTarget::Kind kind = e.binding->target.kind;
+
+        UIValue now;
+        if (kind == UIBindTarget::Kind::State) {
+            switch (e.binding->target.state) {
+            case UIBindTarget::StateProp::Hovered: now = UIValue::Bool(e.el->isHovered()); break;
+            case UIBindTarget::StateProp::Pressed: now = UIValue::Bool(e.el->isPressed()); break;
+            case UIBindTarget::StateProp::Focused: now = UIValue::Bool(e.el->isFocused()); break;
+            }
+        } else if (kind == UIBindTarget::Kind::Value) {
+            const UITextEdit* ed = e.el->textEdit();
+            if (!ed) continue;
+            now = UIValue::Str(ed->value());
+        } else {
+            continue;
+        }
+
+        // Compared against what the SOURCE holds rather than a cached copy:
+        // no cache to go stale when something else writes the same property,
+        // and an unchanged element costs one compare and no write.
+        UIValue held;
+        e.pushSrc->ReadAt(e.pushIndex, held);
+        if (held == now) continue;
+        e.pushSrc->WriteAt(e.pushIndex, now);
+        ++tick.applied;
+    }
+    return tick;
 }
 
 UIBindTick UIBinder::UpdateToTarget() {
@@ -532,6 +636,23 @@ UIBindTick UIBinder::UpdateToTarget() {
     }
 
     for (Entry& e : entries_) {
+        const UIBindTarget::Kind kind = e.binding->target.kind;
+        // Element -> source only; it has nothing to do in this direction.
+        if (kind == UIBindTarget::Kind::State) continue;
+
+        // A `bind-value` carries no template, so it resolves through pushSrc
+        // rather than the read path every other binding uses. Without this it
+        // would be skipped by the `!e.src` test below and the source -> field
+        // half would silently never run.
+        if (kind == UIBindTarget::Kind::Value) {
+            if (!e.pushSrc) continue;
+            const std::uint32_t pv = e.pushSrc->version();
+            if (pv == e.lastSourceVersion && !e.pushSrc->hasPolled()) continue;
+            if (apply_(e)) { ++tick.applied; tick.wroteLayout |= e.layoutAffecting; }
+            e.lastSourceVersion = pv;
+            continue;
+        }
+
         if (!e.src) continue;                       // pending
         if (e.binding->tmpl.isConstant()) continue; // authored text, applied at Rebuild
 
