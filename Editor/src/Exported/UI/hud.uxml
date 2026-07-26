@@ -98,8 +98,12 @@
 
        Ctrl+Z folds a burst of typing into ONE undo step, and Ctrl+C/X/V go
        through the HOST clipboard: copy from here and paste into the editor's
-       Inspector, or the other way round. There is no scrolling yet, so give it
-       a height that fits what you expect to type. -->
+       Inspector, or the other way round.
+
+       A field always clips to its own box and always scrolls its text to keep
+       the caret visible — that is not `overflow`, which governs children and a
+       field has none. It draws no scrollbar, so give it a height that fits
+       roughly what you expect to type. -->
   <TextField name="notes" class="notes" multiline="true"
              bind-value="notes" maxlength="512"/>
 
@@ -110,8 +114,39 @@
   <Element name="lowHealth" class="warning" if="lowHealth"
            text="LOW HEALTH  {health | ratio : 0}%"/>
 
+  <!-- The header is a SIBLING of the log, not a child: a child would scroll
+       away with the entries it labels. Anything you want pinned goes outside
+       the scroller — or inside it with position:absolute, which is pinned to
+       the scroller's box rather than scrolled (see .centre-overlay below). -->
+  <Label name="logHeader" class="log-header" text="EVENT LOG"/>
+
+  <!-- `overflow: scroll` clips AND scrolls. Put the pointer over it and turn
+       the wheel; drag the thumb on the right.
+
+       The height in hud.uss is what makes this a scroller at all: a scroller
+       needs a definite height, because `scroll` stops its children being
+       squeezed to fit (that is what leaves something to scroll), so without one
+       the panel just grows to its content and escapes the HUD.
+
+       There is no chaining: this list keeps the wheel even at its end, rather
+       than handing it to whatever contains it. -->
+  <Element name="log" class="log">
+    <Label class="entry" text="entry 01 — wheel over me"/>
+    <Label class="entry" text="entry 02"/>
+    <Label class="entry" text="entry 03"/>
+    <Label class="entry" text="entry 04"/>
+    <Label class="entry" text="entry 05"/>
+    <Label class="entry" text="entry 06"/>
+    <Label class="entry" text="entry 07"/>
+    <Label class="entry" text="entry 08"/>
+    <Label class="entry" text="entry 09"/>
+    <Label class="entry" text="entry 10 — the end"/>
+  </Element>
+
   <!-- Decorative overlay. pointer-events:none in the stylesheet, or this
-       full-screen layer would swallow every click meant for the UI below. -->
+       full-screen layer would swallow every click meant for the UI below —
+       and note that it also means the wheel passes straight through to
+       whatever is underneath. -->
   <Element name="centre" class="centre-overlay">
     <Element name="crosshair" class="crosshair"/>
   </Element>

@@ -819,6 +819,24 @@ void EditorApplication::DrawGameViewport(MyCoreEngine::Scene& scene,
         // for its own dragging, so resizing the panel never presses a button.
         p.buttonDown = p.inside && ImGui::IsMouseDown(ImGuiMouseButton_Left);
 
+        // ImGui is the right source here for the same reason it is for the
+        // keyboard below: the Game view is an ImGui window, so GLFW's own wheel
+        // callback belongs to the Scene camera. Gated on exactly the expression
+        // that computed p.inside, so hover, clicks and the wheel can never
+        // disagree — and so this cannot fight the Scene view's zoom, since two
+        // panels cannot both be hovered.
+        //
+        // io.MouseWheelH is documented ">0 scrolls Left", i.e. the CONTENT moves
+        // right — already the engine's convention, so no sign flip.
+        // io.MouseWheelRequestAxisSwap is deliberately ignored: GLFW performs no
+        // such swap, and honouring it would make Shift+wheel behave differently
+        // here and in the shipped player, which is what this panel exists to
+        // rule out.
+        if (p.inside) {
+            const ImGuiIO& wio = ImGui::GetIO();
+            p.wheel = { wio.MouseWheelH, wio.MouseWheel };
+        }
+
         // Keyboard, but ONLY while the Game panel is focused. Otherwise typing
         // a name in the Inspector would also be typed into the game's UI, and
         // Tab would move focus in two places at once.

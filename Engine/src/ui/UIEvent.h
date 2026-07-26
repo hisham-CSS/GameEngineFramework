@@ -31,6 +31,7 @@ namespace MyCoreEngine::ui {
         KeyDown,       // bubbles, to the FOCUSED element
         TextInput,     // bubbles, to the FOCUSED element; carries typed UTF-8
         ValueChanged,  // bubbles; a control's value was edited by the user
+        Wheel,         // bubbles, to the HOVERED element; default action scrolls
     };
 
     // A platform-neutral key identity. Deliberately small: only keys the UI
@@ -78,6 +79,12 @@ namespace MyCoreEngine::ui {
         bool  shift = false, ctrl = false, alt = false;
         // TextInput only: the UTF-8 typed this frame.
         std::string text;
+        // Wheel only: scroll NOTCHES, not pixels. A positive component means the
+        // CONTENT moves that way — rolling the wheel up gives delta.y > 0 and
+        // the view travels toward the top. Each host converts its platform's
+        // sign into this convention and does nothing else, so the
+        // pixels-per-notch constant lives in exactly one place.
+        glm::vec2 delta{ 0.0f };
 
         // `target` is the deepest element hit; `currentTarget` is the element
         // whose handler is running right now. During bubbling the two differ —
@@ -103,6 +110,12 @@ namespace MyCoreEngine::ui {
         glm::vec2 position{ 0.0f };
         bool inside = false;      // pointer is over the UI surface at all
         bool buttonDown = false;  // primary button held
+        // Wheel NOTCHES since the last update. Unlike the three fields above
+        // this is an edge-triggered DELTA, not a level snapshot — UIWorld zeroes
+        // it after the document loop, right where it clears the keyboard and for
+        // the same reason. A host that updates without a matching SetPointer
+        // would otherwise keep scrolling forever on one flick.
+        glm::vec2 wheel{ 0.0f };
     };
 
 } // namespace MyCoreEngine::ui

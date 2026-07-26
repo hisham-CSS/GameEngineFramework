@@ -14,6 +14,8 @@
 #include "../core/Core.h"
 #include "UIEvent.h"
 
+#include <glm/glm.hpp>
+
 #include <cstddef>
 #include <string>
 #include <vector>
@@ -51,6 +53,23 @@ namespace MyCoreEngine::ui {
         // strand a keyboard user, and every web textarea agrees.
         void setMultiline(bool m) { multiline_ = m; }
         bool multiline() const { return multiline_; }
+
+        // ---- text scroll ----
+        // How far the TEXT is scrolled inside the field's box, in pixels. A
+        // field always follows its caret, whatever `overflow` says: it is a text
+        // leaf, so the element-level scroll offset (which only moves children)
+        // can never help it, and a field you cannot type past the width of would
+        // be useless. The element clips to its own box for the same reason.
+        const glm::vec2& textScroll() const { return textScroll_; }
+
+        // Moves textScroll_ the least amount that brings the caret inside the
+        // content box, then clamps to [0, max(0, textExtent - contentBox)].
+        //
+        // PURE: no font, no element, no document — every measurement is an
+        // argument. That is what makes it testable headless, which matters
+        // because the UI suite usually runs with no font at all.
+        bool FollowCaret(const glm::vec2& caretLocal, const glm::vec2& caretSize,
+                         const glm::vec2& contentBox, const glm::vec2& textExtent);
 
         // Renders as this character repeated, for passwords. Empty = off.
         // Stored as UTF-8 so it can be any glyph the font has.
@@ -133,6 +152,7 @@ namespace MyCoreEngine::ui {
         std::size_t anchor_ = 0;
         std::size_t maxBytes_ = 0;
         bool        multiline_ = false;
+        glm::vec2   textScroll_{ 0.0f };
 
         std::vector<Snapshot> undo_, redo_;
         bool lastWasTyping_ = false;

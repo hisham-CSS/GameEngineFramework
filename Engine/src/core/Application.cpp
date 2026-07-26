@@ -297,9 +297,19 @@ namespace MyCoreEngine
 		}
 	}
 
-	void Application::ScrollThunk_(GLFWwindow* w, double /*xoff*/, double yoff)
+	void Application::ScrollThunk_(GLFWwindow* w, double xoff, double yoff)
 	{
 		if (auto* self = static_cast<Application*>(glfwGetWindowUserPointer(w))) {
+			// ACCUMULATED, not assigned: GLFW delivers one callback per scroll
+			// event and a fast trackpad flick produces several inside a single
+			// frame, so assignment would keep only the last — the faster you
+			// flick, the less it would move.
+			//
+			// The x is negated to reach the engine's "positive means the content
+			// moves that way" convention. GLFW's header specifies no direction
+			// for xoffset at all, which is why this one sign has a manual verify
+			// step rather than a claim.
+			self->scrollAccum_ += glm::vec2(float(-xoff), float(yoff));
 			// the editor zooms via ImGui wheel input instead (viewport-aware)
 			if (self->internalCameraInput_) {
 				self->camera_.ProcessMouseScroll(static_cast<float>(yoff));

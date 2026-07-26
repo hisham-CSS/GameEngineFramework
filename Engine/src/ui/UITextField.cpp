@@ -3,6 +3,7 @@
 #include "../render2d/Font.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace MyCoreEngine::ui {
 
@@ -53,6 +54,34 @@ void UITextEdit::setValue(std::string v) {
         value_.resize(ClampToBoundary(value_, maxBytes_));
     }
     clampCaret_();
+    // An external write can shrink the value under a scrolled view, leaving the
+    // field showing blank space past the end of text nobody can scroll back
+    // from. The next FollowCaret would fix it, but only once the user typed.
+    textScroll_ = { 0.0f, 0.0f };
+}
+
+bool UITextEdit::FollowCaret(const glm::vec2& caretLocal, const glm::vec2& caretSize,
+                             const glm::vec2& contentBox, const glm::vec2& textExtent) {
+    const glm::vec2 before = textScroll_;
+    glm::vec2 o = textScroll_;
+
+    // Bring the caret inside, moving the least that does it. Trailing edge
+    // first, then leading, so a caret wider than the box still shows its start.
+    const glm::vec2 lo = caretLocal;
+    const glm::vec2 hi = caretLocal + caretSize;
+    if (hi.x - o.x > contentBox.x) o.x = hi.x - contentBox.x;
+    if (lo.x - o.x < 0.0f)         o.x = lo.x;
+    if (hi.y - o.y > contentBox.y) o.y = hi.y - contentBox.y;
+    if (lo.y - o.y < 0.0f)         o.y = lo.y;
+
+    // Never past the end of the text, and never before its start. Without this
+    // the caret at the end of a line would drag the view out into blank space.
+    const glm::vec2 maxOff = glm::max(textExtent - contentBox, glm::vec2(0.0f));
+    o = glm::clamp(o, glm::vec2(0.0f), maxOff);
+
+    if (!std::isfinite(o.x) || !std::isfinite(o.y)) return false;
+    textScroll_ = o;
+    return o != before;
 }
 
 std::string UITextEdit::selectedText() const {

@@ -197,6 +197,13 @@ namespace {
         { "relative", (int)PositionType::Relative },
         { "absolute", (int)PositionType::Absolute },
     };
+    const std::vector<EnumTable> kOverflow = {
+        { "visible", (int)Overflow::Visible },
+        { "hidden",  (int)Overflow::Hidden  },
+        { "scroll",  (int)Overflow::Scroll  },
+        // No "auto" — see the Overflow comment in UIStyle.h. It is reserved and
+        // reported, not silently aliased onto `scroll`.
+    };
 
     using Prop = UIDeclaration::Prop;
 
@@ -242,7 +249,7 @@ namespace {
         { "background-color", Prop::BackgroundColor, UIPropValueKind::Color,   nullptr,     nullptr, nullptr },
         { "color",            Prop::Color,           UIPropValueKind::Color,   nullptr,     nullptr, nullptr },
         { "font-scale",       Prop::FontScale,       UIPropValueKind::Number,  nullptr,     nullptr, nullptr },
-        { "overflow",         Prop::Overflow,        UIPropValueKind::Boolean, nullptr,     "hidden", "visible" },
+        { "overflow",         Prop::Overflow,        UIPropValueKind::Enum,    &kOverflow,  nullptr, nullptr },
         { "pointer-events",   Prop::PointerEvents,   UIPropValueKind::Boolean, nullptr,     "auto",   "none" },
         // Boolean rather than an enum because there are exactly two values and
         // `if=` needs to write it from a bool. `true` means VISIBLE, so the
@@ -317,12 +324,28 @@ bool UIDeclaration::ParseValueFor(Prop p, const std::string& value,
     case UIPropValueKind::Edges:
         if (!parseEdges(value, out.edges)) { err = "bad edge shorthand '" + value + "'"; return false; }
         return true;
-    case UIPropValueKind::Enum:
+    case UIPropValueKind::Enum: {
+        // Guarded: a table-less Enum row would be a null deref at PARSE time,
+        // which is inside the hot-reload path — a message beats a crash.
+        if (!s->enumTable) {
+            err = std::string("internal: no keyword table for '") + s->name + "'";
+            return false;
+        }
         if (!parseEnum(value, *s->enumTable, out.enumValue)) {
-            err = "bad value '" + value + "'";
+            // Name the property AND the legal words. The old "bad value 'x'"
+            // named neither, which only half-honours the reported-errors rule:
+            // you learned that you were wrong, not what would be right.
+            std::string legal;
+            for (const auto& e : *s->enumTable) {
+                if (!legal.empty()) legal += "|";
+                legal += e.name;
+            }
+            err = std::string(s->name) + " must be one of " + legal +
+                  " (got '" + trim(value) + "')";
             return false;
         }
         return true;
+    }
     case UIPropValueKind::Boolean: {
         const std::string v = lower(trim(value));
         if (v != s->trueWord && v != s->falseWord) {
@@ -362,7 +385,7 @@ void UIDeclaration::ApplyTo(Style& s) const {
     case Prop::BackgroundColor: s.backgroundColor = color; break;
     case Prop::Color:          s.textColor = color; break;
     case Prop::FontScale:      s.fontScale = number; break;
-    case Prop::Overflow:       s.overflowHidden = boolean; break;
+    case Prop::Overflow:       s.overflow = (Overflow)enumValue; break;
     case Prop::PointerEvents:  s.pickable = boolean; break;
     case Prop::Display:        s.display = boolean ? DisplayMode::Flex : DisplayMode::None; break;
     }

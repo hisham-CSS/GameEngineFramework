@@ -106,6 +106,12 @@ namespace MyCoreEngine {
         // child can never draw outside its parent (which is what a scroll view
         // or a clipped panel needs). Screen-space pixels in both modes, because
         // that is what the scissor test operates on.
+        //
+        // PRECONDITION: Begin* was given the FULL framebuffer size and the GL
+        // viewport is at the origin. The scissor test works in window pixels
+        // regardless of the projection, so a shifted viewport leaves the
+        // geometry right and only the CLIPPING wrong — a failure that looks like
+        // a layout bug. UIPass is the only production caller and honours it.
         void PushClipRect(const glm::vec2& posPx, const glm::vec2& sizePx);
         void PopClipRect();
 
@@ -148,6 +154,9 @@ namespace MyCoreEngine {
         std::vector<Vertex> verts_;   // scratch, reused across frames
         std::vector<ClipRect> clipStack_;
         std::vector<ClipRect> clipHistory_; // resolved (intersected) rects
+        // History index per stack level, so Pop restores its parent in O(1)
+        // instead of searching clipHistory_ backwards by float equality.
+        std::vector<int>      clipStackIdx_;
         int   curClip_ = -1;
         int   seq_ = 0;
         bool  inFrame_ = false;

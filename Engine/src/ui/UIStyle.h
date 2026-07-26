@@ -35,6 +35,23 @@ namespace MyCoreEngine::ui {
     // time a banner flickered.
     enum class DisplayMode { Flex, None };
 
+    // CSS `overflow`. Hidden clips; Scroll clips AND scrolls.
+    //
+    // Scroll is a LAYOUT semantic, not just a paint flag. A scroller's in-flow
+    // children are laid out at their natural size — the engine forces
+    // flex-shrink to 0 for them — because otherwise flexbox squeezes them to
+    // fit, the content extent always equals the box, and there is nothing to
+    // scroll. yoga's own YGOverflowScroll does NOT do this: measured against
+    // the shipped 3.1, it produces byte-identical layout to Visible across
+    // every configuration tried (RTL, wrap, absolute children, percentage
+    // heights), so flex-shrink is the only lever there is.
+    //
+    // `auto` is deliberately not a keyword. CSS `auto` means "a bar only when
+    // needed", which is what Scroll already does here; accepting it as a
+    // synonym would make the two indistinguishable forever, and a keyword can
+    // be added later but not redefined.
+    enum class Overflow { Visible, Hidden, Scroll };
+
     // A CSS length: auto, absolute points (pixels), or a percentage of the
     // parent. Point/percent are separate units rather than a bare float because
     // "50" and "50%" mean entirely different things and silently conflating
@@ -94,8 +111,11 @@ namespace MyCoreEngine::ui {
 
         DisplayMode display = DisplayMode::Flex;
 
-        // Clip children to this element's box (CSS `overflow: hidden`).
-        bool overflowHidden = false;
+        // Clip to this element's box, and optionally scroll inside it.
+        // A <TextField> always clips to its own box whatever this says: it
+        // scrolls its text to follow the caret, and a control that scrolls its
+        // text and also paints outside itself is incoherent.
+        Overflow overflow = Overflow::Visible;
 
         // Whether the pointer can hit this element (CSS `pointer-events`).
         // Setting it false skips the element AND its subtree, which is what

@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iostream>
 
 namespace MyCoreEngine {
 
@@ -100,6 +101,7 @@ void Renderer2D::beginCommon_(const glm::mat4& viewProj, int vpW, int vpH) {
     cmds_.clear();
     clipStack_.clear();
     clipHistory_.clear();
+    clipStackIdx_.clear();
     curClip_ = -1;
     seq_ = 0;
     stats_ = Stats{};
@@ -175,7 +177,24 @@ void Renderer2D::End() {
 }
 
 void Renderer2D::PushClipRect(const glm::vec2& posPx, const glm::vec2& sizePx) {
-    ClipRect r{ posPx, glm::max(sizePx, glm::vec2(0.0f)) };
+    // Rejected AT THE SINK, because nothing downstream can. `size <= 0` is false
+    // for NaN, so a non-finite rect survives every guard in the UI, and
+    // lround(NaN) then hands glScissor a negative width: GL_INVALID_VALUE, the
+    // previous scissor box left active, and the test still enabled — i.e. the
+    // wrong region clipped for the rest of the frame. A zero rect draws nothing,
+    // which is what an empty intersection already does.
+    const bool finite = std::isfinite(posPx.x) && std::isfinite(posPx.y) &&
+                        std::isfinite(sizePx.x) && std::isfinite(sizePx.y);
+    ClipRect r{ finite ? posPx : glm::vec2(0.0f),
+                finite ? glm::max(sizePx, glm::vec2(0.0f)) : glm::vec2(0.0f) };
+    if (!finite) {
+        static bool warned = false;
+        if (!warned) {
+            warned = true;
+            std::cerr << "WARN::RENDERER2D non-finite clip rect; clipping everything "
+                         "out rather than corrupting the scissor box" << std::endl;
+        }
+    }
     if (!clipStack_.empty()) {
         // Intersect with the parent: a child must never escape it.
         const ClipRect& p = clipStack_.back();
@@ -187,21 +206,20 @@ void Renderer2D::PushClipRect(const glm::vec2& posPx, const glm::vec2& sizePx) {
     clipStack_.push_back(r);
     clipHistory_.push_back(r);
     curClip_ = int(clipHistory_.size()) - 1;
+    // Remembered rather than searched for on the way out. The old Pop scanned
+    // clipHistory_ BACKWARDS comparing floats: O(history) per pop, which goes
+    // quadratic once every row of a list clips; wrong when a child's intersected
+    // rect happens to equal its parent's (it would find the child's entry and
+    // split one batch into two); and silently a no-op if no entry matched,
+    // leaving the rest of a sibling subtree clipped by the deeper rect.
+    clipStackIdx_.push_back(curClip_);
 }
 
 void Renderer2D::PopClipRect() {
     if (clipStack_.empty()) return;
     clipStack_.pop_back();
-    if (clipStack_.empty()) {
-        curClip_ = -1;
-    } else {
-        // Point at the history entry for the rect now on top.
-        const ClipRect& top = clipStack_.back();
-        for (int i = int(clipHistory_.size()) - 1; i >= 0; --i) {
-            if (clipHistory_[size_t(i)].pos == top.pos &&
-                clipHistory_[size_t(i)].size == top.size) { curClip_ = i; break; }
-        }
-    }
+    clipStackIdx_.pop_back();
+    curClip_ = clipStackIdx_.empty() ? -1 : clipStackIdx_.back();
 }
 
 void Renderer2D::pushQuad_(const Vertex v[4], unsigned texture, int layer) {
@@ -332,9 +350,19 @@ void Renderer2D::flush_() {
             glEnable(GL_SCISSOR_TEST);
             // Scissor is in GL window coords (origin BOTTOM-left); clip rects
             // are given top-left, so flip Y against the viewport height.
-            const int x = int(std::lround(r.pos.x));
-            const int y = int(std::lround(float(vpH_) - (r.pos.y + r.size.y)));
-            glScissor(x, y, int(std::lround(r.size.x)), int(std::lround(r.size.y)));
+            //
+            // Both EDGES are rounded, not the origin and the extent separately:
+            // with pos.x = 10.5 and size.x = 10.5, lround(pos) + lround(size)
+            // gives 22 where the true edge 21.0 rounds to 21. Integer layouts
+            // never noticed, but a scroll offset produces fractional rects by
+            // construction and the boundary would shimmer as the content moved.
+            const int x0 = int(std::lround(r.pos.x));
+            const int x1 = int(std::lround(r.pos.x + r.size.x));
+            const int yTop = int(std::lround(float(vpH_) - (r.pos.y + r.size.y)));
+            const int yBot = int(std::lround(float(vpH_) - r.pos.y));
+            // The intersection above guarantees size >= 0, so neither extent can
+            // come out negative here.
+            glScissor(x0, yTop, x1 - x0, yBot - yTop);
         } else {
             glDisable(GL_SCISSOR_TEST);
         }

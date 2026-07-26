@@ -213,6 +213,11 @@ public:
                 p.buttonDown =
                     glfwGetMouseButton(win, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
             }
+            // Drained from the Application's GLFW scroll callback. It has to be
+            // a callback rather than a poll — GLFW has no "wheel position" to
+            // read — and the Engine owns that single callback slot, so a second
+            // install here would silently kill the fly camera's zoom.
+            p.wheel = ConsumeScrollDelta();
             uiWorld_.SetPointer(p);
             // Drained, not copied: a keystroke must be delivered exactly once,
             // and the callbacks keep filling this between frames.

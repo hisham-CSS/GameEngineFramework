@@ -7,9 +7,10 @@
   within a quarter of a second — no rebuild, no restart.
 
   Supported subset (see UIStyleSheet.h): type / .class / #name selectors and
-  compounds, the :hover and :active pseudo-classes, CSS specificity, flex
-  properties, lengths as auto|px|%, edge shorthands, colours as #hex / rgb() /
-  rgba() / names, position + inset, display, overflow, pointer-events. Anything
+  compounds, the :hover / :active / :focus / :disabled pseudo-classes, descendant
+  / child / sibling combinators, CSS specificity, flex properties, lengths as
+  auto|px|%, edge shorthands, colours as #hex / rgb() / rgba() / names, position
+  + inset, display, overflow (visible|hidden|scroll), pointer-events. Anything
   else is reported as an error rather than silently ignored — check the console
   if a rule seems to do nothing.
 */
@@ -137,7 +138,44 @@
   color: white;
 }
 
+/* A scrolling panel. `overflow: scroll` clips and scrolls; `hidden` clips only.
+   The HEIGHT is what makes it a scroller: `scroll` stops the children being
+   squeezed to fit — that is what leaves something to scroll — so a scroller
+   without a definite height grows to its content and escapes its parent.
+
+   The scrollbar is an OVERLAY: it reserves no gutter, so it paints over the
+   right-hand edge of the content. Add padding-right if that matters; a bar that
+   changed the layout could make itself disappear, and back again. */
+.log {
+  overflow: scroll;
+  height: 120px;
+  width: 320px;
+  padding: 6px 10px;
+  margin: 4px 0px 0px 0px;
+  background-color: rgba(0, 0, 0, 0.35);
+}
+
+.log-header {
+  color: rgba(255, 255, 255, 0.55);
+  font-scale: 0.85;
+  margin: 12px 0px 0px 0px;
+}
+
+/* An explicit height per row. Nothing here needs it — a Label measures itself —
+   but a fixed row is what makes the panel's scroll extent predictable while you
+   are editing this file live. */
+.entry {
+  height: 22px;
+  color: rgba(255, 255, 255, 0.85);
+}
+
 /* Full-screen, centred by flexbox rather than by computing the middle. */
+/* An absolutely positioned child of a SCROLLER is pinned to the scroller's box
+   rather than scrolling with its content — a deliberate divergence from CSS,
+   because there is no position:fixed or sticky here to offer instead. That is
+   what makes a sticky header or a lock veil possible: an inset:0 overlay that
+   scrolled away would stop covering AND stop blocking clicks. This one is a
+   child of the root, so it simply covers the HUD. */
 .centre-overlay {
   position: absolute;
   left: 0; top: 0; right: 0; bottom: 0;

@@ -170,7 +170,7 @@ engine does; left-to-right would need to backtrack over the whole subtree.
 | Box | `margin`, `padding` (1–4 value CSS shorthand) |
 | Position | `position: relative\|absolute`, `left`, `top`, `right`, `bottom` |
 | Paint | `background-color`, `color`, `font-scale` |
-| Behaviour | `overflow: hidden\|visible`, `pointer-events: auto\|none`, `display: flex\|none` |
+| Behaviour | `overflow: visible\|hidden\|scroll`, `pointer-events: auto\|none`, `display: flex\|none` |
 
 Lengths are `auto`, `Npx`, `N%`, or a bare number (treated as px). Colours are
 `#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb(r,g,b)`, `rgba(r,g,b,a)` (channels 0–255,
@@ -321,6 +321,12 @@ anything, and it is what turns Home and End from "the value" into "this line".
 A single-line field leaves all four to whatever contains it, so Enter can still
 submit a form. The attribute is an error on anything but a `<TextField>`.
 
+**A field always clips to its own box and always scrolls its text to follow the
+caret**, whatever `overflow` says — `overflow` governs children, and a field has
+none. So a long value stays inside its box and typing past the width scrolls
+rather than spilling. It draws no scrollbar and does not size itself to fit, so
+give a multiline field a `height` or `max-height`.
+
 **Undo** coalesces a burst of typing into one step, because undoing a word one
 letter at a time is not what anyone means by it. A deletion, a caret jump, or
 typing after an undo all start a fresh run, and the history is capped at 64
@@ -383,6 +389,72 @@ clamped amount from the growth pool.
 
 ---
 
+## Scrolling and clipping
+
+`overflow` decides what an element does with content bigger than its box:
+
+| Value | Does |
+|---|---|
+| `visible` (default) | content paints outside the box |
+| `hidden` | clips to the box |
+| `scroll` | clips **and** scrolls |
+
+```css
+.log {
+  overflow: scroll;
+  height: 120px;      /* required — see below */
+  width: 320px;
+}
+```
+
+**A scroller needs a definite height** (a `height`, a `max-height`, or a
+shrinkable slot). `scroll` forces `flex-shrink: 0` on the scroller's own in-flow
+children, because otherwise flexbox squeezes them to fit, the content extent
+always equals the box, and there is nothing left to scroll. That is the *whole*
+mechanism: yoga's own overflow flag turns out to have no effect on layout at all,
+so this is the only lever there is. The consequence is that a scroller with no
+height of its own grows to its content and escapes its parent.
+
+**Absolutely positioned children are pinned to the scroller's box**, not scrolled
+with it. That is a deliberate divergence from CSS, taken because there is no
+`position: fixed` or `sticky` here to offer instead — and because the alternative
+is wrong twice over: an `inset: 0` overlay that scrolled away would stop covering
+*and* stop blocking clicks. It buys sticky headers and lock veils for free. A
+scroller's own `text=` does not scroll either; put a header in a sibling element.
+
+**Scrollbars are overlays.** They reserve no gutter, so they paint over the right
+edge of the content — add `padding-right` if that matters. A bar that changed the
+layout could make itself disappear, and then reappear, forever. The thumb is
+draggable, and pressing it never reaches the content underneath.
+
+**No chaining.** The innermost scrollable ancestor under the pointer keeps the
+wheel, even when it is already at its end. Choosing by *remaining room* instead
+would teleport the outer panel the moment an inner list hit its bottom — which is
+the resting state of every log.
+
+`pointer-events: none` disables scrolling too, and lets the wheel reach the
+document beneath. Put it on the decorative parts of an overlay, not on a
+container you want to scroll.
+
+From C++:
+
+```cpp
+el->SetScrollOffset({ 0.f, 120.f });     // clamped; visible at the next Layout
+el->ScrollIntoView(child->layout().position, child->layout().size);
+el->scrollOffset(); el->maxScroll(); el->contentSize();
+```
+
+`ScrollIntoView` is how you pin a log to its tail. Focus already uses it: Tabbing
+to a control below the fold scrolls it into view, because a `:focus` ring nobody
+can see — over a control Enter would then activate — is worse than no focus ring.
+
+**Across a hot reload a scroll position is lost**, because a successful reload
+rebuilds the tree and drops focus and hover with it; singling scroll out to
+survive would be more surprising than losing it. A *failed* edit keeps the last
+good tree and therefore keeps your place.
+
+---
+
 ## Behaviour: elements and events
 
 `UIElement` (`Engine/src/ui/UIElement.h`) is retained: build the tree once and
@@ -402,11 +474,17 @@ through its ancestors, with `e.target` (what was hit) and `e.currentTarget`
 (whose handler is running) kept separate, and `e.StopPropagation()` to halt the
 walk. Multiple handlers per type run in registration order.
 
-Available: `OnClick`, `OnPointerDown/Up/Move/Enter/Leave`. A **click** requires
-press *and* release on the same element, so sliding off a button before letting
-go correctly cancels it. Prefer an authored `on-click="actionName"` where you
-can — a bound action survives a hot reload by itself, while a handler attached
-in C++ has to be re-attached.
+Available: `OnClick`, `OnPointerDown/Up/Move/Enter/Leave`, `OnWheel`. A **click**
+requires press *and* release on the same element, so sliding off a button before
+letting go correctly cancels it. Prefer an authored `on-click="actionName"` where
+you can — a bound action survives a hot reload by itself, while a handler
+attached in C++ has to be re-attached.
+
+`OnWheel` carries the notch count in `e.delta`. Note that an authored
+`on-wheel="name"` **observes** the wheel without claiming it: the built-in scroll
+still runs afterwards. Only a C++ handler calling `StopPropagation` suppresses
+it, which is the same default-action ordering `KeyDown` uses to reach a text
+field.
 
 **Gotcha:** use `setText()`, not `style().text = ...`. Writing the style field
 directly does not invalidate the measured size, so the label keeps its old width
@@ -424,7 +502,16 @@ UIPointerState p;
 p.position   = { mouseX - uiOriginX, mouseY - uiOriginY };
 p.inside     = /* pointer is over the UI surface at all */;
 p.buttonDown = /* left button held */;
+p.wheel      = { horizontalNotches, verticalNotches };  // see below
 ```
+
+`wheel` is the odd one out: the first three are level snapshots, but it is an
+edge-triggered **delta** in notches, cleared by `UIWorld::Update` the same way
+the keyboard is. A positive component means the *content* moves that way, so
+rolling the wheel up gives `y > 0`. Hosts convert their platform's sign into that
+convention and nothing else — the pixels-per-notch constant lives in one place,
+next to the default action, so the Game view and the shipped player cannot
+disagree about how far a notch goes.
 
 In the Player the UI covers the window, so window coords *are* UI coords. In the
 editor's Game view the UI lives inside a dock panel, so the panel origin is
@@ -433,9 +520,14 @@ own dragging.
 
 `UIDocument::HitTest` returns the deepest **pickable** element containing the
 point. Topmost wins (children tested in reverse paint order), an
-`overflow: hidden` parent rejects its whole clipped-away subtree, and
-`pointer-events: none` makes an element *and its subtree* inert — which is what
-a full-screen decorative overlay needs, or it swallows every click beneath it.
+`overflow: hidden` **or `scroll`** parent rejects its whole clipped-away subtree
+— a row scrolled out of view is painted nowhere and must not be clickable — and
+`pointer-events: none` makes an element *and its subtree* inert, which is what a
+full-screen decorative overlay needs, or it swallows every click beneath it.
+
+> **Gotcha:** there is no `position: fixed` and no portal, so a popup or dropdown
+> authored *inside* a scroller will be clipped by it. Make it a child of the
+> document root instead.
 
 **Order matters** and `UIWorld::Update` enforces it: `Layout` first (hit-testing
 reads computed rects), then `UpdatePointer` (handlers may change styles), then
@@ -767,10 +859,20 @@ reset, so a leaked blend or depth state would corrupt the next pass.
 
 ## Not there yet
 
-Scrolling and clipping — an element bigger than its parent overflows rather
-than scrolling, so a multi-line field is only as tall as you make it. Word wrap:
-text breaks where you put a newline and nowhere else. IME composition (dead keys
-and layouts work, because text arrives already decoded, but there is no
-composition window). A checkbox, which is why `:checked` is still refused.
+Word wrap: text breaks where you put a newline and nowhere else. IME composition
+(dead keys and layouts work, because text arrives already decoded, but there is
+no composition window). A checkbox, which is why `:checked` is still refused.
 Repeating a template over a list — bindings address one property, not a
-collection. Transitions and animation.
+collection. Transitions and animation. `position: fixed`, `position: sticky`, and
+portals.
+
+Within scrolling specifically: `overflow-x` / `overflow-y` as separate
+properties; the `auto` keyword (reported until it has a meaning of its own that
+`scroll` does not already cover); scroll chaining and gesture latching; keyboard
+scrolling — PageUp/PageDown/Home/End do nothing and a scroller is not focusable,
+so a text-only panel is mouse-only; momentum and smooth-scroll animation;
+Shift+wheel axis swap (both hosts ignore it on purpose, so the two agree); a
+reserved scrollbar gutter; `scrollbar-*` styling, the bar's width and colours
+being constants; clicking the track to page up and down; a scrollbar for a text
+field (a multiline `<TextField>` scrolls its text but draws no bar); and
+virtualisation, so a scroller lays out every row it contains.

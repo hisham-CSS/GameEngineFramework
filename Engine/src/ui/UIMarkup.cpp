@@ -346,10 +346,15 @@ namespace {
             else if (evName == "pointer-enter") type = UIEventType::PointerEnter;
             else if (evName == "pointer-leave") type = UIEventType::PointerLeave;
             else if (evName == "pointer-move")  type = UIEventType::PointerMove;
+            // Observes the wheel; it does NOT claim it. The built-in scroll
+            // still runs afterwards, because making a bound action claim its
+            // event would silently change what every on-click means too. A C++
+            // handler calling StopPropagation is the way to suppress it.
+            else if (evName == "wheel")         type = UIEventType::Wheel;
             else {
                 errors.push_back(loc + "unknown event '" + evName + "' in '" + n +
                                  "' (click|pointer-down|pointer-up|pointer-enter|"
-                                 "pointer-leave|pointer-move)");
+                                 "pointer-leave|pointer-move|wheel)");
                 return false;
             }
 

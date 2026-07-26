@@ -81,6 +81,19 @@ namespace MyCoreEngine
 		void setInternalCameraInput(bool on) { internalCameraInput_ = on; }
 		bool internalCameraInput() const { return internalCameraInput_; }
 
+		// Wheel notches accumulated since the last call, and zeroed by it.
+		// Positive means the CONTENT moves that way, which is the convention the
+		// UI's wheel events use.
+		//
+		// It lives here rather than in the app because glfwSetScrollCallback has
+		// single-slot REPLACE semantics and InitGL already owns that slot — a
+		// second install in an app would silently kill the fly camera's zoom.
+		glm::vec2 ConsumeScrollDelta() {
+			const glm::vec2 d = scrollAccum_;
+			scrollAccum_ = { 0.0f, 0.0f };
+			return d;
+		}
+
 		// When on, each frame renders through the CameraDirector — the
 		// highest-priority enabled camera ENTITY (CameraComponent +
 		// Transform), with blending on switches — instead of the free-fly
@@ -229,6 +242,7 @@ namespace MyCoreEngine
 		JobSystem jobs_; // constructed on the main thread (captures its id)
 		Renderer renderer_;
 		bool     internalCameraInput_ = true;
+		glm::vec2 scrollAccum_{ 0.0f };
 
 		// timing
 		float    deltaTime_ = 0.0f;

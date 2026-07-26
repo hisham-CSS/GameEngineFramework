@@ -42,6 +42,19 @@ namespace {
         default:               return YGAlignAuto;
         }
     }
+    // No `default:` here, unlike the three above. The /we4062 build flag turns a
+    // missing enumerator into a compile error, and that protection is worth more
+    // on this enum than anywhere else: a forgotten Scroll case would compile
+    // clean and silently mean Visible, which is the one failure a scrolling
+    // feature cannot survive.
+    YGOverflow toYG(Overflow o) {
+        switch (o) {
+        case Overflow::Visible: return YGOverflowVisible;
+        case Overflow::Hidden:  return YGOverflowHidden;
+        case Overflow::Scroll:  return YGOverflowScroll;
+        }
+        return YGOverflowVisible;   // unreachable: the switch is exhaustive
+    }
 
     // The font in effect for the layout pass currently running. Yoga's measure
     // callback is a bare function pointer with only the node for context, and
@@ -97,13 +110,27 @@ namespace {
     // Pushes one element's style into its yoga node. Yoga's setters compare
     // before marking dirty, so re-pushing an unchanged style every frame is
     // cheap and self-invalidating — no manual dirty tracking needed here.
-    void pushStyle(YGNodeRef n, const Style& s, bool isTextLeaf) {
+    void pushStyle(YGNodeRef n, const Style& s, bool isTextLeaf, bool parentScrolls) {
         YGNodeStyleSetFlexDirection(n, toYG(s.direction));
         YGNodeStyleSetJustifyContent(n, toYG(s.justify));
         YGNodeStyleSetAlignItems(n, toYG(s.alignItems));
         YGNodeStyleSetAlignSelf(n, toYG(s.alignSelf));
         YGNodeStyleSetFlexGrow(n, s.flexGrow);
-        YGNodeStyleSetFlexShrink(n, s.flexShrink);
+
+        // A scroller's in-flow children must not be squeezed to fit its box. If
+        // they were, the content extent would always equal the box and there
+        // would be nothing to scroll — which is exactly what happens today,
+        // because flex-shrink defaults to 1.
+        //
+        // This is not an override of an unrelated property: shrinking is the
+        // negation of overflowing, so "do not shrink my children" IS what
+        // `overflow: scroll` means. yoga's own YGOverflowScroll does not do it
+        // (measured inert against 3.1 in every configuration tried), and yoga
+        // has no CSS `min-height: auto` to stop the squeeze at min-content, so
+        // flex-shrink is the only mechanism available.
+        const float shrink =
+            (parentScrolls && s.position != PositionType::Absolute) ? 0.0f : s.flexShrink;
+        YGNodeStyleSetFlexShrink(n, shrink);
 
         applyLength(n, s.width, YGNodeStyleSetWidth, YGNodeStyleSetWidthPercent,
                     YGNodeStyleSetWidthAuto);
@@ -136,6 +163,9 @@ namespace {
 
         YGNodeStyleSetDisplay(n, s.display == DisplayMode::None ? YGDisplayNone
                                                                 : YGDisplayFlex);
+        // Free, self-dirtying, and it keeps the node honest for a yoga that one
+        // day acts on it. Nothing here depends on it — see the flex-shrink note.
+        YGNodeStyleSetOverflow(n, toYG(s.overflow));
 
         // A measure function is only legal on a LEAF. Yoga asserts if a node
         // has both children and a measure func, so this must track the tree,
@@ -305,7 +335,7 @@ UIElement* UIElement::Find(const std::string& n) {
 UIDocument::UIDocument() : root_(std::make_unique<UIElement>("root")) {}
 UIDocument::~UIDocument() = default;
 
-void UIDocument::pushStyles_(UIElement& el) {
+void UIDocument::pushStyles_(UIElement& el, bool parentScrolls) {
     const bool isTextLeaf = el.children_.empty() && !el.style_.text.empty();
 
     // fontScale is the one measurement input yoga knows nothing about: it feeds
@@ -320,8 +350,75 @@ void UIDocument::pushStyles_(UIElement& el) {
     }
     el.pushedFontScale_ = el.style_.fontScale;
 
-    pushStyle(static_cast<YGNodeRef>(el.yogaNode_), el.style_, isTextLeaf);
-    for (auto& c : el.children_) pushStyles_(*c);
+    pushStyle(static_cast<YGNodeRef>(el.yogaNode_), el.style_, isTextLeaf, parentScrolls);
+    const bool scrolls = el.style_.overflow == Overflow::Scroll;
+    for (auto& c : el.children_) pushStyles_(*c, scrolls);
+}
+
+// Runs between the flexbox solve and readLayout_, on yoga's RAW parent-relative
+// rects. See the declaration for why that ordering is load-bearing.
+void UIDocument::measureScroll_(UIElement& el) {
+    // A display:none subtree is zeroed by yoga, so measuring it would compute an
+    // extent of 0 and clamp the offset away. Skipping it is what lets a hidden
+    // tab keep its scroll position — which is the whole point of `if=` writing
+    // `display` rather than removing the element.
+    if (el.style_.display == DisplayMode::None) return;
+
+    if (el.style_.overflow != Overflow::Scroll) {
+        // EVERY element is visited, not just scrollers: a class toggle or a
+        // :hover rule can take `scroll` away at any moment while the offset —
+        // which deliberately outlives Style — stays behind. Zeroing it here
+        // rather than testing overflow down in readLayout_ means a de-scrolled
+        // element can never displace its children into unclipped space.
+        if (el.scroll_) *el.scroll_ = UIScrollState{};
+    } else {
+        if (!el.scroll_) el.scroll_ = std::make_unique<UIScrollState>();
+        UIScrollState& sc = *el.scroll_;
+        YGNodeRef n = static_cast<YGNodeRef>(el.yogaNode_);
+        const glm::vec2 box{ YGNodeLayoutGetWidth(n), YGNodeLayoutGetHeight(n) };
+
+        // A justify/align rule that centres or end-aligns OVERFLOWING content
+        // puts it at negative offsets — measured, not assumed, because clamping
+        // to [0, ...] would then make the leading half permanently unreachable.
+        glm::vec2 lo{ 0.0f }, hi{ 0.0f };
+        for (const auto& c : el.children_) {
+            if (c->style_.display == DisplayMode::None) continue;      // `if=` writes display
+            if (c->style_.position == PositionType::Absolute) continue; // pinned, not content
+            YGNodeRef cn = static_cast<YGNodeRef>(c->yogaNode_);
+            const float l = YGNodeLayoutGetLeft(cn), t = YGNodeLayoutGetTop(cn);
+            lo.x = std::min(lo.x, l - YGNodeLayoutGetMargin(cn, YGEdgeLeft));
+            lo.y = std::min(lo.y, t - YGNodeLayoutGetMargin(cn, YGEdgeTop));
+            // A yoga rect EXCLUDES margins, so a row with margin-bottom would
+            // lose its tail without adding it back.
+            hi.x = std::max(hi.x, l + YGNodeLayoutGetWidth(cn)
+                                    + YGNodeLayoutGetMargin(cn, YGEdgeRight));
+            hi.y = std::max(hi.y, t + YGNodeLayoutGetHeight(cn)
+                                    + YGNodeLayoutGetMargin(cn, YGEdgeBottom));
+        }
+        // Children are positioned from the BORDER box with the leading padding
+        // already folded in; the trailing padding is not, and without it the
+        // last item can never be scrolled clear of the edge.
+        hi.x += el.style_.padding.right;
+        hi.y += el.style_.padding.bottom;
+
+        const bool ok = std::isfinite(lo.x) && std::isfinite(lo.y) &&
+                        std::isfinite(hi.x) && std::isfinite(hi.y);
+        sc.contentMin = ok ? lo : glm::vec2(0.0f);
+        sc.contentMax = ok ? hi : glm::vec2(0.0f);
+        sc.minOffset = glm::min(sc.contentMin, glm::vec2(0.0f));
+        sc.maxOffset = glm::max(sc.contentMax - box, sc.minOffset);
+        // Font::Measure accumulates fractional advances, so a row measuring
+        // 220.4 in a 220px box is a measurement artefact, not content. Without
+        // this floor every vertical list grows a horizontal scrollbar.
+        if (sc.maxOffset.x - sc.minOffset.x < 1.0f) { sc.minOffset.x = sc.maxOffset.x = 0.0f; }
+        if (sc.maxOffset.y - sc.minOffset.y < 1.0f) { sc.minOffset.y = sc.maxOffset.y = 0.0f; }
+        // Finite-checked at the SOURCE: a NaN offset would reach PushClipRect,
+        // and lround(NaN) hands glScissor a negative width.
+        const bool offOk = std::isfinite(sc.offset.x) && std::isfinite(sc.offset.y);
+        sc.offset = glm::clamp(offOk ? sc.offset : glm::vec2(0.0f),
+                               sc.minOffset, sc.maxOffset);
+    }
+    for (auto& c : el.children_) measureScroll_(*c);
 }
 
 void UIDocument::readLayout_(UIElement& el, const glm::vec2& parentOrigin) {
@@ -333,7 +430,95 @@ void UIDocument::readLayout_(UIElement& el, const glm::vec2& parentOrigin) {
                                                    YGNodeLayoutGetTop(n));
     el.layout_.position = pos;
     el.layout_.size = { YGNodeLayoutGetWidth(n), YGNodeLayoutGetHeight(n) };
-    for (auto& c : el.children_) readLayout_(*c, pos);
+
+    // The scroller's OWN rect is never displaced — only what it contains.
+    // Rounded to whole pixels: UIWorld already rounds the document origin
+    // precisely so every glyph lands on a texel, and a fractional scroll would
+    // undo that for the whole subtree. The unrounded value stays in the member
+    // so a sub-pixel wheel or drag still integrates.
+    const glm::vec2 scrolled = el.scroll_ ? pos - glm::round(el.scroll_->offset) : pos;
+
+    for (auto& c : el.children_) {
+        // Absolutely positioned children are PINNED to the scroller's box rather
+        // than scrolling with it. A deliberate divergence from CSS, taken
+        // because there is no `position: fixed` or `sticky` here to offer
+        // instead: scrolling them would make an `inset: 0` overlay stop covering
+        // AND stop blocking clicks — which is exactly the shape the shipped
+        // sample's `.centre-overlay` already teaches. It buys sticky headers and
+        // lock veils for free, and their own descendants inherit the unscrolled
+        // origin because it is threaded down as parentOrigin.
+        readLayout_(*c, c->style_.position == PositionType::Absolute ? pos : scrolled);
+    }
+    if (el.scroll_) updateScrollBars_(el);
+}
+
+// 8px bars, 24px minimum thumb. Constants rather than style properties: a
+// scrollbar nobody has asked to restyle is not worth six more cascade entries,
+// and adding them later is additive.
+void UIDocument::updateScrollBars_(UIElement& el) {
+    UIScrollState& sc = *el.scroll_;
+    sc.trackX = sc.thumbX = sc.trackY = sc.thumbY = ComputedLayout{};
+
+    constexpr float kBar = 8.0f, kMinThumb = 24.0f;
+    const glm::vec2 p = el.layout_.position, s = el.layout_.size;
+    if (s.x <= 0.0f || s.y <= 0.0f) return;
+
+    // Range, not extent: with centred overflow the reachable span starts
+    // negative, and the thumb has to represent what you can actually reach.
+    const glm::vec2 span = sc.maxOffset - sc.minOffset;
+
+    if (span.y > 0.0f) {
+        const float trackH = s.y;
+        sc.trackY.position = { p.x + s.x - kBar, p.y };
+        sc.trackY.size = { kBar, trackH };
+        // content = box + span, so box/content is the visible fraction.
+        const float content = s.y + span.y;
+        const float thumbH = std::max(kMinThumb, trackH * (s.y / content));
+        const float free = std::max(0.0f, trackH - thumbH);
+        const float t = (sc.offset.y - sc.minOffset.y) / span.y;
+        sc.thumbY.position = { p.x + s.x - kBar, p.y + free * t };
+        sc.thumbY.size = { kBar, thumbH };
+    }
+    if (span.x > 0.0f) {
+        const float trackW = s.x;
+        sc.trackX.position = { p.x, p.y + s.y - kBar };
+        sc.trackX.size = { trackW, kBar };
+        const float content = s.x + span.x;
+        const float thumbW = std::max(kMinThumb, trackW * (s.x / content));
+        const float free = std::max(0.0f, trackW - thumbW);
+        const float t = (sc.offset.x - sc.minOffset.x) / span.x;
+        sc.thumbX.position = { p.x + free * t, p.y + s.y - kBar };
+        sc.thumbX.size = { thumbW, kBar };
+    }
+}
+
+bool UIElement::SetScrollOffset(glm::vec2 px) {
+    if (!scroll_) return false;
+    if (!std::isfinite(px.x) || !std::isfinite(px.y)) return false;
+    const glm::vec2 next = glm::clamp(px, scroll_->minOffset, scroll_->maxOffset);
+    if (next == scroll_->offset) return false;
+    scroll_->offset = next;
+    return true;
+}
+
+bool UIElement::ScrollIntoView(const glm::vec2& posAbs, const glm::vec2& sizePx) {
+    if (!scroll_) return false;
+    // The rect arrives in ABSOLUTE space, already displaced by the current
+    // offset, so the delta needed is a pure screen-space comparison against this
+    // element's box — no conversion into content space, and therefore nothing to
+    // get wrong when the two disagree by a frame.
+    const glm::vec2 boxLo = layout_.position;
+    const glm::vec2 boxHi = layout_.position + layout_.size;
+    const glm::vec2 lo = posAbs, hi = posAbs + sizePx;
+
+    glm::vec2 d{ 0.0f };
+    // Under-scroll before over-scroll, so a rect TALLER than the box lands with
+    // its top edge visible rather than its bottom.
+    if (hi.x > boxHi.x) d.x = hi.x - boxHi.x;
+    if (lo.x - d.x < boxLo.x) d.x = lo.x - boxLo.x;
+    if (hi.y > boxHi.y) d.y = hi.y - boxHi.y;
+    if (lo.y - d.y < boxLo.y) d.y = lo.y - boxLo.y;
+    return SetScrollOffset(scroll_->offset + d);
 }
 
 void UIDocument::Layout(float viewportW, float viewportH, const Font* font) {
@@ -342,13 +527,23 @@ void UIDocument::Layout(float viewportW, float viewportH, const Font* font) {
     MeasureFontScope fontScope(font);
 
     UIElement& r = *root_;
-    pushStyles_(r);
+    pushStyles_(r, /*parentScrolls=*/false);
     YGNodeCalculateLayout(static_cast<YGNodeRef>(r.yogaNode_),
                           viewportW, viewportH, YGDirectionLTR);
+    // ORDER IS LOAD-BEARING. measureScroll_ reads yoga's raw rects and clamps
+    // every offset; readLayout_ then bakes those offsets into absolute
+    // positions. Measuring afterwards instead would read rects the offset has
+    // already moved — the extent would shrink as you scroll and the clamp would
+    // converge on half the content — and clamping afterwards would paint the
+    // very frame that needed clamping with out-of-range positions.
+    measureScroll_(r);
     // Seeded with the document's ORIGIN rather than zero: readLayout_
     // accumulates absolute positions, so this one value offsets everything the
     // document paints, hit-tests and clips, in one place.
     readLayout_(r, origin_);
+
+    // Only now are the rects a focus reveal can trust. See SetFocus.
+    if (pendingFocusReveal_) revealFocus_();
 }
 
 void UIDocument::draw_(const UIElement& el, Renderer2D& r2d, const Font* font,
@@ -365,8 +560,27 @@ void UIDocument::draw_(const UIElement& el, Renderer2D& r2d, const Font* font,
         r2d.DrawQuad(L.position, L.size, s.backgroundColor, layer);
     }
 
-    // Text sits inside the padding box, matching CSS.
-    const glm::vec2 tp{ L.position.x + s.padding.left, L.position.y + s.padding.top };
+    // Clip BEFORE any text is emitted, not just before the children.
+    //
+    // The old test was `overflowHidden && !children_.empty()`, which meant an
+    // element's own text was never clipped — and since an element with text is a
+    // text LEAF by construction, that made `overflow: hidden` unable to clip the
+    // one thing it is most often written for.
+    //
+    // A <TextField> always clips to its own box whatever `overflow` says: it
+    // scrolls its text to follow the caret, and a control that scrolls its text
+    // and also paints outside itself is incoherent. `overflow` on a field would
+    // govern children, and a field has none.
+    const bool clips = s.overflow != Overflow::Visible || el.edit_ != nullptr;
+    if (clips) r2d.PushClipRect(L.position, L.size);
+
+    // Text sits inside the padding box, matching CSS, shifted by the field's own
+    // text scroll. Everything below is expressed relative to `tp`, so this one
+    // subtraction moves the glyphs, the selection and the caret together.
+    const glm::vec2 textOff =
+        el.edit_ ? glm::round(el.edit_->textScroll()) : glm::vec2(0.0f);
+    const glm::vec2 tp{ L.position.x + s.padding.left - textOff.x,
+                        L.position.y + s.padding.top - textOff.y };
     const bool haveFont = font && font->IsValid();
 
     // ---- text field decoration -------------------------------------------
@@ -413,15 +627,31 @@ void UIDocument::draw_(const UIElement& el, Renderer2D& r2d, const Font* font,
         r2d.DrawText(*font, s.text, tp, s.textColor, layer, s.fontScale);
     }
 
-    const bool clip = s.overflowHidden && !el.children_.empty();
-    if (clip) r2d.PushClipRect(L.position, L.size);
     // Parent before child (painter's algorithm) AND on a higher layer, so a
     // child always paints over its parent's background regardless of the order
     // the batcher ends up flushing runs in.
     for (const auto& c : el.children_) {
         draw_(*c, r2d, font, layer + 1, focused, caretVisible);
     }
-    if (clip) r2d.PopClipRect();
+
+    // Bars LAST and inside the clip, so they paint over the content they
+    // describe and can never escape the box. A zero-size thumb means that axis
+    // does not scroll — the one signal the painter and the hit test share.
+    if (el.scroll_) {
+        const UIScrollState& sc = *el.scroll_;
+        const glm::vec4 trackCol{ 1.0f, 1.0f, 1.0f, 0.06f };
+        const glm::vec4 thumbCol{ 1.0f, 1.0f, 1.0f, 0.28f };
+        const int barLayer = layer + 1;
+        if (sc.thumbY.size.y > 0.0f) {
+            r2d.DrawQuad(sc.trackY.position, sc.trackY.size, trackCol, barLayer);
+            r2d.DrawQuad(sc.thumbY.position, sc.thumbY.size, thumbCol, barLayer);
+        }
+        if (sc.thumbX.size.x > 0.0f) {
+            r2d.DrawQuad(sc.trackX.position, sc.trackX.size, trackCol, barLayer);
+            r2d.DrawQuad(sc.thumbX.position, sc.thumbX.size, thumbCol, barLayer);
+        }
+    }
+    if (clips) r2d.PopClipRect();
 }
 
 void UIDocument::AdvanceTime(float dt) { caretClock_ += dt; }
@@ -456,9 +686,11 @@ UIElement* UIDocument::hitTest_(UIElement& el, const glm::vec2& pos) {
     if (!el.style_.pickable) return nullptr;
 
     // A clipping parent that does not contain the point cannot have visible
-    // descendants there, so reject the subtree outright. Without this test a
-    // scrolled-away child would still be clickable through its own container.
-    if (el.style_.overflowHidden && !contains(el.layout_, pos)) return nullptr;
+    // descendants there, so reject the subtree outright. Both `hidden` and
+    // `scroll` clip, hence the positive test. This is no longer hypothetical:
+    // with scrolling, a row that has moved above its container is genuinely
+    // painted nowhere, and without this it would still be clickable.
+    if (el.style_.overflow != Overflow::Visible && !contains(el.layout_, pos)) return nullptr;
 
     // Children in REVERSE order: they are painted front-to-back in order, so
     // the last one drawn is the topmost and must win the hit.
@@ -475,6 +707,30 @@ UIElement* UIDocument::hitTest_(UIElement& el, const glm::vec2& pos) {
 
 UIElement* UIDocument::HitTest(const glm::vec2& pos) {
     return hitTest_(*root_, pos);
+}
+
+// Reverse paint order, like hitTest_, so the topmost bar wins. Kept separate
+// because the bars are painted from draw_ and have no elements of their own —
+// without this a press on the thumb resolves to the row underneath it, fires
+// that row's on-click, lights up :active, and blurs whatever field the user was
+// typing in.
+UIElement* UIDocument::hitScrollThumb_(UIElement& el, const glm::vec2& pos, int& axisOut) {
+    if (el.style_.display == DisplayMode::None) return nullptr;
+    if (!el.enabled_ || !el.style_.pickable) return nullptr;
+    if (el.style_.overflow != Overflow::Visible && !contains(el.layout_, pos)) return nullptr;
+
+    for (auto it = el.children_.rbegin(); it != el.children_.rend(); ++it) {
+        if (UIElement* h = hitScrollThumb_(**it, pos, axisOut)) return h;
+    }
+    if (el.scroll_) {
+        if (el.scroll_->thumbY.size.y > 0.0f && contains(el.scroll_->thumbY, pos)) {
+            axisOut = 1; return &el;
+        }
+        if (el.scroll_->thumbX.size.x > 0.0f && contains(el.scroll_->thumbX, pos)) {
+            axisOut = 0; return &el;
+        }
+    }
+    return nullptr;
 }
 
 void UIDocument::bubble_(UIElement* target, UIEvent& e) {
@@ -507,6 +763,54 @@ void UIDocument::UpdatePointer(const UIPointerState& p, const Font* font) {
     // dispatching to it would be a use-after-free.
     if (hovered_ && !isInTree_(hovered_)) hovered_ = nullptr;
     if (pressed_ && !isInTree_(pressed_)) pressed_ = nullptr;
+    // The drag target is held across frames just like the two above, and a hot
+    // reload — which a stylesheet-only save triggers — frees the whole tree.
+    if (scrollDrag_ && !isInTree_(scrollDrag_)) scrollDrag_ = nullptr;
+
+    // ---- scrollbar drag ----------------------------------------------------
+    // Resolved AHEAD of everything else and allowed to own the pointer, exactly
+    // like a native scrollbar. The bars are painted from draw_ and are invisible
+    // to hitTest_, so without this a press on the thumb would reach the row
+    // underneath: its on-click would fire, :active would light up, and focus
+    // would leave whatever field the user was typing in.
+    if (p.buttonDown && !wasDown_ && !scrollDrag_ && p.inside) {
+        int axis = 0;
+        if (UIElement* s = hitScrollThumb_(*root_, p.position, axis)) {
+            scrollDrag_ = s;
+            scrollDragAxis_ = axis;
+            const ComputedLayout& th = axis ? s->scroll_->thumbY : s->scroll_->thumbX;
+            scrollDragGrab_ = axis ? p.position.y - th.position.y
+                                   : p.position.x - th.position.x;
+        }
+    }
+    if (scrollDrag_) {
+        if (!p.buttonDown) {
+            scrollDrag_ = nullptr;
+        } else {
+            UIScrollState& sc = *scrollDrag_->scroll_;
+            const int a = scrollDragAxis_;
+            const ComputedLayout& track = a ? sc.trackY : sc.trackX;
+            const ComputedLayout& thumb = a ? sc.thumbY : sc.thumbX;
+            const float trackLen = a ? track.size.y : track.size.x;
+            const float thumbLen = a ? thumb.size.y : thumb.size.x;
+            const float free = trackLen - thumbLen;
+            if (free > 0.0f) {
+                const float cursor = a ? p.position.y : p.position.x;
+                const float trackTop = a ? track.position.y : track.position.x;
+                const float t = std::clamp((cursor - scrollDragGrab_ - trackTop) / free,
+                                           0.0f, 1.0f);
+                const float lo = a ? sc.minOffset.y : sc.minOffset.x;
+                const float hi = a ? sc.maxOffset.y : sc.maxOffset.x;
+                glm::vec2 next = sc.offset;
+                (a ? next.y : next.x) = lo + (hi - lo) * t;
+                if (scrollDrag_->SetScrollOffset(next)) scrollDirty_ = true;
+            }
+        }
+        hadPointer_ = p.inside;
+        wasDown_ = p.buttonDown;
+        lastPos_ = p.position;
+        return;
+    }
 
     UIElement* hit = p.inside ? HitTest(p.position) : nullptr;
 
@@ -549,6 +853,44 @@ void UIDocument::UpdatePointer(const UIPointerState& p, const Font* font) {
         e.type = UIEventType::PointerMove;
         e.position = p.position;
         bubble_(hit, e);
+    }
+
+    // ---- wheel --------------------------------------------------------------
+    // Dispatched like any other pointer event, with scrolling as the DEFAULT
+    // ACTION that runs afterwards — the same shape KeyDown/TextInput already use
+    // to reach a text field, so a handler can pre-empt the wheel by calling
+    // StopPropagation without the scroller knowing anything about it.
+    if (hit && p.inside && (p.wheel.x != 0.0f || p.wheel.y != 0.0f)) {
+        UIEvent e;
+        e.type = UIEventType::Wheel;
+        e.position = p.position;
+        e.delta = p.wheel;
+        bubble_(hit, e);
+        // Handlers may restructure the tree — dispatchLocal_ explicitly allows
+        // it — so re-validate before walking parent_ upward, exactly as the
+        // Click path re-checks isInTree_ before firing.
+        if (!e.propagationStopped && isInTree_(hit)) {
+            // ~3 rows at the default 16px line height. One constant, here, so
+            // the two hosts only ever have to agree on a SIGN.
+            constexpr float kPixelsPerNotch = 48.0f;
+            for (UIElement* n = hit; n; n = n->parent_) {
+                if (n->style_.overflow != Overflow::Scroll || !n->scroll_) continue;
+                const UIScrollState& sc = *n->scroll_;
+                const bool wantX = e.delta.x != 0.0f && sc.scrollsX();
+                const bool wantY = e.delta.y != 0.0f && sc.scrollsY();
+                if (!wantX && !wantY) continue;
+                // NO CHAINING: the target is the nearest ancestor that IS
+                // scrollable on this axis, not the nearest that can still MOVE
+                // on it. SetScrollOffset then clamps, which is a harmless no-op
+                // at the end of travel. Choosing by remaining room instead would
+                // teleport the outer panel the instant an inner list reached its
+                // bottom — which is the resting state of every log.
+                if (n->SetScrollOffset(sc.offset - e.delta * kPixelsPerNotch)) {
+                    scrollDirty_ = true;
+                }
+                break;
+            }
+        }
     }
 
     // ---- press / release --------------------------------------------------
@@ -606,7 +948,11 @@ void UIDocument::UpdatePointer(const UIPointerState& p, const Font* font) {
         if (target && target->edit_ && font && font->IsValid()) {
             UITextEdit& ed = *target->edit_;
             const std::string shown = ed.displayText();
-            const float originX = target->layout_.position.x + target->style_.padding.left;
+            // The text scroll has to come off the origin, or clicking a VISIBLE
+            // glyph in a scrolled field sets the caret to the byte that would
+            // have been there unscrolled.
+            const float originX = target->layout_.position.x + target->style_.padding.left
+                                  - std::round(ed.textScroll().x);
             const float localX = p.position.x - originX;
             std::size_t best = 0;
             float bestDist = std::abs(localX);
@@ -623,6 +969,7 @@ void UIDocument::UpdatePointer(const UIPointerState& p, const Font* font) {
             // when there is no mask, so a masked field just keeps its caret
             // rather than jumping somewhere arbitrary.
             if (ed.maskCharacter().empty()) ed.SetCaret(best);
+            followCaret_(*target, font);
             caretClock_ = 0.0f;
         }
     }
@@ -670,6 +1017,34 @@ void UIDocument::SetFocus(UIElement* el) {
         e.type = UIEventType::FocusIn;
         e.target = e.currentTarget = focused_;
         focused_->dispatchLocal_(e);
+
+        // The reveal is DEFERRED to the next Layout rather than done here.
+        //
+        // ScrollIntoView works on absolute rects, and those are only correct
+        // immediately after a Layout. Two focus moves in one frame — two Tabs in
+        // one UIKeyboardState, or a handler that moves focus — would have the
+        // second one computing its delta from rects the first one already
+        // invalidated, overscrolling, clamping, and stranding focus off screen.
+        // A flag costs one bool and is exact however stale things were.
+        pendingFocusReveal_ = true;
+        scrollDirty_ = true;   // make the host run that Layout this frame
+    }
+}
+
+void UIDocument::revealFocus_() {
+    pendingFocusReveal_ = false;
+    if (!focused_) return;
+    // Innermost outward, re-solving between moves: scrolling the inner scroller
+    // changes where the focused element sits inside the outer one, so an outer
+    // reveal computed from pre-move rects would be wrong. Bounded by nesting
+    // depth, and every iteration after the first is a no-op in the common case
+    // of a single scroller.
+    for (UIElement* n = focused_->parent_; n; n = n->parent_) {
+        if (n->style_.overflow == Overflow::Visible) continue;
+        if (n->ScrollIntoView(focused_->layout_.position, focused_->layout_.size)) {
+            measureScroll_(*root_);
+            readLayout_(*root_, origin_);
+        }
     }
 }
 
@@ -693,7 +1068,42 @@ UIElement* UIDocument::FocusNext(bool backwards) {
     return focused_;
 }
 
-void UIDocument::UpdateKeyboard(const UIKeyboardState& kb) {
+// Scrolls a field's own text so the caret stays visible. Degrades to a no-op
+// without a font, like every other font-dependent path here — a missing font
+// costs you a feature, never the whole HUD.
+void UIDocument::followCaret_(UIElement& el, const Font* font) {
+    UITextEdit* ed = el.edit_.get();
+    if (!ed || !font || !font->IsValid()) return;
+
+    const Style& s = el.style_;
+    const std::string shown = ed->displayText();
+    const float lineH = font->Measure("", s.fontScale).y;
+
+    // The caret's position in the field's own TEXT space — the same arithmetic
+    // draw_ uses, minus the offset we are about to compute.
+    const std::size_t at = std::min(ed->caret(), shown.size());
+    const std::size_t ls = UITextEdit::LineStart(shown, at);
+    const glm::vec2 caretLocal{
+        font->Measure(shown.substr(ls, at - ls), s.fontScale).x,
+        float(UITextEdit::LineIndexOf(shown, at)) * lineH
+    };
+
+    const glm::vec2 contentBox{
+        std::max(0.0f, el.layout_.size.x - s.padding.left - s.padding.right),
+        std::max(0.0f, el.layout_.size.y - s.padding.top - s.padding.bottom)
+    };
+    // Font::Measure, NOT the laid-out width: the yoga measure callback clamps
+    // its result to the offer, so the element's own size lies about how wide the
+    // text really is — which is exactly the case that needs scrolling.
+    glm::vec2 textExtent = font->Measure(shown, s.fontScale);
+    textExtent.y = float(UITextEdit::LineIndexOf(shown, shown.size()) + 1) * lineH;
+
+    if (ed->FollowCaret(caretLocal, { 1.0f, lineH }, contentBox, textExtent)) {
+        scrollDirty_ = true;
+    }
+}
+
+void UIDocument::UpdateKeyboard(const UIKeyboardState& kb, const Font* font) {
     // The focused element may have been removed since last frame by gameplay or
     // by a handler; dispatching into it would be a use-after-free.
     if (focused_ && (!isInTree_(focused_) || !isInteractable_(*focused_))) {
@@ -702,8 +1112,12 @@ void UIDocument::UpdateKeyboard(const UIKeyboardState& kb) {
 
     // Fires ValueChanged on a field that was just edited, and keeps the caret
     // solid so typing never looks like dropped input.
-    auto afterEdit = [this](UIElement* el, bool changed) {
+    auto afterEdit = [this, font](UIElement* el, bool changed) {
         el->SyncTextFromEdit();
+        // After the value AND the caret have settled: an edit that does not
+        // change the value can still move the caret (a plain arrow key), and the
+        // view has to follow it either way.
+        followCaret_(*el, font);
         caretClock_ = 0.0f;
         if (!changed) return;
         UIEvent ev;

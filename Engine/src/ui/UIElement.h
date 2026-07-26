@@ -39,6 +39,43 @@ namespace MyCoreEngine::ui {
         glm::vec2 size{ 0.0f };
     };
 
+    // Scroll state for one `overflow: scroll` element.
+    //
+    // Held behind a pointer on UIElement for the same reason UITextEdit is:
+    // it is state ONE kind of element has, and inlining it would cost every
+    // label in the tree the same bytes.
+    //
+    // It lives OUTSIDE Style deliberately. UIStyleSheet::Recascade assigns a
+    // fresh `Style{}` before re-applying rules, and the interaction styler
+    // drives that on every :hover edge — a scroll offset stored in Style would
+    // snap a list back to the top the moment you moved the mouse over a row.
+    struct UIScrollState {
+        // Unrounded, so a sub-pixel wheel or drag still integrates. readLayout_
+        // rounds it on use: UIWorld already rounds the document origin so every
+        // glyph lands on a texel, and a fractional scroll would undo that for
+        // the whole subtree.
+        glm::vec2 offset{ 0.0f };
+
+        // The content's extent in the scroller's own space. `contentMin` is
+        // normally zero but goes NEGATIVE when a justify/align rule centres or
+        // end-aligns overflowing content — flexbox puts the overflow on the
+        // leading side, and clamping to [0, ...] would make it unreachable
+        // forever. Measured, not assumed.
+        glm::vec2 contentMin{ 0.0f }, contentMax{ 0.0f };
+
+        // The reachable offset range, recomputed EVERY layout so a resize or a
+        // binding that shrinks the content can never strand the offset.
+        glm::vec2 minOffset{ 0.0f }, maxOffset{ 0.0f };
+
+        // Absolute rects for the overlay bars, filled during layout. A
+        // zero-size thumb means "this axis does not scroll", which is the one
+        // signal both the painter and the hit test read.
+        ComputedLayout trackX, thumbX, trackY, thumbY;
+
+        bool scrollsX() const { return maxOffset.x > minOffset.x; }
+        bool scrollsY() const { return maxOffset.y > minOffset.y; }
+    };
+
     class ENGINE_API UIElement {
     public:
         explicit UIElement(std::string name = {});
@@ -132,6 +169,33 @@ namespace MyCoreEngine::ui {
 
         const ComputedLayout& layout() const { return layout_; }
 
+        // ---- scrolling ----
+        // Non-null only on an element that is (or has been) `overflow: scroll`.
+        // Created by the layout pass and never destroyed by a style change: a
+        // class that toggles on hover must not reset where the user scrolled
+        // to. Its offset IS zeroed while the element is not a scroller, so a
+        // de-scrolled element can never displace its children into space that
+        // nothing clips.
+        const UIScrollState* scrollState() const { return scroll_.get(); }
+        glm::vec2 scrollOffset()  const { return scroll_ ? scroll_->offset    : glm::vec2(0.0f); }
+        glm::vec2 minScroll()     const { return scroll_ ? scroll_->minOffset : glm::vec2(0.0f); }
+        glm::vec2 maxScroll()     const { return scroll_ ? scroll_->maxOffset : glm::vec2(0.0f); }
+        // Content extent in the scroller's own space; zero on a non-scroller.
+        glm::vec2 contentSize() const {
+            return scroll_ ? scroll_->contentMax - scroll_->contentMin : glm::vec2(0.0f);
+        }
+
+        // Clamped against the last computed range; takes visible effect at the
+        // next Layout. No-op on an element that has never been a scroller.
+        // Returns true if the offset actually moved.
+        bool SetScrollOffset(glm::vec2 px);
+
+        // Moves the offset the least amount that brings an ABSOLUTE rect inside
+        // this scroller's box. The primitive behind focus-follow, and what app
+        // code calls to pin a log to its tail:
+        //   log->ScrollIntoView(last->layout().position, last->layout().size);
+        bool ScrollIntoView(const glm::vec2& posAbs, const glm::vec2& sizePx);
+
         // Depth-first search by name; null when absent. Linear — fine for the
         // handful of named elements a HUD has, and the hook a future
         // CSS-selector query would replace.
@@ -148,6 +212,9 @@ namespace MyCoreEngine::ui {
         void OnPointerEnter(UIEventHandler h) { AddEventListener(UIEventType::PointerEnter, std::move(h)); }
         void OnPointerLeave(UIEventHandler h) { AddEventListener(UIEventType::PointerLeave, std::move(h)); }
         void OnPointerMove(UIEventHandler h)  { AddEventListener(UIEventType::PointerMove, std::move(h)); }
+        // Observes the wheel; it does NOT claim it. The built-in scroll still
+        // runs unless the handler calls StopPropagation.
+        void OnWheel(UIEventHandler h)        { AddEventListener(UIEventType::Wheel, std::move(h)); }
         void OnFocusIn(UIEventHandler h)      { AddEventListener(UIEventType::FocusIn, std::move(h)); }
         void OnFocusOut(UIEventHandler h)     { AddEventListener(UIEventType::FocusOut, std::move(h)); }
         void OnKeyDown(UIEventHandler h)      { AddEventListener(UIEventType::KeyDown, std::move(h)); }
@@ -219,6 +286,7 @@ namespace MyCoreEngine::ui {
         std::vector<UIBoundAction> actions_;
         std::string   dataSource_;
         std::unique_ptr<UITextEdit> edit_;   // text fields only
+        std::unique_ptr<UIScrollState> scroll_; // `overflow: scroll` only
         std::uint32_t textRevision_ = 0;
         // Last fontScale handed to the layout engine, so pushStyles_ can tell
         // when a text element needs re-measuring. See there for why yoga cannot
@@ -284,7 +352,10 @@ namespace MyCoreEngine::ui {
         // StopPropagation, which is also what stops Tab being treated as
         // navigation — that is how a future multi-line field would keep its
         // literal tabs.
-        void UpdateKeyboard(const UIKeyboardState& keyboard);
+        // `font` is optional, and only used to keep a text field's caret inside
+        // its box after an edit. Without it the editing still works; the view
+        // just does not follow the caret past the field's width.
+        void UpdateKeyboard(const UIKeyboardState& keyboard, const Font* font = nullptr);
 
         // The system clipboard, supplied by the host — GLFW and ImGui both have
         // one and neither belongs in an engine header. Without these, Ctrl+C/X/V
@@ -328,14 +399,35 @@ namespace MyCoreEngine::ui {
         // computed rect without UIElement having to expose either. None of
         // their signatures mentions a yoga type, which is what keeps the layout
         // engine swappable.
-        static void pushStyles_(UIElement& el);
+        // `parentScrolls` decides whether this element's flex-shrink is forced
+        // to 0 — see pushStyle for why that, and not yoga's own overflow, is
+        // what makes a scroller's content exist.
+        static void pushStyles_(UIElement& el, bool parentScrolls);
+        // Measures each scroller's content and clamps its offset. Runs BETWEEN
+        // the flexbox solve and readLayout_: it reads yoga's raw
+        // parent-relative rects, because measuring from layout_ — which
+        // readLayout_ has already displaced by the offset — would make the
+        // extent shrink as you scroll and turn the clamp into a fixed point
+        // that pins the content at half its length.
+        static void measureScroll_(UIElement& el);
         static void readLayout_(UIElement& el, const glm::vec2& parentOrigin);
+        // Fills the four bar rects from the freshly-computed absolute box.
+        static void updateScrollBars_(UIElement& el);
         // `focused` and `caretVisible` are threaded through rather than read
         // from a member because draw_ is static and recursive; only the one
-        // focused element in the whole walk cares.
+        // focused element in the whole walk cares. `clip` is the resolved
+        // clipping ancestor's rect, or null when nothing clips.
         static void draw_(const UIElement& el, Renderer2D& r2d, const Font* font,
                           int layer, const UIElement* focused, bool caretVisible);
         static UIElement* hitTest_(UIElement& el, const glm::vec2& pos);
+        // The scrollbar is painted from draw_ and is invisible to hitTest_, so
+        // a press on it is resolved separately and ahead of everything else.
+        static UIElement* hitScrollThumb_(UIElement& el, const glm::vec2& pos, int& axisOut);
+        // Scrolls a field's own text so the caret stays inside its box.
+        void followCaret_(UIElement& el, const Font* font);
+        // Brings the focused element inside its clipping ancestors. Runs at the
+        // END of Layout, where the absolute rects it needs are finally correct.
+        void revealFocus_();
         // Bubbles `e` from `target` up through its ancestors, honouring
         // StopPropagation.
         static void bubble_(UIElement* target, UIEvent& e);
@@ -367,8 +459,24 @@ namespace MyCoreEngine::ui {
         // while you type reads as dropped input.
         float caretClock_ = 0.0f;
         glm::vec2 origin_{ 0.0f };
+        // Thumb being dragged. Validated with isInTree_ like hovered_/pressed_:
+        // a hot reload frees the whole tree, and a stylesheet-only save triggers
+        // one, so a pointer held across frames without that check is a
+        // use-after-free during the advertised edit-and-save loop.
+        UIElement* scrollDrag_ = nullptr;
+        int   scrollDragAxis_ = 0;      // 0 = x, 1 = y
+        float scrollDragGrab_ = 0.0f;   // cursor offset within the thumb at press
+        bool  scrollDirty_ = false;
+        bool  pendingFocusReveal_ = false;
         std::function<void(const std::string&)> clipboardWrite_;
         std::function<std::string()>            clipboardRead_;
+
+    public:
+        // True (and cleared) when input moved a scroll offset since the last
+        // Layout. The host ORs this into its relayout decision so a wheel notch
+        // or a thumb drag is applied in the SAME frame — otherwise the thumb
+        // trails the cursor for the whole drag.
+        bool ConsumeScrollDirty() { const bool d = scrollDirty_; scrollDirty_ = false; return d; }
     };
 
 } // namespace MyCoreEngine::ui

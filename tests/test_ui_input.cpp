@@ -111,7 +111,7 @@ TEST(UIInput, OverflowHiddenRejectsClippedChildren) {
     UIElement* clipper = doc.root().AddChild("clipper");
     clipper->style().width = StyleLength::Px(50.f);
     clipper->style().height = StyleLength::Px(50.f);
-    clipper->style().overflowHidden = true;
+    clipper->style().overflow = Overflow::Hidden;
     UIElement* child = clipper->AddChild("child");
     child->style().position = PositionType::Absolute;
     child->style().inset = { 0.f, 0.f, 0.f, 0.f };

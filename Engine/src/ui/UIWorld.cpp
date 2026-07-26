@@ -115,7 +115,7 @@ void UIWorld::Update(entt::registry& reg, int widthPx, int heightPx, float dt) {
     // Input goes to ONE document: the topmost interactive one under the
     // pointer. Without this a pause menu and the HUD beneath it would both
     // react to the same click, which is the classic layered-UI bug.
-    entt::entity inputTarget = entt::null;
+    entt::entity pointerTarget = entt::null;
     for (auto it = order_.rbegin(); it != order_.rend(); ++it) {
         Live& live = live_[*it];
         if (!live.interactive) continue;
@@ -124,16 +124,23 @@ void UIWorld::Update(entt::registry& reg, int widthPx, int heightPx, float dt) {
         live.doc->document().SetOrigin(live.origin);
         live.doc->document().Layout(live.size.x, live.size.y, font_);
         if (!pointer_.inside || live.doc->document().HitTest(pointer_.position)) {
-            inputTarget = *it;
+            pointerTarget = *it;
             break;
         }
     }
-    // Keyboard follows the pointer target when nothing else has focus; a
-    // document holding focus keeps receiving keys even when the pointer has
-    // wandered off it, which is what makes typing survive a mouse twitch.
+    // TWO targets, not one. The keyboard follows focus so typing survives a
+    // mouse twitch; the POINTER must keep following the pointer.
+    //
+    // These used to be the same variable, so a document holding focus took the
+    // pointer as well — harmless while the pointer only meant clicks, because
+    // you had to click to move focus in the first place. The wheel breaks that:
+    // it arrives with no click, so a panel you were merely hovering would be fed
+    // an empty state and silently refuse to scroll while a background document
+    // scrolled instead. Every browser scrolls what is under the cursor.
+    entt::entity keyboardTarget = pointerTarget;
     for (const entt::entity e : order_) {
         Live& live = live_[e];
-        if (live.interactive && live.doc->document().focused()) { inputTarget = e; break; }
+        if (live.interactive && live.doc->document().focused()) { keyboardTarget = e; break; }
     }
 
     for (const entt::entity e : order_) {
@@ -147,24 +154,30 @@ void UIWorld::Update(entt::registry& reg, int widthPx, int heightPx, float dt) {
         doc.SetOrigin(live.origin);
         doc.Layout(live.size.x, live.size.y, font_);
 
-        if (e == inputTarget) {
-            doc.UpdatePointer(pointer_, font_);
-            doc.UpdateKeyboard(keyboard_);
-        } else {
-            // An empty pointer state, NOT "skip the call": a document that
-            // stops receiving input must also drop its hover and press state,
-            // or it stays lit up under a menu that took the pointer away.
-            doc.UpdatePointer(ui::UIPointerState{}, font_);
-        }
+        // An empty pointer state for everyone else, NOT "skip the call": a
+        // document that stops receiving input must also drop its hover and press
+        // state, or it stays lit up under a menu that took the pointer away. It
+        // zeroes their wheel for free, too.
+        doc.UpdatePointer(e == pointerTarget ? pointer_ : ui::UIPointerState{}, font_);
+        if (e == keyboardTarget) doc.UpdateKeyboard(keyboard_, font_);
 
         ad.PublishToSources();
         bool relayout = ad.RestyleInteractive();
         relayout |= ad.binder().UpdateToTarget().wroteLayout;
+        // A wheel notch, a thumb drag or a caret-follow moved an offset that
+        // readLayout_ consumes, so it has to be re-applied THIS frame. Without
+        // it the thumb trails the cursor for the whole drag and the caret leaves
+        // the box for a frame on every newline.
+        relayout |= doc.ConsumeScrollDirty();
         if (relayout) doc.Layout(live.size.x, live.size.y, font_);
     }
 
     // Consumed once, like every other edge-triggered input in this system.
     keyboard_.clear();
+    // The wheel is a per-frame DELTA living inside an otherwise level-triggered
+    // struct, so it is cleared here rather than by the host: a host that updates
+    // without a matching SetPointer would otherwise replay one flick forever.
+    pointer_.wheel = { 0.0f, 0.0f };
 }
 
 void UIWorld::Draw(Renderer2D& r2d) const {
