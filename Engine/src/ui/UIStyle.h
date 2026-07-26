@@ -46,11 +46,22 @@ namespace MyCoreEngine::ui {
     // every configuration tried (RTL, wrap, absolute children, percentage
     // heights), so flex-shrink is the only lever there is.
     //
-    // `auto` is deliberately not a keyword. CSS `auto` means "a bar only when
-    // needed", which is what Scroll already does here; accepting it as a
-    // synonym would make the two indistinguishable forever, and a keyword can
-    // be added later but not redefined.
+    // `auto` is deliberately not a keyword, and stays a reported error. CSS
+    // `auto` means "a bar only when needed" — exactly what Scroll already does
+    // here — so accepting it as a synonym would make the two indistinguishable
+    // forever. The ONE thing CSS `scroll` adds over `auto` is an always-painted
+    // bar, and that is a property of the BAR, not of overflow: see
+    // ScrollbarVisibility.
     enum class Overflow { Visible, Hidden, Scroll };
+
+    // Whether a scrollable axis paints its bar only when the content currently
+    // overflows, or always.
+    enum class ScrollbarVisibility { Auto, Always };
+
+    // Instant or eased. Opt-in per element, because Layout() is otherwise a
+    // pure function of the tree and making scrolling depend on the clock is a
+    // change every existing caller would have to reason about.
+    enum class ScrollBehavior { Instant, Smooth };
 
     // A CSS length: auto, absolute points (pixels), or a percentage of the
     // parent. Point/percent are separate units rather than a bare float because
@@ -111,11 +122,38 @@ namespace MyCoreEngine::ui {
 
         DisplayMode display = DisplayMode::Flex;
 
-        // Clip to this element's box, and optionally scroll inside it.
-        // A <TextField> always clips to its own box whatever this says: it
+        // Clip to this element's box, and optionally scroll inside it. Per
+        // axis, but read them through the predicates below rather than
+        // directly — the CSS promotion rule makes a raw read misleading.
+        //
+        // A <TextField> always clips to its own box whatever these say: it
         // scrolls its text to follow the caret, and a control that scrolls its
         // text and also paints outside itself is incoherent.
-        Overflow overflow = Overflow::Visible;
+        Overflow overflowX = Overflow::Visible;
+        Overflow overflowY = Overflow::Visible;
+
+        // ---- scrollbar ----
+        // Not inherited — nothing in this system is, because ApplyToElement
+        // matches rules against one element and never consults its parent. To
+        // restyle every bar at once use the universal selector:
+        //   * { scrollbar-width: 10px; scrollbar-thumb-color: #888; }
+        float     scrollbarWidth = 8.0f;
+        float     scrollbarMinThumb = 24.0f;
+        glm::vec4 scrollbarColor{ 1.0f, 1.0f, 1.0f, 0.06f };
+        glm::vec4 scrollbarThumbColor{ 1.0f, 1.0f, 1.0f, 0.28f };
+        // `always` paints a bar on every scrollable axis even when the content
+        // currently fits, for a panel whose scrollability should be advertised.
+        // This is what CSS spells `overflow: scroll` as opposed to `auto`; it
+        // lives here instead because it is a property of the BAR, and because
+        // conflating it with `overflow` would mean two keywords that differ
+        // only in whether a strip of pixels is painted.
+        ScrollbarVisibility scrollbarVisibility = ScrollbarVisibility::Auto;
+
+        // How a programmatic or input-driven scroll reaches its destination.
+        // Instant by default: `Layout()` is otherwise a pure function of the
+        // tree, and making every scroll depend on the clock would be a large
+        // behavioural change to buy an animation most HUDs do not want.
+        ScrollBehavior scrollBehavior = ScrollBehavior::Instant;
 
         // Whether the pointer can hit this element (CSS `pointer-events`).
         // Setting it false skips the element AND its subtree, which is what
@@ -125,5 +163,35 @@ namespace MyCoreEngine::ui {
         // because "the subtree is inert" is far easier to reason about.)
         bool pickable = true;
     };
+
+    // ---- resolved overflow -------------------------------------------------
+    //
+    // Read overflow THROUGH these, never straight off the Style. CSS has a
+    // computed-value rule: when exactly one axis is `visible` and the other is
+    // not, the `visible` one computes to `auto`. That rule is not decoration
+    // here, it is forced — clipping is a RECT. `Renderer2D::PushClipRect` takes
+    // a position and a size and intersects with its parent internally, so
+    // "clip Y but not X" has no representation, and there is no sentinel wide
+    // enough to fake it (the scissor path lrounds both edges into ints).
+    //
+    // The promotion targets Scroll rather than a fourth `Auto` enumerator
+    // because Scroll already means what CSS `auto` means. That keeps the enum
+    // three-valued, keeps both switches exhaustive under /we4062 — and, the
+    // decisive part, is a no-op for every sheet that exists today: `overflow:
+    // scroll` sets both axes, so nothing shipped changes behaviour.
+    inline Overflow ResolvedOverflowX(const Style& s) {
+        return (s.overflowX == Overflow::Visible && s.overflowY != Overflow::Visible)
+                   ? Overflow::Scroll : s.overflowX;
+    }
+    inline Overflow ResolvedOverflowY(const Style& s) {
+        return (s.overflowY == Overflow::Visible && s.overflowX != Overflow::Visible)
+                   ? Overflow::Scroll : s.overflowY;
+    }
+    // After the promotion an element clips on both axes or neither, which is
+    // what lets every clip site keep one boolean and push one rect.
+    inline bool ClipsBox(const Style& s)   { return ResolvedOverflowX(s) != Overflow::Visible; }
+    inline bool ScrollsOnX(const Style& s) { return ResolvedOverflowX(s) == Overflow::Scroll; }
+    inline bool ScrollsOnY(const Style& s) { return ResolvedOverflowY(s) == Overflow::Scroll; }
+    inline bool IsScroller(const Style& s) { return ScrollsOnX(s) || ScrollsOnY(s); }
 
 } // namespace MyCoreEngine::ui

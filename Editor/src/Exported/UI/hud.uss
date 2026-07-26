@@ -143,9 +143,23 @@
    squeezed to fit — that is what leaves something to scroll — so a scroller
    without a definite height grows to its content and escapes its parent.
 
+   `overflow` is per axis: `overflow-x` and `overflow-y` set one each and
+   `overflow` is the shorthand for both. Source order decides, as in CSS, so
+   `overflow: hidden; overflow-y: scroll` clips across and scrolls down. One
+   rule inherited from CSS is worth knowing: if you set ONE axis to something
+   other than `visible`, the other is promoted too — clipping is a rectangle, so
+   an element clips on both axes or neither.
+
    The scrollbar is an OVERLAY: it reserves no gutter, so it paints over the
    right-hand edge of the content. Add padding-right if that matters; a bar that
-   changed the layout could make itself disappear, and back again. */
+   changed the layout could make itself disappear, and back again.
+
+   The bar is styleable — `scrollbar-width`, `scrollbar-min-thumb`,
+   `scrollbar-color`, `scrollbar-thumb-color`, and `scrollbar-visibility:
+   auto|always` for a bar that shows even when the content currently fits.
+   Nothing in this system inherits, so to restyle every bar at once use the
+   universal selector: `* { scrollbar-width: 10px; }`. `scrollbar-width: 0`
+   hides the bar while leaving the panel scrollable. */
 .log {
   overflow: scroll;
   height: 120px;
@@ -153,6 +167,8 @@
   padding: 6px 10px;
   margin: 4px 0px 0px 0px;
   background-color: rgba(0, 0, 0, 0.35);
+  scrollbar-width: 6px;
+  scrollbar-thumb-color: rgba(255, 204, 68, 0.5);
 }
 
 .log-header {

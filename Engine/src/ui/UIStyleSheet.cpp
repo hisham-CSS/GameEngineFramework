@@ -202,7 +202,21 @@ namespace {
         { "hidden",  (int)Overflow::Hidden  },
         { "scroll",  (int)Overflow::Scroll  },
         // No "auto" — see the Overflow comment in UIStyle.h. It is reserved and
-        // reported, not silently aliased onto `scroll`.
+        // reported, not silently aliased onto `scroll`; an always-painted bar
+        // is `scrollbar-visibility: always`, which is what CSS `scroll` adds
+        // over `auto` and is a property of the bar rather than of overflow.
+    };
+    const std::vector<EnumTable> kScrollbarVis = {
+        { "auto",   (int)ScrollbarVisibility::Auto },
+        { "always", (int)ScrollbarVisibility::Always },
+    };
+    const std::vector<EnumTable> kScrollBehavior = {
+        { "instant", (int)ScrollBehavior::Instant },
+        { "smooth",  (int)ScrollBehavior::Smooth },
+        // "auto" is CSS's spelling of instant. Accepted here because unlike the
+        // overflow case it is not ambiguous with anything: there is no third
+        // behaviour it could mean.
+        { "auto",    (int)ScrollBehavior::Instant },
     };
 
     using Prop = UIDeclaration::Prop;
@@ -223,39 +237,63 @@ namespace {
         const std::vector<EnumTable>* enumTable;  // Enum only
         const char* trueWord;                     // Boolean only
         const char* falseWord;                    // Boolean only
+        // The longhands a shorthand writes. Both equal to `prop` when the
+        // property is not a shorthand, so PropsOverlap needs no special case.
+        Prop expandsTo[2];
+        // Length only: reject `auto`, percentages and negatives. A scrollbar
+        // cannot be a percentage of anything meaningful, and Length otherwise
+        // validates neither unit nor sign.
+        bool nonNegativePx;
     };
 
+    // Adding a property is ONE edit here. The two trailing fields are the
+    // shorthand expansion (equal to the property itself when it is not a
+    // shorthand) and whether a Length must be a non-negative pixel count.
+    #define P1(p) { Prop::p, Prop::p }
     const PropSpec kProps[] = {
-        { "flex-direction",   Prop::FlexDirection,   UIPropValueKind::Enum,    &kDirection, nullptr, nullptr },
-        { "justify-content",  Prop::JustifyContent,  UIPropValueKind::Enum,    &kJustify,   nullptr, nullptr },
-        { "align-items",      Prop::AlignItems,      UIPropValueKind::Enum,    &kAlign,     nullptr, nullptr },
-        { "align-self",       Prop::AlignSelf,       UIPropValueKind::Enum,    &kAlign,     nullptr, nullptr },
-        { "flex-grow",        Prop::FlexGrow,        UIPropValueKind::Number,  nullptr,     nullptr, nullptr },
-        { "flex-shrink",      Prop::FlexShrink,      UIPropValueKind::Number,  nullptr,     nullptr, nullptr },
-        { "width",            Prop::Width,           UIPropValueKind::Length,  nullptr,     nullptr, nullptr },
-        { "height",           Prop::Height,          UIPropValueKind::Length,  nullptr,     nullptr, nullptr },
-        { "min-width",        Prop::MinWidth,        UIPropValueKind::Length,  nullptr,     nullptr, nullptr },
-        { "min-height",       Prop::MinHeight,       UIPropValueKind::Length,  nullptr,     nullptr, nullptr },
-        { "max-width",        Prop::MaxWidth,        UIPropValueKind::Length,  nullptr,     nullptr, nullptr },
-        { "max-height",       Prop::MaxHeight,       UIPropValueKind::Length,  nullptr,     nullptr, nullptr },
-        { "margin",           Prop::Margin,          UIPropValueKind::Edges,   nullptr,     nullptr, nullptr },
-        { "padding",          Prop::Padding,         UIPropValueKind::Edges,   nullptr,     nullptr, nullptr },
-        { "gap",              Prop::Gap,             UIPropValueKind::Number,  nullptr,     nullptr, nullptr },
-        { "position",         Prop::Position,        UIPropValueKind::Enum,    &kPosition,  nullptr, nullptr },
-        { "left",             Prop::Left,            UIPropValueKind::Number,  nullptr,     nullptr, nullptr },
-        { "top",              Prop::Top,             UIPropValueKind::Number,  nullptr,     nullptr, nullptr },
-        { "right",            Prop::Right,           UIPropValueKind::Number,  nullptr,     nullptr, nullptr },
-        { "bottom",           Prop::Bottom,          UIPropValueKind::Number,  nullptr,     nullptr, nullptr },
-        { "background-color", Prop::BackgroundColor, UIPropValueKind::Color,   nullptr,     nullptr, nullptr },
-        { "color",            Prop::Color,           UIPropValueKind::Color,   nullptr,     nullptr, nullptr },
-        { "font-scale",       Prop::FontScale,       UIPropValueKind::Number,  nullptr,     nullptr, nullptr },
-        { "overflow",         Prop::Overflow,        UIPropValueKind::Enum,    &kOverflow,  nullptr, nullptr },
-        { "pointer-events",   Prop::PointerEvents,   UIPropValueKind::Boolean, nullptr,     "auto",   "none" },
+        { "flex-direction",   Prop::FlexDirection,   UIPropValueKind::Enum,    &kDirection, nullptr, nullptr, P1(FlexDirection), false },
+        { "justify-content",  Prop::JustifyContent,  UIPropValueKind::Enum,    &kJustify,   nullptr, nullptr, P1(JustifyContent), false },
+        { "align-items",      Prop::AlignItems,      UIPropValueKind::Enum,    &kAlign,     nullptr, nullptr, P1(AlignItems), false },
+        { "align-self",       Prop::AlignSelf,       UIPropValueKind::Enum,    &kAlign,     nullptr, nullptr, P1(AlignSelf), false },
+        { "flex-grow",        Prop::FlexGrow,        UIPropValueKind::Number,  nullptr,     nullptr, nullptr, P1(FlexGrow), false },
+        { "flex-shrink",      Prop::FlexShrink,      UIPropValueKind::Number,  nullptr,     nullptr, nullptr, P1(FlexShrink), false },
+        { "width",            Prop::Width,           UIPropValueKind::Length,  nullptr,     nullptr, nullptr, P1(Width), false },
+        { "height",           Prop::Height,          UIPropValueKind::Length,  nullptr,     nullptr, nullptr, P1(Height), false },
+        { "min-width",        Prop::MinWidth,        UIPropValueKind::Length,  nullptr,     nullptr, nullptr, P1(MinWidth), false },
+        { "min-height",       Prop::MinHeight,       UIPropValueKind::Length,  nullptr,     nullptr, nullptr, P1(MinHeight), false },
+        { "max-width",        Prop::MaxWidth,        UIPropValueKind::Length,  nullptr,     nullptr, nullptr, P1(MaxWidth), false },
+        { "max-height",       Prop::MaxHeight,       UIPropValueKind::Length,  nullptr,     nullptr, nullptr, P1(MaxHeight), false },
+        { "margin",           Prop::Margin,          UIPropValueKind::Edges,   nullptr,     nullptr, nullptr, P1(Margin), false },
+        { "padding",          Prop::Padding,         UIPropValueKind::Edges,   nullptr,     nullptr, nullptr, P1(Padding), false },
+        { "gap",              Prop::Gap,             UIPropValueKind::Number,  nullptr,     nullptr, nullptr, P1(Gap), false },
+        { "position",         Prop::Position,        UIPropValueKind::Enum,    &kPosition,  nullptr, nullptr, P1(Position), false },
+        { "left",             Prop::Left,            UIPropValueKind::Number,  nullptr,     nullptr, nullptr, P1(Left), false },
+        { "top",              Prop::Top,             UIPropValueKind::Number,  nullptr,     nullptr, nullptr, P1(Top), false },
+        { "right",            Prop::Right,           UIPropValueKind::Number,  nullptr,     nullptr, nullptr, P1(Right), false },
+        { "bottom",           Prop::Bottom,          UIPropValueKind::Number,  nullptr,     nullptr, nullptr, P1(Bottom), false },
+        { "background-color", Prop::BackgroundColor, UIPropValueKind::Color,   nullptr,     nullptr, nullptr, P1(BackgroundColor), false },
+        { "color",            Prop::Color,           UIPropValueKind::Color,   nullptr,     nullptr, nullptr, P1(Color), false },
+        { "font-scale",       Prop::FontScale,       UIPropValueKind::Number,  nullptr,     nullptr, nullptr, P1(FontScale), false },
+        // The shorthand writes BOTH axes; the longhands write one each. Source
+        // order within a rule decides, which falls out for free — see
+        // ApplyToElement, which replays a rule's declarations in parse order.
+        { "overflow",         Prop::Overflow,        UIPropValueKind::Enum,    &kOverflow,  nullptr, nullptr, { Prop::OverflowX, Prop::OverflowY }, false },
+        { "overflow-x",       Prop::OverflowX,       UIPropValueKind::Enum,    &kOverflow,  nullptr, nullptr, P1(OverflowX), false },
+        { "overflow-y",       Prop::OverflowY,       UIPropValueKind::Enum,    &kOverflow,  nullptr, nullptr, P1(OverflowY), false },
+        { "scrollbar-width",      Prop::ScrollbarWidth,      UIPropValueKind::Length, nullptr, nullptr, nullptr, P1(ScrollbarWidth), true },
+        { "scrollbar-min-thumb",  Prop::ScrollbarMinThumb,   UIPropValueKind::Length, nullptr, nullptr, nullptr, P1(ScrollbarMinThumb), true },
+        { "scrollbar-color",      Prop::ScrollbarColor,      UIPropValueKind::Color,  nullptr, nullptr, nullptr, P1(ScrollbarColor), false },
+        { "scrollbar-thumb-color",Prop::ScrollbarThumbColor, UIPropValueKind::Color,  nullptr, nullptr, nullptr, P1(ScrollbarThumbColor), false },
+        { "scrollbar-visibility", Prop::ScrollbarVisibility, UIPropValueKind::Enum, &kScrollbarVis, nullptr, nullptr, P1(ScrollbarVisibility), false },
+        { "scroll-behavior",      Prop::ScrollBehavior,      UIPropValueKind::Enum, &kScrollBehavior, nullptr, nullptr, P1(ScrollBehavior), false },
+        { "pointer-events",   Prop::PointerEvents,   UIPropValueKind::Boolean, nullptr,     "auto",   "none", P1(PointerEvents), false },
         // Boolean rather than an enum because there are exactly two values and
         // `if=` needs to write it from a bool. `true` means VISIBLE, so the
         // spelling that maps to true is "flex".
-        { "display",          Prop::Display,         UIPropValueKind::Boolean, nullptr,     "flex",   "none" },
+        { "display",          Prop::Display,         UIPropValueKind::Boolean, nullptr,     "flex",   "none", P1(Display), false },
     };
+    #undef P1
+
 
     const PropSpec* specFor(Prop p) {
         for (const PropSpec& s : kProps) {
@@ -301,6 +339,16 @@ bool UIDeclaration::PropFromName(const std::string& name, Prop& p, UIPropValueKi
     return false;
 }
 
+bool UIDeclaration::PropsOverlap(Prop a, Prop b) {
+    const PropSpec* sa = specFor(a);
+    const PropSpec* sb = specFor(b);
+    if (!sa || !sb) return a == b;
+    for (Prop x : sa->expandsTo) {
+        for (Prop y : sb->expandsTo) if (x == y) return true;
+    }
+    return false;
+}
+
 const char* UIDeclaration::NameOf(Prop p) {
     const PropSpec* s = specFor(p);
     return s ? s->name : "?";
@@ -314,6 +362,16 @@ bool UIDeclaration::ParseValueFor(Prop p, const std::string& value,
     switch (s->kind) {
     case UIPropValueKind::Length:
         if (!parseLength(value, out.length)) { err = "bad length '" + value + "'"; return false; }
+        // A scrollbar cannot be a percentage of anything meaningful and cannot
+        // be negative, and Length otherwise validates neither. Reported rather
+        // than clamped: a silently-ignored `50%` is the no-op this codebase
+        // reports errors to avoid.
+        if (s->nonNegativePx &&
+            (out.length.unit != StyleLength::Unit::Point || out.length.value < 0.0f)) {
+            err = std::string(s->name) + " must be a non-negative pixel length (got '"
+                  + trim(value) + "')";
+            return false;
+        }
         return true;
     case UIPropValueKind::Number:
         if (!parseNumber(trim(value), out.number)) { err = "bad number '" + value + "'"; return false; }
@@ -385,7 +443,15 @@ void UIDeclaration::ApplyTo(Style& s) const {
     case Prop::BackgroundColor: s.backgroundColor = color; break;
     case Prop::Color:          s.textColor = color; break;
     case Prop::FontScale:      s.fontScale = number; break;
-    case Prop::Overflow:       s.overflow = (Overflow)enumValue; break;
+    case Prop::Overflow:       s.overflowX = s.overflowY = (Overflow)enumValue; break;
+    case Prop::OverflowX:      s.overflowX = (Overflow)enumValue; break;
+    case Prop::OverflowY:      s.overflowY = (Overflow)enumValue; break;
+    case Prop::ScrollbarWidth:      s.scrollbarWidth = length.value; break;
+    case Prop::ScrollbarMinThumb:   s.scrollbarMinThumb = length.value; break;
+    case Prop::ScrollbarColor:      s.scrollbarColor = color; break;
+    case Prop::ScrollbarThumbColor: s.scrollbarThumbColor = color; break;
+    case Prop::ScrollbarVisibility: s.scrollbarVisibility = (ScrollbarVisibility)enumValue; break;
+    case Prop::ScrollBehavior:      s.scrollBehavior = (ScrollBehavior)enumValue; break;
     case Prop::PointerEvents:  s.pickable = boolean; break;
     case Prop::Display:        s.display = boolean ? DisplayMode::Flex : DisplayMode::None; break;
     }

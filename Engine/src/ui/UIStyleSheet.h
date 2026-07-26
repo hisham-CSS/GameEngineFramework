@@ -51,8 +51,18 @@ namespace MyCoreEngine::ui {
             Margin, Padding, Gap,
             Position, Left, Top, Right, Bottom,
             BackgroundColor, Color, FontScale,
-            Overflow, PointerEvents, Display,
+            Overflow, OverflowX, OverflowY, PointerEvents, Display,
+            ScrollbarWidth, ScrollbarMinThumb, ScrollbarColor, ScrollbarThumbColor,
+            ScrollbarVisibility, ScrollBehavior,
         };
+
+        // True when writing `a` also writes a field `b` writes — i.e. one is a
+        // shorthand covering the other, or they are the same property. The
+        // shadowed-declaration diagnostic compares with this rather than by
+        // equality, or a sheet declaring `overflow-y` and a binding writing
+        // `overflow` would never see each other and the note would go silent on
+        // exactly the case it exists to catch.
+        static bool PropsOverlap(Prop a, Prop b);
 
         Prop        prop{};
         StyleLength length{};   // length-valued props

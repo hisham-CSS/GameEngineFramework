@@ -170,7 +170,8 @@ engine does; left-to-right would need to backtrack over the whole subtree.
 | Box | `margin`, `padding` (1–4 value CSS shorthand) |
 | Position | `position: relative\|absolute`, `left`, `top`, `right`, `bottom` |
 | Paint | `background-color`, `color`, `font-scale` |
-| Behaviour | `overflow: visible\|hidden\|scroll`, `pointer-events: auto\|none`, `display: flex\|none` |
+| Behaviour | `overflow` / `overflow-x` / `overflow-y`: `visible\|hidden\|scroll`, `pointer-events: auto\|none`, `display: flex\|none` |
+| Scrollbar | `scrollbar-width`, `scrollbar-min-thumb`, `scrollbar-color`, `scrollbar-thumb-color`, `scrollbar-visibility: auto\|always`, `scroll-behavior: instant\|smooth` |
 
 Lengths are `auto`, `Npx`, `N%`, or a bare number (treated as px). Colours are
 `#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb(r,g,b)`, `rgba(r,g,b,a)` (channels 0–255,
@@ -399,6 +400,20 @@ clamped amount from the growth pool.
 | `hidden` | clips to the box |
 | `scroll` | clips **and** scrolls |
 
+`overflow-x` and `overflow-y` set one axis each; `overflow` is the shorthand for
+both, and source order within a rule decides — `overflow: hidden; overflow-y:
+scroll` clips across and scrolls down.
+
+One inherited CSS rule matters: **setting one axis to anything but `visible`
+promotes the other**. That is not a convenience, it is forced — clipping is a
+rectangle, so "clip Y but not X" has no representation. An element therefore
+clips on both axes or neither, even though it can *scroll* on just one.
+
+`auto` is **not** a keyword and is reported as an error. CSS `auto` means "a bar
+only when needed", which is exactly what `scroll` already does here; the one
+thing CSS `scroll` adds is an always-painted bar, and that is a property of the
+bar — see `scrollbar-visibility` below.
+
 ```css
 .log {
   overflow: scroll;
@@ -426,6 +441,13 @@ scroller's own `text=` does not scroll either; put a header in a sibling element
 edge of the content — add `padding-right` if that matters. A bar that changed the
 layout could make itself disappear, and then reappear, forever. The thumb is
 draggable, and pressing it never reaches the content underneath.
+
+They are styleable: `scrollbar-width` (0 hides the bar while leaving the panel
+scrollable), `scrollbar-min-thumb`, `scrollbar-color`, `scrollbar-thumb-color`,
+and `scrollbar-visibility: auto|always` — `always` paints a bar on a scrollable
+axis even while the content fits, for a panel whose scrollability should be
+advertised. **Nothing in this system inherits**, so to restyle every bar at once
+use the universal selector: `* { scrollbar-width: 10px; }`.
 
 **No chaining.** The innermost scrollable ancestor under the pointer keeps the
 wheel, even when it is already at its end. Choosing by *remaining room* instead
@@ -866,13 +888,12 @@ Repeating a template over a list — bindings address one property, not a
 collection. Transitions and animation. `position: fixed`, `position: sticky`, and
 portals.
 
-Within scrolling specifically: `overflow-x` / `overflow-y` as separate
-properties; the `auto` keyword (reported until it has a meaning of its own that
-`scroll` does not already cover); scroll chaining and gesture latching; keyboard
+Within scrolling specifically: scroll chaining and gesture latching; keyboard
 scrolling — PageUp/PageDown/Home/End do nothing and a scroller is not focusable,
 so a text-only panel is mouse-only; momentum and smooth-scroll animation;
 Shift+wheel axis swap (both hosts ignore it on purpose, so the two agree); a
-reserved scrollbar gutter; `scrollbar-*` styling, the bar's width and colours
-being constants; clicking the track to page up and down; a scrollbar for a text
+reserved scrollbar gutter — CSS invented `scrollbar-gutter` to break a reflow
+loop that overlay bars do not have, so `padding-right` is the answer here;
+clicking the track to page up and down; a scrollbar for a text
 field (a multiline `<TextField>` scrolls its text but draws no bar); and
 virtualisation, so a scroller lays out every row it contains.

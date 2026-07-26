@@ -196,7 +196,8 @@ TEST(UIStyleSheet, EnumsAndFlags) {
     EXPECT_FLOAT_EQ(a.style().inset.top, 6.f);
 
     UIElement o("o"); s.ApplyToElement(o);
-    EXPECT_EQ(o.style().overflow, Overflow::Hidden);
+    EXPECT_EQ(o.style().overflowX, Overflow::Hidden);
+    EXPECT_EQ(o.style().overflowY, Overflow::Hidden);
     EXPECT_FALSE(o.style().pickable) << "pointer-events: none did not disable picking";
 }
 

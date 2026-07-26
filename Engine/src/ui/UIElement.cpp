@@ -42,20 +42,6 @@ namespace {
         default:               return YGAlignAuto;
         }
     }
-    // No `default:` here, unlike the three above. The /we4062 build flag turns a
-    // missing enumerator into a compile error, and that protection is worth more
-    // on this enum than anywhere else: a forgotten Scroll case would compile
-    // clean and silently mean Visible, which is the one failure a scrolling
-    // feature cannot survive.
-    YGOverflow toYG(Overflow o) {
-        switch (o) {
-        case Overflow::Visible: return YGOverflowVisible;
-        case Overflow::Hidden:  return YGOverflowHidden;
-        case Overflow::Scroll:  return YGOverflowScroll;
-        }
-        return YGOverflowVisible;   // unreachable: the switch is exhaustive
-    }
-
     // The font in effect for the layout pass currently running. Yoga's measure
     // callback is a bare function pointer with only the node for context, and
     // the node already carries the UIElement — so rather than widening
@@ -163,9 +149,10 @@ namespace {
 
         YGNodeStyleSetDisplay(n, s.display == DisplayMode::None ? YGDisplayNone
                                                                 : YGDisplayFlex);
-        // Free, self-dirtying, and it keeps the node honest for a yoga that one
-        // day acts on it. Nothing here depends on it — see the flex-shrink note.
-        YGNodeStyleSetOverflow(n, toYG(s.overflow));
+        // No YGNodeStyleSetOverflow: yoga has ONE overflow value per node and a
+        // two-axis style has no honest push, so a call here would have to pick
+        // an axis and lie about the other. Nothing ever depended on it — it is
+        // layout-inert in 3.1, which is why flex-shrink above does the work.
 
         // A measure function is only legal on a LEAF. Yoga asserts if a node
         // has both children and a measure func, so this must track the tree,
@@ -351,7 +338,14 @@ void UIDocument::pushStyles_(UIElement& el, bool parentScrolls) {
     el.pushedFontScale_ = el.style_.fontScale;
 
     pushStyle(static_cast<YGNodeRef>(el.yogaNode_), el.style_, isTextLeaf, parentScrolls);
-    const bool scrolls = el.style_.overflow == Overflow::Scroll;
+    // The MAIN axis, not "either axis". flex-shrink is spent against the flex
+    // line's main dimension — there is no cross-axis shrink, that is what
+    // align-items does — so a column scroller cares about Y and a row scroller
+    // about X. Overriding on the wrong axis would leave a row scroller's
+    // children squeezed with nothing to scroll.
+    const bool row = el.style_.direction == FlexDirection::Row ||
+                     el.style_.direction == FlexDirection::RowReverse;
+    const bool scrolls = row ? ScrollsOnX(el.style_) : ScrollsOnY(el.style_);
     for (auto& c : el.children_) pushStyles_(*c, scrolls);
 }
 
@@ -364,7 +358,7 @@ void UIDocument::measureScroll_(UIElement& el) {
     // `display` rather than removing the element.
     if (el.style_.display == DisplayMode::None) return;
 
-    if (el.style_.overflow != Overflow::Scroll) {
+    if (!IsScroller(el.style_)) {
         // EVERY element is visited, not just scrollers: a class toggle or a
         // :hover rule can take `scroll` away at any moment while the offset —
         // which deliberately outlives Style — stays behind. Zeroing it here
@@ -412,6 +406,12 @@ void UIDocument::measureScroll_(UIElement& el) {
         // this floor every vertical list grows a horizontal scrollbar.
         if (sc.maxOffset.x - sc.minOffset.x < 1.0f) { sc.minOffset.x = sc.maxOffset.x = 0.0f; }
         if (sc.maxOffset.y - sc.minOffset.y < 1.0f) { sc.minOffset.y = sc.maxOffset.y = 0.0f; }
+        // An axis that does not scroll has no valid offset, so its range is
+        // pinned shut and the clamp below drives any leftover offset back to 0.
+        // AFTER the artefact floor, because the floor can collapse an axis and a
+        // pin applied first would simply be undone.
+        if (!ScrollsOnX(el.style_)) { sc.minOffset.x = sc.maxOffset.x = 0.0f; }
+        if (!ScrollsOnY(el.style_)) { sc.minOffset.y = sc.maxOffset.y = 0.0f; }
         // Finite-checked at the SOURCE: a NaN offset would reach PushClipRect,
         // and lround(NaN) hands glScissor a negative width.
         const bool offOk = std::isfinite(sc.offset.x) && std::isfinite(sc.offset.y);
@@ -452,44 +452,75 @@ void UIDocument::readLayout_(UIElement& el, const glm::vec2& parentOrigin) {
     if (el.scroll_) updateScrollBars_(el);
 }
 
-// 8px bars, 24px minimum thumb. Constants rather than style properties: a
-// scrollbar nobody has asked to restyle is not worth six more cascade entries,
-// and adding them later is additive.
-void UIDocument::updateScrollBars_(UIElement& el) {
-    UIScrollState& sc = *el.scroll_;
-    sc.trackX = sc.thumbX = sc.trackY = sc.thumbY = ComputedLayout{};
+// Pure, so the geometry is assertable with hand-supplied numbers in a suite
+// that has no GL and no font — the same reasoning that made FollowCaret pure.
+ScrollBarRects ComputeScrollBars(const glm::vec2& boxPos, const glm::vec2& boxSize,
+                                 const glm::vec2& offset, const glm::vec2& minOffset,
+                                 const glm::vec2& maxOffset,
+                                 float barWidth, float minThumb, bool alwaysVisible) {
+    ScrollBarRects out{};
+    if (boxSize.x <= 0.0f || boxSize.y <= 0.0f) return out;
 
-    constexpr float kBar = 8.0f, kMinThumb = 24.0f;
-    const glm::vec2 p = el.layout_.position, s = el.layout_.size;
-    if (s.x <= 0.0f || s.y <= 0.0f) return;
+    // A bar wider than the element is not a bar. Clamped to half the smaller
+    // side, and a width of 0 paints nothing at all — which is the sanctioned
+    // way to hide a bar while keeping the axis scrollable.
+    const float bar = std::clamp(barWidth, 0.0f, std::min(boxSize.x, boxSize.y) * 0.5f);
+    if (bar <= 0.0f) return out;
 
     // Range, not extent: with centred overflow the reachable span starts
     // negative, and the thumb has to represent what you can actually reach.
-    const glm::vec2 span = sc.maxOffset - sc.minOffset;
+    const glm::vec2 span = maxOffset - minOffset;
+    // `always` paints on an axis that COULD scroll even while its content fits;
+    // the thumb then fills its track and simply does not move.
+    const bool paintY = span.y > 0.0f || (alwaysVisible && maxOffset.y >= minOffset.y);
+    const bool paintX = span.x > 0.0f || (alwaysVisible && maxOffset.x >= minOffset.x);
+    if (!paintX && !paintY) return out;
 
-    if (span.y > 0.0f) {
-        const float trackH = s.y;
-        sc.trackY.position = { p.x + s.x - kBar, p.y };
-        sc.trackY.size = { kBar, trackH };
-        // content = box + span, so box/content is the visible fraction.
-        const float content = s.y + span.y;
-        const float thumbH = std::max(kMinThumb, trackH * (s.y / content));
+    // Each track stops short of the other, or the two overlap in a bar-by-bar
+    // square in the corner and each thumb can travel into the other's track.
+    const float trackH = boxSize.y - (paintX ? bar : 0.0f);
+    const float trackW = boxSize.x - (paintY ? bar : 0.0f);
+
+    auto round2 = [](glm::vec2 v) { return glm::round(v); };
+
+    if (paintY && trackH > 0.0f) {
+        const float content = boxSize.y + span.y;
+        const float thumbH = std::min(trackH,
+            std::max(minThumb, trackH * (content > 0.0f ? boxSize.y / content : 1.0f)));
         const float free = std::max(0.0f, trackH - thumbH);
-        const float t = (sc.offset.y - sc.minOffset.y) / span.y;
-        sc.thumbY.position = { p.x + s.x - kBar, p.y + free * t };
-        sc.thumbY.size = { kBar, thumbH };
+        const float t = span.y > 0.0f ? (offset.y - minOffset.y) / span.y : 0.0f;
+        out.trackY.position = round2({ boxPos.x + boxSize.x - bar, boxPos.y });
+        out.trackY.size     = round2({ bar, trackH });
+        out.thumbY.position = round2({ boxPos.x + boxSize.x - bar, boxPos.y + free * t });
+        out.thumbY.size     = round2({ bar, thumbH });
     }
-    if (span.x > 0.0f) {
-        const float trackW = s.x;
-        sc.trackX.position = { p.x, p.y + s.y - kBar };
-        sc.trackX.size = { trackW, kBar };
-        const float content = s.x + span.x;
-        const float thumbW = std::max(kMinThumb, trackW * (s.x / content));
+    if (paintX && trackW > 0.0f) {
+        const float content = boxSize.x + span.x;
+        const float thumbW = std::min(trackW,
+            std::max(minThumb, trackW * (content > 0.0f ? boxSize.x / content : 1.0f)));
         const float free = std::max(0.0f, trackW - thumbW);
-        const float t = (sc.offset.x - sc.minOffset.x) / span.x;
-        sc.thumbX.position = { p.x + free * t, p.y + s.y - kBar };
-        sc.thumbX.size = { thumbW, kBar };
+        const float t = span.x > 0.0f ? (offset.x - minOffset.x) / span.x : 0.0f;
+        out.trackX.position = round2({ boxPos.x, boxPos.y + boxSize.y - bar });
+        out.trackX.size     = round2({ trackW, bar });
+        out.thumbX.position = round2({ boxPos.x + free * t, boxPos.y + boxSize.y - bar });
+        out.thumbX.size     = round2({ thumbW, bar });
     }
+    // Rounded to whole pixels because the CONTENT steps in whole pixels
+    // (readLayout_ rounds the offset); an unrounded thumb would drift a pixel
+    // out of step with the rows it is describing. The unrounded offset stays the
+    // source of truth so a sub-pixel drag still integrates.
+    return out;
+}
+
+void UIDocument::updateScrollBars_(UIElement& el) {
+    UIScrollState& sc = *el.scroll_;
+    const Style& st = el.style_;
+    const ScrollBarRects r = ComputeScrollBars(
+        el.layout_.position, el.layout_.size, sc.offset, sc.minOffset, sc.maxOffset,
+        st.scrollbarWidth, st.scrollbarMinThumb,
+        st.scrollbarVisibility == ScrollbarVisibility::Always);
+    sc.trackX = r.trackX; sc.thumbX = r.thumbX;
+    sc.trackY = r.trackY; sc.thumbY = r.thumbY;
 }
 
 bool UIElement::SetScrollOffset(glm::vec2 px) {
@@ -571,7 +602,7 @@ void UIDocument::draw_(const UIElement& el, Renderer2D& r2d, const Font* font,
     // scrolls its text to follow the caret, and a control that scrolls its text
     // and also paints outside itself is incoherent. `overflow` on a field would
     // govern children, and a field has none.
-    const bool clips = s.overflow != Overflow::Visible || el.edit_ != nullptr;
+    const bool clips = ClipsBox(s) || el.edit_ != nullptr;
     if (clips) r2d.PushClipRect(L.position, L.size);
 
     // Text sits inside the padding box, matching CSS, shifted by the field's own
@@ -690,7 +721,7 @@ UIElement* UIDocument::hitTest_(UIElement& el, const glm::vec2& pos) {
     // `scroll` clip, hence the positive test. This is no longer hypothetical:
     // with scrolling, a row that has moved above its container is genuinely
     // painted nowhere, and without this it would still be clickable.
-    if (el.style_.overflow != Overflow::Visible && !contains(el.layout_, pos)) return nullptr;
+    if (ClipsBox(el.style_) && !contains(el.layout_, pos)) return nullptr;
 
     // Children in REVERSE order: they are painted front-to-back in order, so
     // the last one drawn is the topmost and must win the hit.
@@ -717,7 +748,7 @@ UIElement* UIDocument::HitTest(const glm::vec2& pos) {
 UIElement* UIDocument::hitScrollThumb_(UIElement& el, const glm::vec2& pos, int& axisOut) {
     if (el.style_.display == DisplayMode::None) return nullptr;
     if (!el.enabled_ || !el.style_.pickable) return nullptr;
-    if (el.style_.overflow != Overflow::Visible && !contains(el.layout_, pos)) return nullptr;
+    if (ClipsBox(el.style_) && !contains(el.layout_, pos)) return nullptr;
 
     for (auto it = el.children_.rbegin(); it != el.children_.rend(); ++it) {
         if (UIElement* h = hitScrollThumb_(**it, pos, axisOut)) return h;
@@ -874,7 +905,7 @@ void UIDocument::UpdatePointer(const UIPointerState& p, const Font* font) {
             // the two hosts only ever have to agree on a SIGN.
             constexpr float kPixelsPerNotch = 48.0f;
             for (UIElement* n = hit; n; n = n->parent_) {
-                if (n->style_.overflow != Overflow::Scroll || !n->scroll_) continue;
+                if (!IsScroller(n->style_) || !n->scroll_) continue;
                 const UIScrollState& sc = *n->scroll_;
                 const bool wantX = e.delta.x != 0.0f && sc.scrollsX();
                 const bool wantY = e.delta.y != 0.0f && sc.scrollsY();
@@ -1033,6 +1064,13 @@ void UIDocument::SetFocus(UIElement* el) {
 
 void UIDocument::revealFocus_() {
     pendingFocusReveal_ = false;
+    // The tree may have been rebuilt since SetFocus asked for this: a hot reload
+    // frees every element, and the request deliberately survives from one frame
+    // into the next Layout. Validate before walking parent_ upward, exactly as
+    // UpdatePointer validates its cached hover/press/drag pointers — clicking a
+    // button and then saving the markup is an everyday sequence, and without
+    // this it reads freed memory.
+    if (focused_ && !isInTree_(focused_)) focused_ = nullptr;
     if (!focused_) return;
     // Innermost outward, re-solving between moves: scrolling the inner scroller
     // changes where the focused element sits inside the outer one, so an outer
@@ -1040,7 +1078,7 @@ void UIDocument::revealFocus_() {
     // depth, and every iteration after the first is a no-op in the common case
     // of a single scroller.
     for (UIElement* n = focused_->parent_; n; n = n->parent_) {
-        if (n->style_.overflow == Overflow::Visible) continue;
+        if (!ClipsBox(n->style_)) continue;
         if (n->ScrollIntoView(focused_->layout_.position, focused_->layout_.size)) {
             measureScroll_(*root_);
             readLayout_(*root_, origin_);

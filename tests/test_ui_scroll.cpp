@@ -44,7 +44,7 @@ struct ScrollDoc {
 
     explicit ScrollDoc(int n = 10, float childH = 50.f, float boxH = 100.f) {
         box = doc.root().AddChild("box");
-        box->style().overflow = Overflow::Scroll;
+        box->style().overflowX = box->style().overflowY = Overflow::Scroll;
         box->style().width = StyleLength::Px(200.f);
         box->style().height = StyleLength::Px(boxH);
         for (int i = 0; i < n; ++i) {
@@ -106,7 +106,7 @@ TEST(UIScroll, ScrollerChildrenKeepTheirNaturalSize) {
 // that proves the flex-shrink override is scoped to scrollers.
 TEST(UIScroll, ANonScrollerStillShrinksItsChildren) {
     ScrollDoc d;
-    d.box->style().overflow = Overflow::Hidden;
+    d.box->style().overflowX = d.box->style().overflowY = Overflow::Hidden;
     d.Layout();
     EXPECT_FLOAT_EQ(d.row(0)->layout().size.y, 10.f)
         << "flex-shrink was overridden on something that is not a scroller";
@@ -229,7 +229,7 @@ TEST(UIScroll, OffsetIsZeroedWhenOverflowStopsBeingScroll) {
     d.Layout();
     const float scrolled = d.row(0)->layout().position.y;
 
-    d.box->style().overflow = Overflow::Visible;
+    d.box->style().overflowX = d.box->style().overflowY = Overflow::Visible;
     d.Layout();
     EXPECT_GT(d.row(0)->layout().position.y, scrolled);
     EXPECT_FLOAT_EQ(d.row(0)->layout().position.y, d.box->layout().position.y)
@@ -316,12 +316,12 @@ TEST(UIScroll, WheelStopsAtTheEndsWithoutOverscrolling) {
 TEST(UIScroll, WheelDoesNotChainToTheParent) {
     UIDocument doc;
     UIElement* outer = doc.root().AddChild("outer");
-    outer->style().overflow = Overflow::Scroll;
+    outer->style().overflowX = outer->style().overflowY = Overflow::Scroll;
     outer->style().width = StyleLength::Px(200.f);
     outer->style().height = StyleLength::Px(100.f);
 
     UIElement* inner = outer->AddChild("inner");
-    inner->style().overflow = Overflow::Scroll;
+    inner->style().overflowX = inner->style().overflowY = Overflow::Scroll;
     inner->style().width = StyleLength::Px(180.f);
     inner->style().height = StyleLength::Px(80.f);
     for (int i = 0; i < 4; ++i) {
@@ -472,7 +472,7 @@ TEST(UIScroll, ThumbDragMovesTheOffsetProportionally) {
 TEST(UIScroll, FocusIsScrolledIntoView) {
     UIDocument doc;
     UIElement* box = doc.root().AddChild("box");
-    box->style().overflow = Overflow::Scroll;
+    box->style().overflowX = box->style().overflowY = Overflow::Scroll;
     box->style().width = StyleLength::Px(200.f);
     box->style().height = StyleLength::Px(100.f);
     for (int i = 0; i < 20; ++i) {
@@ -510,7 +510,8 @@ TEST(UIScroll, OverflowIsThreeValued) {
             << c.value << ": " << (s.errors().empty() ? "" : s.errors()[0]);
         UIElement e("e");
         s.ApplyToElement(e);
-        EXPECT_EQ(e.style().overflow, c.want) << c.value;
+        EXPECT_EQ(e.style().overflowX, c.want) << c.value;
+        EXPECT_EQ(e.style().overflowY, c.want) << c.value << " (shorthand must write BOTH axes)";
     }
 }
 
@@ -542,7 +543,7 @@ TEST(UIScroll, MarkupCanAuthorAScroller) {
     doc.Layout(400.f, 400.f);
     UIElement* log = doc.root().Find("log");
     ASSERT_NE(log, nullptr);
-    EXPECT_EQ(log->style().overflow, Overflow::Scroll);
+    EXPECT_EQ(log->style().overflowY, Overflow::Scroll);
     EXPECT_FLOAT_EQ(log->contentSize().y, 120.f);
 }
 
@@ -642,4 +643,221 @@ TEST(UIScroll, WheelIsConsumedExactlyOnce) {
     EXPECT_FLOAT_EQ(box->scrollOffset().y, after) << "one notch scrolled twice";
 
     std::remove(m.c_str());
+}
+
+// SetFocus defers its scroll-into-view to the next Layout, because
+// ScrollIntoView needs absolute rects and two focus moves in one frame would
+// have the second computing from rects the first invalidated. That deferral
+// means a focus request can outlive the tree it named: click a button, save the
+// markup, and the hot reload frees every element before the reveal runs.
+//
+// This crashed intermittently — freed memory sometimes still reads plausibly,
+// which is exactly why it needs a test rather than a bug report.
+TEST(UIScroll, APendingFocusRevealSurvivesTheTreeBeingRebuilt) {
+    UIDocument doc;
+    UIElement* box = doc.root().AddChild("box");
+    box->style().overflowX = box->style().overflowY = Overflow::Scroll;
+    box->style().width = StyleLength::Px(200.f);
+    box->style().height = StyleLength::Px(100.f);
+    for (int i = 0; i < 8; ++i) {
+        UIElement* b = box->AddChild("b" + std::to_string(i));
+        b->style().height = StyleLength::Px(40.f);
+        b->setFocusable(true);
+    }
+    doc.Layout(400.f, 400.f);
+
+    // Focus something far down, so a reveal is genuinely pending...
+    doc.SetFocus(doc.root().Find("b7"));
+    ASSERT_NE(doc.focused(), nullptr);
+
+    // ...then rebuild the tree before the next Layout, exactly as a hot reload
+    // does. Every element the focus request named is now freed.
+    doc.root().ClearChildren();
+    doc.Layout(400.f, 400.f);        // must not read freed memory
+
+    EXPECT_EQ(doc.focused(), nullptr) << "focus survived the tree that held it";
+    SUCCEED();
+}
+
+// ===================================================== per-axis overflow
+
+TEST(UIScroll, OverflowShorthandWritesBothAxes) {
+    UIStyleSheet s;
+    ASSERT_TRUE(s.ParseString("#e { overflow: scroll; }"));
+    UIElement e("e");
+    s.ApplyToElement(e);
+    EXPECT_EQ(e.style().overflowX, Overflow::Scroll);
+    EXPECT_EQ(e.style().overflowY, Overflow::Scroll);
+}
+
+// Source order within a rule decides, exactly as in CSS. This falls out of
+// ApplyToElement replaying a rule's declarations in parse order — the test
+// exists to pin that it IS modelled, because the shorthand relies on it.
+TEST(UIScroll, LonghandAndShorthandResolveBySourceOrder) {
+    {
+        UIStyleSheet s;
+        ASSERT_TRUE(s.ParseString("#e { overflow: hidden; overflow-y: scroll; }"));
+        UIElement e("e"); s.ApplyToElement(e);
+        EXPECT_EQ(e.style().overflowX, Overflow::Hidden);
+        EXPECT_EQ(e.style().overflowY, Overflow::Scroll);
+    }
+    {
+        UIStyleSheet s;
+        ASSERT_TRUE(s.ParseString("#e { overflow-y: scroll; overflow: hidden; }"));
+        UIElement e("e"); s.ApplyToElement(e);
+        EXPECT_EQ(e.style().overflowX, Overflow::Hidden);
+        EXPECT_EQ(e.style().overflowY, Overflow::Hidden)
+            << "the shorthand came last and must win on both axes";
+    }
+}
+
+// CSS computed-value rule. Not decoration here but forced: clipping is a RECT,
+// so "clip Y but not X" has no representation in PushClipRect.
+TEST(UIScroll, ALoneVisibleAxisIsPromoted) {
+    UIElement e("e");
+    e.style().overflowX = Overflow::Hidden;      // Y left Visible
+    EXPECT_TRUE(ClipsBox(e.style()));
+    EXPECT_EQ(ResolvedOverflowY(e.style()), Overflow::Scroll)
+        << "the lone visible axis was not promoted, so the element half-clips";
+
+    UIElement plain("p");
+    EXPECT_FALSE(ClipsBox(plain.style()));
+    EXPECT_FALSE(IsScroller(plain.style()));
+}
+
+// flex-shrink acts on the MAIN axis. A row scroller whose Y is hidden must
+// still refuse to squeeze its children horizontally.
+TEST(UIScroll, TheShrinkOverrideFollowsTheMainAxis) {
+    UIDocument doc;
+    UIElement* row = doc.root().AddChild("row");
+    row->style().direction = FlexDirection::Row;
+    row->style().overflowX = Overflow::Scroll;
+    row->style().overflowY = Overflow::Hidden;
+    row->style().width = StyleLength::Px(200.f);
+    row->style().height = StyleLength::Px(60.f);
+    for (int i = 0; i < 6; ++i) {
+        row->AddChild("c" + std::to_string(i))->style().width = StyleLength::Px(80.f);
+    }
+    doc.Layout(400.f, 400.f);
+
+    EXPECT_FLOAT_EQ(doc.root().Find("c0")->layout().size.x, 80.f)
+        << "a row scroller had its children squeezed — nothing left to scroll";
+    EXPECT_GT(row->maxScroll().x, 0.f);
+    EXPECT_FLOAT_EQ(row->maxScroll().y, 0.f) << "a hidden axis must not scroll";
+}
+
+TEST(UIScroll, AHiddenAxisIsPinnedShut) {
+    ScrollDoc d;
+    d.box->SetScrollOffset({ 0.f, 200.f });
+    d.Layout();
+    ASSERT_FLOAT_EQ(d.box->scrollOffset().y, 200.f);
+
+    d.box->style().overflowY = Overflow::Hidden;
+    d.Layout();
+    EXPECT_FLOAT_EQ(d.box->maxScroll().y, 0.f);
+    EXPECT_FLOAT_EQ(d.box->scrollOffset().y, 0.f)
+        << "an axis that stopped scrolling kept a live offset";
+    EXPECT_FLOAT_EQ(d.box->scrollState()->thumbY.size.y, 0.f);
+}
+
+// `auto` stays reserved. The error names the legal words EXACTLY, so appending
+// a fourth keyword later cannot pass this test by accident.
+TEST(UIScroll, OverflowAutoIsReportedOnEverySpelling) {
+    for (const char* prop : { "overflow", "overflow-x", "overflow-y" }) {
+        UIStyleSheet s;
+        EXPECT_FALSE(s.ParseString(std::string("#e { ") + prop + ": auto; }")) << prop;
+        ASSERT_FALSE(s.errors().empty()) << prop;
+        EXPECT_NE(s.errors()[0].find(std::string(prop) + " must be one of visible|hidden|scroll"),
+                  std::string::npos) << s.errors()[0];
+    }
+}
+
+// ======================================================= scrollbar styling
+
+TEST(UIScroll, ScrollbarPropertiesAreAuthorable) {
+    UIStyleSheet s;
+    ASSERT_TRUE(s.ParseString(
+        "#e { scrollbar-width: 12px; scrollbar-min-thumb: 30px;"
+        "     scrollbar-color: #101010; scrollbar-thumb-color: #ff0000;"
+        "     scrollbar-visibility: always; scroll-behavior: smooth; }"))
+        << (s.errors().empty() ? "" : s.errors()[0]);
+    UIElement e("e"); s.ApplyToElement(e);
+    EXPECT_FLOAT_EQ(e.style().scrollbarWidth, 12.f);
+    EXPECT_FLOAT_EQ(e.style().scrollbarMinThumb, 30.f);
+    EXPECT_FLOAT_EQ(e.style().scrollbarThumbColor.r, 1.f);
+    EXPECT_EQ(e.style().scrollbarVisibility, ScrollbarVisibility::Always);
+    EXPECT_EQ(e.style().scrollBehavior, ScrollBehavior::Smooth);
+}
+
+TEST(UIScroll, ScrollbarWidthRejectsPercentAndNegative) {
+    for (const char* bad : { "50%", "-4px", "auto" }) {
+        UIStyleSheet s;
+        EXPECT_FALSE(s.ParseString(std::string("#e { scrollbar-width: ") + bad + "; }")) << bad;
+        ASSERT_FALSE(s.errors().empty()) << bad;
+        EXPECT_NE(s.errors()[0].find("scrollbar-width must be a non-negative pixel length"),
+                  std::string::npos) << s.errors()[0];
+    }
+}
+
+TEST(UIScroll, ScrollBarGeometryIsPure) {
+    // A 100px box over 500px of content: the thumb is a fifth of the track,
+    // which is below the 24px floor, so the floor is what shows.
+    const ScrollBarRects r = ComputeScrollBars(
+        { 0.f, 0.f }, { 200.f, 100.f }, { 0.f, 0.f }, { 0.f, 0.f }, { 0.f, 400.f },
+        8.f, 24.f, /*alwaysVisible=*/false);
+    EXPECT_FLOAT_EQ(r.trackY.size.x, 8.f);
+    EXPECT_FLOAT_EQ(r.trackY.size.y, 100.f);
+    EXPECT_FLOAT_EQ(r.thumbY.size.y, 24.f) << "the min-thumb floor did not apply";
+    EXPECT_FLOAT_EQ(r.thumbY.position.y, 0.f);
+    EXPECT_FLOAT_EQ(r.thumbX.size.x, 0.f) << "a bar appeared on an axis with no range";
+
+    // At the far end the thumb trailing edge meets the track trailing edge.
+    const ScrollBarRects e = ComputeScrollBars(
+        { 0.f, 0.f }, { 200.f, 100.f }, { 0.f, 400.f }, { 0.f, 0.f }, { 0.f, 400.f },
+        8.f, 24.f, false);
+    EXPECT_FLOAT_EQ(e.thumbY.position.y + e.thumbY.size.y, 100.f);
+}
+
+// A bar wider than the element is not a bar.
+TEST(UIScroll, ScrollbarWidthClampsToTheBox) {
+    const ScrollBarRects r = ComputeScrollBars(
+        { 0.f, 0.f }, { 100.f, 40.f }, { 0.f, 0.f }, { 0.f, 0.f }, { 0.f, 200.f },
+        200.f, 24.f, false);
+    EXPECT_LE(r.trackY.size.x, 20.f) << "the bar is wider than half the element";
+    EXPECT_LE(r.thumbY.size.y, r.trackY.size.y);
+}
+
+TEST(UIScroll, ScrollbarWidthZeroPaintsNothing) {
+    const ScrollBarRects r = ComputeScrollBars(
+        { 0.f, 0.f }, { 200.f, 100.f }, { 0.f, 0.f }, { 0.f, 0.f }, { 0.f, 400.f },
+        0.f, 24.f, false);
+    EXPECT_FLOAT_EQ(r.thumbY.size.y, 0.f) << "scrollbar-width: 0 must hide the bar";
+}
+
+// The two tracks used to span the full box and overlap in a bar-by-bar square,
+// letting each thumb travel into the other track.
+TEST(UIScroll, BothAxesLeaveACornerFree) {
+    const ScrollBarRects r = ComputeScrollBars(
+        { 0.f, 0.f }, { 200.f, 100.f }, { 0.f, 0.f }, { 0.f, 0.f }, { 300.f, 400.f },
+        8.f, 24.f, false);
+    ASSERT_GT(r.thumbX.size.x, 0.f);
+    ASSERT_GT(r.thumbY.size.y, 0.f);
+    EXPECT_FLOAT_EQ(r.trackY.size.y, 92.f) << "the vertical track runs into the corner";
+    EXPECT_FLOAT_EQ(r.trackX.size.x, 192.f) << "the horizontal track runs into the corner";
+}
+
+// `always` is what CSS spells `overflow: scroll` as against `auto`. It lives on
+// the bar because the bar is the only thing it affects.
+TEST(UIScroll, AlwaysVisiblePaintsABarWithNoRange) {
+    const ScrollBarRects autoBar = ComputeScrollBars(
+        { 0.f, 0.f }, { 200.f, 100.f }, { 0.f, 0.f }, { 0.f, 0.f }, { 0.f, 0.f },
+        8.f, 24.f, /*alwaysVisible=*/false);
+    EXPECT_FLOAT_EQ(autoBar.thumbY.size.y, 0.f);
+
+    const ScrollBarRects always = ComputeScrollBars(
+        { 0.f, 0.f }, { 200.f, 100.f }, { 0.f, 0.f }, { 0.f, 0.f }, { 0.f, 0.f },
+        8.f, 24.f, /*alwaysVisible=*/true);
+    EXPECT_GT(always.thumbY.size.y, 0.f);
+    EXPECT_FLOAT_EQ(always.thumbY.size.y, always.trackY.size.y)
+        << "with no range the thumb should fill its track";
 }

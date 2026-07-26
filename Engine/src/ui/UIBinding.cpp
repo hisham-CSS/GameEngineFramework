@@ -309,16 +309,29 @@ void UIBinder::noteShadowedDeclarations_(const UIElement& el, const UIStyleSheet
     for (const UIBinding& b : el.bindings()) {
         if (b.target.kind != UIBindTarget::Kind::Style) continue;
         for (UIDeclaration::Prop p : declared) {
-            if (p != b.target.styleProp) continue;
+            // Overlap, not equality: `overflow` is a shorthand over
+            // `overflow-x`/`overflow-y`, so a sheet declaring one and a binding
+            // writing the other would never see each other by exact compare —
+            // and the note would go silent on exactly the case it exists for.
+            if (!UIDeclaration::PropsOverlap(p, b.target.styleProp)) continue;
             // Binding a property makes its stylesheet rule dead. That is a
             // legitimate pattern — the rule is the pre-bind default — but
             // discovering it by editing the .uss and watching nothing happen is
             // exactly the silent no-op this codebase reports errors to avoid.
+            const bool partial = p != b.target.styleProp;
             std::string s = "the stylesheet declares '" + std::string(UIDeclaration::NameOf(p)) +
                             "' for <" + el.type();
             if (!el.name().empty()) s += " name='" + el.name() + "'";
-            s += ">, which " + origin_ +
-                 " binds - the stylesheet value is only the pre-bind default";
+            s += ">, which " + origin_ + " ";
+            if (partial) {
+                // A longhand binding shadows ONE axis; telling the author the
+                // sheet line is dead would make them delete a rule that is
+                // still driving the other.
+                s += "partly binds via '" + std::string(UIDeclaration::NameOf(b.target.styleProp)) +
+                     "' - only that axis is bound, the stylesheet still drives the other";
+            } else {
+                s += "binds - the stylesheet value is only the pre-bind default";
+            }
             notes_.push_back(std::move(s));
             break;
         }

@@ -76,6 +76,21 @@ namespace MyCoreEngine::ui {
         bool scrollsY() const { return maxOffset.y > minOffset.y; }
     };
 
+    // The four bar rects for one scroller, in absolute pixels. A zero-size thumb
+    // means that axis paints no bar — the one signal the painter and the hit
+    // test share.
+    struct ScrollBarRects {
+        ComputedLayout trackX, thumbX, trackY, thumbY;
+    };
+
+    // Pure geometry, exposed so it can be asserted directly: the UI suite has no
+    // GL and no font, and a scrollbar is the one part of this system whose
+    // correctness is entirely arithmetic.
+    ENGINE_API ScrollBarRects ComputeScrollBars(
+        const glm::vec2& boxPos, const glm::vec2& boxSize,
+        const glm::vec2& offset, const glm::vec2& minOffset, const glm::vec2& maxOffset,
+        float barWidth, float minThumb, bool alwaysVisible);
+
     class ENGINE_API UIElement {
     public:
         explicit UIElement(std::string name = {});
