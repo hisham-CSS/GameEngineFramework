@@ -1299,3 +1299,48 @@ TEST(SceneSerializer, OldMaterialOverrideDefaultsToOpaque) {
 
     std::remove(path);
 }
+
+// The Inspector now offers a Name field on every entity, which makes it
+// tempting to give every entity a Name on load so the panel always has one to
+// point at. That would be wrong twice over: it rewrites the file with a key for
+// every entity on the next save, and it turns "unnamed" into a name. Absence is
+// the canonical way to say unnamed, and it has to survive a round trip.
+TEST(SceneSerializer, UnnamedEntitiesRoundTripUnnamed) {
+    const char* path = "test_scene_unnamed.json";
+    AssetManager assets;
+
+    {
+        Scene a;
+        Entity named = a.createEntity();
+        named.addComponent<Name>(Name{ "Hero" });
+        named.addComponent<Transform>(Transform{});
+        Entity bare = a.createEntity();
+        bare.addComponent<Transform>(Transform{});
+
+        SceneSerializer sz(a, assets);
+        ASSERT_TRUE(sz.Save(path));
+    }
+
+    // The file itself must carry no "name" key for the bare entity — a default
+    // written here is a default nobody chose.
+    {
+        std::ifstream f(path);
+        nlohmann::json j; f >> j;
+        ASSERT_EQ(j["entities"].size(), 2u);
+        int withName = 0;
+        for (const auto& je : j["entities"]) if (je.contains("name")) ++withName;
+        EXPECT_EQ(withName, 1) << "an unnamed entity was written with a name";
+    }
+
+    Scene b;
+    SceneSerializer sz(b, assets);
+    ASSERT_TRUE(sz.Load(path));
+    EXPECT_EQ(CountNamed(b), 1) << "the load invented a name for the bare entity";
+    // ...and both entities still exist: an unnamed entity keeps its object slot,
+    // which is what keeps parent indices aligned.
+    int total = 0;
+    for (auto e : b.registry.view<Transform>()) { (void)e; ++total; }
+    EXPECT_EQ(total, 2);
+
+    std::remove(path);
+}

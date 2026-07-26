@@ -77,6 +77,8 @@ Every component that exists, with its fields and defaults exactly as declared.
 | --- | --- | --- |
 | `value` | `std::string` | `"Entity"` |
 
+Absence is meaningful: **no `Name` component means unnamed**, which is why the serializer writes no `"name"` key for such an entity and the Hierarchy shows `Unnamed [<id>]`. The editor never stores `Name{""}` — clearing the Inspector's Name field removes the component — because an empty name would read as *named* everywhere that tests for the component's presence.
+
 **`Transform`**
 
 | Field | Type | Default | Notes |

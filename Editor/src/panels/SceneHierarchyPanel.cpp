@@ -10,9 +10,18 @@
 #include <unordered_map>
 #include <vector>
 
+// "Unnamed" rather than the old "(Entity)", which differed from the real
+// default name "Entity" only by its parentheses. An empty Name counts as
+// unnamed too: the Inspector removes the component when you clear the field,
+// but a hand-authored scene can still carry "name": "".
+static bool IsUnnamed(entt::registry& reg, entt::entity e) {
+    auto* n = reg.try_get<Name>(e);
+    return !n || n->value.empty();
+}
+
 static const char* GetEntityLabel(entt::registry& reg, entt::entity e) {
-    if (auto* n = reg.try_get<Name>(e)) return n->value.c_str();
-    return "(Entity)";
+    if (IsUnnamed(reg, e)) return "Unnamed";
+    return reg.get<Name>(e).value.c_str();
 }
 
 namespace {
@@ -66,8 +75,15 @@ bool SceneHierarchyPanel::Draw(entt::registry& reg, entt::entity& selected, Undo
             if (leaf) flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
             if (e == selected) flags |= ImGuiTreeNodeFlags_Selected;
 
+            // A placeholder should not read as a name someone chose. Not dimmed
+            // while selected: the row you are looking at is the one that has to
+            // stay legible against the highlight.
+            const bool dim = IsUnnamed(reg, e) && e != selected;
+            if (dim) ImGui::PushStyleColor(ImGuiCol_Text,
+                                           ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
             const bool open = ImGui::TreeNodeEx((void*)(uint64_t)(uint32_t)e, flags, "%s [%u]",
                 GetEntityLabel(reg, e), (uint32_t)e);
+            if (dim) ImGui::PopStyleColor();
 
             if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
                 selected = e;

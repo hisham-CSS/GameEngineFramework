@@ -459,6 +459,12 @@ namespace MyCoreEngine {
                 pendingParents.emplace_back(entity, je["parent"].get<size_t>());
             }
 
+            // No is_string() guard on purpose: a wrong-typed "name" throws and
+            // fails the whole load, which is the house rule for a malformed
+            // field (see WrongTypedFieldLeavesTheOpenSceneIntact). Load is
+            // non-destructive, so the user keeps the scene they had and gets an
+            // error naming the file — strictly better than silently dropping a
+            // name they wrote and only noticing on the next save.
             if (je.contains("name")) {
                 entity.addComponent<Name>(Name{ je["name"].get<std::string>() });
             }

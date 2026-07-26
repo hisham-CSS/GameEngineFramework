@@ -2,19 +2,25 @@
 #include "InspectorPanel.h"
 #include "../UndoHistory.h"
 #include "imgui.h"
+#include "imgui_stdlib.h"
 #include "Engine.h"
 
 #include <cstdio>
 #include <filesystem>
+#include <string>
 
 // Component-based Inspector: an entity shows ONLY the components attached
 // to it — each in its own collapsible section with a native close (✕) to
 // remove it — plus an Add Component popup for everything missing. This
 // mirrors the ECS truth underneath: an absent component occupies zero
 // memory (EnTT sparse sets), so what the panel shows is exactly what is
-// stored. A default entity is Name + Transform; everything else is opt-in.
+// stored. A default entity is Transform; everything else is opt-in.
 // Transform is not removable (everything positional depends on it),
 // matching the Unity convention.
+//
+// The NAME is the exception, and deliberately not in that list: it is
+// identity, not a capability, so its field is always drawn. See the identity
+// block in Draw for why that distinction earns its own rule.
 
 static bool DragFloat3(const char* label, float v[3], float speed = 0.1f) {
     return ImGui::DragFloat3(label, v, speed);
@@ -88,12 +94,33 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
         };
 
         // ---- entity identity (not a component section) --------------------
-        if (auto* name = reg.try_get<Name>(selected)) {
-            char buf[128];
-            snprintf(buf, sizeof(buf), "%s", name->value.c_str());
-            if (ImGui::InputText("Name", buf, sizeof(buf))) {
-                name->value = buf;
+        // ALWAYS drawn, even with no Name component. A name is identity, not a
+        // capability an entity opts into: gating this field on the component
+        // made every entity a scene file did not name unrenameable, and the
+        // loader only writes a Name when the json carries a "name" key — so the
+        // sample scene's 399 unnamed backpacks had no rename field at all and
+        // no hint that one existed.
+        //
+        // Storage stays sparse: absent component == empty name == "unnamed". An
+        // entity carrying Name{""} would serialize a "name": "" nobody can see
+        // and read as NAMED everywhere that tests for the component, so clearing
+        // the field removes it rather than emptying it.
+        {
+            const Name* have = reg.try_get<Name>(selected);
+            // Reseeded from the registry every frame. While the field is active
+            // ImGui edits its own copy and only hands it back on a change, which
+            // is what makes the component appearing and disappearing mid-edit
+            // harmless. std::string, not a char[128]: an externally authored
+            // scene can carry a name longer than any buffer we would pick, and
+            // silently amputating it on the first keystroke is data loss.
+            std::string text = have ? have->value : std::string();
+            if (ImGui::InputTextWithHint("Name", "Unnamed", &text)) {
+                if (text.empty()) reg.remove<Name>(selected);
+                else reg.emplace_or_replace<Name>(selected, Name{ text });
             }
+            // Undo captures on ACTIVATION, before any typing, so the "before"
+            // snapshot of a nameless entity has hasName=false and Ctrl+Z takes
+            // the component away again (UndoHistory apply's else-remove).
             trackItem("Rename");
         }
         ImGui::TextDisabled("Entity ID: %u", (uint32_t)selected);
@@ -103,8 +130,11 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
         if (auto* t = reg.try_get<Transform>(selected)) {
             if (ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen)) {
                 if (auto* par = reg.try_get<Parent>(selected); par && reg.valid(par->value)) {
-                    const char* pname = "(Entity)";
-                    if (auto* pn = reg.try_get<Name>(par->value)) pname = pn->value.c_str();
+                    // Same word the Hierarchy and the Name field's placeholder
+                    // use, so one parent reads the same in all three places.
+                    const char* pname = "Unnamed";
+                    if (auto* pn = reg.try_get<Name>(par->value); pn && !pn->value.empty())
+                        pname = pn->value.c_str();
                     ImGui::TextDisabled("Local to parent '%s'", pname);
                 }
                 float pos[3] = { t->position.x, t->position.y, t->position.z };
@@ -850,15 +880,11 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
             ImGui::OpenPopup("AddComponentPopup");
         }
         if (ImGui::BeginPopup("AddComponentPopup")) {
+            // No "Name" item: the identity block at the top of the panel always
+            // offers the field, so listing it here would be a second, worse
+            // route to the same state — and would re-teach the exact "a name is
+            // opt-in" model that made this panel confusing.
             int missing = 0;
-            if (!reg.any_of<Name>(selected)) {
-                ++missing;
-                if (ImGui::MenuItem("Name")) {
-                    undo.record(reg, selected, "Add name", [&] {
-                        reg.emplace<Name>(selected, Name{ "Entity" });
-                    });
-                }
-            }
             if (!reg.any_of<Transform>(selected)) {
                 ++missing;
                 if (ImGui::MenuItem("Transform")) {

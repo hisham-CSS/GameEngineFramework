@@ -664,3 +664,71 @@ TEST(UndoHistory, EntityVanishingMidEditDropsEntry) {
     h.endEdit(reg);
     EXPECT_TRUE(h.entries().empty());
 }
+
+// ---------------------------------------------------------------- naming
+//
+// The Inspector's Name field is drawn for EVERY entity, so "type a name into
+// something that had none" and "clear a name back to nothing" are both routine
+// edits now. Both cross the hasName boundary, and makeEntity above always
+// emplaces a Name — which is exactly why these branches went untested until the
+// field stopped being gated on the component.
+
+TEST(UndoHistory, NamingANamelessEntityIsUndoable) {
+    entt::registry reg;
+    UndoHistory h;
+    entt::entity e = reg.create();
+    reg.emplace<Transform>(e);
+    ASSERT_FALSE(reg.all_of<Name>(e));
+
+    // What the Inspector does: capture on widget activation (before any
+    // typing), emplace on the first change, commit on deactivate.
+    h.beginEdit(reg, e, "Rename");
+    reg.emplace_or_replace<Name>(e, Name{ "Box" });
+    h.endEdit(reg);
+
+    ASSERT_EQ(h.entries().size(), 1u)
+        << "adding a name is a real change; snapEq must not fold it away";
+
+    h.undo(reg, nullptr);
+    EXPECT_FALSE(reg.all_of<Name>(e))
+        << "undo left the Name component behind — an entity that was unnamed "
+           "before the edit must be unnamed after undoing it";
+
+    h.redo(reg, nullptr);
+    ASSERT_TRUE(reg.all_of<Name>(e));
+    EXPECT_EQ(reg.get<Name>(e).value, "Box");
+}
+
+TEST(UndoHistory, ClearingANameRemovesTheComponentAndUndoRestoresIt) {
+    entt::registry reg;
+    UndoHistory h;
+    auto e = makeEntity(reg, "Crate");
+
+    // Empty text means UNNAMED, and unnamed means no component — an entity
+    // carrying Name{""} would read as named everywhere that tests presence.
+    h.beginEdit(reg, e, "Rename");
+    reg.remove<Name>(e);
+    h.endEdit(reg);
+
+    ASSERT_EQ(h.entries().size(), 1u);
+    h.undo(reg, nullptr);
+    ASSERT_TRUE(reg.all_of<Name>(e));
+    EXPECT_EQ(reg.get<Name>(e).value, "Crate");
+
+    h.redo(reg, nullptr);
+    EXPECT_FALSE(reg.all_of<Name>(e));
+}
+
+// A rename that changes nothing is still not an entry, the same as every other
+// widget — otherwise clicking into the field and out again would fill the
+// history with steps that do nothing.
+TEST(UndoHistory, TouchingTheNameFieldWithoutTypingIsDropped) {
+    entt::registry reg;
+    UndoHistory h;
+    entt::entity e = reg.create();
+    reg.emplace<Transform>(e);
+
+    h.beginEdit(reg, e, "Rename");
+    h.endEdit(reg);
+    EXPECT_TRUE(h.entries().empty());
+}

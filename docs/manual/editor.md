@@ -147,7 +147,7 @@ The Game renderer is forced out of yaw/pitch sun mode first (`setUseSunYawPitch(
 
 ## Scene Hierarchy
 
-`Editor/src/panels/SceneHierarchyPanel.cpp`. The tree is derived from `Parent` links: entities with a valid `Parent` become children, everything else is a root. Rows read `<Name> [<entity id>]`.
+`Editor/src/panels/SceneHierarchyPanel.cpp`. The tree is derived from `Parent` links: entities with a valid `Parent` become children, everything else is a root. Rows read `<Name> [<entity id>]`. An entity with no name reads `Unnamed [<id>]` and is dimmed, so a placeholder never looks like a name someone chose — select it and type into the Inspector's Name field to give it one.
 
 | Action | How |
 | --- | --- |
@@ -168,6 +168,8 @@ All tree mutations are deferred to after the walk (the tree iteration must never
 `Editor/src/panels/InspectorPanel.cpp`. The Inspector shows **only the components actually attached** to the selected entity, each in its own collapsible header with a native ✕ to remove it, plus an **Add Component** popup for everything missing. This mirrors the ECS truth underneath: an absent component occupies zero memory, so what the panel shows is exactly what is stored.
 
 At the top, outside any component section: the editable **Name** and a disabled `Entity ID: <n>`.
+
+The Name field is **always** there, whether or not the entity has a `Name` component — a name is identity, not a capability an entity opts into, and it is the one thing in this panel that is not a component section. Storage stays sparse: an empty field means unnamed and carries no component, so clearing the field removes it and the scene file writes no `"name"` key. That matters because the loader only creates a `Name` for entities the file names, so a scene like the shipped sample — 4 named entities out of 403 — would otherwise leave almost everything unrenameable.
 
 ### Transform
 
@@ -252,7 +254,9 @@ In the editor that fallback is the **Game** camera, not the Scene view's fly cam
 
 ### Add Component
 
-The popup lists only what the entity is missing: `Name`, `Transform`, `Model`, `Camera`, `Light`, `Script`, `Audio Source`, `Audio Listener`, `Rigid Body`, and the four colliders. Every component that needs a transform adds one if it is absent. When nothing is left it shows `(all components added)`.
+The popup lists only what the entity is missing: `Transform`, `Model`, `Camera`, `Light`, `Script`, `Audio Source`, `Audio Listener`, `Rigid Body`, `UI Document`, and the four colliders. Every component that needs a transform adds one if it is absent. When nothing is left it shows `(all components added)`.
+
+`Name` is deliberately **not** in the list: the identity field at the top of the panel always offers it, so a menu item would be a second, worse route to the same state.
 
 ### Asset view
 
