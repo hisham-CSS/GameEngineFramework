@@ -98,6 +98,9 @@ add_library(Engine SHARED
     src/ui/UIInteractionStyler.cpp
     src/ui/UIAssetDocument.h
     src/ui/UIAssetDocument.cpp
+    src/ui/UIComponent.h
+    src/ui/UIWorld.h
+    src/ui/UIWorld.cpp
     src/ui/DemoHud.h
     src/ui/DemoHud.cpp
     src/render/passes/UIPass.h

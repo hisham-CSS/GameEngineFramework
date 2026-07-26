@@ -91,6 +91,9 @@ class PlayerApplication : public MyCoreEngine::Application {
     // Same requirement again: the UI draw callback captures this by reference
     // and is invoked from the render pass for the app's whole life.
     MyCoreEngine::ui::DemoHud  hud_;
+    // Drives every UIDocumentComponent in the scene. Same lifetime requirement:
+    // the draw callback holds it by reference for the app's whole life.
+    MyCoreEngine::UIWorld      uiWorld_;
 public:
     PlayerApplication() : Application(1280, 720, "Cat Splat Player") {}
 
@@ -183,7 +186,10 @@ public:
             glfwSetCharCallback(win, &onChar);
         }
 
-        renderer().SetUIDraw([this](MyCoreEngine::Renderer2D& r2d, int w, int h, float dt) {
+        // `scene` is a local that outlives RunLoop below, so capturing it by
+        // reference is safe for the callback's whole life.
+        renderer().SetUIDraw([this, &scene](MyCoreEngine::Renderer2D& r2d,
+                                            int w, int h, float dt) {
             // The UI covers the whole window here, so window coords ARE UI
             // coords — no mapping needed (the editor is the case that needs it).
             // Read straight from GLFW: the engine's InputMap is action/axis
@@ -202,8 +208,16 @@ public:
             // Drained, not copied: a keystroke must be delivered exactly once,
             // and the callbacks keep filling this between frames.
             hud_.SetKeyboard(g_uiKeys);
+            uiWorld_.SetPointer(p);
+            uiWorld_.SetKeyboard(g_uiKeys);
             g_uiKeys.clear();
+
             hud_.Draw(r2d, w, h, dt);
+            // Scene-declared UI paints OVER the sample HUD. A real game drops
+            // DemoHud entirely and ships only UIDocumentComponents — this is
+            // both here so the sample keeps working while scenes gain their own.
+            uiWorld_.Update(scene.registry, w, h, dt);
+            uiWorld_.Draw(r2d);
         });
 
         // Render through the scene's camera entity, exactly like the editor's

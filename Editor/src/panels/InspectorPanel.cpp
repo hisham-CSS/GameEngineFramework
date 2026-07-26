@@ -667,6 +667,52 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
             }
         }
 
+        // ---- UI Document (scene-attached in-game UI) -----------------------
+        if (auto* ud = reg.try_get<MyCoreEngine::UIDocumentComponent>(selected)) {
+            bool keep = true;
+            if (ImGui::CollapsingHeader("UI Document", &keep, ImGuiTreeNodeFlags_DefaultOpen)) {
+                char markup[260]{};
+                char style[260]{};
+                std::snprintf(markup, sizeof(markup), "%s", ud->markup.c_str());
+                std::snprintf(style, sizeof(style), "%s", ud->stylesheet.c_str());
+
+                if (ImGui::InputText("Markup (.uxml)", markup, sizeof(markup))) {
+                    undo.record(reg, selected, "Set UI markup", [&] { ud->markup = markup; });
+                }
+                if (ImGui::InputText("Stylesheet (.uss)", style, sizeof(style))) {
+                    undo.record(reg, selected, "Set UI stylesheet",
+                                [&] { ud->stylesheet = style; });
+                }
+                ImGui::TextDisabled("Project-relative, e.g. Exported/UI/hud.uxml");
+
+                int order = ud->sortOrder;
+                if (ImGui::DragInt("Sort Order", &order, 1.0f, -1000, 1000)) {
+                    undo.record(reg, selected, "Set UI sort order",
+                                [&] { ud->sortOrder = order; });
+                }
+                ImGui::SetItemTooltip("Higher draws on top. Ties break on entity order.");
+
+                bool enabled = ud->enabled;
+                if (ImGui::Checkbox("Enabled", &enabled)) {
+                    undo.record(reg, selected, "Toggle UI document",
+                                [&] { ud->enabled = enabled; });
+                }
+                bool interactive = ud->interactive;
+                if (ImGui::Checkbox("Interactive", &interactive)) {
+                    undo.record(reg, selected, "Toggle UI interactivity",
+                                [&] { ud->interactive = interactive; });
+                }
+                ImGui::SetItemTooltip(
+                    "Off for a decorative overlay, or it swallows clicks meant for\n"
+                    "whatever is underneath it.");
+                ImGui::TextDisabled("Both files hot-reload while the game runs.");
+            }
+            if (!keep) {
+                undo.record(reg, selected, "Remove UI document",
+                            [&] { reg.remove<MyCoreEngine::UIDocumentComponent>(selected); });
+            }
+        }
+
         // ---- Rigid Body ---------------------------------------------------
         if (auto* rb = reg.try_get<RigidBody>(selected)) {
             bool keep = true;
@@ -860,6 +906,20 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
                     undo.record(reg, selected, "Add audio listener", [&] {
                         reg.emplace<MyCoreEngine::AudioListenerComponent>(selected);
                         if (!reg.any_of<Transform>(selected)) reg.emplace<Transform>(selected);
+                    });
+                }
+            }
+            if (!reg.any_of<MyCoreEngine::UIDocumentComponent>(selected)) {
+                ++missing;
+                if (ImGui::MenuItem("UI Document")) {
+                    undo.record(reg, selected, "Add UI document", [&] {
+                        MyCoreEngine::UIDocumentComponent ud;
+                        // Seeded with the shipped sample, so the component does
+                        // something the moment it is added rather than needing
+                        // two paths typed before anything appears.
+                        ud.markup = "Exported/UI/hud.uxml";
+                        ud.stylesheet = "Exported/UI/hud.uss";
+                        reg.emplace<MyCoreEngine::UIDocumentComponent>(selected, ud);
                     });
                 }
             }

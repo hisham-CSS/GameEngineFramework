@@ -88,6 +88,12 @@ namespace {
                                  a.audioSource.minDistance != b.audioSource.minDistance ||
                                  a.audioSource.maxDistance != b.audioSource.maxDistance)) return false;
         if (a.hasAudioListener != b.hasAudioListener) return false;
+        if (a.hasUIDocument != b.hasUIDocument) return false;
+        if (a.hasUIDocument && (a.uiDocument.markup != b.uiDocument.markup ||
+                                a.uiDocument.stylesheet != b.uiDocument.stylesheet ||
+                                a.uiDocument.sortOrder != b.uiDocument.sortOrder ||
+                                a.uiDocument.enabled != b.uiDocument.enabled ||
+                                a.uiDocument.interactive != b.uiDocument.interactive)) return false;
         if (a.hasParent != b.hasParent) return false;
         if (a.hasParent && a.parent != b.parent) return false;
         if (a.hasOverrides != b.hasOverrides) return false;
@@ -140,6 +146,7 @@ EntitySnapshot UndoHistory::capture(entt::registry& reg, entt::entity e) {
     if (auto* c = reg.try_get<PlaneCollider>(e))   { s.hasPlaneCollider = true; s.planeCollider = *c; }
     if (auto* c = reg.try_get<AudioSourceComponent>(e)) { s.hasAudioSource = true; s.audioSource = *c; }
     s.hasAudioListener = reg.any_of<AudioListenerComponent>(e);
+    if (auto* c = reg.try_get<UIDocumentComponent>(e)) { s.hasUIDocument = true; s.uiDocument = *c; }
     return s;
 }
 
@@ -220,6 +227,8 @@ void UndoHistory::apply(entt::registry& reg, MyCoreEngine::AssetManager* assets,
     else reg.remove<AudioSourceComponent>(e);
     if (s.hasAudioListener) { if (!reg.any_of<AudioListenerComponent>(e)) reg.emplace<AudioListenerComponent>(e); }
     else reg.remove<AudioListenerComponent>(e);
+    if (s.hasUIDocument) reg.emplace_or_replace<UIDocumentComponent>(e, s.uiDocument);
+    else reg.remove<UIDocumentComponent>(e);
 
     // parent link — skipped if the target doesn't exist (yet); batch paths
     // (multi-op entries, restoreScene) run a fixup pass afterwards

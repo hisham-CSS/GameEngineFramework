@@ -1,0 +1,37 @@
+#pragma once
+// UI as SCENE CONTENT: an entity carrying a markup + stylesheet path.
+//
+// Until now the host installed a draw callback, which meant the UI a game shows
+// was a property of the executable rather than of the scene. That is backwards
+// for everything else in this engine — a mesh, a light, a sound and a script
+// are all entities — and it makes "the editor previews what ships" depend on
+// both hosts remembering to install the same callback.
+//
+// With this, a scene declares its own UI, the Player and the Game view both
+// pick it up from the saved file, and nothing in either host mentions it.
+#include "../core/Core.h"
+
+#include <string>
+
+namespace MyCoreEngine {
+
+    struct UIDocumentComponent {
+        // Project-relative, and run through PathIsContained before opening —
+        // markup is authored content flowing into a parser, like every model,
+        // script, clip and HDRi path in a scene file.
+        std::string markup;      // e.g. "Exported/UI/hud.uxml"
+        std::string stylesheet;  // may be empty
+        // Larger draws later, so a HUD can sit over a background panel without
+        // either of them knowing about the other. Ties break on entity order,
+        // which is stable across a save and reload.
+        int  sortOrder = 0;
+        // Off hides the document AND stops it consuming input, which is what a
+        // pause menu wants from every other document while it is up.
+        bool enabled = true;
+        // Whether this document may take pointer and keyboard input. A purely
+        // decorative overlay (a vignette, a damage flash) should say no, or it
+        // will swallow clicks meant for whatever is beneath it.
+        bool interactive = true;
+    };
+
+} // namespace MyCoreEngine

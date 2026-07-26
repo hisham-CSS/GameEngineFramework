@@ -450,8 +450,14 @@ void EditorApplication::Run() {
         if (!hud_.Init()) {
             for (const auto& e : hud_.errors()) std::cout << "EDITOR: UI: " << e << std::endl;
         }
-        gameRenderer_.SetUIDraw([this](MyCoreEngine::Renderer2D& r2d, int w, int h, float dt) {
+        gameRenderer_.SetUIDraw([this, &scene](MyCoreEngine::Renderer2D& r2d,
+                                              int w, int h, float dt) {
             hud_.Draw(r2d, w, h, dt);
+            // Scene-declared UI paints OVER the sample HUD, and previews here
+            // exactly as the Player draws it. A real game drops DemoHud and
+            // ships only UIDocumentComponents.
+            uiWorld_.Update(scene.registry, w, h, dt);
+            uiWorld_.Draw(r2d);
         });
 
         // Audio: per-frame listener/source update installed for the app's life;
@@ -860,6 +866,8 @@ void EditorApplication::DrawGameViewport(MyCoreEngine::Scene& scene,
             }
         }
         hud_.SetKeyboard(kb);
+        uiWorld_.SetPointer(p);
+        uiWorld_.SetKeyboard(kb);
     }
 
     // Keep the look coherent with the Scene view: scene-level state (lights,

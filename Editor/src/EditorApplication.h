@@ -221,6 +221,10 @@ private:
     // while the Game view has to show exactly what the Player ships. Outlives
     // RunLoop because the draw callback captures it by reference.
     MyCoreEngine::ui::DemoHud hud_;
+    // Drives every UIDocumentComponent in the scene, so the Game view previews
+    // scene-declared UI exactly as the Player renders it. Same lifetime
+    // requirement as hud_: the draw callback holds it by reference.
+    MyCoreEngine::UIWorld uiWorld_;
 
     // Game panel focus. Gameplay receives input only while this is true, so
     // the Scene view stays navigable with the same keys while playing.

@@ -54,6 +54,10 @@ struct EntitySnapshot {
     // listener tag, exactly the way an untracked component vanishes on restore.
     bool hasAudioSource = false;    AudioSourceComponent audioSource{};
     bool hasAudioListener = false;  // empty tag: presence is the whole state
+
+    // Scene-attached UI. Same closed-list rule again: omitted, and undoing any
+    // unrelated edit would silently strip an entity's UI document.
+    bool hasUIDocument = false;     UIDocumentComponent uiDocument{};
 };
 
 class UndoHistory {

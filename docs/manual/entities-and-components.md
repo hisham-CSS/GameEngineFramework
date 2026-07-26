@@ -171,6 +171,21 @@ fallback listener is used — the rendering camera in the player, and the **Game
 camera in the editor, so Play and the shipped build hear the same mix. Add it
 through the registry like other tags (`emplace` returns `void` for empty types).
 
+**`UIDocumentComponent`** (in `namespace MyCoreEngine`)
+
+| Field | Means |
+|---|---|
+| `markup` / `stylesheet` | project-relative `.uxml` / `.uss` paths, both hot-reloading |
+| `sortOrder` | higher draws on top; ties break on entity order |
+| `enabled` | off hides it and stops it consuming input |
+| `interactive` | off for a decorative overlay that must not swallow clicks |
+
+Attaches an in-game UI to the entity, so a scene declares its own interface
+rather than the executable doing it. Driven by `UIWorld`, which every host runs
+once per frame. Both paths go through the same containment gate as models,
+scripts and clips — a rejected path is cleared and the component survives. See
+**[In-game UI](ui.md#ui-as-scene-content)**.
+
 **`LightComponent`**
 
 | Field | Type | Default | Notes |
@@ -373,6 +388,7 @@ serializer.Load("scenes/level1.scene");
 | `planeCollider` | `PlaneCollider` | `offset` |
 | `audioSource` | `AudioSourceComponent` | `clip`, `volume`, `pitch`, `loop`, `spatial`, `playOnStart`, `minDistance`, `maxDistance` |
 | `audioListener` | `AudioListenerComponent` | `true` (an empty tag — presence is the whole state, like `noShadow`) |
+| `uiDocument` | `UIDocumentComponent` | `markup`, `stylesheet`, `sortOrder`, `enabled`, `interactive`; both paths are containment-checked on load |
 | `materialOverrides` | `MaterialOverrides` | array of `{ slot, baseColor, emissive, metallic, roughness, ao, alphaMode, opacity, alphaCutoff, doubleSided, shadingModel, toonBands, toonSpecStrength, toonSpecSize, toonRimStrength }`; slots whose override is null are skipped, and the key is omitted entirely when nothing survives |
 
 `AABB` is **not** serialized. It is derived data, regenerated from the model on load — and skipped entirely for models that loaded with zero meshes, whose bounds would be garbage.

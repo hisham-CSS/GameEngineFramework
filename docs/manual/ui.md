@@ -590,6 +590,58 @@ The engine ships **Roboto** (`Exported/Fonts/Roboto.ttf`, SIL Open Font License
 
 ---
 
+## UI as scene content
+
+A `UIDocumentComponent` puts UI on an **entity**, so a scene declares its own
+interface instead of the executable doing it:
+
+| Field | Means |
+|---|---|
+| `markup` / `stylesheet` | project-relative paths, both hot-reloading |
+| `sortOrder` | higher draws on top; ties break on entity order, so it is stable across a save |
+| `enabled` | off hides it and stops it consuming input — what a pause menu wants from everything beneath it |
+| `interactive` | off for a decorative overlay, or it swallows clicks meant for what is underneath |
+
+Add it from the Inspector's **Add Component ▸ UI Document**, and it is
+serialized and undoable like every other component.
+
+`UIWorld` drives them — the UI's equivalent of `AudioWorld` and `ScriptWorld`:
+
+```cpp
+UIWorld world;                     // outlives the draw callback
+world.SetFont(&font);
+world.shared().SetInt("hp", 100);  // visible to every document as `scene`
+
+world.SetPointer(p);
+world.SetKeyboard(kb);
+world.Update(scene.registry, w, h, dt);
+world.Draw(r2d);
+```
+
+Every document sees the shared source under the name **`scene`**, so markup can
+bind to gameplay values without per-document wiring; a document may still
+register its own through `world.document(entity)->bindingContext()`.
+
+Live documents are **cached by entity**. A `UIAssetDocument` owns a parsed tree,
+a binder index and hot-reload stamps, so only a *path* change reloads — toggling
+`enabled` keeps all three. Removing the component or destroying the entity drops
+the document on the next `Update`.
+
+**Input goes to one document**: the topmost interactive one under the pointer,
+or whichever holds focus. Otherwise a pause menu and the HUD beneath it would
+both react to the same click. Documents that lose input get an empty pointer
+state rather than being skipped, so they also drop their hover and press styling
+instead of staying lit under a menu.
+
+A document whose markup fails to load is **reported and kept**, so a fixed file
+is picked up by the ordinary hot-reload poll and one broken document never takes
+the others down with it.
+
+> `DemoHud` remains a host-installed sample so the shipped demo keeps working. A
+> real game drops it and ships only `UIDocumentComponent`s.
+
+---
+
 ## Using `Renderer2D` directly (2D games)
 
 Nothing about `Renderer2D` (`Engine/src/render2d/Renderer2D.h`) is UI-specific.
@@ -634,6 +686,8 @@ reset, so a leaked blend or depth state would corrupt the next pass.
 | `Engine/src/ui/UIBinding.h` | The `{hole}` template and `UIBinder` |
 | `Engine/src/ui/UIInteractionStyler.h` | pseudo-class re-cascading |
 | `Engine/src/ui/UITextField.h` | `UITextEdit` — the text-entry model |
+| `Engine/src/ui/UIComponent.h` | `UIDocumentComponent` — UI on an entity |
+| `Engine/src/ui/UIWorld.h` | Drives every document in a scene |
 | `Engine/src/ui/UIAssetDocument.h` | Markup + stylesheet assets with hot reload |
 | `Engine/src/ui/DemoHud.h` | The worked sample |
 | `Engine/src/render/passes/UIPass.h` | The render pass and the `UIDrawFn` hook |
@@ -641,5 +695,5 @@ reset, so a leaked blend or depth state would corrupt the next pass.
 ## Not there yet
 
 Class-toggle bindings; clipboard and undo in text fields; multi-line text;
-sibling combinators; a `UIDocument` **component** so a scene can attach UI to an
-entity (today the host installs the draw callback).
+sibling combinators; per-document input regions (a document currently spans the
+whole UI surface).

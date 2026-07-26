@@ -8,6 +8,7 @@
 #include "../script/ScriptComponent.h"
 #include "../audio/AudioComponents.h"
 #include "../audio/AudioTypes.h"   // kMinAudibleDistance (shared clamp floor)
+#include "../ui/UIComponent.h"
 
 #include <nlohmann/json.hpp>
 
@@ -244,6 +245,16 @@ namespace MyCoreEngine {
             // Empty tag: its presence is the whole state (mirrors noShadow).
             if (reg.any_of<AudioListenerComponent>(e)) {
                 je["audioListener"] = true;
+            }
+
+            if (auto* ud = reg.try_get<UIDocumentComponent>(e)) {
+                je["uiDocument"] = {
+                    { "markup",      ud->markup },
+                    { "stylesheet",  ud->stylesheet },
+                    { "sortOrder",   ud->sortOrder },
+                    { "enabled",     ud->enabled },
+                    { "interactive", ud->interactive },
+                };
             }
 
             if (auto* ov = reg.try_get<MaterialOverrides>(e)) {
@@ -644,6 +655,31 @@ namespace MyCoreEngine {
             }
             if (je.value("audioListener", false)) {
                 reg.emplace<AudioListenerComponent>(entity);
+            }
+
+            if (je.contains("uiDocument") && je["uiDocument"].is_object()) {
+                const json& ju = je["uiDocument"];
+                UIDocumentComponent ud;
+                ud.markup      = ju.value("markup", ud.markup);
+                ud.stylesheet  = ju.value("stylesheet", ud.stylesheet);
+                ud.sortOrder   = ju.value("sortOrder", ud.sortOrder);
+                ud.enabled     = ju.value("enabled", ud.enabled);
+                ud.interactive = ju.value("interactive", ud.interactive);
+                // Same containment gate as model, script, clip and HDRi paths,
+                // and for the same reason: authored markup and stylesheets flow
+                // straight into parsers. Drop just the path, keeping the
+                // component, so a rejected asset degrades exactly like a
+                // rejected model rather than deleting the entity's UI.
+                for (auto* p : { &ud.markup, &ud.stylesheet }) {
+                    if (p->empty()) continue;
+                    std::filesystem::path contained;
+                    if (!PathIsContained(/*baseDir=*/"", *p, contained)) {
+                        std::cerr << "[SceneSerializer] rejected UI path outside the project: '"
+                                  << *p << "'\n";
+                        p->clear();
+                    }
+                }
+                reg.emplace<UIDocumentComponent>(entity, ud);
             }
 
             // The probe never loads models, so `model` is always null there and

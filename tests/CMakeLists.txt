@@ -106,6 +106,7 @@ engine_test(test_ui_focus)         # keyboard focus, tab order, :focus/:disabled
 engine_test(test_ui_selectors)     # descendant/child combinators, summed specificity
 engine_test(test_ui_textfield)     # text entry: UTF-8 caret/editing, selection, mask, limits
 engine_test(test_ui_twoway)        # element -> source: push-* state and a field's bind-value
+engine_test(test_ui_component)     # UI as scene content: component, serialization, undo, UIWorld
 engine_test(test_import_settings)  # P4-3 phase 4: .import sidecar round-trip (pure CPU)
 engine_test(test_asset_validator)  # P4-3 phase 4: cooker validate logic (pure CPU)
 
@@ -132,6 +133,11 @@ set_tests_properties(cooker_missing_root PROPERTIES
 # but is ImGui-free, so it can be compiled straight into a headless test.
 target_sources(test_undo_history PRIVATE ${CMAKE_SOURCE_DIR}/Editor/src/UndoHistory.cpp)
 target_include_directories(test_undo_history PRIVATE ${CMAKE_SOURCE_DIR}/Editor/src)
+
+# Same arrangement: the UI component test asserts the undo snapshot covers it,
+# which is the check that catches EntitySnapshot's closed list being missed.
+target_sources(test_ui_component PRIVATE ${CMAKE_SOURCE_DIR}/Editor/src/UndoHistory.cpp)
+target_include_directories(test_ui_component PRIVATE ${CMAKE_SOURCE_DIR}/Editor/src)
 
 engine_test(test_perf_render)      # P4-8 perf budgets (real GPU work)
 # Timing test: never share the machine with other tests, and give the
