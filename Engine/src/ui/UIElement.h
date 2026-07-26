@@ -15,6 +15,7 @@
 #include "UIEvent.h"
 #include "UIStyleSheet.h"   // UIDeclaration (for inline styles)
 #include "UIBinding.h"      // UIBinding / UIBoundAction (authored, owned here)
+#include "UITextField.h"    // UITextEdit (owned by text-field elements)
 
 #include <glm/glm.hpp>
 
@@ -171,6 +172,21 @@ namespace MyCoreEngine::ui {
         // has it, unlike hover, which runs up the ancestor chain.
         bool isFocused() const { return focused_; }
 
+        // ---- text entry ----
+        // Non-null only on a text field. Held behind a pointer rather than
+        // inline because a caret, a selection and a length limit are state ONE
+        // kind of element has, and putting them on UIElement would cost every
+        // label in the tree.
+        UITextEdit*       textEdit()       { return edit_.get(); }
+        const UITextEdit* textEdit() const { return edit_.get(); }
+        // Turns this element into a text field (idempotent). Done by markup for
+        // `<TextField>`, and available to code building a tree by hand.
+        UITextEdit& MakeTextField();
+        // Pushes the edit buffer's DISPLAY text into style().text through
+        // setText, so measurement, layout and painting need to know nothing
+        // about text fields. Called after every edit.
+        void SyncTextFromEdit();
+
         // Interaction state, maintained by UIDocument::UpdatePointer.
         // `hovered` is true for the whole ancestor chain under the pointer
         // (CSS :hover semantics), so a button and the panel containing it are
@@ -202,6 +218,7 @@ namespace MyCoreEngine::ui {
         std::vector<UIBinding>     bindings_;
         std::vector<UIBoundAction> actions_;
         std::string   dataSource_;
+        std::unique_ptr<UITextEdit> edit_;   // text fields only
         std::uint32_t textRevision_ = 0;
         // Last fontScale handed to the layout engine, so pushStyles_ can tell
         // when a text element needs re-measuring. See there for why yoga cannot
@@ -242,7 +259,12 @@ namespace MyCoreEngine::ui {
         // Feed once per frame AFTER Layout (hit-testing needs computed rects)
         // and before Draw. Runs the hover/press state machine and dispatches
         // events; handlers may safely mutate styles, and even the tree.
-        void UpdatePointer(const UIPointerState& pointer);
+        //
+        // `font` is optional and only used to place a text field's caret from a
+        // click. Without it a click still focuses the field, it just leaves the
+        // caret where it was — the same graceful degradation as everywhere else
+        // a missing font appears.
+        void UpdatePointer(const UIPointerState& pointer, const Font* font = nullptr);
 
         // ---- keyboard ----
         // Feed once per frame AFTER UpdatePointer, so clicking a field and
@@ -255,6 +277,11 @@ namespace MyCoreEngine::ui {
         // navigation — that is how a future multi-line field would keep its
         // literal tabs.
         void UpdateKeyboard(const UIKeyboardState& keyboard);
+
+        // Advances the document's clock. Only the caret blink uses it today;
+        // transitions and animation will. Call once per frame with the frame
+        // delta, before Draw.
+        void AdvanceTime(float dt);
 
         // ---- focus ----
         // Null clears it. Refuses elements that are not focusable, not enabled,
@@ -285,8 +312,11 @@ namespace MyCoreEngine::ui {
         // engine swappable.
         static void pushStyles_(UIElement& el);
         static void readLayout_(UIElement& el, const glm::vec2& parentOrigin);
-        static void draw_(const UIElement& el, Renderer2D& r2d,
-                          const Font* font, int layer);
+        // `focused` and `caretVisible` are threaded through rather than read
+        // from a member because draw_ is static and recursive; only the one
+        // focused element in the whole walk cares.
+        static void draw_(const UIElement& el, Renderer2D& r2d, const Font* font,
+                          int layer, const UIElement* focused, bool caretVisible);
         static UIElement* hitTest_(UIElement& el, const glm::vec2& pos);
         // Bubbles `e` from `target` up through its ancestors, honouring
         // StopPropagation.
@@ -314,6 +344,10 @@ namespace MyCoreEngine::ui {
         bool  hadPointer_ = false;       // pointer was inside last frame
         bool  wasDown_ = false;
         glm::vec2 lastPos_{ 0.0f };
+        // Reset to 0 on every edit and caret move, so the caret is SOLID the
+        // instant you type. A caret that keeps blinking on its own schedule
+        // while you type reads as dropped input.
+        float caretClock_ = 0.0f;
     };
 
 } // namespace MyCoreEngine::ui

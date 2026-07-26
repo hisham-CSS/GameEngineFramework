@@ -65,6 +65,7 @@
 #include "../src/ui/UIValue.h"
 #include "../src/ui/UIDataSource.h"
 #include "../src/ui/UIBinding.h"
+#include "../src/ui/UITextField.h"
 #include "../src/ui/UIElement.h"
 #include "../src/ui/UIStyleSheet.h"
 #include "../src/ui/UIMarkup.h"

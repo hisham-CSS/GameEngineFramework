@@ -93,6 +93,7 @@ Parsed by `UIMarkup` (`Engine/src/ui/UIMarkup.h`, pugixml).
 | `on-<event>` | calls a named action the app registered |
 | `focusable` | `true`/`false` — puts the element in the tab order |
 | `disabled` | `true`/`false` (bare = true) — inert, skipped by Tab, matches `:disabled` |
+| `value` / `maxlength` / `mask` | `<TextField>` only — see [Text entry](#text-entry) |
 
 Anything else is a **load error**. That matters more than it sounds: this loader
 used to read the attributes it knew and ignore the rest, so `nmae="healthFill"`
@@ -254,6 +255,50 @@ would be a trap.
 | `FocusIn` / `FocusOut` | the element gaining/losing focus | no (like the DOM) |
 | `KeyDown` | the focused element | yes |
 | `TextInput` | the focused element | yes |
+| `ValueChanged` | the control that was edited | yes |
+
+---
+
+## Text entry
+
+```xml
+<TextField name="nameField" class="field" value="player one" maxlength="24"/>
+<TextField name="pin" mask="*" maxlength="8"/>
+```
+
+A `TextField` is focusable by default (a field you cannot focus is a label) and
+shows its **`value`** — writing `text=` on one is an error, because the two
+would disagree the moment anyone typed. `maxlength` is a **byte** budget, which
+is the limit a caller can reason about without knowing what the user will type;
+it only ever truncates on a character boundary. `mask` renders one glyph per
+*character*, so a masked field never leaks the byte length of non-ASCII input.
+
+**Every offset is a byte offset into UTF-8, and every operation moves by whole
+codepoints.** That is the only representation the renderer and the font can use
+without converting, and it means a caret can never land inside a multi-byte
+character — which is the classic way text fields corrupt anything but ASCII.
+
+| Input | Does |
+|---|---|
+| typing | inserts at the caret, replacing any selection |
+| Backspace / Delete | removes the selection, else one whole character |
+| Left / Right | moves one character; with Shift, extends the selection |
+| Home / End | jumps to either end; with Shift, selects to it |
+| Ctrl+A | selects all (a bare `a` stays typeable) |
+| click | places the caret at the nearest character boundary |
+| Tab | **leaves** the field — it is not consumed |
+
+Editing runs as a **default action**: the `KeyDown` or `TextInput` event is
+dispatched and bubbles first, and the field only acts if nothing called
+`StopPropagation`. That is the DOM's ordering, and it lets an app pre-empt a key
+without the field knowing about it. `ValueChanged` fires only when the value
+actually changed — moving the caret is not an edit.
+
+Reach the editing model with `element->textEdit()` (null on anything that is not
+a field). The caret blinks on a one-second cycle and is reset to solid on every
+edit, because a caret blinking to its own schedule while you type reads as
+dropped input. Drive it by calling `doc.AdvanceTime(dt)` once per frame, and
+pass the font to `UpdatePointer` so a click can place the caret.
 
 ---
 
@@ -556,13 +601,15 @@ reset, so a leaked blend or depth state would corrupt the next pass.
 | `Engine/src/ui/UIValue.h` | The bound-value transport and its coercions |
 | `Engine/src/ui/UIDataSource.h` | `UIDataSource`, converters, `UIBindingContext` |
 | `Engine/src/ui/UIBinding.h` | The `{hole}` template and `UIBinder` |
-| `Engine/src/ui/UIInteractionStyler.h` | `:hover` / `:active` re-cascading |
+| `Engine/src/ui/UIInteractionStyler.h` | pseudo-class re-cascading |
+| `Engine/src/ui/UITextField.h` | `UITextEdit` — the text-entry model |
 | `Engine/src/ui/UIAssetDocument.h` | Markup + stylesheet assets with hot reload |
 | `Engine/src/ui/DemoHud.h` | The worked sample |
 | `Engine/src/render/passes/UIPass.h` | The render pass and the `UIDrawFn` hook |
 
 ## Not there yet
 
-Text entry; element→source (two-way) binding; class-toggle bindings; sibling
-combinators; a `UIDocument` **component** so a scene can attach UI to an entity
-(today the host installs the draw callback).
+Element→source (two-way) binding; class-toggle bindings; clipboard and undo in
+text fields; multi-line text; sibling combinators; a `UIDocument` **component**
+so a scene can attach UI to an entity (today the host installs the draw
+callback).

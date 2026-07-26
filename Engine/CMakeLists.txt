@@ -86,6 +86,8 @@ add_library(Engine SHARED
     src/ui/UIDataSource.cpp
     src/ui/UIBinding.h
     src/ui/UIBinding.cpp
+    src/ui/UITextField.h
+    src/ui/UITextField.cpp
     src/ui/UIElement.h
     src/ui/UIElement.cpp
     src/ui/UIStyleSheet.h

@@ -241,6 +241,24 @@ void UIElement::setDataSourceName(std::string s) {
 
 std::uint32_t UIElement::structureEpoch() { return g_structureEpoch; }
 
+UITextEdit& UIElement::MakeTextField() {
+    if (!edit_) {
+        edit_ = std::make_unique<UITextEdit>();
+        // A field you cannot focus is a label, so this comes with the type
+        // rather than needing focusable="true" alongside it.
+        focusable_ = true;
+    }
+    return *edit_;
+}
+
+void UIElement::SyncTextFromEdit() {
+    if (!edit_) return;
+    // Through setText, so the measurement is invalidated: a field that grows
+    // as you type must be re-measured, and writing style().text directly would
+    // leave it at its previous width.
+    setText(edit_->displayText());
+}
+
 bool UIElement::HasClass(const std::string& c) const {
     return std::find(classes_.begin(), classes_.end(), c) != classes_.end();
 }
@@ -330,8 +348,8 @@ void UIDocument::Layout(float viewportW, float viewportH, const Font* font) {
     readLayout_(r, glm::vec2(0.0f));
 }
 
-void UIDocument::draw_(const UIElement& el, Renderer2D& r2d,
-                       const Font* font, int layer) {
+void UIDocument::draw_(const UIElement& el, Renderer2D& r2d, const Font* font,
+                       int layer, const UIElement* focused, bool caretVisible) {
     const ComputedLayout& L = el.layout_;
     const Style& s = el.style_;
     // Explicit, even though yoga zeroes a display:none subtree and the size
@@ -343,10 +361,38 @@ void UIDocument::draw_(const UIElement& el, Renderer2D& r2d,
     if (s.backgroundColor.a > 0.0f) {
         r2d.DrawQuad(L.position, L.size, s.backgroundColor, layer);
     }
-    if (!s.text.empty() && font && font->IsValid()) {
-        // Text sits inside the padding box, matching CSS.
-        const glm::vec2 tp{ L.position.x + s.padding.left,
-                            L.position.y + s.padding.top };
+
+    // Text sits inside the padding box, matching CSS.
+    const glm::vec2 tp{ L.position.x + s.padding.left, L.position.y + s.padding.top };
+    const bool haveFont = font && font->IsValid();
+
+    // ---- text field decoration -------------------------------------------
+    // Selection UNDER the text, caret over it, and both only for the one
+    // focused field — a caret on an unfocused field says "type here" when
+    // typing would go somewhere else entirely.
+    const UITextEdit* edit = el.edit_.get();
+    if (edit && haveFont && &el == focused) {
+        const std::string shown = edit->displayText();
+        const float lineH = font->Measure("", s.fontScale).y;
+        auto widthTo = [&](std::size_t bytes) {
+            return font->Measure(shown.substr(0, std::min(bytes, shown.size())),
+                                 s.fontScale).x;
+        };
+        if (edit->hasSelection()) {
+            const float x0 = widthTo(edit->selectionBegin());
+            const float x1 = widthTo(edit->selectionEnd());
+            r2d.DrawQuad({ tp.x + x0, tp.y }, { x1 - x0, lineH },
+                         { 0.25f, 0.45f, 0.85f, 0.55f }, layer);
+        }
+        if (caretVisible) {
+            // Drawn on the CHILD layer so it sits above the glyphs, which share
+            // this element's layer.
+            const float cx = tp.x + widthTo(edit->caret());
+            r2d.DrawQuad({ cx, tp.y }, { 1.0f, lineH }, s.textColor, layer + 1);
+        }
+    }
+
+    if (!s.text.empty() && haveFont) {
         r2d.DrawText(*font, s.text, tp, s.textColor, layer, s.fontScale);
     }
 
@@ -355,12 +401,21 @@ void UIDocument::draw_(const UIElement& el, Renderer2D& r2d,
     // Parent before child (painter's algorithm) AND on a higher layer, so a
     // child always paints over its parent's background regardless of the order
     // the batcher ends up flushing runs in.
-    for (const auto& c : el.children_) draw_(*c, r2d, font, layer + 1);
+    for (const auto& c : el.children_) {
+        draw_(*c, r2d, font, layer + 1, focused, caretVisible);
+    }
     if (clip) r2d.PopClipRect();
 }
 
+void UIDocument::AdvanceTime(float dt) { caretClock_ += dt; }
+
 void UIDocument::Draw(Renderer2D& r2d, const Font* font, int baseLayer) const {
-    draw_(*root_, r2d, font, baseLayer);
+    // A one-second cycle, on for the first half. Computed once here rather than
+    // per element: only the focused field can show a caret.
+    const float kBlink = 1.0f;
+    const bool caretVisible =
+        (caretClock_ - std::floor(caretClock_ / kBlink) * kBlink) < kBlink * 0.5f;
+    draw_(*root_, r2d, font, baseLayer, focused_, caretVisible);
 }
 
 // ------------------------------------------------------------------- input
@@ -429,7 +484,7 @@ bool UIDocument::isInTree_(const UIElement* el) const {
     return W{ el }(*root_);
 }
 
-void UIDocument::UpdatePointer(const UIPointerState& p) {
+void UIDocument::UpdatePointer(const UIPointerState& p, const Font* font) {
     // Drop cached targets that are no longer in the tree. Gameplay or a handler
     // may have removed the hovered/pressed element since last frame, and
     // dispatching to it would be a use-after-free.
@@ -526,6 +581,33 @@ void UIDocument::UpdatePointer(const UIPointerState& p) {
         // Clicking nothing focusable clears focus, which is what makes a text
         // field commit when you click away from it.
         SetFocus(target);
+
+        // Put the caret where the click landed. Measuring each prefix in turn
+        // is O(n) per click on the field's own text — fine for a single-line
+        // control, and it is the only way to be correct for a proportional font
+        // (character width varies, so there is no arithmetic shortcut).
+        if (target && target->edit_ && font && font->IsValid()) {
+            UITextEdit& ed = *target->edit_;
+            const std::string shown = ed.displayText();
+            const float originX = target->layout_.position.x + target->style_.padding.left;
+            const float localX = p.position.x - originX;
+            std::size_t best = 0;
+            float bestDist = std::abs(localX);
+            for (std::size_t i = UITextEdit::NextBoundary(shown, 0); ;
+                 i = UITextEdit::NextBoundary(shown, i)) {
+                const float w = font->Measure(shown.substr(0, i), target->style_.fontScale).x;
+                const float d = std::abs(localX - w);
+                // Snaps to the NEAREST boundary, not the one before: clicking
+                // the right half of a glyph should put the caret after it.
+                if (d < bestDist) { bestDist = d; best = i; }
+                if (i >= shown.size()) break;
+            }
+            // Byte offsets in the DISPLAY string and the value only coincide
+            // when there is no mask, so a masked field just keeps its caret
+            // rather than jumping somewhere arbitrary.
+            if (ed.maskCharacter().empty()) ed.SetCaret(best);
+            caretClock_ = 0.0f;
+        }
     }
 
     hadPointer_ = p.inside;
@@ -601,28 +683,58 @@ void UIDocument::UpdateKeyboard(const UIKeyboardState& kb) {
         SetFocus(nullptr);
     }
 
+    // Fires ValueChanged on a field that was just edited, and keeps the caret
+    // solid so typing never looks like dropped input.
+    auto afterEdit = [this](UIElement* el, bool changed) {
+        el->SyncTextFromEdit();
+        caretClock_ = 0.0f;
+        if (!changed) return;
+        UIEvent ev;
+        ev.type = UIEventType::ValueChanged;
+        ev.text = el->textEdit()->value();
+        bubble_(el, ev);
+    };
+
     for (const UIKeyEvent& k : kb.keys) {
+        UIElement* target = focused_;
         UIEvent e;
         e.type = UIEventType::KeyDown;
         e.key = k.key;
         e.shift = k.shift;
         e.ctrl = k.ctrl;
         e.alt = k.alt;
-        if (focused_) bubble_(focused_, e);
+        if (target) bubble_(target, e);
+        // A handler may have moved focus or torn the tree apart.
+        if (target && (!isInTree_(target) || target != focused_)) target = nullptr;
 
-        // Tab is navigation ONLY if nothing consumed it. That is what would let
-        // a multi-line field keep its literal tabs later, and it is why the
-        // check is StopPropagation rather than a hardcoded element-type test.
-        if (k.key == UIKey::Tab && !e.propagationStopped) {
-            FocusNext(k.shift);
+        // The field's own editing is a DEFAULT ACTION: it runs after handlers
+        // have seen the key, and only if none of them claimed it. That is the
+        // DOM's ordering, and it is what lets an app pre-empt a shortcut
+        // without the field having to know about it.
+        bool consumed = e.propagationStopped;
+        if (!consumed && target && target->textEdit()) {
+            bool changed = false;
+            consumed = target->textEdit()->HandleKey(k, changed);
+            if (consumed) afterEdit(target, changed);
         }
+
+        // Tab is navigation ONLY if nothing consumed it — a handler, or a field
+        // that wanted it. That is what would let a multi-line field keep its
+        // literal tabs, and it is why this is a consumption check rather than a
+        // hardcoded element-type test.
+        if (k.key == UIKey::Tab && !consumed) FocusNext(k.shift);
     }
 
     if (!kb.text.empty() && focused_) {
+        UIElement* target = focused_;
         UIEvent e;
         e.type = UIEventType::TextInput;
         e.text = kb.text;
-        bubble_(focused_, e);
+        bubble_(target, e);
+        if (target != focused_ || !isInTree_(target)) return;
+        if (!e.propagationStopped && target->textEdit()) {
+            afterEdit(target, target->textEdit()->InsertText(kb.text));
+        }
     }
 }
 

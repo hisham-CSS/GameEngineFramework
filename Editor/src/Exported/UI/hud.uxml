@@ -59,6 +59,16 @@
          click still bubbles, so making this a composite widget later changes
          nothing. -->
     <Button name="scoreButton" class="btn" text="+100" on-click="addScore"/>
+
+    <!-- Real text entry. Click it (or Tab to it) and type: the caret places
+         itself where you click, arrows and Backspace move by whole characters
+         rather than bytes, and `maxlength` is a byte budget that only ever
+         truncates on a character boundary.
+
+         A TextField shows its `value`, never a `text` — the value is the one
+         source of truth, and the two would otherwise disagree the moment
+         anyone typed. -->
+    <TextField name="nameField" class="field" value="player one" maxlength="24"/>
   </Element>
 
   <!-- `if` writes display:none rather than removing the element, so it keeps

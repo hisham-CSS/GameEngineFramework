@@ -81,8 +81,11 @@ void DemoHud::Draw(Renderer2D& r2d, int widthPx, int heightPx, float dt) {
     assets_.binder().UpdateToTarget();
 
     // Then layout (hit-testing reads computed rects), then input.
+    doc.AdvanceTime(dt);   // caret blink today; transitions later
     doc.Layout(float(widthPx), float(heightPx), f);
-    doc.UpdatePointer(pointer_);
+    // The font goes in so a click can place a text field's caret; without it
+    // the click still focuses, it just leaves the caret alone.
+    doc.UpdatePointer(pointer_, f);
     // Keyboard AFTER the pointer, so clicking a field and typing into it works
     // within a single frame. Consumed here: a keystroke must be delivered once,
     // and the host keeps refilling this between frames.

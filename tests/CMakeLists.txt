@@ -104,6 +104,7 @@ engine_test(test_ui_binding)       # data sources, {hole} templates, the binder,
 engine_test(test_ui_pseudo)        # :hover/:active — specificity, re-cascade, what it must not destroy
 engine_test(test_ui_focus)         # keyboard focus, tab order, :focus/:disabled, UTF-8 input
 engine_test(test_ui_selectors)     # descendant/child combinators, summed specificity
+engine_test(test_ui_textfield)     # text entry: UTF-8 caret/editing, selection, mask, limits
 engine_test(test_import_settings)  # P4-3 phase 4: .import sidecar round-trip (pure CPU)
 engine_test(test_asset_validator)  # P4-3 phase 4: cooker validate logic (pure CPU)
 

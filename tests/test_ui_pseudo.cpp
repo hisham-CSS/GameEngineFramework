@@ -440,9 +440,10 @@ TEST(UIPseudoHud, TheShippedButtonStylesItselfOnHoverAndPress) {
     UIDocument& doc = hud.document();
     UIElement* btn = doc.root().Find("scoreButton");
     ASSERT_NE(btn, nullptr);
-    // The HUD no longer touches this element at all — it is watched purely
-    // because hud.uss carries .btn:hover and .btn:active.
-    EXPECT_EQ(hud.assets().styler().watchedCount(), 1u);
+    // The HUD no longer touches these elements at all — they are watched
+    // purely because hud.uss carries .btn:hover/.btn:active and
+    // .field:hover/.field:focus. Two, not one: the button and the text field.
+    EXPECT_EQ(hud.assets().styler().watchedCount(), 2u);
 
     doc.Layout(1280.f, 720.f, nullptr);
     const glm::vec4 idle = btn->style().backgroundColor;
@@ -482,7 +483,7 @@ TEST(UIPseudoHud, HoverStateSurvivesAHotReload) {
     ASSERT_TRUE(hud.assets().Reload());
     EXPECT_TRUE(hud.assets().binder().ok())
         << (hud.assets().binder().errors().empty() ? "" : hud.assets().binder().errors()[0]);
-    EXPECT_EQ(hud.assets().styler().watchedCount(), 1u)
+    EXPECT_EQ(hud.assets().styler().watchedCount(), 2u)
         << "the watch list was not rebuilt after a reload";
     EXPECT_EQ(hud.document().root().Find("scoreLabel")->style().text, "SCORE 700")
         << "the reload lost the model";

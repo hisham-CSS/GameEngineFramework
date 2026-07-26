@@ -70,7 +70,8 @@ namespace {
             const std::string n = a.name();
             if (n == "name" || n == "class" || n == "style" || n == "text" ||
                 n == "data-source" || n == "bind" || n == "if" ||
-                n == "focusable" || n == "disabled") {
+                n == "focusable" || n == "disabled" ||
+                n == "value" || n == "maxlength" || n == "mask") {
                 continue;
             }
             // The on-<event> family is validated in full below; here it only
@@ -112,6 +113,8 @@ namespace {
         }
         el.setFocusable(focusable);
         el.setEnabled(!disabled);
+
+        const bool isField = (type == "TextField");
 
         // `text` is a TEMPLATE now: literal text with {holes} that read named
         // values. A constant template still compiles, so there is exactly one
@@ -264,6 +267,45 @@ namespace {
             boundActions.push_back(std::move(act));
         }
         el.setBoundActions(std::move(boundActions));
+
+        // ---- text fields ----
+        // AFTER the text/bind handling above, which clears style().text
+        // unconditionally so a removed attribute takes effect on a reload —
+        // syncing the field's display text before that would just be wiped.
+        //
+        // `value`, `maxlength` and `mask` only mean anything on a TextField,
+        // and `text` means the opposite of one: the VALUE decides what a field
+        // shows. Silently ignoring either is exactly the class of no-op this
+        // loader reports.
+        for (const char* attr : { "value", "maxlength", "mask" }) {
+            if (node.attribute(attr) && !isField) {
+                errors.push_back(loc + "'" + attr + "' is only valid on a <TextField>");
+                return false;
+            }
+        }
+        if (isField) {
+            if (node.attribute("text")) {
+                errors.push_back(loc + "a <TextField> shows its 'value', not 'text'");
+                return false;
+            }
+            UITextEdit& edit = el.MakeTextField();
+            if (const pugi::xml_attribute a = node.attribute("maxlength")) {
+                const std::string v = trim(a.value());
+                if (v.empty() || v.find_first_not_of("0123456789") != std::string::npos) {
+                    errors.push_back(loc + "maxlength: expected a byte count, got '" + v + "'");
+                    return false;
+                }
+                edit.setMaxLength(std::size_t(std::strtoull(v.c_str(), nullptr, 10)));
+            } else {
+                edit.setMaxLength(0);
+            }
+            edit.setMaskCharacter(node.attribute("mask").value());
+            // Set LAST, so maxlength trims it and the mask is in place before
+            // the display text is derived.
+            edit.setValue(node.attribute("value").value());
+            edit.MoveToEnd(false);
+            el.SyncTextFromEdit();
+        }
 
         if (const char* s = node.attribute("style").value(); s && *s) {
             std::vector<UIDeclaration> decls;

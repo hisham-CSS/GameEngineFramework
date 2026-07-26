@@ -87,6 +87,26 @@
   color: #14161a;
 }
 
+/* A text field. `:focus` is the state that matters here — a caret with no
+   other cue is easy to miss, so the field also changes colour while it owns
+   the keyboard. Tab to it and watch both change together. */
+.field {
+  width: 180px;
+  padding: 8px 10px;
+  margin: 0px 0px 0px 10px;
+  background-color: #1b1e23;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.field:hover {
+  background-color: #23272e;
+}
+
+.field:focus {
+  background-color: #2b3138;
+  color: white;
+}
+
 /* Full-screen, centred by flexbox rather than by computing the middle. */
 .centre-overlay {
   position: absolute;
