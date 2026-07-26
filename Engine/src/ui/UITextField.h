@@ -16,6 +16,7 @@
 
 #include <cstddef>
 #include <string>
+#include <vector>
 
 namespace MyCoreEngine::ui {
 
@@ -45,6 +46,12 @@ namespace MyCoreEngine::ui {
         void setMaxLength(std::size_t bytes) { maxBytes_ = bytes; }
         std::size_t maxLength() const { return maxBytes_; }
 
+        // Multi-line: Enter inserts a newline and is CONSUMED, and Up/Down move
+        // between lines. Tab still navigates — a field that trapped Tab would
+        // strand a keyboard user, and every web textarea agrees.
+        void setMultiline(bool m) { multiline_ = m; }
+        bool multiline() const { return multiline_; }
+
         // Renders as this character repeated, for passwords. Empty = off.
         // Stored as UTF-8 so it can be any glyph the font has.
         void setMaskCharacter(std::string utf8) { mask_ = std::move(utf8); }
@@ -64,10 +71,35 @@ namespace MyCoreEngine::ui {
         // it, which is what Shift+arrow means everywhere.
         void MoveLeft(bool select);
         void MoveRight(bool select);
+        // Home/End go to the start/end of the LINE in a multi-line field and of
+        // the whole value in a single-line one, which is what both look like to
+        // the user in each case.
         void MoveToStart(bool select);
         void MoveToEnd(bool select);
+        // Multi-line only; a no-op otherwise. Keeps the caret near the same
+        // horizontal position in bytes, which is the honest approximation
+        // without measuring text here.
+        void MoveUp(bool select);
+        void MoveDown(bool select);
         void SelectAll();
         void SetCaret(std::size_t byteOffset, bool select = false);
+
+        // ---- undo ----
+        // A bounded snapshot stack. Consecutive typing COALESCES into one entry
+        // (undoing letter by letter is nobody's idea of undo) while a deletion
+        // or a caret jump always starts a new one.
+        bool Undo();
+        bool Redo();
+        bool canUndo() const { return !undo_.empty(); }
+        bool canRedo() const { return !redo_.empty(); }
+
+        // ---- line helpers, shared with the renderer ----
+        // Byte offset of the start of the line containing `at`, and of its end
+        // (the '\n', or the end of the value).
+        static std::size_t LineStart(const std::string& s, std::size_t at);
+        static std::size_t LineEnd(const std::string& s, std::size_t at);
+        // 0-based line index of `at`.
+        static std::size_t LineIndexOf(const std::string& s, std::size_t at);
 
         // Handles one key against this field. Returns true if the key was
         // CONSUMED, so the caller can stop it bubbling — which is how a field
@@ -85,13 +117,28 @@ namespace MyCoreEngine::ui {
         static std::size_t ClampToBoundary(const std::string& s, std::size_t at);
 
     private:
+        struct Snapshot {
+            std::string value;
+            std::size_t caret = 0, anchor = 0;
+        };
         void clampCaret_();
+        // Records the CURRENT state before a change. `coalesce` merges into the
+        // previous entry when the last change was also a coalescing one, which
+        // is what turns a burst of typing into a single undo step.
+        void pushUndo_(bool coalesce);
 
         std::string value_;
         std::string mask_;
         std::size_t caret_ = 0;
         std::size_t anchor_ = 0;
         std::size_t maxBytes_ = 0;
+        bool        multiline_ = false;
+
+        std::vector<Snapshot> undo_, redo_;
+        bool lastWasTyping_ = false;
+        // Bounded: a text field is not a document editor, and an unbounded
+        // history on a long-lived HUD is a slow leak.
+        static constexpr std::size_t kMaxUndo = 64;
     };
 
 } // namespace MyCoreEngine::ui

@@ -19,6 +19,7 @@
 
 #include <entt/entt.hpp>
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -59,6 +60,15 @@ namespace MyCoreEngine {
         // and whether the keyboard belongs to the game right now.
         void SetPointer(const ui::UIPointerState& p) { pointer_ = p; }
         void SetKeyboard(const ui::UIKeyboardState& k) { keyboard_ = k; }
+
+        // The system clipboard, for Ctrl+C/X/V in text fields. Handed to every
+        // document as it loads. Without it those keys do nothing rather than
+        // half-working against a private buffer nothing else can see.
+        void SetClipboardHandlers(std::function<void(const std::string&)> write,
+                                  std::function<std::string()> read) {
+            clipWrite_ = std::move(write);
+            clipRead_ = std::move(read);
+        }
 
         // Reconciles live documents against the registry, then runs every
         // enabled one: hot-reload poll, bindings, layout, input, publish,
@@ -106,6 +116,8 @@ namespace MyCoreEngine {
         ui::UIConverterTable converters_;
         std::vector<std::string> errors_;
         const Font*    font_ = nullptr;
+        std::function<void(const std::string&)> clipWrite_;
+        std::function<std::string()>            clipRead_;
         ui::UIPointerState pointer_{};
         ui::UIKeyboardState keyboard_{};
         int width_ = 0, height_ = 0;

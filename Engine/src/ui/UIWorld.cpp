@@ -79,6 +79,7 @@ void UIWorld::reconcile_(entt::registry& reg) {
                 live.doc->bindingContext().converters().Register(name, *fn);
             }
         }
+        live.doc->document().SetClipboardHandlers(clipWrite_, clipRead_);
         if (!live.doc->Load(c.markup, c.stylesheet)) {
             for (const auto& err : live.doc->errors()) {
                 errors_.push_back(err);

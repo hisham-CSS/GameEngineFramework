@@ -19,6 +19,9 @@ void InstallDemoUIContent(UIWorld& world) {
     // Owned by the text field from the first keystroke onward — this is only
     // what it starts with.
     src.SetString("playerName", "player one");
+    // The multi-line field's starting text. A '\n' here is a line break in the
+    // field, because the value is the one source of truth for both.
+    src.SetString("notes", "multi-line field.\nEnter, arrows, Ctrl+Z, Ctrl+V.");
 
     // A named action, so the markup can write on-click="addScore" instead of
     // the app attaching a handler that a hot reload would then have to

@@ -452,6 +452,11 @@ void EditorApplication::Run() {
             std::cout << "EDITOR: UI font missing - drawing without text" << std::endl;
         }
         uiWorld_.SetFont(&uiFont_);
+        // ImGui's clipboard rather than GLFW's: it is already wired to the
+        // platform backend and is what the rest of the editor uses.
+        uiWorld_.SetClipboardHandlers(
+            [](const std::string& t) { ImGui::SetClipboardText(t.c_str()); },
+            [] { const char* t = ImGui::GetClipboardText(); return std::string(t ? t : ""); });
         // The two things a file cannot carry: a named action and a converter.
         MyCoreEngine::InstallDemoUIContent(uiWorld_);
         gameRenderer_.SetUIDraw([this, &scene](MyCoreEngine::Renderer2D& r2d,

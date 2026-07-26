@@ -377,21 +377,35 @@ void UIDocument::draw_(const UIElement& el, Renderer2D& r2d, const Font* font,
     if (edit && haveFont && &el == focused) {
         const std::string shown = edit->displayText();
         const float lineH = font->Measure("", s.fontScale).y;
-        auto widthTo = [&](std::size_t bytes) {
-            return font->Measure(shown.substr(0, std::min(bytes, shown.size())),
-                                 s.fontScale).x;
+        // Position within the LINE, not within the whole value: a multi-line
+        // field measures the prefix from its own line start and steps down by
+        // whole lines, which is what makes a caret land where the glyph is.
+        auto place = [&](std::size_t bytes) {
+            bytes = std::min(bytes, shown.size());
+            const std::size_t ls = UITextEdit::LineStart(shown, bytes);
+            const float x = font->Measure(shown.substr(ls, bytes - ls), s.fontScale).x;
+            const float y = float(UITextEdit::LineIndexOf(shown, bytes)) * lineH;
+            return glm::vec2{ tp.x + x, tp.y + y };
         };
         if (edit->hasSelection()) {
-            const float x0 = widthTo(edit->selectionBegin());
-            const float x1 = widthTo(edit->selectionEnd());
-            r2d.DrawQuad({ tp.x + x0, tp.y }, { x1 - x0, lineH },
-                         { 0.25f, 0.45f, 0.85f, 0.55f }, layer);
+            // One highlight per line the selection covers, so a multi-line
+            // selection does not paint a single bar across everything between
+            // its endpoints.
+            const std::size_t b = edit->selectionBegin(), e = edit->selectionEnd();
+            std::size_t lineStart = b;
+            while (lineStart < e) {
+                const std::size_t lineStop = std::min(UITextEdit::LineEnd(shown, lineStart), e);
+                const glm::vec2 p0 = place(lineStart);
+                const glm::vec2 p1 = place(lineStop);
+                r2d.DrawQuad(p0, { p1.x - p0.x, lineH },
+                             { 0.25f, 0.45f, 0.85f, 0.55f }, layer);
+                lineStart = lineStop + 1;   // past the newline
+            }
         }
         if (caretVisible) {
             // Drawn on the CHILD layer so it sits above the glyphs, which share
             // this element's layer.
-            const float cx = tp.x + widthTo(edit->caret());
-            r2d.DrawQuad({ cx, tp.y }, { 1.0f, lineH }, s.textColor, layer + 1);
+            r2d.DrawQuad(place(edit->caret()), { 1.0f, lineH }, s.textColor, layer + 1);
         }
     }
 
@@ -715,6 +729,25 @@ void UIDocument::UpdateKeyboard(const UIKeyboardState& kb) {
         // DOM's ordering, and it is what lets an app pre-empt a shortcut
         // without the field having to know about it.
         bool consumed = e.propagationStopped;
+        // Clipboard first, and HERE rather than in UITextEdit, because this is
+        // where the host's clipboard hooks live — the edit model has no business
+        // knowing the machine has one.
+        if (!consumed && target && target->textEdit() && k.ctrl) {
+            UITextEdit& ed = *target->textEdit();
+            if ((k.key == UIKey::C || k.key == UIKey::X) && clipboardWrite_) {
+                if (ed.hasSelection()) {
+                    // The real value, never the mask: cutting a password field
+                    // must not put a row of asterisks on the clipboard.
+                    clipboardWrite_(ed.selectedText());
+                    if (k.key == UIKey::X) afterEdit(target, ed.DeleteSelection());
+                }
+                consumed = true;
+            } else if (k.key == UIKey::V && clipboardRead_) {
+                const std::string in = clipboardRead_();
+                if (!in.empty()) afterEdit(target, ed.InsertText(in));
+                consumed = true;
+            }
+        }
         if (!consumed && target && target->textEdit()) {
             bool changed = false;
             consumed = target->textEdit()->HandleKey(k, changed);

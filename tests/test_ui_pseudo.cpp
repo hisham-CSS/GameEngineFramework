@@ -439,8 +439,9 @@ TEST(UIPseudoHud, TheShippedButtonStylesItselfOnHoverAndPress) {
     UIElement* btn = hud.find("scoreButton");
     ASSERT_NE(btn, nullptr);
     // Nothing in C++ touches this element — it is watched purely because
-    // hud.uss carries .btn:hover and .btn:active (and .field:* for the field).
-    EXPECT_EQ(hud.assets()->styler().watchedCount(), 2u);
+    // hud.uss carries .btn:hover and .btn:active (plus .field:* and .notes:focus
+    // for the two text fields).
+    EXPECT_EQ(hud.assets()->styler().watchedCount(), 3u);
 
     const glm::vec4 idle = btn->style().backgroundColor;
     const glm::vec2 c = btn->layout().position + btn->layout().size * 0.5f;
@@ -473,7 +474,7 @@ TEST(UIPseudoHud, HoverStateSurvivesAHotReload) {
     EXPECT_TRUE(hud.assets()->binder().ok())
         << (hud.assets()->binder().errors().empty() ? ""
                                                     : hud.assets()->binder().errors()[0]);
-    EXPECT_EQ(hud.assets()->styler().watchedCount(), 2u)
+    EXPECT_EQ(hud.assets()->styler().watchedCount(), 3u)
         << "the watch list was not rebuilt after a reload";
     hud.Frame();
     EXPECT_EQ(hud.find("scoreLabel")->style().text, "SCORE 700")

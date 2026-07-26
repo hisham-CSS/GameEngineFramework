@@ -71,7 +71,8 @@ namespace {
             if (n == "name" || n == "class" || n == "style" || n == "text" ||
                 n == "data-source" || n == "bind" || n == "if" ||
                 n == "focusable" || n == "disabled" ||
-                n == "value" || n == "maxlength" || n == "mask") {
+                n == "value" || n == "maxlength" || n == "mask" ||
+                n == "multiline") {
                 continue;
             }
             // The on-<event> and push-<state> families are validated in full
@@ -386,7 +387,7 @@ namespace {
         // and `text` means the opposite of one: the VALUE decides what a field
         // shows. Silently ignoring either is exactly the class of no-op this
         // loader reports.
-        for (const char* attr : { "value", "maxlength", "mask" }) {
+        for (const char* attr : { "value", "maxlength", "mask", "multiline" }) {
             if (node.attribute(attr) && !isField) {
                 errors.push_back(loc + "'" + attr + "' is only valid on a <TextField>");
                 return false;
@@ -407,6 +408,17 @@ namespace {
                 edit.setMaxLength(std::size_t(std::strtoull(v.c_str(), nullptr, 10)));
             } else {
                 edit.setMaxLength(0);
+            }
+            if (const pugi::xml_attribute a = node.attribute("multiline")) {
+                const std::string v = lower(trim(a.value()));
+                if (v.empty() || v == "true") edit.setMultiline(true);
+                else if (v == "false")        edit.setMultiline(false);
+                else {
+                    errors.push_back(loc + "multiline: expected true|false, got '" + v + "'");
+                    return false;
+                }
+            } else {
+                edit.setMultiline(false);
             }
             edit.setMaskCharacter(node.attribute("mask").value());
             // Set LAST, so maxlength trims it and the mask is in place before

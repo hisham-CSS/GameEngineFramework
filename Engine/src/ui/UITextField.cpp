@@ -42,6 +42,11 @@ void UITextEdit::clampCaret_() {
 }
 
 void UITextEdit::setValue(std::string v) {
+    // An external write (a binding, gameplay) is not an edit the user made, so
+    // it clears the history rather than becoming an undo step they never did.
+    undo_.clear();
+    redo_.clear();
+    lastWasTyping_ = false;
     value_ = std::move(v);
     if (maxBytes_ && value_.size() > maxBytes_) {
         // Truncate on a BOUNDARY, or the tail becomes a broken character.
@@ -64,6 +69,63 @@ std::string UITextEdit::displayText() const {
     return out;
 }
 
+std::size_t UITextEdit::LineStart(const std::string& s, std::size_t at) {
+    if (at > s.size()) at = s.size();
+    const std::size_t nl = s.rfind('\n', at ? at - 1 : 0);
+    return (nl == std::string::npos || at == 0) ? 0 : nl + 1;
+}
+
+std::size_t UITextEdit::LineEnd(const std::string& s, std::size_t at) {
+    const std::size_t nl = s.find('\n', std::min(at, s.size()));
+    return nl == std::string::npos ? s.size() : nl;
+}
+
+std::size_t UITextEdit::LineIndexOf(const std::string& s, std::size_t at) {
+    if (at > s.size()) at = s.size();
+    return std::size_t(std::count(s.begin(), s.begin() + at, '\n'));
+}
+
+void UITextEdit::pushUndo_(bool coalesce) {
+    // A run of typing is ONE undo step: undoing letter by letter is nobody's
+    // idea of undo. Anything else (a delete, a paste, a caret jump) breaks the
+    // run so it lands as its own entry.
+    if (coalesce && lastWasTyping_ && !undo_.empty()) {
+        lastWasTyping_ = true;
+        redo_.clear();
+        return;
+    }
+    undo_.push_back(Snapshot{ value_, caret_, anchor_ });
+    if (undo_.size() > kMaxUndo) undo_.erase(undo_.begin());
+    redo_.clear();
+    lastWasTyping_ = coalesce;
+}
+
+bool UITextEdit::Undo() {
+    if (undo_.empty()) return false;
+    redo_.push_back(Snapshot{ value_, caret_, anchor_ });
+    const Snapshot s = undo_.back();
+    undo_.pop_back();
+    value_ = s.value;
+    caret_ = s.caret;
+    anchor_ = s.anchor;
+    clampCaret_();
+    lastWasTyping_ = false;   // typing after an undo starts a new run
+    return true;
+}
+
+bool UITextEdit::Redo() {
+    if (redo_.empty()) return false;
+    undo_.push_back(Snapshot{ value_, caret_, anchor_ });
+    const Snapshot s = redo_.back();
+    redo_.pop_back();
+    value_ = s.value;
+    caret_ = s.caret;
+    anchor_ = s.anchor;
+    clampCaret_();
+    lastWasTyping_ = false;
+    return true;
+}
+
 bool UITextEdit::DeleteSelection() {
     if (!hasSelection()) return false;
     const std::size_t b = selectionBegin(), e = selectionEnd();
@@ -74,6 +136,8 @@ bool UITextEdit::DeleteSelection() {
 
 bool UITextEdit::InsertText(const std::string& utf8) {
     if (utf8.empty()) return false;
+    // A selection being replaced is a distinct action, so it breaks the run.
+    pushUndo_(/*coalesce=*/!hasSelection());
     bool changed = DeleteSelection();
     std::string add = utf8;
     if (maxBytes_) {
@@ -89,6 +153,8 @@ bool UITextEdit::InsertText(const std::string& utf8) {
 }
 
 bool UITextEdit::Backspace() {
+    if (caret_ == 0 && !hasSelection()) return false;
+    pushUndo_(/*coalesce=*/false);
     if (DeleteSelection()) return true;
     if (caret_ == 0) return false;
     const std::size_t prev = PrevBoundary(value_, caret_);
@@ -98,6 +164,8 @@ bool UITextEdit::Backspace() {
 }
 
 bool UITextEdit::DeleteForward() {
+    if (caret_ >= value_.size() && !hasSelection()) return false;
+    pushUndo_(/*coalesce=*/false);
     if (DeleteSelection()) return true;
     if (caret_ >= value_.size()) return false;
     const std::size_t next = NextBoundary(value_, caret_);
@@ -127,13 +195,42 @@ void UITextEdit::MoveRight(bool select) {
 }
 
 void UITextEdit::MoveToStart(bool select) {
-    caret_ = 0;
-    if (!select) anchor_ = 0;
+    // The start of the LINE when there are lines, which is what Home means to
+    // anyone who has used a text editor.
+    caret_ = multiline_ ? LineStart(value_, caret_) : 0;
+    if (!select) anchor_ = caret_;
+    lastWasTyping_ = false;
 }
 
 void UITextEdit::MoveToEnd(bool select) {
-    caret_ = value_.size();
+    caret_ = multiline_ ? LineEnd(value_, caret_) : value_.size();
     if (!select) anchor_ = caret_;
+    lastWasTyping_ = false;
+}
+
+void UITextEdit::MoveUp(bool select) {
+    if (!multiline_) return;
+    const std::size_t start = LineStart(value_, caret_);
+    if (start == 0) { caret_ = 0; if (!select) anchor_ = caret_; return; }
+    const std::size_t column = caret_ - start;
+    const std::size_t prevStart = LineStart(value_, start - 1);
+    const std::size_t prevEnd = start - 1;      // the newline that ended it
+    caret_ = ClampToBoundary(value_, std::min(prevStart + column, prevEnd));
+    if (!select) anchor_ = caret_;
+    lastWasTyping_ = false;
+}
+
+void UITextEdit::MoveDown(bool select) {
+    if (!multiline_) return;
+    const std::size_t start = LineStart(value_, caret_);
+    const std::size_t end = LineEnd(value_, caret_);
+    if (end >= value_.size()) { caret_ = value_.size(); if (!select) anchor_ = caret_; return; }
+    const std::size_t column = caret_ - start;
+    const std::size_t nextStart = end + 1;
+    const std::size_t nextEnd = LineEnd(value_, nextStart);
+    caret_ = ClampToBoundary(value_, std::min(nextStart + column, nextEnd));
+    if (!select) anchor_ = caret_;
+    lastWasTyping_ = false;
 }
 
 void UITextEdit::SelectAll() {
@@ -150,6 +247,23 @@ bool UITextEdit::HandleKey(const UIKeyEvent& k, bool& valueChanged) {
     case UIKey::Right:     MoveRight(k.shift);              return true;
     case UIKey::Home:      MoveToStart(k.shift);            return true;
     case UIKey::End:       MoveToEnd(k.shift);              return true;
+    case UIKey::Up:        if (!multiline_) return false; MoveUp(k.shift);   return true;
+    case UIKey::Down:      if (!multiline_) return false; MoveDown(k.shift); return true;
+    case UIKey::Enter:
+        // Consumed ONLY by a multi-line field. In a single-line one Enter is
+        // "submit", which belongs to whatever contains the field.
+        if (!multiline_ || k.ctrl) return false;
+        valueChanged = InsertText("\n");
+        return true;
+    case UIKey::Z:
+        if (!k.ctrl) return false;
+        // Ctrl+Shift+Z is redo on every platform that also has Ctrl+Y.
+        valueChanged = k.shift ? Redo() : Undo();
+        return true;
+    case UIKey::Y:
+        if (!k.ctrl) return false;
+        valueChanged = Redo();
+        return true;
     case UIKey::A:
         // Ctrl+A only. A bare 'a' is text, and it arrives as TextInput —
         // consuming it here would make the letter untypeable.
@@ -159,18 +273,17 @@ bool UITextEdit::HandleKey(const UIKeyEvent& k, bool& valueChanged) {
     // Deliberately NOT consumed, so they keep bubbling: Tab stays navigation,
     // Enter and Escape are for whatever contains the field to decide, and
     // Up/Down mean nothing in a single-line control.
+    // Deliberately NOT consumed. Tab stays navigation even here — a field that
+    // trapped it would strand a keyboard user, and every web textarea agrees.
+    // Clipboard keys are handled by UIDocument, which is where the host's
+    // clipboard hooks live.
     case UIKey::Tab:
-    case UIKey::Enter:
     case UIKey::Escape:
-    case UIKey::Up:
-    case UIKey::Down:
     case UIKey::PageUp:
     case UIKey::PageDown:
     case UIKey::C:
     case UIKey::V:
     case UIKey::X:
-    case UIKey::Z:
-    case UIKey::Y:
     case UIKey::None:
     default:
         return false;

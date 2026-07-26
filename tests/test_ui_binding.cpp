@@ -24,6 +24,7 @@
 #include "../Engine/src/ui/UIDataSource.h"
 #include "../Engine/src/ui/UIElement.h"
 #include "../Engine/src/ui/UIMarkup.h"
+#include "../Engine/src/ui/UITextField.h"
 
 #include <chrono>
 #include <cstdio>
@@ -1113,6 +1114,43 @@ TEST(UIBindingHotReload, TheShippedHudResolvesEveryBinding) {
     EXPECT_EQ(fill->style().width.unit, StyleLength::Unit::Percent);
     EXPECT_FLOAT_EQ(fill->style().width.value, 40.0f);
     EXPECT_NEAR(fill->style().backgroundColor.g, 0.22f + 0.6f * 0.45f, 0.001f);
+}
+
+// The showcase's multi-line field. A two-way binding writes the field with
+// `setValue`, which CLEARS the undo history — so if the round trip ever wrote
+// back a value the user already has, undo would quietly die on every keystroke
+// in the shipped HUD. This is the test that would catch that.
+TEST(UIBindingHotReload, TheShippedMultilineFieldEditsAndUndoes) {
+    ShippedHud hud;
+    hud.Frame();
+    ASSERT_NE(hud.assets(), nullptr);
+
+    UIElement* notes = hud.find("notes");
+    ASSERT_NE(notes, nullptr) << "the showcase lost its multi-line field";
+    UITextEdit* ed = notes->textEdit();
+    ASSERT_NE(ed, nullptr);
+    EXPECT_TRUE(ed->multiline());
+    EXPECT_NE(ed->value().find('\n'), std::string::npos)
+        << "the seeded notes should arrive with their line break intact";
+
+    hud.doc().SetFocus(notes);
+    ed->MoveToEnd(false);
+    UIKeyboardState kb;
+    kb.text = "abc";
+    hud.doc().UpdateKeyboard(kb);
+    hud.Frame();
+    ASSERT_NE(ed->value().find("abc"), std::string::npos);
+    EXPECT_NE(hud.data().GetString("notes").find("abc"), std::string::npos)
+        << "the field never reached the source";
+
+    // Several frames of the round trip settling, then undo must still be there.
+    hud.Frame(); hud.Frame();
+    ASSERT_TRUE(ed->canUndo()) << "the source -> field half wiped the undo history";
+    EXPECT_TRUE(ed->Undo());
+    EXPECT_EQ(ed->value().find("abc"), std::string::npos);
+    hud.Frame();
+    EXPECT_EQ(hud.data().GetString("notes"), ed->value())
+        << "the undone value never reached the source";
 }
 
 // Binding a property makes its stylesheet rule dead. That is a legitimate

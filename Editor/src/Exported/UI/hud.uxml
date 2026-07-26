@@ -90,6 +90,19 @@
        string ("SCORE {score}") back into a value. -->
   <Label name="greeting" class="readout" text="HELLO {playerName | upper}"/>
 
+  <!-- Multi-line. `multiline` is what makes Enter, Up and Down mean anything;
+       a single-line field leaves all three to whatever contains it, so Enter
+       can still submit a form. Tab still LEAVES even here — a field that
+       swallowed Tab would strand a keyboard user inside it, which is exactly
+       what a web <textarea> does.
+
+       Ctrl+Z folds a burst of typing into ONE undo step, and Ctrl+C/X/V go
+       through the HOST clipboard: copy from here and paste into the editor's
+       Inspector, or the other way round. There is no scrolling yet, so give it
+       a height that fits what you expect to type. -->
+  <TextField name="notes" class="notes" multiline="true"
+             bind-value="notes" maxlength="512"/>
+
   <!-- `if` writes display:none rather than removing the element, so it keeps
        its identity, its handlers and its place in this file — and flipping it
        is one style write. `.warning` starts hidden in hud.uss so a slow first

@@ -179,6 +179,13 @@ public:
             std::cerr << "PLAYER: UI font missing - drawing without text" << std::endl;
         }
         uiWorld_.SetFont(&uiFont_);
+        // The real system clipboard, so Ctrl+C/V in a field talks to the rest
+        // of the machine rather than a private buffer.
+        if (GLFWwindow* w = GetNativeWindow()) {
+            uiWorld_.SetClipboardHandlers(
+                [w](const std::string& t) { glfwSetClipboardString(w, t.c_str()); },
+                [w] { const char* t = glfwGetClipboardString(w); return std::string(t ? t : ""); });
+        }
         // The two things a file cannot carry: a named action and a converter.
         InstallDemoUIContent(uiWorld_);
         // Nothing else in the player installs these (there is no ImGui here),

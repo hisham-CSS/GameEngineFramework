@@ -286,6 +286,16 @@ namespace MyCoreEngine::ui {
         // literal tabs.
         void UpdateKeyboard(const UIKeyboardState& keyboard);
 
+        // The system clipboard, supplied by the host — GLFW and ImGui both have
+        // one and neither belongs in an engine header. Without these, Ctrl+C/X/V
+        // simply do nothing rather than half-working against a private buffer
+        // the rest of the machine cannot see.
+        void SetClipboardHandlers(std::function<void(const std::string&)> write,
+                                  std::function<std::string()> read) {
+            clipboardWrite_ = std::move(write);
+            clipboardRead_ = std::move(read);
+        }
+
         // Advances the document's clock. Only the caret blink uses it today;
         // transitions and animation will. Call once per frame with the frame
         // delta, before Draw.
@@ -357,6 +367,8 @@ namespace MyCoreEngine::ui {
         // while you type reads as dropped input.
         float caretClock_ = 0.0f;
         glm::vec2 origin_{ 0.0f };
+        std::function<void(const std::string&)> clipboardWrite_;
+        std::function<std::string()>            clipboardRead_;
     };
 
 } // namespace MyCoreEngine::ui

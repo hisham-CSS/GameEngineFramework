@@ -409,3 +409,264 @@ TEST(UITextField, OnlyAFieldHasAnEditBuffer) {
     EXPECT_TRUE(made->isFocusable());
     EXPECT_EQ(made->textEdit()->value(), "x");
 }
+
+// ------------------------------------------------------ undo / redo
+
+// A burst of typing is ONE undo step. Undoing letter by letter is not what
+// anyone means by undo, and a deletion or a caret jump always starts a new run.
+TEST(UITextEdit, TypingCoalescesIntoOneUndoStep) {
+    UITextEdit e;
+    EXPECT_FALSE(e.canUndo());
+    e.InsertText("h");
+    e.InsertText("i");
+    e.InsertText("!");
+    ASSERT_EQ(e.value(), "hi!");
+
+    EXPECT_TRUE(e.Undo());
+    EXPECT_EQ(e.value(), "") << "typing did not coalesce into one step";
+    EXPECT_FALSE(e.canUndo());
+
+    EXPECT_TRUE(e.Redo());
+    EXPECT_EQ(e.value(), "hi!");
+    EXPECT_FALSE(e.canRedo());
+}
+
+TEST(UITextEdit, DeletionsAreTheirOwnUndoSteps) {
+    UITextEdit e;
+    e.InsertText("abc");
+    e.Backspace();
+    ASSERT_EQ(e.value(), "ab");
+    e.Backspace();
+    ASSERT_EQ(e.value(), "a");
+
+    EXPECT_TRUE(e.Undo()); EXPECT_EQ(e.value(), "ab");
+    EXPECT_TRUE(e.Undo()); EXPECT_EQ(e.value(), "abc");
+    EXPECT_TRUE(e.Undo()); EXPECT_EQ(e.value(), "");
+}
+
+// Typing after an undo starts a new run and drops the redo branch, which is
+// what every editor does — the alternative is a redo that reapplies text the
+// user has since replaced.
+TEST(UITextEdit, TypingAfterAnUndoClearsRedo) {
+    UITextEdit e;
+    e.InsertText("one");
+    e.Undo();
+    ASSERT_TRUE(e.canRedo());
+    e.InsertText("two");
+    EXPECT_FALSE(e.canRedo());
+    EXPECT_EQ(e.value(), "two");
+}
+
+// An external write is not an edit the user made, so it must not become a step
+// they can undo to a value they never typed.
+TEST(UITextEdit, SettingTheValueClearsTheHistory) {
+    UITextEdit e;
+    e.InsertText("typed");
+    ASSERT_TRUE(e.canUndo());
+    e.setValue("from a binding");
+    EXPECT_FALSE(e.canUndo());
+    EXPECT_FALSE(e.canRedo());
+}
+
+TEST(UITextEdit, UndoIsBounded) {
+    UITextEdit e;
+    // Each Backspace is its own step, so this overflows the cap.
+    for (int i = 0; i < 200; ++i) { e.InsertText("x"); e.Backspace(); }
+    int steps = 0;
+    while (e.Undo() && steps < 1000) ++steps;
+    EXPECT_LE(steps, 128) << "the undo stack is unbounded";
+    SUCCEED();
+}
+
+TEST(UITextEdit, CtrlZAndCtrlYAreHandled) {
+    UITextEdit e;
+    e.InsertText("hello");
+    bool changed = false;
+    UIKeyEvent z; z.key = UIKey::Z; z.ctrl = true;
+    EXPECT_TRUE(e.HandleKey(z, changed));
+    EXPECT_TRUE(changed);
+    EXPECT_EQ(e.value(), "");
+
+    UIKeyEvent y; y.key = UIKey::Y; y.ctrl = true;
+    EXPECT_TRUE(e.HandleKey(y, changed));
+    EXPECT_EQ(e.value(), "hello");
+
+    // Ctrl+Shift+Z is redo too, on platforms that prefer it.
+    e.HandleKey(z, changed);
+    UIKeyEvent sz; sz.key = UIKey::Z; sz.ctrl = true; sz.shift = true;
+    EXPECT_TRUE(e.HandleKey(sz, changed));
+    EXPECT_EQ(e.value(), "hello");
+
+    // A bare 'z' is text and must stay typeable.
+    EXPECT_FALSE(e.HandleKey({ UIKey::Z }, changed));
+}
+
+// ------------------------------------------------------------ multi-line
+
+TEST(UITextEdit, EnterInsertsANewlineOnlyWhenMultiline) {
+    UITextEdit single;
+    bool changed = false;
+    EXPECT_FALSE(single.HandleKey({ UIKey::Enter }, changed))
+        << "a single-line field must leave Enter to whatever contains it";
+
+    UITextEdit multi;
+    multi.setMultiline(true);
+    multi.InsertText("a");
+    EXPECT_TRUE(multi.HandleKey({ UIKey::Enter }, changed));
+    EXPECT_TRUE(changed);
+    multi.InsertText("b");
+    EXPECT_EQ(multi.value(), "a\nb");
+}
+
+// Tab is navigation even in a multi-line field. Trapping it would strand a
+// keyboard user, and every web textarea agrees.
+TEST(UITextEdit, MultilineStillLetsTabNavigate) {
+    UITextEdit e;
+    e.setMultiline(true);
+    bool changed = false;
+    EXPECT_FALSE(e.HandleKey({ UIKey::Tab }, changed));
+}
+
+TEST(UITextEdit, LineHelpersFindStartsEndsAndIndices) {
+    const std::string s = "ab\ncde\nf";
+    EXPECT_EQ(UITextEdit::LineStart(s, 0), 0u);
+    EXPECT_EQ(UITextEdit::LineStart(s, 2), 0u);
+    EXPECT_EQ(UITextEdit::LineStart(s, 3), 3u);
+    EXPECT_EQ(UITextEdit::LineStart(s, 6), 3u);
+    EXPECT_EQ(UITextEdit::LineStart(s, 7), 7u);
+    EXPECT_EQ(UITextEdit::LineEnd(s, 0), 2u);
+    EXPECT_EQ(UITextEdit::LineEnd(s, 4), 6u);
+    EXPECT_EQ(UITextEdit::LineEnd(s, 7), 8u);
+    EXPECT_EQ(UITextEdit::LineIndexOf(s, 0), 0u);
+    EXPECT_EQ(UITextEdit::LineIndexOf(s, 4), 1u);
+    EXPECT_EQ(UITextEdit::LineIndexOf(s, 8), 2u);
+}
+
+TEST(UITextEdit, UpAndDownMoveBetweenLines) {
+    UITextEdit e;
+    e.setMultiline(true);
+    e.setValue("abc\ndefgh\nij");
+    e.SetCaret(6);                       // line 1, column 2
+    ASSERT_EQ(UITextEdit::LineIndexOf(e.value(), e.caret()), 1u);
+
+    e.MoveUp(false);
+    EXPECT_EQ(UITextEdit::LineIndexOf(e.value(), e.caret()), 0u);
+    EXPECT_EQ(e.caret(), 2u) << "the column should be kept";
+
+    e.MoveDown(false);
+    EXPECT_EQ(e.caret(), 6u);
+    e.MoveDown(false);
+    EXPECT_EQ(UITextEdit::LineIndexOf(e.value(), e.caret()), 2u);
+    // The last line is shorter, so the caret clamps to its end.
+    EXPECT_EQ(e.caret(), 12u);
+
+    // Off the top and bottom, rather than running away.
+    e.MoveUp(false); e.MoveUp(false); e.MoveUp(false);
+    EXPECT_EQ(UITextEdit::LineIndexOf(e.value(), e.caret()), 0u);
+    e.MoveDown(false); e.MoveDown(false); e.MoveDown(false);
+    EXPECT_EQ(e.caret(), e.value().size());
+}
+
+// Home/End mean the LINE in a multi-line field and the whole value in a
+// single-line one — which is what each looks like to the user.
+TEST(UITextEdit, HomeAndEndAreLineAwareOnlyWhenMultiline) {
+    UITextEdit m;
+    m.setMultiline(true);
+    m.setValue("abc\ndef");
+    m.SetCaret(5);
+    m.MoveToStart(false);
+    EXPECT_EQ(m.caret(), 4u);
+    m.MoveToEnd(false);
+    EXPECT_EQ(m.caret(), 7u);
+
+    UITextEdit s;
+    s.setValue("abc\ndef");   // a stray newline in a single-line value
+    s.SetCaret(5);
+    s.MoveToStart(false);
+    EXPECT_EQ(s.caret(), 0u);
+    s.MoveToEnd(false);
+    EXPECT_EQ(s.caret(), 7u);
+}
+
+TEST(UITextEdit, UpAndDownDoNothingInASingleLineField) {
+    UITextEdit e;
+    e.setValue("hello");
+    e.SetCaret(2);
+    e.MoveUp(false);
+    EXPECT_EQ(e.caret(), 2u);
+    bool changed = false;
+    EXPECT_FALSE(e.HandleKey({ UIKey::Up }, changed))
+        << "Up must stay available to whatever contains a single-line field";
+}
+
+// ------------------------------------------------------------- clipboard
+
+TEST(UITextField, ClipboardCopyCutAndPaste) {
+    FieldDoc d;
+    std::string board;
+    d.doc.SetClipboardHandlers([&](const std::string& t) { board = t; },
+                               [&] { return board; });
+    d.doc.SetFocus(d.f());
+    d.Type("hello");
+    d.edit()->SelectAll();
+
+    d.Key(UIKey::C, /*shift=*/false, /*ctrl=*/true);
+    EXPECT_EQ(board, "hello");
+    EXPECT_EQ(d.edit()->value(), "hello") << "copy must not modify the value";
+
+    d.Key(UIKey::X, false, true);
+    EXPECT_EQ(board, "hello");
+    EXPECT_EQ(d.edit()->value(), "") << "cut did not remove the selection";
+
+    d.Key(UIKey::V, false, true);
+    EXPECT_EQ(d.edit()->value(), "hello");
+    // ...and the paste is undoable as one step.
+    EXPECT_TRUE(d.edit()->Undo());
+    EXPECT_EQ(d.edit()->value(), "");
+}
+
+// Cutting a masked field must put the REAL text on the clipboard, never a row
+// of asterisks.
+TEST(UITextField, ClipboardUsesTheRealValueNotTheMask) {
+    FieldDoc d(R"(<UI><TextField name="f" mask="*" style="width: 200px; height: 30px"/></UI>)");
+    std::string board;
+    d.doc.SetClipboardHandlers([&](const std::string& t) { board = t; },
+                               [&] { return board; });
+    d.doc.SetFocus(d.f());
+    d.Type("secret");
+    ASSERT_EQ(d.f()->style().text, "******");
+    d.edit()->SelectAll();
+    d.Key(UIKey::C, false, true);
+    EXPECT_EQ(board, "secret");
+}
+
+// Without host handlers the keys do nothing rather than half-working against a
+// private buffer the rest of the machine cannot see.
+TEST(UITextField, ClipboardKeysAreInertWithoutAHost) {
+    FieldDoc d;
+    d.doc.SetFocus(d.f());
+    d.Type("hi");
+    d.edit()->SelectAll();
+    d.Key(UIKey::X, false, true);
+    EXPECT_EQ(d.edit()->value(), "hi") << "cut worked with no clipboard to cut to";
+}
+
+TEST(UITextField, MultilineIsDeclaredInMarkup) {
+    FieldDoc d(R"(<UI><TextField name="f" multiline="true" value="a"
+                             style="width: 200px; height: 60px"/></UI>)");
+    ASSERT_TRUE(d.errors.empty()) << d.errors[0];
+    ASSERT_NE(d.edit(), nullptr);
+    EXPECT_TRUE(d.edit()->multiline());
+
+    d.doc.SetFocus(d.f());
+    d.Key(UIKey::Enter);
+    d.Type("b");
+    EXPECT_EQ(d.edit()->value(), "a\nb");
+
+    UIDocument other;
+    std::vector<std::string> errors;
+    EXPECT_FALSE(UIMarkup::LoadInto(other, R"(<UI><Element multiline="true"/></UI>)",
+                                    errors, "t.uxml"));
+    ASSERT_FALSE(errors.empty());
+    EXPECT_NE(errors[0].find("only valid on a <TextField>"), std::string::npos) << errors[0];
+}

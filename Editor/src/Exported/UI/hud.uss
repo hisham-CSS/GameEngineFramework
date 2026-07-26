@@ -119,6 +119,24 @@
   color: white;
 }
 
+/* The multi-line field. Its HEIGHT is the whole story: there is no scrolling
+   yet, so this box is exactly as much text as the field can show. Everything
+   the single-line `.field` does applies here too — only Enter, Up and Down
+   change meaning, and that is decided in the markup, not here. */
+.notes {
+  width: 320px;
+  height: 84px;
+  padding: 8px 10px;
+  margin: 10px 0px 0px 0px;
+  background-color: #1b1e23;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.notes:focus {
+  background-color: #2b3138;
+  color: white;
+}
+
 /* Full-screen, centred by flexbox rather than by computing the middle. */
 .centre-overlay {
   position: absolute;

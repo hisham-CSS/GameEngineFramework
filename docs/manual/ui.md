@@ -101,7 +101,7 @@ Parsed by `UIMarkup` (`Engine/src/ui/UIMarkup.h`, pugixml).
 | `on-<event>` | calls a named action the app registered |
 | `focusable` | `true`/`false` — puts the element in the tab order |
 | `disabled` | `true`/`false` (bare = true) — inert, skipped by Tab, matches `:disabled` |
-| `value` / `maxlength` / `mask` | `<TextField>` only — see [Text entry](#text-entry) |
+| `value` / `maxlength` / `mask` / `multiline` | `<TextField>` only — see [Text entry](#text-entry) |
 | `bind-value` | `<TextField>` only — the one **two-way** binding |
 | `push-hovered` / `push-pressed` / `push-focused` | element state back to the source |
 | `classes` | toggles classes from bools — `classes="low-health: {isLow}"` |
@@ -259,7 +259,9 @@ so focus can never strand somewhere the user cannot see or Tab out of.
 markup, and there is no `tabindex` to fall out of sync with it. Tab and
 Shift+Tab wrap, skip disabled and hidden elements, and are only navigation if
 nothing consumed them — a handler calling `StopPropagation` on a Tab keeps it,
-which is how a multi-line field will keep its literal tabs.
+which is the only way to get a literal tab into a text field. Even a multi-line
+field leaves Tab alone by default, exactly as a web `<textarea>` does: a field
+that swallowed Tab would strand a keyboard user inside it.
 
 **`disabled`** takes an element and its whole subtree out of hit-testing and the
 tab order, and matches `:disabled`. A disabled panel whose buttons still worked
@@ -279,6 +281,7 @@ would be a trap.
 ```xml
 <TextField name="nameField" class="field" value="player one" maxlength="24"/>
 <TextField name="pin" mask="*" maxlength="8"/>
+<TextField name="notes" multiline="true" maxlength="512"/>
 ```
 
 A `TextField` is focusable by default (a field you cannot focus is a label) and
@@ -298,8 +301,12 @@ character — which is the classic way text fields corrupt anything but ASCII.
 | typing | inserts at the caret, replacing any selection |
 | Backspace / Delete | removes the selection, else one whole character |
 | Left / Right | moves one character; with Shift, extends the selection |
-| Home / End | jumps to either end; with Shift, selects to it |
+| Up / Down | moves a line, keeping the column (multi-line only) |
+| Home / End | jumps to either end of the line; with Shift, selects to it |
+| Enter | inserts a newline (multi-line only) |
 | Ctrl+A | selects all (a bare `a` stays typeable) |
+| Ctrl+C / X / V | copy, cut, paste — see below |
+| Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z | undo, redo |
 | click | places the caret at the nearest character boundary |
 | Tab | **leaves** the field — it is not consumed |
 
@@ -308,6 +315,34 @@ dispatched and bubbles first, and the field only acts if nothing called
 `StopPropagation`. That is the DOM's ordering, and it lets an app pre-empt a key
 without the field knowing about it. `ValueChanged` fires only when the value
 actually changed — moving the caret is not an edit.
+
+**Multi-line.** `multiline="true"` is what makes Enter, Up and Down mean
+anything, and it is what turns Home and End from "the value" into "this line".
+A single-line field leaves all four to whatever contains it, so Enter can still
+submit a form. The attribute is an error on anything but a `<TextField>`.
+
+**Undo** coalesces a burst of typing into one step, because undoing a word one
+letter at a time is not what anyone means by it. A deletion, a caret jump, or
+typing after an undo all start a fresh run, and the history is capped at 64
+steps. Writing the value from outside — a binding, `setValue`, a load — **clears
+the history**: an external write is not an edit the user made, and being able to
+undo back to a value you never typed is worse than not being able to undo.
+
+**Clipboard** goes through the host, because the engine has no business knowing
+whether it is running under GLFW, ImGui, or a test:
+
+```cpp
+world.SetClipboardHandlers(
+    [w](const std::string& t) { glfwSetClipboardString(w, t.c_str()); },
+    [w] { const char* s = glfwGetClipboardString(w); return s ? std::string(s) : std::string(); });
+```
+
+The Player wires GLFW and the Editor wires ImGui, so a copy in a HUD field and a
+paste in an Inspector field are the same clipboard. Wire nothing and the keys do
+nothing — that is deliberate: a private buffer the rest of the machine cannot
+see would look like a working clipboard right up until you paste elsewhere.
+Copy and cut always use the **real** value, never the mask, so a masked field
+does not put a row of asterisks on the clipboard.
 
 Reach the editing model with `element->textEdit()` (null on anything that is not
 a field). The caret blinks on a one-second cycle and is reset to solid on every
@@ -732,4 +767,10 @@ reset, so a leaked blend or depth state would corrupt the next pass.
 
 ## Not there yet
 
-Clipboard and undo inside text fields; multi-line text.
+Scrolling and clipping — an element bigger than its parent overflows rather
+than scrolling, so a multi-line field is only as tall as you make it. Word wrap:
+text breaks where you put a newline and nowhere else. IME composition (dead keys
+and layouts work, because text arrives already decoded, but there is no
+composition window). A checkbox, which is why `:checked` is still refused.
+Repeating a template over a list — bindings address one property, not a
+collection. Transitions and animation.
