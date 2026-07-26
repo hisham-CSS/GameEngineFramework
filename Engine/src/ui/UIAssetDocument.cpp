@@ -47,7 +47,7 @@ bool UIAssetDocument::Reload() {
         // The surviving tree still carries its own authored bindings, so
         // re-collecting restores exactly what was running. A half-typed file
         // must not silently UNBIND a working UI any more than it may blank one.
-        binder_.Rebuild(doc_, ctx_, markupPath_);
+        binder_.Rebuild(doc_, ctx_, markupPath_, &sheet_);
         // Still refresh the stamps: without this a file that fails to parse is
         // re-read every poll, spamming the log until it is fixed.
         markupStamp_ = stampOf(markupPath_);
@@ -77,7 +77,7 @@ bool UIAssetDocument::Reload() {
     // carries current values before anything lays out or paints — which is why
     // a bound label never flashes empty for a frame as you save the file, and
     // why the app no longer has to re-push what it cached.
-    binder_.Rebuild(doc_, ctx_, markupPath_);
+    binder_.Rebuild(doc_, ctx_, markupPath_, &sheet_);
     for (const auto& e : binder_.errors()) {
         errors_.push_back(e);
         std::cerr << "[UI] " << e << "\n";

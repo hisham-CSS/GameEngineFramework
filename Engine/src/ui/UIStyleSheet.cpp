@@ -200,80 +200,138 @@ namespace {
 
     using Prop = UIDeclaration::Prop;
 
+    // THE property vocabulary. One table, three consumers: the declaration
+    // parser (.uss and style=), the binding parser (bind=), and the diagnostic
+    // that reports a shadowed declaration.
+    //
+    // It used to be a 25-way if-chain inside the parser, which meant a binding
+    // needed its own copy of the same knowledge — a fourth hand-maintained
+    // list, with nothing to keep it honest. Adding a property here is now the
+    // only edit, and the /we4062 build flag makes forgetting the matching
+    // ApplyTo case a compile error.
+    struct PropSpec {
+        const char* name;
+        Prop prop;
+        UIPropValueKind kind;
+        const std::vector<EnumTable>* enumTable;  // Enum only
+        const char* trueWord;                     // Boolean only
+        const char* falseWord;                    // Boolean only
+    };
+
+    const PropSpec kProps[] = {
+        { "flex-direction",   Prop::FlexDirection,   UIPropValueKind::Enum,    &kDirection, nullptr, nullptr },
+        { "justify-content",  Prop::JustifyContent,  UIPropValueKind::Enum,    &kJustify,   nullptr, nullptr },
+        { "align-items",      Prop::AlignItems,      UIPropValueKind::Enum,    &kAlign,     nullptr, nullptr },
+        { "align-self",       Prop::AlignSelf,       UIPropValueKind::Enum,    &kAlign,     nullptr, nullptr },
+        { "flex-grow",        Prop::FlexGrow,        UIPropValueKind::Number,  nullptr,     nullptr, nullptr },
+        { "flex-shrink",      Prop::FlexShrink,      UIPropValueKind::Number,  nullptr,     nullptr, nullptr },
+        { "width",            Prop::Width,           UIPropValueKind::Length,  nullptr,     nullptr, nullptr },
+        { "height",           Prop::Height,          UIPropValueKind::Length,  nullptr,     nullptr, nullptr },
+        { "min-width",        Prop::MinWidth,        UIPropValueKind::Length,  nullptr,     nullptr, nullptr },
+        { "min-height",       Prop::MinHeight,       UIPropValueKind::Length,  nullptr,     nullptr, nullptr },
+        { "max-width",        Prop::MaxWidth,        UIPropValueKind::Length,  nullptr,     nullptr, nullptr },
+        { "max-height",       Prop::MaxHeight,       UIPropValueKind::Length,  nullptr,     nullptr, nullptr },
+        { "margin",           Prop::Margin,          UIPropValueKind::Edges,   nullptr,     nullptr, nullptr },
+        { "padding",          Prop::Padding,         UIPropValueKind::Edges,   nullptr,     nullptr, nullptr },
+        { "gap",              Prop::Gap,             UIPropValueKind::Number,  nullptr,     nullptr, nullptr },
+        { "position",         Prop::Position,        UIPropValueKind::Enum,    &kPosition,  nullptr, nullptr },
+        { "left",             Prop::Left,            UIPropValueKind::Number,  nullptr,     nullptr, nullptr },
+        { "top",              Prop::Top,             UIPropValueKind::Number,  nullptr,     nullptr, nullptr },
+        { "right",            Prop::Right,           UIPropValueKind::Number,  nullptr,     nullptr, nullptr },
+        { "bottom",           Prop::Bottom,          UIPropValueKind::Number,  nullptr,     nullptr, nullptr },
+        { "background-color", Prop::BackgroundColor, UIPropValueKind::Color,   nullptr,     nullptr, nullptr },
+        { "color",            Prop::Color,           UIPropValueKind::Color,   nullptr,     nullptr, nullptr },
+        { "font-scale",       Prop::FontScale,       UIPropValueKind::Number,  nullptr,     nullptr, nullptr },
+        { "overflow",         Prop::Overflow,        UIPropValueKind::Boolean, nullptr,     "hidden", "visible" },
+        { "pointer-events",   Prop::PointerEvents,   UIPropValueKind::Boolean, nullptr,     "auto",   "none" },
+    };
+
+    const PropSpec* specFor(Prop p) {
+        for (const PropSpec& s : kProps) {
+            if (s.prop == p) return &s;
+        }
+        return nullptr;
+    }
+
     // Parses one `name: value`. Returns false with `err` set so the caller can
     // report the line; an unknown property is an ERROR, not a silent skip.
     bool parseDeclaration(const std::string& name, const std::string& value,
                           UIDeclaration& out, std::string& err) {
         const std::string n = lower(trim(name));
-
-        auto len = [&](Prop p) {
-            out.prop = p;
-            if (!parseLength(value, out.length)) { err = "bad length '" + value + "'"; return false; }
-            return true;
-        };
-        auto num = [&](Prop p) {
-            out.prop = p;
-            if (!parseNumber(trim(value), out.number)) { err = "bad number '" + value + "'"; return false; }
-            return true;
-        };
-        auto col = [&](Prop p) {
-            out.prop = p;
-            if (!parseColor(value, out.color)) { err = "bad colour '" + value + "'"; return false; }
-            return true;
-        };
-        auto edg = [&](Prop p) {
-            out.prop = p;
-            if (!parseEdges(value, out.edges)) { err = "bad edge shorthand '" + value + "'"; return false; }
-            return true;
-        };
-        auto enm = [&](Prop p, const std::vector<EnumTable>& t) {
-            out.prop = p;
-            if (!parseEnum(value, t, out.enumValue)) { err = "bad value '" + value + "'"; return false; }
-            return true;
-        };
-
-        if (n == "flex-direction")  return enm(Prop::FlexDirection, kDirection);
-        if (n == "justify-content") return enm(Prop::JustifyContent, kJustify);
-        if (n == "align-items")     return enm(Prop::AlignItems, kAlign);
-        if (n == "align-self")      return enm(Prop::AlignSelf, kAlign);
-        if (n == "flex-grow")       return num(Prop::FlexGrow);
-        if (n == "flex-shrink")     return num(Prop::FlexShrink);
-        if (n == "width")           return len(Prop::Width);
-        if (n == "height")          return len(Prop::Height);
-        if (n == "min-width")       return len(Prop::MinWidth);
-        if (n == "min-height")      return len(Prop::MinHeight);
-        if (n == "max-width")       return len(Prop::MaxWidth);
-        if (n == "max-height")      return len(Prop::MaxHeight);
-        if (n == "margin")          return edg(Prop::Margin);
-        if (n == "padding")         return edg(Prop::Padding);
-        if (n == "gap")             return num(Prop::Gap);
-        if (n == "position")        return enm(Prop::Position, kPosition);
-        if (n == "left")            return num(Prop::Left);
-        if (n == "top")             return num(Prop::Top);
-        if (n == "right")           return num(Prop::Right);
-        if (n == "bottom")          return num(Prop::Bottom);
-        if (n == "background-color") return col(Prop::BackgroundColor);
-        if (n == "color")           return col(Prop::Color);
-        if (n == "font-scale")      return num(Prop::FontScale);
-        if (n == "overflow") {
-            const std::string v = lower(trim(value));
-            if (v != "hidden" && v != "visible") { err = "overflow must be hidden|visible"; return false; }
-            out.prop = Prop::Overflow;
-            out.boolean = (v == "hidden");
-            return true;
+        Prop p{};
+        UIPropValueKind k{};
+        if (!UIDeclaration::PropFromName(n, p, k)) {
+            err = "unknown property '" + n + "'";
+            return false;
         }
-        if (n == "pointer-events") {
-            const std::string v = lower(trim(value));
-            if (v != "auto" && v != "none") { err = "pointer-events must be auto|none"; return false; }
-            out.prop = Prop::PointerEvents;
-            out.boolean = (v == "auto");
-            return true;
+        return UIDeclaration::ParseValueFor(p, value, out, err);
+    }
+
+    // Splits on `sep` at BRACE DEPTH ZERO, so a ';' or ':' inside a {hole}
+    // stays part of its value.
+    void splitTopLevel(const std::string& s, char sep, std::vector<std::string>& out) {
+        int depth = 0;
+        std::string cur;
+        for (char c : s) {
+            if (c == '{') ++depth;
+            else if (c == '}' && depth > 0) --depth;
+            if (c == sep && depth == 0) { out.push_back(cur); cur.clear(); continue; }
+            cur += c;
         }
-        err = "unknown property '" + n + "'";
-        return false;
+        out.push_back(cur);
     }
 
 } // namespace
+
+bool UIDeclaration::PropFromName(const std::string& name, Prop& p, UIPropValueKind& k) {
+    for (const PropSpec& s : kProps) {
+        if (name == s.name) { p = s.prop; k = s.kind; return true; }
+    }
+    return false;
+}
+
+const char* UIDeclaration::NameOf(Prop p) {
+    const PropSpec* s = specFor(p);
+    return s ? s->name : "?";
+}
+
+bool UIDeclaration::ParseValueFor(Prop p, const std::string& value,
+                                  UIDeclaration& out, std::string& err) {
+    const PropSpec* s = specFor(p);
+    if (!s) { err = "unknown property"; return false; }
+    out.prop = p;
+    switch (s->kind) {
+    case UIPropValueKind::Length:
+        if (!parseLength(value, out.length)) { err = "bad length '" + value + "'"; return false; }
+        return true;
+    case UIPropValueKind::Number:
+        if (!parseNumber(trim(value), out.number)) { err = "bad number '" + value + "'"; return false; }
+        return true;
+    case UIPropValueKind::Color:
+        if (!parseColor(value, out.color)) { err = "bad colour '" + value + "'"; return false; }
+        return true;
+    case UIPropValueKind::Edges:
+        if (!parseEdges(value, out.edges)) { err = "bad edge shorthand '" + value + "'"; return false; }
+        return true;
+    case UIPropValueKind::Enum:
+        if (!parseEnum(value, *s->enumTable, out.enumValue)) {
+            err = "bad value '" + value + "'";
+            return false;
+        }
+        return true;
+    case UIPropValueKind::Boolean: {
+        const std::string v = lower(trim(value));
+        if (v != s->trueWord && v != s->falseWord) {
+            err = std::string(s->name) + " must be " + s->trueWord + "|" + s->falseWord;
+            return false;
+        }
+        out.boolean = (v == s->trueWord);
+        return true;
+    }
+    }
+    err = "unknown property";
+    return false;
+}
 
 void UIDeclaration::ApplyTo(Style& s) const {
     switch (prop) {
@@ -318,25 +376,45 @@ void UISelector::Specificity(int& ids, int& cls, int& types) const {
     types = type.empty() ? 0 : 1;
 }
 
+void UIStyleSheet::SplitDeclarations(const std::string& text,
+                                     std::vector<std::pair<std::string, std::string>>& out,
+                                     std::vector<std::string>& errors) {
+    std::vector<std::string> chunks;
+    splitTopLevel(text, ';', chunks);
+    for (const std::string& raw : chunks) {
+        const std::string declText = trim(raw);
+        if (declText.empty()) continue;   // trailing ';' and blank entries
+        std::vector<std::string> halves;
+        splitTopLevel(declText, ':', halves);
+        if (halves.size() < 2) {
+            errors.push_back("declaration '" + declText + "' has no ':'");
+            continue;
+        }
+        // Only the FIRST top-level colon separates; anything after it belongs
+        // to the value (a format spec lives inside braces, but a future value
+        // grammar may not).
+        std::string value = halves[1];
+        for (size_t i = 2; i < halves.size(); ++i) value += ":" + halves[i];
+        out.emplace_back(halves[0], std::move(value));
+    }
+}
+
 bool UIStyleSheet::ParseDeclarationList(const std::string& text,
                                         std::vector<UIDeclaration>& out,
                                         std::vector<std::string>& errors) {
-    bool ok = true;
-    for (const std::string& declText : split(text, ';')) {
-        const size_t colon = declText.find(':');
-        if (colon == std::string::npos) {
-            errors.push_back("declaration '" + trim(declText) + "' has no ':'");
-            ok = false;
-            continue;
-        }
-        UIDeclaration d;
+    std::vector<std::pair<std::string, std::string>> decls;
+    const size_t errsBefore = errors.size();
+    SplitDeclarations(text, decls, errors);
+    bool ok = errors.size() == errsBefore;
+    for (const auto& d : decls) {
+        UIDeclaration parsed;
         std::string err;
-        if (!parseDeclaration(declText.substr(0, colon), declText.substr(colon + 1), d, err)) {
+        if (!parseDeclaration(d.first, d.second, parsed, err)) {
             errors.push_back(err);
             ok = false;
             continue;
         }
-        out.push_back(d);
+        out.push_back(parsed);
     }
     return ok;
 }
@@ -436,20 +514,23 @@ bool UIStyleSheet::ParseString(const std::string& text, const std::string& origi
         }
 
         // --- declarations ---
-        for (const std::string& declText : split(src.substr(brace + 1, close - brace - 1), ';')) {
-            const size_t colon = declText.find(':');
-            if (colon == std::string::npos) {
-                errs.push_back(originName + ":" + std::to_string(lineOf(brace)) +
-                               ": declaration '" + declText + "' has no ':'");
-                continue;
+        // Through the SAME splitter as `style=` and `bind=`, so the three can
+        // never come to disagree about where one declaration ends.
+        {
+            const std::string prefix = originName + ":" + std::to_string(lineOf(brace)) + ": ";
+            std::vector<std::pair<std::string, std::string>> decls;
+            std::vector<std::string> splitErrs;
+            SplitDeclarations(src.substr(brace + 1, close - brace - 1), decls, splitErrs);
+            for (const auto& e : splitErrs) errs.push_back(prefix + e);
+            for (const auto& d : decls) {
+                UIDeclaration parsed;
+                std::string err;
+                if (!parseDeclaration(d.first, d.second, parsed, err)) {
+                    errs.push_back(prefix + err);
+                    continue;
+                }
+                rule.declarations.push_back(parsed);
             }
-            UIDeclaration d;
-            std::string err;
-            if (!parseDeclaration(declText.substr(0, colon), declText.substr(colon + 1), d, err)) {
-                errs.push_back(originName + ":" + std::to_string(lineOf(brace)) + ": " + err);
-                continue;
-            }
-            rule.declarations.push_back(d);
         }
 
         if (!rule.selectors.empty()) parsed.push_back(std::move(rule));
@@ -513,6 +594,20 @@ void UIStyleSheet::ApplyToElement(UIElement& el) const {
 void UIStyleSheet::ApplyTo(UIElement& root) const {
     ApplyToElement(root);
     for (const auto& c : root.children()) ApplyTo(*c);
+}
+
+void UIStyleSheet::DeclaredPropsFor(const UIElement& el,
+                                    std::vector<UIDeclaration::Prop>& out) const {
+    // Matching only — no specificity sort needed, because the QUESTION is "does
+    // anything set this property", not "which rule wins".
+    for (const auto& r : rules_) {
+        for (const auto& s : r.selectors) {
+            if (!s.Matches(el)) continue;
+            for (const auto& d : r.declarations) out.push_back(d.prop);
+            break;
+        }
+    }
+    for (const auto& d : el.inlineStyle()) out.push_back(d.prop);
 }
 
 } // namespace MyCoreEngine::ui

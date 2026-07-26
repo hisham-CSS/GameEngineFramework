@@ -75,6 +75,7 @@ namespace MyCoreEngine::ui {
 
         Kind kind = Kind::Text;
         UIDeclaration::Prop styleProp{};  // Kind::Style
+        UIPropValueKind     valueKind{};  // Kind::Style
         std::string         className;    // Kind::Class
         StateProp           state{};      // Kind::State
     };
@@ -117,7 +118,12 @@ namespace MyCoreEngine::ui {
         // old "re-push everything you cached" step after a reload, and it is why
         // a label never flashes its authored placeholder for one frame as you
         // save the file.
-        void Rebuild(UIDocument& doc, UIBindingContext& ctx, std::string originName);
+        // `sheet` is optional and used only for diagnostics: it lets Rebuild
+        // NOTE that a stylesheet declaration is shadowed by a binding, which
+        // would otherwise be a silent no-op the first time someone edits the
+        // .uss and nothing happens.
+        void Rebuild(UIDocument& doc, UIBindingContext& ctx, std::string originName,
+                     const UIStyleSheet* sheet = nullptr);
         // Drops the index. Must be called BEFORE the tree is freed: the
         // invariant is that the binder never holds a pointer into a tree that
         // is being rebuilt, not even for the length of one function.
@@ -168,7 +174,13 @@ namespace MyCoreEngine::ui {
         // Renders `tmpl` into scratch_; false with an error already reported if
         // a hole could not be read or converted.
         bool render_(Entry& e, const UIHole* holes, std::size_t holeCount);
+        // Reads + converts a single hole, without stringifying. The fast path
+        // for a style binding, and the only way a bound colour or length avoids
+        // a round trip through text.
+        bool evalSingle_(Entry& e, UIValue& out);
+        bool applyStyle_(Entry& e);
         void reportOnce_(Entry& e, const UIValue& v, const std::string& what);
+        void noteShadowedDeclarations_(const UIElement& el, const UIStyleSheet& sheet);
         std::string where_(const UIElement& el, const UIBinding& b) const;
 
         std::vector<Entry>              entries_;
@@ -179,9 +191,10 @@ namespace MyCoreEngine::ui {
         // on a steady frame.
         std::string  scratch_;
 
-        UIDocument*       doc_ = nullptr;
-        UIBindingContext* ctx_ = nullptr;
-        std::string       origin_;
+        UIDocument*         doc_ = nullptr;
+        UIBindingContext*   ctx_ = nullptr;
+        const UIStyleSheet* sheet_ = nullptr;   // diagnostics only
+        std::string         origin_;
         std::uint32_t     seenCtxRev_ = 0;
         std::uint32_t     seenEpoch_ = 0;
     };

@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 
 #include "Engine.h"
+#include "../Engine/src/ui/DemoHud.h"
 #include "../Engine/src/ui/UIAssetDocument.h"
 #include "../Engine/src/ui/UIBinding.h"
 #include "../Engine/src/ui/UIDataSource.h"
@@ -28,6 +29,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -622,6 +624,175 @@ TEST(UIMarkupAttributes, ReloadingReplacesDataSourceAndBindingsRatherThanAccumul
     EXPECT_TRUE(doc.root().style().text.empty()) << "stale text survived a reload";
 }
 
+// -------------------------------------------------------- bind= (U4b)
+
+namespace {
+
+// Builds a one-element document with the given bind= attribute, resolved
+// against a source carrying `health` (0.4), `w` (120), `tint` (a colour) and
+// `label` ("auto").
+struct BindFixture {
+    UIDocument doc;
+    UIDataSource src;
+    UIBindingContext ctx;
+    UIBinder binder;
+    std::vector<std::string> errors;
+
+    bool Load(const std::string& bindAttr) {
+        src.SetNumber("health", 0.4f);
+        src.SetNumber("w", 120.f);
+        src.SetColor("tint", { 0.1f, 0.2f, 0.3f, 1.0f });
+        src.SetString("label", "auto");
+        ctx.RegisterSource("s", &src);
+        const std::string xml = "<UI data-source=\"s\"><Element name=\"e\" bind=\"" +
+                                bindAttr + "\"/></UI>";
+        if (!UIMarkup::LoadInto(doc, xml, errors, "t.uxml")) return false;
+        binder.Rebuild(doc, ctx, "t.uxml");
+        return true;
+    }
+    UIElement* el() { return doc.root().Find("e"); }
+};
+
+} // namespace
+
+TEST(UIBindStyle, BindsALengthAColourAndANumber) {
+    BindFixture f;
+    ASSERT_TRUE(f.Load("width: {health | percent}; background-color: {tint}; flex-grow: {w}"))
+        << (f.errors.empty() ? "" : f.errors[0]);
+    ASSERT_TRUE(f.binder.ok()) << (f.binder.errors().empty() ? "" : f.binder.errors()[0]);
+
+    UIElement* e = f.el();
+    ASSERT_NE(e, nullptr);
+    EXPECT_EQ(e->style().width.unit, StyleLength::Unit::Percent);
+    EXPECT_FLOAT_EQ(e->style().width.value, 40.f);
+    EXPECT_FLOAT_EQ(e->style().backgroundColor.b, 0.3f);
+    EXPECT_FLOAT_EQ(e->style().flexGrow, 120.f);
+
+    f.src.SetNumber("health", 0.75f);
+    f.binder.UpdateToTarget();
+    EXPECT_FLOAT_EQ(e->style().width.value, 75.f);
+}
+
+// A bare number is pixels, exactly as in a declaration.
+TEST(UIBindStyle, BareNumberBecomesPixels) {
+    BindFixture f;
+    ASSERT_TRUE(f.Load("width: {w}"));
+    ASSERT_TRUE(f.binder.ok()) << f.binder.errors()[0];
+    EXPECT_EQ(f.el()->style().width.unit, StyleLength::Unit::Point);
+    EXPECT_FLOAT_EQ(f.el()->style().width.value, 120.f);
+}
+
+// Literals around the hole route through the ordinary declaration parser, so
+// interpolated text means exactly what the same text means in a .uss file.
+TEST(UIBindStyle, LiteralsAroundAHoleGoThroughTheDeclarationGrammar) {
+    BindFixture f;
+    ASSERT_TRUE(f.Load("width: {health | ratio}%"));
+    ASSERT_TRUE(f.binder.ok()) << f.binder.errors()[0];
+    EXPECT_EQ(f.el()->style().width.unit, StyleLength::Unit::Percent);
+    EXPECT_FLOAT_EQ(f.el()->style().width.value, 40.f);
+}
+
+// A string reaches an enum or a keyword the only way it can.
+TEST(UIBindStyle, AStringCanCarryAKeywordOrAnEnum) {
+    BindFixture f;
+    ASSERT_TRUE(f.Load("width: {label}"));
+    ASSERT_TRUE(f.binder.ok()) << f.binder.errors()[0];
+    EXPECT_EQ(f.el()->style().width.unit, StyleLength::Unit::Auto);
+
+    BindFixture g;
+    g.src.SetString("dir", "row");
+    ASSERT_TRUE(g.Load("flex-direction: {dir}"));
+    ASSERT_TRUE(g.binder.ok()) << g.binder.errors()[0];
+    EXPECT_EQ(g.el()->style().direction, FlexDirection::Row);
+}
+
+// The whole point of the brace-aware splitter: a ';' and a ':' inside a hole
+// belong to that hole, not to the declaration list.
+TEST(UIBindStyle, SplittingIsBraceAware) {
+    BindFixture f;
+    ASSERT_TRUE(f.Load("width: {health | percent : 1}; flex-grow: {w}"))
+        << (f.errors.empty() ? "" : f.errors[0]);
+    ASSERT_TRUE(f.binder.ok()) << f.binder.errors()[0];
+    EXPECT_FLOAT_EQ(f.el()->style().width.value, 40.f);
+    EXPECT_FLOAT_EQ(f.el()->style().flexGrow, 120.f);
+}
+
+// A bind with no hole would be a silent duplicate of style=, and the two would
+// then disagree about which wins.
+TEST(UIBindStyle, AConstantBindIsRefusedWithAdvice) {
+    UIDocument doc;
+    std::vector<std::string> errors;
+    EXPECT_FALSE(UIMarkup::LoadInto(doc, R"(<UI><Element name="e" bind="width: 100%"/></UI>)",
+                                    errors, "t.uxml"));
+    ASSERT_FALSE(errors.empty());
+    EXPECT_NE(errors[0].find("use style="), std::string::npos) << errors[0];
+}
+
+TEST(UIBindStyle, AnUnknownBoundPropertyFailsTheLoad) {
+    UIDocument doc;
+    std::vector<std::string> errors;
+    EXPECT_FALSE(UIMarkup::LoadInto(doc, R"(<UI><Element name="e" bind="widht: {x}"/></UI>)",
+                                    errors, "t.uxml"));
+    ASSERT_FALSE(errors.empty());
+    EXPECT_NE(errors[0].find("unknown property 'widht'"), std::string::npos) << errors[0];
+}
+
+TEST(UIBindStyle, AValueThatCannotConvertIsReportedNamingBothKinds) {
+    BindFixture f;
+    ASSERT_TRUE(f.Load("width: {tint}"));   // a colour is not a length
+    EXPECT_FALSE(f.binder.ok());
+    ASSERT_FALSE(f.binder.errors().empty());
+    const std::string& e = f.binder.errors()[0];
+    EXPECT_NE(e.find("colour"), std::string::npos) << e;
+    EXPECT_NE(e.find("width"), std::string::npos) << e;
+}
+
+// parseLength accepts "-100%" quite happily, so without this a negative model
+// value silently collapses the layout.
+TEST(UIBindStyle, ANegativeSizeIsRejected) {
+    BindFixture f;
+    ASSERT_TRUE(f.Load("width: {health | percent}"));
+    ASSERT_TRUE(f.binder.ok());
+    const float good = f.el()->style().width.value;
+
+    f.src.SetNumber("health", -0.5f);
+    f.binder.UpdateToTarget();
+    EXPECT_FLOAT_EQ(f.el()->style().width.value, good) << "a negative width was applied";
+    ASSERT_FALSE(f.binder.errors().empty());
+    EXPECT_NE(f.binder.errors()[0].find("cannot be negative"), std::string::npos)
+        << f.binder.errors()[0];
+}
+
+TEST(UIBindStyle, ANonFiniteValueNeverReachesTheLayout) {
+    BindFixture f;
+    ASSERT_TRUE(f.Load("width: {health | percent}"));
+    ASSERT_TRUE(f.binder.ok());
+    const float good = f.el()->style().width.value;
+
+    f.src.SetNumber("health", std::numeric_limits<float>::quiet_NaN());
+    f.binder.UpdateToTarget();
+    EXPECT_FLOAT_EQ(f.el()->style().width.value, good) << "a NaN reached the layout";
+    ASSERT_FALSE(f.binder.errors().empty());
+    EXPECT_NE(f.binder.errors()[0].find("not finite"), std::string::npos)
+        << f.binder.errors()[0];
+}
+
+// A colour-only write cannot change a box, so it must not cost a re-layout.
+TEST(UIBindStyle, AColourWriteDoesNotForceALayout) {
+    BindFixture f;
+    ASSERT_TRUE(f.Load("background-color: {tint}"));
+    ASSERT_TRUE(f.binder.ok()) << f.binder.errors()[0];
+    f.src.SetColor("tint", { 0.9f, 0.1f, 0.1f, 1.f });
+    const UIBindTick tick = f.binder.UpdateToTarget();
+    EXPECT_EQ(tick.applied, 1u);
+    EXPECT_FALSE(tick.wroteLayout) << "a colour change asked for a re-layout";
+
+    BindFixture g;
+    ASSERT_TRUE(g.Load("width: {health | percent}"));
+    g.src.SetNumber("health", 0.9f);
+    EXPECT_TRUE(g.binder.UpdateToTarget().wroteLayout) << "a width change must re-layout";
+}
+
 // ------------------------------------------------- the whole thing, on disk
 
 // The property that justifies the entire design: a hot reload rebuilds every
@@ -685,19 +856,48 @@ TEST(UIBindingHotReload, ABrokenEditKeepsTheLastGoodTreeStillBound) {
     std::remove(markup.c_str());
 }
 
-TEST(UIBindingHotReload, TheShippedHudBindsItsScore) {
-    UIDataSource src;
-    src.SetInt("score", 55);
-    src.SetNumber("health", 1.0f);
+// Through the real DemoHud, not a hand-built document: that is what makes this
+// catch the failure mode where the shipped markup names a converter or a
+// property the shipped C++ forgot to register. A missing font keeps it GL-free.
+TEST(UIBindingHotReload, TheShippedHudResolvesEveryBinding) {
+    DemoHud hud;
+    hud.Init("Exported/UI/hud.uxml", "Exported/UI/hud.uss", "definitely_not_a_font.ttf", 16.f);
+    ASSERT_TRUE(hud.IsReady())
+        << "shipped HUD assets did not fully bind: "
+        << (hud.errors().empty() ? "" : hud.errors()[0]);
 
-    UIAssetDocument assets;
-    assets.bindingContext().RegisterSource("hud", &src);
-    ASSERT_TRUE(assets.Load("Exported/UI/hud.uxml", "Exported/UI/hud.uss"));
-    EXPECT_TRUE(assets.binder().ok())
-        << "shipped hud.uxml has an unresolved binding: "
-        << (assets.binder().errors().empty() ? "" : assets.binder().errors()[0]);
+    hud.SetScore(55);
+    hud.SetHealth(0.4f);
+    hud.assets().binder().UpdateToTarget();
 
-    UIElement* label = assets.document().root().Find("scoreLabel");
+    UIElement* label = hud.document().root().Find("scoreLabel");
     ASSERT_NE(label, nullptr);
     EXPECT_EQ(label->style().text, "SCORE 55");
+
+    // Both halves of the health bar are authored now: the unit comes from the
+    // `percent` builtin and the colour from the HUD's own healthTint converter.
+    UIElement* fill = hud.document().root().Find("healthFill");
+    ASSERT_NE(fill, nullptr);
+    EXPECT_EQ(fill->style().width.unit, StyleLength::Unit::Percent);
+    EXPECT_FLOAT_EQ(fill->style().width.value, 40.0f);
+    EXPECT_NEAR(fill->style().backgroundColor.g, 0.22f + 0.6f * 0.45f, 0.001f);
+}
+
+// Binding a property makes its stylesheet rule dead. That is a legitimate
+// pattern — the rule is the pre-bind default — but finding out by editing the
+// .uss and watching nothing happen is the silent no-op this codebase reports
+// errors to avoid.
+TEST(UIBindingHotReload, AShadowedStylesheetDeclarationIsNoted) {
+    DemoHud hud;
+    hud.Init("Exported/UI/hud.uxml", "Exported/UI/hud.uss", "definitely_not_a_font.ttf", 16.f);
+    ASSERT_TRUE(hud.IsReady());
+
+    const auto& notes = hud.assets().binder().notes();
+    bool sawWidth = false;
+    for (const auto& n : notes) {
+        if (n.find("'width'") != std::string::npos &&
+            n.find("healthFill") != std::string::npos) sawWidth = true;
+    }
+    EXPECT_TRUE(sawWidth) << "hud.uss declares .fill { width } and hud.uxml binds width; "
+                             "that has to be reported, not silent";
 }

@@ -14,6 +14,10 @@
     text="SCORE {score}"     literal text with {holes}; write {{ and }} for
                              literal braces
     data-source="hud"        inherited by this element and its whole subtree
+    bind="width: {h}"        CSS declarations whose VALUES carry {holes}. Every
+                             property .uss understands works here, and a bound
+                             property outranks the stylesheet (which then acts
+                             as the pre-bind default, and says so at load).
 
   A {hole} is `{path | converter | converter : decimals}`. There is no
   arithmetic and no ternary: derived values are named C++ converters, which are
@@ -32,7 +36,15 @@
 <UI name="hud" data-source="hud">
   <Element name="topBar" class="row">
     <Element name="healthTrack" class="track">
-      <Element name="healthFill" class="fill"/>
+      <!-- One model value, two visual consequences, and no C++ in between.
+           `percent` is a builtin (0..1 -> a CSS percentage, unit included);
+           `healthTint` is registered by the HUD itself, because a drain ramp
+           is a LOOK and belongs next to the markup rather than inside
+           gameplay. Switching this bar to fixed pixels is an edit to this
+           file. -->
+      <Element name="healthFill" class="fill"
+               bind="width: {health | percent};
+                     background-color: {health | healthTint}"/>
     </Element>
     <!-- The whole readout in one attribute: no placeholder text and no separate
          format string in C++, so there is nothing to drift out of sync. -->

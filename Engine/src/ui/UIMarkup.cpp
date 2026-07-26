@@ -6,9 +6,11 @@
 
 #include <pugixml.hpp>
 
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <utility>
 
 namespace MyCoreEngine::ui {
 
@@ -20,6 +22,18 @@ namespace {
         std::string t;
         while (in >> t) out.push_back(t);
         return out;
+    }
+
+    std::string trim(const std::string& s) {
+        size_t b = 0, e = s.size();
+        while (b < e && std::isspace((unsigned char)s[b])) ++b;
+        while (e > b && std::isspace((unsigned char)s[e - 1])) --e;
+        return s.substr(b, e - b);
+    }
+
+    std::string lower(std::string s) {
+        for (char& c : s) c = char(std::tolower((unsigned char)c));
+        return s;
     }
 
     std::string describe(const pugi::xml_node& node) {
@@ -55,7 +69,7 @@ namespace {
         for (pugi::xml_attribute a : node.attributes()) {
             const std::string n = a.name();
             if (n == "name" || n == "class" || n == "style" || n == "text" ||
-                n == "data-source") {
+                n == "data-source" || n == "bind") {
                 continue;
             }
             errors.push_back(loc + "unknown attribute '" + n + "'");
@@ -97,6 +111,54 @@ namespace {
                 // binder's flat array holds only things that can change.
                 el.setText(t);
             } else {
+                bindings.push_back(std::move(b));
+            }
+        }
+
+        // `bind="width: {health | percent}; background-color: {health|tint}"`
+        // — CSS declarations whose VALUES carry holes. Split by the same
+        // brace-aware splitter `style=` uses, so the two can never come to
+        // disagree about where one declaration ends.
+        if (const char* bindAttr = node.attribute("bind").value(); bindAttr && *bindAttr) {
+            std::vector<std::pair<std::string, std::string>> decls;
+            std::vector<std::string> splitErrors;
+            UIStyleSheet::SplitDeclarations(bindAttr, decls, splitErrors);
+            if (!splitErrors.empty()) {
+                for (const auto& e : splitErrors) errors.push_back(loc + "bind: " + e);
+                return false;
+            }
+            for (const auto& d : decls) {
+                const std::string propName = lower(trim(d.first));
+                UIDeclaration::Prop prop{};
+                UIPropValueKind kind{};
+                if (!UIDeclaration::PropFromName(propName, prop, kind)) {
+                    errors.push_back(loc + "bind: unknown property '" + propName + "'");
+                    return false;
+                }
+
+                UIBinding b;
+                b.target.kind = UIBindTarget::Kind::Style;
+                b.target.styleProp = prop;
+                b.target.valueKind = kind;
+                b.label = "bind " + propName;
+                std::string err;
+                // TRIMMED, and that matters more than it looks: whitespace
+                // around a CSS value is insignificant, but an untrimmed " {x}"
+                // is not a single hole, and the single-hole case is what lets a
+                // bound colour or length reach its field WITHOUT a round trip
+                // through text. Without this, `background-color: {tint}`
+                // silently quantises to 8 bits per channel.
+                if (!UITextTemplate::Compile(trim(d.second), b.tmpl, err)) {
+                    errors.push_back(loc + b.label + ": " + err);
+                    return false;
+                }
+                // A bind with no hole is a silent duplicate of style=, and the
+                // two would then disagree about which wins. Say so instead.
+                if (b.tmpl.isConstant()) {
+                    errors.push_back(loc + b.label +
+                                     ": value has no {} - use style= for a constant");
+                    return false;
+                }
                 bindings.push_back(std::move(b));
             }
         }

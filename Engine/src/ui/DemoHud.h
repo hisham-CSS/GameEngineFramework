@@ -47,7 +47,7 @@ namespace MyCoreEngine::ui {
         // stronger than the null-pointer check this used to be: a typo in a
         // bound path is now a reported failure rather than a readout that
         // silently never updates.
-        bool IsReady() const { return assets_.ok() && assets_.binder().ok() && healthFill_; }
+        bool IsReady() const { return assets_.ok() && assets_.binder().ok() && button_; }
         bool hasFont() const { return font_.IsValid(); }
         const std::vector<std::string>& errors() const { return assets_.errors(); }
 
@@ -94,7 +94,8 @@ namespace MyCoreEngine::ui {
         // draws perfectly and silently stops updating.
         UIDataSource    source_;
         UIAssetDocument assets_;
-        UIElement*      healthFill_ = nullptr;
+        // The ONLY cached element pointer left, and it exists purely to serve
+        // the hover/press tint below.
         UIElement*      button_ = nullptr;
         glm::vec4       buttonIdle_{ 0.16f, 0.17f, 0.20f, 0.90f };
         UIPointerState  pointer_{};

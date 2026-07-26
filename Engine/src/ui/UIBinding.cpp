@@ -154,8 +154,14 @@ void UIBinder::collect_(UIElement& el, const std::string& inheritedSource) {
         Entry e;
         e.el = &el;
         e.binding = &b;
-        // Text can change a box, so a text write must force a re-layout.
-        e.layoutAffecting = (b.target.kind == UIBindTarget::Kind::Text);
+        // Only a write that can change a BOX forces a re-layout. Colour is the
+        // common case that cannot, and exempting it is what keeps the
+        // post-input pass free on the frames that do not need it.
+        const bool colourOnly =
+            b.target.kind == UIBindTarget::Kind::Style &&
+            (b.target.styleProp == UIDeclaration::Prop::BackgroundColor ||
+             b.target.styleProp == UIDeclaration::Prop::Color);
+        e.layoutAffecting = !colourOnly;
         resolve_(e, scope);
         entries_.push_back(e);
     }
@@ -185,6 +191,8 @@ void UIBinder::collect_(UIElement& el, const std::string& inheritedSource) {
         UIDataSource* s = src;
         el.AddEventListener(a.type, [s, idx](UIEvent&) { s->InvokeAction(idx); });
     }
+
+    if (sheet_) noteShadowedDeclarations_(el, *sheet_);
 
     for (const auto& c : el.children()) collect_(*c, scope);
 }
@@ -255,7 +263,33 @@ bool UIBinder::resolve_(Entry& e, const std::string& inheritedSource) {
     return allResolved;
 }
 
-void UIBinder::Rebuild(UIDocument& doc, UIBindingContext& ctx, std::string originName) {
+void UIBinder::noteShadowedDeclarations_(const UIElement& el, const UIStyleSheet& sheet) {
+    if (el.bindings().empty()) return;
+    std::vector<UIDeclaration::Prop> declared;
+    sheet.DeclaredPropsFor(el, declared);
+    if (declared.empty()) return;
+
+    for (const UIBinding& b : el.bindings()) {
+        if (b.target.kind != UIBindTarget::Kind::Style) continue;
+        for (UIDeclaration::Prop p : declared) {
+            if (p != b.target.styleProp) continue;
+            // Binding a property makes its stylesheet rule dead. That is a
+            // legitimate pattern — the rule is the pre-bind default — but
+            // discovering it by editing the .uss and watching nothing happen is
+            // exactly the silent no-op this codebase reports errors to avoid.
+            std::string s = "the stylesheet declares '" + std::string(UIDeclaration::NameOf(p)) +
+                            "' for <" + el.type();
+            if (!el.name().empty()) s += " name='" + el.name() + "'";
+            s += ">, which " + origin_ +
+                 " binds - the stylesheet value is only the pre-bind default";
+            notes_.push_back(std::move(s));
+            break;
+        }
+    }
+}
+
+void UIBinder::Rebuild(UIDocument& doc, UIBindingContext& ctx, std::string originName,
+                       const UIStyleSheet* sheet) {
     entries_.clear();
     actions_.clear();
     convPool_.clear();
@@ -263,6 +297,7 @@ void UIBinder::Rebuild(UIDocument& doc, UIBindingContext& ctx, std::string origi
     notes_.clear();
     doc_ = &doc;
     ctx_ = &ctx;
+    sheet_ = sheet;
     origin_ = std::move(originName);
 
     collect_(doc.root(), std::string());
@@ -345,6 +380,92 @@ bool UIBinder::render_(Entry& e, const UIHole* holes, std::size_t holeCount) {
     return true;
 }
 
+bool UIBinder::evalSingle_(Entry& e, UIValue& out) {
+    const UIHole& h = e.binding->tmpl.holes()[0];
+    UIDataSource* src = h.sourceName.empty() ? e.src : ctx_->Find(h.sourceName);
+    if (!src) return false;
+    if (!src->ReadAt(src->IndexOf(h.propName), out)) return false;
+
+    std::size_t cursor = e.convFirst;
+    for (std::size_t c = 0; c < h.converters.size(); ++c, ++cursor) {
+        if (cursor >= convPool_.size()) return false;
+        UIValue next;
+        std::string err;
+        if (!(*convPool_[cursor])(out, next, err)) { reportOnce_(e, out, err); return false; }
+        out = std::move(next);
+    }
+    std::string why;
+    if (!out.IsFinite(why)) { reportOnce_(e, out, why); return false; }
+    return true;
+}
+
+bool UIBinder::applyStyle_(Entry& e) {
+    const UIBinding& b = *e.binding;
+    const UIDeclaration::Prop prop = b.target.styleProp;
+    UIDeclaration decl;
+    decl.prop = prop;
+
+    // FAST PATH: one hole and no surrounding literals, so the value goes
+    // straight into the right field. A bound colour or length never round-trips
+    // through a string, which is both faster and lossless.
+    if (b.tmpl.isSingleHole()) {
+        UIValue v;
+        if (!evalSingle_(e, v)) return false;
+
+        bool ok = false;
+        switch (b.target.valueKind) {
+        case UIPropValueKind::Length:  ok = v.AsLength(decl.length); break;
+        case UIPropValueKind::Number:  ok = v.AsNumber(decl.number); break;
+        case UIPropValueKind::Color:   ok = v.AsColor(decl.color); break;
+        case UIPropValueKind::Boolean: ok = v.AsBool(decl.boolean); break;
+        case UIPropValueKind::Enum:
+        case UIPropValueKind::Edges:
+            // No direct UIValue representation: these only arrive as text, so
+            // they take the string path below.
+            ok = false;
+            break;
+        }
+        if (!ok) {
+            // A string can always try the declaration grammar — that is how
+            // "auto", "row" and "8px 14px" reach a bound property.
+            if (v.kind == UIValue::Kind::String) {
+                std::string err;
+                if (!UIDeclaration::ParseValueFor(prop, v.text, decl, err)) {
+                    reportOnce_(e, v, err);
+                    return false;
+                }
+            } else {
+                reportOnce_(e, v, std::string("cannot use ") + v.KindName() + " as a value for '" +
+                                      UIDeclaration::NameOf(prop) + "'");
+                return false;
+            }
+        }
+    } else {
+        // Literals around the hole, e.g. "{h}%" or "0px {gap}px": build the text
+        // and hand it to the ordinary declaration parser, so an interpolated
+        // value means exactly what the same text means in a .uss file.
+        if (!render_(e, b.tmpl.holes().data(), b.tmpl.holes().size())) return false;
+        std::string err;
+        if (!UIDeclaration::ParseValueFor(prop, scratch_, decl, err)) {
+            reportOnce_(e, UIValue::Str(scratch_), err);
+            return false;
+        }
+    }
+
+    // A negative width or height is not a layout, it is a bug upstream, and
+    // parseLength happily accepts "-100%" today. Sizes only — margin and the
+    // inset edges are legitimately negative.
+    if (b.target.valueKind == UIPropValueKind::Length && decl.length.value < 0.0f) {
+        reportOnce_(e, UIValue::Len(decl.length),
+                    std::string("'") + UIDeclaration::NameOf(prop) + "' cannot be negative, got " +
+                        UIValue::Len(decl.length).ToDisplayString());
+        return false;
+    }
+
+    decl.ApplyTo(e.el->style());
+    return true;
+}
+
 bool UIBinder::apply_(Entry& e) {
     const UIBinding& b = *e.binding;
     const auto& holes = b.tmpl.holes();
@@ -362,6 +483,7 @@ bool UIBinder::apply_(Entry& e) {
         return true;
     }
     case UIBindTarget::Kind::Style:
+        return applyStyle_(e);
     case UIBindTarget::Kind::Display:
     case UIBindTarget::Kind::Class:
     case UIBindTarget::Kind::State:
@@ -388,8 +510,9 @@ UIBindTick UIBinder::UpdateToTarget() {
         // still being read through a stale pointer.
         UIDocument& doc = *doc_;
         UIBindingContext& ctx = *ctx_;
+        const UIStyleSheet* sheet = sheet_;
         std::string origin = origin_;
-        Rebuild(doc, ctx, std::move(origin));
+        Rebuild(doc, ctx, std::move(origin), sheet);
         tick.applied = entries_.size();
         tick.wroteLayout = true;
         return tick;

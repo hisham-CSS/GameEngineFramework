@@ -21,12 +21,21 @@
 
 #include <glm/glm.hpp>
 
+#include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace MyCoreEngine::ui {
 
     class UIElement;
+
+    // What sort of value a property takes. Lets a binding coerce straight to
+    // the right field without going through text, and lets it say what a
+    // property needs when it cannot.
+    enum class UIPropValueKind : std::uint8_t {
+        Length, Number, Color, Enum, Edges, Boolean
+    };
 
     // One `prop: value` pair, parsed once at load so applying a sheet is not a
     // string-parsing exercise every frame.
@@ -50,6 +59,18 @@ namespace MyCoreEngine::ui {
         bool        boolean = false;
 
         void ApplyTo(Style& s) const;
+
+        // Name -> property, WITHOUT a value. The binding parser needs the
+        // vocabulary before it has anything to parse, and sharing this with the
+        // declaration parser is what stops a third consumer from disagreeing
+        // about what a property is called.
+        static bool PropFromName(const std::string& name, Prop& p, UIPropValueKind& k);
+        // Parses a value for an ALREADY-KNOWN property. What an interpolated
+        // binding calls, once per changed value.
+        static bool ParseValueFor(Prop p, const std::string& value,
+                                  UIDeclaration& out, std::string& err);
+        // The spelling used in messages ("width", "background-color").
+        static const char* NameOf(Prop p);
     };
 
     // A compound selector: all parts must match the same element. Empty type +
@@ -118,6 +139,24 @@ namespace MyCoreEngine::ui {
         static bool ParseLengthValue(const std::string& s, StyleLength& out);
         static bool ParseColorValue(const std::string& s, glm::vec4& out);
         static bool ParseNumberValue(const std::string& s, float& out);
+
+        // Splits `a: 1; b: {x}` into (name, value) pairs, BRACE-AWARE.
+        //
+        // The plain split-on-';'-then-find(':') this replaces cannot survive a
+        // ';' or ':' inside a {hole}, and `bind=` values are full of them. This
+        // is the ONE splitter, used by `style=` and `bind=` alike, so the two
+        // attributes can never come to parse differently.
+        static void SplitDeclarations(const std::string& text,
+                                      std::vector<std::pair<std::string, std::string>>& out,
+                                      std::vector<std::string>& errors);
+
+        // Which properties the cascade would set on this element, inline styles
+        // included. Used at load to NOTE that a stylesheet declaration is
+        // shadowed by a binding — otherwise editing `.fill { width: 100% }`
+        // does nothing and says nothing, which is the silent no-op this
+        // codebase reports errors to avoid.
+        void DeclaredPropsFor(const UIElement& el,
+                              std::vector<UIDeclaration::Prop>& out) const;
 
     private:
         std::vector<UIRule> rules_;

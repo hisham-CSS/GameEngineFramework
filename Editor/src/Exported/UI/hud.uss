@@ -40,8 +40,20 @@
   background-color: rgba(0, 0, 0, 0.45);
 }
 
-/* The fill is a percentage of its track, so "set health" is one style write and
-   flexbox does the rest. Its width and colour are driven from code. */
+/* The fill is a percentage of its track, so "set health" is one write to the
+   data source and flexbox does the rest.
+
+   width and background-color are BOUND in hud.uxml. The cascade runs BEFORE the
+   binding pass on every load, so what is written here is the PRE-BIND DEFAULT:
+   what the bar looks like for the instant before the first value arrives, and
+   what it falls back to if the binding cannot resolve. Editing these two will
+   appear to do nothing at runtime, and the console says so at load:
+
+     [UI] note: the stylesheet declares 'width' for <Element name='healthFill'>,
+     which Exported/UI/hud.uxml binds - the stylesheet value is only the
+     pre-bind default
+
+   Restyle the TRACK, or edit the binding, for a change that sticks. */
 .fill {
   width: 100%;
   height: 100%;
