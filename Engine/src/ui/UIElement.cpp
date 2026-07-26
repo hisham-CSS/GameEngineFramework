@@ -345,7 +345,10 @@ void UIDocument::Layout(float viewportW, float viewportH, const Font* font) {
     pushStyles_(r);
     YGNodeCalculateLayout(static_cast<YGNodeRef>(r.yogaNode_),
                           viewportW, viewportH, YGDirectionLTR);
-    readLayout_(r, glm::vec2(0.0f));
+    // Seeded with the document's ORIGIN rather than zero: readLayout_
+    // accumulates absolute positions, so this one value offsets everything the
+    // document paints, hit-tests and clips, in one place.
+    readLayout_(r, origin_);
 }
 
 void UIDocument::draw_(const UIElement& el, Renderer2D& r2d, const Font* font,

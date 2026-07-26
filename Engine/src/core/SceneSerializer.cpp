@@ -254,6 +254,8 @@ namespace MyCoreEngine {
                     { "sortOrder",   ud->sortOrder },
                     { "enabled",     ud->enabled },
                     { "interactive", ud->interactive },
+                    { "region",      json::array({ ud->regionX, ud->regionY,
+                                                   ud->regionW, ud->regionH }) },
                 };
             }
 
@@ -665,6 +667,19 @@ namespace MyCoreEngine {
                 ud.sortOrder   = ju.value("sortOrder", ud.sortOrder);
                 ud.enabled     = ju.value("enabled", ud.enabled);
                 ud.interactive = ju.value("interactive", ud.interactive);
+                // Omitted means "the whole surface", so an older scene loads
+                // unchanged rather than to a zero-area document.
+                if (ju.contains("region") && ju["region"].is_array() &&
+                    ju["region"].size() == 4) {
+                    const json& r = ju["region"];
+                    if (r[0].is_number() && r[1].is_number() &&
+                        r[2].is_number() && r[3].is_number()) {
+                        ud.regionX = r[0].get<float>();
+                        ud.regionY = r[1].get<float>();
+                        ud.regionW = r[2].get<float>();
+                        ud.regionH = r[3].get<float>();
+                    }
+                }
                 // Same containment gate as model, script, clip and HDRi paths,
                 // and for the same reason: authored markup and stylesheets flow
                 // straight into parsers. Drop just the path, keeping the

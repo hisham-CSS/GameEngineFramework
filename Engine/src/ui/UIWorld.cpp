@@ -4,6 +4,7 @@
 #include "../render2d/Renderer2D.h"
 
 #include <algorithm>
+#include <cmath>
 #include <iostream>
 
 namespace MyCoreEngine {
@@ -50,6 +51,15 @@ void UIWorld::reconcile_(entt::registry& reg) {
         live.sortOrder = c.sortOrder;
         live.enabled = c.enabled;
         live.interactive = c.interactive;
+        // Fractions -> pixels. Clamped so a mistyped region cannot produce a
+        // negative or off-surface box that lays out to nothing with no clue
+        // why; a zero-area one is simply not drawn.
+        const float fw = float(width_), fh = float(height_);
+        const float x = std::clamp(c.regionX, 0.0f, 1.0f);
+        const float y = std::clamp(c.regionY, 0.0f, 1.0f);
+        live.origin = { std::round(x * fw), std::round(y * fh) };
+        live.size = { std::round(std::clamp(c.regionW, 0.0f, 1.0f - x) * fw),
+                      std::round(std::clamp(c.regionH, 0.0f, 1.0f - y) * fh) };
         if (!pathsChanged) continue;
 
         live.markup = c.markup;
@@ -110,7 +120,8 @@ void UIWorld::Update(entt::registry& reg, int widthPx, int heightPx, float dt) {
         if (!live.interactive) continue;
         // Lay out before hit-testing: the rects it reads are computed there.
         live.doc->binder().UpdateToTarget();
-        live.doc->document().Layout(float(widthPx), float(heightPx), font_);
+        live.doc->document().SetOrigin(live.origin);
+        live.doc->document().Layout(live.size.x, live.size.y, font_);
         if (!pointer_.inside || live.doc->document().HitTest(pointer_.position)) {
             inputTarget = *it;
             break;
@@ -132,7 +143,8 @@ void UIWorld::Update(entt::registry& reg, int widthPx, int heightPx, float dt) {
         ad.Update(dt);                  // hot-reload poll
         ad.binder().UpdateToTarget();   // before layout, so text re-measures
         doc.AdvanceTime(dt);
-        doc.Layout(float(widthPx), float(heightPx), font_);
+        doc.SetOrigin(live.origin);
+        doc.Layout(live.size.x, live.size.y, font_);
 
         if (e == inputTarget) {
             doc.UpdatePointer(pointer_, font_);
@@ -147,7 +159,7 @@ void UIWorld::Update(entt::registry& reg, int widthPx, int heightPx, float dt) {
         ad.PublishToSources();
         bool relayout = ad.RestyleInteractive();
         relayout |= ad.binder().UpdateToTarget().wroteLayout;
-        if (relayout) doc.Layout(float(widthPx), float(heightPx), font_);
+        if (relayout) doc.Layout(live.size.x, live.size.y, font_);
     }
 
     // Consumed once, like every other edge-triggered input in this system.

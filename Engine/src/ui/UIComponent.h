@@ -32,6 +32,18 @@ namespace MyCoreEngine {
         // decorative overlay (a vignette, a damage flash) should say no, or it
         // will swallow clicks meant for whatever is beneath it.
         bool interactive = true;
+
+        // The part of the UI surface this document occupies, as FRACTIONS of
+        // the surface (0..1). The default covers all of it.
+        //
+        // Normalized rather than pixels so a layout does not silently change
+        // meaning between a 1080p screen and a 4K one — the same reason
+        // percentages exist in the stylesheet. Layout runs at the region's
+        // size, so a sidebar's `width: 50%` is half the SIDEBAR, and the
+        // document's rects are offset into place, which makes painting,
+        // hit-testing and clipping all follow for free.
+        float regionX = 0.0f, regionY = 0.0f;
+        float regionW = 1.0f, regionH = 1.0f;
     };
 
 } // namespace MyCoreEngine

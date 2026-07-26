@@ -250,6 +250,14 @@ namespace MyCoreEngine::ui {
         // their own) — a missing font must not collapse the whole HUD.
         void Layout(float viewportW, float viewportH, const Font* font = nullptr);
 
+        // Where this document's root sits on the UI surface, in surface pixels.
+        // Layout produces ABSOLUTE rects, so moving the origin moves everything
+        // the document does — painting, hit-testing and clipping alike — with
+        // no other change anywhere. That is what lets a document occupy part of
+        // the screen instead of all of it.
+        void SetOrigin(const glm::vec2& px) { origin_ = px; }
+        const glm::vec2& origin() const { return origin_; }
+
         // Walks the laid-out tree and emits draws. Parents paint before
         // children (painter's algorithm), and `overflowHidden` pushes a clip
         // rect for the subtree. Call between Renderer2D::BeginScreen/End.
@@ -348,6 +356,7 @@ namespace MyCoreEngine::ui {
         // instant you type. A caret that keeps blinking on its own schedule
         // while you type reads as dropped input.
         float caretClock_ = 0.0f;
+        glm::vec2 origin_{ 0.0f };
     };
 
 } // namespace MyCoreEngine::ui

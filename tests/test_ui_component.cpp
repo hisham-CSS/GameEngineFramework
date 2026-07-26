@@ -401,3 +401,156 @@ TEST(UIWorldTest, AnEmptyMarkupPathLoadsNothingAndIsNotAnError) {
     EXPECT_EQ(world.document(e), nullptr);
     EXPECT_TRUE(world.errors().empty());
 }
+
+// ------------------------------------------------------- input regions
+
+// A region lets a document occupy PART of the surface. Layout runs at the
+// region's size and the rects are offset into place, so painting, hit-testing
+// and clipping all follow from one origin.
+TEST(UIWorldTest, ARegionOffsetsAndSizesTheDocument) {
+    const std::string m = "test_uiworld_region.uxml";
+    writeFile(m, R"(<UI><Element name="fill" style="width: 100%; height: 100%"/></UI>)");
+
+    Scene scene;
+    UIWorld world;
+    auto e = scene.registry.create();
+    UIDocumentComponent ud;
+    ud.markup = m;
+    // The right half, lower two-thirds.
+    ud.regionX = 0.5f; ud.regionY = 0.25f;
+    ud.regionW = 0.5f; ud.regionH = 0.75f;
+    scene.registry.emplace<UIDocumentComponent>(e, ud);
+    world.Update(scene.registry, 800, 400, 0.016f);
+
+    ASSERT_NE(world.document(e), nullptr);
+    ui::UIElement* fill = world.document(e)->document().root().Find("fill");
+    ASSERT_NE(fill, nullptr);
+    // 100% is 100% of the REGION, and the rect is absolute on the surface.
+    EXPECT_FLOAT_EQ(fill->layout().size.x, 400.f);
+    EXPECT_FLOAT_EQ(fill->layout().size.y, 300.f);
+    EXPECT_FLOAT_EQ(fill->layout().position.x, 400.f);
+    EXPECT_FLOAT_EQ(fill->layout().position.y, 100.f);
+}
+
+// Hit-testing reads the same absolute rects, so a click outside the region
+// simply misses — no separate containment check needed anywhere.
+TEST(UIWorldTest, ARegionAlsoBoundsInput) {
+    const std::string m = "test_uiworld_region_input.uxml";
+    writeFile(m, R"(<UI><Element name="b" focusable="true"
+                      style="width: 100%; height: 100%"/></UI>)");
+    Scene scene;
+    UIWorld world;
+    auto e = scene.registry.create();
+    UIDocumentComponent ud;
+    ud.markup = m;
+    ud.regionX = 0.5f; ud.regionW = 0.5f;
+    scene.registry.emplace<UIDocumentComponent>(e, ud);
+
+    ui::UIPointerState p;
+    p.inside = true;
+    p.position = { 100.f, 100.f };   // left half: outside the region
+    p.buttonDown = true;
+    world.SetPointer(p);
+    world.Update(scene.registry, 800, 400, 0.016f);
+    p.buttonDown = false;
+    world.SetPointer(p);
+    world.Update(scene.registry, 800, 400, 0.016f);
+    EXPECT_EQ(world.document(e)->document().focused(), nullptr)
+        << "a click outside the region reached the document";
+
+    p.position = { 600.f, 100.f };   // right half: inside
+    p.buttonDown = true;
+    world.SetPointer(p);
+    world.Update(scene.registry, 800, 400, 0.016f);
+    p.buttonDown = false;
+    world.SetPointer(p);
+    world.Update(scene.registry, 800, 400, 0.016f);
+    EXPECT_NE(world.document(e)->document().focused(), nullptr)
+        << "a click inside the region did not reach it";
+    std::remove(m.c_str());
+}
+
+TEST(UIWorldTest, RegionsAreClampedAndDefaultToTheWholeSurface) {
+    const std::string m = "test_uiworld_region_clamp.uxml";
+    writeFile(m, R"(<UI><Element name="fill" style="width: 100%; height: 100%"/></UI>)");
+    Scene scene;
+    UIWorld world;
+    auto e = scene.registry.create();
+    scene.registry.emplace<UIDocumentComponent>(e);   // defaults
+    world.Update(scene.registry, 800, 400, 0.016f);
+    EXPECT_EQ(world.document(e), nullptr) << "no markup, nothing loaded";
+
+    scene.registry.get<UIDocumentComponent>(e).markup = m;
+    world.Update(scene.registry, 800, 400, 0.016f);
+    ui::UIElement* fill = world.document(e)->document().root().Find("fill");
+    ASSERT_NE(fill, nullptr);
+    EXPECT_FLOAT_EQ(fill->layout().size.x, 800.f) << "the default is the whole surface";
+
+    // Nonsense values are clamped rather than producing a negative box.
+    auto& c = scene.registry.get<UIDocumentComponent>(e);
+    c.regionX = 0.8f; c.regionW = 5.0f;   // would run off the right edge
+    world.Update(scene.registry, 800, 400, 0.016f);
+    EXPECT_FLOAT_EQ(fill->layout().size.x, 160.f) << "width was not clamped to what is left";
+    c.regionX = -3.0f; c.regionW = -1.0f;
+    world.Update(scene.registry, 800, 400, 0.016f);
+    EXPECT_GE(fill->layout().size.x, 0.f) << "a negative region produced a negative box";
+    std::remove(m.c_str());
+}
+
+TEST(UIComponent, RegionRoundTripsAndIsUndoable) {
+    const char* path = "test_ui_region_scene.json";
+    {
+        Scene scene;
+        AssetManager assets;
+        auto e = scene.registry.create();
+        UIDocumentComponent ud;
+        ud.markup = "Exported/UI/hud.uxml";
+        ud.regionX = 0.25f; ud.regionY = 0.5f; ud.regionW = 0.5f; ud.regionH = 0.25f;
+        scene.registry.emplace<UIDocumentComponent>(e, ud);
+        SceneSerializer s(scene, assets);
+        ASSERT_TRUE(s.Save(path));
+    }
+    {
+        Scene scene;
+        AssetManager assets;
+        SceneSerializer s(scene, assets);
+        ASSERT_TRUE(s.Load(path));
+        auto view = scene.registry.view<UIDocumentComponent>();
+        ASSERT_EQ(view.size(), 1u);
+        const auto& ud = view.get<UIDocumentComponent>(view.front());
+        EXPECT_FLOAT_EQ(ud.regionX, 0.25f);
+        EXPECT_FLOAT_EQ(ud.regionY, 0.5f);
+        EXPECT_FLOAT_EQ(ud.regionW, 0.5f);
+        EXPECT_FLOAT_EQ(ud.regionH, 0.25f);
+    }
+    std::remove(path);
+
+    // A scene saved before regions existed must load to the whole surface, not
+    // to a zero-area document.
+    const char* old = "test_ui_region_old.json";
+    writeFile(old, R"({"version":1,"entities":[
+        {"name":"e","uiDocument":{"markup":"Exported/UI/hud.uxml"}}]})");
+    {
+        Scene scene;
+        AssetManager assets;
+        SceneSerializer s(scene, assets);
+        ASSERT_TRUE(s.Load(old));
+        auto view = scene.registry.view<UIDocumentComponent>();
+        ASSERT_EQ(view.size(), 1u);
+        const auto& ud = view.get<UIDocumentComponent>(view.front());
+        EXPECT_FLOAT_EQ(ud.regionW, 1.0f);
+        EXPECT_FLOAT_EQ(ud.regionH, 1.0f);
+    }
+    std::remove(old);
+
+    // ...and every region field is compared for undo.
+    Scene scene;
+    auto e = scene.registry.create();
+    scene.registry.emplace<Transform>(e);
+    scene.registry.emplace<UIDocumentComponent>(e);
+    UndoHistory undo;
+    undo.record(scene.registry, e, "Region",
+                [&] { scene.registry.get<UIDocumentComponent>(e).regionW = 0.5f; });
+    undo.undo(scene.registry, nullptr);
+    EXPECT_FLOAT_EQ(scene.registry.get<UIDocumentComponent>(e).regionW, 1.0f);
+}

@@ -705,6 +705,18 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
                 ImGui::SetItemTooltip(
                     "Off for a decorative overlay, or it swallows clicks meant for\n"
                     "whatever is underneath it.");
+
+                float region[4] = { ud->regionX, ud->regionY, ud->regionW, ud->regionH };
+                if (ImGui::DragFloat4("Region", region, 0.005f, 0.0f, 1.0f, "%.3f")) {
+                    undo.record(reg, selected, "Set UI region", [&] {
+                        ud->regionX = region[0]; ud->regionY = region[1];
+                        ud->regionW = region[2]; ud->regionH = region[3];
+                    });
+                }
+                ImGui::SetItemTooltip(
+                    "x, y, width, height as FRACTIONS of the UI surface.\n"
+                    "0,0,1,1 is the whole screen. Layout runs at the region's\n"
+                    "size, so a 50% width inside it is half the REGION.");
                 ImGui::TextDisabled("Both files hot-reload while the game runs.");
             }
             if (!keep) {

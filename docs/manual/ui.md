@@ -630,6 +630,7 @@ interface instead of the executable doing it:
 | `sortOrder` | higher draws on top; ties break on entity order, so it is stable across a save |
 | `enabled` | off hides it and stops it consuming input — what a pause menu wants from everything beneath it |
 | `interactive` | off for a decorative overlay, or it swallows clicks meant for what is underneath |
+| `region` | x, y, width, height as **fractions** of the UI surface; the default `0,0,1,1` is all of it |
 
 Add it from the Inspector's **Add Component ▸ UI Document**, and it is
 serialized and undoable like every other component.
@@ -665,6 +666,17 @@ instead of staying lit under a menu.
 A document whose markup fails to load is **reported and kept**, so a fixed file
 is picked up by the ordinary hot-reload poll and one broken document never takes
 the others down with it.
+
+**Regions** let a document occupy part of the surface — a sidebar, a minimap
+corner, a split-screen half. They are stored as **fractions**, not pixels, so a
+layout does not silently change meaning between 1080p and 4K (the same reason
+percentages exist in the stylesheet). Layout runs at the region's size, so a
+`width: 50%` inside a half-width region is a quarter of the screen.
+
+The mechanism is one value: `UIDocument::SetOrigin`. Layout already produces
+absolute rects, so offsetting the root moves painting, hit-testing and clipping
+together — a click outside the region simply misses, with no containment check
+anywhere. Nonsense values are clamped rather than producing a negative box.
 
 ---
 
@@ -720,6 +732,4 @@ reset, so a leaked blend or depth state would corrupt the next pass.
 
 ## Not there yet
 
-Class-toggle bindings; clipboard and undo in text fields; multi-line text;
-sibling combinators; per-document input regions (a document currently spans the
-whole UI surface).
+Clipboard and undo inside text fields; multi-line text.

@@ -91,6 +91,9 @@ namespace MyCoreEngine {
             int  sortOrder = 0;
             bool enabled = true;
             bool interactive = true;
+            // Resolved to surface pixels each Update, so a resize needs no
+            // reload — the component stores fractions.
+            glm::vec2 origin{ 0.0f }, size{ 0.0f };
         };
 
         void reconcile_(entt::registry& reg);

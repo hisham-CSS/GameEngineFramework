@@ -93,7 +93,11 @@ namespace {
                                 a.uiDocument.stylesheet != b.uiDocument.stylesheet ||
                                 a.uiDocument.sortOrder != b.uiDocument.sortOrder ||
                                 a.uiDocument.enabled != b.uiDocument.enabled ||
-                                a.uiDocument.interactive != b.uiDocument.interactive)) return false;
+                                a.uiDocument.interactive != b.uiDocument.interactive ||
+                                a.uiDocument.regionX != b.uiDocument.regionX ||
+                                a.uiDocument.regionY != b.uiDocument.regionY ||
+                                a.uiDocument.regionW != b.uiDocument.regionW ||
+                                a.uiDocument.regionH != b.uiDocument.regionH)) return false;
         if (a.hasParent != b.hasParent) return false;
         if (a.hasParent && a.parent != b.parent) return false;
         if (a.hasOverrides != b.hasOverrides) return false;
