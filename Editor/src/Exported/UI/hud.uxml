@@ -1,9 +1,14 @@
 <!--
   Sample HUD structure.
 
+  This file IS the sample HUD. Nothing installs it: the default scene has an
+  entity carrying a UIDocumentComponent that points here, exactly the way an
+  entity carries a mesh or a sound. Select "HUD" in the Hierarchy to see it.
+
   Structure here, appearance in hud.uss, and VALUES arrive by BINDING: a {hole}
-  reads a named property from the data source the game registered (see
-  DemoHud::Init). Gameplay writes a value; this file decides how it reads.
+  reads a named property from `scene`, the data source every document in the
+  scene shares (seeded in InstallDemoUIContent). Gameplay writes a value; this
+  file decides how it reads.
 
   Because the data source lives OUTSIDE the element tree, a hot reload rebuilds
   every element without losing a single value — so unlike a cached element
@@ -13,7 +18,7 @@
     name / class / style     as before
     text="SCORE {score}"     literal text with {holes}; write {{ and }} for
                              literal braces
-    data-source="hud"        inherited by this element and its whole subtree
+    data-source="scene"      inherited by this element and its whole subtree
     bind="width: {h}"        CSS declarations whose VALUES carry {holes}. Every
                              property .uss understands works here, and a bound
                              property outranks the stylesheet (which then acts
@@ -38,7 +43,7 @@
   Edit the staged copy to iterate live; copy your changes back here to keep
   them, or edit here and rebuild.
 -->
-<UI name="hud" data-source="hud">
+<UI name="hud" data-source="scene">
   <Element name="topBar" class="row">
     <Element name="healthTrack" class="track">
       <!-- One model value, two visual consequences, and no C++ in between.

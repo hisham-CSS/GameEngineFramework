@@ -9,7 +9,7 @@
 #include <gtest/gtest.h>
 
 #include "Engine.h"
-#include "../Engine/src/ui/DemoHud.h"
+#include "ui_shipped_hud.h"
 #include "../Engine/src/ui/UIAssetDocument.h"
 #include "../Engine/src/ui/UIBinding.h"
 #include "../Engine/src/ui/UIDataSource.h"
@@ -432,72 +432,58 @@ TEST(UIPseudoStyler, WorksEvenWhenTheEpochMovesEveryFrame) {
 // ------------------------------------------------- the shipped HUD
 
 TEST(UIPseudoHud, TheShippedButtonStylesItselfOnHoverAndPress) {
-    DemoHud hud;
-    hud.Init("Exported/UI/hud.uxml", "Exported/UI/hud.uss",
-             "definitely_not_a_font.ttf", 16.f);
-    ASSERT_TRUE(hud.IsReady()) << (hud.errors().empty() ? "" : hud.errors()[0]);
+    ShippedHud hud;
+    hud.Frame();
+    ASSERT_NE(hud.assets(), nullptr) << "the shipped HUD did not load";
 
-    UIDocument& doc = hud.document();
-    UIElement* btn = doc.root().Find("scoreButton");
+    UIElement* btn = hud.find("scoreButton");
     ASSERT_NE(btn, nullptr);
-    // The HUD no longer touches these elements at all — they are watched
-    // purely because hud.uss carries .btn:hover/.btn:active and
-    // .field:hover/.field:focus. Two, not one: the button and the text field.
-    EXPECT_EQ(hud.assets().styler().watchedCount(), 2u);
+    // Nothing in C++ touches this element — it is watched purely because
+    // hud.uss carries .btn:hover and .btn:active (and .field:* for the field).
+    EXPECT_EQ(hud.assets()->styler().watchedCount(), 2u);
 
-    doc.Layout(1280.f, 720.f, nullptr);
     const glm::vec4 idle = btn->style().backgroundColor;
     const glm::vec2 c = btn->layout().position + btn->layout().size * 0.5f;
     ASSERT_GT(btn->layout().size.x, 0.f);
 
-    UIPointerState p;
-    p.inside = true;
-    p.position = c;
-    doc.UpdatePointer(p);
-    ASSERT_TRUE(hud.assets().RestyleInteractive());
+    hud.Point(c.x, c.y);
+    hud.Frame();
     const glm::vec4 hovered = btn->style().backgroundColor;
     EXPECT_NE(hovered, idle) << "the shipped .btn:hover rule did nothing";
 
-    p.buttonDown = true;
-    doc.UpdatePointer(p);
-    ASSERT_TRUE(hud.assets().RestyleInteractive());
+    hud.Point(c.x, c.y, /*down=*/true);
+    hud.Frame();
     EXPECT_NE(btn->style().backgroundColor, hovered)
         << "the shipped .btn:active rule did nothing";
 
-    p.inside = false;
-    p.buttonDown = false;
-    doc.UpdatePointer(p);
-    ASSERT_TRUE(hud.assets().RestyleInteractive());
+    hud.Point(-1.f, -1.f, false, /*inside=*/false);
+    hud.Frame();
     EXPECT_EQ(btn->style().backgroundColor, idle) << "the button never returned to idle";
 }
 
 // Hover styling must not need a bind callback, a cached pointer, or any C++ at
 // all — that is the whole reason it moved into the stylesheet.
 TEST(UIPseudoHud, HoverStateSurvivesAHotReload) {
-    DemoHud hud;
-    hud.Init("Exported/UI/hud.uxml", "Exported/UI/hud.uss",
-             "definitely_not_a_font.ttf", 16.f);
-    ASSERT_TRUE(hud.IsReady());
+    ShippedHud hud;
+    hud.Frame();
+    ASSERT_NE(hud.assets(), nullptr);
 
-    hud.SetScore(700);
-    ASSERT_TRUE(hud.assets().Reload());
-    EXPECT_TRUE(hud.assets().binder().ok())
-        << (hud.assets().binder().errors().empty() ? "" : hud.assets().binder().errors()[0]);
-    EXPECT_EQ(hud.assets().styler().watchedCount(), 2u)
+    hud.data().SetInt("score", 700);
+    ASSERT_TRUE(hud.assets()->Reload());
+    EXPECT_TRUE(hud.assets()->binder().ok())
+        << (hud.assets()->binder().errors().empty() ? ""
+                                                    : hud.assets()->binder().errors()[0]);
+    EXPECT_EQ(hud.assets()->styler().watchedCount(), 2u)
         << "the watch list was not rebuilt after a reload";
-    EXPECT_EQ(hud.document().root().Find("scoreLabel")->style().text, "SCORE 700")
+    hud.Frame();
+    EXPECT_EQ(hud.find("scoreLabel")->style().text, "SCORE 700")
         << "the reload lost the model";
 
-    UIDocument& doc = hud.document();
-    UIElement* btn = doc.root().Find("scoreButton");
+    UIElement* btn = hud.find("scoreButton");
     ASSERT_NE(btn, nullptr);
-    doc.Layout(1280.f, 720.f, nullptr);
     const glm::vec4 idle = btn->style().backgroundColor;
-
-    UIPointerState p;
-    p.inside = true;
-    p.position = btn->layout().position + btn->layout().size * 0.5f;
-    doc.UpdatePointer(p);
-    ASSERT_TRUE(hud.assets().RestyleInteractive());
+    const glm::vec2 c = btn->layout().position + btn->layout().size * 0.5f;
+    hud.Point(c.x, c.y);
+    hud.Frame();
     EXPECT_NE(btn->style().backgroundColor, idle) << "hover stopped working after a reload";
 }

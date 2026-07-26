@@ -18,7 +18,7 @@
 #include <gtest/gtest.h>
 
 #include "Engine.h"
-#include "../Engine/src/ui/DemoHud.h"
+#include "ui_shipped_hud.h"
 #include "../Engine/src/ui/UIAssetDocument.h"
 #include "../Engine/src/ui/UIBinding.h"
 #include "../Engine/src/ui/UIDataSource.h"
@@ -1086,27 +1086,29 @@ TEST(UIBindingHotReload, ABrokenEditKeepsTheLastGoodTreeStillBound) {
     std::remove(markup.c_str());
 }
 
-// Through the real DemoHud, not a hand-built document: that is what makes this
-// catch the failure mode where the shipped markup names a converter or a
-// property the shipped C++ forgot to register. A missing font keeps it GL-free.
+// Through the SHIPPED path — a scene entity and a UIWorld — not a hand-built
+// document. That is what makes this catch markup naming a converter or a
+// property the shipped C++ forgot to register.
 TEST(UIBindingHotReload, TheShippedHudResolvesEveryBinding) {
-    DemoHud hud;
-    hud.Init("Exported/UI/hud.uxml", "Exported/UI/hud.uss", "definitely_not_a_font.ttf", 16.f);
-    ASSERT_TRUE(hud.IsReady())
-        << "shipped HUD assets did not fully bind: "
-        << (hud.errors().empty() ? "" : hud.errors()[0]);
+    ShippedHud hud;
+    hud.data().SetInt("score", 55);
+    hud.data().SetNumber("health", 0.4f);
+    hud.Frame();
 
-    hud.SetScore(55);
-    hud.SetHealth(0.4f);
-    hud.assets().binder().UpdateToTarget();
+    ASSERT_NE(hud.assets(), nullptr) << "the shipped HUD did not load";
+    ASSERT_TRUE(hud.assets()->binder().ok())
+        << "shipped HUD has an unresolved binding: "
+        << (hud.assets()->binder().errors().empty() ? ""
+                                                    : hud.assets()->binder().errors()[0]);
 
-    UIElement* label = hud.document().root().Find("scoreLabel");
+    UIElement* label = hud.find("scoreLabel");
     ASSERT_NE(label, nullptr);
     EXPECT_EQ(label->style().text, "SCORE 55");
 
-    // Both halves of the health bar are authored now: the unit comes from the
-    // `percent` builtin and the colour from the HUD's own healthTint converter.
-    UIElement* fill = hud.document().root().Find("healthFill");
+    // Both halves of the health bar are authored: the unit comes from the
+    // `percent` builtin and the colour from the demo's healthTint converter,
+    // registered on the WORLD so every document in the scene can use it.
+    UIElement* fill = hud.find("healthFill");
     ASSERT_NE(fill, nullptr);
     EXPECT_EQ(fill->style().width.unit, StyleLength::Unit::Percent);
     EXPECT_FLOAT_EQ(fill->style().width.value, 40.0f);
@@ -1118,13 +1120,12 @@ TEST(UIBindingHotReload, TheShippedHudResolvesEveryBinding) {
 // .uss and watching nothing happen is the silent no-op this codebase reports
 // errors to avoid.
 TEST(UIBindingHotReload, AShadowedStylesheetDeclarationIsNoted) {
-    DemoHud hud;
-    hud.Init("Exported/UI/hud.uxml", "Exported/UI/hud.uss", "definitely_not_a_font.ttf", 16.f);
-    ASSERT_TRUE(hud.IsReady());
+    ShippedHud hud;
+    hud.Frame();
+    ASSERT_NE(hud.assets(), nullptr);
 
-    const auto& notes = hud.assets().binder().notes();
     bool sawWidth = false;
-    for (const auto& n : notes) {
+    for (const auto& n : hud.assets()->binder().notes()) {
         if (n.find("'width'") != std::string::npos &&
             n.find("healthFill") != std::string::npos) sawWidth = true;
     }

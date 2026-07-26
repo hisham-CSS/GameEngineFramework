@@ -22,37 +22,44 @@ system.
 
 ## Quick start
 
-The shipped sample is `Editor/src/Exported/UI/hud.uxml` + `hud.uss`, driven by
-`MyCoreEngine::ui::DemoHud` (`Engine/src/ui/DemoHud.h`). Copy that trio as the
-starting point for your own HUD.
+**UI is scene content.** The shipped sample is an entity named `HUD` in the
+default scene, carrying a `UIDocumentComponent` that points at
+`Exported/UI/hud.uxml` + `hud.uss`. Nothing in the editor or the player installs
+it — select `HUD` in the Hierarchy and you are looking at the whole thing.
+
+To put UI in your own scene: select an entity, **Add Component ▸ UI Document**,
+and give it a markup path. That is the entire integration.
+
+A host wires the system up once and never mentions a specific UI again:
 
 ```cpp
-// Once, after the GL context exists.
-ui::DemoHud hud;
-hud.Init("Exported/UI/hud.uxml", "Exported/UI/hud.uss",
-         "Exported/Fonts/Roboto.ttf", 18.0f);
+UIWorld uiWorld;                        // outlives the draw callback
+uiWorld.SetFont(&font);
+InstallDemoUIContent(uiWorld);          // the sample's action + converter
 
-// Hand the renderer a draw callback. It runs inside UIPass, with a Renderer2D
-// already set up in screen space.
-renderer().SetUIDraw([&hud](Renderer2D& r2d, int w, int h, float dt) {
-    hud.SetPointer(pointerState);      // see "Input" below
-    hud.Draw(r2d, w, h, dt);
+renderer().SetUIDraw([&](Renderer2D& r2d, int w, int h, float dt) {
+    uiWorld.SetPointer(pointerState);   // see "Input" below
+    uiWorld.SetKeyboard(keyboardState);
+    uiWorld.Update(scene.registry, w, h, dt);
+    uiWorld.Draw(r2d);
 });
 ```
 
-Your own class does what `DemoHud` does: own a `UIAssetDocument` and a
-`UIDataSource`, register the source before loading, and per frame call
-`Update(dt)` → `UpdateToTarget()` → `AdvanceTime(dt)` → `Layout` →
-`UpdatePointer` → `UpdateKeyboard` → `PublishToSources()` →
-`RestyleInteractive()` → `Draw`.
+The only C++ a UI needs is what a file cannot carry: **named actions** and
+**converters**. Everything else — structure, appearance, values, interaction
+states — is content that hot-reloads.
 
-`DemoHud` has no bind callback and holds no pointer into the tree at all: values
-arrive by binding, the click is a named action, and hover styling is `:hover` in
-the stylesheet. That is the target shape — a model plus a draw order.
+`UIWorld::Update` runs each document through `Update(dt)` → `UpdateToTarget()` →
+`AdvanceTime(dt)` → `Layout` → `UpdatePointer` → `UpdateKeyboard` →
+`PublishToSources()` → `RestyleInteractive()` → a conditional second `Layout`.
+Bindings run **before** layout so a changed label is measured at its new width
+on the frame it changes; a `setText` from an input handler never was — it lands
+after the solve and paints at the previous frame's size.
 
-The binding pass runs **before** layout so a changed label is measured at its
-new width on the frame it changes. A `setText` from an input handler never was —
-it lands after the solve and paints at the previous frame's size.
+> **Upgrading an existing scene.** The `HUD` entity ships in the default
+> `scene.json`, but a scene you saved earlier will not have it — saved scenes
+> are never overwritten by a build. Add it in one step: select any entity and
+> use **Add Component ▸ UI Document**, which seeds the sample's paths for you.
 
 ---
 
@@ -61,7 +68,7 @@ it lands after the solve and paints at the previous frame's size.
 Abridged from the shipped `hud.uxml`:
 
 ```xml
-<UI name="hud" data-source="hud">
+<UI name="hud" data-source="scene">
   <Element name="topBar" class="row">
     <Element name="healthTrack" class="track">
       <Element name="healthFill" class="fill"
@@ -390,7 +397,7 @@ point. Topmost wins (children tested in reverse paint order), an
 `pointer-events: none` makes an element *and its subtree* inert — which is what
 a full-screen decorative overlay needs, or it swallows every click beneath it.
 
-**Order matters** and `DemoHud::Draw` shows it: `Layout` first (hit-testing
+**Order matters** and `UIWorld::Update` enforces it: `Layout` first (hit-testing
 reads computed rects), then `UpdatePointer` (handlers may change styles), then
 `Draw`. Anything else makes a press visible a frame late.
 
@@ -413,7 +420,7 @@ assets.bindingContext().RegisterSource("hud", &src);
 ```
 
 ```xml
-<UI name="hud" data-source="hud">
+<UI name="hud" data-source="scene">
   <Element name="healthFill" class="fill"
            bind="width: {health | percent};
                  background-color: {health | healthTint}"/>
@@ -637,9 +644,6 @@ A document whose markup fails to load is **reported and kept**, so a fixed file
 is picked up by the ordinary hot-reload poll and one broken document never takes
 the others down with it.
 
-> `DemoHud` remains a host-installed sample so the shipped demo keeps working. A
-> real game drops it and ships only `UIDocumentComponent`s.
-
 ---
 
 ## Using `Renderer2D` directly (2D games)
@@ -689,7 +693,7 @@ reset, so a leaked blend or depth state would corrupt the next pass.
 | `Engine/src/ui/UIComponent.h` | `UIDocumentComponent` — UI on an entity |
 | `Engine/src/ui/UIWorld.h` | Drives every document in a scene |
 | `Engine/src/ui/UIAssetDocument.h` | Markup + stylesheet assets with hot reload |
-| `Engine/src/ui/DemoHud.h` | The worked sample |
+| `Engine/src/ui/DemoUIContent.h` | The sample's one action and one converter |
 | `Engine/src/render/passes/UIPass.h` | The render pass and the `UIDrawFn` hook |
 
 ## Not there yet

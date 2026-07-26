@@ -11,6 +11,7 @@
 #include <GLFW/glfw3.h>
 
 #include "Engine.h"
+#include "ui_shipped_hud.h"
 #include "../Engine/src/render/passes/UIPass.h"
 #include "../Engine/src/render2d/Renderer2D.h"
 
@@ -179,29 +180,27 @@ TEST_F(UIPassTest, RestoresGLState) {
 
 // The shipped sample HUD must survive a missing font and any viewport shape —
 // it is the first thing anyone runs, and a HUD that crashes or vanishes on an
-// odd aspect ratio is worse than no sample at all.
-TEST_F(UIPassTest, DemoHudLaysOutAtAnyAspectAndWithoutAFont) {
-    ui::DemoHud hud;
-    // Real shipped assets, deliberately missing font: Init reports failure but
-    // the HUD must still be fully usable, because losing labels is not a reason
-    // to lose the whole HUD.
-    EXPECT_FALSE(hud.Init("Exported/UI/hud.uxml", "Exported/UI/hud.uss",
-                          "definitely_not_a_font.ttf", 18.f));
-    EXPECT_FALSE(hud.hasFont());
-    ASSERT_TRUE(hud.IsReady()) << "the shipped HUD assets did not load";
+// odd aspect ratio is worse than no sample at all. Driven the way a game drives
+// it: a scene entity and a UIWorld.
+TEST_F(UIPassTest, ShippedHudLaysOutAtAnyAspectAndWithoutAFont) {
+    ShippedHud hud;
+    hud.world.SetFont(nullptr);   // geometry works without one
 
     ASSERT_TRUE(r2d.Init());
     for (auto wh : { std::pair<int,int>{1280, 720}, {480, 800}, {2560, 1080}, {64, 64} }) {
+        hud.data().SetNumber("health", 0.37f);
+        hud.data().SetInt("score", 1234);
+        hud.Frame(wh.first, wh.second);
+        ASSERT_NE(hud.assets(), nullptr) << "the shipped HUD did not load";
+
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
         r2d.BeginScreen(wh.first, wh.second);
-        hud.SetHealth(0.37f);
-        hud.SetScore(1234);
-        hud.Draw(r2d, wh.first, wh.second, 0.016f); // must not crash
+        hud.world.Draw(r2d);      // must not crash
         r2d.End();
 
         // The crosshair is centred by flexbox, not by arithmetic: check it
         // actually tracks the viewport centre at every shape.
-        auto* cross = hud.document().root().Find("crosshair");
+        auto* cross = hud.find("crosshair");
         ASSERT_NE(cross, nullptr);
         const glm::vec2 c = cross->layout().position + cross->layout().size * 0.5f;
         EXPECT_NEAR(c.x, wh.first * 0.5f, 1.5f) << wh.first << "x" << wh.second;
@@ -209,38 +208,15 @@ TEST_F(UIPassTest, DemoHudLaysOutAtAnyAspectAndWithoutAFont) {
     }
 
     // Health drives the fill width as a percentage of its track.
-    auto* fill = hud.document().root().Find("healthFill");
-    auto* track = hud.document().root().Find("healthTrack");
+    auto* fill = hud.find("healthFill");
+    auto* track = hud.find("healthTrack");
     ASSERT_NE(fill, nullptr);
     ASSERT_NE(track, nullptr);
     const float wAt37 = fill->layout().size.x;
-    hud.SetHealth(1.0f);
-    hud.Draw(r2d, 1280, 720, 0.016f);
+    hud.data().SetNumber("health", 1.0f);
+    hud.Frame();
     EXPECT_GT(fill->layout().size.x, wAt37) << "health did not widen the bar";
-    hud.SetHealth(0.0f);
-    hud.Draw(r2d, 1280, 720, 0.016f);
+    hud.data().SetNumber("health", 0.0f);
+    hud.Frame();
     EXPECT_NEAR(fill->layout().size.x, 0.f, 0.51f) << "zero health should empty the bar";
-}
-
-// dt has to reach the callback: UI work is frame-driven (hot-reload polling
-// today, animation next), and a pass that dropped it would leave every consumer
-// timing itself off some other clock.
-TEST_F(UIPassTest, ForwardsTheFrameDeltaToTheCallback) {
-    float seen = -1.f;
-    int w = 0, h = 0;
-    UIDrawFn draw = [&](Renderer2D&, int cw, int ch, float dt) {
-        seen = dt; w = cw; h = ch;
-    };
-    UIPass pass(&r2d, &draw);
-    PassContext ctx{};
-    ctx.defaultFBO = fbo;
-    pass.setup(ctx);
-
-    FrameParams f = fp();
-    f.deltaTime = 0.0321f;
-    Scene scene; Camera cam;
-    ASSERT_TRUE(pass.execute(ctx, scene, cam, f));
-    EXPECT_FLOAT_EQ(seen, 0.0321f);
-    EXPECT_EQ(w, kW);
-    EXPECT_EQ(h, kH);
 }

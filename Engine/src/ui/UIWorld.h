@@ -47,6 +47,13 @@ namespace MyCoreEngine {
         ui::UIDataSource& shared() { return shared_; }
         static const char* sharedSourceName() { return "scene"; }
 
+        // Converters available to EVERY document in the scene. A converter is a
+        // named C++ function, so it cannot live in a file the way values and
+        // structure can — this is where scene-wide ones are registered, and it
+        // is copied into each document as it loads.
+        ui::UIConverterTable& converters() { return converters_; }
+        const ui::UIConverterTable& converters() const { return converters_; }
+
         // Input for this frame, in UI-LOCAL pixels. Supplied by the host for
         // the same reason as always: only it knows where the UI surface sits
         // and whether the keyboard belongs to the game right now.
@@ -93,6 +100,7 @@ namespace MyCoreEngine {
         // member so a steady frame allocates nothing.
         std::vector<entt::entity> order_;
         ui::UIDataSource shared_;
+        ui::UIConverterTable converters_;
         std::vector<std::string> errors_;
         const Font*    font_ = nullptr;
         ui::UIPointerState pointer_{};

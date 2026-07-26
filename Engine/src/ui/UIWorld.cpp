@@ -61,6 +61,14 @@ void UIWorld::reconcile_(entt::registry& reg) {
         // name, so markup can bind to gameplay values without the app wiring up
         // each document by hand. A document is free to register more.
         live.doc->bindingContext().RegisterSource(sharedSourceName(), &shared_);
+        // Copied in, not shared by pointer: a document's table outlives nothing
+        // and dies with it, and copying keeps UIConverterTable's "an instance,
+        // not a global" property intact.
+        for (const auto& name : converters_.names()) {
+            if (const ui::UIConvertFn* fn = converters_.Find(name)) {
+                live.doc->bindingContext().converters().Register(name, *fn);
+            }
+        }
         if (!live.doc->Load(c.markup, c.stylesheet)) {
             for (const auto& err : live.doc->errors()) {
                 errors_.push_back(err);

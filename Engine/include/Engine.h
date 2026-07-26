@@ -73,5 +73,5 @@
 #include "../src/ui/UIAssetDocument.h"
 #include "../src/ui/UIComponent.h"
 #include "../src/ui/UIWorld.h"
-#include "../src/ui/DemoHud.h"
+#include "../src/ui/DemoUIContent.h"
 

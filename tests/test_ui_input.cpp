@@ -7,6 +7,7 @@
 
 #include "Engine.h"
 #include "../Engine/src/ui/UIElement.h"
+#include "ui_shipped_hud.h"
 
 #include <string>
 #include <vector>
@@ -290,39 +291,29 @@ TEST(UIInput, RemovingTheHoveredElementInAHandlerIsSafe) {
     SUCCEED();
 }
 
-// The shipped sample's button must actually work end to end — loaded from the
-// SHIPPED assets, so a typo in hud.uxml/hud.uss (a renamed element, an
-// unparseable rule) fails here rather than silently shipping a dead button.
-TEST(UIInput, DemoHudButtonIncrementsTheScore) {
-    ui::DemoHud hud;
-    // Geometry works without a font, so a deliberately missing one keeps this
-    // test free of a GL context while still exercising the real asset path.
-    hud.Init("Exported/UI/hud.uxml", "Exported/UI/hud.uss",
-             "definitely_not_a_font.ttf", 16.f);
-    ASSERT_TRUE(hud.errors().empty())
-        << "shipped HUD assets did not load: " << hud.errors()[0];
-    ASSERT_TRUE(hud.IsReady()) << "hud.uxml no longer has the elements DemoHud binds to";
+// The shipped sample's button must actually work end to end, through the path
+// a game actually uses: a scene entity carrying a UIDocumentComponent, driven
+// by a UIWorld. A typo in hud.uxml, or a converter the markup names that the
+// C++ never registered, fails here rather than shipping.
+TEST(UIInput, ShippedHudButtonIncrementsTheScore) {
+    ShippedHud hud;
+    hud.Frame();
+    ASSERT_NE(hud.assets(), nullptr) << "the shipped HUD did not load";
+    ASSERT_TRUE(hud.assets()->binder().ok())
+        << (hud.assets()->binder().errors().empty() ? ""
+                                                    : hud.assets()->binder().errors()[0]);
 
-    UIElement* button = hud.document().root().Find("scoreButton");
+    UIElement* button = hud.find("scoreButton");
     ASSERT_NE(button, nullptr);
-
-    // Lay out once so the button has a rect to aim at.
-    hud.SetPointer({});
-    UIDocument& doc = hud.document();
-    doc.Layout(1280.f, 720.f, nullptr);
-    const glm::vec2 c = button->layout().position + button->layout().size * 0.5f;
     ASSERT_GT(button->layout().size.x, 0.f) << "the button has no area to click";
+    const glm::vec2 c = button->layout().position + button->layout().size * 0.5f;
 
-    const int before = hud.score();
-    UIPointerState p;
-    p.inside = true;
-    p.position = c;
-    p.buttonDown = true;
-    doc.Layout(1280.f, 720.f, nullptr);
-    doc.UpdatePointer(p);
-    p.buttonDown = false;
-    doc.Layout(1280.f, 720.f, nullptr);
-    doc.UpdatePointer(p);
+    const long long before = hud.data().GetInt("score");
+    hud.ClickAt(c.x, c.y);
+    EXPECT_EQ(hud.data().GetInt("score"), before + 100)
+        << "clicking the shipped button did nothing";
 
-    EXPECT_EQ(hud.score(), before + 100) << "clicking the demo button did nothing";
+    // ...and the readout followed, which is the binding half of the same story.
+    hud.Frame();
+    EXPECT_EQ(hud.find("scoreLabel")->style().text, "SCORE 100");
 }

@@ -444,18 +444,18 @@ void EditorApplication::Run() {
         // camera, so game UI would just be in the way there; the Game view is
         // the "what ships" preview and must show the same HUD the Player draws,
         // built from the same definition so the two cannot drift.
-        // Loaded from Exported/UI/*.uxml + *.uss, which hot-reload: edit either
-        // file while the editor runs and the Game view updates in place, with
-        // no rebuild and without losing the scene you were testing.
-        if (!hud_.Init()) {
-            for (const auto& e : hud_.errors()) std::cout << "EDITOR: UI: " << e << std::endl;
+        // The UI comes from the SCENE: entities carrying a UIDocumentComponent,
+        // whose .uxml and .uss hot-reload. Edit either while the editor runs and
+        // the Game view updates in place, with no rebuild and without losing
+        // the scene you were testing.
+        if (!uiFont_.LoadFromFile("Exported/Fonts/Roboto.ttf", 18.0f)) {
+            std::cout << "EDITOR: UI font missing - drawing without text" << std::endl;
         }
+        uiWorld_.SetFont(&uiFont_);
+        // The two things a file cannot carry: a named action and a converter.
+        MyCoreEngine::InstallDemoUIContent(uiWorld_);
         gameRenderer_.SetUIDraw([this, &scene](MyCoreEngine::Renderer2D& r2d,
                                               int w, int h, float dt) {
-            hud_.Draw(r2d, w, h, dt);
-            // Scene-declared UI paints OVER the sample HUD, and previews here
-            // exactly as the Player draws it. A real game drops DemoHud and
-            // ships only UIDocumentComponents.
             uiWorld_.Update(scene.registry, w, h, dt);
             uiWorld_.Draw(r2d);
         });
@@ -813,7 +813,6 @@ void EditorApplication::DrawGameViewport(MyCoreEngine::Scene& scene,
         // Only route clicks to the game UI when ImGui is not using the mouse
         // for its own dragging, so resizing the panel never presses a button.
         p.buttonDown = p.inside && ImGui::IsMouseDown(ImGuiMouseButton_Left);
-        hud_.SetPointer(p);
 
         // Keyboard, but ONLY while the Game panel is focused. Otherwise typing
         // a name in the Inspector would also be typed into the game's UI, and
@@ -865,7 +864,6 @@ void EditorApplication::DrawGameViewport(MyCoreEngine::Scene& scene,
                                                std::uint32_t(io.InputQueueCharacters[i]));
             }
         }
-        hud_.SetKeyboard(kb);
         uiWorld_.SetPointer(p);
         uiWorld_.SetKeyboard(kb);
     }

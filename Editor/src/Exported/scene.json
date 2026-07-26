@@ -8049,6 +8049,16 @@
         "priority": 0,
         "enabled": true
       }
+    },
+    {
+      "name": "HUD",
+      "uiDocument": {
+        "markup": "Exported/UI/hud.uxml",
+        "stylesheet": "Exported/UI/hud.uss",
+        "sortOrder": 0,
+        "enabled": true,
+        "interactive": true
+      }
     }
   ],
   "settings": {

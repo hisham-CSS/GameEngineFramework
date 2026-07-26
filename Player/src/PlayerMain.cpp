@@ -89,11 +89,11 @@ class PlayerApplication : public MyCoreEngine::Application {
     MyCoreEngine::ScriptWorld  scripts_; // same lifetime requirement
     MyCoreEngine::AudioWorld   audio_;   // same lifetime requirement
     // Same requirement again: the UI draw callback captures this by reference
-    // and is invoked from the render pass for the app's whole life.
-    MyCoreEngine::ui::DemoHud  hud_;
-    // Drives every UIDocumentComponent in the scene. Same lifetime requirement:
-    // the draw callback holds it by reference for the app's whole life.
+    // and is invoked from the render pass for the app's whole life. Drives
+    // every UIDocumentComponent in the scene — the game's UI is scene content,
+    // so nothing here mentions a specific HUD.
     MyCoreEngine::UIWorld      uiWorld_;
+    MyCoreEngine::Font         uiFont_;
 public:
     PlayerApplication() : Application(1280, 720, "Cat Splat Player") {}
 
@@ -173,12 +173,14 @@ public:
         // In-game UI, drawn after all post-processing. Same HUD the editor's
         // Game view shows, from one definition, so the preview and the shipped
         // build cannot drift.
-        // Structure and appearance come from Exported/UI/*.uxml + *.uss, so a
-        // game's HUD is content, not a rebuild. Any failure is reported and
-        // survivable — see DemoHud::Init.
-        if (!hud_.Init()) {
-            for (const auto& e : hud_.errors()) std::cerr << "PLAYER: UI: " << e << std::endl;
+        // The UI comes from the SCENE: entities carrying a UIDocumentComponent.
+        // Nothing here names a file — swapping the HUD is a scene edit.
+        if (!uiFont_.LoadFromFile("Exported/Fonts/Roboto.ttf", 18.0f)) {
+            std::cerr << "PLAYER: UI font missing - drawing without text" << std::endl;
         }
+        uiWorld_.SetFont(&uiFont_);
+        // The two things a file cannot carry: a named action and a converter.
+        InstallDemoUIContent(uiWorld_);
         // Nothing else in the player installs these (there is no ImGui here),
         // so no chaining is needed. Installed once, for the app's life.
         if (GLFWwindow* win = GetNativeWindow()) {
@@ -204,18 +206,12 @@ public:
                 p.buttonDown =
                     glfwGetMouseButton(win, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
             }
-            hud_.SetPointer(p);
+            uiWorld_.SetPointer(p);
             // Drained, not copied: a keystroke must be delivered exactly once,
             // and the callbacks keep filling this between frames.
-            hud_.SetKeyboard(g_uiKeys);
-            uiWorld_.SetPointer(p);
             uiWorld_.SetKeyboard(g_uiKeys);
             g_uiKeys.clear();
 
-            hud_.Draw(r2d, w, h, dt);
-            // Scene-declared UI paints OVER the sample HUD. A real game drops
-            // DemoHud entirely and ships only UIDocumentComponents — this is
-            // both here so the sample keeps working while scenes gain their own.
             uiWorld_.Update(scene.registry, w, h, dt);
             uiWorld_.Draw(r2d);
         });
