@@ -103,6 +103,7 @@ engine_test(test_ui_value)         # the bound-value transport: coercion refusal
 engine_test(test_ui_binding)       # data sources, {hole} templates, the binder, hot-reload survival
 engine_test(test_ui_pseudo)        # :hover/:active — specificity, re-cascade, what it must not destroy
 engine_test(test_ui_focus)         # keyboard focus, tab order, :focus/:disabled, UTF-8 input
+engine_test(test_ui_selectors)     # descendant/child combinators, summed specificity
 engine_test(test_import_settings)  # P4-3 phase 4: .import sidecar round-trip (pure CPU)
 engine_test(test_asset_validator)  # P4-3 phase 4: cooker validate logic (pure CPU)
 

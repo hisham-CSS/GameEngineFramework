@@ -91,22 +91,56 @@ namespace MyCoreEngine::ui {
         Disabled = 1 << 3,   // this element or an ancestor is disabled
     };
 
-    // A compound selector: all parts must match the same element. Empty type +
-    // no name/classes means the universal selector.
-    struct ENGINE_API UISelector {
+    // One compound selector: all parts must match the SAME element. Empty type
+    // + no name/classes/pseudo means the universal selector.
+    struct ENGINE_API UICompound {
         std::string type;                  // "" = any
         std::string name;                  // "" = any
         std::vector<std::string> classes;  // all must be present
         std::uint8_t pseudo = 0;           // UIPseudo bits; all must be set
 
         bool Matches(const UIElement& el) const;
-        // Everything except the interaction state. Used to decide, once at
-        // load, WHICH elements a pseudo rule could ever apply to — an element
-        // no such rule can reach is never restyled and never pays for the
-        // feature.
+        // Everything except the interaction state.
         bool MatchesIgnoringState(const UIElement& el) const;
-        // CSS specificity, compared as an ordered triple. A pseudo-class counts
-        // as a class, exactly as in CSS, so `.btn:hover` beats `.btn`.
+        void AddSpecificity(int& ids, int& cls, int& types) const;
+        bool empty() const {
+            return type.empty() && name.empty() && classes.empty() && pseudo == 0;
+        }
+    };
+
+    // How a compound relates to the one before it in a selector.
+    enum class UICombinator : std::uint8_t {
+        Descendant,   // `.panel .btn`  — any ancestor
+        Child,        // `.panel > .btn` — the immediate parent
+    };
+
+    // A full selector: a chain of compounds read left to right, e.g.
+    // `.panel > .row .btn:hover` is three compounds. The LAST one is the
+    // element being styled; the rest constrain its ancestors.
+    struct ENGINE_API UISelector {
+        struct Part {
+            UICompound   compound;
+            UICombinator combinator = UICombinator::Descendant;  // to the PREVIOUS part
+        };
+        // Never empty; parts[0].combinator is meaningless.
+        std::vector<Part> parts;
+
+        // Convenience for the overwhelmingly common single-compound case, and
+        // what the whole codebase used before combinators existed.
+        const UICompound& subject() const { return parts.back().compound; }
+        UICompound& subject() { return parts.back().compound; }
+        bool hasAncestors() const { return parts.size() > 1; }
+        std::uint8_t pseudo() const { return subject().pseudo; }
+
+        bool Matches(const UIElement& el) const;
+        // Everything except interaction state, on every part. Used to decide,
+        // once at load, WHICH elements a pseudo rule could ever apply to — an
+        // element no such rule can reach is never restyled and never pays for
+        // the feature.
+        bool MatchesIgnoringState(const UIElement& el) const;
+        // CSS specificity, compared as an ordered triple and SUMMED across
+        // every compound: `.panel .btn` is two classes, which is what makes a
+        // more specific context win without any ordering tricks.
         void Specificity(int& ids, int& cls, int& types) const;
     };
 

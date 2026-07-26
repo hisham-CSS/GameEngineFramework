@@ -125,12 +125,24 @@ Parsed by `UIStyleSheet` (`Engine/src/ui/UIStyleSheet.h`) — a hand-written CSS
 subset, no dependency.
 
 **Selectors:** `Type`, `.class`, `#name`, `*`, the `:hover`, `:active`,
-`:focus` and `:disabled` pseudo-classes, and compounds (`Button.primary#ok`,
-`.btn:hover`). Comma-separated lists. Standard CSS **specificity**
-(`#id` > `.class` > type), with later-in-file winning ties — and a pseudo-class
-counts as a class, so `.btn:hover` outranks `.btn` without any ordering tricks.
-A rule matched through several of its listed selectors weighs as much as its
-strongest match, as in CSS.
+`:focus` and `:disabled` pseudo-classes, compounds (`Button.primary#ok`,
+`.btn:hover`), and the descendant and child combinators:
+
+```css
+.panel .btn      { }   /* a .btn anywhere inside a .panel */
+.panel > .btn    { }   /* only an immediate child */
+.panel > .row .btn:hover { }   /* chains and states compose */
+```
+
+Comma-separated lists. Standard CSS **specificity** (`#id` > `.class` > type),
+with later-in-file winning ties. A pseudo-class counts as a class, and
+specificity **sums across the whole chain** — so `.panel .btn` (two classes)
+beats a bare `.btn` regardless of file order, which is the entire point of
+having contexts. A rule matched through several of its listed selectors weighs
+as much as its strongest match, as in CSS.
+
+Matching runs right-to-left from the element being styled, as every real CSS
+engine does; left-to-right would need to backtrack over the whole subtree.
 
 **Properties:**
 
@@ -148,9 +160,10 @@ Lengths are `auto`, `Npx`, `N%`, or a bare number (treated as px). Colours are
 alpha 0–1), or a handful of names.
 
 **Not supported, and reported as errors rather than silently ignored:**
-combinators (descendant/child/sibling), any other pseudo-class, at-rules,
-variables, and inheritance. Nothing cascades from parent to child — every
-element is styled independently.
+sibling combinators (`+`, `~`), any other pseudo-class, at-rules, variables, and
+property inheritance. No PROPERTY cascades from parent to child — every element
+is styled independently, and a context selector constrains *which* elements a
+rule reaches rather than passing values down.
 
 ### Interaction styling
 
@@ -550,6 +563,6 @@ reset, so a leaked blend or depth state would corrupt the next pass.
 
 ## Not there yet
 
-Text entry; descendant selectors; element→source (two-way) binding;
-class-toggle bindings; a `UIDocument` **component** so a scene can attach UI to
-an entity (today the host installs the draw callback).
+Text entry; element→source (two-way) binding; class-toggle bindings; sibling
+combinators; a `UIDocument` **component** so a scene can attach UI to an entity
+(today the host installs the draw callback).

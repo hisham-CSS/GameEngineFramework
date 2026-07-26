@@ -368,14 +368,14 @@ void UIDeclaration::ApplyTo(Style& s) const {
     }
 }
 
-bool UISelector::MatchesIgnoringState(const UIElement& el) const {
+bool UICompound::MatchesIgnoringState(const UIElement& el) const {
     if (!type.empty() && el.type() != type) return false;
     if (!name.empty() && el.name() != name) return false;
     for (const auto& c : classes) if (!el.HasClass(c)) return false;
     return true;
 }
 
-bool UISelector::Matches(const UIElement& el) const {
+bool UICompound::Matches(const UIElement& el) const {
     if (!MatchesIgnoringState(el)) return false;
     if ((pseudo & std::uint8_t(UIPseudo::Hover)) && !el.isHovered()) return false;
     if ((pseudo & std::uint8_t(UIPseudo::Active)) && !el.isPressed()) return false;
@@ -392,8 +392,8 @@ bool UISelector::Matches(const UIElement& el) const {
     return true;
 }
 
-void UISelector::Specificity(int& ids, int& cls, int& types) const {
-    ids = name.empty() ? 0 : 1;
+void UICompound::AddSpecificity(int& ids, int& cls, int& types) const {
+    if (!name.empty()) ++ids;
     // A pseudo-class counts as a class, as in CSS, which is what makes
     // `.btn:hover` outrank `.btn` without anyone having to think about it.
     int pseudoCount = 0;
@@ -401,8 +401,72 @@ void UISelector::Specificity(int& ids, int& cls, int& types) const {
         if (pseudo & bit) ++pseudoCount;
         if (bit == 0x80) break;
     }
-    cls = int(classes.size()) + pseudoCount;
-    types = type.empty() ? 0 : 1;
+    cls += int(classes.size()) + pseudoCount;
+    if (!type.empty()) ++types;
+}
+
+namespace {
+    // Walks the ancestor chain right-to-left, which is how every real CSS
+    // engine matches: start at the element being styled and try to satisfy each
+    // earlier compound against something above it. Left-to-right would need
+    // backtracking over the whole subtree.
+    //
+    // `stateAware` selects Matches vs MatchesIgnoringState uniformly across the
+    // chain, so "could this rule ever apply here" asks the same shape of
+    // question as "does it apply right now".
+    bool matchChain(const std::vector<UISelector::Part>& parts, const UIElement& el,
+                    bool stateAware) {
+        auto hit = [stateAware](const UICompound& c, const UIElement& e) {
+            return stateAware ? c.Matches(e) : c.MatchesIgnoringState(e);
+        };
+        if (!hit(parts.back().compound, el)) return false;
+        if (parts.size() == 1) return true;
+
+        // Descendant combinators need backtracking in general (`.a .b .c` may
+        // have several candidate ancestors), but this grammar has no sibling
+        // combinators and selectors are short, so a greedy walk with one level
+        // of retry per part is both correct and simple: for Descendant we scan
+        // upward until something matches; for Child there is exactly one
+        // candidate.
+        //
+        // Greedy is not fully general for pathological chains, and that is a
+        // deliberate trade: the alternative is a backtracking matcher run on
+        // every element of every load, for selectors nobody writes.
+        const UIElement* cur = el.parent();
+        for (int i = int(parts.size()) - 2; i >= 0; --i) {
+            const UISelector::Part& p = parts[size_t(i)];
+            // The combinator recorded on a part describes its link to the part
+            // BEFORE it, so the one that governs this hop is on the part to our
+            // right.
+            const UICombinator comb = parts[size_t(i) + 1].combinator;
+            if (comb == UICombinator::Child) {
+                if (!cur || !hit(p.compound, *cur)) return false;
+                cur = cur->parent();
+                continue;
+            }
+            bool found = false;
+            for (const UIElement* n = cur; n; n = n->parent()) {
+                if (hit(p.compound, *n)) { cur = n->parent(); found = true; break; }
+            }
+            if (!found) return false;
+        }
+        return true;
+    }
+} // namespace
+
+bool UISelector::Matches(const UIElement& el) const {
+    return !parts.empty() && matchChain(parts, el, /*stateAware=*/true);
+}
+
+bool UISelector::MatchesIgnoringState(const UIElement& el) const {
+    return !parts.empty() && matchChain(parts, el, /*stateAware=*/false);
+}
+
+void UISelector::Specificity(int& ids, int& cls, int& types) const {
+    ids = cls = types = 0;
+    // SUMMED across every compound: `.panel .btn` is two classes, which is what
+    // makes a more specific context win.
+    for (const Part& p : parts) p.compound.AddSpecificity(ids, cls, types);
 }
 
 void UIStyleSheet::SplitDeclarations(const std::string& text,
@@ -511,9 +575,20 @@ bool UIStyleSheet::ParseString(const std::string& text, const std::string& origi
         // --- selector list ---
         for (const std::string& selText : split(src.substr(selStart, brace - selStart), ',')) {
             UISelector sel;
+            UICompound compound;
+            UICombinator pendingComb = UICombinator::Descendant;
+            // Whether ANY token has gone into the compound being read. Not the
+            // same as "the compound is non-empty": `*` is a real selector that
+            // sets no fields, and treating it as nothing would reject it.
+            bool compoundHasToken = false;
+            // A '>' seen since the last completed compound, so `a > > b` is
+            // caught rather than silently collapsing to `a > b`.
+            bool sawCombinator = false;
             std::string cur;
             char mode = 't'; // t=type, c=class, n=name, p=pseudo
             std::string pseudoErr;
+            std::string structErr;
+
             auto flush = [&] {
                 // An EMPTY pseudo name is an error, not nothing. `.btn: { }`
                 // would otherwise be pushed as a plain `.btn` rule that applies
@@ -523,54 +598,89 @@ bool UIStyleSheet::ParseString(const std::string& text, const std::string& origi
                     if (mode == 'p' && pseudoErr.empty()) pseudoErr = "<empty>";
                     return;
                 }
-                if (mode == 'c') sel.classes.push_back(cur);
-                else if (mode == 'n') sel.name = cur;
+                if (mode == 'c') compound.classes.push_back(cur);
+                else if (mode == 'n') compound.name = cur;
                 else if (mode == 'p') {
                     const std::string p = lower(cur);
-                    if (p == "hover")         sel.pseudo |= std::uint8_t(UIPseudo::Hover);
-                    else if (p == "active")   sel.pseudo |= std::uint8_t(UIPseudo::Active);
-                    else if (p == "focus")    sel.pseudo |= std::uint8_t(UIPseudo::Focus);
-                    else if (p == "disabled") sel.pseudo |= std::uint8_t(UIPseudo::Disabled);
+                    if (p == "hover")         compound.pseudo |= std::uint8_t(UIPseudo::Hover);
+                    else if (p == "active")   compound.pseudo |= std::uint8_t(UIPseudo::Active);
+                    else if (p == "focus")    compound.pseudo |= std::uint8_t(UIPseudo::Focus);
+                    else if (p == "disabled") compound.pseudo |= std::uint8_t(UIPseudo::Disabled);
                     // Reported rather than ignored: a silently-dropped
                     // pseudo-class turns `.btn:focus` into a plain `.btn` rule
                     // that applies ALL the time, which looks like the styling
                     // is simply broken.
                     else if (pseudoErr.empty()) pseudoErr = cur;
                 }
-                else if (cur != "*") sel.type = cur;   // '*' = any
+                else if (cur != "*") compound.type = cur;   // '*' = any
+                compoundHasToken = true;
                 cur.clear();
+                mode = 't';
             };
-            bool bad = false;
-            for (char ch : selText) {
+            // Ends the compound being read and starts the next one, recording
+            // how the two are joined.
+            auto endPart = [&] {
+                flush();
+                if (!compoundHasToken) {
+                    // A trailing combinator, or `.a > > .b`.
+                    if (structErr.empty()) structErr = "an empty compound";
+                    return;
+                }
+                UISelector::Part part;
+                part.compound = std::move(compound);
+                part.combinator = pendingComb;
+                compound = UICompound{};
+                compoundHasToken = false;
+                sel.parts.push_back(std::move(part));
+                pendingComb = UICombinator::Descendant;
+                sawCombinator = false;
+            };
+
+            for (size_t ci = 0; ci < selText.size(); ++ci) {
+                const char ch = selText[ci];
                 if (std::isspace((unsigned char)ch)) {
-                    // A space would be a descendant combinator, which is not
-                    // supported — flag it rather than silently mis-matching.
-                    flush();
-                    bad = true;
-                    break;
+                    // Whitespace ends a compound, but it is only a DESCENDANT
+                    // combinator if a compound follows. `.a > .b` has spaces
+                    // around the '>' that must not each mean "descendant", so
+                    // whitespace with nothing read is simply skipped.
+                    if (compoundHasToken || !cur.empty()) endPart();
+                    continue;
+                }
+                if (ch == '>') {
+                    if (compoundHasToken || !cur.empty()) endPart();
+                    if (sel.parts.empty()) {
+                        if (structErr.empty()) structErr = "a leading '>'";
+                    } else if (sawCombinator && structErr.empty()) {
+                        structErr = "consecutive combinators";
+                    }
+                    pendingComb = UICombinator::Child;
+                    sawCombinator = true;
+                    continue;
                 }
                 if (ch == '.') { flush(); mode = 'c'; continue; }
                 if (ch == '#') { flush(); mode = 'n'; continue; }
                 if (ch == ':') { flush(); mode = 'p'; continue; }
                 cur.push_back(ch);
             }
-            if (!bad) {
-                flush();
-                if (!pseudoErr.empty()) {
-                    const std::string what =
-                        pseudoErr == "<empty>"
-                            ? std::string("a ':' with no pseudo-class after it")
-                            : std::string("unknown pseudo-class ':") + pseudoErr + "'";
-                    errs.push_back(originName + ":" + std::to_string(lineOf(selStart)) +
-                                   ": " + what + " in '" + trim(selText) +
-                                   "' (hover|active|focus|disabled)");
-                    continue;
-                }
-                rule.selectors.push_back(std::move(sel));
+            endPart();
+
+            if (!pseudoErr.empty()) {
+                const std::string what =
+                    pseudoErr == "<empty>"
+                        ? std::string("a ':' with no pseudo-class after it")
+                        : std::string("unknown pseudo-class ':") + pseudoErr + "'";
+                errs.push_back(originName + ":" + std::to_string(lineOf(selStart)) +
+                               ": " + what + " in '" + trim(selText) +
+                               "' (hover|active|focus|disabled)");
                 continue;
             }
-            errs.push_back(originName + ":" + std::to_string(lineOf(selStart)) +
-                           ": combinators are not supported in '" + trim(selText) + "'");
+            if (!structErr.empty() || sel.parts.empty()) {
+                errs.push_back(originName + ":" + std::to_string(lineOf(selStart)) +
+                               ": " + (structErr.empty() ? "empty selector" : structErr) +
+                               " in '" + trim(selText) + "'");
+                continue;
+            }
+            rule.selectors.push_back(std::move(sel));
         }
 
         // --- declarations ---
@@ -673,7 +783,7 @@ void UIStyleSheet::ApplyTo(UIElement& root) const {
 bool UIStyleSheet::HasStateRuleFor(const UIElement& el) const {
     for (const auto& r : rules_) {
         for (const auto& s : r.selectors) {
-            if (s.pseudo && s.MatchesIgnoringState(el)) return true;
+            if (s.pseudo() && s.MatchesIgnoringState(el)) return true;
         }
     }
     return false;

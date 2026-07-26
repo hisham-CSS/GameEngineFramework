@@ -81,18 +81,18 @@ TEST(UIPseudoParse, ParsesHoverAndActiveAndCountsThemForSpecificity) {
         << (s.errors().empty() ? "" : s.errors()[0]);
     ASSERT_EQ(s.rules().size(), 2u);
 
-    const UISelector& a = s.rules()[0].selectors[0];
+    const UICompound& a = s.rules()[0].selectors[0].subject();
     EXPECT_EQ(a.classes.size(), 1u);
     EXPECT_EQ(a.pseudo, std::uint8_t(UIPseudo::Hover));
     int ids = 0, cls = 0, types = 0;
-    a.Specificity(ids, cls, types);
+    s.rules()[0].selectors[0].Specificity(ids, cls, types);
     // A pseudo-class counts as a class, exactly as in CSS — that is what makes
     // `.btn:hover` outrank `.btn` with no ordering tricks.
     EXPECT_EQ(ids, 0);
     EXPECT_EQ(cls, 2) << ".class + :hover must count as two";
     EXPECT_EQ(types, 0);
 
-    const UISelector& b = s.rules()[1].selectors[0];
+    const UICompound& b = s.rules()[1].selectors[0].subject();
     EXPECT_EQ(b.type, "Button");
     EXPECT_EQ(b.name, "ok");
     EXPECT_EQ(b.pseudo, std::uint8_t(UIPseudo::Active));
@@ -102,11 +102,11 @@ TEST(UIPseudoParse, CompoundStatesRequireBoth) {
     UIStyleSheet s;
     ASSERT_TRUE(s.ParseString(".btn:hover:active { color: red; }", "t.uss"))
         << (s.errors().empty() ? "" : s.errors()[0]);
-    const UISelector& sel = s.rules()[0].selectors[0];
+    const UICompound& sel = s.rules()[0].selectors[0].subject();
     EXPECT_EQ(sel.pseudo,
               std::uint8_t(UIPseudo::Hover) | std::uint8_t(UIPseudo::Active));
     int ids = 0, cls = 0, types = 0;
-    sel.Specificity(ids, cls, types);
+    s.rules()[0].selectors[0].Specificity(ids, cls, types);
     EXPECT_EQ(cls, 3);
 }
 
@@ -141,8 +141,8 @@ TEST(UIPseudoParse, ATrailingColonIsAnErrorNotAPlainRule) {
     UIStyleSheet ok;
     ASSERT_TRUE(ok.ParseString(":hover { color: red; }", "t.uss"))
         << (ok.errors().empty() ? "" : ok.errors()[0]);
-    EXPECT_TRUE(ok.rules()[0].selectors[0].type.empty());
-    EXPECT_EQ(ok.rules()[0].selectors[0].pseudo, std::uint8_t(UIPseudo::Hover));
+    EXPECT_TRUE(ok.rules()[0].selectors[0].subject().type.empty());
+    EXPECT_EQ(ok.rules()[0].selectors[0].subject().pseudo, std::uint8_t(UIPseudo::Hover));
 }
 
 // In CSS each selector in a comma list carries its own specificity, and a rule
@@ -164,12 +164,22 @@ TEST(UIPseudoParse, ARuleWeighsAsItsStrongestMatchingSelector) {
         << "the rule was weighed by its first selector rather than its strongest";
 }
 
-TEST(UIPseudoParse, CombinatorsAreStillRejected) {
-    UIStyleSheet s;
-    EXPECT_FALSE(s.ParseString(".panel .btn { color: red; }", "t.uss"));
-    ASSERT_FALSE(s.errors().empty());
-    EXPECT_NE(s.errors()[0].find("combinators are not supported"), std::string::npos)
-        << s.errors()[0];
+// Descendant selectors compose with pseudo-classes, which is the combination a
+// real form needs: "a button inside this panel, while hovered".
+TEST(UIPseudoParse, DescendantSelectorsComposeWithStates) {
+    Hoverable h;
+    ASSERT_TRUE(h.Load(
+        ".btn { background-color: #202020; }\n"
+        ".panel .btn:hover { background-color: #00ff00; }\n",
+        R"(<UI>
+             <Element name="panel" class="panel" style="width: 200px; height: 200px">
+               <Element name="btn" class="btn" style="width: 100px; height: 100px"/>
+             </Element>
+           </UI>)"));
+    EXPECT_NEAR(red(h.btn()), 0.125f, 0.01f);
+    h.Point(50.f, 50.f);
+    EXPECT_NEAR(h.btn()->style().backgroundColor.g, 1.0f, 0.01f)
+        << "a descendant + state selector did not apply";
 }
 
 // Matching is state-aware, but "could this rule ever apply here" is not — that

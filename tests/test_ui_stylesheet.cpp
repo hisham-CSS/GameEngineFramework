@@ -239,11 +239,18 @@ TEST(UIStyleSheet, UnknownPropertiesAndBadValuesAreReportedNotIgnored) {
     EXPECT_FALSE(badColor.ParseString(".x { color: #zz; }"));
     EXPECT_FALSE(badColor.errors().empty());
 
-    // Unsupported CSS that would otherwise mis-match silently.
+    // Descendant and child combinators ARE supported now (see
+    // test_ui_selectors); what is still refused is a malformed one, which would
+    // otherwise mis-match silently.
     UIStyleSheet combinator;
-    EXPECT_FALSE(combinator.ParseString(".panel .btn { flex-grow: 1; }"));
-    ASSERT_FALSE(combinator.errors().empty());
-    EXPECT_NE(combinator.errors()[0].find("combinator"), std::string::npos);
+    EXPECT_TRUE(combinator.ParseString(".panel .btn { flex-grow: 1; }"))
+        << (combinator.errors().empty() ? "" : combinator.errors()[0]);
+
+    UIStyleSheet badCombinator;
+    EXPECT_FALSE(badCombinator.ParseString("> .btn { flex-grow: 1; }"));
+    ASSERT_FALSE(badCombinator.errors().empty());
+    EXPECT_NE(badCombinator.errors()[0].find("leading '>'"), std::string::npos)
+        << badCombinator.errors()[0];
 
     UIStyleSheet unterminated;
     EXPECT_FALSE(unterminated.ParseString(".x { width: 10px;"));
