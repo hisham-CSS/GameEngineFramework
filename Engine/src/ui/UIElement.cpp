@@ -377,6 +377,9 @@ UIElement* UIDocument::hitTest_(UIElement& el, const glm::vec2& pos) {
     // and the same reasoning as in draw_ applies — assert it here rather than
     // relying on the layout engine to have zeroed the rect.
     if (el.style_.display == DisplayMode::None) return nullptr;
+    // Disabled takes the whole SUBTREE out of the pointer's reach. A disabled
+    // panel whose buttons still worked would be a trap.
+    if (!el.enabled_) return nullptr;
     // pointer-events: none — the element and its whole subtree are inert.
     if (!el.style_.pickable) return nullptr;
 
@@ -508,9 +511,119 @@ void UIDocument::UpdatePointer(const UIPointerState& p) {
         pressed_ = nullptr;
     }
 
+    // ---- click-to-focus ----------------------------------------------------
+    // On the PRESS edge, like every desktop toolkit: focus should follow the
+    // button going down, not the click completing, so dragging out of a field
+    // still leaves it focused.
+    if (p.buttonDown && !wasDown_) {
+        // Walk up from the hit for the nearest focusable ancestor, so clicking
+        // the label inside a field focuses the FIELD — the same reasoning that
+        // makes events bubble.
+        UIElement* target = nullptr;
+        for (UIElement* n = hit; n; n = n->parent_) {
+            if (n->focusable_ && isInteractable_(*n)) { target = n; break; }
+        }
+        // Clicking nothing focusable clears focus, which is what makes a text
+        // field commit when you click away from it.
+        SetFocus(target);
+    }
+
     hadPointer_ = p.inside;
     wasDown_ = p.buttonDown;
     lastPos_ = p.position;
+}
+
+bool UIDocument::isInteractable_(const UIElement& el) {
+    // Checked against the whole ancestor chain: a hidden or disabled container
+    // makes everything beneath it unreachable, and focus that lands there can
+    // never be seen or tabbed out of.
+    for (const UIElement* n = &el; n; n = n->parent_) {
+        if (!n->enabled_) return false;
+        if (n->style_.display == DisplayMode::None) return false;
+    }
+    return true;
+}
+
+void UIDocument::collectFocusables_(UIElement& el, std::vector<UIElement*>& out) {
+    if (el.style_.display == DisplayMode::None || !el.enabled_) return; // subtree too
+    if (el.focusable_) out.push_back(&el);
+    for (const auto& c : el.children_) collectFocusables_(*c, out);
+}
+
+void UIDocument::SetFocus(UIElement* el) {
+    // Refuse anything the user could not reach by other means, so a caller
+    // cannot strand focus somewhere invisible with no way to Tab out.
+    if (el && (!el->focusable_ || !isInTree_(el) || !isInteractable_(*el))) el = nullptr;
+    if (focused_ && !isInTree_(focused_)) focused_ = nullptr;
+    if (el == focused_) return;
+
+    if (focused_) {
+        focused_->focused_ = false;
+        UIEvent e;
+        e.type = UIEventType::FocusOut;
+        e.target = e.currentTarget = focused_;
+        focused_->dispatchLocal_(e);
+    }
+    focused_ = el;
+    if (focused_) {
+        focused_->focused_ = true;
+        UIEvent e;
+        e.type = UIEventType::FocusIn;
+        e.target = e.currentTarget = focused_;
+        focused_->dispatchLocal_(e);
+    }
+}
+
+UIElement* UIDocument::FocusNext(bool backwards) {
+    std::vector<UIElement*> order;
+    collectFocusables_(*root_, order);
+    if (order.empty()) { SetFocus(nullptr); return nullptr; }
+
+    size_t next = backwards ? order.size() - 1 : 0;
+    if (focused_) {
+        const auto it = std::find(order.begin(), order.end(), focused_);
+        if (it != order.end()) {
+            const size_t i = size_t(it - order.begin());
+            // Wraps, deliberately: a Tab that stops dead at the last field
+            // leaves the user with no way back to the first without a mouse.
+            next = backwards ? (i == 0 ? order.size() - 1 : i - 1)
+                             : (i + 1) % order.size();
+        }
+    }
+    SetFocus(order[next]);
+    return focused_;
+}
+
+void UIDocument::UpdateKeyboard(const UIKeyboardState& kb) {
+    // The focused element may have been removed since last frame by gameplay or
+    // by a handler; dispatching into it would be a use-after-free.
+    if (focused_ && (!isInTree_(focused_) || !isInteractable_(*focused_))) {
+        SetFocus(nullptr);
+    }
+
+    for (const UIKeyEvent& k : kb.keys) {
+        UIEvent e;
+        e.type = UIEventType::KeyDown;
+        e.key = k.key;
+        e.shift = k.shift;
+        e.ctrl = k.ctrl;
+        e.alt = k.alt;
+        if (focused_) bubble_(focused_, e);
+
+        // Tab is navigation ONLY if nothing consumed it. That is what would let
+        // a multi-line field keep its literal tabs later, and it is why the
+        // check is StopPropagation rather than a hardcoded element-type test.
+        if (k.key == UIKey::Tab && !e.propagationStopped) {
+            FocusNext(k.shift);
+        }
+    }
+
+    if (!kb.text.empty() && focused_) {
+        UIEvent e;
+        e.type = UIEventType::TextInput;
+        e.text = kb.text;
+        bubble_(focused_, e);
+    }
 }
 
 } // namespace MyCoreEngine::ui

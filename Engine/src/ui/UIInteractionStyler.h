@@ -55,11 +55,18 @@ namespace MyCoreEngine::ui {
         std::size_t lastRestyled() const { return lastRestyled_; }
 
     private:
+        // The four states a pseudo-class can select on. `disabled` is stored
+        // RESOLVED (this element or any ancestor), because that is what the
+        // selector matches and a parent being disabled must restyle its whole
+        // subtree.
         struct Watched {
             UIElement* el = nullptr;
             bool hovered = false;
             bool pressed = false;
+            bool focused = false;
+            bool disabled = false;
         };
+        static bool resolvedDisabled_(const UIElement& el);
 
         void collect_(UIElement& el);
         void restyle_(UIElement& el) const;

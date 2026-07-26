@@ -10,7 +10,10 @@
 
 #include <glm/glm.hpp>
 
+#include <cstdint>
 #include <functional>
+#include <string>
+#include <vector>
 
 namespace MyCoreEngine::ui {
 
@@ -23,12 +26,58 @@ namespace MyCoreEngine::ui {
         PointerDown,   // bubbles
         PointerUp,     // bubbles
         Click,         // bubbles; fires on press+release over the SAME element
+        FocusIn,       // does NOT bubble — matches the DOM's `focus`
+        FocusOut,      // does NOT bubble — matches the DOM's `blur`
+        KeyDown,       // bubbles, to the FOCUSED element
+        TextInput,     // bubbles, to the FOCUSED element; carries typed UTF-8
+        ValueChanged,  // bubbles; a control's value was edited by the user
+    };
+
+    // A platform-neutral key identity. Deliberately small: only keys the UI
+    // itself has to act on appear here, because every host has to map its own
+    // key codes onto this and a long list is a long mapping to get wrong.
+    // Anything printable arrives as TextInput instead, already decoded — which
+    // is the only way to handle layouts, dead keys and IMEs correctly.
+    enum class UIKey : std::uint16_t {
+        None = 0,
+        Tab, Enter, Escape, Backspace, Delete,
+        Left, Right, Up, Down, Home, End, PageUp, PageDown,
+        // Letters used by editing shortcuts, not for text: typing 'a' delivers
+        // TextInput("a"), while Ctrl+A delivers KeyDown{A, ctrl}.
+        A, C, V, X, Z, Y,
+    };
+
+    struct UIKeyEvent {
+        UIKey key = UIKey::None;
+        bool  shift = false, ctrl = false, alt = false;
+    };
+
+    // Keyboard state for one frame, supplied by the HOST — the same division of
+    // labour as UIPointerState, and for the same reason: only the host knows
+    // whether its keyboard belongs to the game UI this frame or to something
+    // else (the editor's own panels, a console, a chat box).
+    //
+    // Both fields are EDGE-triggered and per-frame: `keys` holds presses that
+    // happened since the last update (including auto-repeat), `text` holds what
+    // was typed. Neither is a held-key snapshot, because a UI reacts to
+    // keystrokes, not to key state.
+    struct UIKeyboardState {
+        std::vector<UIKeyEvent> keys;
+        std::string             text;   // UTF-8, already decoded by the host
+        bool empty() const { return keys.empty() && text.empty(); }
+        void clear() { keys.clear(); text.clear(); }
     };
 
     struct UIEvent {
         UIEventType type = UIEventType::PointerMove;
         glm::vec2   position{ 0.0f };  // UI-space pixels (top-left origin)
         int         button = 0;        // 0 = primary
+
+        // KeyDown only.
+        UIKey key = UIKey::None;
+        bool  shift = false, ctrl = false, alt = false;
+        // TextInput only: the UTF-8 typed this frame.
+        std::string text;
 
         // `target` is the deepest element hit; `currentTarget` is the element
         // whose handler is running right now. During bubbling the two differ —

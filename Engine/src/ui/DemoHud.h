@@ -59,6 +59,10 @@ namespace MyCoreEngine::ui {
         // Pointer state in UI-LOCAL pixels, supplied by the host (only it knows
         // where the UI surface sits — see UIPointerState).
         void SetPointer(const UIPointerState& p) { pointer_ = p; }
+        // Keystrokes and typed text for this frame. Same division of labour:
+        // only the host knows whether the keyboard belongs to the game UI right
+        // now or to a console, a chat box, or the editor's own panels.
+        void SetKeyboard(const UIKeyboardState& k) { keyboard_ = k; }
 
         // Polls the assets for changes, applies bindings, lays out, runs input
         // and draws. Call from a Renderer::SetUIDraw callback.
@@ -77,6 +81,7 @@ namespace MyCoreEngine::ui {
         UIDataSource    source_;
         UIAssetDocument assets_;
         UIPointerState  pointer_{};
+        UIKeyboardState keyboard_{};
     };
 
 } // namespace MyCoreEngine::ui

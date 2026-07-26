@@ -164,6 +164,27 @@ std::vector<std::uint32_t> Font::DecodeUTF8(const std::string& s) {
     return out;
 }
 
+void Font::AppendUTF8(std::string& out, std::uint32_t cp) {
+    // Surrogates are not characters; a lone one reaching a font atlas or a
+    // saved file is a corrupt string, so substitute rather than encode it.
+    if (cp > 0x10FFFFu || (cp >= 0xD800u && cp <= 0xDFFFu)) cp = 0xFFFDu;
+    if (cp < 0x80u) {
+        out += char(cp);
+    } else if (cp < 0x800u) {
+        out += char(0xC0u | (cp >> 6));
+        out += char(0x80u | (cp & 0x3Fu));
+    } else if (cp < 0x10000u) {
+        out += char(0xE0u | (cp >> 12));
+        out += char(0x80u | ((cp >> 6) & 0x3Fu));
+        out += char(0x80u | (cp & 0x3Fu));
+    } else {
+        out += char(0xF0u | (cp >> 18));
+        out += char(0x80u | ((cp >> 12) & 0x3Fu));
+        out += char(0x80u | ((cp >> 6) & 0x3Fu));
+        out += char(0x80u | (cp & 0x3Fu));
+    }
+}
+
 glm::vec2 Font::Measure(const std::string& utf8, float scale) const {
     // A stable row height even for "" — layout needs a line box regardless.
     if (!IsValid()) return { 0.0f, 0.0f };

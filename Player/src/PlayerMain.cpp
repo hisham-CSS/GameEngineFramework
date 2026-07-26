@@ -27,6 +27,60 @@ namespace {
         MessageBoxA(nullptr, msg.c_str(), "Cat Splat Player", MB_OK | MB_ICONERROR);
 #endif
     }
+
+    // ---- keyboard for the in-game UI --------------------------------------
+    // Accumulated by GLFW callbacks during glfwPollEvents and drained once per
+    // frame by the UI draw callback.
+    //
+    // CALLBACKS, not polling, and for two reasons that both matter: glfwGetKey
+    // reports a key being HELD, which cannot distinguish a fresh press from the
+    // previous frame's and never reports auto-repeat; and there is no portable
+    // way to turn a key code into a character — layouts, dead keys and IMEs all
+    // live in glfwSetCharCallback.
+    MyCoreEngine::ui::UIKeyboardState g_uiKeys;
+
+    MyCoreEngine::ui::UIKey mapKey(int key) {
+        using K = MyCoreEngine::ui::UIKey;
+        switch (key) {
+        case GLFW_KEY_TAB:       return K::Tab;
+        case GLFW_KEY_ENTER:
+        case GLFW_KEY_KP_ENTER:  return K::Enter;
+        case GLFW_KEY_ESCAPE:    return K::Escape;
+        case GLFW_KEY_BACKSPACE: return K::Backspace;
+        case GLFW_KEY_DELETE:    return K::Delete;
+        case GLFW_KEY_LEFT:      return K::Left;
+        case GLFW_KEY_RIGHT:     return K::Right;
+        case GLFW_KEY_UP:        return K::Up;
+        case GLFW_KEY_DOWN:      return K::Down;
+        case GLFW_KEY_HOME:      return K::Home;
+        case GLFW_KEY_END:       return K::End;
+        case GLFW_KEY_PAGE_UP:   return K::PageUp;
+        case GLFW_KEY_PAGE_DOWN: return K::PageDown;
+        case GLFW_KEY_A:         return K::A;
+        case GLFW_KEY_C:         return K::C;
+        case GLFW_KEY_V:         return K::V;
+        case GLFW_KEY_X:         return K::X;
+        case GLFW_KEY_Z:         return K::Z;
+        case GLFW_KEY_Y:         return K::Y;
+        default:                 return K::None;
+        }
+    }
+
+    void onKey(GLFWwindow*, int key, int, int action, int mods) {
+        if (action == GLFW_RELEASE) return;  // press and auto-repeat only
+        const MyCoreEngine::ui::UIKey k = mapKey(key);
+        if (k == MyCoreEngine::ui::UIKey::None) return;
+        MyCoreEngine::ui::UIKeyEvent e;
+        e.key = k;
+        e.shift = (mods & GLFW_MOD_SHIFT) != 0;
+        e.ctrl = (mods & GLFW_MOD_CONTROL) != 0;
+        e.alt = (mods & GLFW_MOD_ALT) != 0;
+        g_uiKeys.keys.push_back(e);
+    }
+
+    void onChar(GLFWwindow*, unsigned int codepoint) {
+        MyCoreEngine::Font::AppendUTF8(g_uiKeys.text, codepoint);
+    }
 }
 
 class PlayerApplication : public MyCoreEngine::Application {
@@ -122,6 +176,13 @@ public:
         if (!hud_.Init()) {
             for (const auto& e : hud_.errors()) std::cerr << "PLAYER: UI: " << e << std::endl;
         }
+        // Nothing else in the player installs these (there is no ImGui here),
+        // so no chaining is needed. Installed once, for the app's life.
+        if (GLFWwindow* win = GetNativeWindow()) {
+            glfwSetKeyCallback(win, &onKey);
+            glfwSetCharCallback(win, &onChar);
+        }
+
         renderer().SetUIDraw([this](MyCoreEngine::Renderer2D& r2d, int w, int h, float dt) {
             // The UI covers the whole window here, so window coords ARE UI
             // coords — no mapping needed (the editor is the case that needs it).
@@ -138,6 +199,10 @@ public:
                     glfwGetMouseButton(win, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
             }
             hud_.SetPointer(p);
+            // Drained, not copied: a keystroke must be delivered exactly once,
+            // and the callbacks keep filling this between frames.
+            hud_.SetKeyboard(g_uiKeys);
+            g_uiKeys.clear();
             hud_.Draw(r2d, w, h, dt);
         });
 

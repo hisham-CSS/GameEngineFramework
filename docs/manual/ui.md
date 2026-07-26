@@ -60,17 +60,21 @@ it lands after the solve and paints at the previous frame's size.
 Abridged from the shipped `hud.uxml`:
 
 ```xml
-<UI name="hud">
+<UI name="hud" data-source="hud">
   <Element name="topBar" class="row">
     <Element name="healthTrack" class="track">
-      <Element name="healthFill" class="fill"/>
+      <Element name="healthFill" class="fill"
+               bind="width: {health | percent};
+                     background-color: {health | healthTint}"/>
     </Element>
-    <Label name="scoreLabel" class="readout" text="SCORE 0"/>
+    <Label name="scoreLabel" class="readout" text="SCORE {score}"/>
   </Element>
 
   <Element name="buttonRow" class="row-left">
-    <Button name="scoreButton" class="btn" text="+100"/>
+    <Button name="scoreButton" class="btn" text="+100" on-click="addScore"/>
   </Element>
+
+  <Element name="lowHealth" class="warning" if="lowHealth" text="LOW HEALTH"/>
 </UI>
 ```
 
@@ -87,6 +91,8 @@ Parsed by `UIMarkup` (`Engine/src/ui/UIMarkup.h`, pugixml).
 | `bind` | CSS declarations whose **values** carry `{holes}` |
 | `if` | visibility from a bool; writes `display: flex\|none` |
 | `on-<event>` | calls a named action the app registered |
+| `focusable` | `true`/`false` — puts the element in the tab order |
+| `disabled` | `true`/`false` (bare = true) — inert, skipped by Tab, matches `:disabled` |
 
 Anything else is a **load error**. That matters more than it sounds: this loader
 used to read the attributes it knew and ignore the rest, so `nmae="healthFill"`
@@ -118,11 +124,13 @@ into a parser.
 Parsed by `UIStyleSheet` (`Engine/src/ui/UIStyleSheet.h`) — a hand-written CSS
 subset, no dependency.
 
-**Selectors:** `Type`, `.class`, `#name`, `*`, the `:hover` and `:active`
-pseudo-classes, and compounds (`Button.primary#ok`, `.btn:hover`).
-Comma-separated lists. Standard CSS **specificity** (`#id` > `.class` > type),
-with later-in-file winning ties — and a pseudo-class counts as a class, so
-`.btn:hover` outranks `.btn` without any ordering tricks.
+**Selectors:** `Type`, `.class`, `#name`, `*`, the `:hover`, `:active`,
+`:focus` and `:disabled` pseudo-classes, and compounds (`Button.primary#ok`,
+`.btn:hover`). Comma-separated lists. Standard CSS **specificity**
+(`#id` > `.class` > type), with later-in-file winning ties — and a pseudo-class
+counts as a class, so `.btn:hover` outranks `.btn` without any ordering tricks.
+A rule matched through several of its listed selectors weighs as much as its
+strongest match, as in CSS.
 
 **Properties:**
 
@@ -140,9 +148,9 @@ Lengths are `auto`, `Npx`, `N%`, or a bare number (treated as px). Colours are
 alpha 0–1), or a handful of names.
 
 **Not supported, and reported as errors rather than silently ignored:**
-combinators (descendant/child/sibling), pseudo-classes other than `:hover` and
-`:active`, at-rules, variables, and inheritance. Nothing cascades from parent to
-child — every element is styled independently.
+combinators (descendant/child/sibling), any other pseudo-class, at-rules,
+variables, and inheritance. Nothing cascades from parent to child — every
+element is styled independently.
 
 ### Interaction styling
 
@@ -177,10 +185,62 @@ state change** on such an element. Only elements some pseudo rule can actually
 reach are watched, so this caveat is confined to exactly the elements an author
 opted in — and the fix is to author it as a class, a binding, or a rule.
 
-Only `:hover` and `:active` exist because they are the only states the system
-tracks. `:focus` would need keyboard focus and `:disabled` a disabled flag;
-neither exists yet, and a pseudo-class with nothing behind it is a selector that
-silently never matches.
+`:focus` matches the one element holding keyboard focus. `:disabled` matches a
+disabled element **and everything inside it**, so greying out a panel greys out
+its contents without repeating the rule.
+
+Those four are all there is: a pseudo-class with nothing behind it would be a
+selector that silently never matches, so `:checked` waits for a checkbox.
+
+---
+
+## Keyboard, focus and tab order
+
+The host supplies keystrokes the same way it supplies the pointer, and for the
+same reason — only it knows whether the keyboard belongs to the game UI this
+frame or to a console, a chat box, or the editor's own panels:
+
+```cpp
+UIKeyboardState kb;
+kb.keys.push_back({ UIKey::Tab, /*shift=*/false, /*ctrl=*/false, /*alt=*/false });
+kb.text = "hello";           // UTF-8, already decoded
+doc.UpdateKeyboard(kb);      // AFTER UpdatePointer
+```
+
+Both fields are **edge-triggered and per-frame**: presses that happened since
+the last update (auto-repeat included) and text that was typed. A UI reacts to
+keystrokes, not to key state, so there is no held-key snapshot.
+
+`UIKey` is deliberately tiny — only keys the UI must act on. Anything printable
+arrives as `TextInput` already decoded, which is the only way layouts, dead keys
+and IMEs work. Use `Font::AppendUTF8` to build `kb.text` from the codepoints
+your windowing layer hands you.
+
+**Focus.** `focusable="true"` puts an element in the tab order; `Button` and
+`TextField` are focusable by default because that is what those words mean, and
+a plain `Element` is not, because a tab order full of panels is worse than none.
+Clicking focuses the nearest focusable **ancestor** of what was hit — the same
+reasoning that makes events bubble — and clicking nothing focusable clears
+focus, which is what makes a field commit when you click away.
+
+`SetFocus` refuses anything hidden, disabled, not focusable, or not in the tree,
+so focus can never strand somewhere the user cannot see or Tab out of.
+
+**Tab order is document order.** It is what the author already sees in the
+markup, and there is no `tabindex` to fall out of sync with it. Tab and
+Shift+Tab wrap, skip disabled and hidden elements, and are only navigation if
+nothing consumed them — a handler calling `StopPropagation` on a Tab keeps it,
+which is how a multi-line field will keep its literal tabs.
+
+**`disabled`** takes an element and its whole subtree out of hit-testing and the
+tab order, and matches `:disabled`. A disabled panel whose buttons still worked
+would be a trap.
+
+| Event | Goes to | Bubbles |
+|---|---|---|
+| `FocusIn` / `FocusOut` | the element gaining/losing focus | no (like the DOM) |
+| `KeyDown` | the focused element | yes |
+| `TextInput` | the focused element | yes |
 
 ---
 
@@ -490,8 +550,6 @@ reset, so a leaked blend or depth state would corrupt the next pass.
 
 ## Not there yet
 
-Keyboard focus, tab navigation and text entry; `:focus` and `:disabled`, which
-need the two states above; descendant selectors; element→source (two-way)
-binding, which has no honest producer until text fields exist; class-toggle
-bindings; a `UIDocument` **component** so a scene can attach UI to an entity
-(today the host installs the draw callback).
+Text entry; descendant selectors; element→source (two-way) binding;
+class-toggle bindings; a `UIDocument` **component** so a scene can attach UI to
+an entity (today the host installs the draw callback).

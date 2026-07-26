@@ -808,6 +808,58 @@ void EditorApplication::DrawGameViewport(MyCoreEngine::Scene& scene,
         // for its own dragging, so resizing the panel never presses a button.
         p.buttonDown = p.inside && ImGui::IsMouseDown(ImGuiMouseButton_Left);
         hud_.SetPointer(p);
+
+        // Keyboard, but ONLY while the Game panel is focused. Otherwise typing
+        // a name in the Inspector would also be typed into the game's UI, and
+        // Tab would move focus in two places at once.
+        //
+        // ImGui is the right source here rather than GLFW: it has already
+        // decoded text into codepoints (layouts, dead keys, IMEs) and it
+        // resolves who owns the keyboard this frame, which is the whole
+        // question. The player, which has no ImGui, reads GLFW directly.
+        MyCoreEngine::ui::UIKeyboardState kb;
+        if (gameViewFocused_ && !ui_.WantTextInput()) {
+            struct KeyMap { ImGuiKey imgui; MyCoreEngine::ui::UIKey ui; };
+            static const KeyMap kKeys[] = {
+                { ImGuiKey_Tab,        MyCoreEngine::ui::UIKey::Tab },
+                { ImGuiKey_Enter,      MyCoreEngine::ui::UIKey::Enter },
+                { ImGuiKey_KeypadEnter,MyCoreEngine::ui::UIKey::Enter },
+                { ImGuiKey_Escape,     MyCoreEngine::ui::UIKey::Escape },
+                { ImGuiKey_Backspace,  MyCoreEngine::ui::UIKey::Backspace },
+                { ImGuiKey_Delete,     MyCoreEngine::ui::UIKey::Delete },
+                { ImGuiKey_LeftArrow,  MyCoreEngine::ui::UIKey::Left },
+                { ImGuiKey_RightArrow, MyCoreEngine::ui::UIKey::Right },
+                { ImGuiKey_UpArrow,    MyCoreEngine::ui::UIKey::Up },
+                { ImGuiKey_DownArrow,  MyCoreEngine::ui::UIKey::Down },
+                { ImGuiKey_Home,       MyCoreEngine::ui::UIKey::Home },
+                { ImGuiKey_End,        MyCoreEngine::ui::UIKey::End },
+                { ImGuiKey_PageUp,     MyCoreEngine::ui::UIKey::PageUp },
+                { ImGuiKey_PageDown,   MyCoreEngine::ui::UIKey::PageDown },
+                { ImGuiKey_A,          MyCoreEngine::ui::UIKey::A },
+                { ImGuiKey_C,          MyCoreEngine::ui::UIKey::C },
+                { ImGuiKey_V,          MyCoreEngine::ui::UIKey::V },
+                { ImGuiKey_X,          MyCoreEngine::ui::UIKey::X },
+                { ImGuiKey_Z,          MyCoreEngine::ui::UIKey::Z },
+                { ImGuiKey_Y,          MyCoreEngine::ui::UIKey::Y },
+            };
+            const ImGuiIO& io = ImGui::GetIO();
+            for (const KeyMap& k : kKeys) {
+                // `repeat` on, so held Backspace and arrows behave the way a
+                // text field needs them to.
+                if (!ImGui::IsKeyPressed(k.imgui, /*repeat=*/true)) continue;
+                MyCoreEngine::ui::UIKeyEvent e;
+                e.key = k.ui;
+                e.shift = io.KeyShift;
+                e.ctrl = io.KeyCtrl;
+                e.alt = io.KeyAlt;
+                kb.keys.push_back(e);
+            }
+            for (int i = 0; i < io.InputQueueCharacters.Size; ++i) {
+                MyCoreEngine::Font::AppendUTF8(kb.text,
+                                               std::uint32_t(io.InputQueueCharacters[i]));
+            }
+        }
+        hud_.SetKeyboard(kb);
     }
 
     // Keep the look coherent with the Scene view: scene-level state (lights,

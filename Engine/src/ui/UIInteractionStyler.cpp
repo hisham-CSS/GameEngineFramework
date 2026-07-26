@@ -14,11 +14,19 @@ void UIInteractionStyler::Clear() {
     lastRestyled_ = 0;
 }
 
+bool UIInteractionStyler::resolvedDisabled_(const UIElement& el) {
+    for (const UIElement* n = &el; n; n = n->parent()) {
+        if (!n->isEnabled()) return true;
+    }
+    return false;
+}
+
 void UIInteractionStyler::collect_(UIElement& el) {
     if (sheet_->HasStateRuleFor(el)) {
-        // Seed with the CURRENT state. At a normal load that is all false and
+        // Seed with the CURRENT state. At a normal load that is all default and
         // the cascade has just run for exactly that, so the two agree.
-        watched_.push_back(Watched{ &el, el.isHovered(), el.isPressed() });
+        watched_.push_back(Watched{ &el, el.isHovered(), el.isPressed(),
+                                    el.isFocused(), resolvedDisabled_(el) });
     }
     for (const auto& c : el.children()) collect_(*c);
 }
@@ -94,9 +102,13 @@ bool UIInteractionStyler::Update() {
     for (Watched& w : watched_) {
         const bool h = w.el->isHovered();
         const bool p = w.el->isPressed();
-        if (h == w.hovered && p == w.pressed) continue;
+        const bool f = w.el->isFocused();
+        const bool d = resolvedDisabled_(*w.el);
+        if (h == w.hovered && p == w.pressed && f == w.focused && d == w.disabled) continue;
         w.hovered = h;
         w.pressed = p;
+        w.focused = f;
+        w.disabled = d;
         restyle_(*w.el);
         ++lastRestyled_;
     }

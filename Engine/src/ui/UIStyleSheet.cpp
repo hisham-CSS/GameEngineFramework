@@ -379,6 +379,16 @@ bool UISelector::Matches(const UIElement& el) const {
     if (!MatchesIgnoringState(el)) return false;
     if ((pseudo & std::uint8_t(UIPseudo::Hover)) && !el.isHovered()) return false;
     if ((pseudo & std::uint8_t(UIPseudo::Active)) && !el.isPressed()) return false;
+    if ((pseudo & std::uint8_t(UIPseudo::Focus)) && !el.isFocused()) return false;
+    if (pseudo & std::uint8_t(UIPseudo::Disabled)) {
+        // Disabled is INHERITED: a control inside a disabled panel is disabled,
+        // and it would be very odd for `:disabled` not to grey it out too.
+        bool off = false;
+        for (const UIElement* n = &el; n; n = n->parent()) {
+            if (!n->isEnabled()) { off = true; break; }
+        }
+        if (!off) return false;
+    }
     return true;
 }
 
@@ -517,8 +527,10 @@ bool UIStyleSheet::ParseString(const std::string& text, const std::string& origi
                 else if (mode == 'n') sel.name = cur;
                 else if (mode == 'p') {
                     const std::string p = lower(cur);
-                    if (p == "hover")       sel.pseudo |= std::uint8_t(UIPseudo::Hover);
-                    else if (p == "active") sel.pseudo |= std::uint8_t(UIPseudo::Active);
+                    if (p == "hover")         sel.pseudo |= std::uint8_t(UIPseudo::Hover);
+                    else if (p == "active")   sel.pseudo |= std::uint8_t(UIPseudo::Active);
+                    else if (p == "focus")    sel.pseudo |= std::uint8_t(UIPseudo::Focus);
+                    else if (p == "disabled") sel.pseudo |= std::uint8_t(UIPseudo::Disabled);
                     // Reported rather than ignored: a silently-dropped
                     // pseudo-class turns `.btn:focus` into a plain `.btn` rule
                     // that applies ALL the time, which looks like the styling
@@ -550,7 +562,8 @@ bool UIStyleSheet::ParseString(const std::string& text, const std::string& origi
                             ? std::string("a ':' with no pseudo-class after it")
                             : std::string("unknown pseudo-class ':") + pseudoErr + "'";
                     errs.push_back(originName + ":" + std::to_string(lineOf(selStart)) +
-                                   ": " + what + " in '" + trim(selText) + "' (hover|active)");
+                                   ": " + what + " in '" + trim(selText) +
+                                   "' (hover|active|focus|disabled)");
                     continue;
                 }
                 rule.selectors.push_back(std::move(sel));

@@ -147,7 +147,29 @@ namespace MyCoreEngine::ui {
         void OnPointerEnter(UIEventHandler h) { AddEventListener(UIEventType::PointerEnter, std::move(h)); }
         void OnPointerLeave(UIEventHandler h) { AddEventListener(UIEventType::PointerLeave, std::move(h)); }
         void OnPointerMove(UIEventHandler h)  { AddEventListener(UIEventType::PointerMove, std::move(h)); }
+        void OnFocusIn(UIEventHandler h)      { AddEventListener(UIEventType::FocusIn, std::move(h)); }
+        void OnFocusOut(UIEventHandler h)     { AddEventListener(UIEventType::FocusOut, std::move(h)); }
+        void OnKeyDown(UIEventHandler h)      { AddEventListener(UIEventType::KeyDown, std::move(h)); }
+        void OnTextInput(UIEventHandler h)    { AddEventListener(UIEventType::TextInput, std::move(h)); }
+        void OnValueChanged(UIEventHandler h) { AddEventListener(UIEventType::ValueChanged, std::move(h)); }
         void ClearEventListeners();
+
+        // ---- focus and enablement ----
+        // Focusable elements are what Tab walks and what a click focuses. Off
+        // by default: a HUD is mostly decoration, and a Tab order full of
+        // panels and labels is worse than none.
+        bool isFocusable() const { return focusable_; }
+        void setFocusable(bool f) { focusable_ = f; }
+
+        // A disabled element takes no pointer hit, is skipped by Tab, and
+        // matches `:disabled`. Its SUBTREE is disabled too — a disabled panel
+        // whose buttons still worked would be a trap.
+        bool isEnabled() const { return enabled_; }
+        void setEnabled(bool e) { enabled_ = e; }
+
+        // Maintained by UIDocument::SetFocus. Only ONE element in a document
+        // has it, unlike hover, which runs up the ancestor chain.
+        bool isFocused() const { return focused_; }
 
         // Interaction state, maintained by UIDocument::UpdatePointer.
         // `hovered` is true for the whole ancestor chain under the pointer
@@ -189,6 +211,9 @@ namespace MyCoreEngine::ui {
         std::vector<std::pair<UIEventType, UIEventHandler>> listeners_;
         bool hovered_ = false;
         bool pressed_ = false;
+        bool focused_ = false;
+        bool focusable_ = false;
+        bool enabled_ = true;
     };
 
     // Owns a UI tree and drives layout + painting for it.
@@ -219,6 +244,31 @@ namespace MyCoreEngine::ui {
         // events; handlers may safely mutate styles, and even the tree.
         void UpdatePointer(const UIPointerState& pointer);
 
+        // ---- keyboard ----
+        // Feed once per frame AFTER UpdatePointer, so clicking a field and
+        // typing into it works within a single frame.
+        //
+        // Tab and Shift+Tab are handled here and move focus; everything else is
+        // dispatched to the focused element and BUBBLES, so a form can handle
+        // Enter in one place. A handler that consumes a key calls
+        // StopPropagation, which is also what stops Tab being treated as
+        // navigation — that is how a future multi-line field would keep its
+        // literal tabs.
+        void UpdateKeyboard(const UIKeyboardState& keyboard);
+
+        // ---- focus ----
+        // Null clears it. Refuses elements that are not focusable, not enabled,
+        // hidden, or not in this tree — so a caller cannot strand focus
+        // somewhere the user can never Tab out of. Fires FocusOut then FocusIn.
+        void SetFocus(UIElement* el);
+        void ClearFocus() { SetFocus(nullptr); }
+        UIElement* focused() const { return focused_; }
+
+        // Moves focus to the next (or previous) focusable element in DOCUMENT
+        // order, wrapping. Returns the newly focused element, or null when the
+        // document has nothing focusable at all.
+        UIElement* FocusNext(bool backwards = false);
+
         // Deepest PICKABLE element containing `pos`, or null. Topmost wins:
         // children are tested in reverse paint order, and an `overflowHidden`
         // parent that does not contain the point rejects its whole subtree.
@@ -248,9 +298,19 @@ namespace MyCoreEngine::ui {
         // walking parent_ upwards from a destroyed element would.
         bool isInTree_(const UIElement* el) const;
 
+        // Depth-first walk collecting every element eligible for keyboard
+        // focus. Document order IS the tab order: it is what the author already
+        // sees in the markup, and it needs no tabindex to get out of sync with.
+        static void collectFocusables_(UIElement& el, std::vector<UIElement*>& out);
+        // Disabled or display:none anywhere up the chain makes an element
+        // unreachable, so both have to be checked against ANCESTORS, not just
+        // the element itself.
+        static bool isInteractable_(const UIElement& el);
+
         std::unique_ptr<UIElement> root_;
         UIElement* hovered_ = nullptr;   // deepest element under the pointer
         UIElement* pressed_ = nullptr;   // element that received PointerDown
+        UIElement* focused_ = nullptr;   // keyboard focus; at most one
         bool  hadPointer_ = false;       // pointer was inside last frame
         bool  wasDown_ = false;
         glm::vec2 lastPos_{ 0.0f };

@@ -83,6 +83,11 @@ void DemoHud::Draw(Renderer2D& r2d, int widthPx, int heightPx, float dt) {
     // Then layout (hit-testing reads computed rects), then input.
     doc.Layout(float(widthPx), float(heightPx), f);
     doc.UpdatePointer(pointer_);
+    // Keyboard AFTER the pointer, so clicking a field and typing into it works
+    // within a single frame. Consumed here: a keystroke must be delivered once,
+    // and the host keeps refilling this between frames.
+    doc.UpdateKeyboard(keyboard_);
+    keyboard_.clear();
 
     // Hover and press are decided by UpdatePointer, so :hover / :active
     // styling can only be applied after it. A state rule may change padding or

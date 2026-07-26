@@ -73,6 +73,11 @@ namespace MyCoreEngine {
         // throwing or truncating, so hostile/mojibake text degrades visibly
         // instead of silently dropping the rest of the string.
         static std::vector<std::uint32_t> DecodeUTF8(const std::string& s);
+        // The inverse. Lives here beside the decoder so the two cannot drift.
+        // Needed by every host that receives typed input as CODEPOINTS (GLFW's
+        // char callback, ImGui's input queue) but must hand the UI UTF-8.
+        // A codepoint outside Unicode, or a surrogate, appends U+FFFD.
+        static void AppendUTF8(std::string& out, std::uint32_t codepoint);
 
     private:
         std::unordered_map<std::uint32_t, Glyph> glyphs_;

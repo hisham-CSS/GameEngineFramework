@@ -69,7 +69,8 @@ namespace {
         for (pugi::xml_attribute a : node.attributes()) {
             const std::string n = a.name();
             if (n == "name" || n == "class" || n == "style" || n == "text" ||
-                n == "data-source" || n == "bind" || n == "if") {
+                n == "data-source" || n == "bind" || n == "if" ||
+                n == "focusable" || n == "disabled") {
                 continue;
             }
             // The on-<event> family is validated in full below; here it only
@@ -89,6 +90,28 @@ namespace {
         }
 
         el.setDataSourceName(node.attribute("data-source").value());
+
+        // Both are reset unconditionally so a removed attribute takes effect on
+        // a reload — the same reason text and inline style are cleared below.
+        // A `Button` or `TextField` is focusable by default because that is
+        // what those words mean; anything else has to ask.
+        const std::string type = el.type();
+        bool focusable = (type == "Button" || type == "TextField");
+        bool disabled = false;
+        for (const char* attr : { "focusable", "disabled" }) {
+            const pugi::xml_attribute a = node.attribute(attr);
+            if (!a) continue;
+            const std::string v = lower(trim(a.value()));
+            // Bare `disabled` with no value means true, as in HTML.
+            if (v.empty() || v == "true") { (attr[0] == 'f' ? focusable : disabled) = true; }
+            else if (v == "false")        { (attr[0] == 'f' ? focusable : disabled) = false; }
+            else {
+                errors.push_back(loc + attr + ": expected true|false, got '" + v + "'");
+                return false;
+            }
+        }
+        el.setFocusable(focusable);
+        el.setEnabled(!disabled);
 
         // `text` is a TEMPLATE now: literal text with {holes} that read named
         // values. A constant template still compiles, so there is exactly one

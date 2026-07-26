@@ -80,15 +80,15 @@ namespace MyCoreEngine::ui {
     // Interaction state a selector can require, as CSS pseudo-classes. A
     // BITMASK, so `.btn:hover:active` requires both at once.
     //
-    // Only these two exist because only these two states the system actually
-    // tracks: :focus needs keyboard focus, which does not exist yet, and
-    // :disabled needs a disabled flag, which does not either. Inventing a
+    // Each one corresponds to a state the system genuinely tracks; a
     // pseudo-class with nothing behind it would be a selector that silently
     // never matches.
     enum class UIPseudo : std::uint8_t {
-        None   = 0,
-        Hover  = 1 << 0,   // pointer is over this element OR a descendant
-        Active = 1 << 1,   // pointer is held down on this element
+        None     = 0,
+        Hover    = 1 << 0,   // pointer is over this element OR a descendant
+        Active   = 1 << 1,   // pointer is held down on this element
+        Focus    = 1 << 2,   // has keyboard focus (at most one per document)
+        Disabled = 1 << 3,   // this element or an ancestor is disabled
     };
 
     // A compound selector: all parts must match the same element. Empty type +

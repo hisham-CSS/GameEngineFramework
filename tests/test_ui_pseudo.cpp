@@ -114,9 +114,11 @@ TEST(UIPseudoParse, CompoundStatesRequireBoth) {
 // that applies ALL the time, which reads as "the styling is just broken".
 TEST(UIPseudoParse, AnUnknownPseudoClassIsReported) {
     UIStyleSheet s;
-    EXPECT_FALSE(s.ParseString(".btn:focus { color: red; }", "t.uss"));
+    // `:checked` needs a checkbox, which does not exist — a pseudo-class with
+    // nothing behind it would be a selector that silently never matches.
+    EXPECT_FALSE(s.ParseString(".btn:checked { color: red; }", "t.uss"));
     ASSERT_FALSE(s.errors().empty());
-    EXPECT_NE(s.errors()[0].find("unknown pseudo-class ':focus'"), std::string::npos)
+    EXPECT_NE(s.errors()[0].find("unknown pseudo-class ':checked'"), std::string::npos)
         << s.errors()[0];
     EXPECT_NE(s.errors()[0].find("hover|active"), std::string::npos) << s.errors()[0];
     // ...and the sheet is left untouched, like every other parse failure.
