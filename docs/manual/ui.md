@@ -449,10 +449,32 @@ axis even while the content fits, for a panel whose scrollability should be
 advertised. **Nothing in this system inherits**, so to restyle every bar at once
 use the universal selector: `* { scrollbar-width: 10px; }`.
 
-**No chaining.** The innermost scrollable ancestor under the pointer keeps the
-wheel, even when it is already at its end. Choosing by *remaining room* instead
-would teleport the outer panel the moment an inner list hit its bottom — which is
-the resting state of every log.
+**Chaining is per gesture.** A wheel *gesture* latches onto whatever it first
+moved and keeps it until you pause — so flicking through a list to its bottom and
+carrying on does **not** drag its container out from under the cursor. Start a
+fresh gesture over an exhausted list and it does chain outward, to the first
+ancestor with room **in that direction**, exactly as a browser does. Latching is
+what makes chaining safe; neither ships without the other.
+
+**One wheel, two axes.** An element that scrolls only horizontally — a hotbar, a
+card strip — takes a plain vertical wheel on its horizontal axis, because a mouse
+has one wheel and such a panel would otherwise be visibly scrollable and
+completely unreachable. An element with range on *both* axes keeps the vertical
+wheel vertical; use **Shift+wheel** to reach its horizontal axis. The swap is done
+once, in the default action, so the Game view and the shipped player cannot
+disagree about it.
+
+**Keyboard.** A scroller with `focusable="true"` is a Tab stop, and then takes
+**PageUp/PageDown** (90% of the box, the browser overlap) and **Home/End**. Those
+also work from any focused descendant, so a focused row still pages its list.
+Inside a focused `<TextField>` the split follows a browser `<textarea>`: Home and
+End belong to the *field* (they are line-aware there), while PageUp and PageDown
+pass through to the container.
+
+**The scrollbar is a control, not decoration.** Dragging the thumb scrolls;
+pressing the **track** pages toward the click — one page per press, with no
+hold-to-repeat — and pressing either focuses the scroller if it is focusable.
+Neither reaches the content underneath.
 
 `pointer-events: none` disables scrolling too, and lets the wheel reach the
 document beneath. Put it on the decorative parts of an overlay, not on a
@@ -888,12 +910,9 @@ Repeating a template over a list — bindings address one property, not a
 collection. Transitions and animation. `position: fixed`, `position: sticky`, and
 portals.
 
-Within scrolling specifically: scroll chaining and gesture latching; keyboard
-scrolling — PageUp/PageDown/Home/End do nothing and a scroller is not focusable,
-so a text-only panel is mouse-only; momentum and smooth-scroll animation;
-Shift+wheel axis swap (both hosts ignore it on purpose, so the two agree); a
-reserved scrollbar gutter — CSS invented `scrollbar-gutter` to break a reflow
-loop that overlay bars do not have, so `padding-right` is the answer here;
-clicking the track to page up and down; a scrollbar for a text
-field (a multiline `<TextField>` scrolls its text but draws no bar); and
-virtualisation, so a scroller lays out every row it contains.
+Within scrolling specifically: momentum and smooth-scroll animation; a reserved
+scrollbar gutter — CSS invented `scrollbar-gutter` to break a reflow loop that
+overlay bars do not have, so `padding-right` is the answer here; hold-to-repeat
+on a track press; a scrollbar for a text field (a multiline `<TextField>` scrolls
+its text but draws no bar); and virtualisation, so a scroller lays out every row
+it contains.

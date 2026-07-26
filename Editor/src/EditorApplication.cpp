@@ -835,6 +835,7 @@ void EditorApplication::DrawGameViewport(MyCoreEngine::Scene& scene,
         if (p.inside) {
             const ImGuiIO& wio = ImGui::GetIO();
             p.wheel = { wio.MouseWheelH, wio.MouseWheel };
+            p.shift = wio.KeyShift;
         }
 
         // Keyboard, but ONLY while the Game panel is focused. Otherwise typing

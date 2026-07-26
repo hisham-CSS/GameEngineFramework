@@ -437,7 +437,14 @@ namespace MyCoreEngine::ui {
         static UIElement* hitTest_(UIElement& el, const glm::vec2& pos);
         // The scrollbar is painted from draw_ and is invisible to hitTest_, so
         // a press on it is resolved separately and ahead of everything else.
-        static UIElement* hitScrollThumb_(UIElement& el, const glm::vec2& pos, int& axisOut);
+        static UIElement* hitScrollBar_(UIElement& el, const glm::vec2& pos,
+                                        int& axisOut, bool& onThumbOut);
+        // Shared by the track click and PageUp/PageDown, so they agree.
+        static float pageAmount_(const UIElement& el, int axis);
+        // Folds the one-wheel-two-axes problem into one place. See the .cpp.
+        static glm::vec2 axisLockedDelta_(const UIElement& el, glm::vec2 raw);
+        // Scrolls the nearest ancestor of `from` that can take this key.
+        bool keyboardScroll_(UIElement* from, UIKey key);
         // Scrolls a field's own text so the caret stays inside its box.
         void followCaret_(UIElement& el, const Font* font);
         // Brings the focused element inside its clipping ancestors. Runs at the
@@ -479,6 +486,15 @@ namespace MyCoreEngine::ui {
         // one, so a pointer held across frames without that check is a
         // use-after-free during the advertised edit-and-save loop.
         UIElement* scrollDrag_ = nullptr;
+        // Held while a press sits on the TRACK, so the row underneath receives
+        // no move, no hover and no Click on release.
+        UIElement* scrollTrackPress_ = nullptr;
+        // The element a wheel GESTURE latched onto. Chaining is only safe with
+        // this: it is what stops a list reaching its end mid-gesture from
+        // handing the rest of the flick to whatever contains it.
+        UIElement* wheelLatch_ = nullptr;
+        float lastWheelTime_ = -1000.0f;   // in docClock_ seconds
+        float docClock_ = 0.0f;            // accumulated by AdvanceTime
         int   scrollDragAxis_ = 0;      // 0 = x, 1 = y
         float scrollDragGrab_ = 0.0f;   // cursor offset within the thumb at press
         bool  scrollDirty_ = false;

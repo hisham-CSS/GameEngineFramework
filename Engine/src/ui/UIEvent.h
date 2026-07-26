@@ -116,6 +116,11 @@ namespace MyCoreEngine::ui {
         // the same reason. A host that updates without a matching SetPointer
         // would otherwise keep scrolling forever on one flick.
         glm::vec2 wheel{ 0.0f };
+        // Shift held, reported by the host alongside the wheel. The AXIS SWAP
+        // it drives happens once, in the wheel's default action, so the Game
+        // view and the shipped player cannot end up disagreeing about what
+        // Shift+wheel does — each host only says whether the key is down.
+        bool shift = false;
     };
 
 } // namespace MyCoreEngine::ui

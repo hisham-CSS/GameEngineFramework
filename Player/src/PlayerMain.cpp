@@ -212,6 +212,12 @@ public:
                 p.inside = (mx >= 0.0 && my >= 0.0 && mx < double(w) && my < double(h));
                 p.buttonDown =
                     glfwGetMouseButton(win, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+                // Sampled here rather than in the scroll callback: GLFW does not
+                // report modifiers with a scroll event at all, and reading the
+                // key state in the same frame the notches are consumed is as
+                // close as the API allows.
+                p.shift = glfwGetKey(win, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ||
+                          glfwGetKey(win, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS;
             }
             // Drained from the Application's GLFW scroll callback. It has to be
             // a callback rather than a poll — GLFW has no "wheel position" to

@@ -685,7 +685,36 @@ void UIDocument::draw_(const UIElement& el, Renderer2D& r2d, const Font* font,
     if (clips) r2d.PopClipRect();
 }
 
-void UIDocument::AdvanceTime(float dt) { caretClock_ += dt; }
+void UIDocument::AdvanceTime(float dt) {
+    caretClock_ += dt;
+    // A monotonic document clock. The wheel needs it to tell one GESTURE from
+    // the next, and UpdatePointer has no dt of its own — this runs before it in
+    // the same frame, which is the ordering UIWorld::Update guarantees.
+    docClock_ += dt;
+}
+
+// Scrolls the nearest ancestor of `from` that has range on the key's axis.
+// Returns true if it moved anything, which is what makes the key CONSUMED.
+bool UIDocument::keyboardScroll_(UIElement* from, UIKey key) {
+    for (UIElement* n = from; n; n = n->parent_) {
+        if (!IsScroller(n->style_) || !n->scroll_) continue;
+        const UIScrollState& sc = *n->scroll_;
+        if (!sc.scrollsY()) continue;      // vertical keys only; see below
+        glm::vec2 next = sc.offset;
+        switch (key) {
+        case UIKey::PageUp:   next.y -= pageAmount_(*n, 1); break;
+        case UIKey::PageDown: next.y += pageAmount_(*n, 1); break;
+        case UIKey::Home:     next.y = sc.minOffset.y; break;
+        case UIKey::End:      next.y = sc.maxOffset.y; break;
+        default: return false;
+        }
+        if (n->SetScrollOffset(next)) { scrollDirty_ = true; return true; }
+        // Found the owner but it is already at that end: still consumed, or the
+        // key would fall through to something further out and jump twice.
+        return true;
+    }
+    return false;
+}
 
 void UIDocument::Draw(Renderer2D& r2d, const Font* font, int baseLayer) const {
     // A one-second cycle, on for the first half. Computed once here rather than
@@ -742,26 +771,57 @@ UIElement* UIDocument::HitTest(const glm::vec2& pos) {
 
 // Reverse paint order, like hitTest_, so the topmost bar wins. Kept separate
 // because the bars are painted from draw_ and have no elements of their own —
-// without this a press on the thumb resolves to the row underneath it, fires
-// that row's on-click, lights up :active, and blurs whatever field the user was
-// typing in.
-UIElement* UIDocument::hitScrollThumb_(UIElement& el, const glm::vec2& pos, int& axisOut) {
+// without this a press on one resolves to the row underneath it, fires that
+// row's on-click, lights up :active, and blurs whatever field the user was
+// typing in. That used to be true of the TRACK across ~80% of the bar's area,
+// because only the thumbs were tested here.
+//
+// Within an element: thumb before track (a thumb sits inside its own track),
+// and Y before X (the two tracks meet in the bottom-right corner). Every track
+// test is gated on its own thumb having size, so "a zero-size thumb means this
+// axis does not scroll" stays the one signal the painter and the hit test share.
+UIElement* UIDocument::hitScrollBar_(UIElement& el, const glm::vec2& pos,
+                                     int& axisOut, bool& onThumbOut) {
     if (el.style_.display == DisplayMode::None) return nullptr;
     if (!el.enabled_ || !el.style_.pickable) return nullptr;
     if (ClipsBox(el.style_) && !contains(el.layout_, pos)) return nullptr;
 
     for (auto it = el.children_.rbegin(); it != el.children_.rend(); ++it) {
-        if (UIElement* h = hitScrollThumb_(**it, pos, axisOut)) return h;
+        if (UIElement* h = hitScrollBar_(**it, pos, axisOut, onThumbOut)) return h;
     }
     if (el.scroll_) {
-        if (el.scroll_->thumbY.size.y > 0.0f && contains(el.scroll_->thumbY, pos)) {
-            axisOut = 1; return &el;
-        }
-        if (el.scroll_->thumbX.size.x > 0.0f && contains(el.scroll_->thumbX, pos)) {
-            axisOut = 0; return &el;
-        }
+        const UIScrollState& sc = *el.scroll_;
+        const bool hasY = sc.thumbY.size.y > 0.0f;
+        const bool hasX = sc.thumbX.size.x > 0.0f;
+        if (hasY && contains(sc.thumbY, pos)) { axisOut = 1; onThumbOut = true;  return &el; }
+        if (hasX && contains(sc.thumbX, pos)) { axisOut = 0; onThumbOut = true;  return &el; }
+        if (hasY && contains(sc.trackY, pos)) { axisOut = 1; onThumbOut = false; return &el; }
+        if (hasX && contains(sc.trackX, pos)) { axisOut = 0; onThumbOut = false; return &el; }
     }
     return nullptr;
+}
+
+// A page is most of the visible box, with an overlap so the line you were
+// reading stays on screen — the browser convention. Shared by the track click
+// and PageUp/PageDown, so the two move by the same amount.
+float UIDocument::pageAmount_(const UIElement& el, int axis) {
+    const float box = axis ? el.layout_.size.y : el.layout_.size.x;
+    return std::max(1.0f, box * 0.9f);
+}
+
+// The wheel delta this element should actually receive.
+//
+// A mouse has ONE wheel, so an element that scrolls only horizontally — a
+// hotbar, a card strip, an inventory row, the common non-list scroller in a HUD
+// — would otherwise be dead to it: a vertical notch is {0, ±1}, which fails the
+// X test, and the element fails the Y test too, so the wheel walks straight past
+// it to an ancestor. Browsers do exactly this transfer for an overflow-x-only
+// box. Evaluated per candidate, because scrollability is per element.
+glm::vec2 UIDocument::axisLockedDelta_(const UIElement& el, glm::vec2 raw) {
+    if (!el.scroll_) return { 0.0f, 0.0f };
+    const UIScrollState& sc = *el.scroll_;
+    if (raw.x == 0.0f && sc.scrollsX() && !sc.scrollsY()) { raw.x = raw.y; raw.y = 0.0f; }
+    return { sc.scrollsX() ? raw.x : 0.0f, sc.scrollsY() ? raw.y : 0.0f };
 }
 
 void UIDocument::bubble_(UIElement* target, UIEvent& e) {
@@ -794,25 +854,55 @@ void UIDocument::UpdatePointer(const UIPointerState& p, const Font* font) {
     // dispatching to it would be a use-after-free.
     if (hovered_ && !isInTree_(hovered_)) hovered_ = nullptr;
     if (pressed_ && !isInTree_(pressed_)) pressed_ = nullptr;
-    // The drag target is held across frames just like the two above, and a hot
+    // The bar targets are held across frames just like the two above, and a hot
     // reload — which a stylesheet-only save triggers — frees the whole tree.
     if (scrollDrag_ && !isInTree_(scrollDrag_)) scrollDrag_ = nullptr;
+    if (scrollTrackPress_ && !isInTree_(scrollTrackPress_)) scrollTrackPress_ = nullptr;
+    if (wheelLatch_ && !isInTree_(wheelLatch_)) wheelLatch_ = nullptr;
 
-    // ---- scrollbar drag ----------------------------------------------------
+    // ---- scrollbar press ---------------------------------------------------
     // Resolved AHEAD of everything else and allowed to own the pointer, exactly
     // like a native scrollbar. The bars are painted from draw_ and are invisible
-    // to hitTest_, so without this a press on the thumb would reach the row
+    // to hitTest_, so without this a press on one would reach the row
     // underneath: its on-click would fire, :active would light up, and focus
     // would leave whatever field the user was typing in.
-    if (p.buttonDown && !wasDown_ && !scrollDrag_ && p.inside) {
+    if (p.buttonDown && !wasDown_ && !scrollDrag_ && !scrollTrackPress_ && p.inside) {
         int axis = 0;
-        if (UIElement* s = hitScrollThumb_(*root_, p.position, axis)) {
-            scrollDrag_ = s;
-            scrollDragAxis_ = axis;
-            const ComputedLayout& th = axis ? s->scroll_->thumbY : s->scroll_->thumbX;
-            scrollDragGrab_ = axis ? p.position.y - th.position.y
-                                   : p.position.x - th.position.x;
+        bool onThumb = false;
+        if (UIElement* s = hitScrollBar_(*root_, p.position, axis, onThumb)) {
+            // A native scrollbar focuses its scroller on press. Without this,
+            // "drag the thumb, then press PageDown" is a coin flip.
+            if (s->focusable_) SetFocus(s);
+            if (onThumb) {
+                scrollDrag_ = s;
+                scrollDragAxis_ = axis;
+                const ComputedLayout& th = axis ? s->scroll_->thumbY : s->scroll_->thumbX;
+                scrollDragGrab_ = axis ? p.position.y - th.position.y
+                                       : p.position.x - th.position.x;
+            } else {
+                // ONE page per press, toward the click. Hold-to-repeat would
+                // need "how long held", and UpdatePointer has no dt — it is the
+                // second-order half of what is really a click-through fix, and
+                // the manual says plainly that a held press does not repeat.
+                const ComputedLayout& th = axis ? s->scroll_->thumbY : s->scroll_->thumbX;
+                const float cursor = axis ? p.position.y : p.position.x;
+                const float thumbLo = axis ? th.position.y : th.position.x;
+                const float dir = cursor < thumbLo ? -1.0f : 1.0f;
+                glm::vec2 next = s->scroll_->offset;
+                (axis ? next.y : next.x) += dir * pageAmount_(*s, axis);
+                if (s->SetScrollOffset(next)) scrollDirty_ = true;
+                scrollTrackPress_ = s;
+            }
         }
+    }
+    // A press on the track owns the pointer for as long as it is held, so the
+    // row underneath receives no move, no hover and no Click on release.
+    if (scrollTrackPress_) {
+        if (!p.buttonDown) scrollTrackPress_ = nullptr;
+        hadPointer_ = p.inside;
+        wasDown_ = p.buttonDown;
+        lastPos_ = p.position;
+        return;
     }
     if (scrollDrag_) {
         if (!p.buttonDown) {
@@ -896,6 +986,7 @@ void UIDocument::UpdatePointer(const UIPointerState& p, const Font* font) {
         e.type = UIEventType::Wheel;
         e.position = p.position;
         e.delta = p.wheel;
+        e.shift = p.shift;
         bubble_(hit, e);
         // Handlers may restructure the tree — dispatchLocal_ explicitly allows
         // it — so re-validate before walking parent_ upward, exactly as the
@@ -904,22 +995,62 @@ void UIDocument::UpdatePointer(const UIPointerState& p, const Font* font) {
             // ~3 rows at the default 16px line height. One constant, here, so
             // the two hosts only ever have to agree on a SIGN.
             constexpr float kPixelsPerNotch = 48.0f;
-            for (UIElement* n = hit; n; n = n->parent_) {
-                if (!IsScroller(n->style_) || !n->scroll_) continue;
-                const UIScrollState& sc = *n->scroll_;
-                const bool wantX = e.delta.x != 0.0f && sc.scrollsX();
-                const bool wantY = e.delta.y != 0.0f && sc.scrollsY();
-                if (!wantX && !wantY) continue;
-                // NO CHAINING: the target is the nearest ancestor that IS
-                // scrollable on this axis, not the nearest that can still MOVE
-                // on it. SetScrollOffset then clamps, which is a harmless no-op
-                // at the end of travel. Choosing by remaining room instead would
-                // teleport the outer panel the instant an inner list reached its
-                // bottom — which is the resting state of every log.
-                if (n->SetScrollOffset(sc.offset - e.delta * kPixelsPerNotch)) {
+            // A new GESTURE begins after a gap with no wheel at all. Within one
+            // gesture the latch below keeps whatever it first moved.
+            constexpr float kGestureGap = 0.15f;
+            const bool newGesture = (docClock_ - lastWheelTime_) > kGestureGap;
+            lastWheelTime_ = docClock_;
+            if (newGesture) wheelLatch_ = nullptr;
+
+            // Shift swaps the axes, the desktop convention for reaching a
+            // horizontal scroller with a one-wheel mouse. Done HERE, once, so
+            // the Editor's Game view and the shipped Player cannot disagree
+            // about it — each host only reports whether shift is held.
+            glm::vec2 raw = e.delta;
+            if (e.shift) std::swap(raw.x, raw.y);
+
+            auto canMove = [](const UIScrollState& sc, int a, float d) {
+                // d < 0 pushes the offset up (content moves up), d > 0 down.
+                const float off = a ? sc.offset.y : sc.offset.x;
+                return d < 0.0f ? off < (a ? sc.maxOffset.y : sc.maxOffset.x)
+                                : off > (a ? sc.minOffset.y : sc.minOffset.x);
+            };
+
+            UIElement* target = wheelLatch_;
+            glm::vec2 d{ 0.0f };
+            if (target) {
+                // Mid-gesture: the latched element keeps the wheel even at the
+                // end of its travel. This is what makes chaining safe — without
+                // it, reading a list to its bottom and rolling once more would
+                // carry the whole outer panel out from under the cursor.
+                d = axisLockedDelta_(*target, raw);
+            } else {
+                // A new gesture CHAINS: the first ancestor that can still move
+                // in this direction wins, so a list already at its end hands the
+                // next gesture to its container, exactly as a browser does.
+                UIElement* firstScrollable = nullptr;
+                for (UIElement* n = hit; n; n = n->parent_) {
+                    if (!IsScroller(n->style_) || !n->scroll_) continue;
+                    const glm::vec2 nd = axisLockedDelta_(*n, raw);
+                    if (nd.x == 0.0f && nd.y == 0.0f) continue;
+                    if (!firstScrollable) { firstScrollable = n; d = nd; }
+                    const UIScrollState& sc = *n->scroll_;
+                    if ((nd.x != 0.0f && canMove(sc, 0, nd.x)) ||
+                        (nd.y != 0.0f && canMove(sc, 1, nd.y))) {
+                        target = n; d = nd; break;
+                    }
+                }
+                // Nothing up the chain has room: keep it with the innermost
+                // scroller anyway, so the gesture latches there and a clamp is a
+                // harmless no-op rather than a hand-off to the document behind.
+                if (!target) target = firstScrollable;
+            }
+
+            if (target && (d.x != 0.0f || d.y != 0.0f)) {
+                wheelLatch_ = target;
+                if (target->SetScrollOffset(target->scroll_->offset - d * kPixelsPerNotch)) {
                     scrollDirty_ = true;
                 }
-                break;
             }
         }
     }
@@ -1204,6 +1335,27 @@ void UIDocument::UpdateKeyboard(const UIKeyboardState& kb, const Font* font) {
             bool changed = false;
             consumed = target->textEdit()->HandleKey(k, changed);
             if (consumed) afterEdit(target, changed);
+        }
+
+        // Scrolling is the next default action, after the focused element's own
+        // editing and before Tab navigation.
+        //
+        // The precedence with a focused <TextField> is a deliberate asymmetry,
+        // and it matches a browser's <textarea>:
+        //   Home/End  never get here — UITextEdit consumes them unconditionally,
+        //             and inside a multi-line field they are already LINE-aware.
+        //             So "Home scrolls to the top" works only when focus is on
+        //             the scroller itself.
+        //   PageUp/Dn do get here — UITextEdit deliberately does not take them —
+        //             so a focused field pages its container while its own caret
+        //             stays put.
+        // Walked from `target` (the revalidated focused element), never from
+        // hovered_: UIWorld routes the keyboard and the pointer to different
+        // documents on purpose, so the hovered scroller may not be receiving
+        // keys at all.
+        if (!consumed && (k.key == UIKey::PageUp || k.key == UIKey::PageDown ||
+                          k.key == UIKey::Home || k.key == UIKey::End)) {
+            consumed = keyboardScroll_(target, k.key);
         }
 
         // Tab is navigation ONLY if nothing consumed it — a handler, or a field

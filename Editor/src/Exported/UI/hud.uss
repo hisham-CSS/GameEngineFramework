@@ -120,10 +120,11 @@
   color: white;
 }
 
-/* The multi-line field. Its HEIGHT is the whole story: there is no scrolling
-   yet, so this box is exactly as much text as the field can show. Everything
-   the single-line `.field` does applies here too — only Enter, Up and Down
-   change meaning, and that is decided in the markup, not here. */
+/* The multi-line field. Its HEIGHT is the whole story: a field scrolls its own
+   text to follow the caret but draws no bar and does not grow, so this box is
+   what you can see at once. Everything the single-line `.field` does applies
+   here too — only Enter, Up and Down change meaning, and that is decided in the
+   markup, not here. */
 .notes {
   width: 320px;
   height: 84px;
@@ -183,6 +184,34 @@
 .entry {
   height: 22px;
   color: rgba(255, 255, 255, 0.85);
+}
+
+/* The log is a Tab stop (focusable="true" in hud.uxml), so it needs a visible
+   focus cue — there is no outline property, so background-color does the job,
+   exactly as .field:focus and .notes:focus already do. */
+.log:focus {
+  background-color: rgba(0, 0, 0, 0.55);
+}
+
+/* A ROW scroller. `overflow-x: scroll` with `overflow-y: hidden` scrolls
+   sideways only; note that flex-shrink is overridden on the MAIN axis, which
+   for a row is x — that is what stops the slots being squeezed to fit. */
+.hotbar {
+  flex-direction: row;
+  overflow-x: scroll;
+  overflow-y: hidden;
+  width: 320px;
+  height: 44px;
+  margin: 10px 0px 0px 0px;
+  background-color: rgba(0, 0, 0, 0.35);
+  scrollbar-width: 4px;
+}
+
+.slot {
+  width: 40px;
+  height: 32px;
+  margin: 4px;
+  background-color: rgba(255, 255, 255, 0.12);
 }
 
 /* Full-screen, centred by flexbox rather than by computing the middle. */

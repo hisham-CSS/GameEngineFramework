@@ -128,9 +128,20 @@
        squeezed to fit (that is what leaves something to scroll), so without one
        the panel just grows to its content and escapes the HUD.
 
-       There is no chaining: this list keeps the wheel even at its end, rather
-       than handing it to whatever contains it. -->
-  <Element name="log" class="log">
+       Keyboard too, because it is focusable below: PageUp/PageDown, Home and
+       End. Clicking the TRACK pages toward the click; one page per press, no
+       hold-to-repeat.
+
+       Chaining is per GESTURE. Flick through to the bottom and keep going and
+       the wheel stays here — a list running out mid-flick must not carry its
+       container out from under the cursor. Pause, then wheel again, and a fresh
+       gesture WILL reach a scrollable ancestor if there is one. -->
+  <!-- focusable makes it a TAB STOP, which is what gives it PageUp/PageDown,
+       Home and End. Tab to it (past the +100 button and the two fields) and the
+       background lightens, because a Tab stop with no visible effect reads as a
+       dropped keystroke. Clicking its scrollbar focuses it too, the way a native
+       scrollbar does. -->
+  <Element name="log" class="log" focusable="true">
     <Label class="entry" text="entry 01 — wheel over me"/>
     <Label class="entry" text="entry 02"/>
     <Label class="entry" text="entry 03"/>
@@ -141,6 +152,18 @@
     <Label class="entry" text="entry 08"/>
     <Label class="entry" text="entry 09"/>
     <Label class="entry" text="entry 10 — the end"/>
+  </Element>
+
+  <!-- A ROW scroller: a hotbar, a card strip, an inventory row. Note there is
+       no horizontal scrollbar to drag on a normal mouse, so the plain wheel is
+       transferred to the x axis when an element scrolls only horizontally —
+       otherwise this panel would be visibly scrollable and completely
+       unreachable. Shift+wheel also works, and is what you need on a scroller
+       with range on both axes. -->
+  <Element name="hotbar" class="hotbar">
+    <Element class="slot"/><Element class="slot"/><Element class="slot"/>
+    <Element class="slot"/><Element class="slot"/><Element class="slot"/>
+    <Element class="slot"/><Element class="slot"/><Element class="slot"/>
   </Element>
 
   <!-- Decorative overlay. pointer-events:none in the stylesheet, or this

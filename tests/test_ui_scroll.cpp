@@ -309,44 +309,109 @@ TEST(UIScroll, WheelStopsAtTheEndsWithoutOverscrolling) {
     EXPECT_FLOAT_EQ(d.box->scrollOffset().y, 0.f);
 }
 
-// No chaining. The target is the nearest ancestor that IS scrollable on the
-// axis, not the nearest that can still MOVE on it — otherwise an inner list
-// resting at its bottom (the resting state of every log) would teleport the
-// outer panel on the next notch.
-TEST(UIScroll, WheelDoesNotChainToTheParent) {
+namespace {
+
+// An inner scroller inside an outer one, each with range of its own.
+struct NestedDoc {
     UIDocument doc;
-    UIElement* outer = doc.root().AddChild("outer");
-    outer->style().overflowX = outer->style().overflowY = Overflow::Scroll;
-    outer->style().width = StyleLength::Px(200.f);
-    outer->style().height = StyleLength::Px(100.f);
+    UIElement* outer = nullptr;
+    UIElement* inner = nullptr;
 
-    UIElement* inner = outer->AddChild("inner");
-    inner->style().overflowX = inner->style().overflowY = Overflow::Scroll;
-    inner->style().width = StyleLength::Px(180.f);
-    inner->style().height = StyleLength::Px(80.f);
-    for (int i = 0; i < 4; ++i) {
-        inner->AddChild("r" + std::to_string(i))->style().height = StyleLength::Px(50.f);
+    NestedDoc() {
+        outer = doc.root().AddChild("outer");
+        outer->style().overflowX = outer->style().overflowY = Overflow::Scroll;
+        outer->style().width = StyleLength::Px(200.f);
+        outer->style().height = StyleLength::Px(100.f);
+
+        inner = outer->AddChild("inner");
+        inner->style().overflowX = inner->style().overflowY = Overflow::Scroll;
+        inner->style().width = StyleLength::Px(180.f);
+        inner->style().height = StyleLength::Px(80.f);
+        for (int i = 0; i < 4; ++i) {
+            inner->AddChild("r" + std::to_string(i))->style().height = StyleLength::Px(50.f);
+        }
+        outer->AddChild("tail")->style().height = StyleLength::Px(300.f);
+        doc.Layout(400.f, 400.f);
     }
-    // Something to give the OUTER scroller range of its own.
-    outer->AddChild("tail")->style().height = StyleLength::Px(300.f);
-    doc.Layout(400.f, 400.f);
-    ASSERT_GT(inner->maxScroll().y, 0.f);
-    ASSERT_GT(outer->maxScroll().y, 0.f);
+    // Aimed at wherever the inner list currently IS: scrolling the outer one
+    // moves it, and a hardcoded point would silently start hitting the tail.
+    void Wheel(float y) {
+        UIPointerState p;
+        p.position = inner->layout().position + inner->layout().size * 0.5f;
+        p.inside = true;
+        p.wheel = { 0.f, y };
+        doc.UpdatePointer(p);
+        doc.Layout(400.f, 400.f);
+    }
+    // Long enough with no wheel that the next notch starts a new GESTURE.
+    void Pause() { doc.AdvanceTime(0.5f); }
+};
 
-    // Park the inner one at its end, then keep scrolling over it.
-    inner->SetScrollOffset({ 0.f, inner->maxScroll().y });
-    doc.Layout(400.f, 400.f);
-    const float outerBefore = outer->scrollOffset().y;
+} // namespace
 
-    UIPointerState p;
-    p.position = { 100.f, 40.f };            // over the inner list
-    p.inside = true;
-    p.wheel = { 0.f, -3.f };
-    doc.UpdatePointer(p);
-    doc.Layout(400.f, 400.f);
+// Chaining is safe only WITH latching, which is the whole reason the two ship
+// together. Mid-flick the element that first moved keeps the wheel, even once it
+// runs out — otherwise reading a list to its bottom and rolling once more would
+// carry the outer panel out from under the cursor.
+TEST(UIScroll, AWheelGestureDoesNotChainMidFlick) {
+    NestedDoc d;
+    ASSERT_GT(d.inner->maxScroll().y, 0.f);
+    ASSERT_GT(d.outer->maxScroll().y, 0.f);
 
-    EXPECT_FLOAT_EQ(outer->scrollOffset().y, outerBefore)
-        << "the wheel chained to the outer panel when the inner list ran out";
+    d.Wheel(-1.f);                       // starts a gesture on the inner list
+    ASSERT_GT(d.inner->scrollOffset().y, 0.f);
+    const float outerBefore = d.outer->scrollOffset().y;
+
+    // Keep flicking, with no pause, well past the inner list's end.
+    for (int i = 0; i < 10; ++i) d.Wheel(-1.f);
+
+    EXPECT_FLOAT_EQ(d.inner->scrollOffset().y, d.inner->maxScroll().y);
+    EXPECT_FLOAT_EQ(d.outer->scrollOffset().y, outerBefore)
+        << "the gesture chained to the outer panel when the inner list ran out";
+}
+
+// A NEW gesture does chain, which is what a browser does and what makes a long
+// page usable when the cursor happens to rest over an exhausted inner list.
+TEST(UIScroll, ANewWheelGestureChainsToTheParent) {
+    NestedDoc d;
+    d.inner->SetScrollOffset({ 0.f, d.inner->maxScroll().y });
+    d.doc.Layout(400.f, 400.f);
+    const float outerBefore = d.outer->scrollOffset().y;
+
+    d.Pause();
+    d.Wheel(-1.f);
+
+    EXPECT_GT(d.outer->scrollOffset().y, outerBefore)
+        << "a fresh gesture over an exhausted list did not reach its container";
+    EXPECT_FLOAT_EQ(d.inner->scrollOffset().y, d.inner->maxScroll().y)
+        << "the inner list moved when it had no room";
+}
+
+// Chaining picks the first ancestor with ROOM IN THIS DIRECTION, not merely one
+// that scrolls: at the bottom of the inner list, scrolling back up must stay
+// with it rather than chaining.
+TEST(UIScroll, ChainingIsDirectional) {
+    NestedDoc d;
+    d.inner->SetScrollOffset({ 0.f, d.inner->maxScroll().y });
+    // A SMALL outer offset: enough that the outer could move up if the wheel
+    // wrongly chained, but not so much that it pushes the inner list out from
+    // under the cursor and makes the test prove nothing.
+    d.outer->SetScrollOffset({ 0.f, 20.f });
+    d.doc.Layout(400.f, 400.f);
+    const float outerBefore = d.outer->scrollOffset().y;
+    // The wheel aims at the inner list's centre, so that point has to still be
+    // inside the outer box — otherwise the outer clips it away, the hit test
+    // returns nothing, and the test proves nothing.
+    const float aimY = d.inner->layout().position.y + d.inner->layout().size.y * 0.5f;
+    ASSERT_GT(aimY, d.outer->layout().position.y);
+    ASSERT_LT(aimY, d.outer->layout().position.y + d.outer->layout().size.y);
+
+    d.Pause();
+    d.Wheel(1.f);                        // back up: the inner list has room
+
+    EXPECT_LT(d.inner->scrollOffset().y, d.inner->maxScroll().y);
+    EXPECT_FLOAT_EQ(d.outer->scrollOffset().y, outerBefore)
+        << "scrolling back chained away from a list that still had room";
 }
 
 // A handler may pre-empt the wheel, exactly as it may pre-empt a key before a
@@ -860,4 +925,289 @@ TEST(UIScroll, AlwaysVisiblePaintsABarWithNoRange) {
     EXPECT_GT(always.thumbY.size.y, 0.f);
     EXPECT_FLOAT_EQ(always.thumbY.size.y, always.trackY.size.y)
         << "with no range the thumb should fill its track";
+}
+
+// ===================================================== the wheel axis-lock
+
+namespace {
+
+// A horizontal strip: a hotbar, a card carousel, an inventory row. The common
+// non-list scroller in a HUD, and the one a mouse cannot reach without this.
+struct RowDoc {
+    UIDocument doc;
+    UIElement* strip = nullptr;
+
+    explicit RowDoc(bool alsoVertical = false) {
+        strip = doc.root().AddChild("strip");
+        strip->style().direction = FlexDirection::Row;
+        strip->style().overflowX = Overflow::Scroll;
+        strip->style().overflowY = alsoVertical ? Overflow::Scroll : Overflow::Hidden;
+        strip->style().width = StyleLength::Px(200.f);
+        strip->style().height = StyleLength::Px(alsoVertical ? 40.f : 60.f);
+        for (int i = 0; i < 6; ++i) {
+            UIElement* c = strip->AddChild("c" + std::to_string(i));
+            c->style().width = StyleLength::Px(80.f);
+            c->style().height = StyleLength::Px(60.f);
+        }
+        doc.Layout(400.f, 400.f);
+    }
+    void Wheel(float x, float y, bool shift = false) {
+        UIPointerState p;
+        p.position = { 100.f, 20.f };
+        p.inside = true;
+        p.wheel = { x, y };
+        p.shift = shift;
+        doc.UpdatePointer(p);
+        doc.Layout(400.f, 400.f);
+    }
+};
+
+} // namespace
+
+// A mouse has ONE wheel. Before this a row-only scroller was completely dead to
+// it: a vertical notch is {0, -1}, which fails the X test, and the element fails
+// the Y test too, so the wheel walked straight past to an ancestor — leaving a
+// panel with a visible, draggable thumb that the wheel would not move.
+TEST(UIScroll, AVerticalWheelScrollsARowOnlyScroller) {
+    RowDoc d;
+    ASSERT_GT(d.strip->maxScroll().x, 0.f);
+    ASSERT_FLOAT_EQ(d.strip->maxScroll().y, 0.f);
+
+    d.Wheel(0.f, -1.f);
+    EXPECT_GT(d.strip->scrollOffset().x, 0.f)
+        << "a row-only scroller is unreachable with a normal mouse wheel";
+    EXPECT_FLOAT_EQ(d.strip->scrollOffset().y, 0.f);
+}
+
+// ...but only when the element cannot use the vertical wheel itself. A scroller
+// with range on BOTH axes must not have its vertical wheel hijacked sideways.
+TEST(UIScroll, AVerticalWheelDoesNotHijackATwoAxisScroller) {
+    RowDoc d(/*alsoVertical=*/true);
+    ASSERT_GT(d.strip->maxScroll().x, 0.f);
+    ASSERT_GT(d.strip->maxScroll().y, 0.f);
+
+    d.Wheel(0.f, -1.f);
+    EXPECT_GT(d.strip->scrollOffset().y, 0.f);
+    EXPECT_FLOAT_EQ(d.strip->scrollOffset().x, 0.f) << "the vertical wheel leaked into x";
+}
+
+// Shift+wheel is the desktop convention for reaching a horizontal scroller. The
+// swap happens once, in the default action, so the Game view and the shipped
+// player cannot disagree — each host only reports whether shift is held.
+TEST(UIScroll, ShiftWheelSwapsTheAxes) {
+    RowDoc d(/*alsoVertical=*/true);
+    d.Wheel(0.f, -1.f, /*shift=*/true);
+    EXPECT_GT(d.strip->scrollOffset().x, 0.f) << "shift+wheel did not reach the x axis";
+    EXPECT_FLOAT_EQ(d.strip->scrollOffset().y, 0.f);
+}
+
+// ==================================================== the track is clickable
+
+// The tracks are painted but were invisible to every hit path, so a press on one
+// fell through to the row underneath — the identical bug the thumb path was
+// written to kill, still live across most of the bar's area.
+TEST(UIScroll, TrackPressDoesNotClickThrough) {
+    ScrollDoc d;
+    UIElement* row = d.row(0);
+    row->setFocusable(true);
+    int clicks = 0;
+    row->OnClick([&](UIEvent&) { ++clicks; });
+
+    const auto& sc = *d.box->scrollState();
+    ASSERT_GT(sc.trackY.size.y, 0.f);
+    // Below the thumb, so squarely on the track.
+    const glm::vec2 onTrack{ sc.trackY.position.x + sc.trackY.size.x * 0.5f,
+                             sc.trackY.position.y + sc.trackY.size.y - 4.f };
+
+    UIPointerState p;
+    p.position = onTrack;
+    p.inside = true;
+    p.buttonDown = true;
+    d.doc.UpdatePointer(p);
+    p.buttonDown = false;
+    d.doc.UpdatePointer(p);
+
+    EXPECT_EQ(clicks, 0) << "the press went through the scrollbar track to the row";
+    EXPECT_EQ(d.doc.focused(), nullptr) << "pressing the track moved focus to the row";
+}
+
+TEST(UIScroll, TrackPressPagesTowardTheClick) {
+    ScrollDoc d;
+    const auto& sc = *d.box->scrollState();
+    const glm::vec2 below{ sc.trackY.position.x + 2.f,
+                           sc.trackY.position.y + sc.trackY.size.y - 4.f };
+
+    UIPointerState p;
+    p.position = below;
+    p.inside = true;
+    p.buttonDown = true;
+    d.doc.UpdatePointer(p);
+    d.Layout();
+
+    // 90% of a 100px box.
+    EXPECT_NEAR(d.box->scrollOffset().y, 90.f, 0.5f)
+        << "a press below the thumb did not page down";
+
+    // Holding does NOT repeat: that would need a held-duration clock, and the
+    // manual says so rather than leaving a held press looking broken.
+    const float afterOne = d.box->scrollOffset().y;
+    for (int i = 0; i < 5; ++i) { d.doc.UpdatePointer(p); d.Layout(); }
+    EXPECT_FLOAT_EQ(d.box->scrollOffset().y, afterOne) << "a held press repeated";
+
+    // Releasing and pressing again pages again.
+    p.buttonDown = false; d.doc.UpdatePointer(p); d.Layout();
+    p.buttonDown = true;  d.doc.UpdatePointer(p); d.Layout();
+    EXPECT_GT(d.box->scrollOffset().y, afterOne);
+}
+
+TEST(UIScroll, TrackPressAboveTheThumbPagesUp) {
+    ScrollDoc d;
+    d.box->SetScrollOffset({ 0.f, 300.f });
+    d.Layout();
+    const auto& sc = *d.box->scrollState();
+    const glm::vec2 above{ sc.trackY.position.x + 2.f, sc.trackY.position.y + 2.f };
+
+    UIPointerState p;
+    p.position = above;
+    p.inside = true;
+    p.buttonDown = true;
+    d.doc.UpdatePointer(p);
+    d.Layout();
+    EXPECT_NEAR(d.box->scrollOffset().y, 210.f, 0.5f) << "a press above the thumb did not page up";
+}
+
+TEST(UIScroll, PressingTheBarFocusesAFocusableScroller) {
+    ScrollDoc d;
+    d.box->setFocusable(true);
+    const auto& sc = *d.box->scrollState();
+
+    UIPointerState p;
+    p.position = sc.thumbY.position + sc.thumbY.size * 0.5f;
+    p.inside = true;
+    p.buttonDown = true;
+    d.doc.UpdatePointer(p);
+
+    EXPECT_EQ(d.doc.focused(), d.box)
+        << "dragging the thumb then pressing PageDown would be a coin flip";
+}
+
+// ===================================================== keyboard scrolling
+
+namespace {
+
+// UIDocument is deliberately non-copyable, so the fixture is focused in place
+// rather than returned by value.
+void focusTheScroller(ScrollDoc& d) {
+    d.box->setFocusable(true);
+    d.doc.SetFocus(d.box);
+    d.Layout();
+}
+
+void SendKey(UIDocument& doc, UIKey k) {
+    UIKeyboardState kb;
+    UIKeyEvent e;
+    e.key = k;
+    kb.keys.push_back(e);
+    doc.UpdateKeyboard(kb);
+}
+
+} // namespace
+
+TEST(UIScroll, PageKeysScrollTheFocusedScroller) {
+    ScrollDoc d;
+    focusTheScroller(d);
+    ASSERT_EQ(d.doc.focused(), d.box);
+
+    SendKey(d.doc, UIKey::PageDown);
+    d.Layout();
+    EXPECT_NEAR(d.box->scrollOffset().y, 90.f, 0.5f) << "PageDown did nothing";
+
+    SendKey(d.doc, UIKey::PageUp);
+    d.Layout();
+    EXPECT_FLOAT_EQ(d.box->scrollOffset().y, 0.f);
+}
+
+TEST(UIScroll, HomeAndEndJumpToTheEnds) {
+    ScrollDoc d;
+    focusTheScroller(d);
+    SendKey(d.doc, UIKey::End);
+    d.Layout();
+    EXPECT_FLOAT_EQ(d.box->scrollOffset().y, d.box->maxScroll().y);
+
+    SendKey(d.doc, UIKey::Home);
+    d.Layout();
+    EXPECT_FLOAT_EQ(d.box->scrollOffset().y, d.box->minScroll().y);
+}
+
+// A page key reaches the nearest scrollable ANCESTOR, so focusing a row inside
+// the list still pages the list.
+TEST(UIScroll, PageKeysReachTheNearestScrollableAncestor) {
+    ScrollDoc d;
+    d.row(0)->setFocusable(true);
+    d.doc.SetFocus(d.row(0));
+    d.Layout();
+
+    SendKey(d.doc, UIKey::PageDown);
+    d.Layout();
+    EXPECT_GT(d.box->scrollOffset().y, 0.f)
+        << "a focused row did not page its container";
+}
+
+// The documented asymmetry, and it matches a browser textarea: a focused field
+// keeps Home/End for its own line, but lets PageUp/PageDown page its container.
+TEST(UIScroll, AFocusedFieldKeepsHomeEndButPassesPageKeys) {
+    UIDocument doc;
+    std::vector<std::string> errors;
+    ASSERT_TRUE(UIMarkup::LoadInto(doc, R"(
+        <UI>
+          <Element name="box" style="overflow: scroll; width: 200px; height: 100px">
+            <TextField name="f" multiline="true" value="one two three"
+                       style="width: 180px; height: 40px"/>
+            <Element style="height: 60px"/><Element style="height: 60px"/>
+            <Element style="height: 60px"/>
+          </Element>
+        </UI>)", errors, "t.uxml")) << (errors.empty() ? "" : errors[0]);
+    UIStyleSheet sheet;
+    sheet.ApplyTo(doc.root());
+    doc.Layout(400.f, 400.f);
+
+    UIElement* box = doc.root().Find("box");
+    UIElement* f = doc.root().Find("f");
+    ASSERT_NE(box, nullptr);
+    ASSERT_NE(f, nullptr);
+    ASSERT_GT(box->maxScroll().y, 0.f);
+
+    doc.SetFocus(f);
+    f->textEdit()->SetCaret(4);
+
+    // End belongs to the FIELD: the caret moves and the container does not.
+    SendKey(doc, UIKey::End);
+    doc.Layout(400.f, 400.f);
+    EXPECT_FLOAT_EQ(box->scrollOffset().y, 0.f)
+        << "End escaped the field and scrolled its container";
+
+    // PageDown belongs to the CONTAINER: UITextEdit deliberately does not
+    // consume it, so it falls through to the scroll default action.
+    SendKey(doc, UIKey::PageDown);
+    doc.Layout(400.f, 400.f);
+    EXPECT_GT(box->scrollOffset().y, 0.f)
+        << "PageDown was swallowed by the focused field";
+}
+
+// A page key with nothing scrollable in the chain must stay unconsumed, or it
+// would silently swallow a shortcut an app wanted.
+TEST(UIScroll, PageKeysAreNotConsumedWithoutAScroller) {
+    UIDocument doc;
+    UIElement* b = doc.root().AddChild("b");
+    b->style().width = StyleLength::Px(50.f);
+    b->style().height = StyleLength::Px(50.f);
+    b->setFocusable(true);
+    doc.Layout(400.f, 400.f);
+    doc.SetFocus(b);
+
+    int seen = 0;
+    b->OnKeyDown([&](UIEvent& e) { if (e.key == UIKey::PageDown) ++seen; });
+    SendKey(doc, UIKey::PageDown);
+    EXPECT_EQ(seen, 1) << "the handler must still see the key";
+    SUCCEED();
 }
