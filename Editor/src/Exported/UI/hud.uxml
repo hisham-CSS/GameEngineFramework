@@ -1,21 +1,42 @@
 <!--
   Sample HUD structure.
 
-  Structure only: appearance lives in hud.uss, and behaviour is attached in C++
-  by looking elements up by name (see DemoHud::Bind). Keep the names in sync
-  with that code — a renamed element silently loses its handler.
+  Structure here, appearance in hud.uss, and VALUES arrive by BINDING: a {hole}
+  reads a named property from the data source the game registered (see
+  DemoHud::Init). Gameplay writes a value; this file decides how it reads.
+
+  Because the data source lives OUTSIDE the element tree, a hot reload rebuilds
+  every element without losing a single value — so unlike a cached element
+  pointer or an event handler, a binding needs nothing re-attached in C++.
+
+  ATTRIBUTES
+    name / class / style     as before
+    text="SCORE {score}"     literal text with {holes}; write {{ and }} for
+                             literal braces
+    data-source="hud"        inherited by this element and its whole subtree
+
+  A {hole} is `{path | converter | converter : decimals}`. There is no
+  arithmetic and no ternary: derived values are named C++ converters, which are
+  breakpointable and unit-testable — and which mean no attribute in this file
+  ever needs '<' or '&&', both illegal in an XML attribute value.
+
+  A misspelt ATTRIBUTE is a load error that leaves the running UI untouched. A
+  misspelt PATH is reported with the list of properties that do exist, and only
+  that one binding goes quiet.
 
   HOT RELOAD: the running app reads the STAGED copy next to the executable
   (build/bin/<config>/Exported/UI/), which every build refreshes from this file.
   Edit the staged copy to iterate live; copy your changes back here to keep
   them, or edit here and rebuild.
 -->
-<UI name="hud">
+<UI name="hud" data-source="hud">
   <Element name="topBar" class="row">
     <Element name="healthTrack" class="track">
       <Element name="healthFill" class="fill"/>
     </Element>
-    <Label name="scoreLabel" class="readout" text="SCORE 0"/>
+    <!-- The whole readout in one attribute: no placeholder text and no separate
+         format string in C++, so there is nothing to drift out of sync. -->
+    <Label name="scoreLabel" class="readout" text="SCORE {score}"/>
   </Element>
 
   <Element name="buttonRow" class="row-left">

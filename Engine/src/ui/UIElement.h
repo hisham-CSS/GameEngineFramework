@@ -14,9 +14,11 @@
 #include "UIStyle.h"
 #include "UIEvent.h"
 #include "UIStyleSheet.h"   // UIDeclaration (for inline styles)
+#include "UIBinding.h"      // UIBinding / UIBoundAction (authored, owned here)
 
 #include <glm/glm.hpp>
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <utility>
@@ -92,6 +94,41 @@ namespace MyCoreEngine::ui {
         // it.
         void setText(std::string t);
 
+        // Bumped by setText, right next to the measurement invalidation. A raw
+        // `style().text = x` does NOT bump it, which is what makes "the write
+        // went through setText and therefore re-measured" assertable without a
+        // font — and a font needs a GL context (Font::IsValid() is a texture id).
+        std::uint32_t textRevision() const { return textRevision_; }
+
+        // ---- data binding ----
+        // Authored bindings and actions for this element, parsed from markup.
+        // OWNED HERE on purpose: they die with the element, so a hot reload
+        // cannot leave a live binding pointing at freed memory. UIBinder's flat
+        // index is only a cache over these.
+        const std::vector<UIBinding>& bindings() const { return bindings_; }
+        void setBindings(std::vector<UIBinding> b);
+        const std::vector<UIBoundAction>& boundActions() const { return actions_; }
+        void setBoundActions(std::vector<UIBoundAction> a);
+
+        // The data source name this element declares for itself and its whole
+        // subtree ("" = inherit from an ancestor), from `data-source=`.
+        const std::string& dataSourceName() const { return dataSource_; }
+        void setDataSourceName(std::string s);
+
+        // Bumped by anything that changes the SHAPE of a tree: AddChild,
+        // RemoveChild, ClearChildren, setBindings, setBoundActions, and
+        // destruction.
+        //
+        // UIBinder caches raw UIElement* and would dereference a freed element
+        // if gameplay (or an event handler — UpdatePointer explicitly allows
+        // it) restructured the tree between frames. Comparing one integer at
+        // the top of every binding pass forces a re-collect instead. It is
+        // process-wide and unsynchronised, which is safe for the same reason
+        // the layout font scope is: the UI runs inside the render pass, on one
+        // thread. A false positive from another document costs one extra tree
+        // walk, never correctness.
+        static std::uint32_t structureEpoch();
+
         const ComputedLayout& layout() const { return layout_; }
 
         // Depth-first search by name; null when absent. Linear — fine for the
@@ -134,6 +171,11 @@ namespace MyCoreEngine::ui {
         std::vector<UIDeclaration> inlineStyle_;
         Style style_{};
         ComputedLayout layout_{};
+
+        std::vector<UIBinding>     bindings_;
+        std::vector<UIBoundAction> actions_;
+        std::string   dataSource_;
+        std::uint32_t textRevision_ = 0;
 
         std::vector<std::pair<UIEventType, UIEventHandler>> listeners_;
         bool hovered_ = false;

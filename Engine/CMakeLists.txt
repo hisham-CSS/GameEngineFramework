@@ -80,6 +80,12 @@ add_library(Engine SHARED
     # through Renderer2D. Modelled on web front-end / Unity UI Toolkit.
     src/ui/UIStyle.h
     src/ui/UIEvent.h
+    src/ui/UIValue.h
+    src/ui/UIValue.cpp
+    src/ui/UIDataSource.h
+    src/ui/UIDataSource.cpp
+    src/ui/UIBinding.h
+    src/ui/UIBinding.cpp
     src/ui/UIElement.h
     src/ui/UIElement.cpp
     src/ui/UIStyleSheet.h

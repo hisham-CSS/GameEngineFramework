@@ -12,6 +12,8 @@
 // pointers and re-attaches behaviour. Forgetting to re-bind is the obvious
 // failure mode of any hot-reload system, so the API makes it the only way in.
 #include "../core/Core.h"
+#include "UIBinding.h"
+#include "UIDataSource.h"
 #include "UIElement.h"
 #include "UIStyleSheet.h"
 
@@ -49,6 +51,23 @@ namespace MyCoreEngine::ui {
         const UIDocument& document() const { return doc_; }
         const UIStyleSheet& styleSheet() const { return sheet_; }
 
+        // Where an app registers its data sources, actions and converters.
+        // These live OUTSIDE the element tree, which is what makes a hot reload
+        // lossless: rebuilding the tree cannot touch a registration or a value,
+        // so unlike every cached element pointer, a binding needs nothing
+        // re-attached in the bind callback.
+        //
+        // Register sources BEFORE Load when you can. Registering later still
+        // works — the affected bindings report once and resolve on the first
+        // frame after the registration — but the report is noise you do not
+        // need.
+        UIBindingContext& bindingContext() { return ctx_; }
+        const UIBindingContext& bindingContext() const { return ctx_; }
+
+        // Drive this from your draw callback, BEFORE Layout.
+        UIBinder& binder() { return binder_; }
+        const UIBinder& binder() const { return binder_; }
+
         // Diagnostics from the last load attempt (markup and stylesheet).
         const std::vector<std::string>& errors() const { return errors_; }
         bool ok() const { return errors_.empty(); }
@@ -65,6 +84,11 @@ namespace MyCoreEngine::ui {
 
         UIDocument   doc_;
         UIStyleSheet sheet_;
+        // AFTER doc_ and sheet_ on purpose: binder_ holds raw pointers into the
+        // tree, and members are destroyed in reverse declaration order, so the
+        // index dies before the thing it indexes.
+        UIBindingContext ctx_;
+        UIBinder         binder_;
         std::string  markupPath_, stylePath_;
         BindFn       bind_;
         Stamp        markupStamp_{}, styleStamp_{};

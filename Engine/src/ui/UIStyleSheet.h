@@ -107,6 +107,18 @@ namespace MyCoreEngine::ui {
                                          std::vector<UIDeclaration>& out,
                                          std::vector<std::string>& errors);
 
+        // The individual value parsers, exposed so a bound value coerced from a
+        // string means EXACTLY what the same text means in a declaration.
+        // Sharing the code is the only way to guarantee that: two parsers that
+        // agree today drift the first time one of them learns a new unit.
+        //
+        // All three reject non-finite input. strtod is C99-mandated to accept
+        // "nan" and "inf", so without that check a NaN travelling through a
+        // string parses back as a valid number and reaches the layout engine.
+        static bool ParseLengthValue(const std::string& s, StyleLength& out);
+        static bool ParseColorValue(const std::string& s, glm::vec4& out);
+        static bool ParseNumberValue(const std::string& s, float& out);
+
     private:
         std::vector<UIRule> rules_;
         std::vector<std::string> errors_;

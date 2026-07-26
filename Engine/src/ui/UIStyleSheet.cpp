@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
@@ -52,6 +53,11 @@ namespace {
         if (end == s.c_str()) return false;
         while (end && *end && std::isspace((unsigned char)*end)) ++end;
         if (end && *end != '\0') return false; // trailing junk
+        // strtod is C99-mandated to accept "nan", "inf" and "infinity", so
+        // `width: nan` used to parse successfully and hand YGNodeStyleSetWidth
+        // a NaN, which makes the whole layout undefined with nothing logged
+        // anywhere. It is a bad number, so it is rejected like any other.
+        if (!std::isfinite(v)) return false;
         out = float(v);
         return true;
     }
@@ -333,6 +339,16 @@ bool UIStyleSheet::ParseDeclarationList(const std::string& text,
         out.push_back(d);
     }
     return ok;
+}
+
+bool UIStyleSheet::ParseLengthValue(const std::string& s, StyleLength& out) {
+    return parseLength(s, out);
+}
+bool UIStyleSheet::ParseColorValue(const std::string& s, glm::vec4& out) {
+    return parseColor(s, out);
+}
+bool UIStyleSheet::ParseNumberValue(const std::string& s, float& out) {
+    return parseNumber(trim(s), out);
 }
 
 void UIStyleSheet::Clear() { rules_.clear(); errors_.clear(); }

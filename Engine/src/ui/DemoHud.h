@@ -7,12 +7,19 @@
 // editor's Game view and the shipped Player can show the SAME UI from one
 // definition, which is what makes the Game view an honest preview.
 //
-// It is now authored as ASSETS (Exported/UI/hud.uxml + hud.uss) rather than
-// built in C++, which is the point of the milestone: structure and appearance
-// are data, and this class only supplies behaviour — attaching handlers and
-// pushing values in. Both files hot-reload while the game runs.
+// It is authored as ASSETS (Exported/UI/hud.uxml + hud.uss) rather than built
+// in C++: structure and appearance are data, and this class supplies only what
+// data cannot — behaviour, and the model gameplay writes to. Both files hot
+// reload while the game runs.
+//
+// VALUES arrive by BINDING, not by this class reaching into the tree. The model
+// lives in `source_`, which is not part of the document, so a hot reload
+// rebuilds every element without losing one value and without this class
+// re-pushing anything. That re-push is the step every hot-reloading UI forgets
+// exactly once.
 #include "../core/Core.h"
 #include "UIAssetDocument.h"
+#include "UIDataSource.h"
 #include "UIElement.h"
 #include "../render2d/Font.h"
 
@@ -36,18 +43,24 @@ namespace MyCoreEngine::ui {
                   const std::string& fontPath = "Exported/Fonts/Roboto.ttf",
                   float fontPixelHeight = 18.0f);
 
-        // True once the markup loaded and the named elements were found, i.e.
-        // the HUD is wired up and will respond to SetHealth/SetScore/clicks.
-        bool IsReady() const { return healthFill_ && scoreLabel_ && button_; }
+        // Assets loaded clean AND every authored binding resolved. Strictly
+        // stronger than the null-pointer check this used to be: a typo in a
+        // bound path is now a reported failure rather than a readout that
+        // silently never updates.
+        bool IsReady() const { return assets_.ok() && assets_.binder().ok() && healthFill_; }
         bool hasFont() const { return font_.IsValid(); }
         const std::vector<std::string>& errors() const { return assets_.errors(); }
 
-        // Gameplay pokes these; the tree is retained, so only what changed is
-        // re-measured on the next layout. Values are re-applied after a
-        // hot-reload, so editing the markup does not reset your health bar.
+        // Gameplay writes the MODEL; hud.uxml decides what it looks like. Both
+        // survive a hot reload untouched — the model because it is not part of
+        // the tree, the look because it IS the tree and gets rebuilt from disk.
         void SetHealth(float fraction01);
         void SetScore(int score);
-        int  score() const { return score_; }
+        int  score() const;
+
+        // The HUD's data source, for a game that wants to write its own values
+        // or bind new ones from markup without touching this class.
+        UIDataSource& data() { return source_; }
 
         // Pointer state in UI-LOCAL pixels, supplied by the host (only it knows
         // where the UI surface sits — see UIPointerState).
@@ -74,14 +87,17 @@ namespace MyCoreEngine::ui {
         static constexpr glm::vec4 kButtonPressed{ 0.85f, 0.55f, 0.15f, 1.00f };
 
         Font            font_;
+        // DECLARED BEFORE assets_, and that is load-bearing: the binder inside
+        // assets_ holds a raw pointer to this source, and members are destroyed
+        // in reverse declaration order. UIDataSource also deletes its copy and
+        // its move, so relocating one is a compile error rather than a HUD that
+        // draws perfectly and silently stops updating.
+        UIDataSource    source_;
         UIAssetDocument assets_;
         UIElement*      healthFill_ = nullptr;
-        UIElement*      scoreLabel_ = nullptr;
         UIElement*      button_ = nullptr;
         glm::vec4       buttonIdle_{ 0.16f, 0.17f, 0.20f, 0.90f };
         UIPointerState  pointer_{};
-        float           health_ = 1.0f;
-        int             score_ = 0;
     };
 
 } // namespace MyCoreEngine::ui

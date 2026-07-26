@@ -15,6 +15,14 @@ bool DemoHud::Init(const std::string& markupPath, const std::string& stylePath,
     const bool fontOk = font_.LoadFromFile(fontPath, fontPixelHeight);
     if (!fontOk) std::cerr << "[UI] HUD font not loaded: '" << fontPath << "'\n";
 
+    // Seeded and registered BEFORE Load, so the very first binding pass has
+    // real values and a clean start reports nothing unresolved. Registering
+    // later would still work — the bindings resolve on the next frame — but the
+    // report is noise nobody needs.
+    source_.SetNumber("health", 1.0f);
+    source_.SetInt("score", 0);
+    assets_.bindingContext().RegisterSource("hud", &source_);
+
     const bool markupOk =
         assets_.Load(markupPath, stylePath, [this](UIDocument& doc) { Bind(doc); });
 
@@ -22,50 +30,46 @@ bool DemoHud::Init(const std::string& markupPath, const std::string& stylePath,
 }
 
 void DemoHud::Bind(UIDocument& doc) {
-    // A reload rebuilds the tree, so everything cached from the previous
-    // version is dangling by now. Re-find, re-attach, then re-apply the live
-    // values — editing the markup must not reset your health bar or score.
+    // BEHAVIOUR only, and only the part binding cannot express yet. The
+    // "re-push everything you cached" step this function used to end with
+    // (SetHealth(health_); SetScore(score_);) is gone: the model is not in the
+    // tree, so a rebuild cannot lose it.
     healthFill_ = doc.root().Find("healthFill");
-    scoreLabel_ = doc.root().Find("scoreLabel");
     button_ = doc.root().Find("scoreButton");
 
-    // Names are the contract between markup and behaviour, and a typo would
-    // otherwise show up as a button that silently does nothing.
     if (!healthFill_) std::cerr << "[UI] HUD markup has no element named 'healthFill'\n";
-    if (!scoreLabel_) std::cerr << "[UI] HUD markup has no element named 'scoreLabel'\n";
     if (!button_)     std::cerr << "[UI] HUD markup has no element named 'scoreButton'\n";
 
     if (button_) {
-        // Bind runs after the stylesheet has been applied, so this is the
-        // authored idle colour — capture it instead of hard-coding one, and
-        // restyling .btn in hud.uss keeps working.
+        // Bind runs after the cascade, so this is the authored idle colour.
         buttonIdle_ = button_->style().backgroundColor;
         // The click lands on the BUTTON even though the text is drawn by the
         // same element; once this is a composite widget (icon + label children)
         // bubbling is what keeps this handler working unchanged.
-        button_->OnClick([this](UIEvent&) { SetScore(score_ + 100); });
+        button_->OnClick([this](UIEvent&) { SetScore(score() + 100); });
     }
 
-    SetHealth(health_);
-    SetScore(score_);
+    // Still imperative because the fill's width and colour are still written
+    // from C++; both become authored bindings in the next milestone.
+    SetHealth(source_.GetNumber("health", 1.0f));
 }
 
 void DemoHud::SetHealth(float fraction01) {
-    health_ = std::clamp(fraction01, 0.0f, 1.0f);
+    const float h = std::clamp(fraction01, 0.0f, 1.0f);
+    source_.SetNumber("health", h);
     if (healthFill_) {
-        healthFill_->style().width = StyleLength::Pct(health_ * 100.0f);
+        healthFill_->style().width = StyleLength::Pct(h * 100.0f);
         // Colour shifts toward amber as it drains — a visible sign that a plain
         // style write on a retained tree takes effect next frame.
         healthFill_->style().backgroundColor =
-            glm::vec4(0.85f, 0.22f + (1.0f - health_) * 0.45f, 0.24f, 1.0f);
+            glm::vec4(0.85f, 0.22f + (1.0f - h) * 0.45f, 0.24f, 1.0f);
     }
 }
 
-void DemoHud::SetScore(int score) {
-    score_ = score;
-    // setText (not style().text) so the measured width is invalidated.
-    if (scoreLabel_) scoreLabel_->setText("SCORE " + std::to_string(score_));
-}
+// No setText anywhere: hud.uxml says text="SCORE {score}", so writing the model
+// is the whole job and the label's format is hot-reloadable content.
+void DemoHud::SetScore(int score) { source_.SetInt("score", score); }
+int  DemoHud::score() const { return int(source_.GetInt("score")); }
 
 void DemoHud::SetPointer(const UIPointerState& p) { pointer_ = p; }
 
@@ -77,9 +81,14 @@ void DemoHud::Draw(Renderer2D& r2d, int widthPx, int heightPx, float dt) {
     UIDocument& doc = assets_.document();
     const Font* f = font_.IsValid() ? &font_ : nullptr;
 
-    // Order matters: layout first (hit-testing reads computed rects), then
-    // input (handlers may change styles), then paint — so a press is visible on
-    // the very frame it happens rather than one frame late.
+    // Bindings BEFORE layout, so a changed label is MEASURED at its new width
+    // on the frame it changes. A setText from an input handler never was: it
+    // lands after the layout solve and paints at the previous frame's size.
+    assets_.binder().UpdateToTarget();
+
+    // Then layout (hit-testing reads computed rects), then input (handlers may
+    // change styles), then paint — so a press is visible on the very frame it
+    // happens rather than one frame late.
     doc.Layout(float(widthPx), float(heightPx), f);
     doc.UpdatePointer(pointer_);
 
@@ -90,6 +99,15 @@ void DemoHud::Draw(Renderer2D& r2d, int widthPx, int heightPx, float dt) {
             button_->isPressed() ? kButtonPressed
           : button_->isHovered() ? kButtonHover
                                  : buttonIdle_;
+    }
+
+    // A click handler wrote the model AFTER layout. Run the pass again and
+    // re-solve only if something that can change a box moved — a colour-only
+    // write costs nothing, and on a quiet frame this whole line is a handful of
+    // integer compares. This call also re-checks the structure epoch, which is
+    // what makes a handler's RemoveChild safe.
+    if (assets_.binder().UpdateToTarget().wroteLayout) {
+        doc.Layout(float(widthPx), float(heightPx), f);
     }
 
     doc.Draw(r2d, f);

@@ -1,0 +1,189 @@
+#pragma once
+// The VIEW half of data binding: what the markup authored, and the runtime that
+// applies it.
+//
+// Two halves with very different lifetimes, and keeping them apart is what makes
+// hot reload safe:
+//
+//   UIBinding      authored, immutable, and OWNED BY THE ELEMENT. A rebuilt tree
+//                  carries its own bindings and no runtime state at all, so a
+//                  binding can never outlive the element it points at — it IS
+//                  part of it.
+//   UIBinder       a flat index over every binding in a document, rebuilt from
+//                  scratch whenever the tree's structure changes. Holds raw
+//                  UIElement*, which is exactly why it re-collects on a
+//                  structure-epoch change instead of trusting them.
+//
+// There is deliberately NO expression language. A hole is a path, an optional
+// converter chain, and an optional format spec. Arithmetic and comparison would
+// need '<' and '&&' inside XML attribute values, which XML forbids — every
+// comparison would have to be written backwards ("0.3 > health") forever.
+// Derived values are named C++ converters instead: real functions you can
+// breakpoint, and a typo answered with the list of names that exist.
+#include "../core/Core.h"
+#include "UIDataSource.h"
+#include "UIEvent.h"
+#include "UIStyleSheet.h"   // UIDeclaration::Prop
+
+#include <cstdint>
+#include <string>
+#include <vector>
+
+namespace MyCoreEngine::ui {
+
+    class UIElement;
+    class UIDocument;
+
+    // One {hole}: `{path | converter | converter : decimals}`.
+    struct UIHole {
+        std::string sourceName;   // "" => inherit from the nearest data-source ancestor
+        std::string propName;
+        std::vector<std::string> converters;   // applied left to right
+        int decimals = -1;        // -1 = "%g"
+    };
+
+    // Literal chunks interleaved with holes, compiled once at markup load.
+    // literals.size() == holes.size() + 1, always — so rendering is a simple
+    // alternating walk with no special cases at either end.
+    class ENGINE_API UITextTemplate {
+    public:
+        // "SCORE {score}", "{health | percent : 1}", "a {{literal}} brace".
+        static bool Compile(const std::string& text, UITextTemplate& out, std::string& err);
+
+        bool isConstant() const { return holes_.empty(); }
+        // Exactly one hole with no literal text on either side. That case skips
+        // stringification entirely, so a bound colour or length never has to
+        // survive a round trip through text.
+        bool isSingleHole() const {
+            return holes_.size() == 1 && literals_.size() == 2 &&
+                   literals_[0].empty() && literals_[1].empty();
+        }
+        const std::vector<UIHole>& holes() const { return holes_; }
+        const std::vector<std::string>& literals() const { return literals_; }
+
+    private:
+        std::vector<std::string> literals_;
+        std::vector<UIHole>      holes_;
+    };
+
+    struct UIBindTarget {
+        // Style/Display/Class/State arrive in later milestones; the enum is
+        // complete from the start so the switches that dispatch on it are
+        // written exhaustively once.
+        enum class Kind : std::uint8_t { Text, Style, Display, Class, State };
+        enum class StateProp : std::uint8_t { Hovered, Pressed };
+
+        Kind kind = Kind::Text;
+        UIDeclaration::Prop styleProp{};  // Kind::Style
+        std::string         className;    // Kind::Class
+        StateProp           state{};      // Kind::State
+    };
+
+    // One authored binding. Immutable after load.
+    struct ENGINE_API UIBinding {
+        UIBindTarget   target{};
+        UITextTemplate tmpl;
+        bool           negate = false;   // Display/Class: a leading '!'
+        std::string    pushPath;         // Kind::State only
+        // "text", "bind width", "if" — used verbatim in messages, so a
+        // diagnostic always names the attribute the author actually wrote.
+        std::string    label;
+    };
+
+    // An authored `on-<event>="actionName"`.
+    struct ENGINE_API UIBoundAction {
+        UIEventType type = UIEventType::Click;
+        std::string sourceName;   // "" => inherit
+        std::string actionName;
+        std::string label;        // "on-click"
+    };
+
+    struct UIBindTick {
+        std::size_t applied = 0;
+        // True only when a write can change a BOX. A colour-only write never
+        // triggers a re-layout, which is what keeps the post-input pass free on
+        // the frames that do not need it.
+        bool wroteLayout = false;
+    };
+
+    class ENGINE_API UIBinder {
+    public:
+        // Walks the tree once, resolves data-source inheritance, collects every
+        // authored binding into a flat array, resolves sources/properties/
+        // converters, attaches action listeners, and ends by applying every
+        // binding UNCONDITIONALLY.
+        //
+        // That final force-apply is the point: it is what replaces the app's
+        // old "re-push everything you cached" step after a reload, and it is why
+        // a label never flashes its authored placeholder for one frame as you
+        // save the file.
+        void Rebuild(UIDocument& doc, UIBindingContext& ctx, std::string originName);
+        // Drops the index. Must be called BEFORE the tree is freed: the
+        // invariant is that the binder never holds a pointer into a tree that
+        // is being rebuilt, not even for the length of one function.
+        void Clear();
+
+        // Source -> element. Call BEFORE Layout, so a changed label is measured
+        // at its new width on the frame it changes.
+        UIBindTick UpdateToTarget();
+
+        const std::vector<std::string>& errors() const { return errors_; }
+        const std::vector<std::string>& notes()  const { return notes_;  }
+        bool ok() const { return errors_.empty(); }
+        std::size_t bindingCount() const { return entries_.size(); }
+        std::size_t unresolvedCount() const;
+
+        // One line per live binding:
+        //   "<Label name='scoreLabel'> text <- hud.score (int) v=7"
+        // "It is not in this list" is a one-call diagnosis of the frozen-HUD
+        // case, which is otherwise indistinguishable from a value that never
+        // changes.
+        std::vector<std::string> Describe() const;
+
+    private:
+        // Trivially copyable, no std::string and no std::function, so the
+        // per-frame scan walks contiguous PODs. Converter functions live in
+        // convPool_ as pointers into registry-owned std::functions — never
+        // copies, which would double every capture.
+        struct Entry {
+            UIElement*       el = nullptr;
+            const UIBinding* binding = nullptr;  // into el->bindings_; alive while el is
+            UIDataSource*    src = nullptr;      // null => pending resolution
+            std::uint32_t    lastSourceVersion = 0;
+            std::int32_t     propIndex = -1;
+            std::uint16_t    convFirst = 0, convCount = 0;
+            bool             layoutAffecting = false;
+            bool             reported = false;   // latch, re-armed on a kind change
+            std::uint8_t     reportedKind = 0;
+        };
+        struct ActionEntry {
+            UIElement*    el = nullptr;
+            UIDataSource* src = nullptr;
+            int           actionIndex = -1;
+        };
+
+        void collect_(UIElement& el, const std::string& inheritedSource);
+        bool resolve_(Entry& e, const std::string& inheritedSource);
+        bool apply_(Entry& e);
+        // Renders `tmpl` into scratch_; false with an error already reported if
+        // a hole could not be read or converted.
+        bool render_(Entry& e, const UIHole* holes, std::size_t holeCount);
+        void reportOnce_(Entry& e, const UIValue& v, const std::string& what);
+        std::string where_(const UIElement& el, const UIBinding& b) const;
+
+        std::vector<Entry>              entries_;
+        std::vector<ActionEntry>        actions_;
+        std::vector<const UIConvertFn*> convPool_;
+        std::vector<std::string>        errors_, notes_;
+        // Capacity survives across frames, so the text path allocates nothing
+        // on a steady frame.
+        std::string  scratch_;
+
+        UIDocument*       doc_ = nullptr;
+        UIBindingContext* ctx_ = nullptr;
+        std::string       origin_;
+        std::uint32_t     seenCtxRev_ = 0;
+        std::uint32_t     seenEpoch_ = 0;
+    };
+
+} // namespace MyCoreEngine::ui

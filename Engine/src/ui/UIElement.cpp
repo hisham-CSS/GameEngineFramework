@@ -57,6 +57,11 @@ namespace {
         ~MeasureFontScope() { g_measureFont = nullptr; }
     };
 
+    // Monotonic counter over every structural change to any element tree. See
+    // UIElement::structureEpoch() for why this is process-wide rather than
+    // per-document, and why that is safe.
+    std::uint32_t g_structureEpoch = 1;
+
     // Text leaves size themselves from the font, which is what makes a label
     // behave like it does on the web (shrink-wrapping its content) instead of
     // needing a hand-set width.
@@ -144,6 +149,10 @@ UIElement::UIElement(std::string name) : name_(std::move(name)) {
 }
 
 UIElement::~UIElement() {
+    // Anything caching a UIElement* must be forced to re-collect. RemoveChild
+    // already bumps, but an element can also die owned by a unique_ptr the
+    // caller took ownership of and then dropped.
+    ++g_structureEpoch;
     children_.clear(); // children free their own nodes first
     if (yogaNode_) {
         // Free only THIS node: it was removed from its parent by RemoveChild,
@@ -165,6 +174,7 @@ UIElement* UIElement::AddChild(std::unique_ptr<UIElement> child) {
     // would trip yoga's leaf assertion on the next layout.
     YGNodeSetMeasureFunc(static_cast<YGNodeRef>(yogaNode_), nullptr);
     children_.push_back(std::move(child));
+    ++g_structureEpoch;
     return raw;
 }
 
@@ -183,17 +193,20 @@ std::unique_ptr<UIElement> UIElement::RemoveChild(UIElement* child) {
     std::unique_ptr<UIElement> owned = std::move(*it);
     children_.erase(it);
     owned->parent_ = nullptr;
+    ++g_structureEpoch;
     return owned;
 }
 
 void UIElement::ClearChildren() {
     YGNodeRemoveAllChildren(static_cast<YGNodeRef>(yogaNode_));
     children_.clear();
+    ++g_structureEpoch;
 }
 
 void UIElement::setText(std::string t) {
     if (style_.text == t) return;
     style_.text = std::move(t);
+    ++textRevision_;
     // Yoga caches measurements, so changing the CONTENT of a measured node must
     // be announced explicitly — otherwise the label keeps its previous width.
     if (children_.empty() && yogaNode_) {
@@ -201,6 +214,29 @@ void UIElement::setText(std::string t) {
         if (YGNodeHasMeasureFunc(n)) YGNodeMarkDirty(n);
     }
 }
+
+void UIElement::setBindings(std::vector<UIBinding> b) {
+    bindings_ = std::move(b);
+    // Not a tree-shape change, but it invalidates the binder's flat index just
+    // as thoroughly: every Entry holds a pointer INTO bindings_, and assigning
+    // the vector reallocates it.
+    ++g_structureEpoch;
+}
+
+void UIElement::setBoundActions(std::vector<UIBoundAction> a) {
+    actions_ = std::move(a);
+    ++g_structureEpoch;
+}
+
+void UIElement::setDataSourceName(std::string s) {
+    if (dataSource_ == s) return;
+    dataSource_ = std::move(s);
+    // Changes which source the whole subtree resolves against, so every
+    // collected entry below here is stale.
+    ++g_structureEpoch;
+}
+
+std::uint32_t UIElement::structureEpoch() { return g_structureEpoch; }
 
 bool UIElement::HasClass(const std::string& c) const {
     return std::find(classes_.begin(), classes_.end(), c) != classes_.end();

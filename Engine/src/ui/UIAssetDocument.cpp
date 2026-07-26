@@ -34,11 +34,20 @@ bool UIAssetDocument::Load(const std::string& markupPath, const std::string& sty
 bool UIAssetDocument::Reload() {
     errors_.clear();
 
+    // Drop the binding index BEFORE anything can free an element, not after.
+    // The invariant is that the binder never holds a pointer into a tree that
+    // is being rebuilt, not even for the length of one function.
+    binder_.Clear();
+
     // Markup first. On failure the document is left exactly as it was (see
     // UIMarkup::LoadInto), so a broken edit never blanks a working UI — it
     // just reports and keeps running the last good version.
     if (!UIMarkup::LoadFileInto(doc_, markupPath_, errors_)) {
         for (const auto& e : errors_) std::cerr << "[UI] " << e << "\n";
+        // The surviving tree still carries its own authored bindings, so
+        // re-collecting restores exactly what was running. A half-typed file
+        // must not silently UNBIND a working UI any more than it may blank one.
+        binder_.Rebuild(doc_, ctx_, markupPath_);
         // Still refresh the stamps: without this a file that fails to parse is
         // re-read every poll, spamming the log until it is fixed.
         markupStamp_ = stampOf(markupPath_);
@@ -63,8 +72,21 @@ bool UIAssetDocument::Reload() {
     styleStamp_ = stampOf(stylePath_);
     loaded_ = true;
 
+    // AFTER the cascade, never before: a binding has to outrank the stylesheet.
+    // Rebuild ends by applying every binding unconditionally, so the tree
+    // carries current values before anything lays out or paints — which is why
+    // a bound label never flashes empty for a frame as you save the file, and
+    // why the app no longer has to re-push what it cached.
+    binder_.Rebuild(doc_, ctx_, markupPath_);
+    for (const auto& e : binder_.errors()) {
+        errors_.push_back(e);
+        std::cerr << "[UI] " << e << "\n";
+    }
+    for (const auto& n : binder_.notes()) std::cerr << "[UI] note: " << n << "\n";
+
     // Re-attach behaviour LAST, on the finished tree. Every pointer the app
     // held is dead after a rebuild, so this is the only safe place to re-cache.
+    // Values are no longer its job — those live in the data source.
     if (bind_) bind_(doc_);
     return true;
 }
