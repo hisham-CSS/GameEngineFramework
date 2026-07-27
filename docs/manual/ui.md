@@ -49,9 +49,10 @@ The only C++ a UI needs is what a file cannot carry: **named actions** and
 **converters**. Everything else — structure, appearance, values, interaction
 states — is content that hot-reloads.
 
-`UIWorld::Update` runs each document through `Update(dt)` → `UpdateToTarget()` →
-`AdvanceTime(dt)` → `Layout` → `UpdatePointer` → `UpdateKeyboard` →
-`PublishToSources()` → `RestyleInteractive()` → a conditional second `Layout`.
+`UIWorld::Update` runs each document through `Update(dt)` → `UpdateRepeats()` →
+`UpdateToTarget()` → `AdvanceTime(dt)` → `Layout` → `UpdatePointer` →
+`UpdateKeyboard` → `PublishToSources()` → `RestyleInteractive()` → a conditional
+second `Layout`.
 Bindings run **before** layout so a changed label is measured at its new width
 on the frame it changes; a `setText` from an input handler never was — it lands
 after the solve and paints at the previous frame's size.
@@ -535,9 +536,14 @@ list->SetContentExtent({ 0.f, rowCount * rowHeight });   // declare the truth
 
 With that, a hand-rolled virtual list works today with no bindings anywhere —
 declare the extent, keep a window of absolutely-positioned rows, and reposition
-them each frame from the offset. What is still missing for the engine to do it
-*for* you is a way to repeat a template over a collection; bindings address one
-property, not a list.
+them each frame from the offset.
+
+[`repeat=`](#collections-repeat) gives you the same shape declaratively: a fixed
+pool of rows with the data sliding through it. What it does *not* do is drive the
+scroller — the pool is the only thing in the tree, so the extent it reports
+describes the pool rather than the list. Combining the two means declaring the
+extent yourself, exactly as above, and feeding `repeat-offset` from
+`scrollOffset()`. That pairing is not wired up for you.
 
 Drawing is **culled** against the clip a subtree sits under, so rows scrolled out
 of view cost no draw calls. Layout is not: every row still measures and solves
@@ -800,6 +806,102 @@ Both directions are equality-gated against what the source actually holds, so a
 round trip settles immediately instead of oscillating, and an idle element never
 writes.
 
+### Collections: `repeat=`
+
+A `{hole}` addresses one property. To show a **list** — an inventory, a scoreboard,
+a quest log — repeat one template over it:
+
+```xml
+<Element class="bag" repeat="inventory" repeat-count="5" repeat-offset="invScroll">
+  <Element class="bag-row">                     <!-- exactly ONE element child -->
+    <Label class="bag-index" text="{$index}"/>
+    <Label class="bag-name"  text="{name}"/>    <!-- bare: reads the ROW -->
+    <Label class="bag-qty"   text="x{count}"/>
+    <Label text="{scene.currency}"/>            <!-- qualified: reaches outside -->
+  </Element>
+</Element>
+```
+
+```cpp
+UIList inv;
+for (const Item& it : player.inventory) {
+    UIRecord& row = inv.Add();
+    row.SetString("name", it.name);
+    row.SetInt("count", it.count);
+}
+src.SetList("inventory", std::move(inv));       // equality-gated, like every setter
+src.SetInt("invScroll", 0);                     // the window start
+```
+
+**The pool is fixed and the window moves.** `repeat-count` elements are built once,
+at load, and the tree never changes shape again. Each frame slot *i* is filled with
+row `offset + i`.
+
+That is the design, not a shortcut. `UIElement::structureEpoch()` is **process-wide**:
+a list that added and removed children would make every binder in *every* document
+re-collect and re-resolve on the frames it changed size. Here the elements stand
+still and the data slides through them — and because every `UIDataSource` setter is
+equality-gated, a slot whose row did not change writes nothing and re-applies
+nothing. Sliding a window costs exactly the slots that actually changed; an idle
+list costs three integer compares.
+
+| Attribute | |
+|---|---|
+| `repeat="source.list"` | the list to repeat over; a bare name inherits the scope source |
+| `repeat-count="5"` | **required.** Pool size, 1..64, fixed for the document's life |
+| `repeat-offset="invScroll"` | optional path to a number, read every frame; the window start |
+
+Inside a repeat, a **bare** hole reads the row and a **qualified** one reaches
+outside. Four columns come from the engine rather than your data, named with a `$`
+so they can never collide with a column of your own:
+
+| | |
+|---|---|
+| `{$slot}` | this element's index in the pool, `0..repeat-count-1`. Constant |
+| `{$index}` | the absolute row index it is currently showing |
+| `{$count}` | how many rows the whole list has |
+| `{$present}` | whether this slot has a row at all |
+
+`$present` drives the row's visibility automatically, which is why a template root
+may not carry its own `if=` — it would have to lose one or the other, and a surplus
+row left visible is still laid out, painted and clickable. Put the condition on a
+child, or publish it as a row column.
+
+`$index` and `$count` are written **only when the template reads them**. An absolute
+index moves on every window step and change detection is per source, so publishing
+one nothing reads would re-apply the whole pool on every notch of a scroll that
+changed two visible rows.
+
+**Rejected at load**, each with a message rather than a silent skip: a missing or
+out-of-range `repeat-count`; a container whose element-child count is not exactly
+one; a template root carrying `if=`, `data-source=` or `repeat=`; a nested `repeat`;
+`repeat-count` or `repeat-offset` without `repeat`; `repeat` on the document root;
+and a **bare** `push-*`, `bind-value` or `on-*` inside a repeat — those would resolve
+against the row, where the next frame's copy overwrites them.
+
+A bare hole that no row provides is reported once, against the data, naming the
+columns your rows actually have:
+
+```
+hud.cxml: repeat 'inventory': no row has a column 'playerName'
+  (row columns: count, name) - inside repeat=, a bare {playerName} reads the ROW;
+  write {source.playerName} to reach an outer source
+```
+
+Once per repeat, not once per slot: a pool of 64 would otherwise answer one typo
+with 64 identical lines. The generated slot sources never appear in a diagnostic
+either — a `(registered: ...)` list of 64 machine-made names buries the two you can
+actually use.
+
+**Known limits.** Change granularity is per slot, not per column: one column moving
+re-applies every binding on that row, which is fine at three or four and caps how
+wide a row usefully gets. Every clone shares the template's `name=`, so
+`Find(name)` returns the first slot only. Hidden slots still cost a layout pass —
+that is why the cap is 64. And a repeat inside `overflow: scroll` does **not**
+virtualise: the scroller measures only the rows that are present, so the thumb
+would describe the pool rather than the list. Window it by hand with
+`SetContentExtent` (see [Scrolling](#scrolling-and-clipping)).
+
 ### Cost
 
 An idle frame is one integer compare per source plus one per binding — no
@@ -971,6 +1073,8 @@ reset, so a leaked blend or depth state would corrupt the next pass.
 | `Engine/src/ui/UIValue.h` | The bound-value transport and its coercions |
 | `Engine/src/ui/UIDataSource.h` | `UIDataSource`, converters, `UIBindingContext` |
 | `Engine/src/ui/UIBinding.h` | The `{hole}` template and `UIBinder` |
+| `Engine/src/ui/UIRepeat.h` | `UIRepeatSpec` — what the loader expanded for a `repeat=` |
+| `Engine/src/ui/UIRepeatPool.h` | The fixed slot pool a `repeat=` slides over its list |
 | `Engine/src/ui/UIInteractionStyler.h` | pseudo-class re-cascading |
 | `Engine/src/ui/UITextField.h` | `UITextEdit` — the text-entry model |
 | `Engine/src/ui/UIComponent.h` | `UIDocumentComponent` — UI on an entity |
@@ -984,15 +1088,15 @@ reset, so a leaked blend or depth state would corrupt the next pass.
 Word wrap: text breaks where you put a newline and nowhere else. IME composition
 (dead keys and layouts work, because text arrives already decoded, but there is
 no composition window). A checkbox, which is why `:checked` is still refused.
-Repeating a template over a list — bindings address one property, not a
-collection. Transitions and animation. `position: fixed`, `position: sticky`, and
+Transitions and animation. `position: fixed`, `position: sticky`, and
 portals.
 
 Within scrolling specifically: kinetic/touch momentum, which needs touch input
 this engine does not have; a reserved scrollbar gutter — CSS invented
 `scrollbar-gutter` to break a reflow loop that overlay bars do not have, so
 `padding-right` is the answer here; hold-to-repeat on a track press; and
-built-in virtualisation — a scroller lays out every row it contains, though
-`SetContentExtent` lets you window one by hand (see
+built-in virtualisation — a scroller lays out every row it contains, and a
+`repeat=` inside one describes the POOL rather than the list, though
+`SetContentExtent` lets you window either by hand (see
 [Scrolling](#scrolling-and-clipping)). Drawing off-screen rows is already
 culled; laying them out is not.

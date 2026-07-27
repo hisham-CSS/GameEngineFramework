@@ -262,9 +262,9 @@ bool UIBinder::resolve_(Entry& e, const std::string& inheritedSource) {
     const auto& holes = b.tmpl.holes();
     e.src = nullptr;
     e.propIndex = -1;
-    e.convFirst = std::uint16_t(convPool_.size());
+    e.convFirst = std::uint32_t(convPool_.size());
     e.convCount = 0;
-    e.holeFirst = std::uint16_t(holePool_.size());
+    e.holeFirst = std::uint32_t(holePool_.size());
     e.holeCount = 0;
     e.lastSourceVersion = 0;
 
@@ -292,9 +292,35 @@ bool UIBinder::resolve_(Entry& e, const std::string& inheritedSource) {
         }
         const int idx = src->IndexOf(h.propName);
         if (idx < 0) {
-            errors_.push_back(where_(*e.el, b) + ": data source '" + srcName +
-                              "' has no property '" + h.propName +
-                              "' (has: " + join(src->propertyNames()) + ")");
+            // Inside a `repeat=`, say so in the author's own vocabulary. The
+            // generated slot-source name appears in no file they own, and the
+            // real mistake is almost always that a bare hole reads the ROW —
+            // so name the repeat, list the row's columns, and give the cure.
+            if (const std::string* row = ctx_->rowLabelFor(srcName)) {
+                std::vector<std::string> cols;
+                for (const auto& n : src->propertyNames()) {
+                    if (n.empty() || n[0] != '$') cols.push_back(n);
+                }
+                errors_.push_back(where_(*e.el, b) + ": repeat '" + *row +
+                                  "' row has no column '" + h.propName +
+                                  "' (row columns: " + join(cols) +
+                                  ") - inside repeat=, a bare {" + h.propName +
+                                  "} reads the ROW; write {source." + h.propName +
+                                  "} to reach an outer source");
+            } else {
+                std::string msg = where_(*e.el, b) + ": data source '" + srcName +
+                                  "' has no property '" + h.propName +
+                                  "' (has: " + join(src->propertyNames());
+                // A list that is invisible here is worse than no suggestion:
+                // the author is looking at the name in their own C++ while the
+                // engine insists it does not exist.
+                const std::vector<std::string> lists = src->listNames();
+                if (!lists.empty()) {
+                    msg += "; lists: " + join(lists) +
+                           " - a list is read with repeat=, not {}";
+                }
+                errors_.push_back(msg + ")");
+            }
             allResolved = false;
             break;
         }
@@ -691,7 +717,7 @@ UIBindTick UIBinder::UpdateToSource() {
 // reads a polled property (which has no version to compare and must be read
 // every frame — the one per-frame cost in this system that does not vanish).
 bool UIBinder::holesMoved_(const Entry& e) const {
-    for (std::uint16_t i = 0; i < e.holeCount; ++i) {
+    for (std::uint32_t i = 0; i < e.holeCount; ++i) {
         const std::size_t k = std::size_t(e.holeFirst) + i;
         if (k >= holePool_.size()) return true;      // corrupt: re-apply and re-resolve
         const HoleRef& hr = holePool_[k];
@@ -705,7 +731,7 @@ bool UIBinder::holesMoved_(const Entry& e) const {
 // every binding every frame; doing it per ENTRY was what let a second source go
 // unnoticed.
 void UIBinder::stampHoles_(Entry& e) {
-    for (std::uint16_t i = 0; i < e.holeCount; ++i) {
+    for (std::uint32_t i = 0; i < e.holeCount; ++i) {
         const std::size_t k = std::size_t(e.holeFirst) + i;
         if (k >= holePool_.size()) return;
         HoleRef& hr = holePool_[k];

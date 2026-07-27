@@ -28,6 +28,9 @@
     bind-value="playerName"  TextField only, and the one TWO-WAY binding
     push-hovered="isOver"    element state back to the source (also -pressed,
                              -focused)
+    repeat="inventory"       repeats the ONE child template over a game-owned
+    repeat-count="5"         list. The pool is fixed at load; the window moves.
+    repeat-offset="invScroll"  Inside it a bare {hole} reads the ROW.
 
   A {hole} is `{path | converter | converter : decimals}`. There is no
   arithmetic and no ternary: derived values are named C++ converters, which are
@@ -164,6 +167,51 @@
     <Element class="slot"/><Element class="slot"/><Element class="slot"/>
     <Element class="slot"/><Element class="slot"/><Element class="slot"/>
     <Element class="slot"/><Element class="slot"/><Element class="slot"/>
+  </Element>
+
+  <!-- COLLECTION BINDING. One row template, repeated over a game-owned list.
+
+       The pool is FIXED at load and the window MOVES: `repeat-count` elements
+       are built once, and each frame slot i is filled with row (invScroll + i).
+       That is not a shortcut. UIElement's structure epoch is process-wide, so a
+       list that added and removed children would make every binder in every
+       document re-collect and re-resolve on the frames it changed size. Here
+       the elements stand still and the data slides through them, and because
+       every data-source setter is equality-gated, a slot whose row did not
+       change writes nothing and re-applies nothing.
+
+       Inside a repeat a BARE hole reads the ROW ({name}, {count}). A qualified
+       one still reaches outside ({scene.score}). Four columns come from the
+       engine rather than your data, and are named with a '$' so they can never
+       collide with a column of your own:
+
+         {$slot}     this element's index in the pool, 0..repeat-count-1
+         {$index}    the absolute row index it is currently showing
+         {$count}    how many rows the whole list has
+         {$present}  whether this slot has a row at all
+
+       $present drives the row's visibility automatically — which is why the
+       template's own root may not carry an `if=`; it would have to lose one or
+       the other, and a surplus row left visible would still be laid out,
+       painted and clickable.
+
+       The list has twelve rows and the pool is five, so Prev/Next slide the
+       window. Run to the end and watch the empty slots disappear one at a
+       time. A misspelt bare hole is a LOAD error naming the columns your rows
+       actually have — the pool checks it once, against the data, rather than
+       once per slot. -->
+  <Label name="bagHeader" class="log-header" text="INVENTORY  {scene.invScroll}"/>
+  <Element name="bag" class="bag" repeat="inventory" repeat-count="5"
+           repeat-offset="invScroll">
+    <Element class="bag-row">
+      <Label class="bag-index" text="{$index}"/>
+      <Label class="bag-name"  text="{name}"/>
+      <Label class="bag-qty"   text="x{count}"/>
+    </Element>
+  </Element>
+  <Element name="bagButtons" class="row-left">
+    <Button name="bagPrev" class="btn" text="PREV" on-click="invUp"/>
+    <Button name="bagNext" class="btn" text="NEXT" on-click="invDown"/>
   </Element>
 
   <!-- Decorative overlay. pointer-events:none in the stylesheet, or this

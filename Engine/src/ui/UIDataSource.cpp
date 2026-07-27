@@ -6,6 +6,70 @@
 
 namespace MyCoreEngine::ui {
 
+// ----------------------------------------------------------------- UIRecord
+
+int UIRecord::IndexOf(const std::string& col) const {
+    for (size_t i = 0; i < cols_.size(); ++i) {
+        if (cols_[i].first == col) return int(i);
+    }
+    return -1;
+}
+
+void UIRecord::SetValue(const std::string& col, UIValue v) {
+    const int i = IndexOf(col);
+    if (i >= 0) { cols_[size_t(i)].second = std::move(v); return; }
+    cols_.emplace_back(col, std::move(v));
+}
+
+void UIRecord::SetBool  (const std::string& c, bool v)              { SetValue(c, UIValue::Bool(v)); }
+void UIRecord::SetInt   (const std::string& c, long long v)         { SetValue(c, UIValue::Int(v)); }
+void UIRecord::SetNumber(const std::string& c, float v)             { SetValue(c, UIValue::Number(v)); }
+void UIRecord::SetLength(const std::string& c, const StyleLength& v){ SetValue(c, UIValue::Len(v)); }
+void UIRecord::SetColor (const std::string& c, const glm::vec4& v)  { SetValue(c, UIValue::Color4(v)); }
+void UIRecord::SetString(const std::string& c, std::string v)       { SetValue(c, UIValue::Str(std::move(v))); }
+
+UIValue UIRecord::Get(const std::string& col) const {
+    UIValue v;
+    ValueAt(col, v);
+    return v;
+}
+
+bool UIRecord::ValueAt(const std::string& col, UIValue& out) const {
+    const int i = IndexOf(col);
+    if (i < 0) return false;
+    out = cols_[size_t(i)].second;
+    return true;
+}
+
+std::vector<std::string> UIRecord::columnNames() const {
+    std::vector<std::string> out;
+    out.reserve(cols_.size());
+    for (const auto& c : cols_) out.push_back(c.first);
+    return out;
+}
+
+// Order-insensitive on purpose. A game that rebuilds its rows from a std::map
+// or reorders a struct's fields must not read as "changed" — that would defeat
+// the equality gate on every frame, which is the one thing keeping a rebuilt
+// inventory free.
+bool UIRecord::operator==(const UIRecord& o) const {
+    if (cols_.size() != o.cols_.size()) return false;
+    for (const auto& c : cols_) {
+        const int i = o.IndexOf(c.first);
+        if (i < 0 || !(o.cols_[size_t(i)].second == c.second)) return false;
+    }
+    return true;
+}
+
+// ------------------------------------------------------------------- UIList
+
+UIRecord& UIList::Add() {
+    rows_.emplace_back();
+    return rows_.back();
+}
+
+void UIList::Add(UIRecord r) { rows_.push_back(std::move(r)); }
+
 // ------------------------------------------------------------- UIDataSource
 
 int UIDataSource::IndexOf(const std::string& name) const {
@@ -62,6 +126,72 @@ void UIDataSource::SetNumber(const std::string& n, float v)           { SetValue
 void UIDataSource::SetLength(const std::string& n, const StyleLength& v) { SetValue(n, UIValue::Len(v)); }
 void UIDataSource::SetColor(const std::string& n, const glm::vec4& v) { SetValue(n, UIValue::Color4(v)); }
 void UIDataSource::SetString(const std::string& n, std::string v)     { SetValue(n, UIValue::Str(std::move(v))); }
+
+int UIDataSource::ListIndexOf(const std::string& name) const {
+    for (size_t i = 0; i < lists_.size(); ++i) {
+        if (lists_[i].name == name) return int(i);
+    }
+    return -1;
+}
+
+// Bumps the LIST's version and nothing else. version_ deliberately does not
+// move: no {hole} can read a list, so waking every health and score binding on
+// this source for a change none of them can see would be pure cost — and would
+// re-arm the binder's pending-retry scan on every inventory tick.
+void UIDataSource::SetList(const std::string& name, UIList v) {
+    const int i = ListIndexOf(name);
+    if (i >= 0) {
+        NamedList& nl = lists_[size_t(i)];
+        if (nl.list == v) return;      // equality-gated like every other setter
+        nl.list = std::move(v);
+        ++nl.version;
+        return;
+    }
+    lists_.push_back(NamedList{ name, std::move(v), 1 });
+}
+
+void UIDataSource::RemoveList(const std::string& name) {
+    const int i = ListIndexOf(name);
+    if (i < 0) return;
+    lists_.erase(lists_.begin() + i);
+}
+
+std::size_t UIDataSource::ListRowCount(int li) const {
+    if (li < 0 || size_t(li) >= lists_.size()) return 0;
+    return lists_[size_t(li)].list.size();
+}
+
+std::uint32_t UIDataSource::ListVersionAt(int li) const {
+    if (li < 0 || size_t(li) >= lists_.size()) return 0;
+    return lists_[size_t(li)].version;
+}
+
+bool UIDataSource::ListValueAt(int li, std::size_t row,
+                               const std::string& col, UIValue& out) const {
+    if (li < 0 || size_t(li) >= lists_.size()) return false;
+    const UIList& l = lists_[size_t(li)].list;
+    if (row >= l.size()) return false;
+    return l.at(row).ValueAt(col, out);
+}
+
+std::vector<std::string> UIDataSource::ListColumnNames(int li) const {
+    std::vector<std::string> out;
+    if (li < 0 || size_t(li) >= lists_.size()) return out;
+    const UIList& l = lists_[size_t(li)].list;
+    for (std::size_t r = 0; r < l.size(); ++r) {
+        for (auto& c : l.at(r).columnNames()) out.push_back(std::move(c));
+    }
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+    return out;
+}
+
+std::vector<std::string> UIDataSource::listNames() const {
+    std::vector<std::string> out;
+    out.reserve(lists_.size());
+    for (const auto& l : lists_) out.push_back(l.name);
+    return out;
+}
 
 void UIDataSource::Observe(std::string name, Getter get, Setter set, Notify notify) {
     Property& p = findOrAdd_(name);
@@ -323,16 +453,40 @@ const UIConverterTable& BuiltinUIConverters() {
 
 void UIBindingContext::RegisterSource(std::string name, UIDataSource* src) {
     for (auto& e : sources_) {
-        if (e.first == name) { e.second = src; ++rev_; return; }
+        // Clears any rowLabel: re-registering a name as a PUBLIC source makes
+        // it public, rather than leaving it hidden from every diagnostic
+        // because a repeat once owned the name.
+        if (e.name == name) { e.src = src; e.rowLabel.clear(); ++rev_; return; }
     }
-    sources_.emplace_back(std::move(name), src);
+    sources_.push_back(Entry{ std::move(name), src, std::string() });
     ++rev_;
+}
+
+void UIBindingContext::RegisterInternalSource(std::string name, UIDataSource* src,
+                                              std::string rowLabel) {
+    for (auto& e : sources_) {
+        if (e.name == name) {
+            e.src = src;
+            e.rowLabel = std::move(rowLabel);
+            ++rev_;
+            return;
+        }
+    }
+    sources_.push_back(Entry{ std::move(name), src, std::move(rowLabel) });
+    ++rev_;
+}
+
+const std::string* UIBindingContext::rowLabelFor(const std::string& name) const {
+    for (const auto& e : sources_) {
+        if (e.name == name) return e.rowLabel.empty() ? nullptr : &e.rowLabel;
+    }
+    return nullptr;
 }
 
 void UIBindingContext::RemoveSource(const std::string& name) {
     const size_t before = sources_.size();
     sources_.erase(std::remove_if(sources_.begin(), sources_.end(),
-                                  [&](const auto& e) { return e.first == name; }),
+                                  [&](const Entry& e) { return e.name == name; }),
                    sources_.end());
     // Only on an actual removal: a no-op remove that bumped the revision would
     // force the binder to re-resolve every entry for nothing.
@@ -341,7 +495,7 @@ void UIBindingContext::RemoveSource(const std::string& name) {
 
 UIDataSource* UIBindingContext::Find(const std::string& name) const {
     for (const auto& e : sources_) {
-        if (e.first == name) return e.second;
+        if (e.name == name) return e.src;
     }
     return nullptr;
 }
@@ -349,15 +503,20 @@ UIDataSource* UIBindingContext::Find(const std::string& name) const {
 std::uint32_t UIBindingContext::sourceVersionSum() const {
     std::uint32_t sum = 0;
     for (const auto& e : sources_) {
-        if (e.second) sum += e.second->version();
+        if (e.src) sum += e.src->version();
     }
     return sum;
 }
 
+// Public names only. A repeat registers one slot source per pool entry, and
+// listing 64 generated names in answer to a misspelt hole would bury the two
+// the author can actually use.
 std::vector<std::string> UIBindingContext::sourceNames() const {
     std::vector<std::string> out;
     out.reserve(sources_.size());
-    for (const auto& e : sources_) out.push_back(e.first);
+    for (const auto& e : sources_) {
+        if (e.rowLabel.empty()) out.push_back(e.name);
+    }
     return out;
 }
 

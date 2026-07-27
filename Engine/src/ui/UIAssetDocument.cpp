@@ -44,11 +44,16 @@ bool UIAssetDocument::Reload() {
     // Markup first. On failure the document is left exactly as it was (see
     // UIMarkup::LoadInto), so a broken edit never blanks a working UI — it
     // just reports and keeps running the last good version.
-    if (!UIMarkup::LoadFileInto(doc_, markupPath_, errors_)) {
+    std::vector<UIRepeatSpec> specs;
+    if (!UIMarkup::LoadFileInto(doc_, markupPath_, errors_, &specs)) {
         for (const auto& e : errors_) std::cerr << "[UI] " << e << "\n";
         // The surviving tree still carries its own authored bindings, so
         // re-collecting restores exactly what was running. A half-typed file
         // must not silently UNBIND a working UI any more than it may blank one.
+        //
+        // The live pools are deliberately NOT torn down here. The old clones
+        // are still in that tree, still bound to the old slot names, and the
+        // re-collect below is about to resolve them again.
         binder_.Rebuild(doc_, ctx_, markupPath_, &sheet_);
         styler_.Rebuild(doc_, sheet_, &binder_);
         // Still refresh the stamps: without this a file that fails to parse is
@@ -75,13 +80,32 @@ bool UIAssetDocument::Reload() {
     styleStamp_ = stampOf(stylePath_);
     loaded_ = true;
 
+    // Pools are rebuilt from the specs this load produced, and the OLD
+    // registrations go first: Teardown unregisters by the names it actually
+    // registered, which is the only list that survives an author deleting the
+    // repeat outright.
+    for (auto& p : pools_) p->Teardown(ctx_);
+    pools_.clear();
+    for (const auto& spec : specs) {
+        pools_.push_back(std::make_unique<UIRepeatPool>());
+        pools_.back()->Build(spec, ctx_, errors_, markupPath_);
+    }
+    // Once, before the binder resolves, so Rebuild's force-apply sees real rows
+    // and a pooled label never shows an empty slot for a frame on load.
+    UpdateRepeats();
+
     // AFTER the cascade, never before: a binding has to outrank the stylesheet.
     // Rebuild ends by applying every binding unconditionally, so the tree
     // carries current values before anything lays out or paints — which is why
     // a bound label never flashes empty for a frame as you save the file, and
     // why the app no longer has to re-push what it cached.
     binder_.Rebuild(doc_, ctx_, markupPath_, &sheet_);
+    // Deduplicated, exactly like DrainBinderDiagnostics. A repeat multiplies
+    // its template by the pool size, so one typo in one authored line becomes
+    // one identical error per clone; printing 64 copies would bury every other
+    // diagnostic in the file.
     for (const auto& e : binder_.errors()) {
+        if (std::find(errors_.begin(), errors_.end(), e) != errors_.end()) continue;
         errors_.push_back(e);
         std::cerr << "[UI] " << e << "\n";
     }
@@ -100,6 +124,10 @@ bool UIAssetDocument::Reload() {
     // Values are no longer its job — those live in the data source.
     if (bind_) bind_(doc_);
     return true;
+}
+
+void UIAssetDocument::UpdateRepeats() {
+    for (auto& p : pools_) p->Refresh(ctx_);
 }
 
 void UIAssetDocument::DrainBinderDiagnostics() {

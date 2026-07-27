@@ -120,6 +120,9 @@ void UIWorld::Update(entt::registry& reg, int widthPx, int heightPx, float dt) {
         Live& live = live_[*it];
         if (!live.interactive) continue;
         // Lay out before hit-testing: the rects it reads are computed there.
+        // Repeats first — the binder reads what the pools wrote, and hit-testing
+        // a stale pool means clicking a row that moved one frame ago.
+        live.doc->UpdateRepeats();
         live.doc->binder().UpdateToTarget();
         live.doc->document().SetOrigin(live.origin);
         live.doc->document().Layout(live.size.x, live.size.y, font_);
@@ -149,6 +152,9 @@ void UIWorld::Update(entt::registry& reg, int widthPx, int heightPx, float dt) {
         ui::UIDocument& doc = ad.document();
 
         ad.Update(dt);                  // hot-reload poll
+        // AFTER the poll: on a reload frame the pools were rebuilt one line ago
+        // and are still empty, and BEFORE the binder, which reads what they write.
+        ad.UpdateRepeats();
         ad.binder().UpdateToTarget();   // before layout, so text re-measures
         doc.AdvanceTime(dt);
         doc.SetOrigin(live.origin);

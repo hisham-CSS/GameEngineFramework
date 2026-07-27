@@ -21,6 +21,7 @@
 // Attributes: name (#id), class (space-separated), text, style (inline
 // declarations, which outrank every stylesheet rule as in CSS).
 #include "../core/Core.h"
+#include "UIRepeat.h"
 
 #include <string>
 #include <vector>
@@ -36,16 +37,23 @@ namespace MyCoreEngine::ui {
         // completely untouched — the new tree is built in full first and only
         // swapped in once it is known good, so a typo during hot reload cannot
         // blank a working UI.
+        //
+        // `outRepeats`, when given, receives one spec per `repeat=` the loader
+        // expanded, in document order. Assigned only at COMMIT, so a load that
+        // fails leaves it exactly as the caller left it and no pool is ever
+        // built for a tree that never reached the document.
         static bool LoadInto(UIDocument& doc, const std::string& xml,
                              std::vector<std::string>& errors,
-                             const std::string& originName = "<string>");
+                             const std::string& originName = "<string>",
+                             std::vector<UIRepeatSpec>* outRepeats = nullptr);
 
         // As above, from a file. The path is checked with PathIsContained
         // BEFORE the parser opens it: markup is authored (i.e. untrusted)
         // content feeding a parser, the same class of input as models, scripts,
         // audio clips and HDRis, all of which are gated the same way.
         static bool LoadFileInto(UIDocument& doc, const std::string& path,
-                                 std::vector<std::string>& errors);
+                                 std::vector<std::string>& errors,
+                                 std::vector<UIRepeatSpec>* outRepeats = nullptr);
     };
 
 } // namespace MyCoreEngine::ui

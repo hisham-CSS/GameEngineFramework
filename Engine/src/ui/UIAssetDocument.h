@@ -16,9 +16,11 @@
 #include "UIDataSource.h"
 #include "UIElement.h"
 #include "UIInteractionStyler.h"
+#include "UIRepeatPool.h"
 #include "UIStyleSheet.h"
 
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -91,6 +93,22 @@ namespace MyCoreEngine::ui {
         // binding that went bad while the game ran stayed silent.
         void DrainBinderDiagnostics();
 
+        // Slides every `repeat=`'s window onto its list. Call once per frame
+        // BEFORE binder().UpdateToTarget(): the binder reads what this wrote,
+        // and Layout reads what the binder wrote.
+        //
+        // Deliberately NOT folded into Update(dt). That is the hot-reload poll
+        // — rate-limited to 4 Hz and switchable off entirely — so hanging a
+        // per-frame step on it would make a repeat update four times a second,
+        // or never.
+        void UpdateRepeats();
+
+        // Tests and tooling.
+        std::size_t repeatPoolCount() const { return pools_.size(); }
+        const UIRepeatPool* repeatPool(std::size_t i) const {
+            return i < pools_.size() ? pools_[i].get() : nullptr;
+        }
+
         UIInteractionStyler& styler() { return styler_; }
 
         // Diagnostics: the last load attempt (markup and stylesheet), plus
@@ -111,6 +129,11 @@ namespace MyCoreEngine::ui {
 
         UIDocument   doc_;
         UIStyleSheet sheet_;
+        // BEFORE ctx_ and binder_, so it is destroyed AFTER both: binder_
+        // caches a UIDataSource* into every slot and ctx_ holds a non-owning
+        // pointer to each. Same rule, and the same reason, as ctx_ sitting
+        // after doc_.
+        std::vector<std::unique_ptr<UIRepeatPool>> pools_;
         // AFTER doc_ and sheet_ on purpose: binder_ holds raw pointers into the
         // tree, and members are destroyed in reverse declaration order, so the
         // index dies before the thing it indexes.

@@ -23,12 +23,54 @@ void InstallDemoUIContent(UIWorld& world) {
     // field, because the value is the one source of truth for both.
     src.SetString("notes", "multi-line field.\nEnter, arrows, Ctrl+Z, Ctrl+V.");
 
+    // A COLLECTION, for `repeat=`. Twelve rows behind a pool of five, so the
+    // window has somewhere to go — which is the whole point: the tree is
+    // expanded once at load and never changes shape, and scrolling moves the
+    // DATA through those five elements rather than creating and destroying
+    // them.
+    //
+    // A list is not a property. No {hole} can read it, and it has its own
+    // version, so writing it wakes the repeat and nothing else on this source.
+    {
+        static const struct { const char* name; long long count; } kItems[] = {
+            { "Potion of Haste", 3 }, { "Iron Key",        1 },
+            { "Rope (50ft)",     1 }, { "Torch",           9 },
+            { "Rations",         6 }, { "Lockpick",        4 },
+            { "Silver Ring",     1 }, { "Map Fragment",    3 },
+            { "Antidote",        2 }, { "Whetstone",       1 },
+            { "Lantern Oil",     5 }, { "Spare Boots",     1 },
+        };
+        ui::UIList inv;
+        for (const auto& it : kItems) {
+            ui::UIRecord& row = inv.Add();
+            row.SetString("name", it.name);
+            row.SetInt("count", it.count);
+        }
+        src.SetList("inventory", std::move(inv));
+    }
+    // The window start. Ordinary game data: the repeat reads it every frame and
+    // clamps, so nothing here has to know how big the pool is.
+    src.SetInt("invScroll", 0);
+
     // A named action, so the markup can write on-click="addScore" instead of
     // the app attaching a handler that a hot reload would then have to
     // re-attach. Captures the source by reference: UIWorld owns it and both
     // outlive the scene.
     src.AddAction("addScore", [&src] {
         src.SetInt("score", src.GetInt("score") + 100);
+    });
+
+    // Clamped to rows-1 rather than to rows-poolSize: the pool size lives in
+    // the markup, and gameplay has no business knowing it. Scrolling to the
+    // last row therefore shows one item and four empty slots, which is exactly
+    // what $present is for.
+    src.AddAction("invUp", [&src] {
+        src.SetInt("invScroll", std::max<long long>(0, src.GetInt("invScroll") - 1));
+    });
+    src.AddAction("invDown", [&src] {
+        const int li = src.ListIndexOf("inventory");
+        const long long last = (long long)src.ListRowCount(li) - 1;
+        src.SetInt("invScroll", std::clamp<long long>(src.GetInt("invScroll") + 1, 0, last));
     });
 
     // Registered on the WORLD, so every document in the scene can use it. A

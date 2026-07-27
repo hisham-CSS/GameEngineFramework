@@ -108,6 +108,7 @@ engine_test(test_ui_textfield)     # text entry: UTF-8 caret/editing, selection,
 engine_test(test_ui_twoway)        # element -> source: push-* state and a field's bind-value
 engine_test(test_ui_component)     # UI as scene content: component, serialization, undo, UIWorld
 engine_test(test_ui_classbind)     # classes= toggles: re-cascade, other bindings surviving, no recursion
+engine_test(test_ui_repeat)        # repeat= collection binding: fixed pool, sliding window, teardown
 engine_test(test_ui_scroll)        # overflow: scroll — extent, clamp order, wheel routing, thumb capture
 engine_test(test_import_settings)  # P4-3 phase 4: .import sidecar round-trip (pure CPU)
 engine_test(test_asset_validator)  # P4-3 phase 4: cooker validate logic (pure CPU)

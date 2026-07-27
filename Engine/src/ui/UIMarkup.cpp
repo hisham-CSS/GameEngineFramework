@@ -6,9 +6,12 @@
 
 #include <pugixml.hpp>
 
+#include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <sstream>
 #include <utility>
 
@@ -72,7 +75,11 @@ namespace {
                 n == "data-source" || n == "bind" || n == "if" ||
                 n == "focusable" || n == "disabled" ||
                 n == "value" || n == "maxlength" || n == "mask" ||
-                n == "multiline") {
+                n == "multiline" ||
+                // EXACT entries, not a "repeat-" prefix rule: the exact-match
+                // allow-list is the only reason `repeat-cont=` is reported
+                // rather than quietly ignored.
+                n == "repeat" || n == "repeat-count" || n == "repeat-offset") {
                 continue;
             }
             // The on-<event> and push-<state> families are validated in full
@@ -82,6 +89,16 @@ namespace {
             if (n == "bind-value" || n == "classes") continue;
             errors.push_back(loc + "unknown attribute '" + n + "'");
             return false;
+        }
+
+        // The two modifiers mean nothing on their own, and an ignored
+        // `repeat-count` reads exactly like a pool that refused to grow.
+        for (const char* attr : { "repeat-count", "repeat-offset" }) {
+            if (node.attribute(attr) && !node.attribute("repeat")) {
+                errors.push_back(loc + attr + ": '" + attr +
+                                 "' is only valid with 'repeat'");
+                return false;
+            }
         }
 
         if (const char* n = node.attribute("name").value(); n && *n) el.setName(n);
@@ -447,19 +464,260 @@ namespace {
         return true;
     }
 
+    std::string describeEl(const UIElement& el) {
+        std::string s = "<";
+        s += el.type();
+        if (!el.name().empty()) { s += " name='"; s += el.name(); s += "'"; }
+        return s + ">";
+    }
+
+    // Splits `source.thing` against an inherited scope, the same one-dot rule
+    // the hole grammar and every push path already use.
+    bool splitScoped(const std::string& raw, const std::string& scope,
+                     const std::string& what, const std::string& loc,
+                     std::string& outSource, std::string& outName,
+                     std::vector<std::string>& errors) {
+        const std::string path = trim(raw);
+        if (path.empty()) { errors.push_back(loc + what + ": empty"); return false; }
+        const size_t dot = path.find('.');
+        if (dot != std::string::npos) {
+            if (path.find('.', dot + 1) != std::string::npos) {
+                errors.push_back(loc + what + ": path '" + path +
+                                 "' has more than one '.' (write source.list)");
+                return false;
+            }
+            outSource = trim(path.substr(0, dot));
+            outName = trim(path.substr(dot + 1));
+        } else {
+            outSource = scope;
+            outName = path;
+        }
+        if (outName.empty()) {
+            errors.push_back(loc + what + ": path '" + path + "' has no name");
+            return false;
+        }
+        if (outSource.empty()) {
+            errors.push_back(loc + what +
+                             ": no data source in scope - add data-source= to an "
+                             "ancestor, or write \"source." +
+                             (what == "repeat" ? std::string("list") : std::string("property")) +
+                             "\"");
+            return false;
+        }
+        return true;
+    }
+
+    // Walks a BUILT clone, tracking the effective data source, and records
+    // every unqualified hole that lands on the row — the column set the pool
+    // must seed on every slot, including the ones the window never reaches.
+    //
+    // Also rejects the write-back paths that would resolve against the row:
+    // resolvePush_ CREATES a missing push target, which the next frame's row
+    // copy would then overwrite, and a bare action name is looked up on a row
+    // source that has no actions at all.
+    bool scanRowUsage(const UIElement& el, const std::string& inherited,
+                      const std::string& rowScope, std::vector<std::string>& cols,
+                      std::vector<std::string>& errors, const std::string& origin) {
+        const std::string scope =
+            el.dataSourceName().empty() ? inherited : el.dataSourceName();
+        const bool onRow = (scope == rowScope);
+        const std::string loc = origin + ": " + describeEl(el) + " ";
+
+        for (const UIBinding& b : el.bindings()) {
+            if (onRow) {
+                for (const UIHole& h : b.tmpl.holes()) {
+                    if (h.sourceName.empty()) cols.push_back(h.propName);
+                }
+            }
+            if (onRow && !b.pushProp.empty() && b.pushSource.empty()) {
+                errors.push_back(loc + b.label +
+                                 ": a bare path inside a repeat writes into the row, "
+                                 "which the next frame's copy overwrites - write "
+                                 "\"source.property\"");
+                return false;
+            }
+        }
+        for (const UIBoundAction& a : el.boundActions()) {
+            if (a.sourceName.empty() && onRow) {
+                errors.push_back(loc + a.label +
+                                 ": a bare action name inside a repeat looks it up on "
+                                 "the row, which has none - write \"source.action\"");
+                return false;
+            }
+        }
+        for (const auto& c : el.children()) {
+            if (!scanRowUsage(*c, scope, rowScope, cols, errors, origin)) return false;
+        }
+        return true;
+    }
+
+    std::unique_ptr<UIElement> buildElement(const pugi::xml_node& node,
+                                            std::vector<std::string>& errors,
+                                            const std::string& origin,
+                                            const std::string& scope,
+                                            std::vector<UIRepeatSpec>* specs);
+
+    // Expands `repeat=` into a FIXED pool of clones, once, at load.
+    //
+    // The template's pugi node is re-built from XML `repeat-count` times rather
+    // than deep-copied: nodes are handles into the parsed document, which
+    // outlives this call, so there is no need for a UIElement::Clone (and none
+    // exists). Every clone is a real element from that point on — the tree
+    // never changes shape again, which is the entire reason this is a load-time
+    // expansion and not a runtime one.
+    bool expandRepeat(const pugi::xml_node& node, UIElement& el,
+                      std::vector<std::string>& errors, const std::string& origin,
+                      const std::string& scope, std::vector<UIRepeatSpec>* specs) {
+        const std::string loc = origin + ": " + describe(node) + " ";
+
+        // `specs == nullptr` means we are already inside one. 64 x 64 elements
+        // from two attributes, with no node-count guard anywhere to catch it.
+        if (!specs) {
+            errors.push_back(loc + "repeat: nested 'repeat' is not supported - "
+                                   "a row cannot itself repeat");
+            return false;
+        }
+
+        UIRepeatSpec spec;
+        spec.label = trim(node.attribute("repeat").value());
+        if (!splitScoped(spec.label, scope, "repeat", loc,
+                         spec.listSource, spec.listName, errors)) {
+            return false;
+        }
+
+        const pugi::xml_attribute countAttr = node.attribute("repeat-count");
+        if (!countAttr) {
+            errors.push_back(loc + "repeat: 'repeat-count' is required "
+                                   "(the pool size is fixed at load)");
+            return false;
+        }
+        const std::string countText = trim(countAttr.value());
+        // 64 is not arbitrary: hidden slots still walk the style push and
+        // layout read (neither has a display guard) and Layout runs up to three
+        // times a frame, so the pool is a floor cost whether it is full or not.
+        long count = 0;
+        if (countText.empty() ||
+            countText.find_first_not_of("0123456789") != std::string::npos ||
+            (count = std::strtol(countText.c_str(), nullptr, 10)) < 1 || count > 64) {
+            errors.push_back(loc + "repeat-count: expected a count 1..64, got '" +
+                             countText + "'");
+            return false;
+        }
+        spec.count = int(count);
+
+        if (const pugi::xml_attribute a = node.attribute("repeat-offset")) {
+            if (!splitScoped(a.value(), scope, "repeat-offset", loc,
+                             spec.offsetSource, spec.offsetProp, errors)) {
+                return false;
+            }
+        }
+
+        pugi::xml_node templateNode;
+        int childCount = 0;
+        for (pugi::xml_node c : node.children()) {
+            if (c.type() != pugi::node_element) continue;
+            if (!childCount) templateNode = c;
+            ++childCount;
+        }
+        if (childCount != 1) {
+            errors.push_back(loc + "repeat: expected exactly one element child "
+                                   "(the row template), found " +
+                             (childCount ? std::to_string(childCount) : std::string("none")));
+            return false;
+        }
+
+        // Rejected rather than skipped. An `if=` on the template root would be
+        // overwritten by the row's own visibility binding — or, if we skipped
+        // ours to keep theirs, the surplus slots would never be hidden at all
+        // and would sit in layout, painted and hit-testable.
+        for (const char* banned : { "if", "data-source", "repeat" }) {
+            if (!templateNode.attribute(banned)) continue;
+            errors.push_back(loc + "repeat: the row template " + describe(templateNode) +
+                             " cannot carry its own '" + banned + "=' - " +
+                             (std::string(banned) == "if"
+                                  ? "the repeat decides whether a row is shown; move the "
+                                    "condition to a child, or publish it as a row column"
+                              : std::string(banned) == "data-source"
+                                  ? "the repeat points it at the row"
+                                  : "a row cannot itself repeat"));
+            return false;
+        }
+
+        spec.namePrefix = "repeat#" + std::to_string(specs->size());
+
+        std::vector<std::unique_ptr<UIElement>> clones;
+        clones.reserve(size_t(spec.count));
+        for (int i = 0; i < spec.count; ++i) {
+            const std::string slotName = spec.slotSourceName(i);
+            auto clone = buildElement(templateNode, errors, origin, slotName, nullptr);
+            if (!clone) return false;
+            // AFTER buildElement, both of them: applyAttributes writes
+            // setDataSourceName unconditionally from the node and finalises
+            // bindings in one shot, so anything set beforehand is discarded.
+            clone->setDataSourceName(slotName);
+
+            UIBinding present;
+            present.target.kind = UIBindTarget::Kind::Display;
+            // Its own label, so where_() and Describe() never present an
+            // engine-injected binding as something the author wrote.
+            present.label = "repeat present";
+            std::string err;
+            if (!UITextTemplate::Compile(std::string("{") + kRepeatPresentProp + "}",
+                                         present.tmpl, err)) {
+                errors.push_back(loc + "repeat: " + err);   // unreachable
+                return false;
+            }
+            auto bs = clone->bindings();
+            bs.push_back(std::move(present));
+            clone->setBindings(std::move(bs));
+            clones.push_back(std::move(clone));
+        }
+
+        // Clone 0 stands for all of them: they were built from the same node.
+        if (!scanRowUsage(*clones[0], spec.slotSourceName(0), spec.slotSourceName(0),
+                          spec.columns, errors, origin)) {
+            return false;
+        }
+        std::sort(spec.columns.begin(), spec.columns.end());
+        spec.columns.erase(std::unique(spec.columns.begin(), spec.columns.end()),
+                           spec.columns.end());
+        spec.readsIndex = std::binary_search(spec.columns.begin(), spec.columns.end(),
+                                             std::string(kRepeatIndexProp));
+        spec.readsCount = std::binary_search(spec.columns.begin(), spec.columns.end(),
+                                             std::string(kRepeatCountProp));
+
+        specs->push_back(std::move(spec));
+        for (auto& c : clones) el.AddChild(std::move(c));
+        return true;
+    }
+
     // Builds one element (and its subtree). Returns null on error, having
     // appended a message — the caller discards the whole tree, so a partial
     // parse never reaches the document.
     std::unique_ptr<UIElement> buildElement(const pugi::xml_node& node,
                                             std::vector<std::string>& errors,
-                                            const std::string& origin) {
+                                            const std::string& origin,
+                                            const std::string& scope,
+                                            std::vector<UIRepeatSpec>* specs) {
         auto el = std::make_unique<UIElement>();
         el->setType(node.name());
         if (!applyAttributes(node, *el, errors, origin)) return nullptr;
 
+        // An element's own data-source= covers it and everything beneath it,
+        // which is the same rule UIBinder::collect_ applies at resolve time.
+        const std::string childScope =
+            el->dataSourceName().empty() ? scope : el->dataSourceName();
+
+        if (node.attribute("repeat")) {
+            // Replaces the ordinary child walk: the one element child is the
+            // template, and expandRepeat adds the clones itself.
+            if (!expandRepeat(node, *el, errors, origin, childScope, specs)) return nullptr;
+            return el;
+        }
+
         for (pugi::xml_node child : node.children()) {
             if (child.type() != pugi::node_element) continue; // text/comments
-            auto builtChild = buildElement(child, errors, origin);
+            auto builtChild = buildElement(child, errors, origin, childScope, specs);
             if (!builtChild) return nullptr;
             el->AddChild(std::move(builtChild));
         }
@@ -470,7 +728,8 @@ namespace {
 
 bool UIMarkup::LoadInto(UIDocument& doc, const std::string& xml,
                         std::vector<std::string>& errors,
-                        const std::string& originName) {
+                        const std::string& originName,
+                        std::vector<UIRepeatSpec>* outRepeats) {
     pugi::xml_document xdoc;
     const pugi::xml_parse_result res = xdoc.load_string(xml.c_str());
     if (!res) {
@@ -490,13 +749,27 @@ bool UIMarkup::LoadInto(UIDocument& doc, const std::string& xml,
         return false;
     }
 
+    // The root never passes through buildElement, so a `repeat=` on it would
+    // clear the allow-list and then do exactly nothing.
+    if (rootNode.attribute("repeat")) {
+        errors.push_back(originName + ": " + describe(rootNode) +
+                         " repeat: is not valid on the document root - "
+                         "put it on a child element");
+        return false;
+    }
+
     // Build the whole replacement subtree BEFORE touching the document. The
     // root node maps onto the document's existing root (which the document
     // owns), so only its children and attributes are transferred.
+    //
+    // Specs are collected HERE and not in applyAttributes, which runs twice on
+    // the root (probe, then commit) and would record every spec twice.
+    std::vector<UIRepeatSpec> repeats;
+    const std::string rootScope = trim(rootNode.attribute("data-source").value());
     std::vector<std::unique_ptr<UIElement>> newChildren;
     for (pugi::xml_node child : rootNode.children()) {
         if (child.type() != pugi::node_element) continue;
-        auto built = buildElement(child, errors, originName);
+        auto built = buildElement(child, errors, originName, rootScope, &repeats);
         if (!built) return false; // doc untouched
         newChildren.push_back(std::move(built));
     }
@@ -525,11 +798,16 @@ bool UIMarkup::LoadInto(UIDocument& doc, const std::string& xml,
     root.setType(rootNode.name());
     applyAttributes(rootNode, root, errors, originName);
     for (auto& c : newChildren) root.AddChild(std::move(c));
+    // Assigned at COMMIT and nowhere earlier, so a load that failed anywhere
+    // above leaves the caller's vector untouched and no pool is ever built for
+    // a tree that never reached the document.
+    if (outRepeats) *outRepeats = std::move(repeats);
     return true;
 }
 
 bool UIMarkup::LoadFileInto(UIDocument& doc, const std::string& path,
-                            std::vector<std::string>& errors) {
+                            std::vector<std::string>& errors,
+                            std::vector<UIRepeatSpec>* outRepeats) {
     // Containment BEFORE opening: authored markup is untrusted content headed
     // for a parser, exactly like model/script/clip/HDRi paths.
     std::filesystem::path contained;
@@ -544,7 +822,7 @@ bool UIMarkup::LoadFileInto(UIDocument& doc, const std::string& path,
         return false;
     }
     std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    return LoadInto(doc, text, errors, path);
+    return LoadInto(doc, text, errors, path, outRepeats);
 }
 
 } // namespace MyCoreEngine::ui

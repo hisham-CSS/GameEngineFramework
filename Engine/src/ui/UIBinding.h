@@ -202,9 +202,15 @@ namespace MyCoreEngine::ui {
             UIDataSource*    src = nullptr;      // null => pending resolution
             std::uint32_t    lastSourceVersion = 0;
             std::int32_t     propIndex = -1;
-            std::uint16_t    convFirst = 0, convCount = 0;
+            // 32-bit, not 16: resolve_ assigns pool sizes into these without a
+            // range check, and the bounds checks downstream catch an index that
+            // is OUT of range, not one that WRAPPED — a wrapped index is in
+            // range and silently reads somebody else's hole. A `repeat=` of 64
+            // slots multiplies every template in its subtree by 64, which is
+            // how a document gets within reach of 65536 in the first place.
+            std::uint32_t    convFirst = 0, convCount = 0;
             // Range into holePool_, parallel to convFirst/convCount.
-            std::uint16_t    holeFirst = 0, holeCount = 0;
+            std::uint32_t    holeFirst = 0, holeCount = 0;
             bool             layoutAffecting = false;
             bool             reported = false;   // latch, re-armed on a kind change
             std::uint8_t     reportedKind = 0;
