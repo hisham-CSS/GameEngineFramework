@@ -814,8 +814,13 @@ void UIDocument::draw_(const UIElement& el, Renderer2D& r2d, const Font* font,
     // does not scroll — the one signal the painter and the hit test share.
     if (el.scroll_) {
         const UIScrollState& sc = *el.scroll_;
-        const glm::vec4 trackCol{ 1.0f, 1.0f, 1.0f, 0.06f };
-        const glm::vec4 thumbCol{ 1.0f, 1.0f, 1.0f, 0.28f };
+        // From the STYLE. These were literals equal to the defaults, which made
+        // `scrollbar-color` and `scrollbar-thumb-color` parse, validate, store —
+        // and do nothing. A property that is accepted and then ignored is the
+        // exact silent no-op this codebase reports errors to avoid, and it was
+        // invisible precisely because the literals matched the defaults.
+        const glm::vec4 trackCol = s.scrollbarColor;
+        const glm::vec4 thumbCol = s.scrollbarThumbColor;
         const int barLayer = layer + 1;
         if (sc.thumbY.size.y > 0.0f) {
             r2d.DrawQuad(sc.trackY.position, sc.trackY.size, trackCol, barLayer);

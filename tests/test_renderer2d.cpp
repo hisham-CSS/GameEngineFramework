@@ -15,7 +15,9 @@
 
 #include "Engine.h"
 #include "../Engine/src/render2d/Renderer2D.h"
+#include "../Engine/src/ui/UIElement.h"
 
+#include <string>
 #include <vector>
 
 using namespace MyCoreEngine;
@@ -253,4 +255,54 @@ TEST_F(Renderer2DTest, TransparentQuadsDoNotPaint) {
 
     const auto px = readback();
     EXPECT_LT(red(px, 4, 4), 20) << "a fully transparent quad still painted";
+}
+
+// A styled scrollbar has to reach the SCREEN, not just the Style struct.
+//
+// This is the one assertion the headless UI suite cannot make, and it caught a
+// real bug: `scrollbar-color` and `scrollbar-thumb-color` parsed, validated and
+// stored, while draw_ painted from two literals that happened to equal the
+// defaults. Every parse-level test passed and the property did nothing. Only a
+// pixel readback could tell the difference, which is why this test lives here
+// with the GL fixture rather than next to the rest of the scroll tests.
+TEST_F(Renderer2DTest, AStyledScrollbarReachesTheFramebuffer) {
+    using namespace MyCoreEngine::ui;
+
+    UIDocument doc;
+    UIElement* box = doc.root().AddChild("box");
+    box->style().overflowX = box->style().overflowY = Overflow::Scroll;
+    box->style().width = StyleLength::Px(float(kW));
+    box->style().height = StyleLength::Px(float(kH));
+    // Opaque pure red thumb on an opaque pure blue track, so a readback cannot
+    // confuse them with each other, with the background, or with the defaults
+    // (which are near-white and nearly transparent).
+    box->style().scrollbarWidth = 10.0f;
+    box->style().scrollbarMinThumb = 8.0f;
+    box->style().scrollbarColor = { 0.0f, 0.0f, 1.0f, 1.0f };
+    box->style().scrollbarThumbColor = { 1.0f, 0.0f, 0.0f, 1.0f };
+    // Content taller than the box, so the vertical axis actually scrolls.
+    for (int i = 0; i < 8; ++i) {
+        box->AddChild("r" + std::to_string(i))->style().height = StyleLength::Px(40.f);
+    }
+    doc.Layout(float(kW), float(kH));
+
+    const UIScrollState* sc = box->scrollState();
+    ASSERT_NE(sc, nullptr);
+    ASSERT_GT(sc->thumbY.size.y, 0.f) << "no vertical bar to paint";
+
+    clear();
+    r2d.BeginScreen(kW, kH);
+    doc.Draw(r2d);
+    r2d.End();
+    const auto px = readback();
+
+    // Inside the thumb: red, and not blue.
+    const int tx = int(sc->thumbY.position.x + sc->thumbY.size.x * 0.5f);
+    const int ty = int(sc->thumbY.position.y + sc->thumbY.size.y * 0.5f);
+    EXPECT_GT(red(px, tx, ty), 200) << "the authored thumb colour never reached the screen";
+
+    // On the track but clear of the thumb: blue, and not red. The thumb sits at
+    // the top (offset 0), so sample near the bottom of the track.
+    const int by = int(sc->trackY.position.y + sc->trackY.size.y - 3.f);
+    EXPECT_LT(red(px, tx, by), 60) << "the track is painted in the thumb's colour";
 }
