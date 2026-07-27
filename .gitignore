@@ -5,3 +5,5 @@ vcpkg_installed/
 
 # Files
 CMakeSettings.json
+# Visual Studio resource-editor intermediate (binary, regenerated from app.rc)
+*.aps
