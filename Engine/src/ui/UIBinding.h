@@ -157,6 +157,14 @@ namespace MyCoreEngine::ui {
 
         const std::vector<std::string>& errors() const { return errors_; }
         const std::vector<std::string>& notes()  const { return notes_;  }
+
+        // True once, if a Rebuild has happened since the last call. A re-collect
+        // triggered MID-RUN — by the structure epoch, or by a source appearing
+        // that a pending binding was waiting for — recomputes errors_ and notes_
+        // into vectors that only the load path ever read, so a binding that
+        // broke while the game was running reported itself to nobody. The owner
+        // drains on this.
+        bool consumeRecollected() { const bool r = recollected_; recollected_ = false; return r; }
         bool ok() const { return errors_.empty(); }
         std::size_t bindingCount() const { return entries_.size(); }
         std::size_t unresolvedCount() const;
@@ -173,6 +181,21 @@ namespace MyCoreEngine::ui {
         // per-frame scan walks contiguous PODs. Converter functions live in
         // convPool_ as pointers into registry-owned std::functions — never
         // copies, which would double every capture.
+        // One resolved hole: which source it reads, which property index, and
+        // the version last consumed FROM THAT SOURCE.
+        //
+        // Per hole rather than per entry because a template may read several
+        // sources — `text="{x} / {b.y}"` — and hanging change detection off the
+        // first hole alone left the rest stale. Caching the index is the other
+        // half: render_ used to call ctx_->Find and IndexOf on EVERY apply,
+        // which is a map lookup and a linear strcmp scan per hole per frame,
+        // flatly contradicting UIDataSource's "searched once per load".
+        struct HoleRef {
+            UIDataSource* src = nullptr;      // null => this hole is pending
+            std::int32_t  propIndex = -1;
+            std::uint32_t lastVersion = 0;
+        };
+
         struct Entry {
             UIElement*       el = nullptr;
             const UIBinding* binding = nullptr;  // into el->bindings_; alive while el is
@@ -180,6 +203,8 @@ namespace MyCoreEngine::ui {
             std::uint32_t    lastSourceVersion = 0;
             std::int32_t     propIndex = -1;
             std::uint16_t    convFirst = 0, convCount = 0;
+            // Range into holePool_, parallel to convFirst/convCount.
+            std::uint16_t    holeFirst = 0, holeCount = 0;
             bool             layoutAffecting = false;
             bool             reported = false;   // latch, re-armed on a kind change
             std::uint8_t     reportedKind = 0;
@@ -197,6 +222,8 @@ namespace MyCoreEngine::ui {
         };
 
         void collect_(UIElement& el, const std::string& inheritedSource);
+        bool holesMoved_(const Entry& e) const;
+        void stampHoles_(Entry& e);
         bool resolve_(Entry& e, const std::string& inheritedSource);
         // Resolves the write-back target of a State/Value binding, reporting a
         // read-only property rather than dropping the write in silence.
@@ -217,6 +244,8 @@ namespace MyCoreEngine::ui {
         std::vector<Entry>              entries_;
         std::vector<ActionEntry>        actions_;
         std::vector<const UIConvertFn*> convPool_;
+        std::vector<HoleRef> holePool_;
+        bool recollected_ = false;
         std::vector<std::string>        errors_, notes_;
         // Capacity survives across frames, so the text path allocates nothing
         // on a steady frame.

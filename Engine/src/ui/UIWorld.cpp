@@ -164,6 +164,9 @@ void UIWorld::Update(entt::registry& reg, int widthPx, int heightPx, float dt) {
         ad.PublishToSources();
         bool relayout = ad.RestyleInteractive();
         relayout |= ad.binder().UpdateToTarget().wroteLayout;
+        // After every binder pass this frame, so a re-collect from any of the
+        // three is reported in the frame it happened rather than the next one.
+        ad.DrainBinderDiagnostics();
         // A wheel notch, a thumb drag or a caret-follow moved an offset that
         // readLayout_ consumes, so it has to be re-applied THIS frame. Without
         // it the thumb trails the cursor for the whole drag and the caret leaves

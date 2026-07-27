@@ -142,6 +142,7 @@ void UIBinder::Clear() {
     entries_.clear();
     actions_.clear();
     convPool_.clear();
+    holePool_.clear();
     doc_ = nullptr;
     ctx_ = nullptr;
     seenEpoch_ = 0;
@@ -263,6 +264,8 @@ bool UIBinder::resolve_(Entry& e, const std::string& inheritedSource) {
     e.propIndex = -1;
     e.convFirst = std::uint16_t(convPool_.size());
     e.convCount = 0;
+    e.holeFirst = std::uint16_t(holePool_.size());
+    e.holeCount = 0;
     e.lastSourceVersion = 0;
 
     // A constant template has nothing to bind; it is authored text that simply
@@ -295,10 +298,16 @@ bool UIBinder::resolve_(Entry& e, const std::string& inheritedSource) {
             allResolved = false;
             break;
         }
-        // The first hole owns the entry's change detection. A multi-hole
-        // template re-renders when ANY of its sources moves, which the
-        // per-source version compare below covers because they share a source
-        // in every case a HUD actually writes.
+        // EVERY hole is recorded, with its own source and index, and every one
+        // of them drives change detection. The old code kept only the first and
+        // assumed a template's holes shared a source — true of the shipped HUD,
+        // false of `{x} / {b.y}`, which then never re-rendered when only `b`
+        // moved. Caching the index here is also what takes ctx_->Find and
+        // IndexOf off the per-frame apply path.
+        holePool_.push_back(HoleRef{ src, idx, 0 });
+        ++e.holeCount;
+        // Mirrored so Describe(), unresolvedCount() and the Kind::Value path
+        // keep reading one canonical source, as they always have.
         if (!e.src) { e.src = src; e.propIndex = idx; }
 
         for (const std::string& cname : h.converters) {
@@ -365,8 +374,10 @@ void UIBinder::Rebuild(UIDocument& doc, UIBindingContext& ctx, std::string origi
     entries_.clear();
     actions_.clear();
     convPool_.clear();
+    holePool_.clear();
     errors_.clear();
     notes_.clear();
+    recollected_ = true;
     doc_ = &doc;
     ctx_ = &ctx;
     sheet_ = sheet;
@@ -392,8 +403,7 @@ void UIBinder::Rebuild(UIDocument& doc, UIBindingContext& ctx, std::string origi
         // UpdateToTarget would re-apply every binding for nothing — turning the
         // first frame after a reload into a full re-layout. A `bind-value`
         // tracks its push source, which is the one it reads from.
-        if (e.src) e.lastSourceVersion = e.src->version();
-        else if (e.pushSrc) e.lastSourceVersion = e.pushSrc->version();
+        stampHoles_(e);
     }
 
     // Record these AFTER collecting, because collect_ attaches listeners and
@@ -425,12 +435,13 @@ bool UIBinder::render_(Entry& e, const UIHole* holes, std::size_t holeCount) {
         scratch_ += lits[i];
 
         const UIHole& h = holes[i];
-        const std::string srcName = h.sourceName.empty() ? std::string() : h.sourceName;
-        UIDataSource* src = srcName.empty() ? e.src : ctx_->Find(srcName);
-        if (!src) return false;
+        // Resolved at Rebuild, not re-derived here: this runs on every apply.
+        if (std::size_t(e.holeFirst) + i >= holePool_.size()) return false;
+        const HoleRef& hr = holePool_[std::size_t(e.holeFirst) + i];
+        if (!hr.src) return false;
 
         UIValue v;
-        if (!src->ReadAt(src->IndexOf(h.propName), v)) return false;
+        if (!hr.src->ReadAt(hr.propIndex, v)) return false;
 
         for (std::size_t c = 0; c < h.converters.size(); ++c, ++convCursor) {
             if (convCursor >= convPool_.size()) return false;
@@ -457,9 +468,10 @@ bool UIBinder::render_(Entry& e, const UIHole* holes, std::size_t holeCount) {
 
 bool UIBinder::evalSingle_(Entry& e, UIValue& out) {
     const UIHole& h = e.binding->tmpl.holes()[0];
-    UIDataSource* src = h.sourceName.empty() ? e.src : ctx_->Find(h.sourceName);
-    if (!src) return false;
-    if (!src->ReadAt(src->IndexOf(h.propName), out)) return false;
+    if (e.holeCount == 0 || e.holeFirst >= holePool_.size()) return false;
+    const HoleRef& hr = holePool_[e.holeFirst];
+    if (!hr.src) return false;
+    if (!hr.src->ReadAt(hr.propIndex, out)) return false;
 
     std::size_t cursor = e.convFirst;
     for (std::size_t c = 0; c < h.converters.size(); ++c, ++cursor) {
@@ -675,6 +687,36 @@ UIBindTick UIBinder::UpdateToSource() {
     return tick;
 }
 
+// True when ANY of the entry's holes has moved since it was last applied, or
+// reads a polled property (which has no version to compare and must be read
+// every frame — the one per-frame cost in this system that does not vanish).
+bool UIBinder::holesMoved_(const Entry& e) const {
+    for (std::uint16_t i = 0; i < e.holeCount; ++i) {
+        const std::size_t k = std::size_t(e.holeFirst) + i;
+        if (k >= holePool_.size()) return true;      // corrupt: re-apply and re-resolve
+        const HoleRef& hr = holePool_[k];
+        if (!hr.src) return false;                   // pending; nothing to read yet
+        if (hr.src->version() != hr.lastVersion || hr.src->hasPolled()) return true;
+    }
+    return false;
+}
+
+// Records what the apply just consumed, per hole. Skipping this would re-apply
+// every binding every frame; doing it per ENTRY was what let a second source go
+// unnoticed.
+void UIBinder::stampHoles_(Entry& e) {
+    for (std::uint16_t i = 0; i < e.holeCount; ++i) {
+        const std::size_t k = std::size_t(e.holeFirst) + i;
+        if (k >= holePool_.size()) return;
+        HoleRef& hr = holePool_[k];
+        if (hr.src) hr.lastVersion = hr.src->version();
+    }
+    // `e.lastSourceVersion` still backs the ONE path that has no holes at all:
+    // Kind::Value, whose source -> field half reads through pushSrc.
+    if (e.src) e.lastSourceVersion = e.src->version();
+    else if (e.pushSrc) e.lastSourceVersion = e.pushSrc->version();
+}
+
 UIBindTick UIBinder::UpdateToTarget() {
     UIBindTick tick;
     if (!doc_ || !ctx_) return tick;
@@ -727,17 +769,15 @@ UIBindTick UIBinder::UpdateToTarget() {
         if (!e.src) continue;                       // pending
         if (e.binding->tmpl.isConstant()) continue; // authored text, applied at Rebuild
 
-        const std::uint32_t sv = e.src->version();
-        // One compare skips every binding on an unchanged source. Polled
-        // properties have to be read regardless — that is what makes Poll the
-        // only per-frame cost here that does not vanish.
-        if (sv == e.lastSourceVersion && !e.src->hasPolled()) continue;
+        // One compare PER HOLE skips every binding whose sources are all
+        // unchanged, and catches the one whose second source moved.
+        if (!holesMoved_(e)) continue;
 
         if (apply_(e)) {
             ++tick.applied;
             tick.wroteLayout |= e.layoutAffecting;
         }
-        e.lastSourceVersion = sv;
+        stampHoles_(e);
     }
     return tick;
 }

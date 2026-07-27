@@ -354,3 +354,98 @@ TEST_F(UIHotReloadTest, StylesheetIsOptional) {
     EXPECT_TRUE(d.Update(0.0f)) << "watching broke without a stylesheet";
     EXPECT_NE(d.document().root().Find("bar2"), nullptr);
 }
+
+// ------------------------------------------------- mid-run re-collect reports
+//
+// The binder re-collects whenever the structure epoch moves, and a re-collect
+// recomputes errors_ and notes_ from scratch. Only the LOAD path ever read
+// them, so a binding that broke while the game was running — on an element
+// gameplay added, or one whose bindings it replaced — reported itself into a
+// vector nobody looked at. The UI simply stopped updating, with no line
+// anywhere saying why.
+
+namespace {
+
+// A binding to a property that does not exist, built the way gameplay would.
+UIBinding brokenTextBinding(const char* path) {
+    UIBinding b;
+    b.target.kind = UIBindTarget::Kind::Text;
+    b.label = "text";
+    std::string err;
+    EXPECT_TRUE(UITextTemplate::Compile(std::string("{") + path + "}", b.tmpl, err)) << err;
+    return b;
+}
+
+} // namespace
+
+TEST_F(UIHotReloadTest, ABindingThatBreaksMidRunIsReported) {
+    UIAssetDocument d;
+    ASSERT_TRUE(d.Load(markup_, style_));
+    UIDataSource src;
+    src.SetInt("score", 0);
+    d.bindingContext().RegisterSource("hud", &src);
+    d.binder().Rebuild(d.document(), d.bindingContext(), markup_);
+    d.DrainBinderDiagnostics();          // clears the load-time flag
+    ASSERT_TRUE(d.ok()) << (d.errors().empty() ? "" : d.errors()[0]);
+
+    // Gameplay adds an element with a binding nothing can resolve. setBindings
+    // bumps the structure epoch, which is what makes the binder re-collect.
+    UIElement* added = d.document().root().AddChild("added");
+    ASSERT_NE(added, nullptr);
+    added->setDataSourceName("hud");
+    added->setBindings({ brokenTextBinding("nonexistentProperty") });
+
+    d.binder().UpdateToTarget();
+    d.DrainBinderDiagnostics();
+
+    ASSERT_FALSE(d.errors().empty())
+        << "a re-collect found the broken binding and told nobody";
+    bool named = false;
+    for (const auto& e : d.errors()) {
+        if (e.find("nonexistentProperty") != std::string::npos) named = true;
+    }
+    EXPECT_TRUE(named) << "reported something, but not the property at fault: "
+                       << d.errors()[0];
+}
+
+// The same list is recomputed on EVERY re-collect, so a binding that stays
+// broken would append a copy per structure change and bury the newest line.
+TEST_F(UIHotReloadTest, AStillBrokenBindingIsNotReportedTwice) {
+    UIAssetDocument d;
+    ASSERT_TRUE(d.Load(markup_, style_));
+    UIDataSource src;
+    src.SetInt("score", 0);
+    d.bindingContext().RegisterSource("hud", &src);
+    d.binder().Rebuild(d.document(), d.bindingContext(), markup_);
+    d.DrainBinderDiagnostics();
+
+    UIElement* added = d.document().root().AddChild("added");
+    added->setDataSourceName("hud");
+    added->setBindings({ brokenTextBinding("nonexistentProperty") });
+    d.binder().UpdateToTarget();
+    d.DrainBinderDiagnostics();
+    const std::size_t after1 = d.errors().size();
+    ASSERT_GT(after1, 0u);
+
+    // Another structure change, same broken binding.
+    d.document().root().AddChild("added2");
+    d.binder().UpdateToTarget();
+    d.DrainBinderDiagnostics();
+    EXPECT_EQ(d.errors().size(), after1) << "the same error was appended again";
+}
+
+// A quiet frame must not re-drain: without the once-only flag the drain would
+// re-scan and re-print the binder's whole list every single frame.
+TEST_F(UIHotReloadTest, AnIdleFrameDrainsNothing) {
+    UIAssetDocument d;
+    ASSERT_TRUE(d.Load(markup_, style_));
+    UIDataSource src;
+    d.bindingContext().RegisterSource("hud", &src);
+    d.binder().Rebuild(d.document(), d.bindingContext(), markup_);
+
+    EXPECT_TRUE(d.binder().consumeRecollected()) << "a Rebuild did not arm the drain";
+    EXPECT_FALSE(d.binder().consumeRecollected()) << "the flag did not clear";
+    d.binder().UpdateToTarget();
+    EXPECT_FALSE(d.binder().consumeRecollected())
+        << "an idle UpdateToTarget re-collected";
+}

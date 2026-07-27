@@ -1205,3 +1205,94 @@ TEST(UIBindActions, ARecollectDoesNotDuplicateTheHandler) {
     EXPECT_EQ(hud.data().GetInt("score"), 200)
         << "the bound action fired more than once — the binder duplicated its listener";
 }
+
+// ------------------------------------------- multi-source change detection
+
+// A template may read from more than one source. Change detection used to hang
+// off the FIRST hole alone — the entry cached one source pointer and one
+// version — so `{a.x} / {b.y}` went stale the moment only `b` moved. The
+// comment that justified it said the sources "share a source in every case a
+// HUD actually writes", which is an assumption, not a guarantee.
+TEST(UIBinding, EveryHoleDrivesChangeDetectionNotJustTheFirst) {
+    UIDataSource a, b;
+    a.SetInt("x", 1);
+    b.SetInt("y", 2);
+    UIBindingContext ctx;
+    ctx.RegisterSource("a", &a);
+    ctx.RegisterSource("b", &b);
+
+    UIDocument doc;
+    std::vector<std::string> errors;
+    ASSERT_TRUE(UIMarkup::LoadInto(doc,
+        R"(<UI data-source="a"><Label name="l" text="{x} / {b.y}"/></UI>)",
+        errors, "t.cxml")) << (errors.empty() ? "" : errors[0]);
+
+    UIBinder binder;
+    binder.Rebuild(doc, ctx, "t.cxml");
+    UIElement* l = doc.root().Find("l");
+    ASSERT_NE(l, nullptr);
+    ASSERT_EQ(l->style().text, "1 / 2");
+
+    // Only the SECOND source moves.
+    b.SetInt("y", 99);
+    binder.UpdateToTarget();
+    EXPECT_EQ(l->style().text, "1 / 99")
+        << "a hole after the first does not drive change detection";
+
+    // ...and the first still does.
+    a.SetInt("x", 7);
+    binder.UpdateToTarget();
+    EXPECT_EQ(l->style().text, "7 / 99");
+}
+
+// The same hazard on the single-value path (bind=, if=, classes=), which reads
+// through evalSingle_ rather than render_.
+TEST(UIBinding, AQualifiedSingleHoleTracksItsOwnSource) {
+    UIDataSource a, b;
+    a.SetInt("unused", 0);
+    b.SetNumber("w", 10.f);
+    UIBindingContext ctx;
+    ctx.RegisterSource("a", &a);
+    ctx.RegisterSource("b", &b);
+
+    UIDocument doc;
+    std::vector<std::string> errors;
+    ASSERT_TRUE(UIMarkup::LoadInto(doc,
+        R"(<UI data-source="a"><Element name="e" bind="width: {b.w | px}"/></UI>)",
+        errors, "t.cxml")) << (errors.empty() ? "" : errors[0]);
+
+    UIBinder binder;
+    binder.Rebuild(doc, ctx, "t.cxml");
+    UIElement* e = doc.root().Find("e");
+    ASSERT_NE(e, nullptr);
+    ASSERT_FLOAT_EQ(e->style().width.value, 10.f);
+
+    b.SetNumber("w", 42.f);
+    binder.UpdateToTarget();
+    EXPECT_FLOAT_EQ(e->style().width.value, 42.f)
+        << "a qualified hole tracked the inherited source instead of its own";
+}
+
+// An idle frame must still cost nothing once several sources are involved —
+// the whole point of per-hole versions is to notice MORE changes, not to give
+// up on noticing NO change.
+TEST(UIBinding, AnIdleFrameWithSeveralSourcesAppliesNothing) {
+    UIDataSource a, b;
+    a.SetInt("x", 1);
+    b.SetInt("y", 2);
+    UIBindingContext ctx;
+    ctx.RegisterSource("a", &a);
+    ctx.RegisterSource("b", &b);
+
+    UIDocument doc;
+    std::vector<std::string> errors;
+    ASSERT_TRUE(UIMarkup::LoadInto(doc,
+        R"(<UI data-source="a"><Label name="l" text="{x} / {b.y}"/></UI>)",
+        errors, "t.cxml"));
+    UIBinder binder;
+    binder.Rebuild(doc, ctx, "t.cxml");
+    binder.UpdateToTarget();                       // settle
+
+    EXPECT_EQ(binder.UpdateToTarget().applied, 0u)
+        << "an unchanged multi-source template re-applied anyway";
+}

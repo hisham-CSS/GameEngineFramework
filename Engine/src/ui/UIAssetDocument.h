@@ -84,9 +84,18 @@ namespace MyCoreEngine::ui {
         // AFTER UpdatePointer and UpdateKeyboard, which is where the state and
         // the values it publishes are decided.
         void PublishToSources() { binder_.UpdateToSource(); }
+
+        // Prints anything a MID-RUN re-collect found. The load path reports the
+        // binder's diagnostics itself; a re-collect triggered later by the
+        // structure epoch recomputes them with nobody listening, which is how a
+        // binding that went bad while the game ran stayed silent.
+        void DrainBinderDiagnostics();
+
         UIInteractionStyler& styler() { return styler_; }
 
-        // Diagnostics from the last load attempt (markup and stylesheet).
+        // Diagnostics: the last load attempt (markup and stylesheet), plus
+        // anything a mid-run re-collect has reported since. Deduplicated, so a
+        // binding that stays broken across many re-collects appears once.
         const std::vector<std::string>& errors() const { return errors_; }
         bool ok() const { return errors_.empty(); }
 

@@ -2,6 +2,7 @@
 
 #include "UIMarkup.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <iostream>
 #include <system_error>
@@ -85,6 +86,10 @@ bool UIAssetDocument::Reload() {
         std::cerr << "[UI] " << e << "\n";
     }
     for (const auto& n : binder_.notes()) std::cerr << "[UI] note: " << n << "\n";
+    // Consumed here, not left set: the load path has just reported these
+    // itself, and the frame after a reload would otherwise drain and print the
+    // very same list a second time.
+    binder_.consumeRecollected();
 
     // After the binder, because the styler re-applies bindings when it
     // re-cascades and needs a resolved one to do it with.
@@ -95,6 +100,20 @@ bool UIAssetDocument::Reload() {
     // Values are no longer its job — those live in the data source.
     if (bind_) bind_(doc_);
     return true;
+}
+
+void UIAssetDocument::DrainBinderDiagnostics() {
+    if (!binder_.consumeRecollected()) return;
+    // Deduplicated against what is already here. A re-collect recomputes the
+    // WHOLE diagnostic list, so a binding that is still broken reports itself
+    // again on every structure change; appending blindly would grow errors_
+    // without bound and bury the new line under copies of the old one.
+    for (const auto& e : binder_.errors()) {
+        if (std::find(errors_.begin(), errors_.end(), e) != errors_.end()) continue;
+        errors_.push_back(e);
+        std::cerr << "[UI] " << e << "\n";
+    }
+    for (const auto& n : binder_.notes()) std::cerr << "[UI] note: " << n << "\n";
 }
 
 bool UIAssetDocument::Update(float dt) {
