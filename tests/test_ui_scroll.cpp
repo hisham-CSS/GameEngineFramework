@@ -1211,3 +1211,244 @@ TEST(UIScroll, PageKeysAreNotConsumedWithoutAScroller) {
     EXPECT_EQ(seen, 1) << "the handler must still see the key";
     SUCCEED();
 }
+
+// ====================================================== smooth scrolling
+
+// OPT-IN, and that is the whole design. Layout() is otherwise a pure function
+// of the tree, and making every scroll depend on the clock would be a change
+// every existing caller had to reason about — so the default stays instant and
+// the 40-odd tests above never advance a clock.
+TEST(UIScroll, InstantIsTheDefault) {
+    ScrollDoc d;
+    EXPECT_EQ(d.box->style().scrollBehavior, ScrollBehavior::Instant);
+    d.box->SetScrollOffset({ 0.f, 200.f });
+    EXPECT_FLOAT_EQ(d.box->scrollOffset().y, 200.f)
+        << "an instant scroll must land before any time passes";
+    d.Layout();
+    EXPECT_FLOAT_EQ(d.box->scrollOffset().y, 200.f);
+}
+
+TEST(UIScroll, SmoothMovesTheTargetAndEasesTowardIt) {
+    ScrollDoc d;
+    d.box->style().scrollBehavior = ScrollBehavior::Smooth;
+    d.Layout();
+
+    ASSERT_TRUE(d.box->SetScrollOffset({ 0.f, 200.f }));
+    // Nothing has moved yet: the destination changed, not the view.
+    EXPECT_FLOAT_EQ(d.box->scrollOffset().y, 0.f);
+    ASSERT_NE(d.box->scrollState(), nullptr);
+    EXPECT_FLOAT_EQ(d.box->scrollState()->target.y, 200.f);
+
+    d.doc.AdvanceTime(0.016f);
+    const float afterOne = d.box->scrollOffset().y;
+    EXPECT_GT(afterOne, 0.f) << "the ease never started";
+    EXPECT_LT(afterOne, 200.f) << "one frame covered the whole distance";
+
+    // ...and it arrives, rather than asymptoting forever.
+    for (int i = 0; i < 200; ++i) d.doc.AdvanceTime(0.016f);
+    EXPECT_FLOAT_EQ(d.box->scrollOffset().y, 200.f)
+        << "an exponential approach must snap, or the document relayouts forever";
+}
+
+// Frame-rate independence: the same elapsed time must cover the same distance
+// whether it arrives in one step or eight.
+TEST(UIScroll, TheEaseIsFrameRateIndependent) {
+    ScrollDoc a, b;
+    for (ScrollDoc* d : { &a, &b }) {
+        d->box->style().scrollBehavior = ScrollBehavior::Smooth;
+        d->Layout();
+        d->box->SetScrollOffset({ 0.f, 400.f });
+    }
+    a.doc.AdvanceTime(0.16f);                              // one slow frame
+    for (int i = 0; i < 8; ++i) b.doc.AdvanceTime(0.02f);  // eight fast ones
+
+    EXPECT_NEAR(a.box->scrollOffset().y, b.box->scrollOffset().y, 1.0f)
+        << "the same flick would travel differently at 60Hz and 144Hz";
+}
+
+// The host has to keep laying out while an animation runs, or the offset moves
+// and nothing on screen follows it.
+TEST(UIScroll, AnimatingKeepsTheDocumentDirty) {
+    ScrollDoc d;
+    d.box->style().scrollBehavior = ScrollBehavior::Smooth;
+    d.Layout();
+    d.box->SetScrollOffset({ 0.f, 300.f });
+    d.doc.ConsumeScrollDirty();          // clear whatever the write set
+
+    d.doc.AdvanceTime(0.016f);
+    EXPECT_TRUE(d.doc.ConsumeScrollDirty()) << "an animating scroller did not ask for a relayout";
+
+    for (int i = 0; i < 200; ++i) d.doc.AdvanceTime(0.016f);
+    d.doc.ConsumeScrollDirty();
+    d.doc.AdvanceTime(0.016f);
+    EXPECT_FALSE(d.doc.ConsumeScrollDirty())
+        << "a settled scroller keeps the document dirty forever";
+}
+
+// Content shrinking mid-animation must not leave the ease pulling toward
+// somewhere unreachable.
+TEST(UIScroll, TheTargetIsClampedWhenContentShrinks) {
+    ScrollDoc d;
+    d.box->style().scrollBehavior = ScrollBehavior::Smooth;
+    d.Layout();
+    d.box->SetScrollOffset({ 0.f, 400.f });
+    d.doc.AdvanceTime(0.016f);
+
+    for (int i = 2; i < 10; ++i) d.row(i)->style().display = DisplayMode::None;
+    d.Layout();
+    ASSERT_FLOAT_EQ(d.box->maxScroll().y, 0.f);
+    EXPECT_FLOAT_EQ(d.box->scrollState()->target.y, 0.f) << "the target outran the content";
+
+    for (int i = 0; i < 200; ++i) d.doc.AdvanceTime(0.016f);
+    EXPECT_FLOAT_EQ(d.box->scrollOffset().y, 0.f);
+}
+
+// Turning smoothness off mid-flight lands immediately rather than freezing
+// part-way with no clock left to finish the journey.
+TEST(UIScroll, SwitchingToInstantMidAnimationLands) {
+    ScrollDoc d;
+    d.box->style().scrollBehavior = ScrollBehavior::Smooth;
+    d.Layout();
+    d.box->SetScrollOffset({ 0.f, 300.f });
+    d.doc.AdvanceTime(0.016f);
+    ASSERT_LT(d.box->scrollOffset().y, 300.f);
+
+    d.box->style().scrollBehavior = ScrollBehavior::Instant;
+    d.doc.AdvanceTime(0.016f);
+    EXPECT_FLOAT_EQ(d.box->scrollOffset().y, 300.f);
+}
+
+// A document with nothing animating must not pay for the walk.
+TEST(UIScroll, AdvanceTimeIsInertWithoutAnAnimation) {
+    ScrollDoc d;
+    d.box->SetScrollOffset({ 0.f, 200.f });
+    d.Layout();
+    d.doc.ConsumeScrollDirty();
+    for (int i = 0; i < 10; ++i) d.doc.AdvanceTime(0.016f);
+    EXPECT_FALSE(d.doc.ConsumeScrollDirty());
+    EXPECT_FLOAT_EQ(d.box->scrollOffset().y, 200.f);
+}
+
+TEST(UIScroll, ScrollBehaviorIsAuthorable) {
+    UIStyleSheet s;
+    ASSERT_TRUE(s.ParseString("#a { scroll-behavior: smooth; } #b { scroll-behavior: auto; }"))
+        << (s.errors().empty() ? "" : s.errors()[0]);
+    UIElement a("a"), b("b");
+    s.ApplyToElement(a);
+    s.ApplyToElement(b);
+    EXPECT_EQ(a.style().scrollBehavior, ScrollBehavior::Smooth);
+    // CSS spells instant `auto`, and here it is unambiguous — there is no third
+    // behaviour it could mean, unlike `overflow: auto`.
+    EXPECT_EQ(b.style().scrollBehavior, ScrollBehavior::Instant);
+
+    UIStyleSheet bad;
+    EXPECT_FALSE(bad.ParseString("#a { scroll-behavior: swoosh; }"));
+    ASSERT_FALSE(bad.errors().empty());
+    EXPECT_NE(bad.errors()[0].find("scroll-behavior must be one of"), std::string::npos)
+        << bad.errors()[0];
+}
+
+// ============================================== the text field's own bar
+
+namespace {
+
+// A multiline field with a known text extent. No font in this suite, so the
+// measurement is supplied directly — which is exactly why UITextEdit records it
+// rather than re-deriving it at every use.
+struct FieldBarDoc {
+    UIDocument doc;
+    UIElement* f = nullptr;
+
+    FieldBarDoc() {
+        std::vector<std::string> errors;
+        UIMarkup::LoadInto(doc, R"(<UI><TextField name="f" multiline="true"
+                                     style="width: 200px; height: 60px; padding: 5px"/></UI>)",
+                           errors, "t.uxml");
+        UIStyleSheet sheet;
+        sheet.ApplyTo(doc.root());
+        doc.Layout(400.f, 400.f);
+        f = doc.root().Find("f");
+    }
+    UITextEdit* edit() { return f ? f->textEdit() : nullptr; }
+    // Pretend the font measured this much text inside the padding box.
+    void Measured(float w, float h) {
+        edit()->setMeasured({ w, h }, { 190.f, 50.f });
+        doc.Layout(400.f, 400.f);
+    }
+};
+
+} // namespace
+
+TEST(UIScroll, AMultilineFieldPaintsABarForItsText) {
+    FieldBarDoc d;
+    ASSERT_NE(d.edit(), nullptr);
+    d.Measured(150.f, 200.f);            // taller than the 50px content box
+
+    ASSERT_NE(d.f->scrollState(), nullptr);
+    EXPECT_GT(d.f->scrollState()->thumbY.size.y, 0.f) << "no bar for overflowing text";
+    EXPECT_FLOAT_EQ(d.f->scrollState()->thumbX.size.x, 0.f)
+        << "the text fits horizontally; there should be no bar";
+    EXPECT_FLOAT_EQ(d.f->maxScroll().y, 150.f);
+}
+
+TEST(UIScroll, ASingleLineFieldNeverPaintsABar) {
+    UIDocument doc;
+    std::vector<std::string> errors;
+    ASSERT_TRUE(UIMarkup::LoadInto(doc,
+        R"(<UI><TextField name="f" style="width: 200px; height: 30px"/></UI>)",
+        errors, "t.uxml"));
+    UIStyleSheet sheet;
+    sheet.ApplyTo(doc.root());
+    doc.Layout(400.f, 400.f);
+    UIElement* f = doc.root().Find("f");
+    ASSERT_NE(f, nullptr);
+    f->textEdit()->setMeasured({ 900.f, 16.f }, { 200.f, 30.f });
+    doc.Layout(400.f, 400.f);
+    // No native single-line input has a bar, and one would eat 8px of the field.
+    EXPECT_EQ(f->scrollState(), nullptr);
+}
+
+// The bar and the glyphs must read from the SAME number. A bar backed by
+// scroll_->offset would track the cursor perfectly while the text stayed put.
+TEST(UIScroll, TheFieldBarAndTheTextShareOneOffset) {
+    FieldBarDoc d;
+    d.Measured(150.f, 200.f);
+
+    ASSERT_TRUE(d.f->SetScrollOffset({ 0.f, 60.f }));
+    EXPECT_FLOAT_EQ(d.edit()->textScroll().y, 60.f)
+        << "the scroll did not reach the text";
+    d.doc.Layout(400.f, 400.f);
+    EXPECT_FLOAT_EQ(d.f->scrollOffset().y, 60.f) << "the bar and the text disagree";
+
+    // ...and it clamps to the measured text, not to some element extent.
+    d.f->SetScrollOffset({ 0.f, 1e6f });
+    EXPECT_FLOAT_EQ(d.edit()->textScroll().y, 150.f);
+}
+
+TEST(UIScroll, TheWheelScrollsAMultilineField) {
+    FieldBarDoc d;
+    d.Measured(150.f, 200.f);
+
+    UIPointerState p;
+    p.position = d.f->layout().position + d.f->layout().size * 0.5f;
+    p.inside = true;
+    p.wheel = { 0.f, -1.f };
+    d.doc.UpdatePointer(p);
+    d.doc.Layout(400.f, 400.f);
+
+    EXPECT_GT(d.edit()->textScroll().y, 0.f)
+        << "a field with a draggable bar the wheel cannot move is a strange control";
+}
+
+// A field is a text leaf, so it never smooth-scrolls: it follows its caret, and
+// a caret that arrived somewhere the view was still travelling toward would be
+// worse than no animation at all.
+TEST(UIScroll, AFieldIgnoresSmoothBehaviour) {
+    FieldBarDoc d;
+    d.f->style().scrollBehavior = ScrollBehavior::Smooth;
+    d.Measured(150.f, 200.f);
+
+    ASSERT_TRUE(d.f->SetScrollOffset({ 0.f, 80.f }));
+    EXPECT_FLOAT_EQ(d.edit()->textScroll().y, 80.f)
+        << "a field must land immediately whatever scroll-behavior says";
+}

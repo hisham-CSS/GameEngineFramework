@@ -102,8 +102,8 @@
 
        A field always clips to its own box and always scrolls its text to keep
        the caret visible — that is not `overflow`, which governs children and a
-       field has none. It draws no scrollbar, so give it a height that fits
-       roughly what you expect to type. -->
+       field has none. Type more lines than fit and a scrollbar appears on the
+       right; it drags, and the wheel moves it too. -->
   <TextField name="notes" class="notes" multiline="true"
              bind-value="notes" maxlength="512"/>
 

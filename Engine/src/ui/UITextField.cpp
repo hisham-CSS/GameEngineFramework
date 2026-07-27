@@ -84,6 +84,14 @@ bool UITextEdit::FollowCaret(const glm::vec2& caretLocal, const glm::vec2& caret
     return o != before;
 }
 
+bool UITextEdit::SetTextScroll(glm::vec2 off) {
+    if (!std::isfinite(off.x) || !std::isfinite(off.y)) return false;
+    const glm::vec2 next = glm::clamp(off, glm::vec2(0.0f), maxTextScroll());
+    if (next == textScroll_) return false;
+    textScroll_ = next;
+    return true;
+}
+
 std::string UITextEdit::selectedText() const {
     if (!hasSelection()) return {};
     return value_.substr(selectionBegin(), selectionEnd() - selectionBegin());

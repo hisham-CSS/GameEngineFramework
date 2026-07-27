@@ -55,6 +55,10 @@ namespace MyCoreEngine::ui {
         // glyph lands on a texel, and a fractional scroll would undo that for
         // the whole subtree.
         glm::vec2 offset{ 0.0f };
+        // Where the offset is heading. Equal to `offset` unless the element
+        // carries `scroll-behavior: smooth`, in which case AdvanceTime walks
+        // one toward the other.
+        glm::vec2 target{ 0.0f };
 
         // The content's extent in the scroller's own space. `contentMin` is
         // normally zero but goes NEGATIVE when a justify/align rule centres or
@@ -424,7 +428,9 @@ namespace MyCoreEngine::ui {
         // readLayout_ has already displaced by the offset — would make the
         // extent shrink as you scroll and turn the clamp into a fixed point
         // that pins the content at half its length.
-        static void measureScroll_(UIElement& el);
+        // A MEMBER, not static: it re-arms the document's animation flag, which
+        // is what lets a smooth scroll survive a writer that did not know to.
+        void measureScroll_(UIElement& el);
         static void readLayout_(UIElement& el, const glm::vec2& parentOrigin);
         // Fills the four bar rects from the freshly-computed absolute box.
         static void updateScrollBars_(UIElement& el);
@@ -450,6 +456,8 @@ namespace MyCoreEngine::ui {
         // Brings the focused element inside its clipping ancestors. Runs at the
         // END of Layout, where the absolute rects it needs are finally correct.
         void revealFocus_();
+        // One easing step for every animating scroller in the subtree.
+        void advanceScroll_(UIElement& el, float dt);
         // Bubbles `e` from `target` up through its ancestors, honouring
         // StopPropagation.
         static void bubble_(UIElement* target, UIEvent& e);
@@ -499,6 +507,12 @@ namespace MyCoreEngine::ui {
         float scrollDragGrab_ = 0.0f;   // cursor offset within the thumb at press
         bool  scrollDirty_ = false;
         bool  pendingFocusReveal_ = false;
+        // Set by measureScroll_ when the tree holds any scroll state at all, so
+        // AdvanceTime can skip its walk entirely on a document with none.
+        bool  hasScrollers_ = false;
+        // ~55ms to close the gap. Fast enough to feel immediate, slow enough to
+        // read as motion rather than a jump.
+        static constexpr float kSmoothScrollRate = 18.0f;
         std::function<void(const std::string&)> clipboardWrite_;
         std::function<std::string()>            clipboardRead_;
 

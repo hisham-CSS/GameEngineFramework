@@ -358,7 +358,46 @@ void UIDocument::measureScroll_(UIElement& el) {
     // `display` rather than removing the element.
     if (el.style_.display == DisplayMode::None) return;
 
-    if (!IsScroller(el.style_)) {
+    // A multi-line field is a text LEAF with no children, so the element-level
+    // offset can never help it — its text moves through UITextEdit::textScroll_.
+    // What it CAN share is the bar: measure the text here, mirror the offset
+    // into a UIScrollState, and updateScrollBars_ needs no special case at all.
+    // Single-line fields get no bar, because no native single-line input has one
+    // and it would eat 8px of a 180px field.
+    const bool fieldBar = el.edit_ && el.edit_->multiline() && !IsScroller(el.style_);
+    if (fieldBar) {
+        if (!el.scroll_) el.scroll_ = std::make_unique<UIScrollState>();
+        UIScrollState& sc = *el.scroll_;
+        YGNodeRef n = static_cast<YGNodeRef>(el.yogaNode_);
+        const glm::vec2 box{ YGNodeLayoutGetWidth(n), YGNodeLayoutGetHeight(n) };
+        const Style& s = el.style_;
+        const glm::vec2 contentBox{
+            std::max(0.0f, box.x - s.padding.left - s.padding.right),
+            std::max(0.0f, box.y - s.padding.top - s.padding.bottom)
+        };
+        // Font::Measure, never the laid-out width: the yoga measure callback
+        // clamps its result to the parent's offer, so the element's own size
+        // lies about how wide the text is — which is exactly the case that
+        // needs a bar. With no font the last measurement stands rather than
+        // collapsing to zero and making the bar flicker away.
+        if (g_measureFont && g_measureFont->IsValid()) {
+            const std::string shown = el.edit_->displayText();
+            const float lineH = g_measureFont->Measure("", s.fontScale).y;
+            glm::vec2 extent = g_measureFont->Measure(shown, s.fontScale);
+            extent.y = float(UITextEdit::LineIndexOf(shown, shown.size()) + 1) * lineH;
+            el.edit_->setMeasured(extent, contentBox);
+        }
+        sc.contentMin = { 0.0f, 0.0f };
+        sc.contentMax = el.edit_->textExtent();
+        sc.minOffset = { 0.0f, 0.0f };
+        sc.maxOffset = el.edit_->maxTextScroll();
+        if (sc.maxOffset.x < 1.0f) sc.maxOffset.x = 0.0f;
+        if (sc.maxOffset.y < 1.0f) sc.maxOffset.y = 0.0f;
+        // MIRRORED, not owned: textScroll_ is where the glyphs actually read
+        // from, so a bar derived from anything else would track the cursor
+        // perfectly while the text stayed put.
+        sc.offset = sc.target = el.edit_->textScroll();
+    } else if (!IsScroller(el.style_)) {
         // EVERY element is visited, not just scrollers: a class toggle or a
         // :hover rule can take `scroll` away at any moment while the offset —
         // which deliberately outlives Style — stays behind. Zeroing it here
@@ -417,7 +456,19 @@ void UIDocument::measureScroll_(UIElement& el) {
         const bool offOk = std::isfinite(sc.offset.x) && std::isfinite(sc.offset.y);
         sc.offset = glm::clamp(offOk ? sc.offset : glm::vec2(0.0f),
                                sc.minOffset, sc.maxOffset);
+        // The TARGET is clamped too, or content shrinking mid-animation would
+        // leave the ease pulling forever toward somewhere unreachable.
+        const bool tgtOk = std::isfinite(sc.target.x) && std::isfinite(sc.target.y);
+        sc.target = glm::clamp(tgtOk ? sc.target : sc.offset,
+                               sc.minOffset, sc.maxOffset);
+
     }
+    // Noted for AdvanceTime, which otherwise has to walk the tree every frame
+    // to discover there is nothing to animate. Deliberately "has a scroller"
+    // rather than "is animating": an app calling SetScrollOffset or
+    // ScrollIntoView directly has no way to arm a document flag, and an
+    // animation that silently never ran would be a miserable thing to debug.
+    if (el.scroll_) hasScrollers_ = true;
     for (auto& c : el.children_) measureScroll_(*c);
 }
 
@@ -526,10 +577,26 @@ void UIDocument::updateScrollBars_(UIElement& el) {
 bool UIElement::SetScrollOffset(glm::vec2 px) {
     if (!scroll_) return false;
     if (!std::isfinite(px.x) || !std::isfinite(px.y)) return false;
+
+    // A multi-line field's offset lives in its edit model, because that is what
+    // the glyphs are drawn from. Writing scroll_->offset instead would make a
+    // dragged thumb track the cursor perfectly while the text never moved.
+    if (edit_) {
+        if (!edit_->SetTextScroll(px)) return false;
+        scroll_->offset = scroll_->target = edit_->textScroll();
+        return true;
+    }
+
     const glm::vec2 next = glm::clamp(px, scroll_->minOffset, scroll_->maxOffset);
-    if (next == scroll_->offset) return false;
-    scroll_->offset = next;
-    return true;
+    // Sampled BEFORE the write, or an instant scroll reports that it did not
+    // move — which silently defeats every caller that relayouts on `true`.
+    const bool moved = next != scroll_->offset;
+    scroll_->target = next;
+    // `smooth` moves the DESTINATION and lets AdvanceTime walk the offset there.
+    // Instant is the default precisely so Layout() stays a pure function of the
+    // tree unless an author asks otherwise.
+    if (style_.scrollBehavior == ScrollBehavior::Instant) scroll_->offset = next;
+    return moved;
 }
 
 bool UIElement::ScrollIntoView(const glm::vec2& posAbs, const glm::vec2& sizePx) {
@@ -685,12 +752,45 @@ void UIDocument::draw_(const UIElement& el, Renderer2D& r2d, const Font* font,
     if (clips) r2d.PopClipRect();
 }
 
+// Eases every animating scroller one step toward its target.
+void UIDocument::advanceScroll_(UIElement& el, float dt) {
+    if (el.scroll_ && !el.edit_) {
+        UIScrollState& sc = *el.scroll_;
+        if (sc.offset != sc.target) {
+            if (el.style_.scrollBehavior == ScrollBehavior::Smooth) {
+                // Frame-rate INDEPENDENT: a plain `offset += (target-offset)*k`
+                // moves further per second at 144Hz than at 60, so the same
+                // flick would feel different on two machines.
+                const float t = 1.0f - std::exp(-kSmoothScrollRate * dt);
+                glm::vec2 next = sc.offset + (sc.target - sc.offset) * t;
+                // An exponential approach never arrives. Snap inside half a
+                // pixel — below what readLayout_'s rounding can even show — or
+                // the document would relayout forever.
+                if (std::abs(sc.target.x - next.x) < 0.5f) next.x = sc.target.x;
+                if (std::abs(sc.target.y - next.y) < 0.5f) next.y = sc.target.y;
+                sc.offset = next;
+            } else {
+                sc.offset = sc.target;   // behaviour changed mid-animation
+            }
+            scrollDirty_ = true;
+        }
+    }
+    for (auto& c : el.children_) advanceScroll_(*c, dt);
+}
+
 void UIDocument::AdvanceTime(float dt) {
     caretClock_ += dt;
     // A monotonic document clock. The wheel needs it to tell one GESTURE from
     // the next, and UpdatePointer has no dt of its own — this runs before it in
     // the same frame, which is the ordering UIWorld::Update guarantees.
     docClock_ += dt;
+
+    // Gated on the document containing a scroller AT ALL, not on one being
+    // known to animate: the target can be moved by anything, including app code
+    // calling ScrollIntoView, and none of those can arm a document flag. A HUD
+    // with no scroller pays nothing; one with a scroller pays a walk that
+    // touches only the elements holding scroll state.
+    if (hasScrollers_ && dt > 0.0f) advanceScroll_(*root_, dt);
 }
 
 // Scrolls the nearest ancestor of `from` that has range on the key's axis.
@@ -1030,7 +1130,11 @@ void UIDocument::UpdatePointer(const UIPointerState& p, const Font* font) {
                 // next gesture to its container, exactly as a browser does.
                 UIElement* firstScrollable = nullptr;
                 for (UIElement* n = hit; n; n = n->parent_) {
-                    if (!IsScroller(n->style_) || !n->scroll_) continue;
+                    // A multi-line field is not `overflow: scroll` — it is a
+                    // text leaf — but it does scroll, and it now paints a bar. A
+                    // bar you can drag but not wheel would be a strange control.
+                    const bool field = n->edit_ && n->edit_->multiline();
+                    if ((!IsScroller(n->style_) && !field) || !n->scroll_) continue;
                     const glm::vec2 nd = axisLockedDelta_(*n, raw);
                     if (nd.x == 0.0f && nd.y == 0.0f) continue;
                     if (!firstScrollable) { firstScrollable = n; d = nd; }

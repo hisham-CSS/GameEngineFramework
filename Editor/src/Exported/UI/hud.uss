@@ -120,11 +120,15 @@
   color: white;
 }
 
-/* The multi-line field. Its HEIGHT is the whole story: a field scrolls its own
-   text to follow the caret but draws no bar and does not grow, so this box is
-   what you can see at once. Everything the single-line `.field` does applies
-   here too — only Enter, Up and Down change meaning, and that is decided in the
-   markup, not here. */
+/* The multi-line field. Its HEIGHT is the whole story: a field does not grow, so
+   this box is what you can see at once — type past it and the view follows the
+   caret, and a bar appears on the right once the text is taller than the box.
+   Everything the single-line `.field` does applies here too; only Enter, Up and
+   Down change meaning, and that is decided in the markup, not here.
+
+   `scroll-behavior` is deliberately NOT honoured by a field: it follows its
+   caret, and a caret arriving somewhere the view is still travelling toward is
+   worse than no animation. */
 .notes {
   width: 320px;
   height: 84px;
@@ -170,6 +174,11 @@
   background-color: rgba(0, 0, 0, 0.35);
   scrollbar-width: 6px;
   scrollbar-thumb-color: rgba(255, 204, 68, 0.5);
+  /* Opt-in easing. The default is `instant`, because layout is otherwise a pure
+     function of the tree and making every scroll depend on the clock is a big
+     change to buy an animation most HUDs do not want. Set it to `instant` here
+     and wheel the list again to feel the difference. */
+  scroll-behavior: smooth;
 }
 
 .log-header {

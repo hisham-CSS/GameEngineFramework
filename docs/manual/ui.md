@@ -325,8 +325,16 @@ submit a form. The attribute is an error on anything but a `<TextField>`.
 **A field always clips to its own box and always scrolls its text to follow the
 caret**, whatever `overflow` says — `overflow` governs children, and a field has
 none. So a long value stays inside its box and typing past the width scrolls
-rather than spilling. It draws no scrollbar and does not size itself to fit, so
-give a multiline field a `height` or `max-height`.
+rather than spilling. A field does not size itself to fit, so give a multiline
+one a `height` or `max-height`.
+
+A **multiline** field paints a scrollbar once its text is taller than its box,
+and that bar drags and takes the wheel like any other. A single-line field never
+does: no native one has a bar, and it would eat 8px of a 180px control. The bar
+reads from the same offset the glyphs do, so the two can never disagree.
+`scroll-behavior` is deliberately ignored by a field — it follows its caret, and
+a caret arriving somewhere the view is still travelling toward is worse than no
+animation.
 
 **Undo** coalesces a burst of typing into one step, because undoing a word one
 letter at a time is not what anyone means by it. A deletion, a caret jump, or
@@ -491,6 +499,16 @@ el->scrollOffset(); el->maxScroll(); el->contentSize();
 `ScrollIntoView` is how you pin a log to its tail. Focus already uses it: Tabbing
 to a control below the fold scrolls it into view, because a `:focus` ring nobody
 can see — over a control Enter would then activate — is worse than no focus ring.
+
+**Smooth scrolling is opt-in**, through `scroll-behavior: smooth` (`instant` is
+the default, and `auto` is accepted as CSS's spelling of it). Every scroll on
+that element — wheel, keys, thumb drag, `SetScrollOffset`, `ScrollIntoView` —
+then moves a *target* that `AdvanceTime` eases the view toward, frame-rate
+independently, snapping inside half a pixel so the document stops relayouting.
+It is opt-in because `Layout()` is otherwise a pure function of the tree, and
+making every scroll depend on the clock is a large change to buy an animation
+most HUDs do not want. Kinetic/touch momentum is a different thing and is **not**
+implemented — there is no touch input in this engine to carry it.
 
 **Across a hot reload a scroll position is lost**, because a successful reload
 rebuilds the tree and drops focus and hover with it; singling scroll out to
@@ -916,9 +934,8 @@ Repeating a template over a list — bindings address one property, not a
 collection. Transitions and animation. `position: fixed`, `position: sticky`, and
 portals.
 
-Within scrolling specifically: momentum and smooth-scroll animation; a reserved
-scrollbar gutter — CSS invented `scrollbar-gutter` to break a reflow loop that
-overlay bars do not have, so `padding-right` is the answer here; hold-to-repeat
-on a track press; a scrollbar for a text field (a multiline `<TextField>` scrolls
-its text but draws no bar); and virtualisation, so a scroller lays out every row
-it contains.
+Within scrolling specifically: kinetic/touch momentum, which needs touch input
+this engine does not have; a reserved scrollbar gutter — CSS invented
+`scrollbar-gutter` to break a reflow loop that overlay bars do not have, so
+`padding-right` is the answer here; hold-to-repeat on a track press; and
+virtualisation, so a scroller lays out every row it contains.

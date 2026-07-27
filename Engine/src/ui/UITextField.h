@@ -71,6 +71,26 @@ namespace MyCoreEngine::ui {
         bool FollowCaret(const glm::vec2& caretLocal, const glm::vec2& caretSize,
                          const glm::vec2& contentBox, const glm::vec2& textExtent);
 
+        // What the text and the box last measured, recorded by the layout pass
+        // so a scrollbar and an external scroll have something to clamp
+        // against. Only written when a font is available: with none, the last
+        // known values stand rather than collapsing to zero.
+        void setMeasured(const glm::vec2& textExtent, const glm::vec2& contentBox) {
+            textExtent_ = textExtent;
+            contentBox_ = contentBox;
+        }
+        const glm::vec2& textExtent() const { return textExtent_; }
+        const glm::vec2& contentBox() const { return contentBox_; }
+        // The scrollable range of the TEXT, from the last measurement.
+        glm::vec2 maxTextScroll() const {
+            return glm::max(textExtent_ - contentBox_, glm::vec2(0.0f));
+        }
+
+        // Clamped external write — what a scrollbar drag drives. Returns whether
+        // it moved. textScroll_ stays the single source of truth for where the
+        // glyphs are, so this never disagrees with what is painted.
+        bool SetTextScroll(glm::vec2 off);
+
         // Renders as this character repeated, for passwords. Empty = off.
         // Stored as UTF-8 so it can be any glyph the font has.
         void setMaskCharacter(std::string utf8) { mask_ = std::move(utf8); }
@@ -153,6 +173,8 @@ namespace MyCoreEngine::ui {
         std::size_t maxBytes_ = 0;
         bool        multiline_ = false;
         glm::vec2   textScroll_{ 0.0f };
+        glm::vec2   textExtent_{ 0.0f };
+        glm::vec2   contentBox_{ 0.0f };
 
         std::vector<Snapshot> undo_, redo_;
         bool lastWasTyping_ = false;
