@@ -470,15 +470,18 @@ layout could make itself disappear, and then reappear, forever. The thumb is
 draggable, and pressing it never reaches the content underneath.
 
 They are styleable: `scrollbar-width` (0 hides the bar while leaving the panel
-scrollable), `scrollbar-min-thumb`, and `scrollbar-visibility: auto|always` —
-`always` paints a bar on a scrollable axis even while the content fits, for a
-panel whose scrollability should be advertised. **Nothing in this system
-inherits**, so to restyle every bar at once use the universal selector:
-`* { scrollbar-width: 10px; }`. `scrollbar-color` and `scrollbar-thumb-color`
-parse and reach the element's style, but nothing reads them back out: the painter
-uses fixed colours, which happen to be exactly the defaults
-(`rgba(255,255,255,0.06)` track, `rgba(255,255,255,0.28)` thumb), so authoring
-either one has no visual effect yet.
+scrollable), `scrollbar-min-thumb`, `scrollbar-color`, `scrollbar-thumb-color`,
+and `scrollbar-visibility: auto|always` — `always` paints a bar on a scrollable
+axis even while the content fits, for a panel whose scrollability should be
+advertised.
+
+The five are per **element**, not per axis: one declaration dresses that
+element's horizontal bar and its vertical one together. There is no
+`::-webkit-scrollbar-thumb:horizontal` equivalent, because wanting a panel's two
+bars to differ is rare enough not to be worth doubling the vocabulary. And
+**nothing in this system inherits**, so a rule dresses only the elements it
+matches — to restyle every bar in a document, say it once with the universal
+selector: `* { scrollbar-thumb-color: #888; }`.
 
 **Chaining is per gesture.** A wheel *gesture* latches onto whatever it first
 moved and keeps it until you pause — so flicking through a list to its bottom and

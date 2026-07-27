@@ -204,7 +204,13 @@
 
 /* A ROW scroller. `overflow-x: scroll` with `overflow-y: hidden` scrolls
    sideways only; note that flex-shrink is overridden on the MAIN axis, which
-   for a row is x — that is what stops the slots being squeezed to fit. */
+   for a row is x — that is what stops the slots being squeezed to fit.
+
+   The scrollbar properties are per ELEMENT, not per axis: the same four
+   declarations dress a horizontal bar and a vertical one, so this rule styles
+   its bar exactly the way `.log` above styles its own. If you want every bar in
+   a document to match, say it once with the universal selector — nothing here
+   inherits, so `* { scrollbar-thumb-color: ...; }` is the way to do it. */
 .hotbar {
   flex-direction: row;
   overflow-x: scroll;
@@ -214,6 +220,7 @@
   margin: 10px 0px 0px 0px;
   background-color: rgba(0, 0, 0, 0.35);
   scrollbar-width: 4px;
+  scrollbar-thumb-color: rgba(255, 204, 68, 0.5);
 }
 
 .slot {

@@ -280,15 +280,19 @@ TEST_F(Renderer2DTest, AStyledScrollbarReachesTheFramebuffer) {
     box->style().scrollbarMinThumb = 8.0f;
     box->style().scrollbarColor = { 0.0f, 0.0f, 1.0f, 1.0f };
     box->style().scrollbarThumbColor = { 1.0f, 0.0f, 0.0f, 1.0f };
-    // Content taller than the box, so the vertical axis actually scrolls.
+    // Content bigger than the box on BOTH axes, so both bars paint and this
+    // test can pin that one element's colours cover both of them.
     for (int i = 0; i < 8; ++i) {
-        box->AddChild("r" + std::to_string(i))->style().height = StyleLength::Px(40.f);
+        UIElement* r = box->AddChild("r" + std::to_string(i));
+        r->style().height = StyleLength::Px(40.f);
+        r->style().width = StyleLength::Px(200.f);
     }
     doc.Layout(float(kW), float(kH));
 
     const UIScrollState* sc = box->scrollState();
     ASSERT_NE(sc, nullptr);
     ASSERT_GT(sc->thumbY.size.y, 0.f) << "no vertical bar to paint";
+    ASSERT_GT(sc->thumbX.size.x, 0.f) << "no horizontal bar to paint";
 
     clear();
     r2d.BeginScreen(kW, kH);
@@ -296,13 +300,24 @@ TEST_F(Renderer2DTest, AStyledScrollbarReachesTheFramebuffer) {
     r2d.End();
     const auto px = readback();
 
-    // Inside the thumb: red, and not blue.
-    const int tx = int(sc->thumbY.position.x + sc->thumbY.size.x * 0.5f);
-    const int ty = int(sc->thumbY.position.y + sc->thumbY.size.y * 0.5f);
-    EXPECT_GT(red(px, tx, ty), 200) << "the authored thumb colour never reached the screen";
+    // Inside the VERTICAL thumb: red, and not blue.
+    const int vx = int(sc->thumbY.position.x + sc->thumbY.size.x * 0.5f);
+    const int vy = int(sc->thumbY.position.y + sc->thumbY.size.y * 0.5f);
+    EXPECT_GT(red(px, vx, vy), 200) << "the authored thumb colour never reached the screen";
 
-    // On the track but clear of the thumb: blue, and not red. The thumb sits at
-    // the top (offset 0), so sample near the bottom of the track.
-    const int by = int(sc->trackY.position.y + sc->trackY.size.y - 3.f);
-    EXPECT_LT(red(px, tx, by), 60) << "the track is painted in the thumb's colour";
+    // Inside the HORIZONTAL thumb: red too. The four scrollbar properties are
+    // per ELEMENT, not per axis — one declaration dresses both bars — and this
+    // is the assertion that makes that a guarantee rather than a coincidence of
+    // both defaults happening to match.
+    const int hx = int(sc->thumbX.position.x + sc->thumbX.size.x * 0.5f);
+    const int hy = int(sc->thumbX.position.y + sc->thumbX.size.y * 0.5f);
+    EXPECT_GT(red(px, hx, hy), 200)
+        << "the horizontal bar ignored the element's scrollbar-thumb-color";
+
+    // On each track but clear of its thumb: blue, not red. Both thumbs sit at
+    // offset 0, so sample the far end of each track.
+    const int farY = int(sc->trackY.position.y + sc->trackY.size.y - 3.f);
+    EXPECT_LT(red(px, vx, farY), 60) << "the vertical track took the thumb colour";
+    const int farX = int(sc->trackX.position.x + sc->trackX.size.x - 3.f);
+    EXPECT_LT(red(px, farX, hy), 60) << "the horizontal track took the thumb colour";
 }
