@@ -257,6 +257,15 @@ namespace MyCoreEngine::ui {
         // order, so a widget's own behaviour and a caller's extra listener can
         // coexist without one clobbering the other.
         void AddEventListener(UIEventType type, UIEventHandler handler);
+        // Attach on behalf of `owner`, which must be a stable non-null address.
+        // Only RemoveOwnedListeners(owner) takes these back out, so a subsystem
+        // that re-runs can replace its own handlers without disturbing the
+        // app's — or duplicating its own.
+        void AddOwnedListener(const void* owner, UIEventType type, UIEventHandler handler);
+        // Removes only what was attached with this exact owner. A null owner is
+        // a no-op: null means "the app added this by hand", and only the app
+        // may take one of those back out.
+        void RemoveOwnedListeners(const void* owner);
         void OnClick(UIEventHandler h)        { AddEventListener(UIEventType::Click, std::move(h)); }
         void OnPointerDown(UIEventHandler h)  { AddEventListener(UIEventType::PointerDown, std::move(h)); }
         void OnPointerUp(UIEventHandler h)    { AddEventListener(UIEventType::PointerUp, std::move(h)); }
@@ -344,7 +353,17 @@ namespace MyCoreEngine::ui {
         // work this out for itself.
         float         pushedFontScale_ = 1.0f;
 
-        std::vector<std::pair<UIEventType, UIEventHandler>> listeners_;
+        // `owner` is null for a handler the APP attached and non-null for one
+        // attached on behalf of a subsystem — today only UIBinder, which passes
+        // its own address. That is the whole reason the field exists: the binder
+        // re-collects whenever the structure epoch moves, and without a way to
+        // remove exactly its own handlers it appended a duplicate every time.
+        struct Listener {
+            const void*     owner = nullptr;
+            UIEventType     type{};
+            UIEventHandler  fn;
+        };
+        std::vector<Listener> listeners_;
         bool hovered_ = false;
         bool pressed_ = false;
         bool focused_ = false;

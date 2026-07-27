@@ -290,7 +290,18 @@ void UIElement::RemoveClass(const std::string& c) {
 }
 
 void UIElement::AddEventListener(UIEventType type, UIEventHandler handler) {
-    if (handler) listeners_.emplace_back(type, std::move(handler));
+    if (handler) listeners_.push_back(Listener{ nullptr, type, std::move(handler) });
+}
+
+void UIElement::AddOwnedListener(const void* owner, UIEventType type, UIEventHandler handler) {
+    if (handler) listeners_.push_back(Listener{ owner, type, std::move(handler) });
+}
+
+void UIElement::RemoveOwnedListeners(const void* owner) {
+    if (!owner) return;   // null is the app's; never remove those
+    listeners_.erase(std::remove_if(listeners_.begin(), listeners_.end(),
+                                    [owner](const Listener& l) { return l.owner == owner; }),
+                     listeners_.end());
 }
 
 void UIElement::ClearEventListeners() { listeners_.clear(); }
@@ -302,8 +313,8 @@ void UIElement::dispatchLocal_(UIEvent& e) {
     // dispatch deliberately do not run until the next event.
     const size_t n = listeners_.size();
     for (size_t i = 0; i < n && i < listeners_.size(); ++i) {
-        if (listeners_[i].first != e.type) continue;
-        UIEventHandler h = listeners_[i].second; // copy: the vector may move
+        if (listeners_[i].type != e.type) continue;
+        UIEventHandler h = listeners_[i].fn; // copy: the vector may move
         if (h) h(e);
         if (e.propagationStopped) return;
     }

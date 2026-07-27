@@ -1170,3 +1170,38 @@ TEST(UIBindingHotReload, AShadowedStylesheetDeclarationIsNoted) {
     EXPECT_TRUE(sawWidth) << "hud.cstyle declares .fill { width } and hud.cxml binds width; "
                              "that has to be reported, not silent";
 }
+
+// A bound action must fire ONCE per click, however many times the binder has
+// re-collected. The binder attaches its action lambdas through the ordinary
+// listener path and Rebuild never removes them, so every re-collect used to
+// append another copy — and the structure epoch is process-wide, so ANY tree
+// mutation anywhere in the process (another document's hot reload, gameplay
+// adding a child) triggers one. Ten saves during an iteration session turned
+// the sample's +100 button into +1100.
+TEST(UIBindActions, ARecollectDoesNotDuplicateTheHandler) {
+    ShippedHud hud;
+    hud.Frame();
+    ASSERT_NE(hud.assets(), nullptr);
+    hud.data().SetInt("score", 0);
+    hud.Frame();
+
+    UIElement* btn = hud.find("scoreButton");
+    ASSERT_NE(btn, nullptr);
+    const glm::vec2 c = btn->layout().position + btn->layout().size * 0.5f;
+
+    hud.ClickAt(c.x, c.y);
+    ASSERT_EQ(hud.data().GetInt("score"), 100) << "the action never fired";
+
+    // Something else in the process restructures its own tree. That is all it
+    // takes: the epoch is global, so this document re-collects.
+    for (int i = 0; i < 3; ++i) {
+        UIDocument churn;
+        churn.root().AddChild("x");
+        churn.root().ClearChildren();
+        hud.Frame();
+    }
+
+    hud.ClickAt(c.x, c.y);
+    EXPECT_EQ(hud.data().GetInt("score"), 200)
+        << "the bound action fired more than once — the binder duplicated its listener";
+}

@@ -126,6 +126,19 @@ bool UITextTemplate::Compile(const std::string& text, UITextTemplate& out, std::
 // ------------------------------------------------------------------ UIBinder
 
 void UIBinder::Clear() {
+    // Take our handlers off the tree while it is still ALIVE. UIAssetDocument
+    // calls this before a reload replaces the document, so this is the last
+    // moment the elements exist; afterwards there is nothing to detach from.
+    if (doc_) {
+        struct W {
+            const void* owner;
+            void operator()(UIElement& n) const {
+                n.RemoveOwnedListeners(owner);
+                for (const auto& c : n.children()) (*this)(*c);
+            }
+        };
+        W{ this }(doc_->root());
+    }
     entries_.clear();
     actions_.clear();
     convPool_.clear();
@@ -145,6 +158,15 @@ std::string UIBinder::where_(const UIElement& el, const UIBinding& b) const {
 }
 
 void UIBinder::collect_(UIElement& el, const std::string& inheritedSource) {
+    // Drop the handlers THIS binder attached last time, before attaching any
+    // again. Unconditional, so an element that has just LOST its on-* loses the
+    // handler with it. A re-collect happens whenever the structure epoch moves —
+    // which is process-wide, so another document's hot reload triggers one — and
+    // without this every re-collect appended a second copy of every bound
+    // action: one click on the sample's +100 button was worth +1100 after ten
+    // saves. App handlers are untouched; they carry a null owner.
+    el.RemoveOwnedListeners(this);
+
     // An element's own data-source= wins for it and everything beneath it,
     // exactly like Unity's VisualElement.dataSource.
     const std::string& scope =
@@ -190,7 +212,7 @@ void UIBinder::collect_(UIElement& el, const std::string& inheritedSource) {
         // Attach through the ordinary listener path, so a bound action bubbles
         // and composes with hand-written handlers exactly like any other.
         UIDataSource* s = src;
-        el.AddEventListener(a.type, [s, idx](UIEvent&) { s->InvokeAction(idx); });
+        el.AddOwnedListener(this, a.type, [s, idx](UIEvent&) { s->InvokeAction(idx); });
     }
 
     if (sheet_) noteShadowedDeclarations_(el, *sheet_);

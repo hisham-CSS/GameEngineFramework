@@ -515,6 +515,13 @@ bool UIMarkup::LoadInto(UIDocument& doc, const std::string& xml,
     // the identical node and succeeded.
     UIElement& root = doc.root();
     root.ClearChildren();
+    // The root is REUSED across a reload while every child is destroyed and
+    // rebuilt, so without this it is the one element whose handlers survive —
+    // and the documented place to attach them, UIAssetDocument's bind callback,
+    // runs after every successful load. A handler on the root accumulated one
+    // copy per reload while the identical handler on a child did not, which is
+    // exactly the root/child asymmetry this loader works to avoid elsewhere.
+    root.ClearEventListeners();
     root.setType(rootNode.name());
     applyAttributes(rootNode, root, errors, originName);
     for (auto& c : newChildren) root.AddChild(std::move(c));
