@@ -227,9 +227,18 @@ private:
     MyCoreEngine::UIWorld uiWorld_;
     MyCoreEngine::Font    uiFont_;
 
-    // Game panel focus. Gameplay receives input only while this is true, so
-    // the Scene view stays navigable with the same keys while playing.
+    // Game panel focus. The Scene view stays navigable with the same keys while
+    // playing, because gameplay only reads input while the game has it.
+    //
+    // TWO flags, because the panel holds two different UIs: the editor's own
+    // toolbar widgets and, inside the image, the GAME's UI. `gameViewFocused_`
+    // is "this panel is the focused one"; `gameSurfaceFocused_` is the narrower
+    // "and the thing holding the keyboard inside it is the game". Only the
+    // second may route keys to the game, or one Tab moves focus in two places
+    // at once — ImGui's nav to the next toolbar widget, and the HUD's to its
+    // next element.
     bool gameViewFocused_ = false;
+    bool gameSurfaceFocused_ = false;
     std::string bootStatus_;    // what happened at startup (loaded / defaulted)
     char        currentScenePath_[260] = "Exported/scene.json"; // File menu target
     std::string sceneStatus_;   // last save/load result, shown in the menu bar

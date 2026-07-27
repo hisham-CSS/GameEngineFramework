@@ -697,12 +697,28 @@ void EditorApplication::DrawGameViewport(MyCoreEngine::Scene& scene,
 
     ImGui::SetNextWindowSize(ImVec2(640, 400), ImGuiCond_FirstUseEver);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(2, 2));
-    const bool open = ImGui::Begin("Game", &panels_.game,
-        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    // NoNavInputs while the game surface owns the keyboard.
+    //
+    // This panel is the one place in the editor where two different UIs share a
+    // window: our own toolbar widgets above, and the GAME's UI inside the image.
+    // ImGui keyboard nav is enabled globally, so with the panel focused a Tab
+    // was consumed TWICE — ImGui moved its own focus to the Blend field while
+    // the same keystroke also moved focus inside the game's HUD. io.NavActive
+    // documents this flag as exactly the off switch: "a window is focused and it
+    // doesn't use the ImGuiWindowFlags_NoNavInputs flag".
+    //
+    // Uses LAST frame's ownership because window flags are decided at Begin,
+    // before this frame's clicks are known — the same one-frame sampling the
+    // focus flag below has always used.
+    const ImGuiWindowFlags gameFlags =
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
+        (gameSurfaceFocused_ ? ImGuiWindowFlags_NoNavInputs : 0);
+    const bool open = ImGui::Begin("Game", &panels_.game, gameFlags);
     ImGui::PopStyleVar();
     if (!open) {
         // hidden/collapsed: skip the whole second scene render
         gameViewFocused_ = false;
+        gameSurfaceFocused_ = false;
         setGameplayInputEnabled(false);
         ImGui::End();
         return;
@@ -715,7 +731,12 @@ void EditorApplication::DrawGameViewport(MyCoreEngine::Scene& scene,
     // Focus is sampled here (inside the UI pass) and applies from the next
     // frame's gameplay block; a one-frame delay is imperceptible.
     gameViewFocused_ = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
-    setGameplayInputEnabled(playing_ && gameViewFocused_);
+    // Losing the panel hands the keyboard back to the editor. Clicking WITHIN
+    // the panel is resolved further down, where the image rect is known.
+    if (!gameViewFocused_) gameSurfaceFocused_ = false;
+    // Gameplay keys off the SURFACE, not the panel: typing 0.5 into the Blend
+    // field above must not also drive the player.
+    setGameplayInputEnabled(playing_ && gameSurfaceFocused_);
 
     // toolbar: camera override picker + blend duration. The director keys
     // switches off CameraComponent priorities on its own; the picker is a
@@ -819,6 +840,16 @@ void EditorApplication::DrawGameViewport(MyCoreEngine::Scene& scene,
         // for its own dragging, so resizing the panel never presses a button.
         p.buttonDown = p.inside && ImGui::IsMouseDown(ImGuiMouseButton_Left);
 
+        // Click-to-own-the-keyboard, resolved here because this is where the
+        // image rect is known. Pressing the game surface hands the keyboard to
+        // the game; pressing anything else in the panel — the camera picker, the
+        // Blend field — hands it back to the editor. It is the same bargain as
+        // clicking into a text field, and it is what makes Tab unambiguous.
+        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
+            ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows)) {
+            gameSurfaceFocused_ = p.inside;
+        }
+
         // ImGui is the right source here for the same reason it is for the
         // keyboard below: the Game view is an ImGui window, so GLFW's own wheel
         // callback belongs to the Scene camera. Gated on exactly the expression
@@ -847,7 +878,11 @@ void EditorApplication::DrawGameViewport(MyCoreEngine::Scene& scene,
         // resolves who owns the keyboard this frame, which is the whole
         // question. The player, which has no ImGui, reads GLFW directly.
         MyCoreEngine::ui::UIKeyboardState kb;
-        if (gameViewFocused_ && !ui_.WantTextInput()) {
+        // gameSurfaceFocused_, not gameViewFocused_: the panel also contains the
+        // editor's own widgets, and while one of those has the keyboard the game
+        // must not be reading it too. WantTextInput stays as a second guard for
+        // the frame an ImGui field activates.
+        if (gameSurfaceFocused_ && !ui_.WantTextInput()) {
             struct KeyMap { ImGuiKey imgui; MyCoreEngine::ui::UIKey ui; };
             static const KeyMap kKeys[] = {
                 { ImGuiKey_Tab,        MyCoreEngine::ui::UIKey::Tab },
@@ -918,9 +953,19 @@ void EditorApplication::DrawGameViewport(MyCoreEngine::Scene& scene,
 
     const ImVec2 imageSize(avail.x > 1.f ? avail.x : 1.f, avail.y > 1.f ? avail.y : 1.f);
     if (gameTarget_.colorTexture()) {
+        const ImVec2 imgMin = ImGui::GetCursorScreenPos();
         // GL textures are bottom-up: flip V
         ImGui::Image((ImTextureID)(intptr_t)gameTarget_.colorTexture(),
                      imageSize, ImVec2(0, 1), ImVec2(1, 0));
+        // Who owns the keyboard has to be VISIBLE, or "why does Tab not reach my
+        // HUD" is unanswerable. Same idea as the caret in a focused text field:
+        // the border says the game is reading your keystrokes, and clicking the
+        // toolbar above takes them back.
+        if (gameSurfaceFocused_) {
+            ImGui::GetWindowDrawList()->AddRect(
+                imgMin, ImVec2(imgMin.x + imageSize.x, imgMin.y + imageSize.y),
+                ImGui::GetColorU32(ImGuiCol_NavHighlight), 0.0f, 0, 2.0f);
+        }
     }
     ImGui::End();
 }

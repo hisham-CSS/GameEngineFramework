@@ -562,6 +562,12 @@ editor's Game view the UI lives inside a dock panel, so the panel origin is
 subtracted and clicks are routed only when ImGui is not using the mouse for its
 own dragging.
 
+The keyboard needs the same arbitration and gets it the same way — from the
+host. The Game panel holds the editor's own toolbar widgets as well as the
+game's UI, so it hands keys to the game only once you have **clicked the game
+image**; clicking the toolbar takes them back. Without that a single Tab moved
+focus in two places at once. See [Game panel](editor.md#who-owns-the-keyboard).
+
 `UIDocument::HitTest` returns the deepest **pickable** element containing the
 point. Topmost wins (children tested in reverse paint order), an
 `overflow: hidden` **or `scroll`** parent rejects its whole clipped-away subtree

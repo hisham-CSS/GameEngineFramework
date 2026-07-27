@@ -112,6 +112,24 @@ The **Game** window renders the scene through the *camera entities*, using its o
 
 If the panel is closed or collapsed, the whole second render is skipped.
 
+### Who owns the keyboard
+
+This panel is the one window in the editor holding **two** UIs: the editor's own toolbar widgets, and the *game's* UI inside the image. So "the panel is focused" is not enough to decide where a keystroke goes, and the editor tracks two things:
+
+| State | Means |
+| --- | --- |
+| panel focused | this is the active window; the Scene view stops receiving keys |
+| **surface focused** | and the thing holding the keyboard *inside* it is the game |
+
+**Click the image to give the game the keyboard**; click the camera picker, the `Blend` field, or any other panel to take it back. While the game holds it the image is drawn with a highlight border, because otherwise "why does Tab not reach my HUD" has no visible answer.
+
+Only surface focus routes keys to the game, and only surface focus enables gameplay input. Both matter:
+
+* ImGui keyboard navigation is enabled globally, so with the panel merely focused a single **Tab** was consumed twice — ImGui moved its own focus to the `Blend` field *and* the same keystroke moved focus inside the game's HUD. While the surface is focused the window carries `ImGuiWindowFlags_NoNavInputs`, which `io.NavActive` documents as exactly this off switch, so Tab belongs to the game alone.
+* Typing `0.5` into `Blend` no longer also drives the player.
+
+> **Gotcha:** the window flags are chosen at `ImGui::Begin`, before the frame's clicks are known, so ownership is sampled from the previous frame — the same one-frame delay the focus flag has always used, and imperceptible in practice.
+
 ### Camera selection and the override picker
 
 Selection is driven by a `MyCoreEngine::CameraDirector` (`Engine/src/core/CameraDirector.h`):
