@@ -6,8 +6,11 @@ They fall into two groups by the colour space they work in:
 - **HDR effects** run *before* tonemap, on the linear `RGBA16F` scene buffer. **Bloom** is the only one today.
 - **LDR effects** run *after* tonemap, on the gamma-space image: **ink outline → colour grade → vignette → FXAA**, in that order.
 
-All of them are per-scene settings on `Scene::PostFX()` and are **serialized** in
-the scene file, and each self-skips when disabled.
+All of them are per-scene and **serialized** in the scene file — bloom, ink
+outline, colour grade and vignette live on `Scene::PostFX()`; FXAA has its own
+`Scene::GetAAEnabled()`/`SetAAEnabled()` flag, saved as `settings.aaEnabled`
+alongside the `postFX` block rather than inside it — and each self-skips when
+disabled.
 
 ## The LDR ping-pong chain
 
@@ -45,10 +48,11 @@ into the HDR buffer so tonemap picks it up. Half-res keeps it cheap.
 
 ### Ink outline (LDR, depth-based)
 
-A Sobel edge-detect on the linearized scene depth — silhouettes and depth steps
-become dark contour lines. Pairs naturally with cel shading. Uses a *relative*
-depth gradient so the sensitivity is scale-invariant (distant geometry isn't
-blanket-outlined).
+A four-tap cross edge-detect on the linearized scene depth — the left, right, up
+and down neighbours are each compared against the centre sample, so silhouettes
+and depth steps become dark contour lines. Pairs naturally with cel shading.
+Uses a *relative* depth gradient so the sensitivity is scale-invariant (distant
+geometry isn't blanket-outlined).
 
 | Setting | Meaning |
 |---|---|

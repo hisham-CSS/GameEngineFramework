@@ -36,9 +36,9 @@ flat vector of `IRenderPass` that runs in insertion order:
 | Order | Pass | Space | Does |
 |---|---|---|---|
 | 1 | `ShadowCSMPass` | — | Renders depth-only cascade maps from the sun |
-| 2 | `ForwardOpaquePass` | HDR | Shades the opaque scene into the HDR framebuffer (with a depth pre-pass) |
+| 2 | `ForwardOpaquePass` | HDR | Shades the opaque scene into the HDR framebuffer, optionally behind a depth pre-pass (opt-in, off by default) |
 | 3 | `SkyboxPass` | HDR | Draws the environment behind the scene, depth-tested `LEQUAL` |
-| 4 | `TransparentPass` | HDR | Sorted back-to-front alpha-blend/cutout, depth-primed |
+| 4 | `TransparentPass` | HDR | Blend-mode geometry only, sorted back-to-front, depth-primed then alpha-composited (the blend draw does not write depth); skipped when the frame has no blend geometry |
 | 5 | `BloomPass` *(if on)* | HDR | Bright-pass + blur, composited additively back into the HDR buffer |
 | 6 | `TonemapPass` | HDR→LDR | ACES tonemap + gamma; writes the output, or the first LDR buffer if a chain follows |
 | 7 | `OutlinePass` *(if on)* | LDR | Depth-edge ink outline |
@@ -85,8 +85,8 @@ struct IRenderPass {
 
 The scene has one **directional light** — the sun — held as scene-level state
 (`Scene::LightDir()`, `LightColor()`, `LightIntensity()`, edited under
-**Settings → Sun / Shadows**). It is scene-level rather than a component
-because it is the light that casts the cascaded shadow maps.
+**Settings → Rendering → Lighting → Direct Light**). It is scene-level rather
+than a component because every surface in the scene shades against it.
 
 Everything else is a **`LightComponent`** on an entity, positioned by that
 entity's `Transform`:
@@ -122,7 +122,12 @@ change **both** constants.
 ### HDR target and tonemap
 
 The forward pass renders to an offscreen `GL_RGBA16F` colour texture with a
-`GL_DEPTH24_STENCIL8` renderbuffer, created in `Renderer::Setup`. Lighting is
+sampleable `GL_DEPTH_COMPONENT24` depth *texture* — not a renderbuffer, and no
+stencil, because nothing in the renderer uses one. Both are created in
+`Renderer::Setup` (the depth texture through the `makeDepthTex_` helper, which
+`recreateHDR_` reuses on resize). Depth is a texture so post passes can read
+scene depth; that is what the ink outline samples — `OutlinePass` binds
+`ctx.hdrDepthTex` and `outline_frag.glsl` reads it as `uDepth`. Lighting is
 computed in linear HDR; nothing clamps until the tonemap.
 
 `TonemapPass` binds `targetFBO`, disables depth test, and draws a fullscreen
@@ -136,7 +141,7 @@ float exposure() const;
 void  setExposure(float e); // clamped to >= 0.01
 ```
 
-The editor exposes this as **IBL/HDR → Exposure** (range 0.2–5.0).
+The editor exposes this as **Settings → Rendering → Environment → Exposure** (range 0.2–5.0).
 
 The HDR pipeline reallocates automatically whenever the output size changes —
 a window resize in the player, a Scene panel resize in the editor.
@@ -157,9 +162,12 @@ Materials carry an **alpha mode** (glTF's model):
 | Mask | foliage, chain-link | binary cutout: albedo alpha below `alphaCutoff` is discarded |
 | Blend | glass, water | true translucency: sorted back-to-front, alpha-composited |
 
-Set it per material in the Inspector: expand **Materials -> Material N -> Edit**,
-then **Alpha mode**. Blend adds an **Opacity** slider; Mask a **Cutoff**; both
-add **Double sided** (draw back faces too — glass and foliage usually want it).
+Set it per material in the Inspector: expand **Model → Materials → Material N**.
+A slot with no override is marked **(shared)** and shown read-only — editing the
+shared material would change every entity using that model — so press **Make
+unique for this entity** first; the resulting **(override)** exposes **Alpha
+mode**. Blend adds an **Opacity** slider; Mask a **Cutoff**; both add **Double
+sided** (draw back faces too — glass and foliage usually want it).
 Both Mask and Blend read the per-pixel alpha from the albedo texture, so a
 texture with an alpha channel varies coverage across the surface; opacity/cutoff
 scale it uniformly.
@@ -171,9 +179,15 @@ is **sorted back-to-front** (a near surface must blend over what is behind it)
 and drawn by a dedicated pass **after the skybox** — so it composites over the
 whole scene — and **before tonemapping**, so the blend happens in linear HDR (a
 50%-opacity surface is a true radiance mix, tonemapped once with everything
-else). It is depth-tested but does not write depth, so two transparent surfaces
-do not occlude each other by depth order. It is lit and shadowed exactly like
-opaque geometry (same sun, punctual lights, IBL, and cascades).
+else). The blend draw itself does not write depth, but an always-on, colour-less
+depth pre-pass over the transparent list primes the buffer with the frontmost
+transparent surface first (`GL_LESS`, depth writes on), and the blend draw then
+runs `GL_LEQUAL` against it. (This is internal to the transparent pass and
+unrelated to the opt-in opaque depth prepass below.) That fixes concave meshes —
+a bottle's far interior faces can no longer blend over its near ones — at the
+cost that where two transparent objects overlap you see only the nearer one, not
+through it. It is lit and shadowed exactly like opaque geometry (same sun,
+punctual lights, IBL, and cascades).
 
 Mask geometry stays in the forward pass — it is effectively opaque coverage —
 and just discards cut-out fragments in the shader.
@@ -194,14 +208,20 @@ batches, and performs exactly as before, and the transparent pass early-outs.
 
 ## Anti-aliasing (FXAA)
 
-**Settings -> IBL/HDR -> Anti-aliasing (FXAA)**, on by default.
+**Settings → Rendering → Post & Toggles → Anti-aliasing (FXAA)**, on by default.
 
-FXAA runs as the LAST pass, resolving an intermediate LDR surface to the final
-output. That intermediate exists because FXAA is a *post-tonemap* filter: every
-threshold in it is tuned against perceptual luma, so it has to see gamma-space
-LDR. Run on linear HDR the same constants mean something else entirely --
-highlights smear and dark detail is ignored. So `TonemapPass` writes into
-`ctx.ldrFBO` instead of the output whenever `ctx.postAAEnabled` is set.
+FXAA runs last in the LDR post chain, resolving the intermediate LDR surface to
+the final output. (Only `UIPass` runs after it, and that paints onto the finished
+image rather than transforming it — see the pass table.) That intermediate exists
+because FXAA is a *post-tonemap* filter: every threshold in it is tuned against
+perceptual luma, so it has to see gamma-space LDR. Run on linear HDR the same
+constants mean something else entirely -- highlights smear and dark detail is
+ignored. So `TonemapPass` binds `ctx.tonemapTarget()`, which routes it into LDR
+ping-pong buffer A (`ctx.ldrFBO_A`) instead of the output whenever
+`ctx.postPassesLeft > 0` — that is, whenever any LDR post pass runs this frame
+(outline, colour grade, vignette or FXAA), not FXAA alone. FXAA, inserted last in
+the chain, then consumes the final slot: it samples the current ping-pong texture
+and resolves to `ctx.defaultFBO`.
 
 ### Why FXAA and not MSAA
 
@@ -246,13 +266,13 @@ flat black. The engine bakes four things from an environment:
 
 ### Choosing an environment
 
-**Settings → IBL/HDR → Environment.**
+**Settings → Rendering → Environment → Sky / IBL source → Source.**
 
 - **HDRi file** (default) — a new scene starts on the shipped
   `Exported/Env/kloofendal_puresky_2k.hdr`, so it is properly lit before you
   configure anything.
 - **Procedural sky** — an analytic gradient with a sun lobe, driven by the sun
-  direction from *Sun / Shadows Controls*. Needs no asset, and is also the
+  direction from *Sun & Shadows*. Needs no asset, and is also the
   automatic fallback if an HDRi fails to load.
 Any equirectangular `.hdr` works. If a path fails to load, the engine falls
 back to the procedural sky and shows the error next to the field rather than
@@ -356,8 +376,11 @@ struct MaterialOverrides {
 ### Scene-level shading settings
 
 `Scene` also carries global shading state uploaded once per frame in
-`RenderScene`, and the editor exposes most of it under **Materials**,
-**Direct Light** and **IBL/HDR**:
+`RenderScene`. In *Settings → Rendering*, the editor exposes the scene's direct
+light under **Lighting → Direct Light**, IBL under **Environment**, and the PBR
+and normal-mapping toggles under **Post & Toggles**. The scene-level Metallic /
+Roughness / AO scalars and the three map-enable flags have no editor UI at all —
+they are code- and serializer-only:
 
 | Setting | Accessors | Default |
 |---|---|---|
@@ -562,7 +585,7 @@ nearest first.
 
 ### Editor knobs
 
-Under **Sun / Shadows Controls** in the editor
+Under **Settings → Rendering → Lighting → Sun & Shadows** in the editor
 (`Editor/src/EditorApplication.cpp`):
 
 | Control | Range | Maps to |
@@ -684,8 +707,8 @@ float GetLODDistanceScale() const;
 ```
 
 `lodDistanceScale_` defaults to `1.0f`; above 1 keeps high detail farther out,
-below 1 switches down sooner. The editor exposes both under **Rendering
-Toggles** (slider range 0.25–4).
+below 1 switches down sooner. The editor exposes both under **Settings →
+Rendering → Post & Toggles** (slider range 0.25–4).
 
 Shadow maps use a coarser rule — `Scene::RenderShadowsCombined` draws cascades
 0 and 1 at LOD 1 and cascades 2+ at LOD 2, since the cascade index is already a
@@ -736,13 +759,17 @@ tradeoffs, all of which only bite at high pixel floors:
 The radius used is a conservative circumscribing sphere, so the cull
 under-culls — it never drops an object that would have appeared larger.
 
-Editor: **Rendering Toggles → Cull tiny objects** plus a **Min on-screen px**
+Editor: **Settings → Rendering → Post & Toggles → Cull tiny objects** plus a **Min on-screen px**
 slider (0–48). The `culledSmall` stat reports how many entities it dropped.
 
-> **Gotcha** — `smallCullEnabled`/`smallCullPixels` are **not** written to the
-> scene file. `SceneSerializer` persists `lodEnabled`, `lodDistanceScale`,
-> `instancingEnabled` and `depthPrepass`, but not the size-cull settings, so
-> they reset on scene load.
+> **Note** — the size-cull settings *are* persisted. `SceneSerializer` writes
+> `smallCullEnabled` and `smallCullPixels` into the `settings` block alongside
+> `lodEnabled`, `lodDistanceScale`, `instancingEnabled` and `depthPrepass`, and
+> restores all six on load, so they survive a scene round-trip
+> (`SceneSerializer.RoundTripSmallObjectCull` in `tests/test_scene_serializer.cpp`
+> guards it). `Load` resets the scene to defaults first, so a file written before
+> those keys existed loads the defaults — off, 3 px — rather than inheriting
+> whatever the editing session had.
 
 ## GPU instancing and the batching key
 
@@ -863,6 +890,7 @@ editor's Rendering Stats panel displays:
 | `submitted` | Items submitted to the GPU (draws + instances) |
 | `vaoBinds`, `textureBinds` | State changes |
 | `lodInstances[3]` | Submitted instances per LOD level |
+| `lightsActive`, `lightsCulled` | Punctual lights uploaded this frame / dropped as disabled, zero-contribution (zero intensity or range), or ranked out beyond `kMaxPunctualLights` |
 
 ## Performance characteristics
 
@@ -910,5 +938,5 @@ Two related conclusions worth keeping:
 If editor frame times are far worse than the equivalent headless run, the
 renderer is probably not the culprit. `Application` exposes
 `frameSceneRenderMs`, `frameUiMs` and `frameSwapMs`, shown in the Rendering
-Stats panel as "3D submit / editor UI / swap+wait", to attribute the frame
+Stats panel as `3D submit` / `editor UI` / `swap/wait`, to attribute the frame
 before you start tuning render settings.

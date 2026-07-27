@@ -14,7 +14,7 @@ Scenes are plain JSON written with `nlohmann::json` at two-space indent. The top
 | `settings` | Scene-level lighting/shading/render state — the light (`lightDir`/`lightColor`/`lightIntensity`), PBR + map toggles, `instancingEnabled`, `iblEnabled`/`iblIntensity`, `lodEnabled`/`lodDistanceScale`, the projected-size cull (`smallCullEnabled`/`smallCullPixels`), `depthPrepass`, `aaEnabled`, the `qualityLevel` tier, an `environment` object (sky/IBL source, HDRi path, skybox + procedural sky colours), and a `postFX` object (vignette, ink outline, colour grade, bloom). |
 | `entities` | Array of entity objects, in creation order. |
 
-Each entity object carries only the components that entity actually has: `name`, `parent`, `transform`, `model`, `noShadow`, `camera`, `light`, `rigidBody`, one of `boxCollider` / `sphereCollider` / `capsuleCollider` / `planeCollider`, `script`, `audioSource` (clip path, volume, pitch, loop, spatial, playOnStart, min/max distance), `audioListener` (a bare `true` tag), and `materialOverrides` (per-slot base colour, PBR scalars, transparency, and `shadingModel` + toon params). See `Engine/src/core/SceneSerializer.cpp` for the exact per-component field lists.
+Each entity object carries only the components that entity actually has: `name`, `parent`, `transform`, `model`, `noShadow`, `camera`, `light`, `rigidBody`, one of `boxCollider` / `sphereCollider` / `capsuleCollider` / `planeCollider`, `script`, `audioSource` (clip path, volume, pitch, loop, spatial, playOnStart, min/max distance), `audioListener` (a bare `true` tag), `uiDocument` (markup and stylesheet paths, `sortOrder`, `enabled`, `interactive`, and a `region` array of four surface fractions `[x, y, w, h]` — an omitted or malformed `region` means the whole surface), and `materialOverrides` (per-slot base colour, PBR scalars, transparency, and `shadingModel` + toon params). Model, audio-clip and UI markup/stylesheet paths are run through `PathIsContained` on load; a rejected path is dropped but the component survives, so the entity keeps its slot. (The script path is not checked here — it is sandboxed later, when the script runtime resolves it against the configured script directory.) See `Engine/src/core/SceneSerializer.cpp` for the exact per-component field lists.
 
 Two structural rules are worth knowing if you ever hand-edit a file:
 
@@ -67,7 +67,7 @@ Physics components serialize as engine enums and plain floats, never backend han
 
 ## Saving and loading in the editor
 
-Scene persistence lives in the **File** menu on the editor's title bar (`EditorApplication::DrawMainMenuBar` in `Editor/src/EditorApplication.cpp`). The current scene path defaults to `Exported/scene.json` and is shown, centred, in the title bar itself alongside the last save/load result.
+Scene persistence lives in the **File** menu on the editor's title bar (`EditorApplication::DrawMainMenuBar` in `Editor/src/EditorApplication.cpp`). The current scene path defaults to `Exported/scene.json`; the title bar shows its file name, centred, with the last save/load result taking that slot instead once there has been one, and a `[PLAYING]` prefix during play.
 
 | Menu item | Effect |
 | --- | --- |
@@ -88,7 +88,7 @@ You can also act on a scene from the Asset Browser: double-click a `.json` scene
 
 ### What a load invalidates
 
-`EditorApplication::loadSceneFromFile_` does more than call the serializer, and if you drive loading yourself you need the same steps: every entity handle from the old scene is dead. It clears the selection, clears the undo history (undoing a pre-load entry would resurrect ghosts into the loaded scene), resets the Game view's `CameraDirector`, drops in-flight async model ops, force-updates all CSM cascades (otherwise the old scene's shadows stay baked into cascades the new content never touches), and clears the `PhysicsWorld`.
+`EditorApplication::loadSceneFromFile_` does more than call the serializer, and if you drive loading yourself you need the same steps: every entity handle from the old scene is dead. It re-applies the loaded scene's quality tier unless it is `Custom` (the per-scene perf toggles serialize, but the CSM cascade-count/resolution half of a tier lives on the `Renderer` and is not serialized, so a reloaded High scene would otherwise get default shadows), clears the selection, clears the undo history (undoing a pre-load entry would resurrect ghosts into the loaded scene), resets the Game view's `CameraDirector`, drops in-flight async model ops, force-updates all CSM cascades (otherwise the old scene's shadows stay baked into cascades the new content never touches), and clears the `PhysicsWorld`, the `ScriptWorld` (which fires `OnDestroy` on the way out) and the `AudioWorld` (which stops any voices still playing from the old scene).
 
 ### The editor boots from the scene file
 
@@ -134,13 +134,16 @@ Both write into the same output directory as the Editor, so a scene saved in the
 Boot sequence:
 
 1. `InitGL()`, then build the shader from `Exported/Shaders/vertex.glsl` and `Exported/Shaders/frag.glsl`. An invalid shader is fatal.
-2. **Pick the scene path.** Command line wins, then project settings: `Player.exe path/to/scene.json` overrides `ProjectSettings::startupScene`.
+2. **Pick the scene path.** Command line wins, then project settings: `Player.exe path/to/scene.json` overrides `ProjectSettings::startupScene`. `project.json` is loaded either way, because the master volume comes from it too.
 3. **Load the scene** with `SceneSerializer`. A failure is fatal and the message tells you to save one from the editor or pass a path.
-4. **`scene.UpdateTransforms()` before building physics.** A freshly loaded scene has dirty Transforms whose cached world matrices are still identity, and bodies are built from world poses. Building first put the ground (authored at `y = -3`, scaled 300×) at the origin as a 1×1 box, so everything fell straight past it. `PhysicsWorld::Build` is now robust to this on its own, but the ordering is still the honest way to express it.
-5. **`InstallPhysics(*this, scene, physics_)` then `physics_.Build(scene.registry)`.** The player is always "playing" — ticks run from frame one, since only the editor gates gameplay — so there is no Play transition to build bodies on.
-6. **`setRenderFromSceneCamera(true)`** so the view comes from the scene's camera entity through the same `CameraDirector` selection and blending as the editor's Game view.
-7. **`scene.UpdateTransforms()` again**, then `FindActiveCamera(scene.registry)`. If a camera is found, `setInternalCameraInput(false)` turns the engine's built-in WASD/mouse-look OFF, so gameplay is the only thing that can move the view. A shipped game must not hand the player a debug fly-camera.
-8. `RunLoop(scene, shader)` — ESC or closing the window exits.
+4. **Re-apply the saved quality tier** unless it is `Custom`. The CSM half of a tier (cascade count and base resolution) lives on the Renderer and is not serialized, so without this the shipped game would boot with default shadows.
+5. **`scene.UpdateTransforms()` before building physics.** A freshly loaded scene has dirty Transforms whose cached world matrices are still identity, and bodies are built from world poses. Building first put the ground (authored at `y = -3`, scaled 300×) at the origin as a 1×1 box, so everything fell straight past it. `PhysicsWorld::Build` is now robust to this on its own, but the ordering is still the honest way to express it.
+6. **`InstallPhysics(*this, scene, physics_)` then `physics_.Build(scene.registry)`.** The player is always "playing" — ticks run from frame one, since only the editor gates gameplay — so there is no Play transition to build bodies on.
+7. **Scripting and audio, started immediately** for the same reason: `InstallScripting` (script directory `Exported/Scripts`) then `scripts_.Build` / `scripts_.Start`, and `InstallAudio` at the saved `masterVolume` then `audio_.Start`.
+8. **In-game UI from the scene.** Load `Exported/Fonts/Roboto.ttf` (a missing font draws the UI without text), wire the real system clipboard and the GLFW key/char callbacks, call `InstallDemoUIContent` for the two things a markup file cannot carry — a named action and a converter — and install the render-pass callback that drives every `UIDocumentComponent` in the scene. Nothing here names a UI file: swapping the HUD is a scene edit.
+9. **`setRenderFromSceneCamera(true)`** so the view comes from the scene's camera entity through the same `CameraDirector` selection and blending as the editor's Game view.
+10. **`scene.UpdateTransforms()` again**, then `FindActiveCamera(scene.registry)`. If a camera is found, `setInternalCameraInput(false)` turns the engine's built-in WASD/mouse-look OFF, so gameplay is the only thing that can move the view. A shipped game must not hand the player a debug fly-camera.
+11. `RunLoop(scene, shader)` — ESC or closing the window exits.
 
 Because the shipping build has no console, startup failures go through a `MessageBoxA` as well as `stderr`; otherwise a failed boot would be an instant silent exit.
 
@@ -192,7 +195,7 @@ Gameplay drives cameras by editing these fields; the director notices on its own
 
 `cmake/stage_runtime_assets.cmake` copies assets next to the executables. It splits content into two classes and treats them differently:
 
-- **Static assets** (`Model/`, `Shaders/`) are owned by the source tree and re-copied every build, so shader and model edits show up.
+- **Static assets** (every *subdirectory* of `Editor/src/Exported/` — today `Env/`, `Fonts/`, `Icon/`, `Layouts/`, `Model/`, `Scripts/`, `Shaders/`, `UI/`) are owned by the source tree and re-copied every build, so shader, model, script and UI edits show up. The script globs the subdirectories rather than naming them: the list used to be hardcoded, and adding `Scripts/` and then `Env/` each silently shipped a feature whose assets never reached the runtime directory.
 - **Authored files** (`*.json` — anything the editor writes at runtime into the same directory) are seeded **only when missing**.
 
 There is exactly one staging target, `runtime_assets`, defined in `Editor/CMakeLists.txt` and depended on by `Editor`, `PlayerDebug`, and `PlayerShipping`. Concurrent copies into the same directory race under Ninja, so one writer is the rule.
@@ -230,7 +233,8 @@ cpack -G ZIP -C Release
 | --- | --- |
 | `Player.exe` (the shipping player) | `install(TARGETS PlayerShipping RUNTIME DESTINATION .)` in `Player/CMakeLists.txt` |
 | `Engine.dll` | `install(TARGETS Engine RUNTIME DESTINATION .)` in `Engine/CMakeLists.txt` |
-| Third-party DLLs (assimp, glfw3, zlib, …) | Deployed by vcpkg applocal-on-install |
+| Third-party DLLs (assimp, glfw3, zlib, …) | Deployed by vcpkg applocal-on-install — with one exception, below |
+| `lua-c++.dll` (only when the Lua backend is built: `CSE_ENABLE_LUA=ON` and sol2/lua-cpp were found) | `install(FILES "$<TARGET_FILE:lua-cpp>" DESTINATION .)` in `Engine/CMakeLists.txt` — vcpkg's applocal matching does not pick this one up, because the `+` characters in the filename defeat it, so it is installed explicitly. A matching `POST_BUILD` `copy_if_different` in the same block stages it beside `Engine.dll` in the build tree for the same reason. |
 | `Exported/` source-tree defaults (Model, Shaders, seed JSON) | `install(DIRECTORY Editor/src/Exported/ DESTINATION Exported)` |
 | Editor-authored `Exported/` (your saved scenes and `project.json`) | `install(CODE ...)`, layered on top |
 

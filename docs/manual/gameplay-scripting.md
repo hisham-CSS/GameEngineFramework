@@ -80,12 +80,18 @@ to interpolate presentation between simulated states.
 `advance` call:
 
 ```c++
-fixedStep_.advance(gameDt, [this](float fixedDt) {
-    if (fixedUpdate_) fixedUpdate_(fixedDt);
-    for (auto& s : fixedSubscribers_) {
-        if (s.fn) s.fn(fixedDt);
-    }
-});
+hasFixedConsumers = fixedUpdate_ || !fixedSubscribers_.empty();
+if (hasFixedConsumers) {
+    fixedSteps = fixedStep_.advance(gameDt, [this](float fixedDt) {
+        // Each tick is its own consumption phase: every
+        // consumer within it observes the same input edges.
+        input_->beginInputPhase();
+        if (fixedUpdate_) fixedUpdate_(fixedDt);
+        for (auto& s : fixedSubscribers_) {
+            if (s.fn) s.fn(fixedDt);
+        }
+    });
+}
 ```
 
 So gameplay and physics always see the same number of steps and can never drift
@@ -339,6 +345,23 @@ in.setGamepadDeadzone(0.2f);
 > that a typo looks exactly like "the key isn't pressed". Lua scripts get a
 > warn-once for this; C++ callers should check `hasAction` / `hasAxis` when
 > debugging input that does nothing.
+>
+> **Unbound is only one of two silent causes.** A *suppressed* map reads
+> neutral from every query as well: `isDown` / `wasPressed` / `wasReleased`
+> return `false`, `axis` returns `0`, and `consumePressed` returns `false`
+> **without** consuming the latch — a suppressed reader must not eat a press
+> that a legitimate consumer would otherwise get. `RunLoop` suppresses the map
+> around the gameplay hooks *only* (`InputMap::setSuppressed`), whenever
+> `gameplayInputEnabled()` is false, which is why the editor's fly camera keeps
+> working off the same named axes while the game receives nothing. The editor
+> drives that flag from **Game-surface** focus — `playing_ && gameSurfaceFocused_`
+> — so gameplay stops reading input the moment you click away from the game
+> image.
+>
+> `hasAction` / `hasAxis` look only at the binding tables, so they still answer
+> `true` while suppressed — and the Lua warn-once, which is gated on them, stays
+> quiet too. To tell the two cases apart, check `app.input().suppressed()` (or
+> equivalently `app.gameplayInputEnabled()`) alongside `hasAction` / `hasAxis`.
 
 ### Reading edges from the fixed tick
 
@@ -424,8 +447,12 @@ Things the source is explicit about:
   PhysX reports the solver's actually-applied impulse, while Jolt's contact
   callback runs before the solver, so its value is an estimate. Tune thresholds
   against the backend you ship.
-- Not every backend reports contacts at all. Check `BackendReportsContacts()`
-  before relying on events.
+- Contact reporting is opt-in at the seam: `IPhysicsBackend::supportsContactEvents()`
+  defaults to `false`. Every backend you can currently select — `Simple`, `Jolt`
+  and `PhysX` (the latter two when compiled in) — overrides it to `true`, so
+  `BackendReportsContacts()` guards against a future backend, or against no
+  backend being set at all (a world whose `SetBackend()` failed), rather than
+  against anything shipping today.
 
 For polling rather than events, `PhysicsWorld` also offers raycasts:
 
@@ -462,6 +489,29 @@ bool gameplayEnabled() const;
 When the gate is off, the entire game-update stage is skipped — both the fixed
 steps and `SetUpdate`. Camera input, rendering and the UI keep running.
 
+There is a **second, independent gate**, and it governs input rather than
+ticking:
+
+```c++
+void setGameplayInputEnabled(bool on);
+bool gameplayInputEnabled() const;
+```
+
+When it is off the hooks still run — they just read nothing. `RunLoop` wraps
+*only* the gameplay hooks in `input_->setSuppressed(!gameplayInput_)`, so every
+`isDown` / `wasPressed` / `wasReleased` / `axis` / `consumePressed` call inside
+them returns `false` / `0`. The editor's own fly-camera block reads the same
+named axes just above that window, so the Scene view keeps working while the
+game receives nothing. Polling and edge bookkeeping continue underneath, so
+turning input back on does not manufacture an edge from a key that was already
+held — and a press made while input was off is dropped rather than queued, so
+regaining focus cannot fire a jump from a keystroke typed into the Scene view.
+
+The Player leaves it on. The editor sets it to `playing_ && gameSurfaceFocused_`:
+gameplay reads input only while the Game panel's *render surface* holds the
+keyboard — not merely the panel, and not one of its toolbar widgets — and
+`stopPlay_` (and closing or collapsing the panel) turns it off again.
+
 > **Important:** because Stop restores a registry snapshot (`reg.clear()` plus
 > `create(hint)`), any entity handle your gameplay state cached during a play
 > session is stale afterwards. Keep per-session state in something you reset on
@@ -473,8 +523,13 @@ steps and `SetUpdate`. Camera input, rendering and the UI keep running.
 
 1. Write an `InstallX(Application&, Scene&, ...)` free function in a header,
    mirroring `Engine/src/physics/PhysicsInstall.h`.
-2. Use `SetFixedUpdate` **only** if you are the game. Otherwise
-   `AddFixedUpdate` and return the `TickHandle`.
+2. Use `SetFixedUpdate` / `SetUpdate` **only** if you are the game — each is a
+   single primary slot that *overwrites*. A reusable system uses
+   `AddFixedUpdate` / `AddUpdate` instead and hands back the returned
+   `TickHandle` so the host can `RemoveFixedUpdate` / `RemoveUpdate` it. (A
+   module that subscribes to both rates gets two handles; `InstallScripting`
+   returns the fixed-tick one and lets the per-frame subscription live for the
+   life of the application.)
 3. Store anything captured by reference as a member of the host application so
    it outlives `RunLoop`.
 4. Bind your input names once at install time; query them through

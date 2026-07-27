@@ -117,8 +117,9 @@ MyCoreEngine::Application* MyCoreEngine::CreateApplication() {
 1. Loads GLAD via `EnsureGLADLoaded()` (throws `std::runtime_error` on failure).
 2. Applies the current vsync setting.
 3. Calls `renderer_.Setup(w, h)` with the framebuffer size.
-4. Installs the scroll callback.
-5. Fires the `OnContextReady` hook (apps init ImGui / create GL objects here).
+4. Installs the window user pointer and the scroll callback.
+5. Sets the window-manager icon from the staged `Exported/Icon/icon.png` (`TrySetWindowIconFromFile`, best-effort — a missing or undecodable file just means no icon). On Windows the exe's own resource (`resources/app.rc`, named `GLFW_ICON`) already covers this; on Linux this call is the only mechanism.
+6. Fires the `OnContextReady` hook (apps init ImGui / create GL objects here), guarded by `readyFired_` so it fires at most once.
 
 **Important:** create no `Shader`, `Model`, or other GL object before `InitGL()` returns. The editor asserts `glfwGetCurrentContext() != nullptr` right after it.
 
@@ -132,9 +133,11 @@ MyCoreEngine::Application* MyCoreEngine::CreateApplication() {
 | `SetFixedUpdate(fn)` | `void(float dt)` | Once per fixed step. **Overwrites** the previous one |
 | `AddFixedUpdate(fn)` → `TickHandle` | `void(float dt)` | After the primary slot, in registration order |
 | `RemoveFixedUpdate(handle)` | — | Removes a subscriber |
-| `SetUpdate(fn)` | `void(float dt)` | Once per frame, variable step |
+| `SetUpdate(fn)` | `void(float dt)` | Once per frame, variable step. **Overwrites** the previous one |
+| `AddUpdate(fn)` → `TickHandle` | `void(float dt)` | After the primary variable slot, in registration order (scripting and audio use this, so the editor and the player tick per-frame scripts at the same point in the loop) |
+| `RemoveUpdate(handle)` | — | Removes a variable-rate subscriber |
 | `SetUIDraw(fn)` | `void(float deltaTime)` | Every frame, after the 3D render |
-| `SetUICaptureProvider(fn)` | `std::pair<bool,bool>()` | Every frame, before input is applied. Returns `{keyboardCaptured, mouseCaptured}` |
+| `SetUICaptureProvider(fn)` | `Application::UICapture()` | Every frame, at the top of the loop, before input is applied. Returns a struct of `{keyboard, mouse, textInput}` — `keyboard` gates the built-in fly camera's keys and the `Quit` action, `mouse` gates its mouse-look (when `internalCameraInput_` is on), while `textInput` is the narrow "a text widget has focus" signal that clears press latches so gameplay keys don't fire while typing |
 
 **Important:** use `AddFixedUpdate`, not `SetFixedUpdate`, for engine subsystems. The header spells out why:
 
@@ -144,6 +147,7 @@ MyCoreEngine::Application* MyCoreEngine::CreateApplication() {
 
 ```c++
 void  setGameplayEnabled(bool on);        // false = fixed/variable hooks don't tick
+void  setGameplayInputEnabled(bool on);   // false = hooks still tick, but read nothing
 void  setRenderFromSceneCamera(bool on);  // render through CameraDirector, not the fly cam
 void  setInternalCameraInput(bool on);    // false = app drives the camera itself
 void  setVSync(bool on);
@@ -155,6 +159,8 @@ void  SetSceneRenderTarget(RenderTarget* target); // null = straight to backbuff
 ```
 
 The Player leaves `gameplayEnabled` on (it defaults to `true`); the editor calls `setGameplayEnabled(false)` at startup and flips it on only between Play and Stop, so gameplay never mutates the edit-mode scene.
+
+The two gating knobs are independent axes. `gameplayInput` (also `true` by default, also left alone by the Player) decides whether the ticking hooks *see* anything: while it is off, `InputMap::isDown`/`wasPressed`/`wasReleased` return `false` and `axis()` returns `0`, so the game simulates but reads nothing. Suppression is scoped to the gameplay block alone — it is switched on immediately before the fixed/variable hooks and off immediately after (`input_->setSuppressed(!gameplayInput_)` in `RunLoop`), so the editor's fly-camera and UI reads, which happen outside that window, keep working. The editor drives this knob from Game-**surface** focus, not panel focus — `setGameplayInputEnabled(playing_ && gameSurfaceFocused_)` — and forces it off at startup, when the Game panel is hidden or collapsed, and on Stop. That is what lets you fly the Scene view around a scene that is still playing, and keeps a Space typed into the `Blend` field from also jumping the player.
 
 `SetSceneRenderTarget` is how the editor gets the 3D scene into its Scene panel. **The UI callback always draws to the window backbuffer**, regardless of this setting.
 
@@ -173,9 +179,10 @@ flowchart TD
     E --> F["jobs_.pumpCompletions(2.0f)"]
     F --> G{"gameplayEnabled_?"}
     G -- yes --> H["fixedStep_.advance: fixedUpdate_ then subscribers"]
-    H --> I["update_(gameDt) if gameDt > 0"]
+    H --> I["update_(gameDt) + updateSubscribers_"]
     G -- no --> J
-    I --> J["scene.UpdateTransforms()"]
+    I --> P["press-latch test: clearPressLatches unless a tick is owed"]
+    P --> J["scene.UpdateTransforms()"]
     J --> K["director_.Update (if renderFromSceneCamera_)"]
     K --> L["renderer_.RenderFrame  -- timed as sceneRenderMs_"]
     L --> M["uiDraw_(deltaTime_)  -- timed as uiMs_"]
@@ -187,7 +194,7 @@ flowchart TD
 Step by step:
 
 1. **`updateDeltaTime_()`** — `deltaTime_` is `glm::clamp(now - last, 0.0f, 0.1f)`. The clamp stops a stall (debugger break, window drag, load hitch) producing a giant step that teleports the camera.
-2. **UI capture query** — if a `UICaptureProvider` is installed, it returns `{capK, capM}`.
+2. **UI capture query** — if a `UICaptureProvider` is installed, `captureFn_()` returns a `UICapture` (`Engine/src/core/Application.h`) carrying **three** flags — `keyboard`, `mouse`, `textInput` — unpacked into the locals `capK`, `capM` and `typing`. `capK`/`capM` gate the built-in fly camera and Quit (steps 4 and 5). `typing` is the narrow "a text widget has focus" signal: immediately after `input_->update()` it runs `input_->clearPressLatches()`, so a space typed into the Inspector's Name field or a script-path field cannot also fire the game's `Jump`. It is deliberately **not** `capK` — the editor sets `keyboard` whenever the Scene viewport is not focused, which is true the entire time the Game panel has focus, so clearing on `capK` threw away every press at exactly the moment the game deserved one.
 3. **`input_->update(window)`** — polled *every* frame so edge states stay coherent. Only the *application* of the default camera/Quit behaviour is skipped when the UI captures keys.
 4. **Default camera + Quit** — when `!capK`: `Quit` closes the window, `MoveForward`/`MoveRight` axes move `camera_`, and gamepad `LookX`/`LookY` feed `ProcessMouseMovement`.
 5. **`handleMouseLook_()`** — when `!capM && internalCameraInput_`. Right mouse button held = cursor disabled + mouse-look.
@@ -195,7 +202,11 @@ Step by step:
 7. **Game update**, only when `gameplayEnabled_`:
    - `gameDt = paused_ ? 0.f : deltaTime_ * timeScale_`
    - `fixedStep_.advance(gameDt, ...)` runs `fixedUpdate_` then every `fixedSubscribers_` entry per step. **One accumulator drives both**, so gameplay and physics always see the same step count and can never drift apart.
-   - `update_(gameDt)` runs once, only if `gameDt > 0.f`.
+   - `update_(gameDt)` runs once, only if `gameDt > 0.f`, inside its own `input_->beginInputPhase()` (the variable-rate consumption phase), and is followed by every `updateSubscribers_` entry registered with `AddUpdate`, in registration order. Both hosts install scripting and audio there, so `ScriptWorld::Update` and the audio tick run at the *same* point in the loop in the editor and in the shipped player.
+   - The whole block is bracketed by `input_->setSuppressed(!gameplayInput_)` / `setSuppressed(false)`, scoped to the gameplay hooks only — the fly-camera block above has already read the same map, so the editor's Scene view keeps flying while the running game reads neutral (every query returns released/0 and `consumePressed` neither reports nor consumes; polling continues underneath, so unsuppressing produces no spurious edge). The editor drives this with `setGameplayInputEnabled(playing_ && gameSurfaceFocused_)` — panel focus is not enough, the game *surface* must have it.
+
+7b. **Press-latch bookkeeping** — immediately after the block, a press latch survives only when a fixed tick was owed but none ran (`gameplayEnabled_ && gameplayInput_ && hasFixedConsumers && gameDt > 0.f && fixedSteps == 0`); otherwise `input_->clearPressLatches()` drops it, so a key pressed while paused, in edit mode, or with the Game view unfocused can never fire later.
+
 8. **`scene.UpdateTransforms()`** — unconditional. Runs even in edit mode.
 9. **Camera director** — only when `renderFromSceneCamera_`. Placed *after* `UpdateTransforms` so camera entities' world matrices are current and the view tracks gameplay with **no frame lag**.
 10. **`renderer_.RenderFrame(...)`** — into `sceneTarget_->fbo()` if a render target is set (then the backbuffer is cleared for the UI), otherwise straight to the window framebuffer.
@@ -248,6 +259,7 @@ The order is fixed by construction order:
 | 5 | Bloom *(opt)* | `BloomPass` | `ctx.hdrFBO` | Bright-pass + blur composited additively into HDR |
 | 6 | Tonemap | `TonemapPass` | `ctx.defaultFBO` or the LDR chain | ACES tonemap + gamma of `ctx.hdrColorTex` |
 | 7–10 | Outline / ColorGrade / Vignette / FXAA *(opt)* | resp. passes | LDR ping-pong → `ctx.defaultFBO` | Gamma-space post effects; the last resolves to the output |
+| 11 | UI | `UIPass` | `ctx.defaultFBO` | Screen-space 2D/UI overlay, painted on the finished frame via the per-`Renderer` `SetUIDraw` hook (`void(Renderer2D&, int w, int h, float dt)` — *not* `Application::SetUIDraw` above, which is `void(float dt)`). Added unconditionally, but self-skips when no hook is installed. Never a ping-pong stage and absent from `countLdrPostPasses_`, so UI is never bloomed, graded, vignetted or anti-aliased. Per-`Renderer` is what lets the editor show game UI in the Game view while keeping the Scene view clean. |
 
 `ShadowCSMPass` is added in `Renderer::Setup`; the rest are created lazily on
 the first `RenderFrame` (the forward/transparent passes need the `Shader&` that
@@ -357,7 +369,7 @@ The registry is touched from three places in a frame: your fixed/variable update
 
 ### Transform ordering matters at load
 
-From `Player/src/PlayerMain.cpp`: a freshly loaded scene has dirty `Transform`s whose cached world matrices are still identity. Physics bodies are built from world poses, so `scene.UpdateTransforms()` must run *before* `physics_.Build(scene.registry)`. Building first put a ground plane authored at y=-3 and scaled 300× at the origin as a 1×1 box, and everything fell straight past it.
+From `Player/src/PlayerMain.cpp`: a freshly loaded scene has dirty `Transform`s whose cached world matrices are still identity. Physics bodies are built from world poses, so `scene.UpdateTransforms()` runs *before* `physics_.Build(scene.registry)`. Building first put a ground plane authored at y=-3 and scaled 300× at the origin as a 1×1 box, and everything fell straight past it. `PhysicsWorld::Build` is now robust to this on its own — for any `Transform` still marked dirty it falls back to `ResolveWorldMatrix`, which rebuilds the world matrix from the local TRS chain instead of trusting the cache — but the ordering remains the honest way to express the dependency.
 
 ---
 
@@ -391,13 +403,13 @@ Consumers include a single umbrella header:
 #include "Engine.h"
 ```
 
-`Engine/include/Engine.h` pulls in the public surface: `Application`, `Camera`, `CameraDirector`, `Model`, `Shader`, `Entity`, `Renderer`, `Scene`, `Event`/`EventBus`, `ImageIO`, `AssetManager`, `Material`, `SceneSerializer`, `ProjectSettings`, `FixedTimestep`, `InputMap`, `JobSystem`, `RenderTarget`, `GLInit`, the `assets/` headers, `render/CSMSplits.h`, and the physics core.
+`Engine/include/Engine.h` pulls in the public surface: `Application`, `Camera`, `CameraDirector`, `Model`, `Shader`, `Entity`, `Renderer`, `Scene`, `Event`/`EventBus`, `ImageIO`, `AssetManager`, `Material`, `SceneSerializer`, `ProjectSettings`, `FixedTimestep`, `InputMap`, `JobSystem`, `RenderTarget`, `GLInit`, the `assets/` headers, `render/CSMSplits.h`, the physics core, the scripting core, the audio core, the 2D layer (`Renderer2D`, `Font`), and the in-game UI (`UIStyle`, `UIValue`, `UIDataSource`, `UIBinding`, `UITextField`, `UIElement`, `UIStyleSheet`, `UIMarkup`, `UIInteractionStyler`, `UIAssetDocument`, `UIComponent`, `UIWorld`, `DemoUIContent`).
 
 **Important:** the concrete physics backends are deliberately *not* exported. `Engine.h` exposes `PhysicsTypes`, `PhysicsComponents`, `IPhysicsBackend`, `PhysicsBackendRegistry`, `PhysicsWorld`, and `PhysicsInstall` only — callers select a backend *by name* through the registry, so no consumer ever includes an SDK header.
 
 ### Physics backends and the `_HAS_EXCEPTIONS` landmine
 
-`Engine/CMakeLists.txt` never links a physics SDK directly into `Engine`. Each backend goes into its own **STATIC** library via `cse_add_physics_backend`, which links the SDK `PRIVATE`.
+`Engine/CMakeLists.txt` never links a physics SDK directly into `Engine`. Each backend goes into its own **STATIC** library via `cse_add_isolated_backend`, which links the SDK `PRIVATE`. The helper is shared with the scripting seam rather than physics-specific: the isolation problem is identical (Jolt exports `_HAS_EXCEPTIONS=0`, vcpkg's Lua exports `LUA_BUILD_AS_DLL`), so the fix is written once. Trailing arguments are the SDK targets to link, since a backend may need more than one — the Lua backend passes both `sol2` and `lua-cpp`.
 
 **Important:** this isolation is load-bearing, not stylistic. Jolt's imported target propagates `_HAS_EXCEPTIONS=0` as an INTERFACE compile definition. Linking it straight into `Engine` rebuilt the entire engine without exception support, which turned the `std::filesystem` throw that `AssetIndex` relies on (non-codepage filenames) into a `0xC0000409` fast-fail and would have silently broken every other `try`/`catch` in the engine. `STATIC` (rather than `OBJECT`) is what makes CMake record the PRIVATE dep as `$<LINK_ONLY:...>`, so `Engine` inherits the SDK's `.lib` for linking but *not* its compile definitions or include directories.
 
@@ -447,4 +459,4 @@ The editor surfaces all three under **Rendering Stats**, alongside `dt`, the `GL
 
 **Gotcha:** check the GPU string first. On a hybrid laptop, silently running on the Intel iGPU is roughly 4–5× slower than the discrete GPU, and every timer will look bad for the wrong reason. Both `EditorMain.cpp` and `PlayerMain.cpp` export `NvOptimusEnablement` and `AmdPowerXpressRequestHighPerformance` to request the discrete GPU, but that is a request, not a guarantee.
 
-For deeper per-frame draw accounting, `Scene::GetRenderStats()` returns a `RenderStats` with `draws`, `instancedDraws`, `instances`, `vaoBinds`, `textureBinds`, `culled`, `culledSmall`, `submitted`, `itemsBuilt`, `entitiesTotal`, and `lodInstances[3]`.
+For deeper per-frame draw accounting, `Scene::GetRenderStats()` returns a `RenderStats` with `draws`, `instancedDraws`, `instances`, `vaoBinds`, `textureBinds`, `culled`, `culledSmall`, `submitted`, `itemsBuilt`, `entitiesTotal`, `lodInstances[3]`, `lightsActive`, and `lightsCulled`.

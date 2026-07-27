@@ -38,7 +38,12 @@ Unit tests are built by default; `option(ENABLE_TESTS "Build unit tests" ON)` tu
    the primary path (the build has MSVC-specific pieces like `/Zi` and
    `/ENTRY:mainCRTStartup`, all guarded behind `if(MSVC)`). The engine also builds on
    **Linux** (gcc ≥ 11 / clang ≥ 14) — see **[Building on Linux](../BUILDING_LINUX.md)**.
-2. **CMake 3.20 or newer** (`cmake_minimum_required(VERSION 3.20)`).
+2. **CMake 3.21 or newer.** The root `CMakeLists.txt` only requires 3.20
+   (`cmake_minimum_required(VERSION 3.20)`), but `CMakePresets.json` is a version-3 preset
+   file declaring `"cmakeMinimumRequired": { "major": 3, "minor": 21 }` — so the preset
+   workflow below needs 3.21+. (The "Without presets" raw `cmake -B ...` invocation further
+   down still configures fine on 3.20.) Visual Studio 2022's bundled CMake is already past
+   3.21, so this normally only bites on Linux or a hand-installed CMake.
 3. **Ninja** — the generator this project is normally built with. Visual Studio 2022 ships it
    with the C++ workload; from a plain terminal, run inside a `vcvars64` environment.
 4. **vcpkg**, used in **manifest mode**. There is a `vcpkg.json` at the repo root, so you do
@@ -61,8 +66,9 @@ everyone resolves the same package versions.
 ### Dependencies (from `vcpkg.json`)
 
 `glfw3`, `glad`, `stb`, `glm`, `assimp`, `entt`, `nlohmann-json`, `meshoptimizer`, `imguizmo`,
-`miniaudio` (audio), `joltphysics`, `physx` (Windows-only), `sol2` + `lua[cpp]` (scripting),
-and `imgui` with the `docking-experimental`, `glfw-binding`, and `opengl3-binding` features.
+`miniaudio` (audio), `yoga` (flexbox layout for the in-game UI) and `pugixml` (CXML markup),
+`joltphysics`, `physx` (Windows-only), `sol2` + `lua[cpp]` (scripting), and `imgui` with the
+`docking-experimental`, `glfw-binding`, and `opengl3-binding` features.
 
 **The two physics SDKs are optional.** `Engine/CMakeLists.txt` looks for them with
 `find_package(... CONFIG QUIET)` behind the `CSE_ENABLE_JOLT` and `CSE_ENABLE_PHYSX` options
@@ -75,9 +81,12 @@ and `imgui` with the `docking-experimental`, `glfw-binding`, and `opengl3-bindin
 
 A build with neither still works — the dependency-free "Simple" backend is always registered.
 
-> **Important — do not link a physics SDK straight into `Engine`.** Each SDK is linked into
-> its own `STATIC` object library by the `cse_add_physics_backend` function in
-> `Engine/CMakeLists.txt`, never directly into `Engine`. The reason is recorded in the
+> **Important — do not link an SDK straight into `Engine`.** Each SDK is linked into its own
+> `STATIC` library by the `cse_add_isolated_backend` function in `Engine/CMakeLists.txt`,
+> never directly into `Engine`. The same helper isolates the Lua scripting backend (vcpkg's
+> `lua-cpp` exports `LUA_BUILD_AS_DLL`), which is why it is named for isolation rather than
+> for physics; trailing arguments are the SDK targets to link, since a backend may need more
+> than one — the Lua backend needs `sol2` *and* `lua-cpp`. The reason is recorded in the
 > comment there: these imported targets propagate `INTERFACE` compile definitions to every
 > consumer source file, and Jolt's include defines `_HAS_EXCEPTIONS=0`. Linking Jolt directly
 > into `Engine` rebuilt the *entire* engine without exception support, which turned the
@@ -149,7 +158,7 @@ it, which is expected rather than a fault.
 
 ## The three configurations, and when to use each
 
-### `x64-Debug`
+### Debug (`x64-debug`)
 
 Unoptimized, full debug CRT. Use it only when you need to step through logic in a small,
 isolated repro — a serializer round-trip, a container bug, a unit test.
@@ -163,13 +172,13 @@ isolated repro — a serializer round-trip, a container bug, a unit test.
 > in `tests/test_perf_render.cpp`, the measurements in `docs/ENGINE_AUDIT_2026-07.md` — is a
 > Release number, and none of them mean anything in Debug.
 
-### `x64-Release`
+### Release (`x64-release`)
 
 Optimized, no debug symbols to speak of. This is the reference configuration: it is what the
 audit benchmarks were taken in and what the perf tests are budgeted against. Use it for
 performance work and for a final sanity pass before packaging.
 
-### `x64-RelWithDebInfo`
+### RelWithDebInfo (`x64-relwithdebinfo`)
 
 Optimized **and** symbol-bearing. `Engine/CMakeLists.txt` describes it exactly as intended:
 
@@ -274,8 +283,10 @@ the editor's Game view.
 
 ## How assets get next to the executables
 
-Authored assets live in the source tree at `Editor/src/Exported/` (`Model/`, `Shaders/`, and a
-seed `scene.json`). They are copied to the runtime `Exported/` directory beside the
+Authored assets live in the source tree at `Editor/src/Exported/`: a seed `scene.json` at the
+root, plus static asset subdirectories — today `Env/` (HDRIs), `Fonts/`, `Icon/`, `Layouts/`,
+`Model/`, `Scripts/` (Lua), `Shaders/` and `UI/` (`.cxml` / `.cstyle` documents). They are
+copied to the runtime `Exported/` directory beside the
 executables by a single custom target, `runtime_assets`, defined in `Editor/CMakeLists.txt`:
 
 ```cmake
@@ -296,12 +307,16 @@ differently:
 
 | Content | Source | Behaviour |
 |---|---|---|
-| `Model/`, `Shaders/` | owned by the source tree | **overwritten every build**, so shader and model edits show up |
+| Every subdirectory (today `Env/`, `Fonts/`, `Icon/`, `Layouts/`, `Model/`, `Scripts/`, `Shaders/`, `UI/`) | owned by the source tree | **overwritten every build**, so shader, model, script, font and UI edits show up |
 | `*.json` at the `Exported/` root | authored by the editor at runtime | **seeded only if missing** |
 
 ```cmake
-file(COPY "${SRC}/Model" DESTINATION "${DST}")
-file(COPY "${SRC}/Shaders" DESTINATION "${DST}")
+file(GLOB children RELATIVE "${SRC}" "${SRC}/*")
+foreach(child ${children})
+    if(IS_DIRECTORY "${SRC}/${child}")
+        file(COPY "${SRC}/${child}" DESTINATION "${DST}")
+    endif()
+endforeach()
 
 file(GLOB seedFiles "${SRC}/*.json")
 foreach(f ${seedFiles})
@@ -334,8 +349,10 @@ slider), and the same seed-only-if-missing rule protects it from then on.
 >   `test_runtime_deps` staging target).
 >
 > One target, one writer, and authored files seeded only-if-missing is what keeps both from
-> coming back. If you need new static assets staged, add them to `Editor/src/Exported/` and
-> extend the script — do not add a second copy command.
+> coming back. If you need new static assets staged, put them in a subdirectory of
+> `Editor/src/Exported/` — the script picks up *any* subdirectory, so no script edit is
+> needed — and do not add a second copy command. (The list used to be hardcoded; `Scripts/`
+> and then `Env/` each shipped a feature whose assets never reached the runtime directory.)
 
 The corollary: if you actually *want* the checked-in seed scene back, delete
 `Exported/scene.json` from the runtime directory and build again.
@@ -402,7 +419,9 @@ they are editor-only metadata, like Unity's `.meta` files, and the player never 
 
 ## A first-run checklist
 
-1. Configure and build `x64-Release` (or `x64-RelWithDebInfo` if you plan to debug).
+1. Configure and build the `x64-release` preset — `cmake --preset x64-release`, then
+   `cmake --build --preset x64-release` (use `x64-relwithdebinfo` if you plan to debug).
+   Preset names are lower-case, and CMake matches them case-sensitively.
 2. `cd` into `<binary-dir>/build/bin/<Config>/`.
 3. Run `Editor.exe`. Confirm the boot status line under **Settings → Editor** says it loaded
    `Exported/scene.json`.

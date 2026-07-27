@@ -113,9 +113,14 @@ produced an element no stylesheet rule and no `Find()` could ever locate.
 The root tag maps onto the document's existing root, so `<UI name="hud">` names
 and styles the root itself rather than creating an extra wrapper.
 
-Tag names are free-form. `Label` and `Button` carry no built-in behaviour — they
-are conventions that give stylesheets something to select on. Behaviour comes
-from the handlers you attach.
+Tag names are free-form, with two the loader knows by name. A `<Button>` and a
+`<TextField>` are focusable by default (see
+[Keyboard](#keyboard-focus-and-tab-order)), and a `<TextField>` additionally gets
+a text-editing model: it shows its `value`, so a `text=` on one is a load error,
+and `value`, `maxlength`, `mask`, `multiline` and `bind-value` are refused on
+anything else (see [Text entry](#text-entry)). Beyond that the tag is only a
+selector hook — `Label` and `Button` carry no built-in behaviour, not even
+Enter-to-click on a focused button. Behaviour comes from the handlers you attach.
 
 **Gotcha:** the file path is run through the same containment check as models,
 scripts, clips and HDRis (`PathIsContained`). Absolute paths and `..` are
@@ -138,7 +143,7 @@ subset, no dependency.
 
 **Selectors:** `Type`, `.class`, `#name`, `*`, the `:hover`, `:active`,
 `:focus` and `:disabled` pseudo-classes, compounds (`Button.primary#ok`,
-`.btn:hover`), and the descendant and child combinators:
+`.btn:hover`), and the descendant, child, adjacent-sibling and general-sibling combinators:
 
 ```css
 .panel .btn      { }   /* a .btn anywhere inside a .panel */
@@ -173,9 +178,17 @@ engine does; left-to-right would need to backtrack over the whole subtree.
 | Behaviour | `overflow` / `overflow-x` / `overflow-y`: `visible\|hidden\|scroll`, `pointer-events: auto\|none`, `display: flex\|none` |
 | Scrollbar | `scrollbar-width`, `scrollbar-min-thumb`, `scrollbar-color`, `scrollbar-thumb-color`, `scrollbar-visibility: auto\|always`, `scroll-behavior: instant\|smooth` |
 
-Lengths are `auto`, `Npx`, `N%`, or a bare number (treated as px). Colours are
-`#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb(r,g,b)`, `rgba(r,g,b,a)` (channels 0–255,
-alpha 0–1), or a handful of names.
+Lengths — `auto`, `Npx`, `N%`, or a bare number (treated as px) — are the
+**Size** group: `width`, `height`, `min-*`, `max-*`. `scrollbar-width` and
+`scrollbar-min-thumb` are lengths too, but must be a **non-negative pixel**
+count — `auto`, a percentage or a negative is reported. `margin` and `padding`
+take 1–4 **pixel** values (`8px` or a bare `8`; `%` and `auto` are reported).
+Everything else numeric — `left`, `top`, `right`, `bottom`, `gap`, `flex-grow`,
+`flex-shrink`, `font-scale` — is a plain **number**, pixels where that is
+meaningful, and the number parser rejects trailing text: `left: 0` is right,
+`left: 0px` and `left: 50%` are errors. Colours are `#rgb`, `#rrggbb`,
+`#rrggbbaa`, `rgb(r,g,b)`, `rgba(r,g,b,a)` (channels 0–255, alpha 0–1), or a
+handful of names.
 
 **Not supported, and reported as errors rather than silently ignored:**
 any other pseudo-class, at-rules, variables, and property inheritance. No PROPERTY cascades from parent to child — every element
@@ -337,11 +350,14 @@ a caret arriving somewhere the view is still travelling toward is worse than no
 animation.
 
 **Undo** coalesces a burst of typing into one step, because undoing a word one
-letter at a time is not what anyone means by it. A deletion, a caret jump, or
-typing after an undo all start a fresh run, and the history is capped at 64
-steps. Writing the value from outside — a binding, `setValue`, a load — **clears
-the history**: an external write is not an edit the user made, and being able to
-undo back to a value you never typed is worse than not being able to undo.
+letter at a time is not what anyone means by it. A deletion, a Home or End jump,
+a line move with Up or Down, or typing after an undo all start a fresh run, and
+the history is capped at 64 steps. Left, Right and clicking to place the caret
+do **not** break the run today, so typing either side of one of those lands in a
+single step. Writing the value from outside — a binding, `setValue`, a load —
+**clears the history**: an external write is not an edit the user made, and being
+able to undo back to a value you never typed is worse than not being able to
+undo.
 
 **Clipboard** goes through the host, because the engine has no business knowing
 whether it is running under GLFW, ImGui, or a test:
@@ -375,9 +391,11 @@ the layout engine can be replaced without touching a line of authored UI.
 
 Everything behaves as CSS flexbox does, which means the usual reflexes apply:
 `justify-content: space-between` on a row pushes children to opposite ends at
-any width, and an absolutely-positioned child with `inset: 0` plus centring
-alignment stays centred at every viewport shape — no arithmetic on the viewport
-size anywhere.
+any width, and an absolutely-positioned child with `left: 0; top: 0; right: 0;
+bottom: 0` plus centring alignment stays centred at every viewport shape — no
+arithmetic on the viewport size anywhere. (There is no `inset` shorthand; the
+four edges are written individually, as `.centre-overlay` in the sample HUD
+stylesheet does.)
 
 `UIDocument::Layout(w, h, font)` fills every element's `ComputedLayout`
 (absolute position + size, in screen pixels). The `font` may be null: text
@@ -441,9 +459,10 @@ height of its own grows to its content and escapes its parent.
 **Absolutely positioned children are pinned to the scroller's box**, not scrolled
 with it. That is a deliberate divergence from CSS, taken because there is no
 `position: fixed` or `sticky` here to offer instead — and because the alternative
-is wrong twice over: an `inset: 0` overlay that scrolled away would stop covering
-*and* stop blocking clicks. It buys sticky headers and lock veils for free. A
-scroller's own `text=` does not scroll either; put a header in a sibling element.
+is wrong twice over: an overlay pinned to all four edges that scrolled away would
+stop covering *and* stop blocking clicks. It buys sticky headers and lock veils
+for free. A scroller's own `text=` does not scroll either; put a header in a
+sibling element.
 
 **Scrollbars are overlays.** They reserve no gutter, so they paint over the right
 edge of the content — add `padding-right` if that matters. A bar that changed the
@@ -451,11 +470,15 @@ layout could make itself disappear, and then reappear, forever. The thumb is
 draggable, and pressing it never reaches the content underneath.
 
 They are styleable: `scrollbar-width` (0 hides the bar while leaving the panel
-scrollable), `scrollbar-min-thumb`, `scrollbar-color`, `scrollbar-thumb-color`,
-and `scrollbar-visibility: auto|always` — `always` paints a bar on a scrollable
-axis even while the content fits, for a panel whose scrollability should be
-advertised. **Nothing in this system inherits**, so to restyle every bar at once
-use the universal selector: `* { scrollbar-width: 10px; }`.
+scrollable), `scrollbar-min-thumb`, and `scrollbar-visibility: auto|always` —
+`always` paints a bar on a scrollable axis even while the content fits, for a
+panel whose scrollability should be advertised. **Nothing in this system
+inherits**, so to restyle every bar at once use the universal selector:
+`* { scrollbar-width: 10px; }`. `scrollbar-color` and `scrollbar-thumb-color`
+parse and reach the element's style, but nothing reads them back out: the painter
+uses fixed colours, which happen to be exactly the defaults
+(`rgba(255,255,255,0.06)` track, `rgba(255,255,255,0.28)` thumb), so authoring
+either one has no visual effect yet.
 
 **Chaining is per gesture.** A wheel *gesture* latches onto whatever it first
 moved and keeps it until you pause — so flicking through a list to its bottom and
@@ -558,11 +581,13 @@ through its ancestors, with `e.target` (what was hit) and `e.currentTarget`
 (whose handler is running) kept separate, and `e.StopPropagation()` to halt the
 walk. Multiple handlers per type run in registration order.
 
-Available: `OnClick`, `OnPointerDown/Up/Move/Enter/Leave`, `OnWheel`. A **click**
-requires press *and* release on the same element, so sliding off a button before
-letting go correctly cancels it. Prefer an authored `on-click="actionName"` where
-you can — a bound action survives a hot reload by itself, while a handler
-attached in C++ has to be re-attached.
+Available: `OnClick`, `OnPointerDown/Up/Move/Enter/Leave`, `OnWheel`,
+`OnFocusIn`/`OnFocusOut`, `OnKeyDown`, `OnTextInput` and `OnValueChanged` — one
+thin wrapper over `AddEventListener` per event type. A **click** requires press
+*and* release on the same element, so sliding off a button before letting go
+correctly cancels it. Prefer an authored `on-click="actionName"` where you can —
+a bound action survives a hot reload by itself, while a handler attached in C++
+has to be re-attached.
 
 `OnWheel` carries the notch count in `e.delta`. Note that an authored
 `on-wheel="name"` **observes** the wheel without claiming it: the built-in scroll
@@ -587,6 +612,7 @@ p.position   = { mouseX - uiOriginX, mouseY - uiOriginY };
 p.inside     = /* pointer is over the UI surface at all */;
 p.buttonDown = /* left button held */;
 p.wheel      = { horizontalNotches, verticalNotches };  // see below
+p.shift      = /* either Shift key held — the only input to the Shift+wheel axis swap */;
 ```
 
 `wheel` is the odd one out: the first three are level snapshots, but it is an
@@ -639,10 +665,11 @@ src.SetNumber("health", 1.0f);
 src.SetBool("lowHealth", false);
 src.AddAction("addScore", [&] { src.SetInt("score", src.GetInt("score") + 100); });
 assets.bindingContext().RegisterSource("hud", &src);
+assets.bindingContext().converters().Register("healthTint", ...);  // not a builtin; see DemoUIContent.cpp
 ```
 
 ```xml
-<UI name="hud" data-source="scene">
+<UI name="hud" data-source="hud">
   <Element name="healthFill" class="fill"
            bind="width: {health | percent};
                  background-color: {health | healthTint}"/>
@@ -690,10 +717,12 @@ unit-test, whose typos are answered with the list of names that exist.
 ### Values
 
 `UIValue` carries a bool, int, number, length, colour or string. **Coercion
-never guesses**: every conversion that is not obviously correct fails and names
-both kinds (`cannot use string 'rifle' as a length`). Without reflection, a
-value that converted to something plausible but wrong is indistinguishable from
-a UI that simply doesn't work.
+never guesses**: every conversion that is not obviously correct fails, and the
+report names the kind it got and the property it was for (`cannot use colour as
+a value for 'width'`) — or, when a string is offered and the declaration grammar
+cannot parse it either, that parser's own message (`bad length 'rifle'`).
+Without reflection, a value that converted to something plausible but wrong is
+indistinguishable from a UI that simply doesn't work.
 
 A string is never a bool, for the same reason — `"false"` is truthy under one
 obvious rule and falsy under another. Strings *do* parse as lengths and colours,

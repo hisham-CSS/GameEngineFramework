@@ -14,7 +14,7 @@ explicit AssetIndex(std::string root = "Exported");
 
 Paths used throughout the engine are *engine-style*: forward slashes, rooted at the asset root, e.g. `Exported/Model/backpack.obj`.
 
-Source content lives in `Editor/src/Exported/` and is staged into the runtime `Exported/` next to the built executables by the shared `runtime_assets` CMake target (see `Player/CMakeLists.txt`).
+Source content lives in `Editor/src/Exported/` and is staged into the runtime `Exported/` next to the built executables by the shared `runtime_assets` CMake target, defined in `Editor/CMakeLists.txt` and driving `cmake/stage_runtime_assets.cmake`. `Editor`, `PlayerDebug`, `PlayerShipping` and `AssetCooker` all `add_dependencies` on that single target, so exactly one writer owns that directory.
 
 ## Supported formats
 
@@ -184,8 +184,11 @@ aiProcess_Triangulate |
 aiProcess_JoinIdenticalVertices |
 aiProcess_GenNormals |
 aiProcess_CalcTangentSpace |
+aiProcess_ValidateDataStructure |
 aiProcess_FlipUVs
 ```
+
+`aiProcess_ValidateDataStructure` is untrusted-input hardening. A hostile mesh *inside* the project tree can carry face indices that reference vertices past the end of the array; `collectMeshes` copies those indices verbatim, and they later feed `meshopt_simplify` (LOD) and the GL element buffer, where an out-of-range index is an out-of-bounds read. Validation makes such a scene fail the `AI_SCENE_FLAGS_INCOMPLETE` check that `Decode` applies to every import, so the load returns an empty, invalid model instead. A merely *fixable* problem sets `AI_SCENE_FLAGS_VALIDATION_WARNING` rather than `INCOMPLETE`, so this does not reject legitimate assets. It is a post-parse pass, and therefore cannot prevent a heap overflow *inside* an importer's parser — the only real defence there is not opening attacker-chosen files, which the containment gate provides (`Engine/src/core/PathSandbox.h`).
 
 > **Important — `aiProcess_JoinIdenticalVertices` is what makes LOD work on OBJ.**
 > Without it the OBJ importer emits per-face vertices: a disconnected triangle soup where no two triangles share a vertex index. `meshopt_simplify` cannot collapse a single edge in that topology, so **every LOD level is rejected and the LOD system is silently inert for every OBJ asset** — the mesh pays its full vertex cost at every distance, with no error anywhere. This was a real, shipped regression: a first validation run confirmed `backpack.obj` accepting 0 of 55 LOD levels.
@@ -290,6 +293,7 @@ AssetCooker validate <assetRoot>
 | --- | --- | --- |
 | Texture does not decode | `ERR` | `stbi_info` failed; the reason from `stbi_failure_reason()` is included. |
 | Texture exceeds its `maxDimension` | `WARN` | Reported with the actual `WxH`. |
+| Model decode never completed | `ERR` | Checked first for each model: the decode job's `onComplete` never ran, so nothing was decoded. Signals a job-system fault or a violation of the dedicated-`JobSystem` contract below — not a bad asset. Reported as `decode never completed (job system)`. |
 | Model failed to import | `ERR` | Assimp rejected the file. |
 | Model imports but contains no meshes | `ERR` | Lenient importers (OBJ especially) accept garbage as an empty scene; an invisible model at runtime is an error, not a warning. |
 | Model references a missing/undecodable texture | `WARN` | One line per bad texture. |
@@ -325,7 +329,7 @@ DONE models=<n> textures=<n> warnings=<n> errors=<n>
 
 ### Running it from the editor
 
-The **Validate** button in the Assets panel runs `.\AssetCooker.exe validate Exported` as a child process via `CreateProcess`, with only stdout piped and a dedicated reader thread. The editor holds the process handle so shutdown can `TerminateProcess` a hung cooker: crash isolation *and* hang isolation. The report appears in its own window. The explicit `.\` prefix resolves against the working directory, immune to PATH-search rules like `NoDefaultCurrentDirectoryInExePath`.
+The **Validate** button in the Assets panel runs `AssetCooker validate Exported` as a child process through the editor's one OS-process seam, `editor::Subprocess` (`Editor/src/Subprocess.h`) — the only place in the editor that touches raw process APIs, so the rest of it compiles unchanged on both platforms. The caller passes a plain argv (`{ "AssetCooker", "validate", "Exported" }`); the seam resolves argv[0] against the working directory as an explicit relative path — `.\AssetCooker.exe` via `CreateProcessA` + an anonymous pipe on Windows, `./AssetCooker` via `posix_spawn` + `pipe()` on POSIX — which is immune to PATH-search rules like `NoDefaultCurrentDirectoryInExePath` and to a POSIX PATH search. Only stdout is piped (stderr, where the engine's `[Model]` logs go, stays on the editor console) and a dedicated reader thread drains it. The editor keeps the child's process handle (Windows) or pid (POSIX) so shutdown can kill a hung cooker — `TerminateProcess` or `kill(SIGKILL)`: crash isolation *and* hang isolation. The report appears in its own window.
 
 Building the Editor also builds `AssetCooker` (`add_dependencies(Editor AssetCooker)` in the root `CMakeLists.txt`), so the button always has something to launch.
 

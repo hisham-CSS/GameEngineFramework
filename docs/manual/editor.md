@@ -73,10 +73,16 @@ Default movement speed is `Camera::SPEED_DEFAULT = 20.0f` and mouse sensitivity 
 >
 > ```c++
 > const bool inViewport = viewportFocused_ || viewportHovered_ || camLooking_;
-> return std::pair<bool, bool>{
->     ui_.WantTextInput() || !inViewport,
->     ui_.WantCaptureMouse() && !viewportHovered_
-> };
+> MyCoreEngine::Application::UICapture caps;
+> caps.keyboard = ui_.WantTextInput() || !inViewport;
+> // the viewport is an ImGui window too — camera controls
+> // must keep working while the mouse is over it
+> caps.mouse = ui_.WantCaptureMouse() && !viewportHovered_;
+> // Reported separately because `keyboard` above is mostly about
+> // WHERE the pointer is, not about typing. Gameplay input keys off
+> // this narrow flag alone.
+> caps.textInput = ui_.WantTextInput();
+> return caps;
 > ```
 >
 > The old rule was "fly unless typing", which predates multi-viewports: with input aggregated across detached OS windows it moved the camera while you scrolled a panel on another screen.
@@ -165,7 +171,7 @@ The Game renderer is forced out of yaw/pitch sun mode first (`setUseSunYawPitch(
 
 ## Scene Hierarchy
 
-`Editor/src/panels/SceneHierarchyPanel.cpp`. The tree is derived from `Parent` links: entities with a valid `Parent` become children, everything else is a root. Rows read `<Name> [<entity id>]`. An entity with no name reads `Unnamed [<id>]` and is dimmed, so a placeholder never looks like a name someone chose — select it and type into the Inspector's Name field to give it one.
+`Editor/src/panels/SceneHierarchyPanel.cpp`. The tree is derived from `Parent` links: entities with a valid `Parent` become children, everything else is a root. Rows read `<Name> [<entity id>]`. An entity with no name reads `Unnamed [<id>]` and is dimmed unless it is the selected row (the row you are looking at stays legible against the highlight), so a placeholder never looks like a name someone chose — select it and type into the Inspector's Name field to give it one.
 
 | Action | How |
 | --- | --- |
@@ -218,7 +224,7 @@ Not removable — everything positional depends on it (the Unity convention). Po
 Shows the model's source path, or `(no model loaded — set a path or use the Assets panel)` for an empty `ModelComponent`. A path field plus a `Load` / `Replace` button assigns a model (which also refreshes the `AABB` and adds a `Transform` if missing).
 
 * **Casts Shadows** — a checkbox over the `NoShadow` tag. Shadow casting is a property of rendered geometry, so it lives with the model.
-* **Materials** — one sub-node per material slot. Slots start **(shared)** and are shown read-only: editing the shared material would silently change every entity using that model and bypass undo. Press **Make unique for this entity** to clone it into a `MaterialOverrides` entry (base colour, emissive, metallic, roughness, AO become editable), and **Revert to shared** to drop the override again. A **Textures** summary lists which maps the material has (albedo, normal, metallic, roughness, AO, emissive).
+* **Materials** — one sub-node per material slot. Slots start **(shared)** and are shown read-only: editing the shared material would silently change every entity using that model and bypass undo. Press **Make unique for this entity** to clone it into a `MaterialOverrides` entry — base colour, emissive, metallic, roughness and AO become editable, alongside a **Shading** model picker (`PBR` / `Toon (cel)`, with Bands 2–8 / Specular / Spec size / Rim when Toon is chosen) and an **Alpha mode** picker (`Opaque` / `Mask (cutout)` / `Blend`, adding `Opacity` under Blend, `Cutoff` under Mask, and a `Double sided` checkbox for either non-opaque mode) — and **Revert to shared** to drop the override again. A **Textures** summary lists which maps the material has (albedo, normal, metallic, roughness, AO, emissive).
 
 > **Gotcha:** changing the caster set without moving anything — swapping a model, removing a model, toggling **Casts Shadows** — leaves stale shadows baked into far cascades, because the normal dirty-caster flow only reacts to transforms. The Inspector reports this back to the editor (its `Draw` returns `true`), which then calls `forceAllCSMUpdate_()`.
 
@@ -316,8 +322,8 @@ The **Edit** menu holds Undo/Redo (with the entry labels) and Clear History; the
 **Window** menu toggles each panel's visibility.
 
 **New Scene** re-seeds a default Main Camera + Ground and clears the selection,
-undo history, Game-view director, in-flight model ops, and physics world, then
-forces a CSM rebuild. Loading a scene (File menu or the Assets panel) does the
+undo history, Game-view director, in-flight model ops, and the physics, script
+and audio worlds, then forces a CSM rebuild. Loading a scene (File menu or the Assets panel) does the
 same clearing through `loadSceneFromFile_`.
 
 > **Important:** wholesale scene replacement bypasses the departure-sphere
@@ -352,9 +358,10 @@ editor boots a scene and whenever you load one. See
 and the procedural sky colours when that source is chosen.
 
 **Post & Toggles** — anti-aliasing (FXAA), VSync, instancing, depth prepass, mesh
-LOD + distance, and the projected-size **Cull tiny objects** control, plus a
-**Post-process** tree with **Bloom**, **Ink outline**, **Colour grade**, and
-**Vignette** (each with its own sliders when enabled). A **Physics** section
+LOD + distance, the projected-size **Cull tiny objects** control, and the
+scene-wide **Enable normal mapping** / **Enable PBR (Cook-Torrance)** switches,
+plus a **Post-process** tree with **Bloom**, **Ink outline**, **Colour grade**,
+and **Vignette** (each with its own sliders when enabled). A **Physics** section
 follows: a **Backend** combo (only what this build registered), `Gravity`, a live
 `Bodies: N` count, and a warning for collider-less bodies; switching backend is
 refused during Play.
@@ -408,6 +415,7 @@ Cascades: N, res: M
 Draws / Instanced draws / Instances
 Texture binds / VAO binds
 Built items / Culled (frustum) / Culled (size) / Submitted
+Lights (act/cull): N / M
 LOD 0/1/2
 GPU draw calls
 ```
@@ -456,15 +464,16 @@ What Play does (`startPlay_`):
 3. disables undo recording,
 4. resets the game clock so every session's first tick is deterministic,
 5. builds native physics bodies from the **current edit-mode poses**, so play starts from exactly what you see,
-6. enables the gameplay hooks (`FixedUpdate` / `Update`), which are off in edit mode.
+6. compiles and starts the scripts — the script world is handed the editor's input map, then `Rebuild` compiles (a broken file is reported here, and a failed script is skipped) and `Start` runs `OnStart` — and starts the audio voices (`playOnStart` sources begin now),
+7. enables the gameplay hooks (`FixedUpdate` / `Update`), which are off in edit mode.
 
-What Stop does (`stopPlay_`): disables gameplay, destroys every physics body *before* the restore, restores the snapshot, re-enables undo recording, cuts the Game view's director back to the edit-mode camera, drops play-requested asset ops, and forces a CSM rebuild.
+What Stop does (`stopPlay_`): disables gameplay and gameplay input, then — *before* the restore — destroys every physics body, clears the scripts (which fires `OnDestroy` while the entities still exist), and stops every audio voice; then restores the snapshot, re-enables undo recording, cuts the Game view's director back to the edit-mode camera, drops play-requested asset ops, and forces a CSM rebuild.
 
 > ### IMPORTANT — Play snapshots, Stop restores
 >
 > **Anything you change to an entity during Play is discarded when you press Stop.** Play captures the registry and Stop rebuilds it from that capture, under the original entity handles. Moving something, editing a component, or spawning an entity mid-play does not survive. Undo cannot recover it either — play-mode changes are *discarded*, not undone, which is exactly why undo/redo is disabled while playing.
 >
-> The snapshot is a **closed list** of components (`EntitySnapshot` in `Editor/src/UndoHistory.h`): a component not tracked there is removed by the restore and never resurrected. Today it covers `Name`, `Transform`, `ModelComponent` (by asset path, presence tracked separately so an empty component survives), `AABB`, `MaterialOverrides`, `NoShadow`, `Parent`, `CameraComponent`, `LightComponent`, `ScriptComponent`, `RigidBody`, the four colliders, `AudioSourceComponent`, and the `AudioListenerComponent` tag (an empty type, so its presence is the whole state).
+> The snapshot is a **closed list** of components (`EntitySnapshot` in `Editor/src/UndoHistory.h`): a component not tracked there is removed by the restore and never resurrected. Today it covers `Name`, `Transform`, `ModelComponent` (by asset path, presence tracked separately so an empty component survives), `AABB`, `MaterialOverrides`, `NoShadow`, `Parent`, `CameraComponent`, `LightComponent`, `ScriptComponent`, `RigidBody`, the four colliders, `AudioSourceComponent`, the `AudioListenerComponent` tag (an empty type, so its presence is the whole state), and `UIDocumentComponent` — so a scene-attached UI document survives Play/Stop and undo rather than being stripped.
 >
 > Scene-*level* settings are **outside** the snapshot and do stick: lights, materials, rendering toggles, sun/shadow settings. Only registry contents revert.
 >

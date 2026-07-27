@@ -332,11 +332,18 @@ Note that the `Simple` backend approximates a capsule by its bounding sphere for
 ## Other world controls
 
 ```c++
+// Entity-level actuation: the entity -> body map is private, so without
+// these a caller has no way to push an object it can name.
+bool      ApplyImpulse(entt::entity e, const glm::vec3& impulse);
+bool      SetLinearVelocity(entt::entity e, const glm::vec3& v);
+
 void      SetGravity(const glm::vec3& g);
 glm::vec3 Gravity() const;
 size_t    BodyCount() const;
 const std::vector<entt::entity>& SkippedEntities() const;
 ```
+
+`ApplyImpulse` and `SetLinearVelocity` return `false` when the world has no backend or the entity has no body, and both **wake the body** afterwards — a sleeping body ignores an impulse, so without the wake a script that nudges a settled object appears to do nothing. This pair is what `ScriptWorld` bridges to the scripting host, and it surfaces in Lua as `applyImpulse(v)` / `setVelocity(v)` (see [Lua scripting](lua-scripting.md)).
 
 `SetGravity` updates the stored settings even when no backend is active, so the value is kept while the world has no backend. It does **not** survive a backend switch: `SetBackend` replaces the stored settings with the ones passed to it (default gravity when omitted), so re-apply your gravity afterwards. `Gravity()` reads from the backend when there is one, otherwise from the stored settings.
 
@@ -439,9 +446,9 @@ option(CSE_ENABLE_MYPHYSICS "Build the MyPhysics backend" ON)
 if (CSE_ENABLE_MYPHYSICS)
     find_package(MyPhysics CONFIG QUIET)
     if (MyPhysics_FOUND)
-        cse_add_physics_backend(EnginePhysicsMyPhysics
-            src/physics/backends/MyPhysicsBackend.cpp
-            MyPhysics::MyPhysics CSE_WITH_MYPHYSICS)
+        cse_add_isolated_backend(EnginePhysicsMyPhysics
+            src/physics/backends/MyPhysicsBackend.cpp CSE_WITH_MYPHYSICS
+            MyPhysics::MyPhysics)
         message(STATUS "Physics: MyPhysics backend ENABLED")
     else()
         message(STATUS "Physics: MyPhysics not found - backend disabled")
@@ -449,6 +456,8 @@ if (CSE_ENABLE_MYPHYSICS)
 endif()
 ```
 
-> **Important — use the `cse_add_physics_backend` helper; do not link an SDK straight into `Engine`.** Each SDK gets its own **STATIC** library. Imported SDK targets propagate INTERFACE compile definitions to every consumer source file, and Jolt's include `_HAS_EXCEPTIONS=0`. Linking Jolt directly into `Engine` rebuilt the *entire engine* without exception support, which turned the `std::filesystem` throw that `AssetIndex` relies on (non-codepage filenames) into a `0xC0000409` fast-fail and would have silently broken every other `try`/`catch` in the engine. `STATIC` rather than `OBJECT` is load-bearing: for a static library CMake records PRIVATE deps as `$<LINK_ONLY:...>`, so `Engine` inherits the SDK's `.lib` for linking but not its INTERFACE compile definitions or include directories.
+The helper is `cse_add_isolated_backend(<target>, <source file>, <compile define>, <SDK targets...>)` — the define is the third positional argument and the SDK targets are trailing and variadic, because a backend may need more than one (the Lua backend passes `sol2 lua-cpp`). It is shared with the scripting seam, which is why it is no longer named after physics.
+
+> **Important — use the `cse_add_isolated_backend` helper; do not link an SDK straight into `Engine`.** The same helper builds the scripting backends, because the isolation problem is identical — Jolt exports `_HAS_EXCEPTIONS=0` and vcpkg's Lua exports `LUA_BUILD_AS_DLL`, so the fix is written once. Each backend gets its own **STATIC** library with the SDK linked `PRIVATE`. Imported SDK targets propagate INTERFACE compile definitions to every consumer source file, and Jolt's include `_HAS_EXCEPTIONS=0`. Linking Jolt directly into `Engine` rebuilt the *entire engine* without exception support, which turned the `std::filesystem` throw that `AssetIndex` relies on (non-codepage filenames) into a `0xC0000409` fast-fail and would have silently broken every other `try`/`catch` in the engine. `STATIC` rather than `OBJECT` is load-bearing: for a static library CMake records PRIVATE deps as `$<LINK_ONLY:...>`, so `Engine` inherits the SDK's `.lib` for linking but not its INTERFACE compile definitions or include directories.
 
 Once your backend is registered it appears in the editor's picker automatically, and `tests/test_physics.cpp` runs the whole conformance suite against it — backends are discovered at runtime via `PhysicsBackendRegistry::Available()`. If your library disagrees with the others about what "a 1 kg box dropped onto a ground plane" does, that suite says so.

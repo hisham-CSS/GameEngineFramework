@@ -71,6 +71,8 @@ Every component that exists, with its fields and defaults exactly as declared.
 
 ### Core components — `Engine/src/core/Components.h`
 
+Five of the entries below are declared elsewhere: `ScriptComponent` in `Engine/src/script/ScriptComponent.h`, `AudioSourceComponent` and `AudioListenerComponent` in `Engine/src/audio/AudioComponents.h`, `UIDocumentComponent` in `Engine/src/ui/UIComponent.h`, and `NoShadow` in `Engine/src/core/Scene.h`. They are grouped here by role, not by header.
+
 **`Name`**
 
 | Field | Type | Default |
@@ -181,6 +183,7 @@ through the registry like other tags (`emplace` returns `void` for empty types).
 | `sortOrder` | higher draws on top; ties break on entity order |
 | `enabled` | off hides it and stops it consuming input |
 | `interactive` | off for a decorative overlay that must not swallow clicks |
+| `regionX` / `regionY` / `regionW` / `regionH` | the part of the UI surface this document occupies, as fractions (`0, 0, 1, 1` — the whole surface — by default). Normalized rather than pixels so a layout means the same thing at 1080p and 4K; layout runs at the region's size, so a sidebar's `width: 50%` is half the *sidebar*, and the document's rects are offset into place so painting, hit-testing and clipping all follow. Nonsense values are clamped rather than producing a negative or off-surface box (a zero-area region simply is not drawn), and all four serialize as a single `region` array |
 
 Attaches an in-game UI to the entity, so a scene declares its own interface
 rather than the executable doing it. Driven by `UIWorld`, which every host runs
@@ -390,7 +393,7 @@ serializer.Load("scenes/level1.scene");
 | `planeCollider` | `PlaneCollider` | `offset` |
 | `audioSource` | `AudioSourceComponent` | `clip`, `volume`, `pitch`, `loop`, `spatial`, `playOnStart`, `minDistance`, `maxDistance` |
 | `audioListener` | `AudioListenerComponent` | `true` (an empty tag — presence is the whole state, like `noShadow`) |
-| `uiDocument` | `UIDocumentComponent` | `markup`, `stylesheet`, `sortOrder`, `enabled`, `interactive`; both paths are containment-checked on load |
+| `uiDocument` | `UIDocumentComponent` | `markup`, `stylesheet`, `sortOrder`, `enabled`, `interactive`, `region` (a 4-element `[x, y, w, h]` array of surface fractions in `0..1`; an absent key means the whole surface, so an older scene loads unchanged); both paths are containment-checked on load |
 | `materialOverrides` | `MaterialOverrides` | array of `{ slot, baseColor, emissive, metallic, roughness, ao, alphaMode, opacity, alphaCutoff, doubleSided, shadingModel, toonBands, toonSpecStrength, toonSpecSize, toonRimStrength }`; slots whose override is null are skipped, and the key is omitted entirely when nothing survives |
 
 `AABB` is **not** serialized. It is derived data, regenerated from the model on load — and skipped entirely for models that loaded with zero meshes, whose bounds would be garbage.
@@ -411,11 +414,11 @@ Hand-edited or corrupt files are defended against rather than trusted:
 - `RigidBody::type` range-checked against `BodyType` (out of range ⇒ `Dynamic`); `friction` ≥ 0, `restitution` clamped to `[0,1]`, damping ≥ 0.
 - `BoxCollider::halfExtents` ≥ `1e-3` per axis, `SphereCollider::radius`/`CapsuleCollider::radius` ≥ `1e-3`, `CapsuleCollider::halfHeight` ≥ `1e-4`. Zero extents degenerate every backend.
 - `AudioSourceComponent::volume` clamped to `[0,1]`, `pitch` ≥ `1e-3`, `minDistance` ≥ `kMinAudibleDistance` (`0.01`) and `maxDistance` ≥ `minDistance + kMinAudibleDistance`. A `minDistance` of `0` is not merely odd: every attenuation model divides by it, so it silences the source at *every* distance.
-- **Asset paths are containment-checked.** `model`, `script`, `audioSource.clip` and the environment's HDRi path all go through `PathIsContained` (`Engine/src/core/PathSandbox.h`), which rejects absolute paths, drive/UNC roots and `..`, so a hostile or hand-edited scene cannot reach outside the project. A rejected path is cleared and logged; the component itself survives, so the asset degrades gracefully instead of taking the load down.
+- **Asset paths are containment-checked.** `model`, `audioSource.clip`, `uiDocument.markup` and `uiDocument.stylesheet` go through `PathIsContained` (`Engine/src/core/PathSandbox.h`) during the load itself: the rejected path is cleared and logged while the component survives, so the asset degrades gracefully instead of taking the load down. `script.path` and the environment's `hdriPath` pass the same gate later, at the point of use — `ScriptWorld::defaultResolve_` (the resolver used unless a host installs its own) and `IBLBaker::BakeFromFile`. There it reads as a failure to use the asset rather than a sanitised field: the script instance fails with `could not read script '<path>'`, and the baker refuses the file with `rejected HDRi path outside the project: '<path>'`, which the renderer logs before falling back to the procedural sky. Either way the stored path is left alone rather than cleared, so it round-trips through save/load unchanged. `PathIsContained` rejects absolute paths, drive/UNC roots and `..` in every case, so a hostile or hand-edited scene cannot reach outside the project.
 - Material overrides clone the model's shared material first (so texture ids carry over), then apply the serialized scalars on top. Overrides are dropped if the model failed to load.
 
 Because physics fields are plain engine enums and floats, a scene authored against Jolt loads under PhysX unchanged.
 
 ### After loading
 
-A load calls `registry.clear()`, so **every entity handle you were holding is now invalid**. The editor's `loadSceneFromFile_` shows the full list of what must be reset: selection, undo history, camera-director handles, in-flight asset operations, the shadow cascades (wholesale replacement bypasses dirty tracking), and the physics world's entity→body map.
+A load calls `registry.clear()`, so **every entity handle you were holding is now invalid**. The editor's `loadSceneFromFile_` shows the full list of what must be reset: selection, undo history, camera-director handles, in-flight asset operations, the shadow cascades (wholesale replacement bypasses dirty tracking), the physics world's entity→body map, the script world's entity→instance map, and any audio voices still playing from the old scene.

@@ -62,10 +62,15 @@ and wake a sleeping body; without one they do nothing.
 `time()`, `log/logWarn/logError(msg)`, and `print` (routed to the engine log,
 since a shipped game has no console).
 
-`input.down(action)`, `input.pressed(action)`, `input.axis(axis)` take **action
-names** from the InputMap, not key codes, so scripts survive rebinding.
-`Jump` (Space / gamepad A), `Quit`, `MoveForward` and `MoveRight` are bound by
-default; anything else you must bind yourself.
+`input.down(action)` and `input.pressed(action)` read **actions**;
+`input.axis(axis)` reads **axes**. Both take names from the InputMap rather
+than key codes, so scripts survive rebinding — but the two are separate name
+spaces. Bound by default: the actions `Jump` (Space / gamepad A) and `Quit`
+(Escape / gamepad Back), and the axes `MoveForward` and `MoveRight` (W/S,
+A/D, the arrow keys, left stick) plus `LookX`/`LookY` (right stick — gamepad
+only; mouse look is handled by the Application, not the InputMap). Anything
+else you must bind yourself, and a name in the wrong space counts as unbound:
+`input.down("MoveForward")` warns once and reads false.
 
 `input.pressed()` is safe to call from `OnFixedUpdate`. It reports a latched
 press rather than a frame-scoped edge, so one physical press fires **exactly
@@ -77,10 +82,15 @@ from both `OnUpdate` and `OnFixedUpdate`; whichever runs first claims it.
 Querying an action nobody bound warns **once** and reads as false, rather than
 silently doing nothing forever.
 
-> **In the editor, gameplay reads input only while the Game panel is
-> focused** — click it, and the toolbar shows `Input: game`. This is what lets
-> you fly the Scene view with the same keys while a scene is playing. The
-> shipped player always has input.
+> **In the editor, gameplay reads input only while the game *surface* has the
+> keyboard** — click inside the rendered image, and a highlight border is drawn
+> around it. Clicking the panel's own widgets (the camera picker, the `Blend`
+> field) hands the keyboard back to the editor even though the panel stays
+> focused, and the toolbar's `Input: game` label tracks panel focus rather than
+> the surface — so trust the border, not the label. This is what lets you fly
+> the Scene view with the same keys while a scene is playing. The shipped
+> player always has input. See
+> [Who owns the keyboard](editor.md#who-owns-the-keyboard).
 
 `raycast` returns `nil` on a miss, or a table with `entity`, `point`,
 `normal`, `distance`.
@@ -144,21 +154,29 @@ The sandbox is the trust boundary for the "run scripts you did not author" case
 - **Asset paths from a scene file are containment-checked** — absolute paths,
   drive/UNC roots, and `..` are rejected, so a hostile scene cannot point outside
   the project. This covers script paths, model paths, the environment's HDRi
-  path, and **audio clip paths** (a clip flows straight into miniaudio's
-  WAV/MP3/FLAC/OGG decoders, which parse attacker-controlled binary). A rejected
-  path is cleared and logged, leaving the component in place, so the asset
-  degrades gracefully rather than failing the load.
+  path, a UI document's `.cxml`/`.cstyle` paths, and **audio clip paths** (a clip
+  flows straight into miniaudio's WAV/MP3/FLAC/OGG decoders, which parse
+  attacker-controlled binary). Model, audio-clip and UI paths are checked at scene
+  load: a rejected path is cleared and logged, leaving the component in place, so
+  the asset degrades gracefully rather than failing the load. A script path is
+  checked later, when the source is resolved — the path is kept and only that one
+  script instance fails, with `could not read script '<path>'` shown in the
+  Inspector. The HDRi path is checked at bake time: rejection is logged, the path
+  is kept, and the environment falls back to the procedural sky.
 
 `ScriptSettings::allowUnsafeLibraries` opts back into the full language
 (io/os/package/debug, the loaders, coroutines, and `require` from the script
-directory) for **trusted** content — the editor sets it; a shipped game running
-downloaded scripts should not.
+directory) for **trusted** content. Nothing ships with it on: the editor and the
+player both build `ScriptSettings` with only `scriptDirectory` set, so the editor
+runs the same untrusted sandbox a shipped game does — a host that knows its
+scripts are trusted has to turn it on itself.
 
 The wall-clock budget assumes `pcall`/`xpcall` are the only error boundaries a
 script can reach, which holds in the default sandbox (no coroutines, no `load`,
-no `debug`). Turning on `allowUnsafeLibraries` reopens `debug` and coroutines,
-so trusted content can defeat the guards — by design; the budget is a limit for
-*untrusted* scripts, and a generous one for the editor's own.
+no `debug`) — the configuration both hosts actually run. Turning on
+`allowUnsafeLibraries` reopens `debug` and coroutines, so trusted content can
+defeat the guards — by design; the budget is a limit for *untrusted* scripts,
+which is what both hosts (the editor and the shipped Player) run today.
 
 ## Adding another language
 
@@ -170,9 +188,14 @@ The seam is the same shape as [physics](physics.md):
 - `ScriptWorld` — the only place the ECS meets scripting.
 
 A new language implements `IScriptBackend` and reuses the existing host, so
-the capability set is written once. Backends are compiled into their own
-static library and never linked into `Engine` directly, which keeps SDK
-compile definitions from leaking engine-wide.
+the capability set is written once. Each backend is compiled into its own
+**static** library by the `cse_add_isolated_backend` helper, which links the SDK
+into that library privately and then links the library into `Engine` (that is how
+the registry reaches `LuaScriptBackend`). Because it is `STATIC` rather than
+`OBJECT`, CMake records the private SDK dep as `$<LINK_ONLY:...>`, so `Engine`
+inherits the SDK's `.lib` for linking but none of its INTERFACE compile
+definitions or include directories — which is what keeps them from leaking
+engine-wide.
 
 A dependency-free `Null` backend is always registered, so a build without any
 language runtime still loads and plays scenes — scripted entities simply do

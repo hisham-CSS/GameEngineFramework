@@ -29,6 +29,8 @@ struct RenderStats {
     unsigned itemsBuilt = 0;      // items_ after culling (meshes that passed)
     unsigned entitiesTotal = 0;   // 'total' (as you already increment)
     unsigned lodInstances[3] = { 0, 0, 0 }; // submitted instances per LOD level
+    unsigned lightsActive = 0;    // punctual lights uploaded this frame
+    unsigned lightsCulled = 0;    // in the scene but out of range / disabled
 };
 ```
 
@@ -41,7 +43,7 @@ struct RenderStats {
 | `3D submit` / `editor UI` / `swap/wait` | — | CPU frame breakdown, see next section. |
 | `Cascades` / `res` | — | `renderer().getCSMNumCascades()` and `getCSMBaseResolution()`. |
 | `Draws` | `draws` | Individual `glDraw*` calls for runs that could not be instanced (a run of 1). |
-| `Instanced draws` | `instancedDraws` | Instanced calls. `Scene::RenderScene` instances any run of **2 or more** items sharing a texture key + mesh + LOD. |
+| `Instanced draws` | `instancedDraws` | Instanced calls. With **Enable instancing** on (the default, under **Post & Toggles**), `Scene::RenderScene` instances any adjacent run of **2 or more** items sharing texture key + mesh + LOD + alpha mode + double-sidedness + shading model — differ in any one of those six and the items land in separate runs. Turning instancing off collapses every run into individual `draws`. |
 | `Instances` | `instances` | Total instances covered by those instanced calls. |
 | `Texture binds` | `textureBinds` | Material rebinds — one per new texture bucket. A large number relative to draw calls means poor material sorting. |
 | `VAO binds` | `vaoBinds` | Vertex-array rebinds (incremented on a material bind and on each mesh change within a bucket). |
@@ -49,6 +51,7 @@ struct RenderStats {
 | `Culled (frustum)` | `culled` | Entities whose AABB failed `isOnFrustum`. Off-screen work you never paid for. |
 | `Culled (size)` | `culledSmall` | Entities dropped by the projected-size cull (see [Screen-size culling](#screen-size-culling)). Always `0` unless you enable that cull. |
 | `Submitted` | `submitted` | The number that matters most: `draws + instances`, i.e. everything the GPU was asked to draw. |
+| `Lights (act/cull)` | `lightsActive` / `lightsCulled` | Punctual lights actually uploaded this frame, versus lights the selection rejected. The culled count mixes two causes: lights that are disabled or contribute nothing (`enabled == false`, or zero `intensity` or `range`), and — once a scene holds more than `Scene::kMaxPunctualLights` (16) — the overflow. Overflow is ranked by influence at the camera (intensity over distance-squared), so a large culled count on a light-heavy scene is normal: the strongest lights win, not an arbitrary prefix. |
 | `LOD 0/1/2` | `lodInstances[3]` | Submitted instances split by chosen mesh LOD. |
 | `GPU draw calls` | — | Computed in the panel as `draws + instancedDraws`. |
 
@@ -87,8 +90,8 @@ from timestamps around the 3D render, the UI callback, and `swapBuffers()`.
 Diagnostic recipe:
 
 - Big `swap/wait`, vsync **ON** → you are probably just waiting for the refresh.
-  Turn VSync off in **Settings → Rendering Toggles** (`(off = uncapped, for
-  benchmarking)`) and re-read.
+  Turn VSync off in **Settings → Rendering → Post & Toggles** (`(off = uncapped,
+  for benchmarking)`) and re-read.
 - Big `swap/wait`, vsync **off** → GPU-bound.
 - Big `3D submit` → CPU-bound in draw-list construction. Check `Built items` and
   `Submitted`.
@@ -189,6 +192,7 @@ Every budget comparison is multiplied by it, and the run prints
 | `WideView_MovingWithDynamicCaster` | 25x25, flying camera + spinning hero | Worst case for the whole pipeline |
 | `DynamicCasterShadows` | 20x20, spinning centre entity | View-depth-scoped shadow invalidation |
 | `SmallObjectCull_DropsDistantInstances` | 25x25, low oblique, cull on vs off | Correctness + non-regression of the size cull |
+| `FXAA_CostIsSmall` | 20x20 grid, spawn-view camera, FXAA off then on back-to-back in one run | Cost of the single full-screen FXAA pass — asserts the off→on median delta stays under 1 ms (times `CSE_PERF_BUDGET_SCALE`) |
 
 ### Adding a scenario
 
@@ -210,10 +214,20 @@ TEST_F(PerfFixture, MyScenario) {
 }
 ```
 
-> **Important — always assert the workload.** Every scenario in the file carries an
-> `EXPECT_GT(..., submitted, ...)` line. Without it, a culling or scene bug that
-> empties the view turns the benchmark into a no-op that always "passes" while
-> real performance rots.
+> **Important — always assert the workload.** Every scenario with a frame-time
+> budget (`kBudgetAtRestMs` and friends) carries an `EXPECT_GT(..., submitted, ...)`
+> line. Without it, a culling or scene bug that empties the view turns the
+> benchmark into a no-op that always "passes" while real performance rots.
+>
+> The two A/B scenarios — which compare two `measure()` runs against each other
+> instead of against a fixed budget — are the exceptions.
+> `SmallObjectCull_DropsDistantInstances` inverts the assertion on purpose, since
+> dropping instances is its whole point: `EXPECT_LT(rOn.stats.submitted,
+> rOff.stats.submitted)` plus `EXPECT_LT(rOn.stats.submitted, (rOff.stats.submitted
+> * 9u) / 10u)`. What pins the work there is `EXPECT_GT(rOn.stats.culledSmall, 0u)`,
+> which an emptied view would fail. `FXAA_CostIsSmall` asserts only on the delta
+> between two medians of the same scene and has no workload floor at all — if you
+> copy it as a template, add one.
 
 Two more fixture details worth copying:
 
@@ -276,7 +290,7 @@ void  SetLODDistanceScale(float s) { lodDistanceScale_ = std::clamp(s, 0.1f, 8.f
 float GetLODDistanceScale() const { return lodDistanceScale_; }
 ```
 
-Editor: **Settings → Rendering Toggles → Enable mesh LOD** plus the
+Editor: **Settings → Rendering → Post & Toggles → Enable mesh LOD** plus the
 **LOD distance scale** slider (range 0.25–4.0, "higher = detail farther").
 
 **Verify LOD is actually engaging** with the `LOD 0/1/2` line in Rendering Stats.
@@ -317,7 +331,7 @@ virtual void RenderScene(const Frustum& camFrustum, Shader& shader, Camera& came
                          int viewportHeightPx = 0);
 ```
 
-Editor: **Settings → Rendering Toggles → Cull tiny objects** plus the
+Editor: **Settings → Rendering → Post & Toggles → Cull tiny objects** plus the
 **Min on-screen px** slider (0–48). The `(?)` tooltip states the tradeoffs
 verbatim:
 
@@ -352,14 +366,24 @@ Windows routes new GL contexts on hybrid-graphics laptops to the power-saving
 integrated GPU by default. The measured penalty on the reference machine was
 **4.6x** (12.6 FPS on the Intel iGPU vs 58.3 FPS on the RTX 3050, same scene).
 
-The fix is an export in each executable, exactly as in `tests/test_perf_render.cpp`:
+The fix is a Windows-only export in each GL-using executable, exactly as in
+`tests/test_perf_render.cpp`:
 
 ```c++
+#ifdef _WIN32
 extern "C" {
     __declspec(dllexport) unsigned long NvOptimusEnablement = 1;
     __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
 }
+#endif
 ```
+
+The `#ifdef` is not optional: `__declspec` is an MSVC extension and a hard error
+under gcc/clang, and the engine targets Linux as well as Windows. On Linux the
+equivalent is an env var at launch (`DRI_PRIME=1` /
+`__NV_PRIME_RENDER_OFFLOAD=1`), not an export symbol. `Editor/src/EditorMain.cpp`
+and `Player/src/PlayerMain.cpp` carry the same guarded block (spelling the first
+value `0x00000001`); the headless `AssetCooker` does no GL and needs neither.
 
 > **Note:** use exactly these two symbol names. `AmdPowerXpressRequestHighPerformance`
 > is the spelling AMD documents — a near-miss such as adding a `Gpu` suffix
