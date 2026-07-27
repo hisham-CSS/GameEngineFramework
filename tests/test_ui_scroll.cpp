@@ -1452,3 +1452,187 @@ TEST(UIScroll, AFieldIgnoresSmoothBehaviour) {
     EXPECT_FLOAT_EQ(d.edit()->textScroll().y, 80.f)
         << "a field must land immediately whatever scroll-behavior says";
 }
+
+// ================================================ the subtree AABB / culling
+//
+// Culling is COST ONLY: the AABB is a deliberate superset of what a subtree
+// paints, so the tests here are about what it must never exclude. The visible
+// half (that fewer quads reach the renderer) belongs to test_renderer2d.cpp,
+// which has a GL fixture; what is assertable here is the geometry the cull
+// decides from.
+
+TEST(UIScroll, TheSubtreeAABBCoversEveryChild) {
+    ScrollDoc d(4, 50.f);
+    const ComputedLayout& box = d.box->layout();
+    // 4 rows of 50 in a 100px box: the content runs to 200, well past the box.
+    EXPECT_FLOAT_EQ(box.subtreeMax.y - box.subtreeMin.y, 200.f)
+        << "the union stopped at the element's own rect";
+    EXPECT_LE(box.subtreeMin.y, box.position.y);
+    EXPECT_GE(box.subtreeMax.y, d.row(3)->layout().position.y + 50.f);
+}
+
+// An absolutely positioned child may legitimately paint OUTSIDE its parent, and
+// culling on the parent's own rect would drop it.
+TEST(UIScroll, TheSubtreeAABBCoversAnEscapingAbsoluteChild) {
+    UIDocument doc;
+    UIElement* box = doc.root().AddChild("box");
+    box->style().width = StyleLength::Px(100.f);
+    box->style().height = StyleLength::Px(100.f);
+    UIElement* out = box->AddChild("out");
+    out->style().position = PositionType::Absolute;
+    out->style().inset = { 300.f, 300.f, 0.f, 0.f };   // left/top far outside
+    out->style().width = StyleLength::Px(40.f);
+    out->style().height = StyleLength::Px(40.f);
+    doc.Layout(600.f, 600.f);
+
+    EXPECT_GE(box->layout().subtreeMax.x, out->layout().position.x + 40.f)
+        << "an escaping absolute child is outside its parent's AABB and would be culled";
+    EXPECT_GE(box->layout().subtreeMax.y, out->layout().position.y + 40.f);
+}
+
+// display:none paints nothing, so it must not inflate an ancestor's AABB and
+// defeat the cull for everything around it.
+TEST(UIScroll, AHiddenChildDoesNotInflateTheAABB) {
+    UIDocument doc;
+    UIElement* box = doc.root().AddChild("box");
+    box->style().width = StyleLength::Px(100.f);
+    box->style().height = StyleLength::Px(100.f);
+    UIElement* ghost = box->AddChild("ghost");
+    ghost->style().position = PositionType::Absolute;
+    ghost->style().inset = { 500.f, 500.f, 0.f, 0.f };
+    ghost->style().width = StyleLength::Px(40.f);
+    ghost->style().height = StyleLength::Px(40.f);
+    ghost->style().display = DisplayMode::None;
+    doc.Layout(900.f, 900.f);
+
+    EXPECT_LT(box->layout().subtreeMax.x, 200.f)
+        << "a hidden child inflated the AABB, so nothing around it can ever be culled";
+}
+
+// The AABB is recomputed every layout, so scrolling moves it with the content —
+// otherwise a list scrolled away would keep claiming its original bounds.
+TEST(UIScroll, TheAABBFollowsTheScrollOffset) {
+    ScrollDoc d;
+    const float before = d.box->layout().subtreeMax.y;
+    d.box->SetScrollOffset({ 0.f, 400.f });
+    d.Layout();
+    EXPECT_LT(d.box->layout().subtreeMax.y, before)
+        << "the AABB did not move with the content it describes";
+}
+
+// Drawing must survive being handed a viewport nothing lands in — the cull is
+// the first thing that would break, and it must fail closed (draw nothing)
+// rather than crash.
+TEST(UIScroll, DrawingWithEverythingOffScreenIsSafe) {
+    ScrollDoc d;
+    d.doc.SetOrigin({ -10000.f, -10000.f });
+    d.Layout();
+    SUCCEED();   // the assertion is that Layout with an off-screen origin is fine
+    EXPECT_LT(d.box->layout().subtreeMax.x, 0.f);
+}
+
+// ============================================ declared content extent
+
+// The real blocker for virtualisation is not collection binding: it is that the
+// extent is DERIVED from the children that exist. Keep six rows of a thousand
+// and the range collapses, the thumb vanishes and the wheel walks past.
+TEST(UIScroll, AWindowOfLiveRowsMeasuresOnlyItself) {
+    ScrollDoc d(6, 50.f);
+    EXPECT_FLOAT_EQ(d.box->contentSize().y, 300.f);
+    EXPECT_FLOAT_EQ(d.box->maxScroll().y, 200.f)
+        << "six live rows is six rows of content — which is the whole problem";
+}
+
+TEST(UIScroll, ADeclaredExtentOverridesTheMeasurement) {
+    ScrollDoc d(6, 50.f);                       // a window of 6 live rows...
+    d.box->SetContentExtent({ 0.f, 50000.f });  // ...standing in for 1000
+    d.Layout();
+
+    EXPECT_FLOAT_EQ(d.box->contentSize().y, 50000.f);
+    EXPECT_FLOAT_EQ(d.box->maxScroll().y, 49900.f);
+    EXPECT_GT(d.box->scrollState()->thumbY.size.y, 0.f) << "no thumb for declared content";
+
+    // ...and it is scrollable across the whole declared range, which is what
+    // makes a hand-rolled virtual list possible at all.
+    d.box->SetScrollOffset({ 0.f, 25000.f });
+    d.Layout();
+    EXPECT_FLOAT_EQ(d.box->scrollOffset().y, 25000.f);
+}
+
+TEST(UIScroll, ClearingTheDeclarationGoesBackToMeasuring) {
+    ScrollDoc d(6, 50.f);
+    d.box->SetContentExtent({ 0.f, 50000.f });
+    d.Layout();
+    ASSERT_FLOAT_EQ(d.box->maxScroll().y, 49900.f);
+    // Scrolled well past what the live rows measure, so the reclamp below has
+    // something to do.
+    d.box->SetScrollOffset({ 0.f, 25000.f });
+    d.Layout();
+    ASSERT_FLOAT_EQ(d.box->scrollOffset().y, 25000.f);
+
+    d.box->ClearContentExtent();
+    d.Layout();
+    EXPECT_FLOAT_EQ(d.box->contentSize().y, 300.f);
+    EXPECT_FLOAT_EQ(d.box->scrollOffset().y, 200.f)
+        << "dropping the declaration left the offset past the real content";
+}
+
+// Authored intent, not derived state: it survives the element temporarily not
+// being a scroller, exactly as the offset survives a :hover restyle.
+TEST(UIScroll, ADeclaredExtentSurvivesLosingScrollability) {
+    ScrollDoc d(6, 50.f);
+    d.box->SetContentExtent({ 0.f, 5000.f });
+    d.Layout();
+    ASSERT_GT(d.box->maxScroll().y, 4000.f);
+
+    d.box->style().overflowX = d.box->style().overflowY = Overflow::Visible;
+    d.Layout();
+    EXPECT_FLOAT_EQ(d.box->maxScroll().y, 0.f);
+
+    d.box->style().overflowX = d.box->style().overflowY = Overflow::Scroll;
+    d.Layout();
+    EXPECT_GT(d.box->maxScroll().y, 4000.f) << "the declaration was thrown away";
+}
+
+// A hand-rolled virtual list end to end, with no bindings anywhere: declare the
+// extent, keep a window of live rows, and place them from scrollOffset(). This
+// is the pattern the manual documents, so it is worth having a test that it
+// actually works.
+TEST(UIScroll, AHandRolledVirtualListScrollsThroughAThousandRows) {
+    constexpr int kTotal = 1000;
+    constexpr float kRowH = 20.f;
+    constexpr int kWindow = 8;
+
+    UIDocument doc;
+    UIElement* box = doc.root().AddChild("box");
+    box->style().overflowX = box->style().overflowY = Overflow::Scroll;
+    box->style().width = StyleLength::Px(200.f);
+    box->style().height = StyleLength::Px(100.f);
+    for (int i = 0; i < kWindow; ++i) {
+        UIElement* r = box->AddChild("r" + std::to_string(i));
+        r->style().position = PositionType::Absolute;
+        r->style().height = StyleLength::Px(kRowH);
+        r->style().width = StyleLength::Px(180.f);
+    }
+    box->SetContentExtent({ 0.f, kTotal * kRowH });
+    doc.Layout(400.f, 400.f);
+    ASSERT_FLOAT_EQ(box->maxScroll().y, kTotal * kRowH - 100.f);
+
+    // Scroll to the middle and place the window, the way an app would.
+    box->SetScrollOffset({ 0.f, 10000.f });
+    doc.Layout(400.f, 400.f);
+    const int first = int(box->scrollOffset().y / kRowH);
+    EXPECT_EQ(first, 500);
+    for (int i = 0; i < kWindow; ++i) {
+        box->children()[std::size_t(i)]->style().inset.top =
+            float(first + i) * kRowH - box->scrollOffset().y;
+    }
+    doc.Layout(400.f, 400.f);
+
+    // Row 500 sits at the top of the box, and the window covers it.
+    UIElement* top = doc.root().Find("r0");
+    ASSERT_NE(top, nullptr);
+    EXPECT_NEAR(top->layout().position.y, box->layout().position.y, 0.5f)
+        << "the placed window did not line up with the scroll offset";
+    EXPECT_GT(box->scrollState()->thumbY.size.y, 0.f);
+}

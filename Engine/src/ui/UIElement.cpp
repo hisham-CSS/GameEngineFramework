@@ -403,7 +403,16 @@ void UIDocument::measureScroll_(UIElement& el) {
         // which deliberately outlives Style — stays behind. Zeroing it here
         // rather than testing overflow down in readLayout_ means a de-scrolled
         // element can never displace its children into unclipped space.
-        if (el.scroll_) *el.scroll_ = UIScrollState{};
+        if (el.scroll_) {
+            // A declared extent is authored intent, not derived state, so it
+            // survives the element temporarily not being a scroller — exactly
+            // as the offset survives a :hover restyle.
+            const glm::vec2 declared = el.scroll_->declaredExtent;
+            const bool hasDeclared = el.scroll_->hasDeclaredExtent;
+            *el.scroll_ = UIScrollState{};
+            el.scroll_->declaredExtent = declared;
+            el.scroll_->hasDeclaredExtent = hasDeclared;
+        }
     } else {
         if (!el.scroll_) el.scroll_ = std::make_unique<UIScrollState>();
         UIScrollState& sc = *el.scroll_;
@@ -438,6 +447,12 @@ void UIDocument::measureScroll_(UIElement& el) {
                         std::isfinite(hi.x) && std::isfinite(hi.y);
         sc.contentMin = ok ? lo : glm::vec2(0.0f);
         sc.contentMax = ok ? hi : glm::vec2(0.0f);
+        // A declared extent wins over the measurement. Only the far edge: the
+        // near edge is still measured, because a justify rule can put real
+        // content at a negative offset and no caller should have to know that.
+        if (sc.hasDeclaredExtent) {
+            sc.contentMax = sc.contentMin + sc.declaredExtent;
+        }
         sc.minOffset = glm::min(sc.contentMin, glm::vec2(0.0f));
         sc.maxOffset = glm::max(sc.contentMax - box, sc.minOffset);
         // Font::Measure accumulates fractional advances, so a row measuring
@@ -489,6 +504,17 @@ void UIDocument::readLayout_(UIElement& el, const glm::vec2& parentOrigin) {
     // so a sub-pixel wheel or drag still integrates.
     const glm::vec2 scrolled = el.scroll_ ? pos - glm::round(el.scroll_->offset) : pos;
 
+    // Seeded with this element's own painted rect. A text leaf grows it by the
+    // MEASURED text, not the box: measureText clamps its result to the parent's
+    // offer while DrawText walks the pen with no clipping of its own, so a long
+    // <Label> genuinely paints outside its element. Culling on the box would
+    // drop glyphs that are on screen.
+    glm::vec2 lo = pos, hi = pos + el.layout_.size;
+    if (!el.style_.text.empty() && g_measureFont && g_measureFont->IsValid()) {
+        const glm::vec2 m = g_measureFont->Measure(el.style_.text, el.style_.fontScale);
+        hi = glm::max(hi, pos + glm::vec2(el.style_.padding.left, el.style_.padding.top) + m);
+    }
+
     for (auto& c : el.children_) {
         // Absolutely positioned children are PINNED to the scroller's box rather
         // than scrolling with it. A deliberate divergence from CSS, taken
@@ -499,7 +525,16 @@ void UIDocument::readLayout_(UIElement& el, const glm::vec2& parentOrigin) {
         // lock veils for free, and their own descendants inherit the unscrolled
         // origin because it is threaded down as parentOrigin.
         readLayout_(*c, c->style_.position == PositionType::Absolute ? pos : scrolled);
+        // display:none paints nothing, so it contributes nothing. Everything
+        // else folds in, INCLUDING a clipping child's own descendants — keeping
+        // the union conservative rather than reasoning about what its clip would
+        // have removed.
+        if (c->style_.display == DisplayMode::None) continue;
+        lo = glm::min(lo, c->layout_.subtreeMin);
+        hi = glm::max(hi, c->layout_.subtreeMax);
     }
+    el.layout_.subtreeMin = lo;
+    el.layout_.subtreeMax = hi;
     if (el.scroll_) updateScrollBars_(el);
 }
 
@@ -599,6 +634,17 @@ bool UIElement::SetScrollOffset(glm::vec2 px) {
     return moved;
 }
 
+void UIElement::SetContentExtent(const glm::vec2& px) {
+    if (!std::isfinite(px.x) || !std::isfinite(px.y)) return;
+    if (!scroll_) scroll_ = std::make_unique<UIScrollState>();
+    scroll_->declaredExtent = glm::max(px, glm::vec2(0.0f));
+    scroll_->hasDeclaredExtent = true;
+}
+
+void UIElement::ClearContentExtent() {
+    if (scroll_) scroll_->hasDeclaredExtent = false;
+}
+
 bool UIElement::ScrollIntoView(const glm::vec2& posAbs, const glm::vec2& sizePx) {
     if (!scroll_) return false;
     // The rect arrives in ABSOLUTE space, already displaced by the current
@@ -625,6 +671,7 @@ void UIDocument::Layout(float viewportW, float viewportH, const Font* font) {
     MeasureFontScope fontScope(font);
 
     UIElement& r = *root_;
+    viewport_ = { viewportW, viewportH };
     pushStyles_(r, /*parentScrolls=*/false);
     YGNodeCalculateLayout(static_cast<YGNodeRef>(r.yogaNode_),
                           viewportW, viewportH, YGDirectionLTR);
@@ -644,8 +691,28 @@ void UIDocument::Layout(float viewportW, float viewportH, const Font* font) {
     if (pendingFocusReveal_) revealFocus_();
 }
 
+namespace {
+    // Half-open on the max edges, so two rects that merely touch do not count as
+    // overlapping — an element flush against the bottom of a clip paints nothing.
+    bool aabbHitsRect(const glm::vec2& lo, const glm::vec2& hi, const ComputedLayout& c) {
+        return !(hi.x <= c.position.x || lo.x >= c.position.x + c.size.x ||
+                 hi.y <= c.position.y || lo.y >= c.position.y + c.size.y);
+    }
+    ComputedLayout intersectRect(const ComputedLayout* outer, const ComputedLayout& inner) {
+        if (!outer) return inner;
+        const glm::vec2 lo = glm::max(outer->position, inner.position);
+        const glm::vec2 hi = glm::min(outer->position + outer->size,
+                                      inner.position + inner.size);
+        ComputedLayout out;
+        out.position = lo;
+        out.size = glm::max(hi - lo, glm::vec2(0.0f));
+        return out;
+    }
+} // namespace
+
 void UIDocument::draw_(const UIElement& el, Renderer2D& r2d, const Font* font,
-                       int layer, const UIElement* focused, bool caretVisible) {
+                       int layer, const UIElement* focused, bool caretVisible,
+                       const ComputedLayout* clip) {
     const ComputedLayout& L = el.layout_;
     const Style& s = el.style_;
     // Explicit, even though yoga zeroes a display:none subtree and the size
@@ -653,6 +720,15 @@ void UIDocument::draw_(const UIElement& el, Renderer2D& r2d, const Font* font,
     // implementation detail of whichever layout engine is underneath.
     if (s.display == DisplayMode::None) return;
     if (L.size.x <= 0.0f || L.size.y <= 0.0f) return; // nothing to paint
+
+    // Cost only, never behaviour: the subtree AABB is a superset of what this
+    // element and its descendants paint, so a subtree that misses the clip
+    // entirely could not have put a pixel on screen. Scrolling is what makes
+    // this worth having — before it, everything in the tree was on screen by
+    // construction. Placed before the background quad so the element's own paint
+    // is skipped too. draw_ is static and takes a const element, so the compiler
+    // guarantees a skipped subtree has no side effect to lose.
+    if (clip && !aabbHitsRect(L.subtreeMin, L.subtreeMax, *clip)) return;
 
     if (s.backgroundColor.a > 0.0f) {
         r2d.DrawQuad(L.position, L.size, s.backgroundColor, layer);
@@ -728,8 +804,9 @@ void UIDocument::draw_(const UIElement& el, Renderer2D& r2d, const Font* font,
     // Parent before child (painter's algorithm) AND on a higher layer, so a
     // child always paints over its parent's background regardless of the order
     // the batcher ends up flushing runs in.
+    const ComputedLayout myClip = clips ? intersectRect(clip, L) : ComputedLayout{};
     for (const auto& c : el.children_) {
-        draw_(*c, r2d, font, layer + 1, focused, caretVisible);
+        draw_(*c, r2d, font, layer + 1, focused, caretVisible, clips ? &myClip : clip);
     }
 
     // Bars LAST and inside the clip, so they paint over the content they
@@ -822,7 +899,16 @@ void UIDocument::Draw(Renderer2D& r2d, const Font* font, int baseLayer) const {
     const float kBlink = 1.0f;
     const bool caretVisible =
         (caretClock_ - std::floor(caretClock_ / kBlink) * kBlink) < kBlink * 0.5f;
-    draw_(*root_, r2d, font, baseLayer, focused_, caretVisible);
+    // Seeded with the SURFACE, not with nothing: the only clipping element in a
+    // typical HUD is one scroller, so a cull that tested only "the clip it is
+    // under" would be a no-op everywhere else — including for a list scrolled
+    // entirely off a small viewport.
+    ComputedLayout surface;
+    surface.position = origin_;
+    surface.size = viewport_;
+    const bool haveSurface = viewport_.x > 0.0f && viewport_.y > 0.0f;
+    draw_(*root_, r2d, font, baseLayer, focused_, caretVisible,
+          haveSurface ? &surface : nullptr);
 }
 
 // ------------------------------------------------------------------- input

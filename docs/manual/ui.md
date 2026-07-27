@@ -496,6 +496,28 @@ el->ScrollIntoView(child->layout().position, child->layout().size);
 el->scrollOffset(); el->maxScroll(); el->contentSize();
 ```
 
+**Long lists.** The engine does **not** virtualise for you, and the reason is
+worth knowing because it is not the one you would guess: a scroller's extent is
+*derived from the children that exist*. Keep six live rows out of a thousand and
+it honestly reports six rows of content — the range collapses, the thumb
+vanishes, and the wheel walks straight past. `SetContentExtent` is the override:
+
+```cpp
+list->SetContentExtent({ 0.f, rowCount * rowHeight });   // declare the truth
+// then place a window of live rows yourself from list->scrollOffset()
+```
+
+With that, a hand-rolled virtual list works today with no bindings anywhere —
+declare the extent, keep a window of absolutely-positioned rows, and reposition
+them each frame from the offset. What is still missing for the engine to do it
+*for* you is a way to repeat a template over a collection; bindings address one
+property, not a list.
+
+Drawing is **culled** against the clip a subtree sits under, so rows scrolled out
+of view cost no draw calls. Layout is not: every row still measures and solves
+every frame, which is the other half of why a genuinely huge list wants the
+windowing above.
+
 `ScrollIntoView` is how you pin a log to its tail. Focus already uses it: Tabbing
 to a control below the fold scrolls it into view, because a `:focus` ring nobody
 can see — over a control Enter would then activate — is worse than no focus ring.
@@ -938,4 +960,7 @@ Within scrolling specifically: kinetic/touch momentum, which needs touch input
 this engine does not have; a reserved scrollbar gutter — CSS invented
 `scrollbar-gutter` to break a reflow loop that overlay bars do not have, so
 `padding-right` is the answer here; hold-to-repeat on a track press; and
-virtualisation, so a scroller lays out every row it contains.
+built-in virtualisation — a scroller lays out every row it contains, though
+`SetContentExtent` lets you window one by hand (see
+[Scrolling](#scrolling-and-clipping)). Drawing off-screen rows is already
+culled; laying them out is not.

@@ -37,6 +37,18 @@ namespace MyCoreEngine::ui {
     struct ComputedLayout {
         glm::vec2 position{ 0.0f };
         glm::vec2 size{ 0.0f };
+        // This element's painted rect UNIONED with every visible descendant's,
+        // filled by readLayout_ on the way back up. draw_ culls a subtree that
+        // cannot intersect the clip it is under.
+        //
+        // The UNION is what makes culling safe: an absolutely positioned
+        // descendant may legitimately paint outside its parent's own rect, and
+        // a long text leaf paints outside its box too (the measure callback
+        // clamps to the parent's offer, but DrawText does not). Testing the
+        // element's own rect would cull glyphs that are on screen. It is a
+        // deliberate SUPERSET of what is painted — conservative costs a few
+        // wasted quads, optimistic costs correctness.
+        glm::vec2 subtreeMin{ 0.0f }, subtreeMax{ 0.0f };
     };
 
     // Scroll state for one `overflow: scroll` element.
@@ -75,6 +87,11 @@ namespace MyCoreEngine::ui {
         // zero-size thumb means "this axis does not scroll", which is the one
         // signal both the painter and the hit test read.
         ComputedLayout trackX, thumbX, trackY, thumbY;
+
+        // A DECLARED extent, overriding the measured one. Zero/unset means
+        // "measure the children", which is the normal case.
+        glm::vec2 declaredExtent{ 0.0f };
+        bool hasDeclaredExtent = false;
 
         bool scrollsX() const { return maxOffset.x > minOffset.x; }
         bool scrollsY() const { return maxOffset.y > minOffset.y; }
@@ -214,6 +231,21 @@ namespace MyCoreEngine::ui {
         // code calls to pin a log to its tail:
         //   log->ScrollIntoView(last->layout().position, last->layout().size);
         bool ScrollIntoView(const glm::vec2& posAbs, const glm::vec2& sizePx);
+
+        // Declare how big the content REALLY is, overriding what the laid-out
+        // children measure. This is the one piece a hand-rolled virtual list
+        // cannot do without.
+        //
+        // The extent is otherwise derived purely from the children that exist,
+        // so keeping six live rows out of a thousand would honestly report six
+        // rows of content: the range would collapse, the thumb would vanish and
+        // the wheel would walk past. Declaring the full height lets you keep a
+        // window of live rows and position them yourself from scrollOffset().
+        //
+        // The engine does NOT virtualise for you — see the manual. This is the
+        // hook that makes doing it possible.
+        void SetContentExtent(const glm::vec2& px);
+        void ClearContentExtent();
 
         // Depth-first search by name; null when absent. Linear — fine for the
         // handful of named elements a HUD has, and the hook a future
@@ -439,7 +471,8 @@ namespace MyCoreEngine::ui {
         // focused element in the whole walk cares. `clip` is the resolved
         // clipping ancestor's rect, or null when nothing clips.
         static void draw_(const UIElement& el, Renderer2D& r2d, const Font* font,
-                          int layer, const UIElement* focused, bool caretVisible);
+                          int layer, const UIElement* focused, bool caretVisible,
+                          const ComputedLayout* clip);
         static UIElement* hitTest_(UIElement& el, const glm::vec2& pos);
         // The scrollbar is painted from draw_ and is invisible to hitTest_, so
         // a press on it is resolved separately and ahead of everything else.
@@ -489,6 +522,10 @@ namespace MyCoreEngine::ui {
         // while you type reads as dropped input.
         float caretClock_ = 0.0f;
         glm::vec2 origin_{ 0.0f };
+        // The surface Layout was last solved for. Draw seeds its cull rect with
+        // it, so culling works outside a scroller too — otherwise a HUD whose
+        // only clipping element is one list would cull nothing anywhere else.
+        glm::vec2 viewport_{ 0.0f };
         // Thumb being dragged. Validated with isInTree_ like hovered_/pressed_:
         // a hot reload frees the whole tree, and a stylesheet-only save triggers
         // one, so a pointer held across frames without that check is a
