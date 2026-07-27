@@ -316,7 +316,7 @@ void UIBinder::noteShadowedDeclarations_(const UIElement& el, const UIStyleSheet
             if (!UIDeclaration::PropsOverlap(p, b.target.styleProp)) continue;
             // Binding a property makes its stylesheet rule dead. That is a
             // legitimate pattern — the rule is the pre-bind default — but
-            // discovering it by editing the .uss and watching nothing happen is
+            // discovering it by editing the .cstyle and watching nothing happen is
             // exactly the silent no-op this codebase reports errors to avoid.
             const bool partial = p != b.target.styleProp;
             std::string s = "the stylesheet declares '" + std::string(UIDeclaration::NameOf(p)) +
@@ -496,7 +496,7 @@ bool UIBinder::applyStyle_(Entry& e) {
     } else {
         // Literals around the hole, e.g. "{h}%" or "0px {gap}px": build the text
         // and hand it to the ordinary declaration parser, so an interpolated
-        // value means exactly what the same text means in a .uss file.
+        // value means exactly what the same text means in a .cstyle file.
         if (!render_(e, b.tmpl.holes().data(), b.tmpl.holes().size())) return false;
         std::string err;
         if (!UIDeclaration::ParseValueFor(prop, scratch_, decl, err)) {

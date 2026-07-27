@@ -177,7 +177,7 @@ through the registry like other tags (`emplace` returns `void` for empty types).
 
 | Field | Means |
 |---|---|
-| `markup` / `stylesheet` | project-relative `.uxml` / `.uss` paths, both hot-reloading |
+| `markup` / `stylesheet` | project-relative `.cxml` / `.cstyle` paths, both hot-reloading |
 | `sortOrder` | higher draws on top; ties break on entity order |
 | `enabled` | off hides it and stops it consuming input |
 | `interactive` | off for a decorative overlay that must not swallow clicks |

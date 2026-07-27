@@ -10,7 +10,7 @@ The engine ships two related things:
   is the first consumer of `Renderer2D`, not a privileged one.
 
 The UI model is modelled on web front-end and Unity's UI Toolkit: markup
-(`.uxml`) for structure, a stylesheet (`.uss`) for appearance, bindings for
+(`.cxml`) for structure, a stylesheet (`.cstyle`) for appearance, bindings for
 values, and C++ for behaviour. If you know CSS flexbox, you already know this
 system.
 
@@ -24,7 +24,7 @@ system.
 
 **UI is scene content.** The shipped sample is an entity named `HUD` in the
 default scene, carrying a `UIDocumentComponent` that points at
-`Exported/UI/hud.uxml` + `hud.uss`. Nothing in the editor or the player installs
+`Exported/UI/hud.cxml` + `hud.cstyle`. Nothing in the editor or the player installs
 it — select `HUD` in the Hierarchy and you are looking at the whole thing.
 
 To put UI in your own scene: select an entity, **Add Component ▸ UI Document**,
@@ -63,9 +63,9 @@ after the solve and paints at the previous frame's size.
 
 ---
 
-## Markup: `.uxml`
+## Markup: `.cxml`
 
-Abridged from the shipped `hud.uxml`:
+Abridged from the shipped `hud.cxml`:
 
 ```xml
 <UI name="hud" data-source="scene">
@@ -124,7 +124,7 @@ into a parser.
 
 ---
 
-## Stylesheets: `.uss`
+## Stylesheets: `.cstyle`
 
 ```css
 .row   { flex-direction: row; justify-content: space-between; align-items: center; }
@@ -698,7 +698,7 @@ a UI that simply doesn't work.
 A string is never a bool, for the same reason — `"false"` is truthy under one
 obvious rule and falsy under another. Strings *do* parse as lengths and colours,
 through the stylesheet's own parsers, so `"50%"` and `"#d93a3d"` mean the same
-thing in a bound value as in a `.uss` file.
+thing in a bound value as in a `.cstyle` file.
 
 ### Two ways to supply a value
 
@@ -718,7 +718,7 @@ already has a home you cannot hook.
 | unknown attribute, malformed hole, unknown bound property, constant `bind` | load | **fails the load**, running UI untouched |
 | unknown source / property / converter / action | `Rebuild` | reported once **with the names that do exist**; that binding stays pending and resolves if you register later |
 | value won't convert, non-finite, negative size | runtime | reported once per binding, re-armed on a kind change; that write is skipped |
-| a bound property that the stylesheet also declares | load | a **note** — the rule is the pre-bind default, and saying so beats editing the `.uss` and watching nothing happen |
+| a bound property that the stylesheet also declares | load | a **note** — the rule is the pre-bind default, and saying so beats editing the `.cstyle` and watching nothing happen |
 
 `binder().Describe()` prints one line per live binding with its current value.
 "It is not in this list" is a one-call diagnosis of a frozen readout.
@@ -779,13 +779,13 @@ allocations, no tree walks, no string work. Only a write that can change a
 ## Hot reload
 
 `UIAssetDocument` (`Engine/src/ui/UIAssetDocument.h`) watches the markup and
-stylesheet and rebuilds when either changes. Edit `hud.uss`, alt-tab, and the
+stylesheet and rebuilds when either changes. Edit `hud.cstyle`, alt-tab, and the
 running game has the new look — no rebuild, no restart, no losing the state you
 were testing.
 
 ```cpp
 UIAssetDocument ui;
-ui.Load("Exported/UI/hud.uxml", "Exported/UI/hud.uss", [&](UIDocument& doc) {
+ui.Load("Exported/UI/hud.cxml", "Exported/UI/hud.cstyle", [&](UIDocument& doc) {
     // Runs after EVERY successful (re)load, on the finished tree.
     button = doc.root().Find("scoreButton");
     button->OnClick(...);
@@ -934,8 +934,8 @@ reset, so a leaked blend or depth state would corrupt the next pass.
 | `Engine/src/ui/UIStyle.h` | The `Style` struct — the CSS-shaped subset |
 | `Engine/src/ui/UIElement.h` | `UIElement` + `UIDocument` (tree, layout, draw, input) |
 | `Engine/src/ui/UIEvent.h` | Event types, `UIEvent`, `UIPointerState` |
-| `Engine/src/ui/UIStyleSheet.h` | `.uss` parser, selectors, cascade, the property table |
-| `Engine/src/ui/UIMarkup.h` | `.uxml` loader |
+| `Engine/src/ui/UIStyleSheet.h` | `.cstyle` parser, selectors, cascade, the property table |
+| `Engine/src/ui/UIMarkup.h` | `.cxml` loader |
 | `Engine/src/ui/UIValue.h` | The bound-value transport and its coercions |
 | `Engine/src/ui/UIDataSource.h` | `UIDataSource`, converters, `UIBindingContext` |
 | `Engine/src/ui/UIBinding.h` | The `{hole}` template and `UIBinder` |

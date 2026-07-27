@@ -38,10 +38,10 @@ struct Hoverable {
 
     bool Load(const std::string& css, const std::string& markup =
                   R"(<UI><Element name="btn" class="btn" style="width: 100px; height: 100px"/></UI>)") {
-        if (!sheet.ParseString(css, "t.uss")) return false;
-        if (!UIMarkup::LoadInto(doc, markup, errors, "t.uxml")) return false;
+        if (!sheet.ParseString(css, "t.cstyle")) return false;
+        if (!UIMarkup::LoadInto(doc, markup, errors, "t.cxml")) return false;
         sheet.ApplyTo(doc.root());
-        binder.Rebuild(doc, ctx, "t.uxml", &sheet);
+        binder.Rebuild(doc, ctx, "t.cxml", &sheet);
         styler.Rebuild(doc, sheet, &binder);
         doc.Layout(400.f, 400.f);
         return true;
@@ -77,7 +77,7 @@ float red(const UIElement* e) { return e->style().backgroundColor.r; }
 TEST(UIPseudoParse, ParsesHoverAndActiveAndCountsThemForSpecificity) {
     UIStyleSheet s;
     ASSERT_TRUE(s.ParseString(".btn:hover { color: red; } Button:active#ok { color: blue; }",
-                              "t.uss"))
+                              "t.cstyle"))
         << (s.errors().empty() ? "" : s.errors()[0]);
     ASSERT_EQ(s.rules().size(), 2u);
 
@@ -100,7 +100,7 @@ TEST(UIPseudoParse, ParsesHoverAndActiveAndCountsThemForSpecificity) {
 
 TEST(UIPseudoParse, CompoundStatesRequireBoth) {
     UIStyleSheet s;
-    ASSERT_TRUE(s.ParseString(".btn:hover:active { color: red; }", "t.uss"))
+    ASSERT_TRUE(s.ParseString(".btn:hover:active { color: red; }", "t.cstyle"))
         << (s.errors().empty() ? "" : s.errors()[0]);
     const UICompound& sel = s.rules()[0].selectors[0].subject();
     EXPECT_EQ(sel.pseudo,
@@ -116,7 +116,7 @@ TEST(UIPseudoParse, AnUnknownPseudoClassIsReported) {
     UIStyleSheet s;
     // `:checked` needs a checkbox, which does not exist — a pseudo-class with
     // nothing behind it would be a selector that silently never matches.
-    EXPECT_FALSE(s.ParseString(".btn:checked { color: red; }", "t.uss"));
+    EXPECT_FALSE(s.ParseString(".btn:checked { color: red; }", "t.cstyle"));
     ASSERT_FALSE(s.errors().empty());
     EXPECT_NE(s.errors()[0].find("unknown pseudo-class ':checked'"), std::string::npos)
         << s.errors()[0];
@@ -131,7 +131,7 @@ TEST(UIPseudoParse, ATrailingColonIsAnErrorNotAPlainRule) {
     for (const char* css : { ".btn: { color: red; }", ".btn:{ color: red; }",
                              ".a::hover { color: red; }" }) {
         UIStyleSheet s;
-        EXPECT_FALSE(s.ParseString(css, "t.uss")) << css;
+        EXPECT_FALSE(s.ParseString(css, "t.cstyle")) << css;
         ASSERT_FALSE(s.errors().empty()) << css;
         EXPECT_NE(s.errors()[0].find("no pseudo-class after it"), std::string::npos)
             << css << " -> " << s.errors()[0];
@@ -139,7 +139,7 @@ TEST(UIPseudoParse, ATrailingColonIsAnErrorNotAPlainRule) {
     }
     // ...but a bare `:hover` is legitimate CSS — it means `*:hover`.
     UIStyleSheet ok;
-    ASSERT_TRUE(ok.ParseString(":hover { color: red; }", "t.uss"))
+    ASSERT_TRUE(ok.ParseString(":hover { color: red; }", "t.cstyle"))
         << (ok.errors().empty() ? "" : ok.errors()[0]);
     EXPECT_TRUE(ok.rules()[0].selectors[0].subject().type.empty());
     EXPECT_EQ(ok.rules()[0].selectors[0].subject().pseudo, std::uint8_t(UIPseudo::Hover));
@@ -186,7 +186,7 @@ TEST(UIPseudoParse, DescendantSelectorsComposeWithStates) {
 // second question is what decides which elements are worth watching.
 TEST(UIPseudoParse, MatchesVersusMatchesIgnoringState) {
     UIStyleSheet s;
-    ASSERT_TRUE(s.ParseString(".btn:hover { color: red; }", "t.uss"));
+    ASSERT_TRUE(s.ParseString(".btn:hover { color: red; }", "t.cstyle"));
     UIDocument doc;
     UIElement* e = doc.root().AddChild("e");
     e->AddClass("btn");
@@ -272,29 +272,29 @@ TEST(UIPseudoStyler, TextSurvivesARestyle) {
 }
 
 // Bindings wrote into the Style the reset just threw away, so they have to run
-// again — otherwise hovering a bound bar snaps it back to its .uss default
+// again — otherwise hovering a bound bar snaps it back to its .cstyle default
 // until the next value change.
 TEST(UIPseudoStyler, BindingsAreReappliedAfterARestyle) {
     UIDocument doc;
     UIStyleSheet sheet;
     ASSERT_TRUE(sheet.ParseString(
         ".bar { width: 10%; background-color: #202020; }\n"
-        ".bar:hover { background-color: #808080; }\n", "t.uss"));
+        ".bar:hover { background-color: #808080; }\n", "t.cstyle"));
 
     std::vector<std::string> errors;
     ASSERT_TRUE(UIMarkup::LoadInto(doc, R"(<UI data-source="s">
           <Element name="bar" class="bar" bind="width: {health | percent}"
                    style="height: 100px"/>
-        </UI>)", errors, "t.uxml")) << (errors.empty() ? "" : errors[0]);
+        </UI>)", errors, "t.cxml")) << (errors.empty() ? "" : errors[0]);
 
     UIDataSource src;
     src.SetNumber("health", 0.75f);
     UIBindingContext ctx;
     ctx.RegisterSource("s", &src);
     UIBinder binder;
-    binder.Rebuild(doc, ctx, "t.uxml", &sheet);
+    binder.Rebuild(doc, ctx, "t.cxml", &sheet);
     sheet.ApplyTo(doc.root());
-    binder.Rebuild(doc, ctx, "t.uxml", &sheet);
+    binder.Rebuild(doc, ctx, "t.cxml", &sheet);
     UIInteractionStyler styler;
     styler.Rebuild(doc, sheet, &binder);
 
@@ -439,7 +439,7 @@ TEST(UIPseudoHud, TheShippedButtonStylesItselfOnHoverAndPress) {
     UIElement* btn = hud.find("scoreButton");
     ASSERT_NE(btn, nullptr);
     // Nothing in C++ touches this element — it is watched purely because
-    // hud.uss carries .btn:hover and .btn:active (plus .field:*, .notes:focus
+    // hud.cstyle carries .btn:hover and .btn:active (plus .field:*, .notes:focus
     // for the two text fields, and .log:focus for the scrolling panel, which is
     // a Tab stop and so needs a visible focus cue).
     EXPECT_EQ(hud.assets()->styler().watchedCount(), 4u);

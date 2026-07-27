@@ -2,7 +2,7 @@
 // A UIDocument backed by markup + stylesheet ASSETS, reloaded when either file
 // changes on disk.
 //
-// This is the payoff of authoring UI as data: edit hud.uss, alt-tab, and the
+// This is the payoff of authoring UI as data: edit hud.cstyle, alt-tab, and the
 // running game has the new look — no rebuild, no restart, no losing the state
 // you were testing.
 //

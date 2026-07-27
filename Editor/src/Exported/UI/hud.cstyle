@@ -45,14 +45,14 @@
 /* The fill is a percentage of its track, so "set health" is one write to the
    data source and flexbox does the rest.
 
-   width and background-color are BOUND in hud.uxml. The cascade runs BEFORE the
+   width and background-color are BOUND in hud.cxml. The cascade runs BEFORE the
    binding pass on every load, so what is written here is the PRE-BIND DEFAULT:
    what the bar looks like for the instant before the first value arrives, and
    what it falls back to if the binding cannot resolve. Editing these two will
    appear to do nothing at runtime, and the console says so at load:
 
      [UI] note: the stylesheet declares 'width' for <Element name='healthFill'>,
-     which Exported/UI/hud.uxml binds - the stylesheet value is only the
+     which Exported/UI/hud.cxml binds - the stylesheet value is only the
      pre-bind default
 
    Restyle the TRACK, or edit the binding, for a change that sticks. */
@@ -66,7 +66,7 @@
   color: rgba(255, 255, 255, 0.95);
 }
 
-/* Toggled by `classes="alarm: {lowHealth}"` in hud.uxml. Nothing in C++ knows
+/* Toggled by `classes="alarm: {lowHealth}"` in hud.cxml. Nothing in C++ knows
    this colour — gameplay sets a bool and the stylesheet decides what it means. */
 .alarm {
   color: #ff6b6b;
@@ -195,7 +195,7 @@
   color: rgba(255, 255, 255, 0.85);
 }
 
-/* The log is a Tab stop (focusable="true" in hud.uxml), so it needs a visible
+/* The log is a Tab stop (focusable="true" in hud.cxml), so it needs a visible
    focus cue — there is no outline property, so background-color does the job,
    exactly as .field:focus and .notes:focus already do. */
 .log:focus {

@@ -35,7 +35,7 @@ struct FieldDoc {
 
     explicit FieldDoc(const std::string& markup =
         R"(<UI><TextField name="f" style="width: 200px; height: 30px"/></UI>)") {
-        UIMarkup::LoadInto(doc, markup, errors, "t.uxml");
+        UIMarkup::LoadInto(doc, markup, errors, "t.cxml");
         UIStyleSheet sheet;
         sheet.ApplyTo(doc.root());
         doc.Layout(400.f, 400.f);
@@ -288,7 +288,7 @@ TEST(UITextField, AttributesOnlyValidOnAFieldAreRejectedElsewhere) {
                                 R"(<UI><Button name="e" mask="*"/></UI>)" }) {
         UIDocument doc;
         std::vector<std::string> errors;
-        EXPECT_FALSE(UIMarkup::LoadInto(doc, markup, errors, "t.uxml")) << markup;
+        EXPECT_FALSE(UIMarkup::LoadInto(doc, markup, errors, "t.cxml")) << markup;
         ASSERT_FALSE(errors.empty()) << markup;
         EXPECT_NE(errors[0].find("only valid on a <TextField>"), std::string::npos)
             << errors[0];
@@ -297,7 +297,7 @@ TEST(UITextField, AttributesOnlyValidOnAFieldAreRejectedElsewhere) {
     UIDocument doc;
     std::vector<std::string> errors;
     EXPECT_FALSE(UIMarkup::LoadInto(doc, R"(<UI><TextField maxlength="lots"/></UI>)",
-                                    errors, "t.uxml"));
+                                    errors, "t.cxml"));
     ASSERT_FALSE(errors.empty());
     EXPECT_NE(errors[0].find("expected a byte count"), std::string::npos) << errors[0];
 }
@@ -666,7 +666,7 @@ TEST(UITextField, MultilineIsDeclaredInMarkup) {
     UIDocument other;
     std::vector<std::string> errors;
     EXPECT_FALSE(UIMarkup::LoadInto(other, R"(<UI><Element multiline="true"/></UI>)",
-                                    errors, "t.uxml"));
+                                    errors, "t.cxml"));
     ASSERT_FALSE(errors.empty());
     EXPECT_NE(errors[0].find("only valid on a <TextField>"), std::string::npos) << errors[0];
 }

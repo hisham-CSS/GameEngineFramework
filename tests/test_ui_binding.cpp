@@ -52,11 +52,11 @@ std::string render(const char* text, UIDataSource& src, UIBindingContext& ctx) {
     UIElement* label = doc.root().AddChild("label");
     std::vector<std::string> errors;
     EXPECT_TRUE(UIMarkup::LoadInto(doc, std::string("<UI data-source=\"s\"><Label name=\"l\" text=\"") +
-                                        text + "\"/></UI>", errors, "t.uxml"))
+                                        text + "\"/></UI>", errors, "t.cxml"))
         << (errors.empty() ? "" : errors[0]);
     (void)label;
     UIBinder binder;
-    binder.Rebuild(doc, ctx, "t.uxml");
+    binder.Rebuild(doc, ctx, "t.cxml");
     UIElement* l = doc.root().Find("l");
     return l ? l->style().text : std::string("<missing>");
 }
@@ -328,7 +328,7 @@ TEST(UIBinding, WritingTheSourceUpdatesTheElementOnTheNextPass) {
     std::vector<std::string> errors;
     ASSERT_TRUE(UIMarkup::LoadInto(
         doc, R"(<UI data-source="hud"><Label name="l" text="SCORE {score}"/></UI>)",
-        errors, "t.uxml")) << (errors.empty() ? "" : errors[0]);
+        errors, "t.cxml")) << (errors.empty() ? "" : errors[0]);
 
     UIDataSource s;
     s.SetInt("score", 0);
@@ -336,7 +336,7 @@ TEST(UIBinding, WritingTheSourceUpdatesTheElementOnTheNextPass) {
     ctx.RegisterSource("hud", &s);
 
     UIBinder binder;
-    binder.Rebuild(doc, ctx, "t.uxml");
+    binder.Rebuild(doc, ctx, "t.cxml");
     UIElement* l = doc.root().Find("l");
     ASSERT_NE(l, nullptr);
     // Rebuild force-applies, so the tree is correct BEFORE the first layout —
@@ -355,13 +355,13 @@ TEST(UIBinding, WritesThroughSetTextSoTheLabelReMeasures) {
     UIDocument doc;
     std::vector<std::string> errors;
     ASSERT_TRUE(UIMarkup::LoadInto(doc, R"(<UI data-source="h"><Label name="l" text="{n}"/></UI>)",
-                                   errors, "t.uxml"));
+                                   errors, "t.cxml"));
     UIDataSource s;
     s.SetInt("n", 1);
     UIBindingContext ctx;
     ctx.RegisterSource("h", &s);
     UIBinder binder;
-    binder.Rebuild(doc, ctx, "t.uxml");
+    binder.Rebuild(doc, ctx, "t.cxml");
 
     UIElement* l = doc.root().Find("l");
     ASSERT_NE(l, nullptr);
@@ -382,13 +382,13 @@ TEST(UIBinding, AnUnchangedSourceAppliesNothing) {
     UIDocument doc;
     std::vector<std::string> errors;
     ASSERT_TRUE(UIMarkup::LoadInto(doc, R"(<UI data-source="h"><Label name="l" text="{n}"/></UI>)",
-                                   errors, "t.uxml"));
+                                   errors, "t.cxml"));
     UIDataSource s;
     s.SetInt("n", 1);
     UIBindingContext ctx;
     ctx.RegisterSource("h", &s);
     UIBinder binder;
-    binder.Rebuild(doc, ctx, "t.uxml");
+    binder.Rebuild(doc, ctx, "t.cxml");
 
     EXPECT_EQ(binder.UpdateToTarget().applied, 0u);
     EXPECT_EQ(binder.UpdateToTarget().applied, 0u);
@@ -407,7 +407,7 @@ TEST(UIBinding, DataSourceIsInheritedByTheWholeSubtree) {
           <Element name="other" data-source="b">
             <Label name="deep2" text="{v}"/>
           </Element>
-        </UI>)", errors, "t.uxml")) << (errors.empty() ? "" : errors[0]);
+        </UI>)", errors, "t.cxml")) << (errors.empty() ? "" : errors[0]);
 
     UIDataSource a, b;
     a.SetString("v", "from-a");
@@ -417,7 +417,7 @@ TEST(UIBinding, DataSourceIsInheritedByTheWholeSubtree) {
     ctx.RegisterSource("b", &b);
 
     UIBinder binder;
-    binder.Rebuild(doc, ctx, "t.uxml");
+    binder.Rebuild(doc, ctx, "t.cxml");
     EXPECT_TRUE(binder.ok()) << (binder.errors().empty() ? "" : binder.errors()[0]);
     EXPECT_EQ(doc.root().Find("deep")->style().text, "from-a");
     // A nested data-source overrides for its own subtree, like UI Toolkit.
@@ -428,7 +428,7 @@ TEST(UIBinding, QualifiedPathBeatsTheInheritedSource) {
     UIDocument doc;
     std::vector<std::string> errors;
     ASSERT_TRUE(UIMarkup::LoadInto(
-        doc, R"(<UI data-source="a"><Label name="l" text="{b.v}"/></UI>)", errors, "t.uxml"));
+        doc, R"(<UI data-source="a"><Label name="l" text="{b.v}"/></UI>)", errors, "t.cxml"));
     UIDataSource a, b;
     a.SetString("v", "wrong");
     b.SetString("v", "right");
@@ -436,7 +436,7 @@ TEST(UIBinding, QualifiedPathBeatsTheInheritedSource) {
     ctx.RegisterSource("a", &a);
     ctx.RegisterSource("b", &b);
     UIBinder binder;
-    binder.Rebuild(doc, ctx, "t.uxml");
+    binder.Rebuild(doc, ctx, "t.cxml");
     EXPECT_EQ(doc.root().Find("l")->style().text, "right");
 }
 
@@ -447,7 +447,7 @@ TEST(UIBinding, AMisspeltPathIsReportedWithTheNamesThatExist) {
     std::vector<std::string> errors;
     ASSERT_TRUE(UIMarkup::LoadInto(
         doc, R"(<UI data-source="hud"><Label name="scoreLabel" text="SCORE {scoer}"/></UI>)",
-        errors, "t.uxml"));
+        errors, "t.cxml"));
     UIDataSource s;
     s.SetInt("score", 0);
     s.SetNumber("health", 1.f);
@@ -455,7 +455,7 @@ TEST(UIBinding, AMisspeltPathIsReportedWithTheNamesThatExist) {
     ctx.RegisterSource("hud", &s);
 
     UIBinder binder;
-    binder.Rebuild(doc, ctx, "t.uxml");
+    binder.Rebuild(doc, ctx, "t.cxml");
     EXPECT_FALSE(binder.ok());
     ASSERT_FALSE(binder.errors().empty());
     const std::string& e = binder.errors()[0];
@@ -476,9 +476,9 @@ TEST(UIBinding, AnUnknownSourceOrConverterIsReported) {
         UIDocument doc;
         std::vector<std::string> errors;
         ASSERT_TRUE(UIMarkup::LoadInto(doc, R"(<UI><Label name="l" text="{missing.n}"/></UI>)",
-                                       errors, "t.uxml"));
+                                       errors, "t.cxml"));
         UIBinder b;
-        b.Rebuild(doc, ctx, "t.uxml");
+        b.Rebuild(doc, ctx, "t.cxml");
         ASSERT_FALSE(b.errors().empty());
         EXPECT_NE(b.errors()[0].find("unknown data source 'missing'"), std::string::npos)
             << b.errors()[0];
@@ -488,9 +488,9 @@ TEST(UIBinding, AnUnknownSourceOrConverterIsReported) {
         UIDocument doc;
         std::vector<std::string> errors;
         ASSERT_TRUE(UIMarkup::LoadInto(doc, R"(<UI data-source="hud"><Label name="l" text="{n|pct}"/></UI>)",
-                                       errors, "t.uxml"));
+                                       errors, "t.cxml"));
         UIBinder b;
-        b.Rebuild(doc, ctx, "t.uxml");
+        b.Rebuild(doc, ctx, "t.cxml");
         ASSERT_FALSE(b.errors().empty());
         EXPECT_NE(b.errors()[0].find("unknown converter 'pct'"), std::string::npos) << b.errors()[0];
         EXPECT_NE(b.errors()[0].find("percent"), std::string::npos) << "must list the real ones";
@@ -500,9 +500,9 @@ TEST(UIBinding, AnUnknownSourceOrConverterIsReported) {
         UIDocument doc;
         std::vector<std::string> errors;
         ASSERT_TRUE(UIMarkup::LoadInto(doc, R"(<UI><Label name="l" text="{n}"/></UI>)",
-                                       errors, "t.uxml"));
+                                       errors, "t.cxml"));
         UIBinder b;
-        b.Rebuild(doc, ctx, "t.uxml");
+        b.Rebuild(doc, ctx, "t.cxml");
         ASSERT_FALSE(b.errors().empty());
         EXPECT_NE(b.errors()[0].find("no data source in scope"), std::string::npos) << b.errors()[0];
         EXPECT_NE(b.errors()[0].find("data-source="), std::string::npos) << b.errors()[0];
@@ -515,10 +515,10 @@ TEST(UIBinding, ABindingResolvesWhenItsSourceIsRegisteredLater) {
     UIDocument doc;
     std::vector<std::string> errors;
     ASSERT_TRUE(UIMarkup::LoadInto(doc, R"(<UI data-source="late"><Label name="l" text="{v}"/></UI>)",
-                                   errors, "t.uxml"));
+                                   errors, "t.cxml"));
     UIBindingContext ctx;
     UIBinder binder;
-    binder.Rebuild(doc, ctx, "t.uxml");
+    binder.Rebuild(doc, ctx, "t.cxml");
     EXPECT_EQ(binder.unresolvedCount(), 1u);
     EXPECT_FALSE(binder.ok());
 
@@ -539,13 +539,13 @@ TEST(UIBinding, RestructuringTheTreeForcesAReCollectInsteadOfADereference) {
     ASSERT_TRUE(UIMarkup::LoadInto(doc, R"(<UI data-source="h">
           <Label name="keep" text="{v}"/>
           <Label name="doomed" text="{v}"/>
-        </UI>)", errors, "t.uxml"));
+        </UI>)", errors, "t.cxml"));
     UIDataSource s;
     s.SetString("v", "x");
     UIBindingContext ctx;
     ctx.RegisterSource("h", &s);
     UIBinder binder;
-    binder.Rebuild(doc, ctx, "t.uxml");
+    binder.Rebuild(doc, ctx, "t.cxml");
     EXPECT_EQ(binder.bindingCount(), 2u);
 
     // Destroy one element the binder is indexing.
@@ -563,13 +563,13 @@ TEST(UIBinding, DescribeNamesEveryLiveBinding) {
     UIDocument doc;
     std::vector<std::string> errors;
     ASSERT_TRUE(UIMarkup::LoadInto(doc, R"(<UI data-source="h"><Label name="l" text="{v}"/></UI>)",
-                                   errors, "t.uxml"));
+                                   errors, "t.cxml"));
     UIDataSource s;
     s.SetInt("v", 7);
     UIBindingContext ctx;
     ctx.RegisterSource("h", &s);
     UIBinder binder;
-    binder.Rebuild(doc, ctx, "t.uxml");
+    binder.Rebuild(doc, ctx, "t.cxml");
 
     const auto lines = binder.Describe();
     ASSERT_EQ(lines.size(), 1u);
@@ -585,11 +585,11 @@ TEST(UIBinding, DescribeNamesEveryLiveBinding) {
 TEST(UIMarkupAttributes, AnUnknownAttributeIsAnErrorAndLeavesTheTreeAlone) {
     UIDocument doc;
     std::vector<std::string> ok;
-    ASSERT_TRUE(UIMarkup::LoadInto(doc, R"(<UI><Element name="good"/></UI>)", ok, "t.uxml"));
+    ASSERT_TRUE(UIMarkup::LoadInto(doc, R"(<UI><Element name="good"/></UI>)", ok, "t.cxml"));
 
     std::vector<std::string> errors;
     EXPECT_FALSE(UIMarkup::LoadInto(doc, R"(<UI><Element nmae="healthFill"/></UI>)",
-                                    errors, "t.uxml"));
+                                    errors, "t.cxml"));
     ASSERT_FALSE(errors.empty());
     EXPECT_NE(errors[0].find("unknown attribute 'nmae'"), std::string::npos) << errors[0];
     EXPECT_NE(doc.root().Find("good"), nullptr) << "a bad attribute destroyed the running UI";
@@ -600,11 +600,11 @@ TEST(UIMarkupAttributes, AnUnknownAttributeIsAnErrorAndLeavesTheTreeAlone) {
 TEST(UIMarkupAttributes, TheRootIsValidatedExactlyLikeAChild) {
     UIDocument doc;
     std::vector<std::string> ok;
-    ASSERT_TRUE(UIMarkup::LoadInto(doc, R"(<UI name="hud"><Element name="good"/></UI>)", ok, "t.uxml"));
+    ASSERT_TRUE(UIMarkup::LoadInto(doc, R"(<UI name="hud"><Element name="good"/></UI>)", ok, "t.cxml"));
 
     std::vector<std::string> errors;
     EXPECT_FALSE(UIMarkup::LoadInto(doc, R"(<UI data-sorce="hud"><Element name="x"/></UI>)",
-                                    errors, "t.uxml"));
+                                    errors, "t.cxml"));
     ASSERT_FALSE(errors.empty());
     EXPECT_NE(errors[0].find("unknown attribute 'data-sorce'"), std::string::npos) << errors[0];
     // ...and the document is untouched, root included.
@@ -616,7 +616,7 @@ TEST(UIMarkupAttributes, ABadTemplateFailsTheLoadAndReportsWhere) {
     UIDocument doc;
     std::vector<std::string> errors;
     EXPECT_FALSE(UIMarkup::LoadInto(
-        doc, R"(<UI><Label name="scoreLabel" text="SCORE {score"/></UI>)", errors, "t.uxml"));
+        doc, R"(<UI><Label name="scoreLabel" text="SCORE {score"/></UI>)", errors, "t.cxml"));
     ASSERT_FALSE(errors.empty());
     EXPECT_NE(errors[0].find("scoreLabel"), std::string::npos) << errors[0];
     EXPECT_NE(errors[0].find("unterminated"), std::string::npos) << errors[0];
@@ -625,11 +625,11 @@ TEST(UIMarkupAttributes, ABadTemplateFailsTheLoadAndReportsWhere) {
 TEST(UIMarkupAttributes, ReloadingReplacesDataSourceAndBindingsRatherThanAccumulating) {
     UIDocument doc;
     std::vector<std::string> errors;
-    ASSERT_TRUE(UIMarkup::LoadInto(doc, R"(<UI data-source="a" text="{v}"/>)", errors, "t.uxml"));
+    ASSERT_TRUE(UIMarkup::LoadInto(doc, R"(<UI data-source="a" text="{v}"/>)", errors, "t.cxml"));
     EXPECT_EQ(doc.root().dataSourceName(), "a");
     EXPECT_EQ(doc.root().bindings().size(), 1u);
 
-    ASSERT_TRUE(UIMarkup::LoadInto(doc, R"(<UI/>)", errors, "t.uxml"));
+    ASSERT_TRUE(UIMarkup::LoadInto(doc, R"(<UI/>)", errors, "t.cxml"));
     EXPECT_TRUE(doc.root().dataSourceName().empty()) << "a stale data-source survived a reload";
     EXPECT_TRUE(doc.root().bindings().empty()) << "a stale binding survived a reload";
     EXPECT_TRUE(doc.root().style().text.empty()) << "stale text survived a reload";
@@ -657,8 +657,8 @@ struct BindFixture {
         ctx.RegisterSource("s", &src);
         const std::string xml = "<UI data-source=\"s\"><Element name=\"e\" bind=\"" +
                                 bindAttr + "\"/></UI>";
-        if (!UIMarkup::LoadInto(doc, xml, errors, "t.uxml")) return false;
-        binder.Rebuild(doc, ctx, "t.uxml");
+        if (!UIMarkup::LoadInto(doc, xml, errors, "t.cxml")) return false;
+        binder.Rebuild(doc, ctx, "t.cxml");
         return true;
     }
     UIElement* el() { return doc.root().Find("e"); }
@@ -694,7 +694,7 @@ TEST(UIBindStyle, BareNumberBecomesPixels) {
 }
 
 // Literals around the hole route through the ordinary declaration parser, so
-// interpolated text means exactly what the same text means in a .uss file.
+// interpolated text means exactly what the same text means in a .cstyle file.
 TEST(UIBindStyle, LiteralsAroundAHoleGoThroughTheDeclarationGrammar) {
     BindFixture f;
     ASSERT_TRUE(f.Load("width: {health | ratio}%"));
@@ -734,7 +734,7 @@ TEST(UIBindStyle, AConstantBindIsRefusedWithAdvice) {
     UIDocument doc;
     std::vector<std::string> errors;
     EXPECT_FALSE(UIMarkup::LoadInto(doc, R"(<UI><Element name="e" bind="width: 100%"/></UI>)",
-                                    errors, "t.uxml"));
+                                    errors, "t.cxml"));
     ASSERT_FALSE(errors.empty());
     EXPECT_NE(errors[0].find("use style="), std::string::npos) << errors[0];
 }
@@ -743,7 +743,7 @@ TEST(UIBindStyle, AnUnknownBoundPropertyFailsTheLoad) {
     UIDocument doc;
     std::vector<std::string> errors;
     EXPECT_FALSE(UIMarkup::LoadInto(doc, R"(<UI><Element name="e" bind="widht: {x}"/></UI>)",
-                                    errors, "t.uxml"));
+                                    errors, "t.cxml"));
     ASSERT_FALSE(errors.empty());
     EXPECT_NE(errors[0].find("unknown property 'widht'"), std::string::npos) << errors[0];
 }
@@ -823,12 +823,12 @@ struct IfFixture {
         const std::string xml =
             "<UI data-source=\"s\"><Element name=\"e\" " + attrs +
             " style=\"width: 50px; height: 50px\"/></UI>";
-        if (!UIMarkup::LoadInto(doc, xml, errors, "t.uxml")) return false;
+        if (!UIMarkup::LoadInto(doc, xml, errors, "t.cxml")) return false;
         // Markup only STORES an inline style; the cascade is what replays it
         // onto style() (that ordering is how inline outranks every selector).
         // Same order UIAssetDocument uses: cascade, then bind.
         sheet.ApplyTo(doc.root());
-        binder.Rebuild(doc, ctx, "t.uxml", &sheet);
+        binder.Rebuild(doc, ctx, "t.cxml", &sheet);
         return true;
     }
     UIElement* el() { return doc.root().Find("e"); }
@@ -895,7 +895,7 @@ TEST(UIBindDisplay, AHiddenElementHasNoBoxAndRefusesAHit) {
 
 TEST(UIBindDisplay, DisplayIsAlsoAPlainStylesheetProperty) {
     UIStyleSheet sheet;
-    ASSERT_TRUE(sheet.ParseString(".hidden { display: none; }", "t.uss"))
+    ASSERT_TRUE(sheet.ParseString(".hidden { display: none; }", "t.cstyle"))
         << (sheet.errors().empty() ? "" : sheet.errors()[0]);
     UIDocument doc;
     UIElement* e = doc.root().AddChild("e");
@@ -904,7 +904,7 @@ TEST(UIBindDisplay, DisplayIsAlsoAPlainStylesheetProperty) {
     EXPECT_EQ(e->style().display, DisplayMode::None);
 
     UIStyleSheet bad;
-    EXPECT_FALSE(bad.ParseString(".x { display: sideways; }", "t.uss"));
+    EXPECT_FALSE(bad.ParseString(".x { display: sideways; }", "t.cstyle"));
     ASSERT_FALSE(bad.errors().empty());
     EXPECT_NE(bad.errors()[0].find("display must be flex|none"), std::string::npos)
         << bad.errors()[0];
@@ -914,7 +914,7 @@ TEST(UIBindDisplay, AnEmptyOrNonBoolConditionIsReported) {
     UIDocument doc;
     std::vector<std::string> errors;
     EXPECT_FALSE(UIMarkup::LoadInto(doc, R"(<UI><Element name="e" if=" ! "/></UI>)",
-                                    errors, "t.uxml"));
+                                    errors, "t.cxml"));
     ASSERT_FALSE(errors.empty());
     EXPECT_NE(errors[0].find("if: empty"), std::string::npos) << errors[0];
 
@@ -938,7 +938,7 @@ TEST(UIBindActions, OnClickInvokesTheNamedActionAndBubbles) {
           <Element name="outer" style="width: 100px; height: 100px" on-click="outerHit">
             <Element name="inner" style="width: 40px; height: 40px" on-click="innerHit"/>
           </Element>
-        </UI>)", errors, "t.uxml")) << (errors.empty() ? "" : errors[0]);
+        </UI>)", errors, "t.cxml")) << (errors.empty() ? "" : errors[0]);
 
     UIDataSource s;
     std::vector<std::string> order;
@@ -949,7 +949,7 @@ TEST(UIBindActions, OnClickInvokesTheNamedActionAndBubbles) {
     UIStyleSheet sheet;
     sheet.ApplyTo(doc.root());   // replays the inline styles that give the boxes size
     UIBinder binder;
-    binder.Rebuild(doc, ctx, "t.uxml", &sheet);
+    binder.Rebuild(doc, ctx, "t.cxml", &sheet);
     ASSERT_TRUE(binder.ok()) << binder.errors()[0];
 
     doc.Layout(200.f, 200.f);
@@ -966,13 +966,13 @@ TEST(UIBindActions, AMisspeltActionIsReportedWithTheOnesThatExist) {
     std::vector<std::string> errors;
     ASSERT_TRUE(UIMarkup::LoadInto(
         doc, R"(<UI data-source="s"><Button name="b" on-click="addScre"/></UI>)",
-        errors, "t.uxml"));
+        errors, "t.cxml"));
     UIDataSource s;
     s.AddAction("addScore", [] {});
     UIBindingContext ctx;
     ctx.RegisterSource("s", &s);
     UIBinder binder;
-    binder.Rebuild(doc, ctx, "t.uxml");
+    binder.Rebuild(doc, ctx, "t.cxml");
 
     EXPECT_FALSE(binder.ok());
     ASSERT_FALSE(binder.errors().empty());
@@ -985,7 +985,7 @@ TEST(UIBindActions, AnUnknownEventNameFailsTheLoad) {
     UIDocument doc;
     std::vector<std::string> errors;
     EXPECT_FALSE(UIMarkup::LoadInto(doc, R"(<UI><Button name="b" on-hover="x"/></UI>)",
-                                    errors, "t.uxml"));
+                                    errors, "t.cxml"));
     ASSERT_FALSE(errors.empty());
     EXPECT_NE(errors[0].find("unknown event 'hover'"), std::string::npos) << errors[0];
     EXPECT_NE(errors[0].find("pointer-enter"), std::string::npos)
@@ -996,7 +996,7 @@ TEST(UIBindActions, AnUnknownEventNameFailsTheLoad) {
 // back by itself — that is the whole reason to prefer it over an OnClick the
 // app re-attaches.
 TEST(UIBindActions, ABoundActionSurvivesAReloadWithNoReAttach) {
-    const std::string markup = "test_ui_action.uxml";
+    const std::string markup = "test_ui_action.cxml";
     writeFileAt(markup, R"(<UI data-source="s">
         <Element name="b" style="width: 50px; height: 50px" on-click="go"/></UI>)", 0);
 
@@ -1030,7 +1030,7 @@ TEST(UIBindActions, ABoundActionSurvivesAReloadWithNoReAttach) {
 // element, and the model is not in the tree, so no value is lost and the app
 // re-pushes nothing.
 TEST(UIBindingHotReload, ValuesSurviveAReloadWithNoRePush) {
-    const std::string markup = "test_ui_binding.uxml";
+    const std::string markup = "test_ui_binding.cxml";
     writeFileAt(markup, R"(<UI data-source="hud"><Label name="l" text="SCORE {score}"/></UI>)", 0);
 
     UIDataSource src;
@@ -1065,7 +1065,7 @@ TEST(UIBindingHotReload, ValuesSurviveAReloadWithNoRePush) {
 // A half-typed file must not silently UNBIND a working UI any more than it may
 // blank one.
 TEST(UIBindingHotReload, ABrokenEditKeepsTheLastGoodTreeStillBound) {
-    const std::string markup = "test_ui_binding_bad.uxml";
+    const std::string markup = "test_ui_binding_bad.cxml";
     writeFileAt(markup, R"(<UI data-source="hud"><Label name="l" text="{score}"/></UI>)", 0);
 
     UIDataSource src;
@@ -1155,7 +1155,7 @@ TEST(UIBindingHotReload, TheShippedMultilineFieldEditsAndUndoes) {
 
 // Binding a property makes its stylesheet rule dead. That is a legitimate
 // pattern — the rule is the pre-bind default — but finding out by editing the
-// .uss and watching nothing happen is the silent no-op this codebase reports
+// .cstyle and watching nothing happen is the silent no-op this codebase reports
 // errors to avoid.
 TEST(UIBindingHotReload, AShadowedStylesheetDeclarationIsNoted) {
     ShippedHud hud;
@@ -1167,6 +1167,6 @@ TEST(UIBindingHotReload, AShadowedStylesheetDeclarationIsNoted) {
         if (n.find("'width'") != std::string::npos &&
             n.find("healthFill") != std::string::npos) sawWidth = true;
     }
-    EXPECT_TRUE(sawWidth) << "hud.uss declares .fill { width } and hud.uxml binds width; "
+    EXPECT_TRUE(sawWidth) << "hud.cstyle declares .fill { width } and hud.cxml binds width; "
                              "that has to be reported, not silent";
 }

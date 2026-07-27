@@ -74,8 +74,8 @@ protected:
     // Relative to the working directory on purpose: UIMarkup runs the same
     // containment gate as every other authored path, so an absolute temp
     // directory would be (correctly) refused.
-    std::string markup_ = "test_ui_hot.uxml";
-    std::string style_ = "test_ui_hot.uss";
+    std::string markup_ = "test_ui_hot.cxml";
+    std::string style_ = "test_ui_hot.cstyle";
 
     void SetUp() override {
         writeAt(markup_, kMarkupA, 0);
@@ -231,7 +231,7 @@ TEST_F(UIHotReloadTest, RecoversWhenTheBrokenFileIsFixed) {
 }
 
 // A stylesheet is cosmetic; structure without styling is far more useful to
-// look at than nothing at all, so a bad .uss is reported but not fatal.
+// look at than nothing at all, so a bad .cstyle is reported but not fatal.
 TEST_F(UIHotReloadTest, BrokenStylesheetIsNotFatalAndKeepsTheLastGoodStyling) {
     UIAssetDocument d;
     ASSERT_TRUE(d.Load(markup_, style_));
@@ -323,7 +323,7 @@ TEST_F(UIHotReloadTest, BindDoesNotRunWhenTheReloadFails) {
 
 TEST_F(UIHotReloadTest, MissingFilesFailCleanlyAndAreReported) {
     UIAssetDocument d;
-    EXPECT_FALSE(d.Load("no_such_ui_98765.uxml", "no_such_ui_98765.uss"));
+    EXPECT_FALSE(d.Load("no_such_ui_98765.cxml", "no_such_ui_98765.cstyle"));
     EXPECT_FALSE(d.errors().empty());
     // Still safe to drive: a game must not have to null-check its HUD.
     EXPECT_FALSE(d.Update(1.0f));
@@ -335,7 +335,7 @@ TEST_F(UIHotReloadTest, MissingFilesFailCleanlyAndAreReported) {
 // applies here as to models, scripts, clips and HDRis.
 TEST_F(UIHotReloadTest, RejectsMarkupOutsideTheProject) {
     UIAssetDocument d;
-    EXPECT_FALSE(d.Load("../../evil.uxml", ""));
+    EXPECT_FALSE(d.Load("../../evil.cxml", ""));
     ASSERT_FALSE(d.errors().empty());
     EXPECT_NE(d.errors()[0].find("outside the project"), std::string::npos)
         << "expected a containment rejection, got: " << d.errors()[0];

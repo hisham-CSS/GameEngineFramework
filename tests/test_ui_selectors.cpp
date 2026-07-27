@@ -40,8 +40,8 @@ struct Tree {
     std::vector<std::string> errors;
 
     bool Load(const std::string& css, const char* markup = kTree) {
-        if (!sheet.ParseString(css, "t.uss")) return false;
-        if (!UIMarkup::LoadInto(doc, markup, errors, "t.uxml")) return false;
+        if (!sheet.ParseString(css, "t.cstyle")) return false;
+        if (!UIMarkup::LoadInto(doc, markup, errors, "t.cxml")) return false;
         sheet.ApplyTo(doc.root());
         return true;
     }
@@ -105,7 +105,7 @@ TEST(UISelectors, SpecificitySumsAcrossCompounds) {
         ".panel .btn { color: red; }\n"          // 2 classes
         ".panel .row .btn:hover { color: red; }\n"  // 4 (3 classes + pseudo)
         "#root > Element.btn { color: red; }\n", // 1 id + 1 class + 1 type
-        "t.uss")) << (s.errors().empty() ? "" : s.errors()[0]);
+        "t.cstyle")) << (s.errors().empty() ? "" : s.errors()[0]);
     EXPECT_EQ(classCount(s, 0), 1);
     EXPECT_EQ(classCount(s, 1), 2);
     EXPECT_EQ(classCount(s, 2), 4);
@@ -194,7 +194,7 @@ TEST(UISelectors, SiblingsComposeWithAncestorsAndStates) {
 TEST(UISelectors, SiblingSpecificitySumsLikeAnyOtherCompound) {
     UIStyleSheet s;
     ASSERT_TRUE(s.ParseString(".a + .b { color: red; }\n"
-                              ".a ~ .b:hover { color: red; }\n", "t.uss"))
+                              ".a ~ .b:hover { color: red; }\n", "t.cstyle"))
         << (s.errors().empty() ? "" : s.errors()[0]);
     EXPECT_EQ(classCount(s, 0), 2);
     EXPECT_EQ(classCount(s, 1), 3);
@@ -221,7 +221,7 @@ TEST(UISelectors, MalformedCombinatorsAreReported) {
                              ".panel > ~ .btn { color: red; }",
                              ".panel > > .btn { color: red; }" }) {
         UIStyleSheet s;
-        EXPECT_FALSE(s.ParseString(css, "t.uss")) << css;
+        EXPECT_FALSE(s.ParseString(css, "t.cstyle")) << css;
         ASSERT_FALSE(s.errors().empty()) << css;
         EXPECT_TRUE(s.rules().empty()) << css;
     }

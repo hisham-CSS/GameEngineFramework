@@ -19,7 +19,7 @@ namespace MyCoreEngine {
         // Project-relative, and run through PathIsContained before opening —
         // markup is authored content flowing into a parser, like every model,
         // script, clip and HDRi path in a scene file.
-        std::string markup;      // e.g. "Exported/UI/hud.uxml"
+        std::string markup;      // e.g. "Exported/UI/hud.cxml"
         std::string stylesheet;  // may be empty
         // Larger draws later, so a HUD can sit over a background panel without
         // either of them knowing about the other. Ties break on entity order,

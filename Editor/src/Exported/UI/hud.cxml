@@ -5,7 +5,7 @@
   entity carrying a UIDocumentComponent that points here, exactly the way an
   entity carries a mesh or a sound. Select "HUD" in the Hierarchy to see it.
 
-  Structure here, appearance in hud.uss, and VALUES arrive by BINDING: a {hole}
+  Structure here, appearance in hud.cstyle, and VALUES arrive by BINDING: a {hole}
   reads a named property from `scene`, the data source every document in the
   scene shares (seeded in InstallDemoUIContent). Gameplay writes a value; this
   file decides how it reads.
@@ -20,7 +20,7 @@
                              literal braces
     data-source="scene"      inherited by this element and its whole subtree
     bind="width: {h}"        CSS declarations whose VALUES carry {holes}. Every
-                             property .uss understands works here, and a bound
+                             property .cstyle understands works here, and a bound
                              property outranks the stylesheet (which then acts
                              as the pre-bind default, and says so at load).
     if="alive"  if="!dead"   visibility from a bool; writes display: flex|none
@@ -59,7 +59,7 @@
     <!-- The whole readout in one attribute: no placeholder text and no separate
          format string in C++, so there is nothing to drift out of sync. -->
     <!-- `classes` toggles a class from a bool, so the LOOK of "low" lives in
-         hud.uss rather than in a colour written from C++. Removing a class
+         hud.cstyle rather than in a colour written from C++. Removing a class
          cannot un-apply its rules on its own — the cascade has no undo — so the
          element is re-cascaded from scratch, exactly as :hover does. -->
     <Label name="scoreLabel" class="readout" classes="alarm: {lowHealth}"
@@ -109,7 +109,7 @@
 
   <!-- `if` writes display:none rather than removing the element, so it keeps
        its identity, its handlers and its place in this file — and flipping it
-       is one style write. `.warning` starts hidden in hud.uss so a slow first
+       is one style write. `.warning` starts hidden in hud.cstyle so a slow first
        frame cannot flash the banner. -->
   <Element name="lowHealth" class="warning" if="lowHealth"
            text="LOW HEALTH  {health | ratio : 0}%"/>
@@ -123,7 +123,7 @@
   <!-- `overflow: scroll` clips AND scrolls. Put the pointer over it and turn
        the wheel; drag the thumb on the right.
 
-       The height in hud.uss is what makes this a scroller at all: a scroller
+       The height in hud.cstyle is what makes this a scroller at all: a scroller
        needs a definite height, because `scroll` stops its children being
        squeezed to fit (that is what leaves something to scroll), so without one
        the panel just grows to its content and escapes the HUD.

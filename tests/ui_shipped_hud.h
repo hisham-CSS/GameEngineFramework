@@ -3,7 +3,7 @@
 // entity carrying a UIDocumentComponent, driven by a UIWorld with the demo's
 // named action and converter installed.
 //
-// Every test that asserts on Exported/UI/hud.uxml + hud.uss goes through this,
+// Every test that asserts on Exported/UI/hud.cxml + hud.cstyle goes through this,
 // so the assertions exercise the real path a game uses — and a typo in either
 // file, or a converter the markup names but the C++ forgot to register, fails
 // the suite instead of shipping.
@@ -22,8 +22,8 @@ struct ShippedHud {
         MyCoreEngine::InstallDemoUIContent(world);
         entity = scene.registry.create();
         MyCoreEngine::UIDocumentComponent ud;
-        ud.markup = "Exported/UI/hud.uxml";
-        ud.stylesheet = "Exported/UI/hud.uss";
+        ud.markup = "Exported/UI/hud.cxml";
+        ud.stylesheet = "Exported/UI/hud.cstyle";
         scene.registry.emplace<MyCoreEngine::UIDocumentComponent>(entity, ud);
     }
 

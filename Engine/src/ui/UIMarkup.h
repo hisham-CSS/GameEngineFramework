@@ -1,5 +1,5 @@
 #pragma once
-// UXML-like markup: UI structure as a data asset instead of C++.
+// CXML-like markup: UI structure as a data asset instead of C++.
 //
 //   <UI>
 //     <Element name="topBar" class="row bar">

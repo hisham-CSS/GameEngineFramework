@@ -37,9 +37,9 @@ struct Bound {
 
     bool Load(const std::string& markup) {
         ctx.RegisterSource("s", &src);
-        if (!UIMarkup::LoadInto(doc, markup, errors, "t.uxml")) return false;
+        if (!UIMarkup::LoadInto(doc, markup, errors, "t.cxml")) return false;
         sheet.ApplyTo(doc.root());
-        binder.Rebuild(doc, ctx, "t.uxml", &sheet);
+        binder.Rebuild(doc, ctx, "t.cxml", &sheet);
         doc.Layout(400.f, 400.f);
         return true;
     }
@@ -153,7 +153,7 @@ TEST(UITwoWay, MalformedPushAttributesFailTheLoad) {
              Case{ R"(<UI><Element push-hovered="a.b.c"/></UI>)", "more than one '.'" } }) {
         UIDocument doc;
         std::vector<std::string> errors;
-        EXPECT_FALSE(UIMarkup::LoadInto(doc, c.markup, errors, "t.uxml")) << c.markup;
+        EXPECT_FALSE(UIMarkup::LoadInto(doc, c.markup, errors, "t.cxml")) << c.markup;
         ASSERT_FALSE(errors.empty()) << c.markup;
         EXPECT_NE(errors[0].find(c.needle), std::string::npos) << errors[0];
     }
@@ -168,11 +168,11 @@ TEST(UITwoWay, AQualifiedPushPathNamesItsOwnSource) {
     std::vector<std::string> errors;
     ASSERT_TRUE(UIMarkup::LoadInto(doc, R"(<UI data-source="a">
         <Element name="btn" push-hovered="other.isOver"
-                 style="width: 100px; height: 100px"/></UI>)", errors, "t.uxml"));
+                 style="width: 100px; height: 100px"/></UI>)", errors, "t.cxml"));
     UIStyleSheet sheet;
     sheet.ApplyTo(doc.root());
     UIBinder binder;
-    binder.Rebuild(doc, ctx, "t.uxml", &sheet);
+    binder.Rebuild(doc, ctx, "t.cxml", &sheet);
     ASSERT_TRUE(binder.ok()) << binder.errors()[0];
     doc.Layout(400.f, 400.f);
 
@@ -256,7 +256,7 @@ TEST(UITwoWay, BindValueOnlyAppliesToAField) {
     UIDocument doc;
     std::vector<std::string> errors;
     EXPECT_FALSE(UIMarkup::LoadInto(doc, R"(<UI><Label name="l" bind-value="v"/></UI>)",
-                                    errors, "t.uxml"));
+                                    errors, "t.cxml"));
     ASSERT_FALSE(errors.empty());
     EXPECT_NE(errors[0].find("only valid on a <TextField>"), std::string::npos)
         << errors[0];
@@ -274,7 +274,7 @@ TEST(UITwoWay, PushBindingsSurviveAReload) {
     ASSERT_EQ(b.src.GetString("v"), "one");
 
     // Re-collect the way a reload would.
-    b.binder.Rebuild(b.doc, b.ctx, "t.uxml", &b.sheet);
+    b.binder.Rebuild(b.doc, b.ctx, "t.cxml", &b.sheet);
     ASSERT_TRUE(b.binder.ok()) << b.binder.errors()[0];
     // Rebuild's force-apply pushes the model back INTO the field, which is the
     // right direction after a reload: the model is what survived.

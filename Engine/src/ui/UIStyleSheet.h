@@ -1,5 +1,5 @@
 #pragma once
-// USS-like stylesheets: a CSS subset for the in-game UI.
+// `.cstyle` stylesheets: a CSS-shaped subset for the in-game UI.
 //
 // Hand-written parser, no dependency. A full CSS engine is enormous and most of
 // it is meaningless for game UI (floats, tables, inline layout, @media...), so

@@ -222,7 +222,7 @@ namespace {
     using Prop = UIDeclaration::Prop;
 
     // THE property vocabulary. One table, three consumers: the declaration
-    // parser (.uss and style=), the binding parser (bind=), and the diagnostic
+    // parser (.cstyle and style=), the binding parser (bind=), and the diagnostic
     // that reports a shadowed declaration.
     //
     // It used to be a 25-way if-chain inside the parser, which meant a binding

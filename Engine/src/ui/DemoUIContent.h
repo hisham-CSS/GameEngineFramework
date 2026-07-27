@@ -1,7 +1,7 @@
 #pragma once
 // The C++ half of the sample HUD — and there is very little of it left.
 //
-// Everything the sample HUD shows lives in Exported/UI/hud.uxml + hud.uss, and
+// Everything the sample HUD shows lives in Exported/UI/hud.cxml + hud.cstyle, and
 // it reaches the screen because the default scene has an ENTITY carrying a
 // UIDocumentComponent. Nothing about it is installed by the executable, which
 // is the point: a game's UI is scene content, exactly like its meshes, lights,

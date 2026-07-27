@@ -445,7 +445,7 @@ void EditorApplication::Run() {
         // the "what ships" preview and must show the same HUD the Player draws,
         // built from the same definition so the two cannot drift.
         // The UI comes from the SCENE: entities carrying a UIDocumentComponent,
-        // whose .uxml and .uss hot-reload. Edit either while the editor runs and
+        // whose .cxml and .cstyle hot-reload. Edit either while the editor runs and
         // the Game view updates in place, with no rebuild and without losing
         // the scene you were testing.
         if (!uiFont_.LoadFromFile("Exported/Fonts/Roboto.ttf", 18.0f)) {

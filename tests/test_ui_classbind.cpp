@@ -33,11 +33,11 @@ struct ClassBound {
     std::vector<std::string> errors;
 
     bool Load(const std::string& css, const std::string& markup) {
-        if (!sheet.ParseString(css, "t.uss")) return false;
+        if (!sheet.ParseString(css, "t.cstyle")) return false;
         ctx.RegisterSource("s", &src);
-        if (!UIMarkup::LoadInto(doc, markup, errors, "t.uxml")) return false;
+        if (!UIMarkup::LoadInto(doc, markup, errors, "t.cxml")) return false;
         sheet.ApplyTo(doc.root());
-        binder.Rebuild(doc, ctx, "t.uxml", &sheet);
+        binder.Rebuild(doc, ctx, "t.cxml", &sheet);
         return true;
     }
     UIElement* el(const char* n) { return doc.root().Find(n); }
@@ -204,7 +204,7 @@ TEST(UIClassBind, MalformedAttributesAreReported) {
              Case{ R"(<UI><Element classes="a b: {x}"/></UI>)", "not a plain class name" } }) {
         UIDocument doc;
         std::vector<std::string> errors;
-        EXPECT_FALSE(UIMarkup::LoadInto(doc, c.markup, errors, "t.uxml")) << c.markup;
+        EXPECT_FALSE(UIMarkup::LoadInto(doc, c.markup, errors, "t.cxml")) << c.markup;
         ASSERT_FALSE(errors.empty()) << c.markup;
         EXPECT_NE(errors[0].find(c.needle), std::string::npos)
             << c.markup << " -> " << errors[0];
@@ -232,9 +232,9 @@ TEST(UIClassBind, WorksWithoutAStylesheet) {
     ctx.RegisterSource("s", &src);
     std::vector<std::string> errors;
     ASSERT_TRUE(UIMarkup::LoadInto(doc, R"(<UI data-source="s">
-        <Element name="e" classes="lit: {on}"/></UI>)", errors, "t.uxml"));
+        <Element name="e" classes="lit: {on}"/></UI>)", errors, "t.cxml"));
     UIBinder binder;
-    binder.Rebuild(doc, ctx, "t.uxml");   // no sheet
+    binder.Rebuild(doc, ctx, "t.cxml");   // no sheet
     src.SetBool("on", true);
     binder.UpdateToTarget();
     EXPECT_TRUE(doc.root().Find("e")->HasClass("lit"));
@@ -250,7 +250,7 @@ TEST(UIClassBind, AToggledClassIsRestoredAfterARebuild) {
     b.binder.UpdateToTarget();
     ASSERT_TRUE(b.el("e")->HasClass("low-health"));
 
-    b.binder.Rebuild(b.doc, b.ctx, "t.uxml", &b.sheet);
+    b.binder.Rebuild(b.doc, b.ctx, "t.cxml", &b.sheet);
     EXPECT_TRUE(b.el("e")->HasClass("low-health"))
         << "the force-apply did not restore the toggled class";
 }

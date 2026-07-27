@@ -8053,8 +8053,8 @@
     {
       "name": "HUD",
       "uiDocument": {
-        "markup": "Exported/UI/hud.uxml",
-        "stylesheet": "Exported/UI/hud.uss",
+        "markup": "Exported/UI/hud.cxml",
+        "stylesheet": "Exported/UI/hud.cstyle",
         "sortOrder": 0,
         "enabled": true,
         "interactive": true

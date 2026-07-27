@@ -15,7 +15,7 @@
 //
 // Strings route through the stylesheet's own parsers, so "auto", "50%",
 // "#d93a3d" and "rgba(0,0,0,.45)" mean exactly the same thing in a bound value
-// as they do in a .uss file.
+// as they do in a .cstyle file.
 #include "../core/Core.h"
 #include "UIStyle.h"
 

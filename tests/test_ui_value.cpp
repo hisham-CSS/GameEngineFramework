@@ -77,7 +77,7 @@ TEST(UIValue, OnlyAPointLengthReadsAsANumber) {
 }
 
 // Strings route through the STYLESHEET's parsers, so authored text means the
-// same thing in a bound value as it does in a .uss declaration. Two parsers
+// same thing in a bound value as it does in a .cstyle declaration. Two parsers
 // that agree today drift the first time one learns a new unit.
 TEST(UIValue, StringsParseWithTheStylesheetGrammar) {
     StyleLength l;
@@ -167,7 +167,7 @@ TEST(UIValue, RejectsNonFiniteValues) {
 }
 
 // The other end of the same hole, and a latent bug in shipped code: strtod is
-// C99-mandated to accept "nan" and "inf", so `width: nan` in a .uss used to
+// C99-mandated to accept "nan" and "inf", so `width: nan` in a .cstyle used to
 // parse successfully.
 TEST(UIValue, StylesheetNumberParserRejectsNanAndInf) {
     float f = 0.f;
@@ -186,7 +186,7 @@ TEST(UIValue, StylesheetNumberParserRejectsNanAndInf) {
 
 TEST(UIValue, StylesheetRefusesANonFiniteLengthEndToEnd) {
     UIStyleSheet sheet;
-    EXPECT_FALSE(sheet.ParseString(".x { width: nan; }", "t.uss"));
+    EXPECT_FALSE(sheet.ParseString(".x { width: nan; }", "t.cstyle"));
     ASSERT_FALSE(sheet.errors().empty());
     EXPECT_NE(sheet.errors()[0].find("bad length"), std::string::npos) << sheet.errors()[0];
 }

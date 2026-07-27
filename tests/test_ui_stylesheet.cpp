@@ -1,4 +1,4 @@
-// USS-like stylesheets: parsing, selector matching and the cascade.
+// `.cstyle` stylesheets: parsing, selector matching and the cascade.
 //
 // Pure CPU. The behaviour worth pinning is CSS behaviour — specificity order,
 // shorthand expansion, colour formats — because the whole point of copying the
@@ -274,7 +274,7 @@ TEST(UIStyleSheet, AFailedReparseKeepsTheWorkingSheet) {
 }
 
 TEST(UIStyleSheet, LoadFromFileAndMissingFile) {
-    const char* path = "test_ui_sheet.uss";
+    const char* path = "test_ui_sheet.cstyle";
     { std::ofstream o(path); o << ".x { flex-grow: 4; }"; }
 
     UIStyleSheet s;
@@ -285,7 +285,7 @@ TEST(UIStyleSheet, LoadFromFileAndMissingFile) {
     std::remove(path);
 
     UIStyleSheet missing;
-    EXPECT_FALSE(missing.LoadFromFile("no_such_sheet_12345.uss"));
+    EXPECT_FALSE(missing.LoadFromFile("no_such_sheet_12345.cstyle"));
     EXPECT_FALSE(missing.errors().empty()) << "a missing file must say so";
 }
 

@@ -38,7 +38,7 @@ struct Form {
                   <Element name="b" focusable="true" style="width: 100px; height: 40px"/>
                   <Element name="c" focusable="true" style="width: 100px; height: 40px"/>
                 </UI>)") {
-        UIMarkup::LoadInto(doc, markup, errors, "t.uxml");
+        UIMarkup::LoadInto(doc, markup, errors, "t.cxml");
         UIStyleSheet sheet;
         sheet.ApplyTo(doc.root());   // replays inline styles onto style()
         doc.Layout(400.f, 400.f);
@@ -284,13 +284,13 @@ TEST(UIFocusStyling, FocusAndDisabledAreStyleable) {
     ASSERT_TRUE(sheet.ParseString(
         ".f { background-color: #202020; }\n"
         ".f:focus { background-color: #00ff00; }\n"
-        ".f:disabled { background-color: #ff0000; }\n", "t.uss"))
+        ".f:disabled { background-color: #ff0000; }\n", "t.cstyle"))
         << (sheet.errors().empty() ? "" : sheet.errors()[0]);
 
     std::vector<std::string> errors;
     ASSERT_TRUE(UIMarkup::LoadInto(doc,
         R"(<UI><Element name="e" class="f" focusable="true"
-                     style="width: 50px; height: 50px"/></UI>)", errors, "t.uxml"));
+                     style="width: 50px; height: 50px"/></UI>)", errors, "t.cxml"));
     sheet.ApplyTo(doc.root());
     UIInteractionStyler styler;
     styler.Rebuild(doc, sheet, nullptr);
@@ -320,13 +320,13 @@ TEST(UIFocusStyling, DisabledStylingIsInherited) {
     UIStyleSheet sheet;
     ASSERT_TRUE(sheet.ParseString(
         ".btn { background-color: #202020; }\n"
-        ".btn:disabled { background-color: #ff0000; }\n", "t.uss"));
+        ".btn:disabled { background-color: #ff0000; }\n", "t.cstyle"));
 
     std::vector<std::string> errors;
     ASSERT_TRUE(UIMarkup::LoadInto(doc, R"(<UI>
           <Element name="panel" style="width: 200px; height: 200px">
             <Element name="btn" class="btn" style="width: 50px; height: 50px"/>
-          </Element></UI>)", errors, "t.uxml"));
+          </Element></UI>)", errors, "t.cxml"));
     sheet.ApplyTo(doc.root());
     UIInteractionStyler styler;
     styler.Rebuild(doc, sheet, nullptr);
@@ -349,7 +349,7 @@ TEST(UIFocusStyling, MarkupCanDeclareFocusableAndDisabled) {
           <Element name="off" disabled="true"/>
           <Element name="bare" disabled=""/>
           <Button name="optout" focusable="false"/>
-        </UI>)", errors, "t.uxml")) << (errors.empty() ? "" : errors[0]);
+        </UI>)", errors, "t.cxml")) << (errors.empty() ? "" : errors[0]);
 
     // A Button is focusable because that is what the word means; a plain
     // Element is not, because a tab order full of panels is worse than none.
@@ -363,14 +363,14 @@ TEST(UIFocusStyling, MarkupCanDeclareFocusableAndDisabled) {
     std::vector<std::string> bad;
     UIDocument other;
     EXPECT_FALSE(UIMarkup::LoadInto(other, R"(<UI><Element focusable="yes"/></UI>)",
-                                    bad, "t.uxml"));
+                                    bad, "t.cxml"));
     ASSERT_FALSE(bad.empty());
     EXPECT_NE(bad[0].find("expected true|false"), std::string::npos) << bad[0];
 }
 
 TEST(UIFocusStyling, UnknownPseudoClassListsAllFour) {
     UIStyleSheet s;
-    EXPECT_FALSE(s.ParseString(".x:checked { color: red; }", "t.uss"));
+    EXPECT_FALSE(s.ParseString(".x:checked { color: red; }", "t.cstyle"));
     ASSERT_FALSE(s.errors().empty());
     EXPECT_NE(s.errors()[0].find("hover|active|focus|disabled"), std::string::npos)
         << s.errors()[0];

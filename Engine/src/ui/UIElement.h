@@ -134,7 +134,7 @@ namespace MyCoreEngine::ui {
         const std::string& name() const { return name_; }
         void setName(std::string n) { name_ = std::move(n); }
 
-        // Selector identity, mirroring CSS/USS: `type` is the element kind
+        // Selector identity, mirroring CSS: `type` is the element kind
         // ("Element", "Label", "Button" — matched by a bare type selector),
         // `name` is the #id, and classes are the .class list. All three exist
         // so a stylesheet can target elements without the code knowing about

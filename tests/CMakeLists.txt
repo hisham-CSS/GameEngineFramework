@@ -96,8 +96,8 @@ engine_test(test_font_text)        # stb_truetype atlas bake, UTF-8, text layout
 engine_test(test_ui_layout)        # element tree + flexbox against known CSS results
 engine_test(test_ui_pass)          # UI overlay: draws on the final image, no chain slot
 engine_test(test_ui_input)         # hit-testing, hover/press, bubbling events
-engine_test(test_ui_stylesheet)    # USS subset: selectors, cascade, diagnostics
-engine_test(test_ui_markup)        # UXML subset: tree building, inline style, sandbox
+engine_test(test_ui_stylesheet)    # .cstyle subset: selectors, cascade, diagnostics
+engine_test(test_ui_markup)        # CXML subset: tree building, inline style, sandbox
 engine_test(test_ui_hotreload)     # asset reload: change detection, re-binding, failure safety
 engine_test(test_ui_value)         # the bound-value transport: coercion refusals, non-finite gate
 engine_test(test_ui_binding)       # data sources, {hole} templates, the binder, hot-reload survival

@@ -148,7 +148,7 @@ std::string UIValue::ToDisplayString(int decimals) const {
         }
         return {};
     case Kind::Color:
-        // The .uss spelling, so a colour that appears in a label and a colour
+        // The .cstyle spelling, so a colour that appears in a label and a colour
         // that appears in a stylesheet read identically. Channels are 0-255 and
         // alpha is 0-1, matching parseColor.
         std::snprintf(buf, sizeof(buf), "rgba(%d, %d, %d, %g)",

@@ -599,7 +599,7 @@ TEST(UIScroll, MarkupCanAuthorAScroller) {
             <Label style="height: 60px" text="a"/>
             <Label style="height: 60px" text="b"/>
           </Element>
-        </UI>)", errors, "t.uxml")) << (errors.empty() ? "" : errors[0]);
+        </UI>)", errors, "t.cxml")) << (errors.empty() ? "" : errors[0]);
     // An inline style= is REPLAYED by the cascade, not baked in at load, so a
     // sheet has to run even when it is empty — that is what makes an inline
     // style outrank every selector rule instead of being clobbered by one.
@@ -616,13 +616,13 @@ TEST(UIScroll, OnWheelIsAnAuthorableEvent) {
     UIDocument doc;
     std::vector<std::string> errors;
     EXPECT_TRUE(UIMarkup::LoadInto(doc,
-        R"(<UI><Element name="e" on-wheel="spin"/></UI>)", errors, "t.uxml"))
+        R"(<UI><Element name="e" on-wheel="spin"/></UI>)", errors, "t.cxml"))
         << (errors.empty() ? "" : errors[0]);
 
     UIDocument bad;
     errors.clear();
     EXPECT_FALSE(UIMarkup::LoadInto(bad,
-        R"(<UI><Element on-scrollwheel="spin"/></UI>)", errors, "t.uxml"));
+        R"(<UI><Element on-scrollwheel="spin"/></UI>)", errors, "t.cxml"));
     ASSERT_FALSE(errors.empty());
     EXPECT_NE(errors[0].find("wheel"), std::string::npos) << errors[0];
 }
@@ -634,8 +634,8 @@ TEST(UIScroll, OnWheelIsAnAuthorableEvent) {
 // click to move focus in the first place — but the wheel arrives with no click,
 // so a background document holding focus would silently eat it.
 TEST(UIScroll, WheelFollowsHoverNotFocus) {
-    const std::string fieldDoc = "test_uiscroll_field.uxml";
-    const std::string listDoc = "test_uiscroll_list.uxml";
+    const std::string fieldDoc = "test_uiscroll_field.cxml";
+    const std::string listDoc = "test_uiscroll_list.cxml";
     writeFile(fieldDoc, R"(<UI><TextField name="f" style="width: 80px; height: 24px"/></UI>)");
     writeFile(listDoc, kListMarkup);
 
@@ -681,7 +681,7 @@ TEST(UIScroll, WheelFollowsHoverNotFocus) {
 // it must be consumed exactly once. A host that updates without a matching
 // SetPointer would otherwise replay one flick forever.
 TEST(UIScroll, WheelIsConsumedExactlyOnce) {
-    const std::string m = "test_uiscroll_once.uxml";
+    const std::string m = "test_uiscroll_once.cxml";
     writeFile(m, kListMarkup);
 
     Scene scene;
@@ -1166,7 +1166,7 @@ TEST(UIScroll, AFocusedFieldKeepsHomeEndButPassesPageKeys) {
             <Element style="height: 60px"/><Element style="height: 60px"/>
             <Element style="height: 60px"/>
           </Element>
-        </UI>)", errors, "t.uxml")) << (errors.empty() ? "" : errors[0]);
+        </UI>)", errors, "t.cxml")) << (errors.empty() ? "" : errors[0]);
     UIStyleSheet sheet;
     sheet.ApplyTo(doc.root());
     doc.Layout(400.f, 400.f);
@@ -1363,7 +1363,7 @@ struct FieldBarDoc {
         std::vector<std::string> errors;
         UIMarkup::LoadInto(doc, R"(<UI><TextField name="f" multiline="true"
                                      style="width: 200px; height: 60px; padding: 5px"/></UI>)",
-                           errors, "t.uxml");
+                           errors, "t.cxml");
         UIStyleSheet sheet;
         sheet.ApplyTo(doc.root());
         doc.Layout(400.f, 400.f);
@@ -1396,7 +1396,7 @@ TEST(UIScroll, ASingleLineFieldNeverPaintsABar) {
     std::vector<std::string> errors;
     ASSERT_TRUE(UIMarkup::LoadInto(doc,
         R"(<UI><TextField name="f" style="width: 200px; height: 30px"/></UI>)",
-        errors, "t.uxml"));
+        errors, "t.cxml"));
     UIStyleSheet sheet;
     sheet.ApplyTo(doc.root());
     doc.Layout(400.f, 400.f);

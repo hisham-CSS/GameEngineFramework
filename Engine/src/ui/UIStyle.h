@@ -1,5 +1,5 @@
 #pragma once
-// Style for a UI element — a deliberately CSS/USS-shaped subset.
+// Style for a UI element — a deliberately CSS-shaped subset.
 //
 // The names and semantics track flexbox, because that is the whole point: the
 // system is modelled on web front-end and Unity UI Toolkit, so anyone who knows

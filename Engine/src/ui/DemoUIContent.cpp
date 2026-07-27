@@ -10,7 +10,7 @@ namespace MyCoreEngine {
 void InstallDemoUIContent(UIWorld& world) {
     ui::UIDataSource& src = world.shared();
 
-    // Starting values for everything hud.uxml binds to. Seeded BEFORE the
+    // Starting values for everything hud.cxml binds to. Seeded BEFORE the
     // scene loads, so the very first binding pass has real values and nothing
     // is reported unresolved.
     src.SetNumber("health", 1.0f);

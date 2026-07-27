@@ -47,8 +47,8 @@ TEST(UIComponent, RoundTripsThroughTheSceneFile) {
         auto e = scene.registry.create();
         scene.registry.emplace<Transform>(e);
         UIDocumentComponent ud;
-        ud.markup = "Exported/UI/hud.uxml";
-        ud.stylesheet = "Exported/UI/hud.uss";
+        ud.markup = "Exported/UI/hud.cxml";
+        ud.stylesheet = "Exported/UI/hud.cstyle";
         ud.sortOrder = 7;
         ud.enabled = false;
         ud.interactive = false;
@@ -64,8 +64,8 @@ TEST(UIComponent, RoundTripsThroughTheSceneFile) {
         auto view = scene.registry.view<UIDocumentComponent>();
         ASSERT_EQ(view.size(), 1u);
         const UIDocumentComponent& ud = view.get<UIDocumentComponent>(view.front());
-        EXPECT_EQ(ud.markup, "Exported/UI/hud.uxml");
-        EXPECT_EQ(ud.stylesheet, "Exported/UI/hud.uss");
+        EXPECT_EQ(ud.markup, "Exported/UI/hud.cxml");
+        EXPECT_EQ(ud.stylesheet, "Exported/UI/hud.cstyle");
         EXPECT_EQ(ud.sortOrder, 7);
         EXPECT_FALSE(ud.enabled);
         EXPECT_FALSE(ud.interactive);
@@ -83,8 +83,8 @@ TEST(UIComponent, RejectsPathsOutsideTheProject) {
         "version": 1,
         "entities": [
           { "name": "e",
-            "uiDocument": { "markup": "../../evil.uxml",
-                            "stylesheet": "C:/Windows/evil.uss" } }
+            "uiDocument": { "markup": "../../evil.cxml",
+                            "stylesheet": "C:/Windows/evil.cstyle" } }
         ]
       })");
 
@@ -110,7 +110,7 @@ TEST(UIComponent, SurvivesUndoOfAnUnrelatedEdit) {
     auto e = scene.registry.create();
     scene.registry.emplace<Transform>(e);
     UIDocumentComponent ud;
-    ud.markup = "Exported/UI/hud.uxml";
+    ud.markup = "Exported/UI/hud.cxml";
     ud.sortOrder = 3;
     scene.registry.emplace<UIDocumentComponent>(e, ud);
 
@@ -123,7 +123,7 @@ TEST(UIComponent, SurvivesUndoOfAnUnrelatedEdit) {
     ASSERT_TRUE(scene.registry.all_of<UIDocumentComponent>(e))
         << "undoing a move destroyed the entity's UI document";
     const auto& back = scene.registry.get<UIDocumentComponent>(e);
-    EXPECT_EQ(back.markup, "Exported/UI/hud.uxml");
+    EXPECT_EQ(back.markup, "Exported/UI/hud.cxml");
     EXPECT_EQ(back.sortOrder, 3);
 }
 
@@ -135,7 +135,7 @@ TEST(UIComponent, AddAndRemoveAreUndoable) {
 
     undo.record(scene.registry, e, "Add UI", [&] {
         UIDocumentComponent ud;
-        ud.markup = "Exported/UI/hud.uxml";
+        ud.markup = "Exported/UI/hud.cxml";
         scene.registry.emplace<UIDocumentComponent>(e, ud);
     });
     ASSERT_TRUE(scene.registry.all_of<UIDocumentComponent>(e));
@@ -161,8 +161,8 @@ TEST(UIComponent, EveryFieldIsComparedForUndo) {
 
     struct Case { const char* what; void (*edit)(UIDocumentComponent&); };
     for (const Case& c : {
-             Case{ "markup",      [](UIDocumentComponent& u) { u.markup = "a.uxml"; } },
-             Case{ "stylesheet",  [](UIDocumentComponent& u) { u.stylesheet = "a.uss"; } },
+             Case{ "markup",      [](UIDocumentComponent& u) { u.markup = "a.cxml"; } },
+             Case{ "stylesheet",  [](UIDocumentComponent& u) { u.stylesheet = "a.cstyle"; } },
              Case{ "sortOrder",   [](UIDocumentComponent& u) { u.sortOrder = 9; } },
              Case{ "enabled",     [](UIDocumentComponent& u) { u.enabled = false; } },
              Case{ "interactive", [](UIDocumentComponent& u) { u.interactive = false; } } }) {
@@ -184,7 +184,7 @@ TEST(UIComponent, EveryFieldIsComparedForUndo) {
 // ---------------------------------------------------------------- UIWorld
 
 TEST(UIWorldTest, LoadsDrawsAndReconcilesAgainstTheRegistry) {
-    const std::string m = "test_uiworld.uxml";
+    const std::string m = "test_uiworld.cxml";
     writeFile(m, kMarkup);
 
     Scene scene;
@@ -213,7 +213,7 @@ TEST(UIWorldTest, LoadsDrawsAndReconcilesAgainstTheRegistry) {
 }
 
 TEST(UIWorldTest, ADestroyedEntityDropsItsDocument) {
-    const std::string m = "test_uiworld_destroy.uxml";
+    const std::string m = "test_uiworld_destroy.cxml";
     writeFile(m, kMarkup);
     Scene scene;
     UIWorld world;
@@ -234,7 +234,7 @@ TEST(UIWorldTest, ADestroyedEntityDropsItsDocument) {
 // UIAssetDocument owns a parsed tree, a binder index and hot-reload stamps, and
 // re-reading two files because a bool flipped would throw all three away.
 TEST(UIWorldTest, TogglingAFlagDoesNotReloadTheDocument) {
-    const std::string m = "test_uiworld_flags.uxml";
+    const std::string m = "test_uiworld_flags.cxml";
     writeFile(m, kMarkup);
     Scene scene;
     UIWorld world;
@@ -253,7 +253,7 @@ TEST(UIWorldTest, TogglingAFlagDoesNotReloadTheDocument) {
     EXPECT_EQ(world.document(e), before) << "a flag change rebuilt the document";
 
     // ...but re-pointing it DOES reload.
-    const std::string m2 = "test_uiworld_flags2.uxml";
+    const std::string m2 = "test_uiworld_flags2.cxml";
     writeFile(m2, R"(<UI><Label name="other" text="x"/></UI>)");
     scene.registry.get<UIDocumentComponent>(e).markup = m2;
     world.Update(scene.registry, 800, 600, 0.016f);
@@ -264,7 +264,7 @@ TEST(UIWorldTest, TogglingAFlagDoesNotReloadTheDocument) {
 }
 
 TEST(UIWorldTest, DisabledDocumentsAreSkipped) {
-    const std::string m = "test_uiworld_disabled.uxml";
+    const std::string m = "test_uiworld_disabled.cxml";
     writeFile(m, kMarkup);
     Scene scene;
     UIWorld world;
@@ -283,8 +283,8 @@ TEST(UIWorldTest, DisabledDocumentsAreSkipped) {
 // Input goes to ONE document, or a pause menu and the HUD beneath it both react
 // to the same click.
 TEST(UIWorldTest, InputGoesToTheTopmostInteractiveDocument) {
-    const std::string lo = "test_uiworld_lo.uxml";
-    const std::string hi = "test_uiworld_hi.uxml";
+    const std::string lo = "test_uiworld_lo.cxml";
+    const std::string hi = "test_uiworld_hi.cxml";
     writeFile(lo, R"(<UI><Element name="b" focusable="true"
                        style="width: 400px; height: 400px"/></UI>)");
     writeFile(hi, R"(<UI><Element name="b" focusable="true"
@@ -321,8 +321,8 @@ TEST(UIWorldTest, InputGoesToTheTopmostInteractiveDocument) {
 
 // A decorative overlay must not swallow clicks meant for what is under it.
 TEST(UIWorldTest, ANonInteractiveDocumentLetsInputThrough) {
-    const std::string a = "test_uiworld_deco.uxml";
-    const std::string b = "test_uiworld_under.uxml";
+    const std::string a = "test_uiworld_deco.cxml";
+    const std::string b = "test_uiworld_under.cxml";
     writeFile(a, R"(<UI><Element name="x" style="width: 400px; height: 400px"/></UI>)");
     writeFile(b, R"(<UI><Element name="b" focusable="true"
                       style="width: 400px; height: 400px"/></UI>)");
@@ -353,8 +353,8 @@ TEST(UIWorldTest, ANonInteractiveDocumentLetsInputThrough) {
 }
 
 TEST(UIWorldTest, ABrokenDocumentIsReportedAndTheRestKeepRunning) {
-    const std::string good = "test_uiworld_good.uxml";
-    const std::string bad = "test_uiworld_bad.uxml";
+    const std::string good = "test_uiworld_good.cxml";
+    const std::string bad = "test_uiworld_bad.cxml";
     writeFile(good, kMarkup);
     writeFile(bad, "<UI><Element");   // unterminated
 
@@ -376,7 +376,7 @@ TEST(UIWorldTest, ABrokenDocumentIsReportedAndTheRestKeepRunning) {
 }
 
 TEST(UIWorldTest, ClearDropsEverything) {
-    const std::string m = "test_uiworld_clear.uxml";
+    const std::string m = "test_uiworld_clear.cxml";
     writeFile(m, kMarkup);
     Scene scene;
     UIWorld world;
@@ -408,7 +408,7 @@ TEST(UIWorldTest, AnEmptyMarkupPathLoadsNothingAndIsNotAnError) {
 // region's size and the rects are offset into place, so painting, hit-testing
 // and clipping all follow from one origin.
 TEST(UIWorldTest, ARegionOffsetsAndSizesTheDocument) {
-    const std::string m = "test_uiworld_region.uxml";
+    const std::string m = "test_uiworld_region.cxml";
     writeFile(m, R"(<UI><Element name="fill" style="width: 100%; height: 100%"/></UI>)");
 
     Scene scene;
@@ -435,7 +435,7 @@ TEST(UIWorldTest, ARegionOffsetsAndSizesTheDocument) {
 // Hit-testing reads the same absolute rects, so a click outside the region
 // simply misses — no separate containment check needed anywhere.
 TEST(UIWorldTest, ARegionAlsoBoundsInput) {
-    const std::string m = "test_uiworld_region_input.uxml";
+    const std::string m = "test_uiworld_region_input.cxml";
     writeFile(m, R"(<UI><Element name="b" focusable="true"
                       style="width: 100%; height: 100%"/></UI>)");
     Scene scene;
@@ -471,7 +471,7 @@ TEST(UIWorldTest, ARegionAlsoBoundsInput) {
 }
 
 TEST(UIWorldTest, RegionsAreClampedAndDefaultToTheWholeSurface) {
-    const std::string m = "test_uiworld_region_clamp.uxml";
+    const std::string m = "test_uiworld_region_clamp.cxml";
     writeFile(m, R"(<UI><Element name="fill" style="width: 100%; height: 100%"/></UI>)");
     Scene scene;
     UIWorld world;
@@ -504,7 +504,7 @@ TEST(UIComponent, RegionRoundTripsAndIsUndoable) {
         AssetManager assets;
         auto e = scene.registry.create();
         UIDocumentComponent ud;
-        ud.markup = "Exported/UI/hud.uxml";
+        ud.markup = "Exported/UI/hud.cxml";
         ud.regionX = 0.25f; ud.regionY = 0.5f; ud.regionW = 0.5f; ud.regionH = 0.25f;
         scene.registry.emplace<UIDocumentComponent>(e, ud);
         SceneSerializer s(scene, assets);
@@ -529,7 +529,7 @@ TEST(UIComponent, RegionRoundTripsAndIsUndoable) {
     // to a zero-area document.
     const char* old = "test_ui_region_old.json";
     writeFile(old, R"({"version":1,"entities":[
-        {"name":"e","uiDocument":{"markup":"Exported/UI/hud.uxml"}}]})");
+        {"name":"e","uiDocument":{"markup":"Exported/UI/hud.cxml"}}]})");
     {
         Scene scene;
         AssetManager assets;

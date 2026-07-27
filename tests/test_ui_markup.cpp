@@ -1,4 +1,4 @@
-// UXML-like markup loading, and how it composes with stylesheets.
+// CXML-like markup loading, and how it composes with stylesheets.
 //
 // Pure CPU. Three things matter beyond "it parses":
 //  - the NON-DESTRUCTIVE contract: a bad file must leave the live UI alone,
@@ -219,7 +219,7 @@ TEST(UIMarkup, ReloadReplacesRatherThanAccumulates) {
 }
 
 TEST(UIMarkup, LoadsFromFileAndReportsAMissingOne) {
-    const char* path = "test_ui_markup.uxml";
+    const char* path = "test_ui_markup.cxml";
     { std::ofstream o(path); o << kHud; }
 
     UIDocument doc;
@@ -229,7 +229,7 @@ TEST(UIMarkup, LoadsFromFileAndReportsAMissingOne) {
     std::remove(path);
 
     std::vector<std::string> e2;
-    EXPECT_FALSE(UIMarkup::LoadFileInto(doc, "no_such_markup_12345.uxml", e2));
+    EXPECT_FALSE(UIMarkup::LoadFileInto(doc, "no_such_markup_12345.cxml", e2));
     EXPECT_FALSE(e2.empty());
 }
 
@@ -237,10 +237,10 @@ TEST(UIMarkup, LoadsFromFileAndReportsAMissingOne) {
 // "../../evil.xml" or an absolute path must be refused BEFORE it is opened.
 TEST(UIMarkup, RejectsTraversalAndAbsolutePaths) {
     UIDocument doc;
-    for (const char* evil : { "../../evil.uxml",
-                              R"(..\..\evil.uxml)",
-                              "Exported/UI/../../../../evil.uxml",
-                              "C:/Windows/System32/evil.uxml",
+    for (const char* evil : { "../../evil.cxml",
+                              R"(..\..\evil.cxml)",
+                              "Exported/UI/../../../../evil.cxml",
+                              "C:/Windows/System32/evil.cxml",
                               "/etc/passwd" }) {
         std::vector<std::string> errors;
         EXPECT_FALSE(UIMarkup::LoadFileInto(doc, evil, errors)) << evil;

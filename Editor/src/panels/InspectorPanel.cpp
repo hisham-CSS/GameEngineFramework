@@ -706,14 +706,14 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
                 std::snprintf(markup, sizeof(markup), "%s", ud->markup.c_str());
                 std::snprintf(style, sizeof(style), "%s", ud->stylesheet.c_str());
 
-                if (ImGui::InputText("Markup (.uxml)", markup, sizeof(markup))) {
+                if (ImGui::InputText("Markup (.cxml)", markup, sizeof(markup))) {
                     undo.record(reg, selected, "Set UI markup", [&] { ud->markup = markup; });
                 }
-                if (ImGui::InputText("Stylesheet (.uss)", style, sizeof(style))) {
+                if (ImGui::InputText("Stylesheet (.cstyle)", style, sizeof(style))) {
                     undo.record(reg, selected, "Set UI stylesheet",
                                 [&] { ud->stylesheet = style; });
                 }
-                ImGui::TextDisabled("Project-relative, e.g. Exported/UI/hud.uxml");
+                ImGui::TextDisabled("Project-relative, e.g. Exported/UI/hud.cxml");
 
                 int order = ud->sortOrder;
                 if (ImGui::DragInt("Sort Order", &order, 1.0f, -1000, 1000)) {
@@ -955,8 +955,8 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
                         // Seeded with the shipped sample, so the component does
                         // something the moment it is added rather than needing
                         // two paths typed before anything appears.
-                        ud.markup = "Exported/UI/hud.uxml";
-                        ud.stylesheet = "Exported/UI/hud.uss";
+                        ud.markup = "Exported/UI/hud.cxml";
+                        ud.stylesheet = "Exported/UI/hud.cstyle";
                         reg.emplace<MyCoreEngine::UIDocumentComponent>(selected, ud);
                     });
                 }

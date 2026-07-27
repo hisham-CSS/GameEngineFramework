@@ -166,7 +166,7 @@ find_package(meshoptimizer CONFIG REQUIRED)
 # worth re-deriving. Linked PRIVATE: yoga is an implementation detail behind
 # UIElement/UIDocument, so no consumer of Engine ever sees a YG* type.
 find_package(yoga CONFIG REQUIRED)
-# UXML-like UI markup. Declared EXPLICITLY even though assimp already drags it
+# CXML-like UI markup. Declared EXPLICITLY even though assimp already drags it
 # in transitively: relying on another package's dependency means an assimp
 # feature change could silently break our build, and the manifest should say
 # what we actually use.

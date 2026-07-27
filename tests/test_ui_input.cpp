@@ -293,7 +293,7 @@ TEST(UIInput, RemovingTheHoveredElementInAHandlerIsSafe) {
 
 // The shipped sample's button must actually work end to end, through the path
 // a game actually uses: a scene entity carrying a UIDocumentComponent, driven
-// by a UIWorld. A typo in hud.uxml, or a converter the markup names that the
+// by a UIWorld. A typo in hud.cxml, or a converter the markup names that the
 // C++ never registered, fails here rather than shipping.
 TEST(UIInput, ShippedHudButtonIncrementsTheScore) {
     ShippedHud hud;

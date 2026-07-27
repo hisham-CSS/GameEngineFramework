@@ -35,7 +35,7 @@ generated [API Reference](../api-index.md).
 |---|---|
 | [Rendering](rendering.md) | The pass pipeline, shadows, PBR/IBL, sky, transparency, LOD, culling, instancing |
 | [Post-processing & Quality Tiers](post-processing.md) | Bloom, ink outline, colour grade, vignette, FXAA, and the Low/Med/High tiers |
-| [In-game UI & the 2D layer](ui.md) | `.uxml` markup, `.uss` stylesheets, flexbox, events, data binding, hot reload, and `Renderer2D` for 2D games |
+| [In-game UI & the 2D layer](ui.md) | `.cxml` markup, `.cstyle` stylesheets, flexbox, events, data binding, hot reload, and `Renderer2D` for 2D games |
 | [Assets](assets.md) | Model and texture loading, async requests, import settings, the cooker |
 | [Performance](performance.md) | Measuring frames, reading the stats panel, and what actually costs time |
 | [Building on Linux](../BUILDING_LINUX.md) | The Linux build path (the engine targets Windows and Linux) |

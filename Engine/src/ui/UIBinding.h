@@ -125,7 +125,7 @@ namespace MyCoreEngine::ui {
         // `sheet` is optional and used only for diagnostics: it lets Rebuild
         // NOTE that a stylesheet declaration is shadowed by a binding, which
         // would otherwise be a silent no-op the first time someone edits the
-        // .uss and nothing happens.
+        // .cstyle and nothing happens.
         void Rebuild(UIDocument& doc, UIBindingContext& ctx, std::string originName,
                      const UIStyleSheet* sheet = nullptr);
         // Drops the index. Must be called BEFORE the tree is freed: the
