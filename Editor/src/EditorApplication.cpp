@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cfloat>
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <vector>
@@ -690,6 +691,39 @@ void EditorApplication::DrawViewport(MyCoreEngine::Scene& scene)
     ImGui::End();
 }
 
+namespace {
+
+// What the Game view can be locked to. `ratio` <= 0 means "whatever the panel
+// happens to be", which is the honest label for it: a dockable panel's shape is
+// a property of your editor layout, not of the game.
+struct GameAspectOption { const char* label; float ratio; };
+const GameAspectOption kGameAspects[] = {
+    { "Free",  0.0f },
+    { "16:9",  16.0f / 9.0f },
+    { "16:10", 16.0f / 10.0f },
+    { "4:3",   4.0f / 3.0f },
+    { "21:9",  21.0f / 9.0f },
+};
+
+// The largest box of `ratio` that fits inside `avail`, centred, in whole
+// pixels. Rounded rather than left fractional: the surface becomes a texture
+// sampled 1:1 by ImGui, and a half-pixel offset makes every glyph in the HUD
+// soft for no reason.
+ImVec2 FitAspect(const ImVec2& avail, float ratio, ImVec2& padOut) {
+    if (ratio <= 0.0f) { padOut = ImVec2(0.0f, 0.0f); return avail; }
+    float w = avail.x;
+    float h = w / ratio;
+    if (h > avail.y) { h = avail.y; w = h * ratio; }
+    w = std::floor(w);
+    h = std::floor(h);
+    if (w < 1.0f) w = 1.0f;
+    if (h < 1.0f) h = 1.0f;
+    padOut = ImVec2(std::floor((avail.x - w) * 0.5f), std::floor((avail.y - h) * 0.5f));
+    return ImVec2(w, h);
+}
+
+} // namespace
+
 void EditorApplication::DrawGameViewport(MyCoreEngine::Scene& scene,
                                          MyCoreEngine::Shader& shader, float dt)
 {
@@ -790,6 +824,34 @@ void EditorApplication::DrawGameViewport(MyCoreEngine::Scene& scene,
         // Say WHERE input is going. Silence here is what made a working jump
         // look broken: the key was fine, the panel just did not have focus.
         if (playing_) {
+            // Aspect lock. Sits with the camera picker because it answers the
+            // same question: what is this panel actually showing me?
+            ImGui::SameLine();
+            ImGui::TextUnformatted("|");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(72.f);
+            if (ImGui::BeginCombo("##gameAspect", kGameAspects[gameAspect_].label)) {
+                for (int i = 0; i < (int)IM_ARRAYSIZE(kGameAspects); ++i) {
+                    if (ImGui::Selectable(kGameAspects[i].label, i == gameAspect_)) {
+                        gameAspect_ = i;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "Letterboxes the game surface to a fixed aspect ratio.\n"
+                    "A dockable panel's shape is a property of your layout, not of the\n"
+                    "game - a HUD authored against this panel at 2.3:1 reads quite\n"
+                    "differently in a shipped 16:9 window.\n\n"
+                    "This constrains the PREVIEW only. The player uses its real window.");
+            }
+            // The surface resolution, which is the number that actually decides
+            // how a HUD is laid out. Last frame's, since this frame's panel size
+            // is not known until after the toolbar.
+            ImGui::SameLine();
+            ImGui::TextDisabled("%dx%d", gameTarget_.width(), gameTarget_.height());
+
             ImGui::SameLine();
             if (gameViewFocused_) {
                 ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1.f), "| Input: game");
@@ -811,8 +873,19 @@ void EditorApplication::DrawGameViewport(MyCoreEngine::Scene& scene,
     }
 
     const ImVec2 avail = ImGui::GetContentRegionAvail();
-    if (avail.x >= 8.f && avail.y >= 8.f) {
-        gameTarget_.Resize((int)avail.x, (int)avail.y);
+    // The SURFACE, not the panel. Everything downstream — the render target, the
+    // pointer mapping, the focus border — is keyed to this rect, so a locked
+    // aspect cannot leave the game's UI hit-testing against a box it was never
+    // drawn in.
+    ImVec2 pad(0.f, 0.f);
+    const ImVec2 surface = FitAspect(avail, kGameAspects[gameAspect_].ratio, pad);
+    // The panel's own top-left, captured ONCE. The image is drawn at
+    // panelMin + pad further down, and the pointer below is mapped against the
+    // same origin — reading the cursor twice would let the two disagree the
+    // moment anything in between moved it.
+    const ImVec2 panelMin = ImGui::GetCursorScreenPos();
+    if (surface.x >= 8.f && surface.y >= 8.f) {
+        gameTarget_.Resize((int)surface.x, (int)surface.y);
     }
 
     // Pointer for the in-game UI, in UI-LOCAL pixels.
@@ -829,13 +902,16 @@ void EditorApplication::DrawGameViewport(MyCoreEngine::Scene& scene,
     // is used rather than IsItemHovered because the image item does not exist
     // yet at this point in the frame.
     {
-        const ImVec2 origin = ImGui::GetCursorScreenPos();
+        // Offset by the letterbox pad, and bounded by the SURFACE: a click in a
+        // bar is outside the game, exactly as it is outside a fullscreen game's
+        // letterbox.
+        const ImVec2 origin(panelMin.x + pad.x, panelMin.y + pad.y);
         const ImVec2 m = ImGui::GetMousePos();
         MyCoreEngine::ui::UIPointerState p;
         p.position = { m.x - origin.x, m.y - origin.y };
         p.inside = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) &&
                    p.position.x >= 0.f && p.position.y >= 0.f &&
-                   p.position.x < avail.x && p.position.y < avail.y;
+                   p.position.x < surface.x && p.position.y < surface.y;
         // Only route clicks to the game UI when ImGui is not using the mouse
         // for its own dragging, so resizing the panel never presses a button.
         p.buttonDown = p.inside && ImGui::IsMouseDown(ImGuiMouseButton_Left);
@@ -951,9 +1027,19 @@ void EditorApplication::DrawGameViewport(MyCoreEngine::Scene& scene,
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
-    const ImVec2 imageSize(avail.x > 1.f ? avail.x : 1.f, avail.y > 1.f ? avail.y : 1.f);
+    const ImVec2 imageSize(surface.x > 1.f ? surface.x : 1.f,
+                           surface.y > 1.f ? surface.y : 1.f);
     if (gameTarget_.colorTexture()) {
-        const ImVec2 imgMin = ImGui::GetCursorScreenPos();
+        // The bars are painted rather than left as panel background, so the
+        // locked surface reads as a screen with a shape instead of as a game
+        // that failed to fill its window.
+        if (pad.x > 0.f || pad.y > 0.f) {
+            ImGui::GetWindowDrawList()->AddRectFilled(
+                panelMin, ImVec2(panelMin.x + avail.x, panelMin.y + avail.y),
+                IM_COL32(10, 10, 12, 255));
+        }
+        const ImVec2 imgMin(panelMin.x + pad.x, panelMin.y + pad.y);
+        ImGui::SetCursorScreenPos(imgMin);
         // GL textures are bottom-up: flip V
         ImGui::Image((ImTextureID)(intptr_t)gameTarget_.colorTexture(),
                      imageSize, ImVec2(0, 1), ImVec2(1, 0));

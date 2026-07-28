@@ -239,6 +239,18 @@ private:
     // next element.
     bool gameViewFocused_ = false;
     bool gameSurfaceFocused_ = false;
+
+    // Which aspect ratio the Game view's surface is locked to.
+    //
+    // The panel is dockable and resizable, so its shape is an accident of
+    // whatever layout you happen to be using — and a HUD authored against a
+    // 2.3:1 dock reads completely differently in a shipped 16:9 window. The
+    // surface is letterboxed inside the panel instead, so what this panel shows
+    // is a shape a build will actually have.
+    //
+    // Index into kGameAspects in the .cpp. Not persisted: it lives with the
+    // session, like every other Game-view toggle.
+    int gameAspect_ = 1;   // 16:9
     std::string bootStatus_;    // what happened at startup (loaded / defaulted)
     char        currentScenePath_[260] = "Exported/scene.json"; // File menu target
     std::string sceneStatus_;   // last save/load result, shown in the menu bar
