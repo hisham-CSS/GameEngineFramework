@@ -462,18 +462,82 @@ TEST(UIRepeat, ANegativeOffsetIsClampedInsteadOfIndexingBeforeTheFirstRow) {
     EXPECT_EQ(r.textOf(0, "l"), "a");
 }
 
-TEST(UIRepeat, AnOffsetPastTheEndHidesEverySlotRatherThanRepeatingTheLast) {
+// A fixed pool showing a PARTIAL window is the one thing this shape must never
+// do - the elements are supposed to stand still. Without the upper clamp the
+// tail of a list is unreachable as a group: a 12-row list through a 5-slot pool
+// ends at offset 11 showing one item and four blanks, and the panel appears to
+// shrink as you approach the end.
+TEST(UIRepeat, AnOffsetPastTheEndIsClampedToTheLastFullWindow) {
     Rig r;
     r.hud.SetInt("scroll", 0);
-    r.hud.SetList("inventory", makeList({ { "a", 1 }, { "b", 2 } }));
+    r.hud.SetList("inventory", makeList({ { "a", 1 }, { "b", 2 }, { "c", 3 }, { "d", 4 } }));
     ASSERT_TRUE(r.Load(R"(<UI data-source="hud">
       <Element name="bag" repeat="inventory" repeat-count="2" repeat-offset="scroll">
         <Element><Label name="l" text="{name}"/></Element>
       </Element></UI>)")) << r.firstError();
+
     r.hud.SetInt("scroll", 99);
     r.Frame();
-    EXPECT_EQ(r.slot(0)->style().display, DisplayMode::None);
-    EXPECT_EQ(r.slot(1)->style().display, DisplayMode::None);
+    EXPECT_EQ(r.textOf(0, "l"), "c") << "the window ran off the end instead of stopping";
+    EXPECT_EQ(r.textOf(1, "l"), "d");
+    EXPECT_EQ(r.slot(0)->style().display, DisplayMode::Flex);
+    EXPECT_EQ(r.slot(1)->style().display, DisplayMode::Flex);
+}
+
+// Every step of a walk from one end to the other shows a FULL window, which is
+// the property the clamp exists for - not just the final position.
+TEST(UIRepeat, EveryOffsetOfAWalkThroughTheListShowsAFullWindow) {
+    Rig r;
+    r.hud.SetInt("scroll", 0);
+    UIList l;
+    for (int i = 0; i < 12; ++i) l.Add().SetString("name", "i" + std::to_string(i));
+    r.hud.SetList("inventory", std::move(l));
+    ASSERT_TRUE(r.Load(R"(<UI data-source="hud">
+      <Element name="bag" repeat="inventory" repeat-count="5" repeat-offset="scroll">
+        <Element><Label name="l" text="{name}"/></Element>
+      </Element></UI>)")) << r.firstError();
+
+    for (int sel = 0; sel < 12; ++sel) {
+        r.hud.SetInt("scroll", sel);
+        r.Frame();
+        for (std::size_t i = 0; i < 5; ++i) {
+            EXPECT_EQ(r.slot(i)->style().display, DisplayMode::Flex)
+                << "offset " << sel << ": slot " << i << " went blank";
+        }
+        // The row the offset names is always somewhere in the window, which is
+        // what makes an offset usable as a CURSOR rather than only a scroll.
+        const std::string want = "i" + std::to_string(sel);
+        bool visible = false;
+        for (std::size_t i = 0; i < 5; ++i) {
+            if (r.textOf(i, "l") == want) visible = true;
+        }
+        EXPECT_TRUE(visible) << "offset " << sel << ": row " << sel << " is not on screen";
+    }
+}
+
+// A list SHORTER than the pool cannot fill it, so the surplus still hides - the
+// clamp keeps the window full, it does not invent rows.
+TEST(UIRepeat, AListShorterThanThePoolStillHidesTheSurplus) {
+    Rig r;
+    r.hud.SetInt("scroll", 9);
+    r.hud.SetList("inventory", makeList({ { "a", 1 }, { "b", 2 } }));
+    ASSERT_TRUE(r.Load(R"(<UI data-source="hud">
+      <Element name="bag" repeat="inventory" repeat-count="4" repeat-offset="scroll">
+        <Element><Label name="l" text="{name}"/></Element>
+      </Element></UI>)")) << r.firstError();
+    EXPECT_EQ(r.textOf(0, "l"), "a") << "a short list was pushed off the top";
+    EXPECT_EQ(r.slot(1)->style().display, DisplayMode::Flex);
+    EXPECT_EQ(r.slot(2)->style().display, DisplayMode::None);
+    EXPECT_EQ(r.slot(3)->style().display, DisplayMode::None);
+}
+
+TEST(UIRepeat, AnEmptyListHidesEverySlot) {
+    Rig r;
+    r.hud.SetList("inventory", UIList{});
+    ASSERT_TRUE(r.Load(kBag)) << r.firstError();
+    for (std::size_t i = 0; i < 4; ++i) {
+        EXPECT_EQ(r.slot(i)->style().display, DisplayMode::None) << "slot " << i;
+    }
 }
 
 TEST(UIRepeat, TheListSourceIsReFoundEachFrameSoARePointedSourceIsNotReadThroughAStalePointer) {
@@ -802,7 +866,7 @@ TEST(UIRepeat, TheShippedHudExpandsItsInventoryPoolAndSlidesTheWindow) {
 
     // The action the NEXT button is wired to, invoked the same way a click does.
     UIDataSource& src = hud.world.shared();
-    ASSERT_TRUE(src.InvokeAction(src.ActionIndexOf("invDown")));
+    ASSERT_TRUE(src.InvokeAction(src.ActionIndexOf("invNext")));
     hud.Frame();
     EXPECT_EQ(rowText(0, "bag-name"), "Iron Key") << "the window did not slide";
     EXPECT_EQ(rowText(0, "bag-index"), "1");
@@ -811,21 +875,70 @@ TEST(UIRepeat, TheShippedHudExpandsItsInventoryPoolAndSlidesTheWindow) {
     EXPECT_EQ(hud.find("bag")->children().size(), 5u);
 }
 
-TEST(UIRepeat, TheShippedHudHidesTheSlotsPastTheEndOfItsInventory) {
+// Walking the sample's cursor from the first item to the last must never make
+// the panel appear to shrink. The sample is where anyone would notice it first.
+TEST(UIRepeat, TheShippedHudKeepsAFullWindowAtEveryPositionOfItsCursor) {
     ShippedHud hud;
     hud.Frame();
     UIDataSource& src = hud.world.shared();
     const int li = src.ListIndexOf("inventory");
     ASSERT_GE(li, 0);
-    // Scroll to the last row: one slot has data, four do not.
-    src.SetInt("invScroll", (long long)src.ListRowCount(li) - 1);
+    const long long rows = (long long)src.ListRowCount(li);
+    ASSERT_GT(rows, 5) << "the sample list must outrun its pool for this to mean anything";
+
+    for (long long sel = 0; sel < rows; ++sel) {
+        src.SetInt("invSelected", sel);
+        hud.Frame();
+        UIElement* bag = hud.find("bag");
+        ASSERT_NE(bag, nullptr);
+        for (std::size_t i = 0; i < bag->children().size(); ++i) {
+            EXPECT_EQ(bag->children()[i]->style().display, DisplayMode::Flex)
+                << "cursor " << sel << ": slot " << i << " went blank";
+        }
+    }
+}
+
+// The selected row is marked by a class driven from the row data, so exactly
+// one row wears it wherever the cursor is - including at both ends, where the
+// window stops moving and the cursor keeps going.
+TEST(UIRepeat, TheShippedHudMarksExactlyOneRowSelectedAtEveryCursorPosition) {
+    ShippedHud hud;
+    hud.Frame();
+    UIDataSource& src = hud.world.shared();
+    const long long rows = (long long)src.ListRowCount(src.ListIndexOf("inventory"));
+    const int next = src.ActionIndexOf("invNext");
+    ASSERT_GE(next, 0);
+
+    for (long long sel = 0; sel < rows; ++sel) {
+        UIElement* bag = hud.find("bag");
+        ASSERT_NE(bag, nullptr);
+        int marked = 0;
+        for (const auto& row : bag->children()) {
+            if (row->HasClass("row-selected")) ++marked;
+        }
+        EXPECT_EQ(marked, 1) << "cursor " << sel << ": " << marked << " rows marked";
+        src.InvokeAction(next);
+        hud.Frame();
+    }
+}
+
+// A list shorter than the pool is the only case where a slot is empty, and the
+// sample must still handle it.
+TEST(UIRepeat, TheShippedHudHidesTheSurplusWhenTheInventoryIsShorterThanThePool) {
+    ShippedHud hud;
+    hud.Frame();
+    UIDataSource& src = hud.world.shared();
+    ui::UIList two;
+    two.Add().SetString("name", "Only");
+    two.Add().SetString("name", "Two");
+    src.SetList("inventory", std::move(two));
     hud.Frame();
 
     UIElement* bag = hud.find("bag");
     ASSERT_NE(bag, nullptr);
     EXPECT_EQ(bag->children()[0]->style().display, DisplayMode::Flex);
-    for (std::size_t i = 1; i < bag->children().size(); ++i) {
-        EXPECT_EQ(bag->children()[i]->style().display, DisplayMode::None)
-            << "slot " << i << " is past the end of the list and still visible";
+    EXPECT_EQ(bag->children()[1]->style().display, DisplayMode::Flex);
+    for (std::size_t i = 2; i < bag->children().size(); ++i) {
+        EXPECT_EQ(bag->children()[i]->style().display, DisplayMode::None) << "slot " << i;
     }
 }

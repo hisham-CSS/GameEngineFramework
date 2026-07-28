@@ -812,8 +812,8 @@ A `{hole}` addresses one property. To show a **list** — an inventory, a scoreb
 a quest log — repeat one template over it:
 
 ```xml
-<Element class="bag" repeat="inventory" repeat-count="5" repeat-offset="invScroll">
-  <Element class="bag-row">                     <!-- exactly ONE element child -->
+<Element class="bag" repeat="inventory" repeat-count="5" repeat-offset="invSelected">
+  <Element class="bag-row" classes="row-selected: {selected}">                     <!-- exactly ONE element child -->
     <Label class="bag-index" text="{$index}"/>
     <Label class="bag-name"  text="{name}"/>    <!-- bare: reads the ROW -->
     <Label class="bag-qty"   text="x{count}"/>
@@ -830,7 +830,7 @@ for (const Item& it : player.inventory) {
     row.SetInt("count", it.count);
 }
 src.SetList("inventory", std::move(inv));       // equality-gated, like every setter
-src.SetInt("invScroll", 0);                     // the window start
+src.SetInt("invSelected", 0);                   // the window start
 ```
 
 **The pool is fixed and the window moves.** `repeat-count` elements are built once,
@@ -849,7 +849,25 @@ list costs three integer compares.
 |---|---|
 | `repeat="source.list"` | the list to repeat over; a bare name inherits the scope source |
 | `repeat-count="5"` | **required.** Pool size, 1..64, fixed for the document's life |
-| `repeat-offset="invScroll"` | optional path to a number, read every frame; the window start |
+| `repeat-offset="invSelected"` | optional path to a number, read every frame; the window start |
+
+**The window is clamped to `[0, max(0, rows - count)]`**, so it never shows fewer
+rows than the list could fill. Without that upper clamp the tail of a list is
+unreachable as a group — a 12-row list through a 5-slot pool would end at offset
+11 showing one item and four blanks, and the panel would appear to shrink as you
+approached either end. A fixed pool displaying a partial window is the one thing
+this shape must never do.
+
+The clamp is also what lets you hand in a **selection index** rather than a scroll
+position. The cursor walks every row while the window stops at the last full page,
+so the chosen row is always on screen — which is exactly how a list view behaves,
+for free. Slots only ever go empty when the list is genuinely shorter than the
+pool.
+
+Markup has no `==`, deliberately, so *which* row is selected arrives as **data**:
+give the chosen row a `selected` column and toggle a class from it, as above.
+`SetList` is equality-gated, so rebuilding the list on every cursor move costs one
+comparison per row and wakes only the two rows that actually changed.
 
 Inside a repeat, a **bare** hole reads the row and a **qualified** one reaches
 outside. Four columns come from the engine rather than your data, named with a `$`

@@ -20,7 +20,10 @@ namespace MyCoreEngine::ui {
         // than a generated slot-source name, which appears in no file they own.
         std::string label;
 
-        // "" when repeat-offset was absent.
+        // "" when repeat-offset was absent. Read every frame and clamped to
+        // [0, max(0, rows - count)], so the window never shows fewer rows than
+        // the list could fill — which also lets a SELECTION index be handed in
+        // directly and behave like a list view's cursor.
         std::string offsetSource;
         std::string offsetProp;
 

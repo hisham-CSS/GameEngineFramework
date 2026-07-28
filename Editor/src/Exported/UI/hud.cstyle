@@ -217,6 +217,25 @@
   color: rgba(255, 204, 68, 0.9);
 }
 
+/* The selected row. Same specificity as `.bag-row` (one class each), so ORDER
+   decides — this rule has to sit AFTER it, exactly as in CSS.
+
+   A background alone is a weak signal against a translucent panel, so the row
+   also brightens its text through DESCENDANT selectors. That is the pattern to
+   copy: the state lives on the row, and what it means for each part of the row
+   lives here rather than in twelve places in the markup. */
+.row-selected {
+  background-color: rgba(255, 204, 68, 0.18);
+}
+
+.row-selected .bag-index {
+  color: rgba(255, 204, 68, 0.9);
+}
+
+.row-selected .bag-name {
+  color: rgba(255, 255, 255, 1.0);
+}
+
 .log-header {
   color: rgba(255, 255, 255, 0.55);
   font-scale: 0.85;

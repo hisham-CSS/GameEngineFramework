@@ -141,10 +141,23 @@ void UIRepeatPool::Refresh(UIBindingContext& ctx) {
             off = (long long)std::floor(os->GetNumber(spec_.offsetProp, 0.0f));
         }
     }
-    // Negative is clamped because there is no row before the first. An offset
-    // PAST the end is not: each slot bounds-checks itself and goes absent, so
-    // scrolling off the end shows an empty list, which is what the numbers say.
-    if (off < 0) off = 0;
+    // Clamped so the window stays FULL whenever the list can fill it.
+    //
+    // Without the upper clamp the last rows of a list are unreachable as a
+    // group: walking a 12-row list through a 5-slot pool ends with offset 11
+    // showing one item and four blanks, and the display appears to shrink as
+    // you approach either end. A fixed pool showing a partial window is the one
+    // thing this shape must never do — the whole point is that the elements
+    // stand still.
+    //
+    // It also means an offset can be handed straight in from a SELECTION index:
+    // the window follows the cursor and stops at the end, exactly like a list
+    // view, instead of running off into blanks.
+    const long long maxOff = (long long)n > (long long)slots_.size()
+                                 ? (long long)n - (long long)slots_.size()
+                                 : 0;
+    if (off > maxOff) off = maxOff;
+    if (off < 0) off = 0;   // no row before the first
 
     // The common frame: nothing moved, so nothing is written and no version on
     // any slot changes. This is what makes a 64-slot pool free when idle.

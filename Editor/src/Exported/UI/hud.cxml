@@ -29,8 +29,9 @@
     push-hovered="isOver"    element state back to the source (also -pressed,
                              -focused)
     repeat="inventory"       repeats the ONE child template over a game-owned
-    repeat-count="5"         list. The pool is fixed at load; the window moves.
-    repeat-offset="invScroll"  Inside it a bare {hole} reads the ROW.
+    repeat-count="5"         list. The pool is fixed at load; the window moves,
+    repeat-offset="invSelected"  clamped so it never shows a partial page.
+                             Inside it a bare {hole} reads the ROW.
 
   A {hole} is `{path | converter | converter : decimals}`. There is no
   arithmetic and no ternary: derived values are named C++ converters, which are
@@ -172,7 +173,7 @@
   <!-- COLLECTION BINDING. One row template, repeated over a game-owned list.
 
        The pool is FIXED at load and the window MOVES: `repeat-count` elements
-       are built once, and each frame slot i is filled with row (invScroll + i).
+       are built once, and each frame slot i is filled with row (offset + i).
        That is not a shortcut. UIElement's structure epoch is process-wide, so a
        list that added and removed children would make every binder in every
        document re-collect and re-resolve on the frames it changed size. Here
@@ -195,23 +196,37 @@
        the other, and a surplus row left visible would still be laid out,
        painted and clickable.
 
-       The list has twelve rows and the pool is five, so Prev/Next slide the
-       window. Run to the end and watch the empty slots disappear one at a
-       time. A misspelt bare hole is a LOAD error naming the columns your rows
+       `repeat-offset` is a CURSOR here, not a scroll position, and that works
+       because the window is clamped to [0, rows - repeat-count]. The selection
+       walks all twelve rows while the window stops at the last full page — so
+       the chosen row is always on screen, and the panel never shrinks to a
+       partial window as you approach either end. Hold PREV or NEXT down and
+       watch: five rows, always, and the highlight walks down the last page
+       once the window runs out of room.
+
+       Which row is chosen arrives as DATA (a `selected` column), not as a
+       comparison in the markup. There is deliberately no `==` here: a hole is
+       a path, and derived values are named C++ functions you can breakpoint.
+
+       A misspelt bare hole is a LOAD error naming the columns your rows
        actually have — the pool checks it once, against the data, rather than
        once per slot. -->
-  <Label name="bagHeader" class="log-header" text="INVENTORY  {scene.invScroll}"/>
+  <Label name="bagHeader" class="log-header"
+         text="INVENTORY  {scene.invSelected}"/>
   <Element name="bag" class="bag" repeat="inventory" repeat-count="5"
-           repeat-offset="invScroll">
-    <Element class="bag-row">
+           repeat-offset="invSelected">
+    <!-- `classes` on the row template toggles the selected look from the row's
+         own data. The template root may not carry an `if=` (the repeat owns
+         visibility), but `class=` and `classes=` are entirely its own. -->
+    <Element class="bag-row" classes="row-selected: {selected}">
       <Label class="bag-index" text="{$index}"/>
       <Label class="bag-name"  text="{name}"/>
       <Label class="bag-qty"   text="x{count}"/>
     </Element>
   </Element>
   <Element name="bagButtons" class="row-left">
-    <Button name="bagPrev" class="btn" text="PREV" on-click="invUp"/>
-    <Button name="bagNext" class="btn" text="NEXT" on-click="invDown"/>
+    <Button name="bagPrev" class="btn" text="PREV" on-click="invPrev"/>
+    <Button name="bagNext" class="btn" text="NEXT" on-click="invNext"/>
   </Element>
 
   <!-- Decorative overlay. pointer-events:none in the stylesheet, or this
