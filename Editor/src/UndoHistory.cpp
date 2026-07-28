@@ -97,7 +97,10 @@ namespace {
                                 a.uiDocument.regionX != b.uiDocument.regionX ||
                                 a.uiDocument.regionY != b.uiDocument.regionY ||
                                 a.uiDocument.regionW != b.uiDocument.regionW ||
-                                a.uiDocument.regionH != b.uiDocument.regionH)) return false;
+                                a.uiDocument.regionH != b.uiDocument.regionH ||
+                                a.uiDocument.scale.mode != b.uiDocument.scale.mode ||
+                                a.uiDocument.scale.reference != b.uiDocument.scale.reference ||
+                                a.uiDocument.scale.match != b.uiDocument.scale.match)) return false;
         if (a.hasParent != b.hasParent) return false;
         if (a.hasParent && a.parent != b.parent) return false;
         if (a.hasOverrides != b.hasOverrides) return false;

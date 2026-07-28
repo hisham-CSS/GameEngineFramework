@@ -821,37 +821,42 @@ void EditorApplication::DrawGameViewport(MyCoreEngine::Scene& scene,
             ImGui::SetTooltip("Seconds to blend when the rendered camera changes\n(0 = hard cut)");
         }
 
+        // Aspect lock. Sits with the camera picker because it answers the same
+        // question: what is this panel actually showing me?
+        //
+        // OUTSIDE the playing_ gate, deliberately. What shape the surface is has
+        // nothing to do with play mode, and authoring a HUD against it is
+        // something you do while STOPPED — which is exactly when this control
+        // was invisible the first time round.
+        ImGui::SameLine();
+        ImGui::TextUnformatted("|");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(72.f);
+        if (ImGui::BeginCombo("##gameAspect", kGameAspects[gameAspect_].label)) {
+            for (int i = 0; i < (int)IM_ARRAYSIZE(kGameAspects); ++i) {
+                if (ImGui::Selectable(kGameAspects[i].label, i == gameAspect_)) {
+                    gameAspect_ = i;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip(
+                "Letterboxes the game surface to a fixed aspect ratio.\n"
+                "A dockable panel's shape is a property of your layout, not of the\n"
+                "game - a HUD authored against this panel at 2.3:1 reads quite\n"
+                "differently in a shipped 16:9 window.\n\n"
+                "This constrains the PREVIEW only. The player uses its real window.");
+        }
+        // The surface resolution, which is the number that actually decides how
+        // a HUD lays out. Last frame's, since this frame's panel size is not
+        // known until after the toolbar.
+        ImGui::SameLine();
+        ImGui::TextDisabled("%dx%d", gameTarget_.width(), gameTarget_.height());
+
         // Say WHERE input is going. Silence here is what made a working jump
         // look broken: the key was fine, the panel just did not have focus.
         if (playing_) {
-            // Aspect lock. Sits with the camera picker because it answers the
-            // same question: what is this panel actually showing me?
-            ImGui::SameLine();
-            ImGui::TextUnformatted("|");
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(72.f);
-            if (ImGui::BeginCombo("##gameAspect", kGameAspects[gameAspect_].label)) {
-                for (int i = 0; i < (int)IM_ARRAYSIZE(kGameAspects); ++i) {
-                    if (ImGui::Selectable(kGameAspects[i].label, i == gameAspect_)) {
-                        gameAspect_ = i;
-                    }
-                }
-                ImGui::EndCombo();
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip(
-                    "Letterboxes the game surface to a fixed aspect ratio.\n"
-                    "A dockable panel's shape is a property of your layout, not of the\n"
-                    "game - a HUD authored against this panel at 2.3:1 reads quite\n"
-                    "differently in a shipped 16:9 window.\n\n"
-                    "This constrains the PREVIEW only. The player uses its real window.");
-            }
-            // The surface resolution, which is the number that actually decides
-            // how a HUD is laid out. Last frame's, since this frame's panel size
-            // is not known until after the toolbar.
-            ImGui::SameLine();
-            ImGui::TextDisabled("%dx%d", gameTarget_.width(), gameTarget_.height());
-
             ImGui::SameLine();
             if (gameViewFocused_) {
                 ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1.f), "| Input: game");

@@ -51,15 +51,34 @@ namespace {
     // sufficient; it is cleared on the way out, including if layout throws.
     const Font* g_measureFont = nullptr;
 
-    struct MeasureFontScope {
-        explicit MeasureFontScope(const Font* f) { g_measureFont = f; }
-        ~MeasureFontScope() { g_measureFont = nullptr; }
+    // Authored -> real. See UIScale.h for the unit rule this enforces: Style
+    // is in AUTHORED pixels, everything else in the system is in REAL surface
+    // pixels, and the conversion happens here and nowhere else.
+    float g_uiScale = 1.0f;
+
+    struct UIPassScope {
+        UIPassScope(const Font* f, float scale) {
+            g_measureFont = f;
+            g_uiScale = scale;
+        }
+        // Restored to 1, not left: a path that somehow runs without a scope must
+        // behave exactly as it did before this feature existed.
+        ~UIPassScope() { g_measureFont = nullptr; g_uiScale = 1.0f; }
     };
 
     // Monotonic counter over every structural change to any element tree. See
     // UIElement::structureEpoch() for why this is process-wide rather than
     // per-document, and why that is safe.
     std::uint32_t g_structureEpoch = 1;
+
+    // The two conversions, and the ONLY two. Below this line a bare
+    // `->Measure(` or a bare `s.padding` reaching geometry is a bug, which
+    // makes the audit a grep. Adding a length to Style means adding it to
+    // pushStyle or to an sx_ site — there is no third option.
+    inline float sx_(float authored) { return authored * g_uiScale; }
+    inline glm::vec2 measure_(const Font* f, const std::string& text, float fontScale) {
+        return f->Measure(text, fontScale * g_uiScale);
+    }
 
     // Text leaves size themselves from the font, which is what makes a label
     // behave like it does on the web (shrink-wrapping its content) instead of
@@ -71,7 +90,7 @@ namespace {
         if (!el) return out;
         const Font* font = g_measureFont;
         if (!font || !font->IsValid()) return out; // no font: measures empty, still lays out
-        const glm::vec2 m = font->Measure(el->style().text, el->style().fontScale);
+        const glm::vec2 m = measure_(font, el->style().text, el->style().fontScale);
         out.width = m.x;
         out.height = m.y;
         // Respect a hard constraint from the parent so a long label cannot blow
@@ -86,7 +105,10 @@ namespace {
                      void (*setPct)(YGNodeRef, float),
                      void (*setAuto)(YGNodeRef)) {
         switch (v.unit) {
-        case StyleLength::Unit::Point:   setPt(n, v.value); break;
+        // Points scale; PERCENT does not. A percentage is already relative to
+        // a parent that has itself been scaled, so scaling it too would compound
+        // and a 50%-wide bar would become 100% at scale 2.
+        case StyleLength::Unit::Point:   setPt(n, sx_(v.value)); break;
         case StyleLength::Unit::Percent: setPct(n, v.value); break;
         case StyleLength::Unit::Auto:
         default:                         if (setAuto) setAuto(n); break;
@@ -127,24 +149,26 @@ namespace {
         applyLength(n, s.maxWidth, YGNodeStyleSetMaxWidth, YGNodeStyleSetMaxWidthPercent, nullptr);
         applyLength(n, s.maxHeight, YGNodeStyleSetMaxHeight, YGNodeStyleSetMaxHeightPercent, nullptr);
 
-        YGNodeStyleSetMargin(n, YGEdgeLeft,   s.margin.left);
-        YGNodeStyleSetMargin(n, YGEdgeTop,    s.margin.top);
-        YGNodeStyleSetMargin(n, YGEdgeRight,  s.margin.right);
-        YGNodeStyleSetMargin(n, YGEdgeBottom, s.margin.bottom);
-        YGNodeStyleSetPadding(n, YGEdgeLeft,   s.padding.left);
-        YGNodeStyleSetPadding(n, YGEdgeTop,    s.padding.top);
-        YGNodeStyleSetPadding(n, YGEdgeRight,  s.padding.right);
-        YGNodeStyleSetPadding(n, YGEdgeBottom, s.padding.bottom);
-        YGNodeStyleSetGap(n, YGGutterAll, s.gap);
+        // flexGrow, flexShrink, aspectRatio and every alignment enum are
+        // dimensionless and are deliberately NOT here.
+        YGNodeStyleSetMargin(n, YGEdgeLeft,   sx_(s.margin.left));
+        YGNodeStyleSetMargin(n, YGEdgeTop,    sx_(s.margin.top));
+        YGNodeStyleSetMargin(n, YGEdgeRight,  sx_(s.margin.right));
+        YGNodeStyleSetMargin(n, YGEdgeBottom, sx_(s.margin.bottom));
+        YGNodeStyleSetPadding(n, YGEdgeLeft,   sx_(s.padding.left));
+        YGNodeStyleSetPadding(n, YGEdgeTop,    sx_(s.padding.top));
+        YGNodeStyleSetPadding(n, YGEdgeRight,  sx_(s.padding.right));
+        YGNodeStyleSetPadding(n, YGEdgeBottom, sx_(s.padding.bottom));
+        YGNodeStyleSetGap(n, YGGutterAll, sx_(s.gap));
 
         YGNodeStyleSetPositionType(n, s.position == PositionType::Absolute
                                           ? YGPositionTypeAbsolute
                                           : YGPositionTypeRelative);
         if (s.position == PositionType::Absolute) {
-            YGNodeStyleSetPosition(n, YGEdgeLeft,   s.inset.left);
-            YGNodeStyleSetPosition(n, YGEdgeTop,    s.inset.top);
-            YGNodeStyleSetPosition(n, YGEdgeRight,  s.inset.right);
-            YGNodeStyleSetPosition(n, YGEdgeBottom, s.inset.bottom);
+            YGNodeStyleSetPosition(n, YGEdgeLeft,   sx_(s.inset.left));
+            YGNodeStyleSetPosition(n, YGEdgeTop,    sx_(s.inset.top));
+            YGNodeStyleSetPosition(n, YGEdgeRight,  sx_(s.inset.right));
+            YGNodeStyleSetPosition(n, YGEdgeBottom, sx_(s.inset.bottom));
         }
 
         YGNodeStyleSetDisplay(n, s.display == DisplayMode::None ? YGDisplayNone
@@ -342,11 +366,20 @@ void UIDocument::pushStyles_(UIElement& el, bool parentScrolls) {
     // box was never measured for. setText has the same hazard and solves it the
     // same way; this closes it for every writer of fontScale — a stylesheet
     // rule, a `:hover` restyle, or a `bind="font-scale: {x}"`.
-    if (isTextLeaf && el.style_.fontScale != el.pushedFontScale_ && el.yogaNode_) {
+    //
+    // The EFFECTIVE scale, not the authored one: the UI scale multiplies
+    // fontScale inside the measure callback, so resizing the window changes
+    // what a label measures without touching its style at all. Comparing the
+    // authored value alone would leave every text leaf holding yoga's cached
+    // measurement from the previous surface size — labels laid out at the old
+    // size until something else happened to dirty them, which is this exact bug
+    // class one level up.
+    const float effFontScale = el.style_.fontScale * g_uiScale;
+    if (isTextLeaf && effFontScale != el.pushedFontScale_ && el.yogaNode_) {
         YGNodeRef n = static_cast<YGNodeRef>(el.yogaNode_);
         if (YGNodeHasMeasureFunc(n)) YGNodeMarkDirty(n);
     }
-    el.pushedFontScale_ = el.style_.fontScale;
+    el.pushedFontScale_ = effFontScale;
 
     pushStyle(static_cast<YGNodeRef>(el.yogaNode_), el.style_, isTextLeaf, parentScrolls);
     // The MAIN axis, not "either axis". flex-shrink is spent against the flex
@@ -383,8 +416,8 @@ void UIDocument::measureScroll_(UIElement& el) {
         const glm::vec2 box{ YGNodeLayoutGetWidth(n), YGNodeLayoutGetHeight(n) };
         const Style& s = el.style_;
         const glm::vec2 contentBox{
-            std::max(0.0f, box.x - s.padding.left - s.padding.right),
-            std::max(0.0f, box.y - s.padding.top - s.padding.bottom)
+            std::max(0.0f, box.x - sx_(s.padding.left) - sx_(s.padding.right)),
+            std::max(0.0f, box.y - sx_(s.padding.top) - sx_(s.padding.bottom))
         };
         // Font::Measure, never the laid-out width: the yoga measure callback
         // clamps its result to the parent's offer, so the element's own size
@@ -393,8 +426,8 @@ void UIDocument::measureScroll_(UIElement& el) {
         // collapsing to zero and making the bar flicker away.
         if (g_measureFont && g_measureFont->IsValid()) {
             const std::string shown = el.edit_->displayText();
-            const float lineH = g_measureFont->Measure("", s.fontScale).y;
-            glm::vec2 extent = g_measureFont->Measure(shown, s.fontScale);
+            const float lineH = measure_(g_measureFont, "", s.fontScale).y;
+            glm::vec2 extent = measure_(g_measureFont, shown, s.fontScale);
             extent.y = float(UITextEdit::LineIndexOf(shown, shown.size()) + 1) * lineH;
             el.edit_->setMeasured(extent, contentBox);
         }
@@ -402,8 +435,12 @@ void UIDocument::measureScroll_(UIElement& el) {
         sc.contentMax = el.edit_->textExtent();
         sc.minOffset = { 0.0f, 0.0f };
         sc.maxOffset = el.edit_->maxTextScroll();
-        if (sc.maxOffset.x < 1.0f) sc.maxOffset.x = 0.0f;
-        if (sc.maxOffset.y < 1.0f) sc.maxOffset.y = 0.0f;
+        // Scaled with everything else: the fractional advances this floor
+        // exists to swallow are themselves scaled now, so a fixed 1.0f would
+        // grow spurious bars at scale 2 and swallow two real pixels of genuine
+        // overflow at scale 0.5.
+        if (sc.maxOffset.x < sx_(1.0f)) sc.maxOffset.x = 0.0f;
+        if (sc.maxOffset.y < sx_(1.0f)) sc.maxOffset.y = 0.0f;
         // MIRRORED, not owned: textScroll_ is where the glyphs actually read
         // from, so a bar derived from anything else would track the cursor
         // perfectly while the text stayed put.
@@ -451,8 +488,8 @@ void UIDocument::measureScroll_(UIElement& el) {
         // Children are positioned from the BORDER box with the leading padding
         // already folded in; the trailing padding is not, and without it the
         // last item can never be scrolled clear of the edge.
-        hi.x += el.style_.padding.right;
-        hi.y += el.style_.padding.bottom;
+        hi.x += sx_(el.style_.padding.right);
+        hi.y += sx_(el.style_.padding.bottom);
 
         const bool ok = std::isfinite(lo.x) && std::isfinite(lo.y) &&
                         std::isfinite(hi.x) && std::isfinite(hi.y);
@@ -469,8 +506,8 @@ void UIDocument::measureScroll_(UIElement& el) {
         // Font::Measure accumulates fractional advances, so a row measuring
         // 220.4 in a 220px box is a measurement artefact, not content. Without
         // this floor every vertical list grows a horizontal scrollbar.
-        if (sc.maxOffset.x - sc.minOffset.x < 1.0f) { sc.minOffset.x = sc.maxOffset.x = 0.0f; }
-        if (sc.maxOffset.y - sc.minOffset.y < 1.0f) { sc.minOffset.y = sc.maxOffset.y = 0.0f; }
+        if (sc.maxOffset.x - sc.minOffset.x < sx_(1.0f)) { sc.minOffset.x = sc.maxOffset.x = 0.0f; }
+        if (sc.maxOffset.y - sc.minOffset.y < sx_(1.0f)) { sc.minOffset.y = sc.maxOffset.y = 0.0f; }
         // An axis that does not scroll has no valid offset, so its range is
         // pinned shut and the clamp below drives any leftover offset back to 0.
         // AFTER the artefact floor, because the floor can collapse an axis and a
@@ -522,8 +559,9 @@ void UIDocument::readLayout_(UIElement& el, const glm::vec2& parentOrigin) {
     // drop glyphs that are on screen.
     glm::vec2 lo = pos, hi = pos + el.layout_.size;
     if (!el.style_.text.empty() && g_measureFont && g_measureFont->IsValid()) {
-        const glm::vec2 m = g_measureFont->Measure(el.style_.text, el.style_.fontScale);
-        hi = glm::max(hi, pos + glm::vec2(el.style_.padding.left, el.style_.padding.top) + m);
+        const glm::vec2 m = measure_(g_measureFont, el.style_.text, el.style_.fontScale);
+        hi = glm::max(hi, pos + glm::vec2(sx_(el.style_.padding.left),
+                                          sx_(el.style_.padding.top)) + m);
     }
 
     for (auto& c : el.children_) {
@@ -614,7 +652,7 @@ void UIDocument::updateScrollBars_(UIElement& el) {
     const Style& st = el.style_;
     const ScrollBarRects r = ComputeScrollBars(
         el.layout_.position, el.layout_.size, sc.offset, sc.minOffset, sc.maxOffset,
-        st.scrollbarWidth, st.scrollbarMinThumb,
+        sx_(st.scrollbarWidth), sx_(st.scrollbarMinThumb),
         st.scrollbarVisibility == ScrollbarVisibility::Always);
     sc.trackX = r.trackX; sc.thumbX = r.thumbX;
     sc.trackY = r.trackY; sc.thumbY = r.thumbY;
@@ -677,11 +715,24 @@ bool UIElement::ScrollIntoView(const glm::vec2& posAbs, const glm::vec2& sizePx)
 }
 
 void UIDocument::Layout(float viewportW, float viewportH, const Font* font) {
-    // Scoped so the measure callback can find the font, and so it is cleared
-    // even if layout throws.
-    MeasureFontScope fontScope(font);
+    // Computed from the SURFACE, never from the viewport this document was
+    // given: a document that occupies a corner of the screen must scale by how
+    // big the SCREEN is, or a quarter-width panel would shrink its own text on
+    // the large display the feature exists for. Falling back to the viewport
+    // keeps a standalone UIDocument — every test, and any host that never calls
+    // SetSurfaceSize — behaving exactly as it always has.
+    const glm::vec2 surface = (surfaceSize_.x > 0.0f && surfaceSize_.y > 0.0f)
+                                  ? surfaceSize_
+                                  : glm::vec2(viewportW, viewportH);
+    scale_ = ComputeUIScale(scaleSettings_, surface);
+
+    // Scoped so the measure callback can find the font AND the scale, and so
+    // both are cleared even if layout throws.
+    UIPassScope pass(font, scale_);
 
     UIElement& r = *root_;
+    // Still the document's REAL region. Layout solves at real size; only the
+    // authored lengths going into it are scaled.
     viewport_ = { viewportW, viewportH };
     pushStyles_(r, /*parentScrolls=*/false);
     YGNodeCalculateLayout(static_cast<YGNodeRef>(r.yogaNode_),
@@ -764,8 +815,8 @@ void UIDocument::draw_(const UIElement& el, Renderer2D& r2d, const Font* font,
     // subtraction moves the glyphs, the selection and the caret together.
     const glm::vec2 textOff =
         el.edit_ ? glm::round(el.edit_->textScroll()) : glm::vec2(0.0f);
-    const glm::vec2 tp{ L.position.x + s.padding.left - textOff.x,
-                        L.position.y + s.padding.top - textOff.y };
+    const glm::vec2 tp{ L.position.x + sx_(s.padding.left) - textOff.x,
+                        L.position.y + sx_(s.padding.top) - textOff.y };
     const bool haveFont = font && font->IsValid();
 
     // ---- text field decoration -------------------------------------------
@@ -775,14 +826,14 @@ void UIDocument::draw_(const UIElement& el, Renderer2D& r2d, const Font* font,
     const UITextEdit* edit = el.edit_.get();
     if (edit && haveFont && &el == focused) {
         const std::string shown = edit->displayText();
-        const float lineH = font->Measure("", s.fontScale).y;
+        const float lineH = measure_(font, "", s.fontScale).y;
         // Position within the LINE, not within the whole value: a multi-line
         // field measures the prefix from its own line start and steps down by
         // whole lines, which is what makes a caret land where the glyph is.
         auto place = [&](std::size_t bytes) {
             bytes = std::min(bytes, shown.size());
             const std::size_t ls = UITextEdit::LineStart(shown, bytes);
-            const float x = font->Measure(shown.substr(ls, bytes - ls), s.fontScale).x;
+            const float x = measure_(font, shown.substr(ls, bytes - ls), s.fontScale).x;
             const float y = float(UITextEdit::LineIndexOf(shown, bytes)) * lineH;
             return glm::vec2{ tp.x + x, tp.y + y };
         };
@@ -804,12 +855,13 @@ void UIDocument::draw_(const UIElement& el, Renderer2D& r2d, const Font* font,
         if (caretVisible) {
             // Drawn on the CHILD layer so it sits above the glyphs, which share
             // this element's layer.
-            r2d.DrawQuad(place(edit->caret()), { 1.0f, lineH }, s.textColor, layer + 1);
+            const float caretW = std::max(1.0f, std::round(sx_(1.0f)));
+            r2d.DrawQuad(place(edit->caret()), { caretW, lineH }, s.textColor, layer + 1);
         }
     }
 
     if (!s.text.empty() && haveFont) {
-        r2d.DrawText(*font, s.text, tp, s.textColor, layer, s.fontScale);
+        r2d.DrawText(*font, s.text, tp, s.textColor, layer, s.fontScale * g_uiScale);
     }
 
     // Parent before child (painter's algorithm) AND on a higher layer, so a
@@ -859,8 +911,8 @@ void UIDocument::advanceScroll_(UIElement& el, float dt) {
                 // An exponential approach never arrives. Snap inside half a
                 // pixel — below what readLayout_'s rounding can even show — or
                 // the document would relayout forever.
-                if (std::abs(sc.target.x - next.x) < 0.5f) next.x = sc.target.x;
-                if (std::abs(sc.target.y - next.y) < 0.5f) next.y = sc.target.y;
+                if (std::abs(sc.target.x - next.x) < sx_(0.5f)) next.x = sc.target.x;
+                if (std::abs(sc.target.y - next.y) < sx_(0.5f)) next.y = sc.target.y;
                 sc.offset = next;
             } else {
                 sc.offset = sc.target;   // behaviour changed mid-animation
@@ -910,6 +962,7 @@ bool UIDocument::keyboardScroll_(UIElement* from, UIKey key) {
 }
 
 void UIDocument::Draw(Renderer2D& r2d, const Font* font, int baseLayer) const {
+    UIPassScope pass(font, scale_);
     // A one-second cycle, on for the first half. Computed once here rather than
     // per element: only the focused field can show a caret.
     const float kBlink = 1.0f;
@@ -1051,6 +1104,7 @@ bool UIDocument::isInTree_(const UIElement* el) const {
 }
 
 void UIDocument::UpdatePointer(const UIPointerState& p, const Font* font) {
+    UIPassScope pass(font, scale_);
     // Drop cached targets that are no longer in the tree. Gameplay or a handler
     // may have removed the hovered/pressed element since last frame, and
     // dispatching to it would be a use-after-free.
@@ -1254,7 +1308,7 @@ void UIDocument::UpdatePointer(const UIPointerState& p, const Font* font) {
 
             if (target && (d.x != 0.0f || d.y != 0.0f)) {
                 wheelLatch_ = target;
-                if (target->SetScrollOffset(target->scroll_->offset - d * kPixelsPerNotch)) {
+                if (target->SetScrollOffset(target->scroll_->offset - d * sx_(kPixelsPerNotch))) {
                     scrollDirty_ = true;
                 }
             }
@@ -1319,14 +1373,14 @@ void UIDocument::UpdatePointer(const UIPointerState& p, const Font* font) {
             // The text scroll has to come off the origin, or clicking a VISIBLE
             // glyph in a scrolled field sets the caret to the byte that would
             // have been there unscrolled.
-            const float originX = target->layout_.position.x + target->style_.padding.left
+            const float originX = target->layout_.position.x + sx_(target->style_.padding.left)
                                   - std::round(ed.textScroll().x);
             const float localX = p.position.x - originX;
             std::size_t best = 0;
             float bestDist = std::abs(localX);
             for (std::size_t i = UITextEdit::NextBoundary(shown, 0); ;
                  i = UITextEdit::NextBoundary(shown, i)) {
-                const float w = font->Measure(shown.substr(0, i), target->style_.fontScale).x;
+                const float w = measure_(font, shown.substr(0, i), target->style_.fontScale).x;
                 const float d = std::abs(localX - w);
                 // Snaps to the NEAREST boundary, not the one before: clicking
                 // the right half of a glyph should put the caret after it.
@@ -1452,25 +1506,25 @@ void UIDocument::followCaret_(UIElement& el, const Font* font) {
 
     const Style& s = el.style_;
     const std::string shown = ed->displayText();
-    const float lineH = font->Measure("", s.fontScale).y;
+    const float lineH = measure_(font, "", s.fontScale).y;
 
     // The caret's position in the field's own TEXT space — the same arithmetic
     // draw_ uses, minus the offset we are about to compute.
     const std::size_t at = std::min(ed->caret(), shown.size());
     const std::size_t ls = UITextEdit::LineStart(shown, at);
     const glm::vec2 caretLocal{
-        font->Measure(shown.substr(ls, at - ls), s.fontScale).x,
+        measure_(font, shown.substr(ls, at - ls), s.fontScale).x,
         float(UITextEdit::LineIndexOf(shown, at)) * lineH
     };
 
     const glm::vec2 contentBox{
-        std::max(0.0f, el.layout_.size.x - s.padding.left - s.padding.right),
-        std::max(0.0f, el.layout_.size.y - s.padding.top - s.padding.bottom)
+        std::max(0.0f, el.layout_.size.x - sx_(s.padding.left) - sx_(s.padding.right)),
+        std::max(0.0f, el.layout_.size.y - sx_(s.padding.top) - sx_(s.padding.bottom))
     };
     // Font::Measure, NOT the laid-out width: the yoga measure callback clamps
     // its result to the offer, so the element's own size lies about how wide the
     // text really is — which is exactly the case that needs scrolling.
-    glm::vec2 textExtent = font->Measure(shown, s.fontScale);
+    glm::vec2 textExtent = measure_(font, shown, s.fontScale);
     textExtent.y = float(UITextEdit::LineIndexOf(shown, shown.size()) + 1) * lineH;
 
     if (ed->FollowCaret(caretLocal, { 1.0f, lineH }, contentBox, textExtent)) {
@@ -1479,6 +1533,7 @@ void UIDocument::followCaret_(UIElement& el, const Font* font) {
 }
 
 void UIDocument::UpdateKeyboard(const UIKeyboardState& kb, const Font* font) {
+    UIPassScope pass(font, scale_);
     // The focused element may have been removed since last frame by gameplay or
     // by a handler; dispatching into it would be a use-after-free.
     if (focused_ && (!isInTree_(focused_) || !isInteractable_(*focused_))) {

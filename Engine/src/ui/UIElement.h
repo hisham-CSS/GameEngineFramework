@@ -11,6 +11,7 @@
 // element owns an opaque handle, so the layout engine can be swapped without
 // touching a line of authored UI.
 #include "../core/Core.h"
+#include "UIScale.h"
 #include "UIStyle.h"
 #include "UIEvent.h"
 #include "UIStyleSheet.h"   // UIDeclaration (for inline styles)
@@ -388,6 +389,26 @@ namespace MyCoreEngine::ui {
         // their own) — a missing font must not collapse the whole HUD.
         void Layout(float viewportW, float viewportH, const Font* font = nullptr);
 
+        // ---- scaling ----
+        // Authored lengths in a .cstyle are in REFERENCE-RESOLUTION pixels;
+        // everything this class computes and reports — ComputedLayout, scroll
+        // offsets, ScrollIntoView, the origin — is in REAL surface pixels.
+        // scale() is the conversion, and it is recomputed at the top of every
+        // Layout(). See UIScale.h for the rule in full.
+        void SetScaleSettings(const UIScaleSettings& s) { scaleSettings_ = s; }
+        const UIScaleSettings& scaleSettings() const { return scaleSettings_; }
+
+        // The WHOLE UI surface, in real pixels, that the scale is computed
+        // against. Zero (the default) means "whatever viewport Layout was
+        // given". A document occupying a fraction of the screen must be told
+        // the whole screen, or a quarter-width sidebar would scale ITSELF down
+        // on exactly the large display this feature exists to serve.
+        void SetSurfaceSize(const glm::vec2& px) { surfaceSize_ = px; }
+        const glm::vec2& surfaceSize() const { return surfaceSize_; }
+
+        // In effect as of the last Layout(). Exactly 1.0f in Constant mode.
+        float scale() const { return scale_; }
+
         // Where this document's root sits on the UI surface, in surface pixels.
         // Layout produces ABSOLUTE rects, so moving the origin moves everything
         // the document does — painting, hit-testing and clipping alike — with
@@ -545,6 +566,9 @@ namespace MyCoreEngine::ui {
         // it, so culling works outside a scroller too — otherwise a HUD whose
         // only clipping element is one list would cull nothing anywhere else.
         glm::vec2 viewport_{ 0.0f };
+        UIScaleSettings scaleSettings_{};
+        glm::vec2       surfaceSize_{ 0.0f };
+        float           scale_ = 1.0f;
         // Thumb being dragged. Validated with isInTree_ like hovered_/pressed_:
         // a hot reload frees the whole tree, and a stylesheet-only save triggers
         // one, so a pointer held across frames without that check is a

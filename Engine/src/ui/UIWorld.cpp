@@ -51,6 +51,7 @@ void UIWorld::reconcile_(entt::registry& reg) {
         live.sortOrder = c.sortOrder;
         live.enabled = c.enabled;
         live.interactive = c.interactive;
+        live.scale = c.scale;
         // Fractions -> pixels. Clamped so a mistyped region cannot produce a
         // negative or off-surface box that lays out to nothing with no clue
         // why; a zero-area one is simply not drawn.
@@ -119,6 +120,11 @@ void UIWorld::Update(entt::registry& reg, int widthPx, int heightPx, float dt) {
     for (auto it = order_.rbegin(); it != order_.rend(); ++it) {
         Live& live = live_[*it];
         if (!live.interactive) continue;
+        // The scale is computed from the WHOLE surface, never from this
+        // document's region: a quarter-width sidebar must scale by how big the
+        // screen is, not by how small it is.
+        live.doc->document().SetScaleSettings(live.scale);
+        live.doc->document().SetSurfaceSize({ float(width_), float(height_) });
         // Lay out before hit-testing: the rects it reads are computed there.
         // Repeats first — the binder reads what the pools wrote, and hit-testing
         // a stale pool means clicking a row that moved one frame ago.
@@ -151,6 +157,8 @@ void UIWorld::Update(entt::registry& reg, int widthPx, int heightPx, float dt) {
         UIAssetDocument& ad = *live.doc;
         ui::UIDocument& doc = ad.document();
 
+        doc.SetScaleSettings(live.scale);
+        doc.SetSurfaceSize({ float(width_), float(height_) });
         ad.Update(dt);                  // hot-reload poll
         // AFTER the poll: on a reload frame the pools were rebuilt one line ago
         // and are still empty, and BEFORE the binder, which reads what they write.

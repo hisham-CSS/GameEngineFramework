@@ -97,7 +97,8 @@ namespace MyCoreEngine {
     private:
         struct Live {
             std::unique_ptr<ui::UIAssetDocument> doc;
-            std::string markup, stylesheet;   // what it was loaded FROM
+            std::string markup, stylesheet;
+        ui::UIScaleSettings scale{};   // what it was loaded FROM
             int  sortOrder = 0;
             bool enabled = true;
             bool interactive = true;

@@ -293,6 +293,46 @@ TEST(UILayout, TextWithoutAFontStillLaysOut) {
 
 // With a font, a text leaf SHRINK-WRAPS its content — the behaviour that makes
 // labels work without hand-set sizes.
+// The UI scale multiplies fontScale INSIDE the measure callback, so resizing
+// the surface changes what a label measures without touching its style at all.
+// pushStyles_ decides whether to re-measure by comparing fontScale against the
+// last one it pushed; comparing the AUTHORED value alone leaves every text leaf
+// holding yoga's cached measurement from the previous surface size, and labels
+// lay out at the old size until something else happens to dirty them. That is
+// the same bug class the fontScale check itself was written to close, one level
+// up.
+TEST_F(UITextLayoutTest, ResizingTheSurfaceReMeasuresEveryTextLeaf) {
+    Font font;
+    if (!font.LoadFromFile("Exported/Fonts/Roboto.ttf", 20.f)) {
+        GTEST_SKIP() << "shipped font not staged next to the test";
+    }
+
+    UIDocument doc;
+    doc.root().style().direction = FlexDirection::Row;
+    doc.root().style().alignItems = Align::FlexStart;
+    UIElement* label = doc.root().AddChild("l");
+    label->setText("HELLO");
+
+    UIScaleSettings sc;
+    sc.mode = UIScaleMode::ScaleWithScreen;
+    sc.reference = { 1920.f, 1080.f };
+    sc.match = 0.f;                       // follow width
+    doc.SetScaleSettings(sc);
+
+    doc.SetSurfaceSize({ 1920.f, 1080.f });
+    doc.Layout(1920.f, 1080.f, &font);
+    ASSERT_FLOAT_EQ(doc.scale(), 1.0f);
+    const float w1 = label->layout().size.x;
+    ASSERT_GT(w1, 0.f);
+
+    // NOTHING about the element changes - only the surface.
+    doc.SetSurfaceSize({ 3840.f, 2160.f });
+    doc.Layout(1920.f, 1080.f, &font);
+    ASSERT_FLOAT_EQ(doc.scale(), 2.0f);
+    EXPECT_NEAR(label->layout().size.x, w1 * 2.f, 1.5f)
+        << "the label kept yoga's measurement from the previous surface size";
+}
+
 TEST_F(UITextLayoutTest, TextMeasuresItselfFromTheFont) {
     Font font;
     if (!font.LoadFromFile("Exported/Fonts/Roboto.ttf", 20.f)) {

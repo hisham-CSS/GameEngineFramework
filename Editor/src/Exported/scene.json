@@ -8057,7 +8057,10 @@
         "stylesheet": "Exported/UI/hud.cstyle",
         "sortOrder": 0,
         "enabled": true,
-        "interactive": true
+        "interactive": true,
+        "uiScaleMode": 1,
+        "uiScaleReference": [1920.0, 1080.0],
+        "uiScaleMatch": 0.0
       }
     }
   ],

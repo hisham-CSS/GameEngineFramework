@@ -736,6 +736,44 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
                     "Off for a decorative overlay, or it swallows clicks meant for\n"
                     "whatever is underneath it.");
 
+                ImGui::SeparatorText("Scaling");
+                // Authored pixels -> screen pixels. Without this a HUD written
+                // against 1080p occupies a quarter of a 4K screen and overflows
+                // a 720p one.
+                const char* kModes[] = { "Constant", "Scale With Screen" };
+                int mode = int(ud->scale.mode);
+                if (ImGui::Combo("Scale Mode", &mode, kModes, IM_ARRAYSIZE(kModes))) {
+                    undo.record(reg, selected, "Set UI scale mode",
+                                [&] { ud->scale.mode = MyCoreEngine::ui::UIScaleMode(mode); });
+                }
+                ImGui::SetItemTooltip(
+                    "Constant: authored pixels are screen pixels.\n"
+                    "Scale With Screen: authored against the reference resolution\n"
+                    "below, then scaled by how far the real surface departs from it.");
+
+                const bool scaling = ud->scale.mode != MyCoreEngine::ui::UIScaleMode::Constant;
+                ImGui::BeginDisabled(!scaling);
+                float ref[2] = { ud->scale.reference.x, ud->scale.reference.y };
+                if (ImGui::DragFloat2("Reference", ref, 8.0f, 64.0f, 8192.0f, "%.0f")) {
+                    undo.record(reg, selected, "Set UI reference resolution", [&] {
+                        ud->scale.reference = { std::max(1.0f, ref[0]),
+                                                std::max(1.0f, ref[1]) };
+                    });
+                }
+                ImGui::SetItemTooltip("The resolution the stylesheet's pixels were written for.");
+
+                float match = ud->scale.match;
+                if (ImGui::SliderFloat("Match", &match, 0.0f, 1.0f, "%.2f")) {
+                    undo.record(reg, selected, "Set UI scale match",
+                                [&] { ud->scale.match = match; });
+                }
+                ImGui::SetItemTooltip(
+                    "0 follows WIDTH, 1 follows HEIGHT, between blends the two.\n"
+                    "Width is the usual choice: a HUD runs out of horizontal room\n"
+                    "first, and an ultrawide should show more rather than bigger.");
+                ImGui::EndDisabled();
+
+                ImGui::SeparatorText("Region");
                 float region[4] = { ud->regionX, ud->regionY, ud->regionW, ud->regionH };
                 if (ImGui::DragFloat4("Region", region, 0.005f, 0.0f, 1.0f, "%.3f")) {
                     undo.record(reg, selected, "Set UI region", [&] {
@@ -957,6 +995,10 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
                         // two paths typed before anything appears.
                         ud.markup = "Exported/UI/hud.cxml";
                         ud.stylesheet = "Exported/UI/hud.cstyle";
+                        // Scaling on by default: a HUD authored in pixels
+                        // against one resolution is wrong on every other, and
+                        // discovering that after shipping is the expensive way.
+                        ud.scale.mode = MyCoreEngine::ui::UIScaleMode::ScaleWithScreen;
                         reg.emplace<MyCoreEngine::UIDocumentComponent>(selected, ud);
                     });
                 }

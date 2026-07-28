@@ -252,6 +252,10 @@ namespace MyCoreEngine {
                     { "markup",      ud->markup },
                     { "stylesheet",  ud->stylesheet },
                     { "sortOrder",   ud->sortOrder },
+                    { "uiScaleMode", int(ud->scale.mode) },
+                    { "uiScaleReference", json::array({ ud->scale.reference.x,
+                                                        ud->scale.reference.y }) },
+                    { "uiScaleMatch", ud->scale.match },
                     { "enabled",     ud->enabled },
                     { "interactive", ud->interactive },
                     { "region",      json::array({ ud->regionX, ud->regionY,
@@ -671,6 +675,16 @@ namespace MyCoreEngine {
                 ud.markup      = ju.value("markup", ud.markup);
                 ud.stylesheet  = ju.value("stylesheet", ud.stylesheet);
                 ud.sortOrder   = ju.value("sortOrder", ud.sortOrder);
+                // Read with defaults, so a scene written before scaling existed
+                // loads as Constant rather than as a zero-scale invisible UI.
+                ud.scale.mode = ui::UIScaleMode(
+                    ju.value("uiScaleMode", int(ud.scale.mode)));
+                if (auto it = ju.find("uiScaleReference");
+                    it != ju.end() && it->is_array() && it->size() == 2) {
+                    ud.scale.reference.x = (*it)[0].get<float>();
+                    ud.scale.reference.y = (*it)[1].get<float>();
+                }
+                ud.scale.match = ju.value("uiScaleMatch", ud.scale.match);
                 ud.enabled     = ju.value("enabled", ud.enabled);
                 ud.interactive = ju.value("interactive", ud.interactive);
                 // Omitted means "the whole surface", so an older scene loads

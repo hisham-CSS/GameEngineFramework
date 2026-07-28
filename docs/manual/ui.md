@@ -928,6 +928,71 @@ allocations, no tree walks, no string work. Only a write that can change a
 
 ---
 
+## Scaling to the screen
+
+Every length in a `.cstyle` is a number of pixels, which is the only thing you can
+reasonably write. It is also wrong on every screen but one: a HUD authored against
+1920x1080 occupies a quarter of a 4K display and overflows a 1280x720 one.
+
+Set a **reference resolution** on the `UIDocumentComponent` — Inspector ▸ **UI
+Document ▸ Scaling** — and the whole document scales by how far the real surface
+departs from it. The shipped sample does this; a freshly added component does too.
+
+| Field | |
+|---|---|
+| **Scale Mode** | `Constant` (authored pixels are screen pixels) or `Scale With Screen` |
+| **Reference** | the resolution your stylesheet's pixels were written for. Default 1920x1080 |
+| **Match** | `0` follows width, `1` follows height, between blends the two |
+
+Width is the usual choice: a HUD runs out of horizontal room first, and an
+ultrawide should show *more*, not bigger. The blend is in log space, so a match of
+`0.5` on a surface that halved in width and doubled in height gives exactly `1.0` —
+the geometric mean. A linear blend would give `1.25` and visibly favour whichever
+axis grew.
+
+The scale is computed from the **whole surface**, never from the document's region.
+A sidebar occupying a quarter of the screen must scale by how big the *screen* is,
+or it would shrink its own text on exactly the large display the feature exists for.
+
+### The unit rule
+
+This is the one thing to know, and it is what keeps hit-testing, clipping and every
+scroll offset out of the scale's way:
+
+> **`Style` is in AUTHORED units** (reference-resolution pixels).
+> **Everything else is in REAL surface pixels**, always, at every scale —
+> `ComputedLayout`, scroll offsets, pointer positions, `ScrollIntoView`,
+> `SetOrigin`, `SetContentExtent`.
+
+The conversion happens where an authored length or a text measurement *enters*
+layout, and nowhere else. So in app code:
+
+```cpp
+el->style().width = StyleLength::Px(100);   // 100 AUTHORED px - scales
+el->SetScrollOffset({ 0.0f, 100.0f });      // 100 REAL px - does not
+```
+
+That asymmetry is deliberate: one is authoring, the other is geometry. Layout still
+solves at the real viewport size, which is why `HitTest` needs no inverse mapping
+and `readLayout_` is untouched — scaling on the way *out* instead would have
+multiplied the document origin along with everything else, and a document pinned to
+the right-hand quarter of a 3840px surface would have landed at 5760.
+
+Percentages are **not** scaled. A percentage is already relative to a parent that
+has itself been scaled, so scaling it too would compound and a 50%-wide bar would
+become 100%.
+
+A wheel notch and a page are **authored** amounts, so they travel twice as far in
+real pixels at scale 2 — that is what keeps a notch covering the same three rows.
+
+**Text magnifies rather than re-baking.** The glyph atlas is baked once at 18px, so
+above roughly 1.5x text gets soft. Measurement stays exact at every scale
+(`Font::Measure` is linear in its scale argument), so layout is never wrong — only
+crispness suffers. A pixel-height-keyed font cache is the fix and it is not built
+yet.
+
+---
+
 ## Hot reload
 
 `UIAssetDocument` (`Engine/src/ui/UIAssetDocument.h`) watches the markup and
@@ -1091,6 +1156,7 @@ reset, so a leaked blend or depth state would corrupt the next pass.
 | `Engine/src/ui/UIValue.h` | The bound-value transport and its coercions |
 | `Engine/src/ui/UIDataSource.h` | `UIDataSource`, converters, `UIBindingContext` |
 | `Engine/src/ui/UIBinding.h` | The `{hole}` template and `UIBinder` |
+| `Engine/src/ui/UIScale.h` | `UIScaleSettings` + `ComputeUIScale` — authored px to screen px |
 | `Engine/src/ui/UIRepeat.h` | `UIRepeatSpec` — what the loader expanded for a `repeat=` |
 | `Engine/src/ui/UIRepeatPool.h` | The fixed slot pool a `repeat=` slides over its list |
 | `Engine/src/ui/UIInteractionStyler.h` | pseudo-class re-cascading |

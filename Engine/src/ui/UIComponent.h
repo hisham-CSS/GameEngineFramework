@@ -10,6 +10,7 @@
 // With this, a scene declares its own UI, the Player and the Game view both
 // pick it up from the saved file, and nothing in either host mentions it.
 #include "../core/Core.h"
+#include "UIScale.h"
 
 #include <string>
 
@@ -44,6 +45,16 @@ namespace MyCoreEngine {
         // hit-testing and clipping all follow for free.
         float regionX = 0.0f, regionY = 0.0f;
         float regionW = 1.0f, regionH = 1.0f;
+
+        // How authored pixels become screen pixels. Computed from the whole UI
+        // SURFACE, never from this document's region: a sidebar occupying a
+        // quarter of the screen must scale by how big the screen is, or it
+        // would shrink its own text on exactly the large display the feature
+        // exists to serve.
+        //
+        // Defaults to Constant, so a scene saved before this existed lays out
+        // byte-identically.
+        ui::UIScaleSettings scale{};
     };
 
 } // namespace MyCoreEngine
