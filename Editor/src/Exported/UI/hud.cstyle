@@ -236,6 +236,52 @@
   color: rgba(255, 255, 255, 1.0);
 }
 
+/* TABS.
+
+   `.tab-view`, `.tab-strip` and `.tab` are added by the engine; `.selected` is
+   toggled on whichever header is current. `.tab-panel` goes on every panel, so
+   a rule here reaches all of them at once.
+
+   A CLASS rather than a `:selected` pseudo-class: a real one would need a fifth
+   bool on every element, a parser entry, a compound-matcher case and a fifth
+   slot in the interaction styler, to buy only that this rule could not be
+   removed by hand. */
+.tab-strip {
+  flex-direction: row;
+  margin: 10px 0px 0px 0px;
+}
+
+.tab {
+  padding: 4px 12px;
+  margin: 0px 4px 0px 0px;
+  color: rgba(255, 255, 255, 0.55);
+  background-color: rgba(0, 0, 0, 0.35);
+  font-scale: 0.9;
+}
+
+/* Same specificity as `.tab` (one class each), so ORDER decides and this has to
+   come after it — exactly as in CSS. */
+.tab.selected {
+  color: rgba(255, 255, 255, 1.0);
+  background-color: rgba(255, 204, 68, 0.25);
+}
+
+.tab:hover {
+  background-color: rgba(0, 0, 0, 0.55);
+}
+
+/* The Tab strip is a Tab stop, so it needs a visible focus cue for the same
+   reason .log:focus does — a keystroke with no visible effect reads as dropped. */
+.tab:focus {
+  color: rgba(255, 255, 255, 1.0);
+  background-color: rgba(255, 255, 255, 0.18);
+}
+
+.tab-panel-col {
+  flex-direction: column;
+  padding: 6px 0px 0px 0px;
+}
+
 .log-header {
   color: rgba(255, 255, 255, 0.55);
   font-scale: 0.85;

@@ -17,6 +17,7 @@
 #include "UIElement.h"
 #include "UIInteractionStyler.h"
 #include "UIRepeatPool.h"
+#include "UITabView.h"
 #include "UIStyleSheet.h"
 
 #include <functional>
@@ -103,6 +104,23 @@ namespace MyCoreEngine::ui {
         // or never.
         void UpdateRepeats();
 
+        // Re-publishes every TabView's selection. Call once per frame beside
+        // UpdateRepeats, before the binder reads. Equality-gated all the way
+        // down, so an untouched TabView costs one integer compare per tab.
+        void UpdateTabs();
+
+        // Tab views by index or by the name= the author wrote. The named
+        // lookup is the WRITE path from game code — `Select(2)` — which is what
+        // U20 ships instead of a two-way binding.
+        std::size_t tabViewCount() const { return tabs_.size(); }
+        UITabView* tabView(std::size_t i) { return i < tabs_.size() ? tabs_[i].get() : nullptr; }
+        UITabView* tabView(const std::string& name) {
+            for (auto& t : tabs_) {
+                if (t->name() == name) return t.get();
+            }
+            return nullptr;
+        }
+
         // Tests and tooling.
         std::size_t repeatPoolCount() const { return pools_.size(); }
         const UIRepeatPool* repeatPool(std::size_t i) const {
@@ -134,6 +152,11 @@ namespace MyCoreEngine::ui {
         // pointer to each. Same rule, and the same reason, as ctx_ sitting
         // after doc_.
         std::vector<std::unique_ptr<UIRepeatPool>> pools_;
+        // The reserved "__tabs" source, one per document. Declared with the
+        // views and before ctx_, so it outlives every binder entry pointing at
+        // it — the same ordering rule the pools follow.
+        UIDataSource tabSrc_;
+        std::vector<std::unique_ptr<UITabView>> tabs_;
         // AFTER doc_ and sheet_ on purpose: binder_ holds raw pointers into the
         // tree, and members are destroyed in reverse declaration order, so the
         // index dies before the thing it indexes.

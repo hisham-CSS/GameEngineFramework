@@ -100,6 +100,7 @@ add_library(Engine SHARED
     src/ui/UIAssetDocument.cpp
     src/ui/UIRepeatPool.cpp
     src/ui/UIScale.cpp
+    src/ui/UITabView.cpp
     src/ui/UIComponent.h
     src/ui/UIWorld.h
     src/ui/UIWorld.cpp

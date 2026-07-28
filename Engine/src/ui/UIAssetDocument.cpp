@@ -45,7 +45,8 @@ bool UIAssetDocument::Reload() {
     // UIMarkup::LoadInto), so a broken edit never blanks a working UI — it
     // just reports and keeps running the last good version.
     std::vector<UIRepeatSpec> specs;
-    if (!UIMarkup::LoadFileInto(doc_, markupPath_, errors_, &specs)) {
+    std::vector<UITabSpec> tabSpecs;
+    if (!UIMarkup::LoadFileInto(doc_, markupPath_, errors_, &specs, &tabSpecs)) {
         for (const auto& e : errors_) std::cerr << "[UI] " << e << "\n";
         // The surviving tree still carries its own authored bindings, so
         // re-collecting restores exactly what was running. A half-typed file
@@ -90,9 +91,21 @@ bool UIAssetDocument::Reload() {
         pools_.push_back(std::make_unique<UIRepeatPool>());
         pools_.back()->Build(spec, ctx_, errors_, markupPath_);
     }
+    // Registered every load rather than once at construction: a re-register
+    // under the same name is a replace, and this way a document that never had
+    // a TabView still carries the source, so markup that grows one on a hot
+    // reload resolves without waiting for the context revision to move.
+    ctx_.RegisterSource(kTabSourceName, &tabSrc_);
+    tabs_.clear();
+    for (const auto& ts : tabSpecs) {
+        tabs_.push_back(std::make_unique<UITabView>());
+        tabs_.back()->Build(ts, doc_, tabSrc_, errors_, markupPath_);
+    }
+
     // Once, before the binder resolves, so Rebuild's force-apply sees real rows
-    // and a pooled label never shows an empty slot for a frame on load.
+    // and the right panel — otherwise every panel is up for frame one.
     UpdateRepeats();
+    UpdateTabs();
 
     // AFTER the cascade, never before: a binding has to outrank the stylesheet.
     // Rebuild ends by applying every binding unconditionally, so the tree
@@ -128,6 +141,10 @@ bool UIAssetDocument::Reload() {
 
 void UIAssetDocument::UpdateRepeats() {
     for (auto& p : pools_) p->Refresh(ctx_);
+}
+
+void UIAssetDocument::UpdateTabs() {
+    for (auto& t : tabs_) t->Refresh();
 }
 
 void UIAssetDocument::DrainBinderDiagnostics() {

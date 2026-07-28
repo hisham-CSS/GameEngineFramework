@@ -50,9 +50,11 @@ The only C++ a UI needs is what a file cannot carry: **named actions** and
 states — is content that hot-reloads.
 
 `UIWorld::Update` runs each document through `Update(dt)` → `UpdateRepeats()` →
-`UpdateToTarget()` → `AdvanceTime(dt)` → `Layout` → `UpdatePointer` →
-`UpdateKeyboard` → `PublishToSources()` → `RestyleInteractive()` → a conditional
-second `Layout`.
+`UpdateTabs()` → `UpdateToTarget()` → `AdvanceTime(dt)` → `Layout` →
+`UpdatePointer` → `UpdateKeyboard` → `PublishToSources()` →
+`RestyleInteractive()` → `UpdateToTarget()` again → a conditional second
+`Layout`. That second binder pass is what lands a tab switch or a class toggle
+in the same frame as the click that caused it.
 Bindings run **before** layout so a changed label is measured at its new width
 on the frame it changes; a `setText` from an input handler never was — it lands
 after the solve and paints at the previous frame's size.
@@ -106,6 +108,9 @@ Parsed by `UIMarkup` (`Engine/src/ui/UIMarkup.h`, pugixml).
 | `bind-value` | `<TextField>` only — the one **two-way** binding |
 | `push-hovered` / `push-pressed` / `push-focused` | element state back to the source |
 | `classes` | toggles classes from bools — `classes="low-health: {isLow}"` |
+| `repeat` / `repeat-count` / `repeat-offset` | repeats one template over a list — see [Collections](#collections-repeat) |
+| `label` | `<Tab>` only — the header's text |
+| `selected` | `<TabView>` only — the initially open tab |
 
 Anything else is a **load error**. That matters more than it sounds: this loader
 used to read the attributes it knew and ignore the rest, so `nmae="healthFill"`
@@ -928,6 +933,94 @@ allocations, no tree walks, no string work. Only a write that can change a
 
 ---
 
+## Tabs: `<TabView>`
+
+```xml
+<TabView name="demo" selected="0">
+  <Tab label="Bindings">  ...content... </Tab>
+  <Tab label="Scrolling"> ...content... </Tab>
+  <Tab label="Inventory"> ...content... </Tab>
+</TabView>
+```
+
+Expanded **once, at load**, into a generated header strip plus the authored
+panels. Switching tabs writes a single bool — the tree never changes shape, for
+the same reason `repeat=` expands at load: `structureEpoch()` is process-wide, so
+creating and destroying panels would make every binder in every document
+re-collect on the frames a user clicked a tab.
+
+| | |
+|---|---|
+| `name` | **required** on `<TabView>`. Keys the state properties, the C++ lookup and every diagnostic |
+| `selected` | optional, `0`-based, must be in range. Default 0 |
+| `label` | **required** on `<Tab>`, legal nowhere else |
+
+`<Tab>` is legal only as a direct child of a `<TabView>`, which may contain
+1–32 of them and nothing else.
+
+**Every other attribute on a `<Tab>` belongs to the PANEL** — `class`, `style`,
+`name`, `data-source`, `on-*`, even `repeat=`. Only `label` is consumed by the
+header. Worth knowing, because `<Tab>` is the one tag that produces two elements.
+
+A `<Tab>` may **not** carry its own `if=`: the panel's visibility is an
+engine-injected binding, and yours would be silently overwritten — the same rule,
+and the same reason, as a `repeat=` template.
+
+### Styling
+
+| class | on |
+|---|---|
+| `.tab-view` | the `<TabView>` itself |
+| `.tab-strip` | the generated header row |
+| `.tab` | each header. Also carries `.selected` when it is the current one |
+| `.tab-panel` | each panel |
+
+`selected` is a plain **class**, not a `:selected` pseudo-class. A real one would
+need a fifth bool on every `UIElement`, a parser entry, a compound-matcher case
+and a fifth slot in the interaction styler's watch struct — to buy only that an
+author could not remove it by hand. `.tab.selected { }` is the whole styling
+story, and it has to sit *after* `.tab` in the file because they weigh the same.
+
+### Keyboard
+
+A header is a Tab stop. Once focus is on one, **Left/Right wrap, Home/End jump**,
+and Enter re-selects. Arrows move focus **and** selection together, because Tab
+can land on a header without an arrow ever being pressed, and a header that
+highlights one panel while showing another is worse than either behaviour alone.
+
+A key pressed *inside* a panel is not stolen: the strip only acts when the event
+targets one of its own headers, so Left in a text field still moves the caret.
+
+Switching away from a panel that owns focus moves focus to the **new header**
+rather than dropping it — otherwise the next Tab would restart at the top of the
+whole HUD, and on a document that is not the keyboard target the `:focus` ring
+would stay lit inside a panel nobody can see.
+
+### Reading and writing the selection
+
+```xml
+<Label text="TAB {__tabs.demo}"/>          <!-- read: the current index -->
+```
+```cpp
+ad.tabView("demo")->Select(2);             // write, from C++
+```
+
+`__tabs` is a reserved source the document registers for you, with one integer
+per TabView (`demo`) and one bool per tab (`demo_0`, `demo_1`, …).
+
+**There is deliberately no two-way `bind-selected`.** Shoehorning one into the
+existing `Kind::Value` channel would resolve cleanly, report `ok()`, and then
+never write anything: that path reads a `UITextEdit` and bails when there isn't
+one. A correct version is a new binding kind with its own write path, its own
+type gate, and a stated rule for who wins when the game and a click both write in
+the same frame — that is `bind-value`-sized work, and half-building it is exactly
+the silent no-op this system reports errors to avoid.
+
+Selection resets to the markup default on a hot reload, like every other
+load-time state.
+
+---
+
 ## Scaling to the screen
 
 Every length in a `.cstyle` is a number of pixels, which is the only thing you can
@@ -1156,6 +1249,8 @@ reset, so a leaked blend or depth state would corrupt the next pass.
 | `Engine/src/ui/UIValue.h` | The bound-value transport and its coercions |
 | `Engine/src/ui/UIDataSource.h` | `UIDataSource`, converters, `UIBindingContext` |
 | `Engine/src/ui/UIBinding.h` | The `{hole}` template and `UIBinder` |
+| `Engine/src/ui/UITabs.h` | `UITabSpec` — what the loader expanded for a `<TabView>` |
+| `Engine/src/ui/UITabView.h` | The runtime half: selection, clicks, keyboard |
 | `Engine/src/ui/UIScale.h` | `UIScaleSettings` + `ComputeUIScale` — authored px to screen px |
 | `Engine/src/ui/UIRepeat.h` | `UIRepeatSpec` — what the loader expanded for a `repeat=` |
 | `Engine/src/ui/UIRepeatPool.h` | The fixed slot pool a `repeat=` slides over its list |
@@ -1172,7 +1267,8 @@ reset, so a leaked blend or depth state would corrupt the next pass.
 Word wrap: text breaks where you put a newline and nowhere else. IME composition
 (dead keys and layouts work, because text arrives already decoded, but there is
 no composition window). A checkbox, which is why `:checked` is still refused.
-Transitions and animation. `position: fixed`, `position: sticky`, and
+A two-way `bind-selected` for `<TabView>` (see [Tabs](#tabs-tabview) for why the
+half-built version is worse than none). Transitions and animation. `position: fixed`, `position: sticky`, and
 portals.
 
 Within scrolling specifically: kinetic/touch momentum, which needs touch input

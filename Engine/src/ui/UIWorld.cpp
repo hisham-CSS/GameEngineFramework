@@ -129,6 +129,7 @@ void UIWorld::Update(entt::registry& reg, int widthPx, int heightPx, float dt) {
         // Repeats first — the binder reads what the pools wrote, and hit-testing
         // a stale pool means clicking a row that moved one frame ago.
         live.doc->UpdateRepeats();
+        live.doc->UpdateTabs();
         live.doc->binder().UpdateToTarget();
         live.doc->document().SetOrigin(live.origin);
         live.doc->document().Layout(live.size.x, live.size.y, font_);
@@ -163,6 +164,7 @@ void UIWorld::Update(entt::registry& reg, int widthPx, int heightPx, float dt) {
         // AFTER the poll: on a reload frame the pools were rebuilt one line ago
         // and are still empty, and BEFORE the binder, which reads what they write.
         ad.UpdateRepeats();
+        ad.UpdateTabs();
         ad.binder().UpdateToTarget();   // before layout, so text re-measures
         doc.AdvanceTime(dt);
         doc.SetOrigin(live.origin);

@@ -109,6 +109,7 @@ engine_test(test_ui_twoway)        # element -> source: push-* state and a field
 engine_test(test_ui_component)     # UI as scene content: component, serialization, undo, UIWorld
 engine_test(test_ui_classbind)     # classes= toggles: re-cascade, other bindings surviving, no recursion
 engine_test(test_ui_scale)         # UI scaling: the authored-vs-real unit rule, and the origin
+engine_test(test_ui_tabs)          # TabView: load-time expansion, panel visibility, focus
 engine_test(test_ui_repeat)        # repeat= collection binding: fixed pool, sliding window, teardown
 engine_test(test_ui_scroll)        # overflow: scroll — extent, clamp order, wheel routing, thumb capture
 engine_test(test_import_settings)  # P4-3 phase 4: .import sidecar round-trip (pure CPU)

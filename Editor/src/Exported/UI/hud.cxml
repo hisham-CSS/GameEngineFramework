@@ -48,73 +48,219 @@
   them, or edit here and rebuild.
 -->
 <UI name="hud" data-source="scene">
-  <Element name="topBar" class="row">
-    <Element name="healthTrack" class="track">
-      <!-- One model value, two visual consequences, and no C++ in between.
-           `percent` is a builtin (0..1 -> a CSS percentage, unit included);
-           `healthTint` is registered by the HUD itself, because a drain ramp
-           is a LOOK and belongs next to the markup rather than inside
-           gameplay. Switching this bar to fixed pixels is an edit to this
-           file. -->
-      <Element name="healthFill" class="fill"
-               bind="width: {health | percent};
-                     background-color: {health | healthTint}"/>
+
+  <!-- TABS. One <Tab> per demo family, so the sample reads as three pages
+       rather than one wall.
+
+       Expanded ONCE at load, exactly like `repeat=`: the strip and every panel
+       are real elements from that point on, and switching tabs writes a single
+       bool. Building and destroying panels instead would move the process-wide
+       structure epoch and make every binder in every document re-collect on the
+       frames you clicked a tab.
+
+       Everything on a <Tab> except `label` belongs to the PANEL — class, style,
+       name, data-source, on-*, even repeat=. A <Tab> is the one tag that
+       produces two elements, so that is worth knowing.
+
+       The panel's visibility is an engine-injected binding, which is why a
+       <Tab> may not carry its own `if=`. Selection is a plain CLASS on the
+       header, so `.tab.selected` in hud.cstyle is the entire styling story.
+
+       Keyboard: Tab into the strip, then Left/Right/Home/End. Arrows move
+       focus AND selection, because Tab can land on a header without an arrow
+       ever being pressed, and a header that highlights one panel while showing
+       another is worse than either behaviour alone.
+
+       Read the current index anywhere with {__tabs.demo}; drive it from C++
+       with ad.tabView("demo")->Select(i). There is deliberately no two-way
+       `bind-selected` yet - see the manual for why. -->
+  <TabView name="demo">
+    <Tab label="Bindings" class="tab-panel-col">
+    <Element name="topBar" class="row">
+      <Element name="healthTrack" class="track">
+        <!-- One model value, two visual consequences, and no C++ in between.
+             `percent` is a builtin (0..1 -> a CSS percentage, unit included);
+             `healthTint` is registered by the HUD itself, because a drain ramp
+             is a LOOK and belongs next to the markup rather than inside
+             gameplay. Switching this bar to fixed pixels is an edit to this
+             file. -->
+        <Element name="healthFill" class="fill"
+                 bind="width: {health | percent};
+                       background-color: {health | healthTint}"/>
+      </Element>
+      <!-- The whole readout in one attribute: no placeholder text and no separate
+           format string in C++, so there is nothing to drift out of sync. -->
+      <!-- `classes` toggles a class from a bool, so the LOOK of "low" lives in
+           hud.cstyle rather than in a colour written from C++. Removing a class
+           cannot un-apply its rules on its own — the cascade has no undo — so the
+           element is re-cascaded from scratch, exactly as :hover does. -->
+      <Label name="scoreLabel" class="readout" classes="alarm: {lowHealth}"
+             text="SCORE {score}"/>
     </Element>
-    <!-- The whole readout in one attribute: no placeholder text and no separate
-         format string in C++, so there is nothing to drift out of sync. -->
-    <!-- `classes` toggles a class from a bool, so the LOOK of "low" lives in
-         hud.cstyle rather than in a colour written from C++. Removing a class
-         cannot un-apply its rules on its own — the cascade has no undo — so the
-         element is re-cascaded from scratch, exactly as :hover does. -->
-    <Label name="scoreLabel" class="readout" classes="alarm: {lowHealth}"
-           text="SCORE {score}"/>
-  </Element>
 
-  <Element name="buttonRow" class="row-left">
-    <!-- A named action, not a statement: `addScore` is a C++ lambda you can
-         breakpoint, and a typo is answered with the actions that exist. The
-         click still bubbles, so making this a composite widget later changes
-         nothing. -->
-    <Button name="scoreButton" class="btn" text="+100" on-click="addScore"/>
+    <Element name="buttonRow" class="row-left">
+      <!-- A named action, not a statement: `addScore` is a C++ lambda you can
+           breakpoint, and a typo is answered with the actions that exist. The
+           click still bubbles, so making this a composite widget later changes
+           nothing. -->
+      <Button name="scoreButton" class="btn" text="+100" on-click="addScore"/>
 
-    <!-- Real text entry. Click it (or Tab to it) and type: the caret places
-         itself where you click, arrows and Backspace move by whole characters
-         rather than bytes, and `maxlength` is a byte budget that only ever
-         truncates on a character boundary.
+      <!-- Real text entry. Click it (or Tab to it) and type: the caret places
+           itself where you click, arrows and Backspace move by whole characters
+           rather than bytes, and `maxlength` is a byte budget that only ever
+           truncates on a character boundary.
 
-         A TextField shows its `value`, never a `text` — the value is the one
-         source of truth, and the two would otherwise disagree the moment
-         anyone typed. -->
-    <TextField name="nameField" class="field" bind-value="playerName" maxlength="24"/>
-  </Element>
+           A TextField shows its `value`, never a `text` — the value is the one
+           source of truth, and the two would otherwise disagree the moment
+           anyone typed. -->
+      <TextField name="nameField" class="field" bind-value="playerName" maxlength="24"/>
+    </Element>
 
-  <!-- The other direction: what you type in the field above lands in the data
-       source, and this label reads it straight back out. `bind-value` is
-       two-way; `text` is one-way, because you cannot un-format a rendered
-       string ("SCORE {score}") back into a value. -->
-  <Label name="greeting" class="readout" text="HELLO {playerName | upper}"/>
+    <!-- The other direction: what you type in the field above lands in the data
+         source, and this label reads it straight back out. `bind-value` is
+         two-way; `text` is one-way, because you cannot un-format a rendered
+         string ("SCORE {score}") back into a value. -->
+    <Label name="greeting" class="readout" text="HELLO {playerName | upper}"/>
 
-  <!-- Multi-line. `multiline` is what makes Enter, Up and Down mean anything;
-       a single-line field leaves all three to whatever contains it, so Enter
-       can still submit a form. Tab still LEAVES even here — a field that
-       swallowed Tab would strand a keyboard user inside it, which is exactly
-       what a web <textarea> does.
+    <!-- Multi-line. `multiline` is what makes Enter, Up and Down mean anything;
+         a single-line field leaves all three to whatever contains it, so Enter
+         can still submit a form. Tab still LEAVES even here — a field that
+         swallowed Tab would strand a keyboard user inside it, which is exactly
+         what a web <textarea> does.
 
-       Ctrl+Z folds a burst of typing into ONE undo step, and Ctrl+C/X/V go
-       through the HOST clipboard: copy from here and paste into the editor's
-       Inspector, or the other way round.
+         Ctrl+Z folds a burst of typing into ONE undo step, and Ctrl+C/X/V go
+         through the HOST clipboard: copy from here and paste into the editor's
+         Inspector, or the other way round.
 
-       A field always clips to its own box and always scrolls its text to keep
-       the caret visible — that is not `overflow`, which governs children and a
-       field has none. Type more lines than fit and a scrollbar appears on the
-       right; it drags, and the wheel moves it too. -->
-  <TextField name="notes" class="notes" multiline="true"
-             bind-value="notes" maxlength="512"/>
+         A field always clips to its own box and always scrolls its text to keep
+         the caret visible — that is not `overflow`, which governs children and a
+         field has none. Type more lines than fit and a scrollbar appears on the
+         right; it drags, and the wheel moves it too. -->
+    <TextField name="notes" class="notes" multiline="true"
+               bind-value="notes" maxlength="512"/>
 
-  <!-- `if` writes display:none rather than removing the element, so it keeps
-       its identity, its handlers and its place in this file — and flipping it
-       is one style write. `.warning` starts hidden in hud.cstyle so a slow first
-       frame cannot flash the banner. -->
+    <!-- `if` writes display:none rather than removing the element, so it keeps
+         its identity, its handlers and its place in this file — and flipping it
+         is one style write. `.warning` starts hidden in hud.cstyle so a slow first
+         frame cannot flash the banner. -->
+    </Tab>
+    <Tab label="Scrolling" class="tab-panel-col">
+    <Label name="logHeader" class="log-header" text="EVENT LOG"/>
+
+    <!-- `overflow: scroll` clips AND scrolls. Put the pointer over it and turn
+         the wheel; drag the thumb on the right.
+
+         The height in hud.cstyle is what makes this a scroller at all: a scroller
+         needs a definite height, because `scroll` stops its children being
+         squeezed to fit (that is what leaves something to scroll), so without one
+         the panel just grows to its content and escapes the HUD.
+
+         Keyboard too, because it is focusable below: PageUp/PageDown, Home and
+         End. Clicking the TRACK pages toward the click; one page per press, no
+         hold-to-repeat.
+
+         Chaining is per GESTURE. Flick through to the bottom and keep going and
+         the wheel stays here — a list running out mid-flick must not carry its
+         container out from under the cursor. Pause, then wheel again, and a fresh
+         gesture WILL reach a scrollable ancestor if there is one. -->
+    <!-- focusable makes it a TAB STOP, which is what gives it PageUp/PageDown,
+         Home and End. Tab to it (past the +100 button and the two fields) and the
+         background lightens, because a Tab stop with no visible effect reads as a
+         dropped keystroke. Clicking its scrollbar focuses it too, the way a native
+         scrollbar does. -->
+    <Element name="log" class="log" focusable="true">
+      <Label class="entry" text="entry 01 — wheel over me"/>
+      <Label class="entry" text="entry 02"/>
+      <Label class="entry" text="entry 03"/>
+      <Label class="entry" text="entry 04"/>
+      <Label class="entry" text="entry 05"/>
+      <Label class="entry" text="entry 06"/>
+      <Label class="entry" text="entry 07"/>
+      <Label class="entry" text="entry 08"/>
+      <Label class="entry" text="entry 09"/>
+      <Label class="entry" text="entry 10 — the end"/>
+    </Element>
+
+    <!-- A ROW scroller: a hotbar, a card strip, an inventory row. Note there is
+         no horizontal scrollbar to drag on a normal mouse, so the plain wheel is
+         transferred to the x axis when an element scrolls only horizontally —
+         otherwise this panel would be visibly scrollable and completely
+         unreachable. Shift+wheel also works, and is what you need on a scroller
+         with range on both axes. -->
+    <Element name="hotbar" class="hotbar">
+      <Element class="slot"/><Element class="slot"/><Element class="slot"/>
+      <Element class="slot"/><Element class="slot"/><Element class="slot"/>
+      <Element class="slot"/><Element class="slot"/><Element class="slot"/>
+    </Element>
+
+    <!-- COLLECTION BINDING. One row template, repeated over a game-owned list.
+
+         The pool is FIXED at load and the window MOVES: `repeat-count` elements
+         are built once, and each frame slot i is filled with row (offset + i).
+         That is not a shortcut. UIElement's structure epoch is process-wide, so a
+         list that added and removed children would make every binder in every
+         document re-collect and re-resolve on the frames it changed size. Here
+         the elements stand still and the data slides through them, and because
+         every data-source setter is equality-gated, a slot whose row did not
+         change writes nothing and re-applies nothing.
+
+         Inside a repeat a BARE hole reads the ROW ({name}, {count}). A qualified
+         one still reaches outside ({scene.score}). Four columns come from the
+         engine rather than your data, and are named with a '$' so they can never
+         collide with a column of your own:
+
+           {$slot}     this element's index in the pool, 0..repeat-count-1
+           {$index}    the absolute row index it is currently showing
+           {$count}    how many rows the whole list has
+           {$present}  whether this slot has a row at all
+
+         $present drives the row's visibility automatically — which is why the
+         template's own root may not carry an `if=`; it would have to lose one or
+         the other, and a surplus row left visible would still be laid out,
+         painted and clickable.
+
+         `repeat-offset` is a CURSOR here, not a scroll position, and that works
+         because the window is clamped to [0, rows - repeat-count]. The selection
+         walks all twelve rows while the window stops at the last full page — so
+         the chosen row is always on screen, and the panel never shrinks to a
+         partial window as you approach either end. Hold PREV or NEXT down and
+         watch: five rows, always, and the highlight walks down the last page
+         once the window runs out of room.
+
+         Which row is chosen arrives as DATA (a `selected` column), not as a
+         comparison in the markup. There is deliberately no `==` here: a hole is
+         a path, and derived values are named C++ functions you can breakpoint.
+
+         A misspelt bare hole is a LOAD error naming the columns your rows
+         actually have — the pool checks it once, against the data, rather than
+         once per slot. -->
+    </Tab>
+    <Tab label="Inventory" class="tab-panel-col">
+    <Label name="bagHeader" class="log-header"
+           text="INVENTORY  {scene.invSelected}"/>
+    <Element name="bag" class="bag" repeat="inventory" repeat-count="5"
+             repeat-offset="invSelected">
+      <!-- `classes` on the row template toggles the selected look from the row's
+           own data. The template root may not carry an `if=` (the repeat owns
+           visibility), but `class=` and `classes=` are entirely its own. -->
+      <Element class="bag-row" classes="row-selected: {selected}">
+        <Label class="bag-index" text="{$index}"/>
+        <Label class="bag-name"  text="{name}"/>
+        <Label class="bag-qty"   text="x{count}"/>
+      </Element>
+    </Element>
+    <Element name="bagButtons" class="row-left">
+      <Button name="bagPrev" class="btn" text="PREV" on-click="invPrev"/>
+      <Button name="bagNext" class="btn" text="NEXT" on-click="invNext"/>
+    </Element>
+
+    <!-- Decorative overlay. pointer-events:none in the stylesheet, or this
+         full-screen layer would swallow every click meant for the UI below —
+         and note that it also means the wheel passes straight through to
+         whatever is underneath. -->
+    </Tab>
+  </TabView>
+
   <Element name="lowHealth" class="warning" if="lowHealth"
            text="LOW HEALTH  {health | ratio : 0}%"/>
 
@@ -122,117 +268,6 @@
        away with the entries it labels. Anything you want pinned goes outside
        the scroller — or inside it with position:absolute, which is pinned to
        the scroller's box rather than scrolled (see .centre-overlay below). -->
-  <Label name="logHeader" class="log-header" text="EVENT LOG"/>
-
-  <!-- `overflow: scroll` clips AND scrolls. Put the pointer over it and turn
-       the wheel; drag the thumb on the right.
-
-       The height in hud.cstyle is what makes this a scroller at all: a scroller
-       needs a definite height, because `scroll` stops its children being
-       squeezed to fit (that is what leaves something to scroll), so without one
-       the panel just grows to its content and escapes the HUD.
-
-       Keyboard too, because it is focusable below: PageUp/PageDown, Home and
-       End. Clicking the TRACK pages toward the click; one page per press, no
-       hold-to-repeat.
-
-       Chaining is per GESTURE. Flick through to the bottom and keep going and
-       the wheel stays here — a list running out mid-flick must not carry its
-       container out from under the cursor. Pause, then wheel again, and a fresh
-       gesture WILL reach a scrollable ancestor if there is one. -->
-  <!-- focusable makes it a TAB STOP, which is what gives it PageUp/PageDown,
-       Home and End. Tab to it (past the +100 button and the two fields) and the
-       background lightens, because a Tab stop with no visible effect reads as a
-       dropped keystroke. Clicking its scrollbar focuses it too, the way a native
-       scrollbar does. -->
-  <Element name="log" class="log" focusable="true">
-    <Label class="entry" text="entry 01 — wheel over me"/>
-    <Label class="entry" text="entry 02"/>
-    <Label class="entry" text="entry 03"/>
-    <Label class="entry" text="entry 04"/>
-    <Label class="entry" text="entry 05"/>
-    <Label class="entry" text="entry 06"/>
-    <Label class="entry" text="entry 07"/>
-    <Label class="entry" text="entry 08"/>
-    <Label class="entry" text="entry 09"/>
-    <Label class="entry" text="entry 10 — the end"/>
-  </Element>
-
-  <!-- A ROW scroller: a hotbar, a card strip, an inventory row. Note there is
-       no horizontal scrollbar to drag on a normal mouse, so the plain wheel is
-       transferred to the x axis when an element scrolls only horizontally —
-       otherwise this panel would be visibly scrollable and completely
-       unreachable. Shift+wheel also works, and is what you need on a scroller
-       with range on both axes. -->
-  <Element name="hotbar" class="hotbar">
-    <Element class="slot"/><Element class="slot"/><Element class="slot"/>
-    <Element class="slot"/><Element class="slot"/><Element class="slot"/>
-    <Element class="slot"/><Element class="slot"/><Element class="slot"/>
-  </Element>
-
-  <!-- COLLECTION BINDING. One row template, repeated over a game-owned list.
-
-       The pool is FIXED at load and the window MOVES: `repeat-count` elements
-       are built once, and each frame slot i is filled with row (offset + i).
-       That is not a shortcut. UIElement's structure epoch is process-wide, so a
-       list that added and removed children would make every binder in every
-       document re-collect and re-resolve on the frames it changed size. Here
-       the elements stand still and the data slides through them, and because
-       every data-source setter is equality-gated, a slot whose row did not
-       change writes nothing and re-applies nothing.
-
-       Inside a repeat a BARE hole reads the ROW ({name}, {count}). A qualified
-       one still reaches outside ({scene.score}). Four columns come from the
-       engine rather than your data, and are named with a '$' so they can never
-       collide with a column of your own:
-
-         {$slot}     this element's index in the pool, 0..repeat-count-1
-         {$index}    the absolute row index it is currently showing
-         {$count}    how many rows the whole list has
-         {$present}  whether this slot has a row at all
-
-       $present drives the row's visibility automatically — which is why the
-       template's own root may not carry an `if=`; it would have to lose one or
-       the other, and a surplus row left visible would still be laid out,
-       painted and clickable.
-
-       `repeat-offset` is a CURSOR here, not a scroll position, and that works
-       because the window is clamped to [0, rows - repeat-count]. The selection
-       walks all twelve rows while the window stops at the last full page — so
-       the chosen row is always on screen, and the panel never shrinks to a
-       partial window as you approach either end. Hold PREV or NEXT down and
-       watch: five rows, always, and the highlight walks down the last page
-       once the window runs out of room.
-
-       Which row is chosen arrives as DATA (a `selected` column), not as a
-       comparison in the markup. There is deliberately no `==` here: a hole is
-       a path, and derived values are named C++ functions you can breakpoint.
-
-       A misspelt bare hole is a LOAD error naming the columns your rows
-       actually have — the pool checks it once, against the data, rather than
-       once per slot. -->
-  <Label name="bagHeader" class="log-header"
-         text="INVENTORY  {scene.invSelected}"/>
-  <Element name="bag" class="bag" repeat="inventory" repeat-count="5"
-           repeat-offset="invSelected">
-    <!-- `classes` on the row template toggles the selected look from the row's
-         own data. The template root may not carry an `if=` (the repeat owns
-         visibility), but `class=` and `classes=` are entirely its own. -->
-    <Element class="bag-row" classes="row-selected: {selected}">
-      <Label class="bag-index" text="{$index}"/>
-      <Label class="bag-name"  text="{name}"/>
-      <Label class="bag-qty"   text="x{count}"/>
-    </Element>
-  </Element>
-  <Element name="bagButtons" class="row-left">
-    <Button name="bagPrev" class="btn" text="PREV" on-click="invPrev"/>
-    <Button name="bagNext" class="btn" text="NEXT" on-click="invNext"/>
-  </Element>
-
-  <!-- Decorative overlay. pointer-events:none in the stylesheet, or this
-       full-screen layer would swallow every click meant for the UI below —
-       and note that it also means the wheel passes straight through to
-       whatever is underneath. -->
   <Element name="centre" class="centre-overlay">
     <Element name="crosshair" class="crosshair"/>
   </Element>

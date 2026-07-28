@@ -22,6 +22,7 @@
 // declarations, which outrank every stylesheet rule as in CSS).
 #include "../core/Core.h"
 #include "UIRepeat.h"
+#include "UITabs.h"
 
 #include <string>
 #include <vector>
@@ -45,7 +46,8 @@ namespace MyCoreEngine::ui {
         static bool LoadInto(UIDocument& doc, const std::string& xml,
                              std::vector<std::string>& errors,
                              const std::string& originName = "<string>",
-                             std::vector<UIRepeatSpec>* outRepeats = nullptr);
+                             std::vector<UIRepeatSpec>* outRepeats = nullptr,
+                             std::vector<UITabSpec>* outTabs = nullptr);
 
         // As above, from a file. The path is checked with PathIsContained
         // BEFORE the parser opens it: markup is authored (i.e. untrusted)
@@ -53,7 +55,8 @@ namespace MyCoreEngine::ui {
         // audio clips and HDRis, all of which are gated the same way.
         static bool LoadFileInto(UIDocument& doc, const std::string& path,
                                  std::vector<std::string>& errors,
-                                 std::vector<UIRepeatSpec>* outRepeats = nullptr);
+                                 std::vector<UIRepeatSpec>* outRepeats = nullptr,
+                                 std::vector<UITabSpec>* outTabs = nullptr);
     };
 
 } // namespace MyCoreEngine::ui

@@ -16,10 +16,17 @@
 //   comments     C-style
 //
 // NOT SUPPORTED (deliberately, and reported as errors rather than ignored)
-//   combinators (descendant/child/sibling), any other pseudo-class (:focus and
-//   :disabled need states this system does not track), at-rules, variables,
-//   inheritance. Nothing here cascades from parent to child: every element is
-//   styled independently.
+//   at-rules, variables, inheritance. Nothing here cascades from parent to
+//   child: every element is styled independently.
+//
+// The pseudo-classes are :hover, :active, :focus and :disabled, and that list
+// is CLOSED for a reason worth knowing before you reach for a fifth. Each one
+// costs a bool on every UIElement, a parser entry, a case in the compound
+// matcher, and a slot in UIInteractionStyler's watch struct. A widget that
+// wants a state of its own — a selected tab, a checked box — should toggle a
+// CLASS instead: AddClass/RemoveClass already re-cascade, already cost nothing
+// when idle, and already do not move the structure epoch. <TabView> does
+// exactly that with `.selected`.
 #include "../core/Core.h"
 #include "UIStyle.h"
 

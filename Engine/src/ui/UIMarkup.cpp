@@ -79,7 +79,8 @@ namespace {
                 // EXACT entries, not a "repeat-" prefix rule: the exact-match
                 // allow-list is the only reason `repeat-cont=` is reported
                 // rather than quietly ignored.
-                n == "repeat" || n == "repeat-count" || n == "repeat-offset") {
+                n == "repeat" || n == "repeat-count" || n == "repeat-offset" ||
+                n == "label" || n == "selected") {
                 continue;
             }
             // The on-<event> and push-<state> families are validated in full
@@ -88,6 +89,18 @@ namespace {
             if (n.rfind("push-", 0) == 0) continue;
             if (n == "bind-value" || n == "classes") continue;
             errors.push_back(loc + "unknown attribute '" + n + "'");
+            return false;
+        }
+
+        // `label` belongs to a <Tab>'s header and `selected` to a <TabView>;
+        // on anything else they are a silent no-op, which is the one thing this
+        // loader never allows.
+        if (node.attribute("label") && el.type() != "Tab") {
+            errors.push_back(loc + "label: 'label' is only valid on a <Tab>");
+            return false;
+        }
+        if (node.attribute("selected") && el.type() != "TabView") {
+            errors.push_back(loc + "selected: 'selected' is only valid on a <TabView>");
             return false;
         }
 
@@ -555,7 +568,9 @@ namespace {
                                             std::vector<std::string>& errors,
                                             const std::string& origin,
                                             const std::string& scope,
-                                            std::vector<UIRepeatSpec>* specs);
+                                            std::vector<UIRepeatSpec>* specs,
+                                            std::vector<UITabSpec>* tabs,
+                                            bool asTabPanel = false);
 
     // Expands `repeat=` into a FIXED pool of clones, once, at load.
     //
@@ -567,7 +582,8 @@ namespace {
     // expansion and not a runtime one.
     bool expandRepeat(const pugi::xml_node& node, UIElement& el,
                       std::vector<std::string>& errors, const std::string& origin,
-                      const std::string& scope, std::vector<UIRepeatSpec>* specs) {
+                      const std::string& scope, std::vector<UIRepeatSpec>* specs,
+                      std::vector<UITabSpec>* tabs) {
         const std::string loc = origin + ": " + describe(node) + " ";
 
         // `specs == nullptr` means we are already inside one. 64 x 64 elements
@@ -649,7 +665,7 @@ namespace {
         clones.reserve(size_t(spec.count));
         for (int i = 0; i < spec.count; ++i) {
             const std::string slotName = spec.slotSourceName(i);
-            auto clone = buildElement(templateNode, errors, origin, slotName, nullptr);
+            auto clone = buildElement(templateNode, errors, origin, slotName, nullptr, tabs);
             if (!clone) return false;
             // AFTER buildElement, both of them: applyAttributes writes
             // setDataSourceName unconditionally from the node and finalises
@@ -691,6 +707,158 @@ namespace {
         return true;
     }
 
+    // A binding the ENGINE injects. Given its own label so where_() and
+    // Describe() never present it as something the author wrote.
+    bool injectFlagBinding(UIElement& el, UIBindTarget::Kind kind,
+                           const std::string& holePath, const std::string& label,
+                           const std::string& className,
+                           std::vector<std::string>& errors, const std::string& loc) {
+        UIBinding b;
+        b.target.kind = kind;
+        b.target.className = className;
+        b.label = label;
+        std::string err;
+        if (!UITextTemplate::Compile("{" + holePath + "}", b.tmpl, err)) {
+            errors.push_back(loc + label + ": " + err);   // unreachable
+            return false;
+        }
+        // Read-modify-write: applyAttributes finalises bindings in one shot, so
+        // this can only run AFTER buildElement returned.
+        auto bs = el.bindings();
+        bs.push_back(std::move(b));
+        el.setBindings(std::move(bs));
+        return true;
+    }
+
+    // Expands `<TabView>` into a generated header strip plus the authored
+    // panels, once, at load. The tree never changes shape again — switching
+    // tabs writes a bool, exactly like `if=`.
+    bool expandTabView(const pugi::xml_node& node, UIElement& el,
+                       std::vector<std::string>& errors, const std::string& origin,
+                       const std::string& scope, std::vector<UIRepeatSpec>* specs,
+                       std::vector<UITabSpec>* tabs) {
+        const std::string loc = origin + ": " + describe(node) + " ";
+
+        if (!tabs) {
+            errors.push_back(loc + "tabview: a <TabView> cannot appear here");
+            return false;
+        }
+        if (node.attribute("repeat")) {
+            errors.push_back(loc + "tabview: 'repeat' is not supported on a <TabView> - "
+                                   "the copies would share one name and one selection");
+            return false;
+        }
+
+        UITabSpec spec;
+        spec.name = trim(node.attribute("name").value());
+        if (spec.name.empty()) {
+            errors.push_back(loc + "tabview: 'name' is required on a <TabView> - "
+                                   "it keys the tab state and the C++ lookup");
+            return false;
+        }
+        for (const UITabSpec& other : *tabs) {
+            if (other.name != spec.name) continue;
+            errors.push_back(loc + "tabview: '" + spec.name +
+                             "' duplicates the name of another <TabView> in this document");
+            return false;
+        }
+
+        std::vector<pugi::xml_node> tabNodes;
+        for (pugi::xml_node c : node.children()) {
+            if (c.type() != pugi::node_element) continue;
+            if (std::string(c.name()) != "Tab") {
+                errors.push_back(loc + "tabview: a <TabView> may only contain <Tab> "
+                                       "elements, found " + describe(c));
+                return false;
+            }
+            tabNodes.push_back(c);
+        }
+        if (tabNodes.empty()) {
+            errors.push_back(loc + "tabview: expected 1..32 <Tab> children, found none");
+            return false;
+        }
+        if (int(tabNodes.size()) > kMaxTabs) {
+            errors.push_back(loc + "tabview: expected 1..32 <Tab> children, found " +
+                             std::to_string(tabNodes.size()));
+            return false;
+        }
+
+        for (pugi::xml_node t : tabNodes) {
+            const std::string label = trim(t.attribute("label").value());
+            if (label.empty()) {
+                errors.push_back(origin + ": " + describe(t) +
+                                 " tab: 'label' is required on a <Tab>");
+                return false;
+            }
+            // Rejected for the same reason a repeat template may not carry one:
+            // the injected Display binding would silently overwrite it, and the
+            // author would be left with a panel whose condition does nothing.
+            if (t.attribute("if")) {
+                errors.push_back(origin + ": " + describe(t) +
+                                 " tab: the panel cannot carry its own 'if=' - the "
+                                 "TabView decides whether a panel is shown; move the "
+                                 "condition to a child");
+                return false;
+            }
+            spec.labels.push_back(label);
+        }
+
+        if (const pugi::xml_attribute a = node.attribute("selected")) {
+            const std::string v = trim(a.value());
+            long idx = -1;
+            if (v.empty() || v.find_first_not_of("0123456789") != std::string::npos ||
+                (idx = std::strtol(v.c_str(), nullptr, 10)) < 0 ||
+                idx >= long(tabNodes.size())) {
+                errors.push_back(loc + "selected: expected an index 0.." +
+                                 std::to_string(tabNodes.size() - 1) + ", got '" + v + "'");
+                return false;
+            }
+            spec.initialSelected = int(idx);
+        }
+
+        el.AddClass("tab-view");
+
+        // The strip and its headers are GENERATED, so they carry no authored
+        // attributes and cannot collide with anything in the file.
+        auto strip = std::make_unique<UIElement>();
+        strip->setType("TabStrip");
+        strip->AddClass("tab-strip");
+        for (std::size_t i = 0; i < spec.labels.size(); ++i) {
+            auto head = std::make_unique<UIElement>();
+            head->setType("TabHeader");
+            head->AddClass("tab");
+            head->setText(spec.labels[i]);
+            // Explicitly: the type-word rule that makes a Button focusable only
+            // covers Button and TextField, and a tab strip you cannot reach
+            // with Tab is not a control.
+            head->setFocusable(true);
+            strip->AddChild(std::move(head));
+        }
+        el.AddChild(std::move(strip));
+
+        // The panels are the AUTHORED <Tab> nodes, built normally — every other
+        // attribute on a <Tab> belongs to the panel, including class, style,
+        // data-source, on-* and repeat.
+        for (std::size_t i = 0; i < tabNodes.size(); ++i) {
+            // specs FORWARDED, not null: a repeat inside a tab must work, and
+            // its spec must reach the caller. Passing null would fail it with
+            // repeat's nesting message, naming a feature the author never used.
+            auto panel = buildElement(tabNodes[i], errors, origin, scope, specs, tabs,
+                                      /*asTabPanel=*/true);
+            if (!panel) return false;
+            panel->AddClass("tab-panel");
+            const std::string flag = std::string(kTabSourceName) + "." + spec.flagProp(int(i));
+            if (!injectFlagBinding(*panel, UIBindTarget::Kind::Display, flag,
+                                   "tab panel", std::string(), errors, loc)) {
+                return false;
+            }
+            el.AddChild(std::move(panel));
+        }
+
+        tabs->push_back(std::move(spec));
+        return true;
+    }
+
     // Builds one element (and its subtree). Returns null on error, having
     // appended a message — the caller discards the whole tree, so a partial
     // parse never reaches the document.
@@ -698,9 +866,19 @@ namespace {
                                             std::vector<std::string>& errors,
                                             const std::string& origin,
                                             const std::string& scope,
-                                            std::vector<UIRepeatSpec>* specs) {
+                                            std::vector<UIRepeatSpec>* specs,
+                                            std::vector<UITabSpec>* tabs,
+                                            bool asTabPanel) {
         auto el = std::make_unique<UIElement>();
         el->setType(node.name());
+        // A <Tab> reaching here WITHOUT the panel flag is loose in the tree:
+        // expandTabView is the only caller that passes it, so this is the only
+        // way a stray one arrives.
+        if (el->type() == "Tab" && !asTabPanel) {
+            errors.push_back(origin + ": " + describe(node) +
+                             " tab: <Tab> is only valid as a direct child of a <TabView>");
+            return nullptr;
+        }
         if (!applyAttributes(node, *el, errors, origin)) return nullptr;
 
         // An element's own data-source= covers it and everything beneath it,
@@ -708,16 +886,25 @@ namespace {
         const std::string childScope =
             el->dataSourceName().empty() ? scope : el->dataSourceName();
 
+        if (el->type() == "TabView") {
+            // Replaces the ordinary child walk: expandTabView builds the strip
+            // and the panels itself.
+            if (!expandTabView(node, *el, errors, origin, childScope, specs, tabs)) {
+                return nullptr;
+            }
+            return el;
+        }
+
         if (node.attribute("repeat")) {
             // Replaces the ordinary child walk: the one element child is the
             // template, and expandRepeat adds the clones itself.
-            if (!expandRepeat(node, *el, errors, origin, childScope, specs)) return nullptr;
+            if (!expandRepeat(node, *el, errors, origin, childScope, specs, tabs)) return nullptr;
             return el;
         }
 
         for (pugi::xml_node child : node.children()) {
             if (child.type() != pugi::node_element) continue; // text/comments
-            auto builtChild = buildElement(child, errors, origin, childScope, specs);
+            auto builtChild = buildElement(child, errors, origin, childScope, specs, tabs);
             if (!builtChild) return nullptr;
             el->AddChild(std::move(builtChild));
         }
@@ -729,7 +916,8 @@ namespace {
 bool UIMarkup::LoadInto(UIDocument& doc, const std::string& xml,
                         std::vector<std::string>& errors,
                         const std::string& originName,
-                        std::vector<UIRepeatSpec>* outRepeats) {
+                        std::vector<UIRepeatSpec>* outRepeats,
+                        std::vector<UITabSpec>* outTabs) {
     pugi::xml_document xdoc;
     const pugi::xml_parse_result res = xdoc.load_string(xml.c_str());
     if (!res) {
@@ -757,6 +945,13 @@ bool UIMarkup::LoadInto(UIDocument& doc, const std::string& xml,
                          "put it on a child element");
         return false;
     }
+    // The root never passes through buildElement, so a <TabView> there would
+    // expand into nothing at all.
+    if (std::string(rootNode.name()) == "TabView") {
+        errors.push_back(originName + ": " + describe(rootNode) +
+                         " tabview: a <TabView> cannot be the document root");
+        return false;
+    }
 
     // Build the whole replacement subtree BEFORE touching the document. The
     // root node maps onto the document's existing root (which the document
@@ -765,11 +960,12 @@ bool UIMarkup::LoadInto(UIDocument& doc, const std::string& xml,
     // Specs are collected HERE and not in applyAttributes, which runs twice on
     // the root (probe, then commit) and would record every spec twice.
     std::vector<UIRepeatSpec> repeats;
+    std::vector<UITabSpec> tabs;
     const std::string rootScope = trim(rootNode.attribute("data-source").value());
     std::vector<std::unique_ptr<UIElement>> newChildren;
     for (pugi::xml_node child : rootNode.children()) {
         if (child.type() != pugi::node_element) continue;
-        auto built = buildElement(child, errors, originName, rootScope, &repeats);
+        auto built = buildElement(child, errors, originName, rootScope, &repeats, &tabs);
         if (!built) return false; // doc untouched
         newChildren.push_back(std::move(built));
     }
@@ -802,12 +998,14 @@ bool UIMarkup::LoadInto(UIDocument& doc, const std::string& xml,
     // above leaves the caller's vector untouched and no pool is ever built for
     // a tree that never reached the document.
     if (outRepeats) *outRepeats = std::move(repeats);
+    if (outTabs) *outTabs = std::move(tabs);
     return true;
 }
 
 bool UIMarkup::LoadFileInto(UIDocument& doc, const std::string& path,
                             std::vector<std::string>& errors,
-                            std::vector<UIRepeatSpec>* outRepeats) {
+                            std::vector<UIRepeatSpec>* outRepeats,
+                            std::vector<UITabSpec>* outTabs) {
     // Containment BEFORE opening: authored markup is untrusted content headed
     // for a parser, exactly like model/script/clip/HDRi paths.
     std::filesystem::path contained;
@@ -822,7 +1020,7 @@ bool UIMarkup::LoadFileInto(UIDocument& doc, const std::string& path,
         return false;
     }
     std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    return LoadInto(doc, text, errors, path, outRepeats);
+    return LoadInto(doc, text, errors, path, outRepeats, outTabs);
 }
 
 } // namespace MyCoreEngine::ui
