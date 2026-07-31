@@ -71,10 +71,12 @@
        ever being pressed, and a header that highlights one panel while showing
        another is worse than either behaviour alone.
 
-       Read the current index anywhere with {__tabs.demo}; drive it from C++
-       with ad.tabView("demo")->Select(i). There is deliberately no two-way
-       `bind-selected` yet - see the manual for why. -->
-  <TabView name="demo">
+       `bind-selected` is the TWO-WAY link: click a tab and `scene.activeTab`
+       is written; write `scene.activeTab` from gameplay and that tab opens. The
+       source wins when IT moved, the click wins otherwise, so the most recent
+       intent survives. {__tabs.demo} reads the index with no wiring at all,
+       which is what the label below the strip shows. -->
+  <TabView name="demo" bind-selected="activeTab">
     <Tab label="Bindings" class="tab-panel-col">
     <Element name="topBar" class="row">
       <Element name="healthTrack" class="track">
@@ -260,6 +262,11 @@
          whatever is underneath. -->
     </Tab>
   </TabView>
+  <!-- Both halves of the link, side by side: __tabs is the engine's own view of
+       the selection, `activeTab` is the app property bind-selected keeps in step
+       with it. They are always the same number. -->
+  <Label name="tabReadout" class="tab-readout"
+         text="tab {__tabs.demo}  /  scene.activeTab {activeTab}"/>
 
   <Element name="lowHealth" class="warning" if="lowHealth"
            text="LOW HEALTH  {health | ratio : 0}%"/>

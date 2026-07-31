@@ -20,7 +20,21 @@ UIElement* UITabView::panel(std::size_t i) const {
     return i < panels_.size() ? panels_[i] : nullptr;
 }
 
+namespace {
+
+    std::string join(const std::vector<std::string>& v) {
+        std::string out;
+        for (std::size_t i = 0; i < v.size(); ++i) {
+            if (i) out += ", ";
+            out += v[i];
+        }
+        return out.empty() ? std::string("none") : out;
+    }
+
+} // namespace
+
 void UITabView::Build(const UITabSpec& spec, UIDocument& doc, UIDataSource& src,
+                      UIBindingContext& ctx,
                       std::vector<std::string>& errors, const std::string& origin) {
     spec_ = spec;
     doc_ = &doc;
@@ -29,6 +43,8 @@ void UITabView::Build(const UITabSpec& spec, UIDocument& doc, UIDataSource& src,
     panels_.clear();
     flagIdx_.clear();
     strip_ = nullptr;
+    boundSrc_ = nullptr;
+    boundIdx_ = -1;
 
     UIElement* view = doc.root().Find(spec_.name);
     if (!view) {
@@ -113,6 +129,42 @@ void UITabView::Build(const UITabSpec& spec, UIDocument& doc, UIDataSource& src,
         });
     }
 
+    // The two-way link, resolved ONCE, here. Reported at load rather than per
+    // frame: Refresh runs twice per document per frame and has no error
+    // channel, and a bad path cannot be fixed without a reload anyway.
+    if (!spec_.bindProp.empty()) {
+        const std::string where = origin + ": tabview '" + spec_.name + "' bind-selected: ";
+        if (UIDataSource* bs = ctx.Find(spec_.bindSource)) {
+            // CREATED when absent, exactly as a push target is: the TabView owns
+            // this value, so an app should not have to declare it before the UI
+            // can publish one.
+            if (bs->IndexOf(spec_.bindProp) < 0) bs->SetInt(spec_.bindProp, selected_);
+            const int idx = bs->IndexOf(spec_.bindProp);
+            if (!bs->IsWritableAt(idx)) {
+                // Reported rather than dropped: a link that silently only worked
+                // one way looks exactly like a UI that is not wired up, which is
+                // the whole reason this is not folded into the binder.
+                errors.push_back(where + "'" + spec_.bindProp +
+                                 "' is read-only, so the selection cannot be written back");
+            } else {
+                boundSrc_ = bs;
+                boundIdx_ = idx;
+                // Seeded from the SOURCE, so a saved menu re-opens where it was
+                // rather than snapping to the markup default for one frame.
+                UIValue v;
+                long long n = 0;
+                if (bs->ReadAt(idx, v) && v.AsInt(n)) {
+                    selected_ = std::clamp(int(n), 0, int(panels_.size()) - 1);
+                }
+                lastBoundValue_ = selected_;
+                bs->WriteAt(idx, UIValue::Int(selected_));
+            }
+        } else {
+            errors.push_back(where + "unknown data source '" + spec_.bindSource +
+                             "' (registered: " + join(ctx.sourceNames()) + ")");
+        }
+    }
+
     publish_();
 }
 
@@ -157,6 +209,30 @@ void UITabView::publish_() {
     }
 }
 
-void UITabView::Refresh() { publish_(); }
+void UITabView::Refresh() {
+    // SOURCE first, and only when it MOVED. Comparing against the last value
+    // seen rather than against our own selection is what makes "the game wrote
+    // it" distinguishable from "we wrote it last frame" — without that, a click
+    // would be reverted by the stale source on the very next frame.
+    if (boundSrc_) {
+        UIValue v;
+        long long n = 0;
+        if (boundSrc_->ReadAt(boundIdx_, v) && v.AsInt(n)) {
+            const int want = std::clamp(int(n), 0, int(panels_.size()) - 1);
+            if (int(n) != lastBoundValue_) {
+                lastBoundValue_ = int(n);
+                Select(want);
+            }
+        }
+        // ELEMENT -> source. Also writes back a CLAMPED value, so a game that
+        // wrote 99 sees 2 rather than being left disagreeing with what is on
+        // screen. Equality-gated by UIDataSource, so an unchanged write is free.
+        if (selected_ != lastBoundValue_) {
+            lastBoundValue_ = selected_;
+            boundSrc_->WriteAt(boundIdx_, UIValue::Int(selected_));
+        }
+    }
+    publish_();
+}
 
 } // namespace MyCoreEngine::ui

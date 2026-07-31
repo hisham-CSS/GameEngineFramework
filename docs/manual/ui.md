@@ -105,12 +105,13 @@ Parsed by `UIMarkup` (`Engine/src/ui/UIMarkup.h`, pugixml).
 | `focusable` | `true`/`false` — puts the element in the tab order |
 | `disabled` | `true`/`false` (bare = true) — inert, skipped by Tab, matches `:disabled` |
 | `value` / `maxlength` / `mask` / `multiline` | `<TextField>` only — see [Text entry](#text-entry) |
-| `bind-value` | `<TextField>` only — the one **two-way** binding |
+| `bind-value` | `<TextField>` only — a **two-way** value binding |
 | `push-hovered` / `push-pressed` / `push-focused` | element state back to the source |
 | `classes` | toggles classes from bools — `classes="low-health: {isLow}"` |
 | `repeat` / `repeat-count` / `repeat-offset` | repeats one template over a list — see [Collections](#collections-repeat) |
 | `label` | `<Tab>` only — the header's text |
 | `selected` | `<TabView>` only — the initially open tab |
+| `bind-selected` | `<TabView>` only — the **two-way** selection link |
 
 Anything else is a **load error**. That matters more than it sounds: this loader
 used to read the attributes it knew and ignore the rest, so `nmae="healthFill"`
@@ -999,25 +1000,41 @@ would stay lit inside a panel nobody can see.
 ### Reading and writing the selection
 
 ```xml
-<Label text="TAB {__tabs.demo}"/>          <!-- read: the current index -->
+<TabView name="demo" bind-selected="hud.activeTab"> …           <!-- two-way -->
+<Label text="TAB {__tabs.demo}"/>                    <!-- read-only, no wiring -->
 ```
 ```cpp
-ad.tabView("demo")->Select(2);             // write, from C++
+ad.tabView("demo")->Select(2);                                  // or from C++
 ```
 
+`bind-selected` is a **bare path**, like every other write-back binding. Click a
+tab and the property is written; write the property from gameplay and that tab
+opens.
+
+**The conflict rule**, because there has to be one: the **source wins when it
+moved** since the view last looked, and the **element wins otherwise**. Gameplay
+writing between frames therefore opens that tab, while a click made after that
+check is published on the next pass — the most recent intent survives, which is
+the same shape `bind-value` on a `<TextField>` already has.
+
+The property is **created** if the app never declared it, exactly like a `push-*`
+target. An out-of-range value is clamped *and written back*, so the game never
+ends up holding an index the UI is ignoring. A **read-only** property (observed
+with no setter) is reported at load rather than dropped — a link that silently
+worked one way looks exactly like a UI that was never wired up.
+
+It is driven by `UITabView`, not by `UIBinder`, because that is where the
+selection already lives. The tempting shortcut — reusing the existing
+`Kind::Value` channel — resolves cleanly, reports `ok()`, and then never writes
+anything, because that path reads a `UITextEdit` and bails when there isn't one.
+
 `__tabs` is a reserved source the document registers for you, with one integer
-per TabView (`demo`) and one bool per tab (`demo_0`, `demo_1`, …).
+per TabView (`demo`) and one bool per tab (`demo_0`, `demo_1`, …). It is the
+read-only view; `bind-selected` is the one that writes.
 
-**There is deliberately no two-way `bind-selected`.** Shoehorning one into the
-existing `Kind::Value` channel would resolve cleanly, report `ok()`, and then
-never write anything: that path reads a `UITextEdit` and bails when there isn't
-one. A correct version is a new binding kind with its own write path, its own
-type gate, and a stated rule for who wins when the game and a click both write in
-the same frame — that is `bind-value`-sized work, and half-building it is exactly
-the silent no-op this system reports errors to avoid.
-
-Selection resets to the markup default on a hot reload, like every other
-load-time state.
+Without a `bind-selected`, selection resets to the markup default on a hot
+reload. With one it comes back from the source, so a saved menu re-opens where
+it was.
 
 ---
 
@@ -1267,8 +1284,7 @@ reset, so a leaked blend or depth state would corrupt the next pass.
 Word wrap: text breaks where you put a newline and nowhere else. IME composition
 (dead keys and layouts work, because text arrives already decoded, but there is
 no composition window). A checkbox, which is why `:checked` is still refused.
-A two-way `bind-selected` for `<TabView>` (see [Tabs](#tabs-tabview) for why the
-half-built version is worse than none). Transitions and animation. `position: fixed`, `position: sticky`, and
+Transitions and animation. `position: fixed`, `position: sticky`, and
 portals.
 
 Within scrolling specifically: kinetic/touch momentum, which needs touch input

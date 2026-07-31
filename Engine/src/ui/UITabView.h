@@ -38,13 +38,24 @@ namespace MyCoreEngine::ui {
         // Call after the markup load and BEFORE UIBinder::Rebuild, so the
         // force-apply at the end of Rebuild already sees the right panel
         // visible — otherwise every panel is up for frame one.
+        // `ctx` is used only to resolve a `bind-selected` path; a spec
+        // without one never touches it.
         void Build(const UITabSpec& spec, UIDocument& doc, UIDataSource& src,
+                   UIBindingContext& ctx,
                    std::vector<std::string>& errors, const std::string& origin);
 
         // Re-publishes the index and the N flags. Equality-gated by
         // UIDataSource, so an idle TabView costs N integer compares and wakes
         // nothing. Select() writes through immediately, so this is for the load
         // path and for a Select() made from game code between frames.
+        //
+        // It also services the two-way `bind-selected` link in both directions.
+        // The conflict rule, stated because there has to be one: the SOURCE
+        // wins when it moved since this last looked, and the ELEMENT wins
+        // otherwise. Gameplay writing the property between frames therefore
+        // opens that tab, while a click made after this ran is published on the
+        // next pass — the same shape bind-value on a TextField already has, and
+        // it means the most recent intent survives.
         void Refresh();
 
         int selected() const { return selected_; }
@@ -83,6 +94,14 @@ namespace MyCoreEngine::ui {
         int selected_ = 0;
         int indexIdx_ = -1;
         std::vector<int> flagIdx_;
+
+        // The `bind-selected` link. Null means there is none.
+        UIDataSource* boundSrc_ = nullptr;
+        int  boundIdx_ = -1;
+        // What the app source held last time this looked. The compare is
+        // against THIS rather than against a copy of our own selection, so a
+        // write by anything else at all is noticed.
+        int  lastBoundValue_ = 0;
     };
 
 } // namespace MyCoreEngine::ui

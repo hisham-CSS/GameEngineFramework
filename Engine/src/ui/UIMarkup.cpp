@@ -80,7 +80,7 @@ namespace {
                 // allow-list is the only reason `repeat-cont=` is reported
                 // rather than quietly ignored.
                 n == "repeat" || n == "repeat-count" || n == "repeat-offset" ||
-                n == "label" || n == "selected") {
+                n == "label" || n == "selected" || n == "bind-selected") {
                 continue;
             }
             // The on-<event> and push-<state> families are validated in full
@@ -101,6 +101,10 @@ namespace {
         }
         if (node.attribute("selected") && el.type() != "TabView") {
             errors.push_back(loc + "selected: 'selected' is only valid on a <TabView>");
+            return false;
+        }
+        if (node.attribute("bind-selected") && el.type() != "TabView") {
+            errors.push_back(loc + "bind-selected: 'bind-selected' is only valid on a <TabView>");
             return false;
         }
 
@@ -801,6 +805,16 @@ namespace {
                 return false;
             }
             spec.labels.push_back(label);
+        }
+
+        if (const pugi::xml_attribute a = node.attribute("bind-selected")) {
+            // A BARE PATH, like every other write-back binding, and for the same
+            // reason: there is nothing to interpolate, and you cannot un-format
+            // a rendered string back into an index.
+            if (!splitScoped(a.value(), scope, "bind-selected", loc,
+                             spec.bindSource, spec.bindProp, errors)) {
+                return false;
+            }
         }
 
         if (const pugi::xml_attribute a = node.attribute("selected")) {

@@ -277,6 +277,12 @@
   background-color: rgba(255, 255, 255, 0.18);
 }
 
+.tab-readout {
+  color: rgba(255, 255, 255, 0.35);
+  font-scale: 0.8;
+  margin: 4px 0px 0px 0px;
+}
+
 .tab-panel-col {
   flex-direction: column;
   padding: 6px 0px 0px 0px;

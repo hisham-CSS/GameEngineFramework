@@ -80,6 +80,12 @@ void InstallDemoUIContent(UIWorld& world) {
     // stops at the last full page, so the selection is always on screen and the
     // panel never shrinks to a partial window at either end.
     src.SetInt("invSelected", 0);
+
+    // What `bind-selected` on the sample's TabView keeps in step. Seeding it is
+    // not strictly required — the TabView creates the property if the app never
+    // declared one — but writing it here says plainly that this is app state the
+    // UI happens to drive, not engine plumbing.
+    src.SetInt("activeTab", 0);
     RebuildDemoInventory(src);
 
     // A named action, so the markup can write on-click="addScore" instead of

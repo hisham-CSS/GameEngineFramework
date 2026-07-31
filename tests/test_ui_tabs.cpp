@@ -51,6 +51,7 @@ const char* kThree = R"(<UI>
 // UIAssetDocument::Reload uses, without needing files on disk.
 struct Rig {
     UIDataSource tabSrc;
+    UIDataSource hud;      // the app source a bind-selected can point at
     UIBindingContext ctx;
     UIDocument doc;
     std::vector<UITabSpec> specs;
@@ -62,10 +63,11 @@ struct Rig {
 
     bool Load(const char* xml) {
         ctx.RegisterSource(kTabSourceName, &tabSrc);
+        ctx.RegisterSource("hud", &hud);
         if (!UIMarkup::LoadInto(doc, xml, errors, "t.cxml", nullptr, &specs)) return false;
         for (const auto& s : specs) {
             views.push_back(std::make_unique<UITabView>());
-            views.back()->Build(s, doc, tabSrc, errors, "t.cxml");
+            views.back()->Build(s, doc, tabSrc, ctx, errors, "t.cxml");
         }
         binder.Rebuild(doc, ctx, "t.cxml");
         return true;
@@ -494,4 +496,140 @@ TEST(UITabs, AFailedLoadReportsNoTabSpecs) {
     EXPECT_FALSE(UIMarkup::LoadInto(doc, R"(<UI><Element nmae="x"/></UI>)",
                                     errors, "t.cxml", nullptr, &tabs));
     EXPECT_EQ(tabs.size(), 1u) << "specs were written for a tree that never committed";
+}
+
+// ------------------------------------------------- two-way `bind-selected`
+//
+// Driven by UITabView rather than by UIBinder, because that is where the
+// selection already lives. The tempting shortcut — reusing Kind::Value —
+// resolves cleanly, reports ok(), and then never writes anything, because that
+// path reads a UITextEdit and bails when there is not one. These tests are what
+// stop anyone taking it.
+
+namespace {
+const char* kBound = R"(<UI>
+  <TabView name="demo" bind-selected="hud.activeTab">
+    <Tab label="One"   name="p0"><Label text="a"/></Tab>
+    <Tab label="Two"   name="p1"><Label text="b"/></Tab>
+    <Tab label="Three" name="p2"><Label text="c"/></Tab>
+  </TabView></UI>)";
+} // namespace
+
+TEST(UITabs, ABoundSelectionIsCreatedOnTheSourceWhenTheAppNeverDeclaredIt) {
+    Rig r;
+    ASSERT_TRUE(r.Load(kBound)) << r.firstError();
+    EXPECT_TRUE(r.errors.empty()) << r.firstError();
+    // Created, like every other write-back target: the TabView owns this value,
+    // so an app should not have to declare it before the UI can publish one.
+    ASSERT_GE(r.hud.IndexOf("activeTab"), 0) << "the property was never created";
+    EXPECT_EQ(r.hud.GetInt("activeTab"), 0);
+}
+
+TEST(UITabs, ClickingATabWritesTheIndexBackToTheSource) {
+    Rig r;
+    ASSERT_TRUE(r.Load(kBound)) << r.firstError();
+    r.view()->Select(2);
+    r.Frame();
+    EXPECT_EQ(r.hud.GetInt("activeTab"), 2)
+        << "the selection never reached the source - this is the silent no-op "
+           "the Kind::Value shortcut would have shipped";
+}
+
+TEST(UITabs, WritingTheSourceOpensThatTab) {
+    Rig r;
+    ASSERT_TRUE(r.Load(kBound)) << r.firstError();
+    r.hud.SetInt("activeTab", 1);
+    r.Frame();
+    EXPECT_EQ(r.view()->selected(), 1);
+    EXPECT_EQ(r.view()->panel(1)->style().display, DisplayMode::Flex);
+    EXPECT_EQ(r.view()->panel(0)->style().display, DisplayMode::None);
+}
+
+// Without comparing against the LAST SEEN source value — rather than against our
+// own selection — a click would be reverted by the stale source on the very
+// next frame, which is the classic two-way binding bug.
+TEST(UITabs, AClickIsNotRevertedByTheStaleSourceOnTheNextFrame) {
+    Rig r;
+    ASSERT_TRUE(r.Load(kBound)) << r.firstError();
+    r.view()->Select(2);
+    for (int i = 0; i < 5; ++i) {
+        r.Frame();
+        ASSERT_EQ(r.view()->selected(), 2) << "reverted on frame " << i;
+    }
+    EXPECT_EQ(r.hud.GetInt("activeTab"), 2);
+}
+
+// A game that writes a nonsense index must end up agreeing with what is on
+// screen, rather than being left holding a value the UI ignored.
+TEST(UITabs, AnOutOfRangeSourceValueIsClampedAndWrittenBack) {
+    Rig r;
+    ASSERT_TRUE(r.Load(kBound)) << r.firstError();
+    r.hud.SetInt("activeTab", 99);
+    r.Frame();
+    EXPECT_EQ(r.view()->selected(), 2);
+    r.Frame();
+    EXPECT_EQ(r.hud.GetInt("activeTab"), 2)
+        << "the source was left disagreeing with the visible tab";
+}
+
+// A saved menu re-opens where it was, rather than snapping to the markup
+// default for a frame and then jumping.
+TEST(UITabs, AnExistingSourceValueWinsOverTheMarkupDefaultAtLoad) {
+    Rig r;
+    r.hud.SetInt("activeTab", 2);
+    ASSERT_TRUE(r.Load(kBound)) << r.firstError();
+    EXPECT_EQ(r.view()->selected(), 2) << "the saved selection was overwritten at load";
+    EXPECT_EQ(r.view()->panel(2)->style().display, DisplayMode::Flex);
+}
+
+TEST(UITabs, AnIdleBoundTabViewWritesNothing) {
+    Rig r;
+    ASSERT_TRUE(r.Load(kBound)) << r.firstError();
+    r.Frame();
+    const std::uint32_t v = r.hud.version();
+    r.Frame();
+    r.Frame();
+    EXPECT_EQ(r.hud.version(), v) << "an untouched two-way link wrote every frame";
+}
+
+TEST(UITabs, BindSelectedNamingAnUnknownSourceIsReported) {
+    Rig r;
+    ASSERT_TRUE(r.Load(R"(<UI><TabView name="demo" bind-selected="nope.tab">
+      <Tab label="A"><Label text="x"/></Tab></TabView></UI>)")) << r.firstError();
+    EXPECT_TRUE(r.anyErrorContains("unknown data source 'nope'")) << r.firstError();
+    EXPECT_TRUE(r.anyErrorContains("registered:")) << r.firstError();
+}
+
+// Reported rather than dropped: a link that silently only worked one way looks
+// exactly like a UI that was never wired up.
+TEST(UITabs, BindSelectedToAReadOnlyPropertyIsReported) {
+    Rig r;
+    int backing = 1;
+    r.hud.Observe("activeTab", [&] { return UIValue::Int(backing); });   // no setter
+    ASSERT_TRUE(r.Load(kBound)) << r.firstError();
+    EXPECT_TRUE(r.anyErrorContains("read-only")) << r.firstError();
+    // ...and the link is not half-installed: clicking still moves the UI.
+    r.view()->Select(2);
+    r.Frame();
+    EXPECT_EQ(r.view()->selected(), 2);
+}
+
+TEST(UITabs, BindSelectedOnANonTabViewIsReported) {
+    Rig r;
+    EXPECT_FALSE(r.Load(R"(<UI><Element bind-selected="hud.tab"/></UI>)"));
+    EXPECT_TRUE(r.anyErrorContains("'bind-selected' is only valid on a <TabView>"))
+        << r.firstError();
+}
+
+TEST(UITabs, ABareBindSelectedPathUsesTheScopeSource) {
+    Rig r;
+    ASSERT_TRUE(r.Load(R"(<UI data-source="hud">
+      <TabView name="demo" bind-selected="activeTab">
+        <Tab label="A"><Label text="x"/></Tab>
+        <Tab label="B"><Label text="y"/></Tab>
+      </TabView></UI>)")) << r.firstError();
+    EXPECT_TRUE(r.errors.empty()) << r.firstError();
+    r.view()->Select(1);
+    r.Frame();
+    EXPECT_EQ(r.hud.GetInt("activeTab"), 1);
 }
