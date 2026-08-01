@@ -14,6 +14,7 @@
 #include "CameraDirector.h"
 #include "FixedTimestep.h"
 #include "JobSystem.h"
+#include "SceneLoader.h"
 #include "Renderer.h"
 #include "RenderTarget.h"
 
@@ -67,6 +68,24 @@ namespace MyCoreEngine
 		// completions run on the main thread each frame (RunLoop pumps
 		// them with the GL context current — that's where uploads go).
 		JobSystem& jobs() { return jobs_; }
+
+		// ---- scene loading ----
+		// The loader is owned by the HOST, because it needs a Scene and an
+		// AssetManager and Application is handed both rather than owning them.
+		// Application's job is the one thing only it can do: drain the pending
+		// swap at a frame boundary.
+		void setSceneLoader(SceneLoader* l) { sceneLoader_ = l; }
+		SceneLoader* sceneLoader() const { return sceneLoader_; }
+
+		// The game-facing call. DEFERRED — see SceneLoader: a UI handler runs
+		// inside the render pass and cannot have the registry swapped under it,
+		// so this records the request and the swap happens at the next frame
+		// boundary. Returns false when the file will not load, in which case
+		// nothing was touched at all.
+		bool LoadScene(const std::string& path,
+		               SceneSwapOrigin origin = SceneSwapOrigin::Game) {
+			return sceneLoader_ && sceneLoader_->RequestSwap(path, origin);
+		}
 		Window&   window() { return window_; }
 		GLFWwindow* GetNativeWindow() { return window_.getGLFWwindow(); }
 
@@ -240,6 +259,10 @@ namespace MyCoreEngine
 		Camera   camera_{ glm::vec3(0.0f, 0.0f, 3.0f) };
 		CameraDirector director_;
 		JobSystem jobs_; // constructed on the main thread (captures its id)
+		// NON-OWNING: the host owns it (it needs a Scene and an AssetManager).
+		// Null is a perfectly good state — a host that never switches scenes
+		// simply does not set one, and LoadScene then answers false.
+		SceneLoader* sceneLoader_ = nullptr;
 		Renderer renderer_;
 		bool     internalCameraInput_ = true;
 		glm::vec2 scrollAccum_{ 0.0f };

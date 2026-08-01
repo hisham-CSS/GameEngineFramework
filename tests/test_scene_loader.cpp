@@ -380,3 +380,143 @@ TEST(SceneLoader, CancellingAPendingSwapLeavesTheSceneAlone) {
     EXPECT_EQ(namedCount(scene), 1);
     std::remove("test_loader_a.json");
 }
+
+// ------------------------------------------- the function-observer overload
+
+// What every Install* helper uses. The loader OWNS the adapter: the caller
+// keeps nothing, so a subsystem that installs and forgets is still correctly
+// torn down.
+TEST(SceneLoader, AFunctionObserverFiresInBothPhasesAndIsOwnedByTheLoader) {
+    writeScene("test_loader_a.json", 4);
+    AssetManager assets;
+    Scene scene;
+    scene.createEntity().addComponent<Name>(Name{ "Original" });
+    SceneLoader loader(scene, assets);
+
+    int atUnload = -1, atLoad = -1;
+    loader.AddObserver([&](Scene& s) { atUnload = namedCount(s); },
+                       [&](Scene& s) { atLoad   = namedCount(s); });
+
+    loader.RequestSwap("test_loader_a.json");
+    ASSERT_TRUE(loader.DrainPendingSwap());
+    EXPECT_EQ(atUnload, 1) << "teardown ran after the old entities were gone";
+    EXPECT_EQ(atLoad, 4);
+    std::remove("test_loader_a.json");
+}
+
+// The shape the physics/script/audio installs actually use: teardown only.
+// The did-load argument is defaulted, and an empty std::function must be
+// skipped rather than called.
+TEST(SceneLoader, AFunctionObserverWithNoDidLoadHookIsSafeToDrain) {
+    writeScene("test_loader_a.json", 2);
+    AssetManager assets;
+    Scene scene;
+    SceneLoader loader(scene, assets);
+
+    int cleared = 0;
+    loader.AddObserver([&](Scene&) { ++cleared; });
+
+    loader.RequestSwap("test_loader_a.json");
+    ASSERT_TRUE(loader.DrainPendingSwap());
+    EXPECT_EQ(cleared, 1);
+    std::remove("test_loader_a.json");
+}
+
+// A function observer never vetoes. Otherwise installing physics would give
+// every subsystem an accidental say over whether the game may change scene.
+TEST(SceneLoader, AFunctionObserverNeverVetoesTheSwap) {
+    writeScene("test_loader_a.json", 2);
+    AssetManager assets;
+    Scene scene;
+    SceneLoader loader(scene, assets);
+    loader.AddObserver([](Scene&) {}, [](Scene&) {});
+
+    loader.RequestSwap("test_loader_a.json", SceneSwapOrigin::Game);
+    ASSERT_TRUE(loader.DrainPendingSwap());
+    EXPECT_EQ(loader.lastResult().status, SceneSwapStatus::Ok);
+    std::remove("test_loader_a.json");
+}
+
+// The editor registers a pointer observer (its edit-mode gate) and a lambda
+// (its own resets) into the same list. Order has to hold across both kinds.
+TEST(SceneLoader, FunctionAndPointerObserversShareOneRegistrationOrder) {
+    writeScene("test_loader_a.json", 1);
+    AssetManager assets;
+    Scene scene;
+    SceneLoader loader(scene, assets);
+
+    std::vector<std::string> log;
+    Spy first; first.name = "ptr"; first.log = &log;
+    loader.AddObserver(&first);
+    loader.AddObserver([&](Scene&) { log.push_back("fn:unload"); },
+                       [&](Scene&) { log.push_back("fn:load"); });
+    Spy last; last.name = "ptr2"; last.log = &log;
+    loader.AddObserver(&last);
+
+    loader.RequestSwap("test_loader_a.json");
+    ASSERT_TRUE(loader.DrainPendingSwap());
+    const std::vector<std::string> want{
+        "ptr:allow", "ptr2:allow",
+        "ptr:unload", "fn:unload", "ptr2:unload",
+        "ptr:load",   "fn:load",   "ptr2:load",
+    };
+    EXPECT_EQ(log, want);
+    std::remove("test_loader_a.json");
+}
+
+// The owned adapter has to come out of the list with its handle like any
+// other observer, and stop firing.
+TEST(SceneLoader, ARemovedFunctionObserverStopsFiring) {
+    writeScene("test_loader_a.json", 1);
+    AssetManager assets;
+    Scene scene;
+    SceneLoader loader(scene, assets);
+
+    int fired = 0;
+    const auto h = loader.AddObserver([&](Scene&) { ++fired; });
+    loader.RequestSwap("test_loader_a.json");
+    ASSERT_TRUE(loader.DrainPendingSwap());
+    ASSERT_EQ(fired, 1);
+
+    loader.RemoveObserver(h);
+    loader.RequestSwap("test_loader_a.json");
+    ASSERT_TRUE(loader.DrainPendingSwap());
+    EXPECT_EQ(fired, 1) << "a removed function observer still ran";
+    std::remove("test_loader_a.json");
+}
+
+// The editor's own gate, in miniature: Host swaps always pass, Game swaps are
+// refused while stopped. Proves the origin is enough to build the policy on
+// without the loader knowing anything about play modes.
+TEST(SceneLoader, AnEditModeGateCanRefuseGameSwapsAndStillAllowHostOnes) {
+    writeScene("test_loader_a.json", 5);
+    AssetManager assets;
+    Scene scene;
+    SceneLoader loader(scene, assets);
+
+    bool playing = false;
+    struct Gate : ISceneSwapObserver {
+        const bool* playing = nullptr;
+        bool AllowSceneSwap(const SceneSwapContext& c, std::string& why) override {
+            if (c.origin == SceneSwapOrigin::Host || (playing && *playing)) return true;
+            why = "stopped";
+            return false;
+        }
+    } gate;
+    gate.playing = &playing;
+    loader.AddObserver(&gate);
+
+    loader.RequestSwap("test_loader_a.json", SceneSwapOrigin::Game);
+    EXPECT_FALSE(loader.DrainPendingSwap());
+    EXPECT_EQ(loader.lastResult().status, SceneSwapStatus::Refused);
+    EXPECT_EQ(namedCount(scene), 0) << "a refused swap loaded anyway";
+
+    loader.RequestSwap("test_loader_a.json", SceneSwapOrigin::Host);
+    EXPECT_TRUE(loader.DrainPendingSwap());
+    EXPECT_EQ(namedCount(scene), 5);
+
+    playing = true;
+    loader.RequestSwap("test_loader_a.json", SceneSwapOrigin::Game);
+    EXPECT_TRUE(loader.DrainPendingSwap()) << "the gate refused during play";
+    std::remove("test_loader_a.json");
+}

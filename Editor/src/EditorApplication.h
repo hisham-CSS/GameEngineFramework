@@ -122,6 +122,23 @@ private:
     // Engine-side asset filesystem domain: cached tree of Exported/, all
     // disk walking + rescan throttling live here; the panel is a view.
     MyCoreEngine::AssetIndex assetIndex_;
+    // Owned here because it needs the Scene and the AssetManager, neither of
+    // which Application owns. Application only drains it, at the frame
+    // boundary — see Application::RunLoop.
+    std::unique_ptr<MyCoreEngine::SceneLoader> sceneLoader_;
+    // Refuses GAME-originated swaps while stopped. The Game panel dispatches
+    // the game's UI clicks even in edit mode, so without this a menu button in
+    // a document being authored could replace the scene under the author.
+    struct EditModeGate : MyCoreEngine::ISceneSwapObserver {
+        const bool* playing = nullptr;
+        bool AllowSceneSwap(const MyCoreEngine::SceneSwapContext& c,
+                            std::string& reason) override {
+            if (c.origin == MyCoreEngine::SceneSwapOrigin::Host) return true;
+            if (playing && *playing) return true;
+            reason = "the game asked to change scene while the editor is stopped";
+            return false;
+        }
+    } editModeGate_;
     entt::entity        selected_ = entt::null;
 
     // async model requests awaiting their decode (spawn ops carry the

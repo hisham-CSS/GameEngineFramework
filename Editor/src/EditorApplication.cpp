@@ -380,6 +380,61 @@ void EditorApplication::Run() {
     // Make GL ready before creating any GL objects (Shaders, Models)
     InitGL();
     assets_ = std::make_unique<AssetManager>(); // create after GL is ready
+
+    // Scene swapping goes through one place now. Created here because it needs
+    // both the Scene and the AssetManager, and BEFORE the Install* calls below
+    // so physics/scripts/audio can subscribe their own teardown to it.
+    sceneLoader_ = std::make_unique<MyCoreEngine::SceneLoader>(scene, *assets_);
+    setSceneLoader(sceneLoader_.get());
+    editModeGate_.playing = &playing_;
+    sceneLoader_->AddObserver(&editModeGate_);
+    // The editor's own derived state. This used to live inside
+    // loadSceneFromFile_, which is exactly why a GAME-initiated swap (a menu
+    // button in the running game) would have left the editor holding stale
+    // handles: there was no way to reach it except through the File menu.
+    sceneLoader_->AddObserver(
+        [this](MyCoreEngine::Scene&) {          // will unload
+            selected_ = entt::null;   // every entity handle is about to die
+            undo_.clear();            // ...including all of the history's
+            gameDirector_.reset();    // ...and the Game view's camera handles
+            pendingModelOps_.clear(); // in-flight ops were aimed at the old scene
+        },
+        [this](MyCoreEngine::Scene& s) {        // did load
+            // Re-apply the quality tier: the perf toggles serialize, but the
+            // CSM cascade/resolution half of a tier lives on the Renderer and
+            // is not serialized, so a loaded High scene would get default
+            // shadows without this.
+            if (s.GetQualityLevel() != MyCoreEngine::Scene::QualityLevel::Custom)
+                renderer().ApplyQualityTier(s.GetQualityLevel(), s);
+            // Wholesale replacement bypasses the departure-sphere dirty-caster
+            // flow: the old scene's shadows would stay baked into cascades the
+            // new content never touches.
+            forceAllCSMUpdate_();
+        });
+    // Report what a swap did, wherever it came from — including the ones the
+    // editor did not initiate.
+    sceneLoader_->SetOnSwapComplete([this](const MyCoreEngine::SceneSwapResult& r) {
+        switch (r.status) {
+        case MyCoreEngine::SceneSwapStatus::Ok:
+            // The File menu's target follows the scene that is actually open,
+            // so a game-initiated swap doesn't leave Save pointing at the file
+            // the author left three scenes ago.
+            std::snprintf(currentScenePath_, sizeof(currentScenePath_), "%s",
+                          r.path.c_str());
+            sceneStatus_ = r.report.complete()
+                ? "Loaded " + r.path
+                : "Loaded " + r.path + " - " +
+                      std::to_string(r.report.failedModels.size() +
+                                     r.report.rejectedModels.size()) +
+                      " model(s) missing (see log)";
+            break;
+        case MyCoreEngine::SceneSwapStatus::Superseded:
+            break; // a request replaced before it ran is not news
+        default:
+            sceneStatus_ = "Scene load FAILED: " + r.message;
+            break;
+        }
+    });
     std::unique_ptr<Shader> shader = std::make_unique<Shader>("Exported/Shaders/vertex.glsl",
         "Exported/Shaders/frag.glsl");
     sceneShader_ = shader.get(); // the Game view renders with the same shader
@@ -1468,9 +1523,8 @@ void EditorApplication::DrawMainMenuBar(MyCoreEngine::Scene& scene)
         ImGui::TextDisabled("Tip: double-clicking a .json in the Asset browser also loads it.");
         ImGui::Separator();
         if (ImGui::Button("Open", ImVec2(120, 0))) {
-            sceneStatus_ = loadSceneFromFile_(scene, currentScenePath_)
-                ? (std::string("Loaded ") + currentScenePath_)
-                : "Load FAILED (see console)";
+            loadSceneFromFile_(scene, currentScenePath_); // reports via
+                                                          // SetOnSwapComplete
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
@@ -1912,30 +1966,24 @@ void EditorApplication::createDefaultScene_(MyCoreEngine::Scene& scene)
     }
 }
 
-bool EditorApplication::loadSceneFromFile_(MyCoreEngine::Scene& scene, const std::string& path)
+bool EditorApplication::loadSceneFromFile_(MyCoreEngine::Scene& /*scene*/,
+                                          const std::string& path)
 {
-    MyCoreEngine::SceneSerializer serializer(scene, *assets_);
-    if (!serializer.Load(path)) return false;
-    // Re-apply the quality tier: the perf toggles serialize, but the CSM
-    // cascade/resolution part of a tier lives in the Renderer (not serialized),
-    // so a reloaded High scene would otherwise get default shadows.
-    if (scene.GetQualityLevel() != MyCoreEngine::Scene::QualityLevel::Custom)
-        renderer().ApplyQualityTier(scene.GetQualityLevel(), scene);
-    selected_ = entt::null; // old entity handles are invalid after a load
-    // ...and so is every handle in the undo history: undoing a pre-load
-    // entry would resurrect ghosts into the loaded scene
-    undo_.clear();
-    gameDirector_.reset(); // Game view camera/override handles are stale too
-    pendingModelOps_.clear(); // in-flight spawns/assigns were aimed at the old scene
-    // wholesale scene replacement bypasses the departure-sphere flow: the
-    // old scene's shadows would stay baked in cascades the new content
-    // doesn't touch (same class of bug as play-mode stop-restore)
-    forceAllCSMUpdate_();
-    // ...and every entity->body pair now refers to the OLD scene's entities
-    physics_.Clear();
-    scripts_.Clear(); // ...as does every entity->script-instance pair
-    audio_.Clear();   // stop any voices from the old scene
-    return true;
+    // Everything this method used to do by hand — the selection/undo/director
+    // resets, the CSM rebuild, the physics/script/audio clears — is now an
+    // observer on the loader, subscribed where each of those things is created.
+    // What is left is the one decision only the host makes: WHEN.
+    //
+    // Editor loads are drained IMMEDIATELY rather than at the frame boundary.
+    // They come from a menu handler, not from game code holding a view into the
+    // registry, and the caller wants the yes/no now for the status line. The
+    // deferred path is for GAME-originated swaps, which the editor drains in
+    // Application::RunLoop like any other host.
+    if (!sceneLoader_) return false;
+    if (!sceneLoader_->RequestSwap(path, MyCoreEngine::SceneSwapOrigin::Host))
+        return false; // the file did not validate; nothing was touched
+    sceneLoader_->DrainPendingSwap();
+    return sceneLoader_->lastResult().status == MyCoreEngine::SceneSwapStatus::Ok;
 }
 
 bool EditorApplication::setStartupScene_(const std::string& path)

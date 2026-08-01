@@ -33,6 +33,16 @@ namespace MyCoreEngine {
             world.SetBackend("Simple", settings);
         }
 
+        // Drop what this derives from the registry when the scene is replaced.
+        // Subscribed at INSTALL time so it cannot be forgotten: this used to
+        // live in one editor private method, which is why a game could not
+        // switch scenes without leaking it.
+        //
+        // will-unload, not did-load: the outgoing entities must still be alive.
+        if (SceneLoader* loader = app.sceneLoader()) {
+            loader->AddObserver([&world](Scene&) { world.Clear(); });
+        }
+
         return app.AddFixedUpdate([&scene, &world](float fixedDt) {
             world.Step(scene.registry, fixedDt);
         });

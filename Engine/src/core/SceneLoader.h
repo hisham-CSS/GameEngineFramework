@@ -24,6 +24,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -98,6 +99,19 @@ namespace MyCoreEngine {
         // NON-OWNING. An observer must outlive the loader, which is trivially
         // true for the subsystems a host holds by value.
         ObserverHandle AddObserver(ISceneSwapObserver* obs);
+
+        // Convenience for a subsystem whose whole contract is "drop everything
+        // you derived from the old registry" — which is all three of physics,
+        // scripting and audio. OWNED by the loader, unlike the pointer
+        // overload, so an Install helper can subscribe in one line and never
+        // think about the observer's lifetime.
+        //
+        // `didLoad` is usually empty: those subsystems rebuild lazily from
+        // components on their next tick, which is why the editor's old private
+        // swap only ever called Clear().
+        ObserverHandle AddObserver(std::function<void(Scene&)> willUnload,
+                                   std::function<void(Scene&)> didLoad = {});
+
         void           RemoveObserver(ObserverHandle h);
 
         // Record a swap; NEVER loads inline. The caller may be inside a render
@@ -132,7 +146,14 @@ namespace MyCoreEngine {
         Scene&        scene_;
         AssetManager& assets_;
 
-        struct Entry { ObserverHandle handle; ISceneSwapObserver* obs; };
+        // A function-based observer the loader owns, adapted to the interface
+        // so the notification loop has exactly one shape.
+        class FnObserver;
+        struct Entry {
+            ObserverHandle handle;
+            ISceneSwapObserver* obs;
+            std::shared_ptr<ISceneSwapObserver> owned;   // null for the pointer overload
+        };
         std::vector<Entry> observers_;
         ObserverHandle     nextHandle_ = 1;
 

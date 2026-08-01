@@ -22,10 +22,32 @@ namespace {
     }
 }
 
+class SceneLoader::FnObserver : public ISceneSwapObserver {
+public:
+    FnObserver(std::function<void(Scene&)> u, std::function<void(Scene&)> d)
+        : unload_(std::move(u)), load_(std::move(d)) {}
+    void OnSceneWillUnload(Scene& s, const SceneSwapContext&) override {
+        if (unload_) unload_(s);
+    }
+    void OnSceneDidLoad(Scene& s, const SceneSwapContext&) override {
+        if (load_) load_(s);
+    }
+private:
+    std::function<void(Scene&)> unload_, load_;
+};
+
 SceneLoader::ObserverHandle SceneLoader::AddObserver(ISceneSwapObserver* obs) {
     if (!obs) return 0;
     const ObserverHandle h = nextHandle_++;
-    observers_.push_back(Entry{ h, obs });
+    observers_.push_back(Entry{ h, obs, nullptr });
+    return h;
+}
+
+SceneLoader::ObserverHandle SceneLoader::AddObserver(std::function<void(Scene&)> willUnload,
+                                                     std::function<void(Scene&)> didLoad) {
+    auto owned = std::make_shared<FnObserver>(std::move(willUnload), std::move(didLoad));
+    const ObserverHandle h = nextHandle_++;
+    observers_.push_back(Entry{ h, owned.get(), owned });
     return h;
 }
 

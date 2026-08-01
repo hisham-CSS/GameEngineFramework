@@ -126,6 +126,27 @@ namespace MyCoreEngine
 			// budget keeps a burst of finished jobs from hitching a frame.
 			jobs_.pumpCompletions(2.0f);
 
+			// THE SWAP POINT, and the only one. Input has been polled, GL
+			// finalises are done, no subsystem is mid-tick, no view is held and
+			// no render pass is bound — and UpdateTransforms, the camera
+			// director and RenderFrame have not run yet, so nothing downstream
+			// has cached a handle into the scene about to be replaced.
+			bool swappedThisFrame = false;
+			if (sceneLoader_) swappedThisFrame = sceneLoader_->DrainPendingSwap();
+			if (swappedThisFrame) {
+				// A fresh scene is RENDERED once before it is SIMULATED. The
+				// first frame after a swap would otherwise integrate against a
+				// dt accumulated while the old scene was still up — which for a
+				// slow load is an arbitrarily large step, and physics resolving
+				// that with brand-new bodies is how things end up inside walls.
+				fixedStep_.reset();
+				// A pause menu's "Quit to menu" must not deliver a frozen main
+				// menu, and a scene loaded while the editor was time-scaled
+				// must not open in slow motion.
+				paused_ = false;
+				timeScale_ = 1.0f;
+			}
+
 			// Game update: fixed steps (simulation) then per-frame variable step.
 			// Camera/editor input above deliberately ignores pause/time scale.
 			// Skipped entirely while gameplay is gated off (editor edit mode).
@@ -136,7 +157,7 @@ namespace MyCoreEngine
 			// above has already run off the same map, so the Scene view keeps
 			// working while the game receives nothing.
 			input_->setSuppressed(!gameplayInput_);
-			if (gameplayEnabled_) {
+			if (gameplayEnabled_ && !swappedThisFrame) {
 				gameDt = paused_ ? 0.f : deltaTime_ * timeScale_;
 				hasFixedConsumers = fixedUpdate_ || !fixedSubscribers_.empty();
 				if (hasFixedConsumers) {

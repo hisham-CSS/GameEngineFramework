@@ -177,7 +177,8 @@ flowchart TD
     C --> D["default camera / Quit (if not captured)"]
     D --> E["handleMouseLook_ (if not captured and internal input on)"]
     E --> F["jobs_.pumpCompletions(2.0f)"]
-    F --> G{"gameplayEnabled_?"}
+    F --> F2["sceneLoader_->DrainPendingSwap()"]
+    F2 --> G{"gameplayEnabled_ and not swapped?"}
     G -- yes --> H["fixedStep_.advance: fixedUpdate_ then subscribers"]
     H --> I["update_(gameDt) + updateSubscribers_"]
     G -- no --> J
@@ -199,7 +200,9 @@ Step by step:
 4. **Default camera + Quit** — when `!capK`: `Quit` closes the window, `MoveForward`/`MoveRight` axes move `camera_`, and gamepad `LookX`/`LookY` feed `ProcessMouseMovement`.
 5. **`handleMouseLook_()`** — when `!capM && internalCameraInput_`. Right mouse button held = cursor disabled + mouse-look.
 6. **`jobs_.pumpCompletions(2.0f)`** — finalizes completed background work (asset decodes) on the main thread with the GL context current. The 2 ms budget keeps a burst of finished jobs from hitching a frame.
-7. **Game update**, only when `gameplayEnabled_`:
+6b. **`sceneLoader_->DrainPendingSwap()`** — the scene swap point, and the only one. A `LoadScene` request made anywhere in the previous frame is serviced here: input has been polled, GL finalises are done, no subsystem is mid-tick, and `UpdateTransforms`, the camera director and `RenderFrame` have not run yet, so nothing downstream is holding a handle into the scene about to be replaced. When a swap happens the frame is marked, `fixedStep_.reset()` drops the accumulated `dt` (which was accumulated while the *old* scene was up — for a slow load, an arbitrarily large step for brand-new physics bodies to resolve), and `paused_`/`timeScale_` return to their defaults so a scene entered from a paused or slowed-down one does not open frozen. See [Changing scene at runtime](scenes-and-shipping.md#changing-scene-at-runtime).
+
+7. **Game update**, only when `gameplayEnabled_` **and no swap happened this frame** — a fresh scene is rendered once before it is simulated:
    - `gameDt = paused_ ? 0.f : deltaTime_ * timeScale_`
    - `fixedStep_.advance(gameDt, ...)` runs `fixedUpdate_` then every `fixedSubscribers_` entry per step. **One accumulator drives both**, so gameplay and physics always see the same step count and can never drift apart.
    - `update_(gameDt)` runs once, only if `gameDt > 0.f`, inside its own `input_->beginInputPhase()` (the variable-rate consumption phase), and is followed by every `updateSubscribers_` entry registered with `AddUpdate`, in registration order. Both hosts install scripting and audio there, so `ScriptWorld::Update` and the audio tick run at the *same* point in the loop in the editor and in the shipped player.
@@ -403,7 +406,7 @@ Consumers include a single umbrella header:
 #include "Engine.h"
 ```
 
-`Engine/include/Engine.h` pulls in the public surface: `Application`, `Camera`, `CameraDirector`, `Model`, `Shader`, `Entity`, `Renderer`, `Scene`, `Event`/`EventBus`, `ImageIO`, `AssetManager`, `Material`, `SceneSerializer`, `ProjectSettings`, `FixedTimestep`, `InputMap`, `JobSystem`, `RenderTarget`, `GLInit`, the `assets/` headers, `render/CSMSplits.h`, the physics core, the scripting core, the audio core, the 2D layer (`Renderer2D`, `Font`), and the in-game UI (`UIStyle`, `UIValue`, `UIDataSource`, `UIBinding`, `UITextField`, `UIElement`, `UIStyleSheet`, `UIMarkup`, `UIInteractionStyler`, `UIAssetDocument`, `UIComponent`, `UIWorld`, `DemoUIContent`).
+`Engine/include/Engine.h` pulls in the public surface: `Application`, `Camera`, `CameraDirector`, `Model`, `Shader`, `Entity`, `Renderer`, `Scene`, `Event`/`EventBus`, `ImageIO`, `AssetManager`, `Material`, `SceneSerializer`, `SceneLoader`, `ProjectSettings`, `FixedTimestep`, `InputMap`, `JobSystem`, `RenderTarget`, `GLInit`, the `assets/` headers, `render/CSMSplits.h`, the physics core, the scripting core, the audio core, the 2D layer (`Renderer2D`, `Font`), and the in-game UI (`UIStyle`, `UIValue`, `UIDataSource`, `UIBinding`, `UITextField`, `UIElement`, `UIStyleSheet`, `UIMarkup`, `UIInteractionStyler`, `UIAssetDocument`, `UIComponent`, `UIWorld`, `DemoUIContent`).
 
 **Important:** the concrete physics backends are deliberately *not* exported. `Engine.h` exposes `PhysicsTypes`, `PhysicsComponents`, `IPhysicsBackend`, `PhysicsBackendRegistry`, `PhysicsWorld`, and `PhysicsInstall` only — callers select a backend *by name* through the registry, so no consumer ever includes an SDK header.
 

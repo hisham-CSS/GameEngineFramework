@@ -72,7 +72,7 @@ Scene persistence lives in the **File** menu on the editor's title bar (`EditorA
 | Menu item | Effect |
 | --- | --- |
 | **New Scene** | Confirmation popup, then replaces the scene with a Main Camera plus a ground plane. |
-| **Open Scene…** | Popup for the path, then `SceneSerializer::Load` plus the editor-side invalidation described below. |
+| **Open Scene…** | Popup for the path, then a `SceneLoader` swap plus the editor-side invalidation described below. |
 | **Save Scene** (`Ctrl+S`) | `SceneSerializer::Save` to the current scene path. |
 | **Save Scene As…** | Popup for a new path, then saves — the new path becomes the current one. |
 | **Save All** (`Ctrl+Shift+S`) | The scene *and* the editor layout (ImGui otherwise only persists the layout on a clean shutdown). |
@@ -88,13 +88,73 @@ You can also act on a scene from the Asset Browser: double-click a `.json` scene
 
 ### What a load invalidates
 
-`EditorApplication::loadSceneFromFile_` does more than call the serializer, and if you drive loading yourself you need the same steps: every entity handle from the old scene is dead. It re-applies the loaded scene's quality tier unless it is `Custom` (the per-scene perf toggles serialize, but the CSM cascade-count/resolution half of a tier lives on the `Renderer` and is not serialized, so a reloaded High scene would otherwise get default shadows), clears the selection, clears the undo history (undoing a pre-load entry would resurrect ghosts into the loaded scene), resets the Game view's `CameraDirector`, drops in-flight async model ops, force-updates all CSM cascades (otherwise the old scene's shadows stay baked into cascades the new content never touches), and clears the `PhysicsWorld`, the `ScriptWorld` (which fires `OnDestroy` on the way out) and the `AudioWorld` (which stops any voices still playing from the old scene).
+Every entity handle from the old scene is dead, and a pile of derived state has to go with them. None of that is written out at each load site any more — it is subscribed once, next to the thing being invalidated, and the `SceneLoader` runs it. See [Changing scene at runtime](#changing-scene-at-runtime) for the mechanism; what the editor subscribes is:
+
+| Subscribed by | On unload | On load |
+| --- | --- | --- |
+| `EditorApplication` | selection, undo history, the Game view's `CameraDirector`, in-flight async model ops | re-apply the scene's quality tier unless `Custom`, force-update all CSM cascades |
+| `InstallPhysics` | `PhysicsWorld::Clear` | — |
+| `InstallScripting` | `ScriptWorld::Clear` (fires every `OnDestroy`) | — |
+| `InstallAudio` | `AudioWorld::Clear` (stops voices from the old scene) | — |
+
+Two of those are less obvious than they look. The quality-tier re-apply is needed because the per-scene perf toggles serialize but the CSM cascade-count/resolution half of a tier lives on the `Renderer` and is not; without it a reloaded High scene gets default shadows. The CSM force-update is needed because wholesale replacement bypasses the departure-sphere dirty-caster flow, so the old scene's shadows stay baked into cascades the new content never touches.
+
+The teardown hooks fire **before** the load, while the outgoing entities are still alive — a script's `OnDestroy` against an already-cleared registry silently no-ops, and a voice has to be stopped before the entity that owns it is gone.
+
+New Scene is not a file load, so it does not go through the loader; it performs the same invalidations directly (`EditorApplication::newScene_`).
 
 ### The editor boots from the scene file
 
 The editor loads the same startup scene the player ships with — boot content comes from the scene file, never from code. This used to build a hardcoded demo grid at launch, which made the editor lie about what a scene contained: authored components (physics especially) looked like they "didn't save" when in fact the hardcoded scene had replaced them before you ever saw them.
 
 If the startup scene fails to load, the editor falls back to `createDefaultScene_`. Either way the outcome is shown as `bootStatus_` under **Settings > Editor**, at the top of the tab, so "why am I looking at this scene?" is answerable without reading the console.
+
+## Changing scene at runtime
+
+A game changes scene by asking the `Application`:
+
+```c++
+app.LoadScene("Exported/level2.json");
+```
+
+`MyCoreEngine::SceneLoader` (`Engine/src/core/SceneLoader.h`, `.cpp`) is what that call reaches. It exists because replacing a scene is not the same problem as reading a file, and `SceneSerializer` should not have to know about either half:
+
+**The swap is deferred.** `LoadScene` records the request and returns; the registry is replaced at the next frame boundary. The reason is the caller: a main-menu button's handler runs inside `UIWorld::Update`, inside the UI render pass, between `BeginScreen` and `End`. Clearing the registry there would leave the UI iterating a tree whose entities had just vanished. `Application::RunLoop` drains the request immediately after `jobs_.pumpCompletions` — input has been polled, GL finalises are done, no subsystem is mid-tick, and `UpdateTransforms`, the camera director and `RenderFrame` have not run yet, so nothing downstream is holding a handle into the scene about to go.
+
+**The file is validated at request time, not at swap time.** `LoadScene` returns `false` for a path that will not load, and in that case nothing at all has been touched. Validating late would mean tearing the old scene's subsystems down and only then discovering the destination was a typo.
+
+**A swap frame renders but does not simulate.** After a swap the fixed-timestep accumulator is reset, `paused_` is cleared and `timeScale_` returns to 1, and gameplay is skipped for that one frame. Otherwise the first step integrates a `dt` that accumulated while the old scene was still up — for a slow load, an arbitrarily large one — and physics resolving that with brand-new bodies is how things end up inside walls. The pause/time-scale reset is why "Quit to menu" from a pause menu does not deliver a frozen main menu.
+
+### Subscribing to a swap
+
+Anything that derives state from the registry subscribes to the loader, and does it where it is created rather than where scenes are loaded:
+
+```c++
+loader->AddObserver([&world](Scene&) { world.Clear(); });          // teardown only
+loader->AddObserver([](Scene&) { ... }, [](Scene& s) { ... });     // teardown + rebuild
+```
+
+The loader owns the adapter, so there is nothing to keep alive. Observers fire in registration order in both directions. `InstallPhysics`, `InstallScripting` and `InstallAudio` each do exactly this, which is the point: a subsystem that exists but forgot to clean up after a scene swap is no longer a thing that can happen.
+
+For a veto — refusing a swap outright — implement `ISceneSwapObserver` and return `false` from `AllowSceneSwap`. The refusal happens before anything is torn down. Each request carries a `SceneSwapOrigin` (`Game` or `Host`) so a host can refuse one and allow the other; the editor uses this to reject a *game*-initiated swap while stopped, because the Game panel dispatches the running document's clicks even in edit mode and a menu button in a document being authored must not replace the scene under the author.
+
+### The result
+
+`SceneLoader::SetOnSwapComplete` reports every swap, successful or not, and `lastResult()` holds the same thing:
+
+| `SceneSwapStatus` | Meaning |
+| --- | --- |
+| `Ok` | Loaded. `result.report` carries the entity count and any models that did not import. |
+| `Invalid` | The file failed validation at request time. Nothing was touched. |
+| `Refused` | An observer vetoed it. Nothing was torn down. |
+| `Superseded` | A later request replaced this one before it ran. |
+| `LoadFailed` | Validated, then failed during the real load — the file changed on disk in between, or an asset-stage throw the dry run cannot rehearse. Teardown had already happened, so the subsystems are rebuilt against whatever survived. |
+
+`Ok` is not the same as "fine". A scene can load perfectly and still be unusable, so check `result.report.complete()`: an entity whose model never imported is invisible while its collider is entirely real. The loader logs that case regardless.
+
+The editor drains its own File-menu loads **immediately** rather than at the frame boundary, because they come from a menu handler rather than from game code holding a view, and the caller wants the yes/no now for the status line. Game-originated swaps still take the deferred path.
+
+Loading is synchronous: the frame that swaps is as long as the scene takes to read. Asynchronous loading — a progress bar, a background parse — is not implemented.
 
 ## The startup scene and project.json
 
@@ -279,6 +339,7 @@ The two `Exported/` layers matter: the source-tree copy provides the baseline, a
 | File | Role |
 | --- | --- |
 | `Engine/src/core/SceneSerializer.h`, `.cpp` | Scene JSON read/write, versioning, load-time validation |
+| `Engine/src/core/SceneLoader.h`, `.cpp` | Deferred scene swapping, the observer contract, swap results |
 | `Engine/src/core/ProjectSettings.h`, `.cpp` | `Exported/project.json`, startup scene |
 | `Engine/src/core/CameraDirector.h` | Camera selection and blending |
 | `Engine/src/core/Components.h` | `CameraComponent`, `MinFarClipFor`, `Parent` |

@@ -40,6 +40,17 @@ namespace MyCoreEngine {
         // through a separate camera pass it here. The pointer must outlive the
         // app (both hosts pass a member).
         const Camera* fallback = listenerCamera;
+        // Drop what this derives from the registry when the scene is replaced.
+        // Subscribed at INSTALL time so it cannot be forgotten: this used to
+        // live in one editor private method, which is why a game could not
+        // switch scenes without leaking it.
+        //
+        // will-unload, not did-load: a voice from the departing scene must
+        // be stopped before the entity that owns it is gone.
+        if (SceneLoader* loader = app.sceneLoader()) {
+            loader->AddObserver([&world](Scene&) { world.Clear(); });
+        }
+
         return app.AddUpdate([&scene, &world, &app, fallback](float /*dt*/) {
             world.Update(scene.registry, fallback ? *fallback : app.camera());
         });

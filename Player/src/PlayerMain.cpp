@@ -125,6 +125,12 @@ public:
         if (scenePath.empty()) scenePath = settings.startupScene;
 
         Scene scene;
+        // The loader is installed BEFORE the boot load, so the boot goes
+        // through exactly the path a menu button later will — one code path,
+        // and the Install* helpers below can subscribe their teardown to it.
+        SceneLoader sceneLoader(scene, assets);
+        setSceneLoader(&sceneLoader);
+
         SceneSerializer serializer(scene, assets);
         if (!serializer.Load(scenePath)) {
             fatal("failed to load scene '" + scenePath +

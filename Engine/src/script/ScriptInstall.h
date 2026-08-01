@@ -66,6 +66,19 @@ namespace MyCoreEngine {
         app.AddUpdate([&scene, &world](float dt) {
             world.Update(scene.registry, dt);
         });
+        // Drop what this derives from the registry when the scene is replaced.
+        // Subscribed at INSTALL time so it cannot be forgotten: this used to
+        // live in one editor private method, which is why a game could not
+        // switch scenes without leaking it.
+        //
+        // will-unload, not did-load, and it MATTERS here more than
+        // anywhere: Clear fires every OnDestroy, and against an
+        // already-cleared registry every accessor in those handlers silently
+        // no-ops.
+        if (SceneLoader* loader = app.sceneLoader()) {
+            loader->AddObserver([&world](Scene&) { world.Clear(); });
+        }
+
         return app.AddFixedUpdate([&scene, &world](float fixedDt) {
             world.FixedUpdate(scene.registry, fixedDt);
         });
