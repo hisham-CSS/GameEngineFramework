@@ -34,6 +34,7 @@ add_library(Engine SHARED
     src/core/Material.h
     src/core/SceneSerializer.h
     src/core/SceneSerializer.cpp
+    src/core/SceneLoader.cpp
     src/core/ProjectSettings.h
     src/core/ProjectSettings.cpp
     src/core/FixedTimestep.h

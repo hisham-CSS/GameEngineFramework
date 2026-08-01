@@ -301,7 +301,19 @@ namespace MyCoreEngine {
         return static_cast<bool>(out);
     }
 
-    bool SceneSerializer::Load(const std::string& path) {
+    bool SceneSerializer::Validate(const std::string& path, AssetManager& assets,
+                                   std::string* whyNot) {
+        Scene scratch;
+        SceneSerializer probe(scratch, assets);
+        probe.dryRun_ = true;
+        if (probe.Load(path)) return true;
+        // The probe already printed the specific reason; this is the summary a
+        // caller shows without duplicating that text.
+        if (whyNot) *whyNot = "'" + path + "' could not be loaded - see the error above";
+        return false;
+    }
+
+    bool SceneSerializer::Load(const std::string& path, SceneLoadReport* report) {
         // Honour the documented guarantee that a bad file leaves the current
         // scene intact. Only a JSON *syntax* error and a bad version were
         // checked before the registry was cleared; every .value()/get<> after
@@ -314,6 +326,8 @@ namespace MyCoreEngine {
         // itself rather than a parallel validator means the two can never
         // disagree about the schema; the probe skips asset loading, so it costs
         // a JSON walk, not model I/O.
+        report_ = dryRun_ ? nullptr : report;
+        if (report_) *report_ = SceneLoadReport{};
         if (!dryRun_) {
             Scene scratch;
             SceneSerializer probe(scratch, assets_);
@@ -458,6 +472,7 @@ namespace MyCoreEngine {
                 continue;
             }
             Entity entity = scene_.createEntity();
+            if (report_) ++report_->entitiesCreated;
             created.push_back(entity);
             if (je.contains("parent") && je["parent"].is_number_unsigned()) {
                 pendingParents.emplace_back(entity, je["parent"].get<size_t>());
@@ -503,8 +518,14 @@ namespace MyCoreEngine {
                     // an empty ModelComponent, exactly like the empty-path case,
                     // so a rejected asset degrades gracefully instead of
                     // dropping the whole entity (and its parent-index slot).
-                    std::cerr << "[SceneSerializer] rejected model path outside the project: '"
-                              << modelPath << "'\n";
+                    // Logged once, on the REAL pass only: the probe walks the
+                    // same branch, and reporting a rejection twice per load
+                    // reads as two different bad paths.
+                    if (!dryRun_) {
+                        std::cerr << "[SceneSerializer] rejected model path outside the project: '"
+                                  << modelPath << "'\n";
+                        if (report_) report_->rejectedModels.push_back(modelPath);
+                    }
                     entity.addComponent<ModelComponent>(ModelComponent{});
                 }
                 else if (dryRun_) {
@@ -515,7 +536,14 @@ namespace MyCoreEngine {
                     entity.addComponent<ModelComponent>(ModelComponent{});
                 }
                 else {
+                    if (report_) ++report_->modelsRequested;
                     model = assets_.GetModel(modelPath);
+                    // An import that produced NO meshes is a load failure the
+                    // bool return cannot express: the scene is valid, the
+                    // entity exists, its collider is real, and it is invisible.
+                    if (report_ && (!model || model->Meshes().empty())) {
+                        report_->failedModels.push_back(modelPath);
+                    }
                     if (model) {
                         entity.addComponent<ModelComponent>(ModelComponent{ model });
                         // AABB is derived data: regenerate rather than trust the file.

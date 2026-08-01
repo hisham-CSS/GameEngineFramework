@@ -108,6 +108,7 @@ engine_test(test_ui_textfield)     # text entry: UTF-8 caret/editing, selection,
 engine_test(test_ui_twoway)        # element -> source: push-* state and a field's bind-value
 engine_test(test_ui_component)     # UI as scene content: component, serialization, undo, UIWorld
 engine_test(test_ui_classbind)     # classes= toggles: re-cascade, other bindings surviving, no recursion
+engine_test(test_scene_loader)     # runtime scene swap: deferral, the contract, the report
 engine_test(test_ui_scale)         # UI scaling: the authored-vs-real unit rule, and the origin
 engine_test(test_ui_tabs)          # TabView: load-time expansion, panel visibility, focus
 engine_test(test_ui_repeat)        # repeat= collection binding: fixed pool, sliding window, teardown
