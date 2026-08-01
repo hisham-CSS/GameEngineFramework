@@ -1118,6 +1118,15 @@ TEST(SceneSerializer, WrongTypedFieldLeavesTheOpenSceneIntact) {
         R"({"version":1,"entities":[{"name":"A","audioSource":{"volume":"loud"}}]})",
         R"({"version":1,"entities":[{"name":"A","model":"missing.obj",
              "materialOverrides":[{"slot":0,"metallic":"shiny"}]}]})",
+        // materialOverrides present but NOT AN ARRAY. The probe used to gate
+        // its walk on is_array() while the real pass range-fors straight into
+        // the value — so this one shape sailed through validation and threw
+        // during the destructive pass, which is the precise failure the probe
+        // exists to prevent.
+        R"({"version":1,"entities":[{"name":"A","model":"missing.obj",
+             "materialOverrides":7}]})",
+        R"({"version":1,"entities":[{"name":"A","model":"missing.obj",
+             "materialOverrides":{"slot":0}}]})",
     };
 
     for (const char* text : hostile) {

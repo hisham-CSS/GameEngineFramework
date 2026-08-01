@@ -722,7 +722,14 @@ namespace MyCoreEngine {
             // materialOverrides unvalidated, i.e. still able to throw during the
             // real load after the scene had been reset. Walk it in the probe
             // too, purely to force the same reads.
-            if (dryRun_ && je.contains("materialOverrides") && je["materialOverrides"].is_array()) {
+            // NO is_array() guard, deliberately. The real pass below does not
+            // have one either: it range-fors straight into the value, so a
+            // `"materialOverrides": 7` throws there — AFTER the registry has
+            // been cleared and half-repopulated, which is exactly the
+            // scene-destroying failure this probe exists to prevent. Guarding
+            // here and not there made the probe pass the one shape it most
+            // needed to catch.
+            if (dryRun_ && je.contains("materialOverrides")) {
                 for (const json& jo : je["materialOverrides"]) {
                     (void)jo.value("slot", size_t{ 0 });
                     Material probe;
@@ -801,6 +808,24 @@ namespace MyCoreEngine {
       catch (const json::exception& e) {
         std::cerr << "ERROR::SCENE::LOAD_FAILED malformed field in '" << path
                   << "': " << e.what() << std::endl;
+        return false;
+      }
+      catch (const std::exception& e) {
+        // GetModel is the ONE call the probe cannot rehearse — it skips asset
+        // loading by design — so a full import's bad_alloc or length_error is
+        // not a json::exception and used to escape this function entirely,
+        // killing the process mid-swap with the registry half-built.
+        //
+        // A mitigation, not a cure: the scene is still incomplete on this path.
+        // It needs an out-of-memory to reach, and a reported failure beats a
+        // crash.
+        std::cerr << "ERROR::SCENE::LOAD_FAILED while importing assets for '"
+                  << path << "': " << e.what() << std::endl;
+        return false;
+      }
+      catch (...) {
+        std::cerr << "ERROR::SCENE::LOAD_FAILED unknown error loading '"
+                  << path << "'" << std::endl;
         return false;
       }
     }
