@@ -514,4 +514,18 @@ void Renderer2D::flush_() {
     cmds_.clear();
 }
 
+TexRegion CoverRegion(const glm::vec2& boxPx, const glm::vec2& imagePx) {
+    if (boxPx.x <= 0.0f || boxPx.y <= 0.0f ||
+        imagePx.x <= 0.0f || imagePx.y <= 0.0f) {
+        return TexRegion{};   // the whole image
+    }
+    const float boxA = boxPx.x / boxPx.y;
+    const float imgA = imagePx.x / imagePx.y;
+    glm::vec2 f{ 1.0f, 1.0f };
+    if (imgA > boxA) f.x = boxA / imgA;   // image wider than the box: crop the sides
+    else             f.y = imgA / boxA;   // image taller: crop top and bottom
+    const glm::vec2 lo = (glm::vec2(1.0f) - f) * 0.5f;   // centred
+    return TexRegion{ lo, lo + f };
+}
+
 } // namespace MyCoreEngine

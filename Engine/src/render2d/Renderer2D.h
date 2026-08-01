@@ -244,4 +244,13 @@ namespace MyCoreEngine {
         } saved_{};
     };
 
+    // Aspect-preserving CENTRE CROP, as a sub-rect of the image.
+    //
+    // PURE and exported, for the same reason ComputeScrollBars and
+    // ComputeUIScale are: the arithmetic is worth asserting directly with
+    // hand-supplied numbers, and doing that needs neither a GL context nor a
+    // document. Returns the whole image for any degenerate input, so a
+    // collapsed panel shows the picture rather than dividing by zero.
+    ENGINE_API TexRegion CoverRegion(const glm::vec2& boxPx, const glm::vec2& imagePx);
+
 } // namespace MyCoreEngine

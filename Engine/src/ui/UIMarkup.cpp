@@ -201,6 +201,19 @@ namespace {
                     errors.push_back(loc + "bind: unknown property '" + propName + "'");
                     return false;
                 }
+                // An asset path is authored, not computed. Binding one would
+                // intern a new id on every apply, and the intern table is
+                // monotonic by design — ids must never come to mean a different
+                // file — so a path that changed each frame would grow it without
+                // bound. Swap the whole element with `if=` instead, or toggle a
+                // class whose rule names a different image.
+                if (kind == UIPropValueKind::AssetPath) {
+                    errors.push_back(loc + "bind: '" + propName +
+                                     "' takes an authored path and cannot be bound - "
+                                     "toggle a class whose rule names a different image, "
+                                     "or swap the element with if=");
+                    return false;
+                }
 
                 UIBinding b;
                 b.target.kind = UIBindTarget::Kind::Style;

@@ -67,6 +67,14 @@ namespace MyCoreEngine::ui {
     // parent. Point/percent are separate units rather than a bare float because
     // "50" and "50%" mean entirely different things and silently conflating
     // them is a classic layout bug.
+    // How a background-image fills its box.
+    //
+    // Two modes and no more. `contain` leaves letterbox gaps only the fill
+    // colour can cover, and 9-slice is nine quads plus four authored insets
+    // plus four more scale sites — neither is needed to dress a menu, and both
+    // can be added later without changing what these two mean.
+    enum class BackgroundSize : std::uint8_t { Stretch, Cover };
+
     struct StyleLength {
         enum class Unit { Auto, Point, Percent };
         Unit  unit = Unit::Auto;
@@ -112,6 +120,33 @@ namespace MyCoreEngine::ui {
         // Fully transparent by default: an element is a layout box first, and a
         // painted rectangle only if you ask for one.
         glm::vec4 backgroundColor{ 0.0f, 0.0f, 0.0f, 0.0f };
+
+        // Painted INSIDE the border box, and deliberately NOT part of layout —
+        // a divergence from CSS, where border-width sits between padding and
+        // margin and shrinks the content box.
+        //
+        // Making it layout-participating means pushing it into yoga plus seven
+        // sites that currently inset from the border box with padding alone,
+        // including the text origin and the click-to-caret arithmetic of every
+        // TextField. A caret silently moving because somebody gave a field an
+        // outline is a far worse bug than content sitting under a 2px rule.
+        //
+        // Corollary for authors: keep `padding` >= `border-width`.
+        //
+        // Both are AUTHORED px and are scaled where they reach the renderer.
+        // The radius is clamped in the shader to min(halfW, halfH), so
+        // `border-radius: 9999px` is the pill idiom rather than an error.
+        float     borderRadius = 0.0f;
+        float     borderWidth  = 0.0f;
+        glm::vec4 borderColor{ 0.0f, 0.0f, 0.0f, 0.0f };
+
+        // Interned path id (UIAssetPath.h), 0 = none. An INT rather than a GL
+        // name or a std::string: Recascade does `style() = Style{}` on every
+        // :hover edge, so anything here must be reconstructible by a
+        // declaration's ApplyTo, and a declaration is copied per element per
+        // cascade.
+        int            backgroundImage = 0;
+        BackgroundSize backgroundSize = BackgroundSize::Stretch;
 
         // ---- text ----
         // A non-empty `text` makes the element a text leaf: it measures itself

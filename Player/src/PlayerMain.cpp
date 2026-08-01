@@ -94,6 +94,9 @@ class PlayerApplication : public MyCoreEngine::Application {
     // so nothing here mentions a specific HUD.
     MyCoreEngine::UIWorld      uiWorld_;
     MyCoreEngine::Font         uiFont_;
+    // Declared AFTER uiWorld_ is not required — the world only holds a pointer
+    // — but it must outlive the GL context, which the host owns.
+    MyCoreEngine::ui::UITextureCache uiTextures_;
 public:
     PlayerApplication() : Application(1280, 720, "Cat Splat Player") {}
 
@@ -179,6 +182,10 @@ public:
             std::cerr << "PLAYER: UI font missing - drawing without text" << std::endl;
         }
         uiWorld_.SetFont(&uiFont_);
+        // The image cache lives with the host, one per GL context: the editor
+        // runs a SECOND renderer for its Game view, and a process-wide cache
+        // would hand one context's texture names to the other.
+        uiWorld_.SetTextureCache(&uiTextures_);
         // The real system clipboard, so Ctrl+C/V in a field talks to the rest
         // of the machine rather than a private buffer.
         if (GLFWwindow* w = GetNativeWindow()) {

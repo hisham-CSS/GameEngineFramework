@@ -1,10 +1,13 @@
 #include "UIStyleSheet.h"
+#include "UIAssetPath.h"
 #include "UIElement.h"
+#include "../core/PathSandbox.h"
 
 #include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <unordered_map>
@@ -249,6 +252,11 @@ namespace {
     // Adding a property is ONE edit here. The two trailing fields are the
     // shorthand expansion (equal to the property itself when it is not a
     // shorthand) and whether a Length must be a non-negative pixel count.
+    const std::vector<EnumTable> kBackgroundSize = {
+        { "stretch", int(BackgroundSize::Stretch) },
+        { "cover",   int(BackgroundSize::Cover)   },
+    };
+
     #define P1(p) { Prop::p, Prop::p }
     const PropSpec kProps[] = {
         { "flex-direction",   Prop::FlexDirection,   UIPropValueKind::Enum,    &kDirection, nullptr, nullptr, P1(FlexDirection), false },
@@ -283,6 +291,12 @@ namespace {
         { "scrollbar-width",      Prop::ScrollbarWidth,      UIPropValueKind::Length, nullptr, nullptr, nullptr, P1(ScrollbarWidth), true },
         { "scrollbar-min-thumb",  Prop::ScrollbarMinThumb,   UIPropValueKind::Length, nullptr, nullptr, nullptr, P1(ScrollbarMinThumb), true },
         { "scrollbar-color",      Prop::ScrollbarColor,      UIPropValueKind::Color,  nullptr, nullptr, nullptr, P1(ScrollbarColor), false },
+        // Paint-only: neither of these reaches yoga. See UIStyle.h.
+        { "border-radius",    Prop::BorderRadius,    UIPropValueKind::Length, nullptr, nullptr, nullptr, P1(BorderRadius), true },
+        { "border-width",     Prop::BorderWidth,     UIPropValueKind::Length, nullptr, nullptr, nullptr, P1(BorderWidth),  true },
+        { "border-color",     Prop::BorderColor,     UIPropValueKind::Color,  nullptr, nullptr, nullptr, P1(BorderColor),  false },
+        { "background-image", Prop::BackgroundImage, UIPropValueKind::AssetPath, nullptr, nullptr, nullptr, P1(BackgroundImage), false },
+        { "background-size",  Prop::BackgroundSize,  UIPropValueKind::Enum,   &kBackgroundSize, nullptr, nullptr, P1(BackgroundSize), false },
         { "scrollbar-thumb-color",Prop::ScrollbarThumbColor, UIPropValueKind::Color,  nullptr, nullptr, nullptr, P1(ScrollbarThumbColor), false },
         { "scrollbar-visibility", Prop::ScrollbarVisibility, UIPropValueKind::Enum, &kScrollbarVis, nullptr, nullptr, P1(ScrollbarVisibility), false },
         { "scroll-behavior",      Prop::ScrollBehavior,      UIPropValueKind::Enum, &kScrollBehavior, nullptr, nullptr, P1(ScrollBehavior), false },
@@ -404,6 +418,32 @@ bool UIDeclaration::ParseValueFor(Prop p, const std::string& value,
         }
         return true;
     }
+    case UIPropValueKind::AssetPath: {
+        std::string v = trim(value);
+        // Quotes are REQUIRED, so a path is never mistaken for a keyword and a
+        // path containing a space needs no escaping rule.
+        if (v.size() < 2 || v.front() != '"' || v.back() != '"') {
+            err = std::string(s->name) + " must be a quoted project-relative path "
+                  "(got '" + v + "')";
+            return false;
+        }
+        v = v.substr(1, v.size() - 2);
+        if (v.empty()) {
+            err = std::string(s->name) + ": empty path";
+            return false;
+        }
+        // Checked HERE, at parse time, for the same reason markup paths are:
+        // an authored path is untrusted content headed for a file open. Doing
+        // it at paint time would mean re-checking every frame and reporting
+        // from a function with no error channel.
+        std::filesystem::path contained;
+        if (!PathIsContained(/*baseDir=*/"", v, contained)) {
+            err = std::string(s->name) + ": rejected path outside the project: '" + v + "'";
+            return false;
+        }
+        out.assetId = InternAssetPath(v);
+        return true;
+    }
     case UIPropValueKind::Boolean: {
         const std::string v = lower(trim(value));
         if (v != s->trueWord && v != s->falseWord) {
@@ -448,6 +488,11 @@ void UIDeclaration::ApplyTo(Style& s) const {
     case Prop::OverflowY:      s.overflowY = (Overflow)enumValue; break;
     case Prop::ScrollbarWidth:      s.scrollbarWidth = length.value; break;
     case Prop::ScrollbarMinThumb:   s.scrollbarMinThumb = length.value; break;
+    case Prop::BorderRadius:    s.borderRadius = length.value; break;
+    case Prop::BorderWidth:     s.borderWidth = length.value; break;
+    case Prop::BorderColor:     s.borderColor = color; break;
+    case Prop::BackgroundImage: s.backgroundImage = assetId; break;
+    case Prop::BackgroundSize:  s.backgroundSize = (BackgroundSize)enumValue; break;
     case Prop::ScrollbarColor:      s.scrollbarColor = color; break;
     case Prop::ScrollbarThumbColor: s.scrollbarThumbColor = color; break;
     case Prop::ScrollbarVisibility: s.scrollbarVisibility = (ScrollbarVisibility)enumValue; break;
@@ -852,6 +897,17 @@ bool UIStyleSheet::ParseString(const std::string& text, const std::string& origi
 }
 
 bool UIStyleSheet::LoadFromFile(const std::string& path) {
+    // Containment BEFORE opening, exactly as UIMarkup::LoadFileInto does. A
+    // stylesheet is authored content headed for a parser — the same class of
+    // input as markup, models, scripts and clips — and it now also names IMAGE
+    // paths, so an unsandboxed sheet path was a way to reach outside the
+    // project entirely. That this was missing while markup was gated is a gap,
+    // not a decision.
+    std::filesystem::path contained;
+    if (!PathIsContained(/*baseDir=*/"", path, contained)) {
+        errors_ = { "rejected stylesheet path outside the project: '" + path + "'" };
+        return false;
+    }
     std::ifstream in(path, std::ios::binary);
     if (!in) {
         errors_ = { "cannot open '" + path + "'" };

@@ -453,6 +453,10 @@ void EditorApplication::Run() {
             std::cout << "EDITOR: UI font missing - drawing without text" << std::endl;
         }
         uiWorld_.SetFont(&uiFont_);
+        // The image cache lives with the host, one per GL context: the editor
+        // runs a SECOND renderer for its Game view, and a process-wide cache
+        // would hand one context's texture names to the other.
+        uiWorld_.SetTextureCache(&uiTextures_);
         // ImGui's clipboard rather than GLFW's: it is already wired to the
         // platform backend and is what the rest of the editor uses.
         uiWorld_.SetClipboardHandlers(

@@ -1636,3 +1636,50 @@ TEST(UIScroll, AHandRolledVirtualListScrollsThroughAThousandRows) {
         << "the placed window did not line up with the scroll offset";
     EXPECT_GT(box->scrollState()->thumbY.size.y, 0.f);
 }
+
+// ------------------------------------------------- the rounded-corner inset
+
+// A scroller with a radius: the bars must pull in from the ends of the box, or
+// they paint their square ends OUTSIDE the rounded silhouette. Clipping cannot
+// save it — clipping is the axis-aligned scissor, and the corner it would have
+// to cut is not.
+TEST(UIScrollBars, ACornerInsetPullsBothTracksInsideTheRoundedSilhouette) {
+    const glm::vec2 pos{ 0.f, 0.f }, size{ 200.f, 100.f };
+    const glm::vec2 off{ 0.f, 0.f }, lo{ 0.f, 0.f }, hi{ 120.f, 120.f };
+
+    const ScrollBarRects plain =
+        ComputeScrollBars(pos, size, off, lo, hi, 8.f, 20.f, false, 0.0f);
+    const ScrollBarRects inset =
+        ComputeScrollBars(pos, size, off, lo, hi, 8.f, 20.f, false, 12.0f);
+
+    ASSERT_GT(plain.trackY.size.y, 0.f);
+    EXPECT_FLOAT_EQ(inset.trackY.position.y, plain.trackY.position.y + 12.f)
+        << "the vertical track still starts at the very top of the box";
+    EXPECT_FLOAT_EQ(inset.trackY.size.y, plain.trackY.size.y - 24.f)
+        << "the vertical track was not shortened at BOTH ends";
+    EXPECT_FLOAT_EQ(inset.trackX.position.x, plain.trackX.position.x + 12.f);
+    EXPECT_FLOAT_EQ(inset.trackX.size.x, plain.trackX.size.x - 24.f);
+}
+
+// An absurd radius must not collapse the track to nothing and take the whole
+// scrollbar with it.
+TEST(UIScrollBars, AnEnormousCornerInsetIsClampedRatherThanErasingTheTrack) {
+    const ScrollBarRects r = ComputeScrollBars(
+        { 0.f, 0.f }, { 200.f, 100.f }, { 0.f, 0.f }, { 0.f, 0.f }, { 0.f, 120.f },
+        8.f, 20.f, false, /*cornerInset=*/9999.0f);
+    EXPECT_GT(r.trackY.size.y, 0.f) << "an enormous radius erased the scrollbar";
+}
+
+// Zero inset must be byte-identical to the pre-U22 behaviour: the parameter
+// defaults to 0, and every existing caller and test relies on that.
+TEST(UIScrollBars, AZeroCornerInsetIsIdenticalToTheUnroundedBars) {
+    const glm::vec2 pos{ 5.f, 7.f }, size{ 200.f, 100.f };
+    const ScrollBarRects a = ComputeScrollBars(pos, size, { 0.f, 10.f }, { 0.f, 0.f },
+                                               { 0.f, 120.f }, 8.f, 20.f, false);
+    const ScrollBarRects b = ComputeScrollBars(pos, size, { 0.f, 10.f }, { 0.f, 0.f },
+                                               { 0.f, 120.f }, 8.f, 20.f, false, 0.0f);
+    EXPECT_EQ(a.trackY.position, b.trackY.position);
+    EXPECT_EQ(a.trackY.size, b.trackY.size);
+    EXPECT_EQ(a.thumbY.position, b.thumbY.position);
+    EXPECT_EQ(a.thumbY.size, b.thumbY.size);
+}

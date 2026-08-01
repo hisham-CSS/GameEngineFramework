@@ -12,6 +12,7 @@
 // touching a line of authored UI.
 #include "../core/Core.h"
 #include "UIScale.h"
+#include "UITextureCache.h"
 #include "UIStyle.h"
 #include "UIEvent.h"
 #include "UIStyleSheet.h"   // UIDeclaration (for inline styles)
@@ -108,10 +109,15 @@ namespace MyCoreEngine::ui {
     // Pure geometry, exposed so it can be asserted directly: the UI suite has no
     // GL and no font, and a scrollbar is the one part of this system whose
     // correctness is entirely arithmetic.
+    // `cornerInsetPx` pulls both tracks in from the ends of the box, so a bar
+    // on a ROUNDED scroller cannot paint its square end outside the silhouette.
+    // Clipping cannot save it: clipping is the axis-aligned scissor, and the
+    // corner it needs to cut is not.
     ENGINE_API ScrollBarRects ComputeScrollBars(
         const glm::vec2& boxPos, const glm::vec2& boxSize,
         const glm::vec2& offset, const glm::vec2& minOffset, const glm::vec2& maxOffset,
-        float barWidth, float minThumb, bool alwaysVisible);
+        float barWidth, float minThumb, bool alwaysVisible,
+        float cornerInsetPx = 0.0f);
 
     class ENGINE_API UIElement {
     public:
@@ -420,7 +426,11 @@ namespace MyCoreEngine::ui {
         // Walks the laid-out tree and emits draws. Parents paint before
         // children (painter's algorithm), and `overflowHidden` pushes a clip
         // rect for the subtree. Call between Renderer2D::BeginScreen/End.
-        void Draw(Renderer2D& r2d, const Font* font = nullptr, int baseLayer = 0) const;
+        // `textures` resolves background-image ids. Null simply paints no
+        // images — a document drawn without one still lays out and paints
+        // everything else, the same graceful degradation a missing font gets.
+        void Draw(Renderer2D& r2d, const Font* font = nullptr, int baseLayer = 0,
+                  UITextureCache* textures = nullptr) const;
 
         // ---- input ----
         // Feed once per frame AFTER Layout (hit-testing needs computed rects)

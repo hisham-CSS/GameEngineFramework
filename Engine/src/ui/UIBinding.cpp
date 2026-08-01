@@ -537,6 +537,14 @@ bool UIBinder::applyStyle_(Entry& e) {
             // they take the string path below.
             ok = false;
             break;
+        case UIPropValueKind::AssetPath:
+            // Unreachable: the markup loader refuses to compile a binding for
+            // an asset-path property, because interning one per apply would
+            // grow a table that is documented as bounded by the number of
+            // AUTHORED paths. Handled anyway so /we4062 keeps working as the
+            // "you added a value kind" alarm it is.
+            ok = false;
+            break;
         }
         if (!ok) {
             // A string can always try the declaration grammar — that is how

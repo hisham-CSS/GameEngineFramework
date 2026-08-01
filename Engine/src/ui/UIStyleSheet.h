@@ -45,7 +45,11 @@ namespace MyCoreEngine::ui {
     // the right field without going through text, and lets it say what a
     // property needs when it cannot.
     enum class UIPropValueKind : std::uint8_t {
-        Length, Number, Color, Enum, Edges, Boolean
+        Length, Number, Color, Enum, Edges, Boolean,
+        // A quoted, project-relative asset path. Checked with PathIsContained
+        // at PARSE time and stored as an interned id, because a declaration has
+        // to be trivially copyable and reconstructible by the cascade.
+        AssetPath
     };
 
     // One `prop: value` pair, parsed once at load so applying a sheet is not a
@@ -61,6 +65,8 @@ namespace MyCoreEngine::ui {
             Overflow, OverflowX, OverflowY, PointerEvents, Display,
             ScrollbarWidth, ScrollbarMinThumb, ScrollbarColor, ScrollbarThumbColor,
             ScrollbarVisibility, ScrollBehavior,
+            BorderRadius, BorderWidth, BorderColor,
+            BackgroundImage, BackgroundSize,
         };
 
         // True when writing `a` also writes a field `b` writes — i.e. one is a
@@ -78,6 +84,7 @@ namespace MyCoreEngine::ui {
         int         enumValue = 0;
         Edges       edges{};
         bool        boolean = false;
+        int         assetId = 0;   // AssetPath-valued props
 
         void ApplyTo(Style& s) const;
 

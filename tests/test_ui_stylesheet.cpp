@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 
 #include "Engine.h"
+#include "../Engine/src/ui/UIAssetPath.h"
 #include "../Engine/src/ui/UIStyleSheet.h"
 #include "../Engine/src/ui/UIElement.h"
 
@@ -302,4 +303,94 @@ TEST(UIStyleSheet, UnmentionedPropertiesAreLeftAlone) {
     EXPECT_FLOAT_EQ(el.style().width.value, 10.f);
     EXPECT_FLOAT_EQ(el.style().flexGrow, 9.f) << "the sheet clobbered a code-set property";
     EXPECT_FLOAT_EQ(el.style().height.value, 77.f);
+}
+
+// ------------------------------------------------- borders, radius, images
+
+TEST(UIStyleSheetPaint, ARadiusAndBorderParseAsNonNegativePixels) {
+    UIStyleSheet s;
+    ASSERT_TRUE(s.ParseString(".p { border-radius: 8px; border-width: 2px;"
+                              " border-color: #ffcc44; }", "t.cstyle"))
+        << (s.errors().empty() ? "" : s.errors()[0]);
+    UIElement el;
+    el.AddClass("p");
+    s.ApplyToElement(el);
+    EXPECT_FLOAT_EQ(el.style().borderRadius, 8.0f);
+    EXPECT_FLOAT_EQ(el.style().borderWidth, 2.0f);
+    EXPECT_NEAR(el.style().borderColor.r, 1.0f, 0.01f);
+}
+
+// A percentage radius has nothing in this system to be a percentage OF at paint
+// time, and a negative one is meaningless. Reported rather than clamped: the
+// silently-ignored value is the no-op this codebase reports errors to avoid.
+TEST(UIStyleSheetPaint, APercentOrNegativeRadiusIsReportedRatherThanIgnored) {
+    for (const char* bad : { "50%", "-4px", "auto" }) {
+        UIStyleSheet s;
+        const std::string css = std::string(".p { border-radius: ") + bad + "; }";
+        EXPECT_FALSE(s.ParseString(css, "t.cstyle")) << "accepted '" << bad << "'";
+        ASSERT_FALSE(s.errors().empty());
+        EXPECT_NE(s.errors()[0].find("border-radius"), std::string::npos) << s.errors()[0];
+    }
+}
+
+TEST(UIStyleSheetPaint, ABackgroundImageInternsItsPathAndSurvivesARecascade) {
+    UIStyleSheet s;
+    ASSERT_TRUE(s.ParseString(".p { background-image: \"Exported/UI/art/logo.png\";"
+                              " background-size: cover; }", "t.cstyle"))
+        << (s.errors().empty() ? "" : s.errors()[0]);
+    UIElement el;
+    el.AddClass("p");
+    s.ApplyToElement(el);
+    const int id = el.style().backgroundImage;
+    ASSERT_NE(id, 0) << "the path was not interned";
+    EXPECT_EQ(AssetPathOf(id), "Exported/UI/art/logo.png");
+    EXPECT_EQ(el.style().backgroundSize, BackgroundSize::Cover);
+
+    // Recascade resets Style to defaults and re-runs the rules. An id that the
+    // cascade could not put back would be gone on the first :hover edge — which
+    // is exactly why Style carries an interned int and not a GL name.
+    s.Recascade(el);
+    EXPECT_EQ(el.style().backgroundImage, id) << "a re-cascade lost the image";
+}
+
+// The same path twice must be the same id, or the texture cache uploads two
+// copies of one file.
+TEST(UIStyleSheetPaint, TheSamePathInternsToTheSameId) {
+    UIStyleSheet s;
+    ASSERT_TRUE(s.ParseString(".a { background-image: \"Exported/UI/art/logo.png\"; }"
+                              ".b { background-image: \"Exported/UI/art/logo.png\"; }",
+                              "t.cstyle"));
+    UIElement a, b;
+    a.AddClass("a");
+    b.AddClass("b");
+    s.ApplyToElement(a);
+    s.ApplyToElement(b);
+    EXPECT_EQ(a.style().backgroundImage, b.style().backgroundImage);
+    EXPECT_NE(a.style().backgroundImage, 0);
+}
+
+// An image path is authored content headed for a file open — the same class of
+// input as a model, a script or a clip, and gated the same way.
+TEST(UIStyleSheetPaint, AnImagePathOutsideTheProjectIsRejected) {
+    UIStyleSheet s;
+    EXPECT_FALSE(s.ParseString(".p { background-image: \"../../evil.png\"; }", "t.cstyle"));
+    ASSERT_FALSE(s.errors().empty());
+    EXPECT_NE(s.errors()[0].find("outside the project"), std::string::npos) << s.errors()[0];
+}
+
+TEST(UIStyleSheetPaint, AnUnquotedImagePathIsReported) {
+    UIStyleSheet s;
+    EXPECT_FALSE(s.ParseString(".p { background-image: Exported/UI/art/logo.png; }",
+                               "t.cstyle"));
+    ASSERT_FALSE(s.errors().empty());
+    EXPECT_NE(s.errors()[0].find("quoted"), std::string::npos) << s.errors()[0];
+}
+
+// The stylesheet path itself was NOT sandboxed while markup was — a gap, not a
+// decision, and one background-image makes it a way to reach arbitrary files.
+TEST(UIStyleSheetPaint, AStylesheetPathOutsideTheProjectIsRejectedBeforeItIsOpened) {
+    UIStyleSheet s;
+    EXPECT_FALSE(s.LoadFromFile("../../evil.cstyle"));
+    ASSERT_FALSE(s.errors().empty());
+    EXPECT_NE(s.errors()[0].find("outside the project"), std::string::npos) << s.errors()[0];
 }

@@ -75,6 +75,11 @@ namespace {
     // `->Measure(` or a bare `s.padding` reaching geometry is a bug, which
     // makes the audit a grep. Adding a length to Style means adding it to
     // pushStyle or to an sx_ site — there is no third option.
+    // Set for the duration of a Draw, so draw_ can resolve a background-image
+    // id without threading the cache through every recursive call. Same shape,
+    // and the same reason, as g_measureFont.
+    UITextureCache* g_uiTextures = nullptr;
+
     inline float sx_(float authored) { return authored * g_uiScale; }
     inline glm::vec2 measure_(const Font* f, const std::string& text, float fontScale) {
         return f->Measure(text, fontScale * g_uiScale);
@@ -592,7 +597,8 @@ void UIDocument::readLayout_(UIElement& el, const glm::vec2& parentOrigin) {
 ScrollBarRects ComputeScrollBars(const glm::vec2& boxPos, const glm::vec2& boxSize,
                                  const glm::vec2& offset, const glm::vec2& minOffset,
                                  const glm::vec2& maxOffset,
-                                 float barWidth, float minThumb, bool alwaysVisible) {
+                                 float barWidth, float minThumb, bool alwaysVisible,
+                                 float cornerInsetPx) {
     ScrollBarRects out{};
     if (boxSize.x <= 0.0f || boxSize.y <= 0.0f) return out;
 
@@ -613,8 +619,15 @@ ScrollBarRects ComputeScrollBars(const glm::vec2& boxPos, const glm::vec2& boxSi
 
     // Each track stops short of the other, or the two overlap in a bar-by-bar
     // square in the corner and each thumb can travel into the other's track.
-    const float trackH = boxSize.y - (paintX ? bar : 0.0f);
-    const float trackW = boxSize.x - (paintY ? bar : 0.0f);
+    // Pulled in from BOTH ends by the corner inset, so a bar on a rounded
+    // scroller cannot paint its square end outside the silhouette. Clipping
+    // cannot save it — clipping is the axis-aligned scissor, and the corner it
+    // would have to cut is not. Clamped to a quarter of the side so an absurd
+    // radius cannot collapse the track to nothing.
+    const float inset = std::clamp(cornerInsetPx, 0.0f,
+                                   std::min(boxSize.x, boxSize.y) * 0.25f);
+    const float trackH = boxSize.y - (paintX ? bar : 0.0f) - inset * 2.0f;
+    const float trackW = boxSize.x - (paintY ? bar : 0.0f) - inset * 2.0f;
 
     auto round2 = [](glm::vec2 v) { return glm::round(v); };
 
@@ -624,9 +637,10 @@ ScrollBarRects ComputeScrollBars(const glm::vec2& boxPos, const glm::vec2& boxSi
             std::max(minThumb, trackH * (content > 0.0f ? boxSize.y / content : 1.0f)));
         const float free = std::max(0.0f, trackH - thumbH);
         const float t = span.y > 0.0f ? (offset.y - minOffset.y) / span.y : 0.0f;
-        out.trackY.position = round2({ boxPos.x + boxSize.x - bar, boxPos.y });
+        out.trackY.position = round2({ boxPos.x + boxSize.x - bar, boxPos.y + inset });
         out.trackY.size     = round2({ bar, trackH });
-        out.thumbY.position = round2({ boxPos.x + boxSize.x - bar, boxPos.y + free * t });
+        out.thumbY.position = round2({ boxPos.x + boxSize.x - bar,
+                                       boxPos.y + inset + free * t });
         out.thumbY.size     = round2({ bar, thumbH });
     }
     if (paintX && trackW > 0.0f) {
@@ -635,9 +649,10 @@ ScrollBarRects ComputeScrollBars(const glm::vec2& boxPos, const glm::vec2& boxSi
             std::max(minThumb, trackW * (content > 0.0f ? boxSize.x / content : 1.0f)));
         const float free = std::max(0.0f, trackW - thumbW);
         const float t = span.x > 0.0f ? (offset.x - minOffset.x) / span.x : 0.0f;
-        out.trackX.position = round2({ boxPos.x, boxPos.y + boxSize.y - bar });
+        out.trackX.position = round2({ boxPos.x + inset, boxPos.y + boxSize.y - bar });
         out.trackX.size     = round2({ trackW, bar });
-        out.thumbX.position = round2({ boxPos.x + free * t, boxPos.y + boxSize.y - bar });
+        out.thumbX.position = round2({ boxPos.x + inset + free * t,
+                                       boxPos.y + boxSize.y - bar });
         out.thumbX.size     = round2({ thumbW, bar });
     }
     // Rounded to whole pixels because the CONTENT steps in whole pixels
@@ -653,7 +668,10 @@ void UIDocument::updateScrollBars_(UIElement& el) {
     const ScrollBarRects r = ComputeScrollBars(
         el.layout_.position, el.layout_.size, sc.offset, sc.minOffset, sc.maxOffset,
         sx_(st.scrollbarWidth), sx_(st.scrollbarMinThumb),
-        st.scrollbarVisibility == ScrollbarVisibility::Always);
+        st.scrollbarVisibility == ScrollbarVisibility::Always,
+        // The corner inset IS the radius: that is exactly how far in the
+        // silhouette has pulled away from the box at the ends of each track.
+        sx_(st.borderRadius));
     sc.trackX = r.trackX; sc.thumbX = r.thumbX;
     sc.trackY = r.trackY; sc.thumbY = r.thumbY;
 }
@@ -792,8 +810,35 @@ void UIDocument::draw_(const UIElement& el, Renderer2D& r2d, const Font* font,
     // guarantees a skipped subtree has no side effect to lose.
     if (clip && !aabbHitsRect(L.subtreeMin, L.subtreeMax, *clip)) return;
 
-    if (s.backgroundColor.a > 0.0f) {
-        r2d.DrawQuad(L.position, L.size, s.backgroundColor, layer);
+    // Radius and border are AUTHORED lengths reaching geometry, so they are
+    // scaled here — the two new entries on this file's sx_ audit list.
+    Renderer2D::BoxStyle boxStyle;
+    boxStyle.radiusPx = sx_(s.borderRadius);
+    boxStyle.borderPx = sx_(s.borderWidth);
+    boxStyle.borderColor = s.borderColor;
+    const bool shaped = boxStyle.radiusPx > 0.0f || boxStyle.borderPx > 0.0f;
+
+    // The image is a SEPARATE quad over the background colour, never a tint of
+    // it. Multiplying by backgroundColor looks obvious and is fatal: the
+    // default is fully transparent, so the first panel anybody writes would
+    // paint nothing at all.
+    UITextureCache::Entry img;
+    if (s.backgroundImage != 0 && g_uiTextures) img = g_uiTextures->Get(s.backgroundImage);
+
+    if (s.backgroundColor.a > 0.0f || shaped) {
+        // DrawBox degrades to a plain sprite when it needs neither a radius nor
+        // a border, so an unstyled background costs exactly what it always did.
+        r2d.DrawBox(L.position, L.size, s.backgroundColor, boxStyle, 0, TexRegion{}, layer);
+    }
+    if (img.texture) {
+        TexRegion region;
+        if (s.backgroundSize == BackgroundSize::Cover) {
+            region = CoverRegion(L.size, glm::vec2(float(img.size.x), float(img.size.y)));
+        }
+        // Same layer as the fill and emitted after it, so it composites over
+        // the colour and no child's layer can land between the two.
+        r2d.DrawBox(L.position, L.size, glm::vec4(1.0f), boxStyle,
+                    img.texture, region, layer);
     }
 
     // Clip BEFORE any text is emitted, not just before the children.
@@ -961,8 +1006,16 @@ bool UIDocument::keyboardScroll_(UIElement* from, UIKey key) {
     return false;
 }
 
-void UIDocument::Draw(Renderer2D& r2d, const Font* font, int baseLayer) const {
+void UIDocument::Draw(Renderer2D& r2d, const Font* font, int baseLayer,
+                      UITextureCache* textures) const {
     UIPassScope pass(font, scale_);
+    // Restored on the way out rather than left set, so a document drawn without
+    // a cache cannot inherit the previous document's.
+    struct Restore {
+        UITextureCache* prev;
+        ~Restore() { g_uiTextures = prev; }
+    } restore{ g_uiTextures };
+    g_uiTextures = textures;
     // A one-second cycle, on for the first half. Computed once here rather than
     // per element: only the focused field can show a caret.
     const float kBlink = 1.0f;

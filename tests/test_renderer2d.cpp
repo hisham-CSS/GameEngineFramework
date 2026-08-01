@@ -464,3 +464,44 @@ TEST_F(Renderer2DTest, APlainQuadAfterARoundedBoxStillLandsWhereItShould) {
         << "the plain run after a box run was drawn with a stale projection";
     EXPECT_GT(green(px, 8, 8), 200) << "the box itself did not paint";
 }
+
+// ------------------------------------------------------------- CoverRegion
+
+// Pure arithmetic, asserted directly with hand-supplied numbers — no GL, no
+// document — for the same reason ComputeScrollBars and ComputeUIScale are.
+TEST(Renderer2DCover, AMatchingAspectCropsNothing) {
+    const TexRegion r = CoverRegion({ 200.f, 100.f }, { 400.f, 200.f });
+    EXPECT_FLOAT_EQ(r.uvMin.x, 0.f);
+    EXPECT_FLOAT_EQ(r.uvMin.y, 0.f);
+    EXPECT_FLOAT_EQ(r.uvMax.x, 1.f);
+    EXPECT_FLOAT_EQ(r.uvMax.y, 1.f);
+}
+
+TEST(Renderer2DCover, AWiderImageIsCroppedOnTheSidesAndStaysCentred) {
+    // Box 1:1, image 2:1 -> keep the middle half horizontally.
+    const TexRegion r = CoverRegion({ 100.f, 100.f }, { 200.f, 100.f });
+    EXPECT_FLOAT_EQ(r.uvMin.x, 0.25f);
+    EXPECT_FLOAT_EQ(r.uvMax.x, 0.75f);
+    EXPECT_FLOAT_EQ(r.uvMin.y, 0.f);
+    EXPECT_FLOAT_EQ(r.uvMax.y, 1.f);
+}
+
+TEST(Renderer2DCover, ATallerImageIsCroppedTopAndBottom) {
+    const TexRegion r = CoverRegion({ 100.f, 100.f }, { 100.f, 200.f });
+    EXPECT_FLOAT_EQ(r.uvMin.y, 0.25f);
+    EXPECT_FLOAT_EQ(r.uvMax.y, 0.75f);
+    EXPECT_FLOAT_EQ(r.uvMin.x, 0.f);
+    EXPECT_FLOAT_EQ(r.uvMax.x, 1.f);
+}
+
+// A collapsed panel or an image that failed to decode must show the whole
+// picture rather than dividing by zero and producing NaN UVs.
+TEST(Renderer2DCover, ADegenerateBoxOrImageReturnsTheWholeImage) {
+    for (auto pair : { std::pair<glm::vec2, glm::vec2>{ { 0.f, 100.f }, { 10.f, 10.f } },
+                       std::pair<glm::vec2, glm::vec2>{ { 100.f, 0.f }, { 10.f, 10.f } },
+                       std::pair<glm::vec2, glm::vec2>{ { 100.f, 100.f }, { 0.f, 10.f } } }) {
+        const TexRegion r = CoverRegion(pair.first, pair.second);
+        EXPECT_FLOAT_EQ(r.uvMin.x, 0.f);
+        EXPECT_FLOAT_EQ(r.uvMax.y, 1.f);
+    }
+}

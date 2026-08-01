@@ -207,7 +207,7 @@ void UIWorld::Draw(Renderer2D& r2d) const {
     for (const entt::entity e : order_) {
         const auto it = live_.find(e);
         if (it == live_.end() || !it->second.doc) continue;
-        it->second.doc->document().Draw(r2d, font_, band);
+        it->second.doc->document().Draw(r2d, font_, band, textures_);
         band += 64;
     }
 }

@@ -41,6 +41,12 @@ namespace MyCoreEngine {
         // still lay out and paint, they just have no text — the same graceful
         // degradation as everywhere else.
         void SetFont(const Font* f) { font_ = f; }
+        // Resolves `background-image`. Owned by the HOST, one per GL context —
+        // the editor runs a second renderer for its Game view, and a
+        // process-wide cache would hand one context's texture names to the
+        // other. Null simply paints no images.
+        void SetTextureCache(ui::UITextureCache* c) { textures_ = c; }
+        ui::UITextureCache* textureCache() const { return textures_; }
 
         // Values shared by every document in the scene, so gameplay has one
         // place to write and markup can bind to it from any entity. A document
@@ -117,6 +123,7 @@ namespace MyCoreEngine {
         ui::UIConverterTable converters_;
         std::vector<std::string> errors_;
         const Font*    font_ = nullptr;
+        ui::UITextureCache* textures_ = nullptr;
         std::function<void(const std::string&)> clipWrite_;
         std::function<std::string()>            clipRead_;
         ui::UIPointerState pointer_{};

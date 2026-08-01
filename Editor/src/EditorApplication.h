@@ -226,6 +226,9 @@ private:
     // the draw callback holds it by reference.
     MyCoreEngine::UIWorld uiWorld_;
     MyCoreEngine::Font    uiFont_;
+    // Declared AFTER uiWorld_ is not required — the world only holds a pointer
+    // — but it must outlive the GL context, which the host owns.
+    MyCoreEngine::ui::UITextureCache uiTextures_;
 
     // Game panel focus. The Scene view stays navigable with the same keys while
     // playing, because gameplay only reads input while the game has it.
