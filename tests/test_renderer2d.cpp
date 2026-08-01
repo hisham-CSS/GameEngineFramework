@@ -321,3 +321,146 @@ TEST_F(Renderer2DTest, AStyledScrollbarReachesTheFramebuffer) {
     const int farX = int(sc->trackX.position.x + sc->trackX.size.x - 3.f);
     EXPECT_LT(red(px, farX, hy), 60) << "the horizontal track took the thumb colour";
 }
+
+// ------------------------------------------------------- rounded boxes
+
+// The whole point of the box stream: a corner that is actually CUT. Every
+// parse-level test in the world can pass while the shader paints a square, so
+// this is the only assertion that can tell the feature apart from a no-op —
+// the same reason AStyledScrollbarReachesTheFramebuffer lives here.
+TEST_F(Renderer2DTest, ARadiusActuallyCutsTheCorner) {
+    if (!r2d.supportsRoundedBoxes()) GTEST_SKIP() << "box shader unavailable";
+
+    clear();
+    r2d.BeginScreen(kW, kH);
+    Renderer2D::BoxStyle box;
+    box.radiusPx = 20.0f;
+    r2d.DrawBox({ 0.f, 0.f }, { float(kW), float(kH) },
+                { 1.f, 0.f, 0.f, 1.f }, box);
+    r2d.End();
+
+    const auto px = readback();
+    // The very corner is outside a 20px radius...
+    EXPECT_LT(red(px, 1, 1), 40) << "the corner was not cut - this is a square";
+    EXPECT_LT(red(px, kW - 2, 1), 40);
+    EXPECT_LT(red(px, 1, kH - 2), 40);
+    EXPECT_LT(red(px, kW - 2, kH - 2), 40);
+    // ...and the middle, and the middle of each edge, are solidly inside it.
+    EXPECT_GT(red(px, kW / 2, kH / 2), 200) << "the fill went missing";
+    EXPECT_GT(red(px, kW / 2, 1), 200) << "the top edge was eroded";
+    EXPECT_GT(red(px, 1, kH / 2), 200) << "the left edge was eroded";
+}
+
+// A radius larger than half the box must give a stadium, not an eroded or
+// erased element. `border-radius: 9999px` is the pill idiom and has to mean
+// something rather than being an error the author computes around.
+TEST_F(Renderer2DTest, AnEnormousRadiusIsAStadiumRatherThanAnErasedElement) {
+    if (!r2d.supportsRoundedBoxes()) GTEST_SKIP() << "box shader unavailable";
+
+    clear();
+    r2d.BeginScreen(kW, kH);
+    Renderer2D::BoxStyle box;
+    box.radiusPx = 9999.0f;
+    r2d.DrawBox({ 0.f, 0.f }, { float(kW), float(kH) },
+                { 1.f, 0.f, 0.f, 1.f }, box);
+    r2d.End();
+
+    const auto px = readback();
+    EXPECT_GT(red(px, kW / 2, kH / 2), 200) << "an enormous radius erased the element";
+    EXPECT_LT(red(px, 1, 1), 40);
+}
+
+// The border is a band of the SAME distance field, which is what lets it share
+// one quad and one layer with the fill. If it were a second quad, a child's
+// layer could slip between the two.
+TEST_F(Renderer2DTest, ABorderPaintsAtTheEdgeAndTheFillPaintsInside) {
+    if (!r2d.supportsRoundedBoxes()) GTEST_SKIP() << "box shader unavailable";
+
+    clear();
+    r2d.BeginScreen(kW, kH);
+    Renderer2D::BoxStyle box;
+    box.borderPx = 6.0f;
+    box.borderColor = { 0.f, 1.f, 0.f, 1.f };   // green rim
+    r2d.DrawBox({ 0.f, 0.f }, { float(kW), float(kH) },
+                { 1.f, 0.f, 0.f, 1.f }, box);   // red fill
+    r2d.End();
+
+    const auto px = readback();
+    EXPECT_GT(green(px, kW / 2, 2), 200) << "no border at the top edge";
+    EXPECT_LT(red(px, kW / 2, 2), 60)    << "the fill bled into the border";
+    EXPECT_GT(red(px, kW / 2, kH / 2), 200) << "the border ate the fill";
+    EXPECT_LT(green(px, kW / 2, kH / 2), 60);
+}
+
+// A translucent border must TINT the panel edge, not punch through it. A mix()
+// would replace the fill's alpha with the border's and leave a hole.
+TEST_F(Renderer2DTest, ATranslucentBorderDoesNotPunchAHoleThroughAnOpaquePanel) {
+    if (!r2d.supportsRoundedBoxes()) GTEST_SKIP() << "box shader unavailable";
+
+    clear();
+    r2d.BeginScreen(kW, kH);
+    Renderer2D::BoxStyle box;
+    box.borderPx = 8.0f;
+    box.borderColor = { 0.f, 1.f, 0.f, 0.5f };  // half-transparent green
+    r2d.DrawBox({ 0.f, 0.f }, { float(kW), float(kH) },
+                { 1.f, 0.f, 0.f, 1.f }, box);   // opaque red
+    r2d.End();
+
+    const auto px = readback();
+    // Both channels present at the rim: the border tinted the fill rather than
+    // replacing it. Against the black clear, a hole would read as near-zero red.
+    EXPECT_GT(green(px, kW / 2, 3), 80) << "the border did not paint";
+    EXPECT_GT(red(px, kW / 2, 3), 80)
+        << "a translucent border punched through the panel instead of tinting it";
+}
+
+// A box needing neither radius nor border must take the PLAIN stream, so the
+// feature costs nothing until it is used and a plain background still batches
+// with glyphs exactly as it always did.
+TEST_F(Renderer2DTest, APlainBoxDoesNotStartASecondBatch) {
+    clear();
+    r2d.BeginScreen(kW, kH);
+    Renderer2D::BoxStyle none;   // radius 0, border 0
+    r2d.DrawBox({ 0.f, 0.f }, { 10.f, 10.f }, { 1.f, 0.f, 0.f, 1.f }, none);
+    r2d.DrawQuad({ 20.f, 0.f }, { 10.f, 10.f }, { 0.f, 1.f, 0.f, 1.f });
+    r2d.End();
+    EXPECT_EQ(r2d.stats().drawCalls, 1)
+        << "an unstyled DrawBox broke the batch - it should be a plain sprite";
+}
+
+// The run breaks on stream kind, so a rounded panel and a plain quad cost two
+// calls. Pinned so the cost of the seam stays visible and cannot creep.
+TEST_F(Renderer2DTest, ARoundedBoxAndAPlainQuadAreTwoBatches) {
+    if (!r2d.supportsRoundedBoxes()) GTEST_SKIP() << "box shader unavailable";
+
+    clear();
+    r2d.BeginScreen(kW, kH);
+    Renderer2D::BoxStyle box;
+    box.radiusPx = 4.0f;
+    r2d.DrawBox({ 0.f, 0.f }, { 10.f, 10.f }, { 1.f, 0.f, 0.f, 1.f }, box);
+    r2d.DrawQuad({ 20.f, 0.f }, { 10.f, 10.f }, { 0.f, 1.f, 0.f, 1.f });
+    r2d.End();
+    EXPECT_EQ(r2d.stats().drawCalls, 2);
+}
+
+// The uniforms are re-set on every run because a shader switch resets neither
+// them nor the buffer bindings. If uViewProj were left hoisted, the plain quad
+// AFTER a box run would be drawn with whatever the box shader left behind -
+// which is nothing, so it would vanish or land somewhere absurd.
+TEST_F(Renderer2DTest, APlainQuadAfterARoundedBoxStillLandsWhereItShould) {
+    if (!r2d.supportsRoundedBoxes()) GTEST_SKIP() << "box shader unavailable";
+
+    clear();
+    r2d.BeginScreen(kW, kH);
+    Renderer2D::BoxStyle box;
+    box.radiusPx = 4.0f;
+    r2d.DrawBox({ 0.f, 0.f }, { 16.f, 16.f }, { 0.f, 1.f, 0.f, 1.f }, box);
+    // Bottom-right quadrant, well away from the box.
+    r2d.DrawQuad({ 40.f, 40.f }, { 16.f, 16.f }, { 1.f, 0.f, 0.f, 1.f });
+    r2d.End();
+
+    const auto px = readback();
+    EXPECT_GT(red(px, 48, 48), 200)
+        << "the plain run after a box run was drawn with a stale projection";
+    EXPECT_GT(green(px, 8, 8), 200) << "the box itself did not paint";
+}

@@ -101,6 +101,39 @@ namespace MyCoreEngine {
                       const glm::vec2& pos, const glm::vec4& color,
                       int layer = 0, float scale = 1.0f);
 
+        // Rounded corners and a border, as ONE signed-distance evaluation in
+        // the fragment shader: the border is the band of the field within
+        // `borderPx` of the edge, so it needs no second quad and no second
+        // layer. A child element's layer can never slip between an element's
+        // fill and its own border.
+        //
+        // The radius is CLAMPED in the shader to min(halfW, halfH), so a
+        // radius of 9999 is a stadium rather than an erased element.
+        struct BoxStyle {
+            float     radiusPx = 0.0f;
+            float     borderPx = 0.0f;
+            glm::vec4 borderColor{ 0.0f };   // straight alpha, composited OVER the fill
+        };
+
+        // Rounded / bordered / textured box.
+        //
+        // DEGRADES to DrawSprite when the box needs neither a radius nor a
+        // border, so a plain background costs exactly what it costs today and
+        // never touches the second vertex stream. Also degrades when the box
+        // shader is unavailable — see supportsRoundedBoxes.
+        void DrawBox(const glm::vec2& pos, const glm::vec2& size,
+                     const glm::vec4& fill, const BoxStyle& box,
+                     unsigned texture = 0, const TexRegion& region = {},
+                     int layer = 0);
+
+        // False when the box shader pair failed to compile, in which case
+        // DrawBox paints plain squares. Exposed so a host can say so ONCE
+        // rather than shipping a UI that quietly lost its corners.
+        //
+        // The box shader is deliberately optional: Init returning false for a
+        // cosmetic feature would take UIPass down and blank every document.
+        bool supportsRoundedBoxes() const { return roundedReady_; }
+
         // ---- clipping ----
         // Rectangles nest: a pushed rect is INTERSECTED with the one below, so a
         // child can never draw outside its parent (which is what a scroll view
@@ -133,25 +166,63 @@ namespace MyCoreEngine {
             glm::vec2 uv;
             glm::vec4 color;
         };
+        // Which vertex stream (and therefore which shader) a quad belongs to.
+        //
+        // A discriminant on Cmd rather than a wider Vertex, because flush_
+        // stable_sorts Cmd BY VALUE: widening Vertex to carry the box fields
+        // would take sizeof(Cmd) from 144 to 304 bytes and more than double the
+        // sort cost of every frame — a bill paid overwhelmingly by GLYPHS,
+        // which are the great majority of quads and need none of it.
+        //
+        // And it would buy a property this renderer does not have. The run
+        // already breaks on a texture change, and an element's background uses
+        // the white texture while its label uses the font atlas, so a panel
+        // with a label has always been two draw calls.
+        enum class QuadKind : int { Plain = 0, Box = 1 };
+        // One quad of the box stream. The last four members are per-QUAD
+        // constants replicated to all four corners: GL 3.3 core has no SSBO and
+        // a UBO would cap a batch at the block size.
+        struct BoxVertex {
+            glm::vec2 pos;
+            glm::vec2 uv;
+            glm::vec4 color;
+            // Unrotated quad-local px from the CENTRE. Stays unrotated on
+            // purpose: a rotated box bakes its rotation into `pos` and leaves
+            // this alone, which is exactly the frame the SDF is evaluated in.
+            glm::vec2 local;
+            glm::vec2 half;
+            glm::vec4 border;
+            glm::vec2 shape;   // x = radius px, y = border width px
+        };
         struct Cmd {          // one quad, before sorting
             Vertex   v[4];
             unsigned texture;
             int      layer;
             int      seq;     // submission order: keeps the sort stable
             int      clip;    // index into clipStack_ history, -1 = none
+            QuadKind kind = QuadKind::Plain;
+            int      box = -1;   // index into boxVerts_ (4 entries), -1 = Plain
         };
         struct ClipRect { glm::vec2 pos, size; };
 
         void beginCommon_(const glm::mat4& viewProj, int vpW, int vpH);
         void flush_();
         void pushQuad_(const Vertex v[4], unsigned texture, int layer);
+        void pushBoxQuad_(const BoxVertex v[4], unsigned texture, int layer);
 
         bool ready_ = false;
+        bool roundedReady_ = false;
         unsigned vao_ = 0, vbo_ = 0, ibo_ = 0, whiteTex_ = 0;
+        unsigned boxVao_ = 0, boxVbo_ = 0;
         std::unique_ptr<Shader> shader_;
+        std::unique_ptr<Shader> boxShader_;
 
         std::vector<Cmd>    cmds_;
         std::vector<Vertex> verts_;   // scratch, reused across frames
+        // Submission-ordered, 4 per box quad; Cmd::box indexes it. Kept beside
+        // the commands rather than inside them so a glyph Cmd stays 148 bytes.
+        std::vector<BoxVertex> boxVerts_;
+        std::vector<BoxVertex> boxScratch_;
         std::vector<ClipRect> clipStack_;
         std::vector<ClipRect> clipHistory_; // resolved (intersected) rects
         // History index per stack level, so Pop restores its parent in O(1)

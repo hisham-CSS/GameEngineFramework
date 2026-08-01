@@ -17,8 +17,15 @@ namespace {
     // for this maximum and reused, so a flush never touches index memory.
     constexpr int kMaxQuadsPerFlush = 4096;
 
+    // Box quads are tens per frame, not thousands, so this buffer is sized for
+    // a realistic worst case rather than for the plain stream's ceiling: 4096
+    // box quads would be 1.1 MB of VBO to serve a few dozen panels.
+    constexpr int kMaxBoxQuadsPerFlush = 512;
+
     constexpr const char* kVertPath = "Exported/Shaders/sprite2d_vert.glsl";
     constexpr const char* kFragPath = "Exported/Shaders/sprite2d_frag.glsl";
+    constexpr const char* kBoxVertPath = "Exported/Shaders/sprite2d_box_vert.glsl";
+    constexpr const char* kBoxFragPath = "Exported/Shaders/sprite2d_box_frag.glsl";
 }
 
 Renderer2D::Renderer2D() = default;
@@ -80,6 +87,48 @@ bool Renderer2D::Init() {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glBindTexture(GL_TEXTURE_2D, 0);
 
+    // The box stream. OPTIONAL, deliberately: a box shader that fails to
+    // compile must cost rounded corners, not the whole UI. Returning false here
+    // would take UIPass down with it and blank every document in the scene, and
+    // a missing corner is not worth that.
+    boxShader_ = std::make_unique<Shader>(kBoxVertPath, kBoxFragPath);
+    if (!boxShader_->isValid()) {
+        boxShader_.reset();
+        std::cerr << "WARN::RENDERER2D box shader unavailable "
+                     "(sprite2d_box_*.glsl); border-radius, border-width and "
+                     "background-image will paint as plain squares\n";
+    } else {
+        glGenVertexArrays(1, &boxVao_);
+        glGenBuffers(1, &boxVbo_);
+        glBindVertexArray(boxVao_);
+        glBindBuffer(GL_ARRAY_BUFFER, boxVbo_);
+        glBufferData(GL_ARRAY_BUFFER,
+                     sizeof(BoxVertex) * 4 * kMaxBoxQuadsPerFlush, nullptr,
+                     GL_DYNAMIC_DRAW);
+        // Seven attributes. GL 3.3 guarantees GL_MAX_VERTEX_ATTRIBS >= 16.
+        struct Attr { int loc; int n; std::size_t off; };
+        const Attr kAttrs[] = {
+            { 0, 2, offsetof(BoxVertex, pos)    },
+            { 1, 2, offsetof(BoxVertex, uv)     },
+            { 2, 4, offsetof(BoxVertex, color)  },
+            { 3, 2, offsetof(BoxVertex, local)  },
+            { 4, 2, offsetof(BoxVertex, half)   },
+            { 5, 4, offsetof(BoxVertex, border) },
+            { 6, 2, offsetof(BoxVertex, shape)  },
+        };
+        for (const Attr& a : kAttrs) {
+            glEnableVertexAttribArray(GLuint(a.loc));
+            glVertexAttribPointer(GLuint(a.loc), a.n, GL_FLOAT, GL_FALSE,
+                                  sizeof(BoxVertex), (void*)a.off);
+        }
+        // The same 0,1,2, 2,3,0 pattern, so the index buffer is shared.
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo_);
+        glBindVertexArray(0);
+        boxVerts_.reserve(4 * 64);
+        boxScratch_.reserve(4 * kMaxBoxQuadsPerFlush);
+        roundedReady_ = true;
+    }
+
     cmds_.reserve(1024);
     verts_.reserve(4 * kMaxQuadsPerFlush);
     ready_ = true;
@@ -91,7 +140,11 @@ void Renderer2D::Shutdown() {
     if (ibo_)      { glDeleteBuffers(1, &ibo_);            ibo_ = 0; }
     if (vao_)      { glDeleteVertexArrays(1, &vao_);       vao_ = 0; }
     if (whiteTex_) { glDeleteTextures(1, &whiteTex_);      whiteTex_ = 0; }
+    if (boxVbo_)   { glDeleteBuffers(1, &boxVbo_);         boxVbo_ = 0; }
+    if (boxVao_)   { glDeleteVertexArrays(1, &boxVao_);    boxVao_ = 0; }
     shader_.reset();
+    boxShader_.reset();
+    roundedReady_ = false;
     ready_ = false;
 }
 
@@ -99,6 +152,7 @@ void Renderer2D::beginCommon_(const glm::mat4& viewProj, int vpW, int vpH) {
     viewProj_ = viewProj;
     vpW_ = vpW; vpH_ = vpH;
     cmds_.clear();
+    boxVerts_.clear();
     clipStack_.clear();
     clipHistory_.clear();
     clipStackIdx_.clear();
@@ -234,6 +288,20 @@ void Renderer2D::pushQuad_(const Vertex v[4], unsigned texture, int layer) {
     ++stats_.quads;
 }
 
+void Renderer2D::pushBoxQuad_(const BoxVertex v[4], unsigned texture, int layer) {
+    if (!inFrame_) return;
+    Cmd c{};
+    c.texture = texture ? texture : whiteTex_;
+    c.layer = layer;
+    c.seq = seq_++;
+    c.clip = curClip_;
+    c.kind = QuadKind::Box;
+    c.box = int(boxVerts_.size());
+    boxVerts_.insert(boxVerts_.end(), v, v + 4);
+    cmds_.push_back(c);
+    ++stats_.quads;
+}
+
 void Renderer2D::DrawQuad(const glm::vec2& pos, const glm::vec2& size,
                           const glm::vec4& color, int layer) {
     DrawSprite(pos, size, 0, TexRegion{}, color, layer);
@@ -253,6 +321,41 @@ void Renderer2D::DrawSprite(const glm::vec2& pos, const glm::vec2& size,
     v[3].uv = { region.uvMin.x, region.uvMax.y };
     for (int i = 0; i < 4; ++i) v[i].color = tint;
     pushQuad_(v, texture, layer);
+}
+
+void Renderer2D::DrawBox(const glm::vec2& pos, const glm::vec2& size,
+                         const glm::vec4& fill, const BoxStyle& box,
+                         unsigned texture, const TexRegion& region, int layer) {
+    // A box that needs neither a radius nor a border IS a sprite. Routing it
+    // through the plain stream keeps every existing background quad, every
+    // square background-image and every glyph in one batch class, so this
+    // feature costs nothing at all until somebody uses it.
+    if (!roundedReady_ || (box.radiusPx <= 0.0f && box.borderPx <= 0.0f)) {
+        DrawSprite(pos, size, texture, region, fill, layer);
+        return;
+    }
+    const glm::vec2 half = size * 0.5f;
+    BoxVertex v[4];
+    // The same corner order DrawSprite uses: TL, TR, BR, BL.
+    v[0].pos = { pos.x,          pos.y };
+    v[1].pos = { pos.x + size.x, pos.y };
+    v[2].pos = { pos.x + size.x, pos.y + size.y };
+    v[3].pos = { pos.x,          pos.y + size.y };
+    v[0].uv = { region.uvMin.x, region.uvMin.y };
+    v[1].uv = { region.uvMax.x, region.uvMin.y };
+    v[2].uv = { region.uvMax.x, region.uvMax.y };
+    v[3].uv = { region.uvMin.x, region.uvMax.y };
+    v[0].local = { -half.x, -half.y };
+    v[1].local = {  half.x, -half.y };
+    v[2].local = {  half.x,  half.y };
+    v[3].local = { -half.x,  half.y };
+    for (int i = 0; i < 4; ++i) {
+        v[i].color  = fill;
+        v[i].half   = half;
+        v[i].border = box.borderColor;
+        v[i].shape  = { box.radiusPx, box.borderPx };
+    }
+    pushBoxQuad_(v, texture, layer);
 }
 
 void Renderer2D::DrawSpriteRotated(const glm::vec2& pos, const glm::vec2& size,
@@ -322,12 +425,10 @@ void Renderer2D::flush_() {
                          return a.seq < b.seq;
                      });
 
-    shader_->use();
-    shader_->setMat4("uViewProj", viewProj_);
-    shader_->setInt("uTex", 0);
+    // glActiveTexture is global state, not per-VAO, so it stays hoisted. The
+    // shader, its uniforms and both buffer bindings do NOT: they move into the
+    // loop below, because a run can now switch streams.
     glActiveTexture(GL_TEXTURE0);
-    glBindVertexArray(vao_);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo_);
 
     size_t i = 0;
     while (i < cmds_.size()) {
@@ -336,14 +437,41 @@ void Renderer2D::flush_() {
         // exactly what the stats report.
         const unsigned tex = cmds_[i].texture;
         const int clip = cmds_[i].clip;
+        // ...and, now, stream KIND. The break lands on a boundary the texture
+        // change already breaks in every real UI, so a panel with a label is
+        // still two draw calls, exactly as it was before boxes existed.
+        const QuadKind kind = cmds_[i].kind;
+        const size_t runCap = (kind == QuadKind::Box) ? size_t(kMaxBoxQuadsPerFlush)
+                                                      : size_t(kMaxQuadsPerFlush);
         size_t n = 0;
         verts_.clear();
-        while (i + n < cmds_.size() && n < size_t(kMaxQuadsPerFlush) &&
-               cmds_[i + n].texture == tex && cmds_[i + n].clip == clip) {
+        boxScratch_.clear();
+        while (i + n < cmds_.size() && n < runCap &&
+               cmds_[i + n].texture == tex && cmds_[i + n].clip == clip &&
+               cmds_[i + n].kind == kind) {
             const Cmd& c = cmds_[i + n];
-            verts_.insert(verts_.end(), c.v, c.v + 4);
+            if (kind == QuadKind::Box) {
+                boxScratch_.insert(boxScratch_.end(), boxVerts_.begin() + c.box,
+                                   boxVerts_.begin() + c.box + 4);
+            } else {
+                verts_.insert(verts_.end(), c.v, c.v + 4);
+            }
             ++n;
         }
+
+        // Re-set on EVERY run, not hoisted. A shader switch resets neither the
+        // uniforms nor the bindings, and a stale uViewProj would silently draw
+        // the second and every later plain run with the previous frame's
+        // projection. The GL_ARRAY_BUFFER bind is needed as well as the VAO
+        // bind: a VAO restores the attribute pointers' buffer bindings, not the
+        // current target that glBufferSubData writes through.
+        Shader* sh = (kind == QuadKind::Box) ? boxShader_.get() : shader_.get();
+        if (!sh) { i += n; continue; }
+        sh->use();
+        sh->setMat4("uViewProj", viewProj_);
+        sh->setInt("uTex", 0);
+        glBindVertexArray(kind == QuadKind::Box ? boxVao_ : vao_);
+        glBindBuffer(GL_ARRAY_BUFFER, kind == QuadKind::Box ? boxVbo_ : vbo_);
 
         if (clip >= 0 && clip < int(clipHistory_.size())) {
             const ClipRect& r = clipHistory_[size_t(clip)];
@@ -368,8 +496,14 @@ void Renderer2D::flush_() {
         }
 
         glBindTexture(GL_TEXTURE_2D, tex);
-        glBufferSubData(GL_ARRAY_BUFFER, 0,
-                        GLsizeiptr(verts_.size() * sizeof(Vertex)), verts_.data());
+        if (kind == QuadKind::Box) {
+            glBufferSubData(GL_ARRAY_BUFFER, 0,
+                            GLsizeiptr(boxScratch_.size() * sizeof(BoxVertex)),
+                            boxScratch_.data());
+        } else {
+            glBufferSubData(GL_ARRAY_BUFFER, 0,
+                            GLsizeiptr(verts_.size() * sizeof(Vertex)), verts_.data());
+        }
         glDrawElements(GL_TRIANGLES, GLsizei(n * 6), GL_UNSIGNED_INT, nullptr);
         ++stats_.drawCalls;
         ++stats_.flushes;
