@@ -273,7 +273,18 @@ private:
     int gameAspect_ = 1;   // 16:9
     std::string bootStatus_;    // what happened at startup (loaded / defaulted)
     char        currentScenePath_[260] = "Exported/scene.json"; // File menu target
-    std::string sceneStatus_;   // last save/load result, shown in the menu bar
+    // Last save/load result, shown centred in the title bar INSTEAD of the
+    // scene name. It decays back: a confirmation is worth reading once, but
+    // leaving it up forever means the one label in the whole editor whose job
+    // is to answer "which scene am I in" stops answering it. Every write goes
+    // through setSceneStatus_ so a new call site cannot land a sticky one.
+    std::string sceneStatus_;
+    float       sceneStatusTtl_ = 0.f;  // seconds left; ticked in DrawMainMenuBar
+    static constexpr float kSceneStatusSeconds = 30.f;
+    void setSceneStatus_(std::string s) {
+        sceneStatus_ = std::move(s);
+        sceneStatusTtl_ = kSceneStatusSeconds;
+    }
 
     // Panel visibility, toggled from the Window menu. All on by default;
     // hiding one skips its draw (and, for the Game view, its render).

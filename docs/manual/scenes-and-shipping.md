@@ -67,7 +67,7 @@ Physics components serialize as engine enums and plain floats, never backend han
 
 ## Saving and loading in the editor
 
-Scene persistence lives in the **File** menu on the editor's title bar (`EditorApplication::DrawMainMenuBar` in `Editor/src/EditorApplication.cpp`). The current scene path defaults to `Exported/scene.json`; the title bar shows its file name, centred, with the last save/load result taking that slot instead once there has been one, and a `[PLAYING]` prefix during play.
+Scene persistence lives in the **File** menu on the editor's title bar (`EditorApplication::DrawMainMenuBar` in `Editor/src/EditorApplication.cpp`). The current scene path defaults to `Exported/scene.json`; the title bar shows its file name, centred, with the last save/load result taking that slot instead for 30 seconds before decaying back to the name, and a `[PLAYING]` prefix during play.
 
 | Menu item | Effect |
 | --- | --- |

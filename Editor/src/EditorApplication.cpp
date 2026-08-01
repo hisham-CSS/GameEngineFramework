@@ -421,17 +421,17 @@ void EditorApplication::Run() {
             // the author left three scenes ago.
             std::snprintf(currentScenePath_, sizeof(currentScenePath_), "%s",
                           r.path.c_str());
-            sceneStatus_ = r.report.complete()
+            setSceneStatus_(r.report.complete()
                 ? "Loaded " + r.path
                 : "Loaded " + r.path + " - " +
                       std::to_string(r.report.failedModels.size() +
                                      r.report.rejectedModels.size()) +
-                      " model(s) missing (see log)";
+                      " model(s) missing (see log)");
             break;
         case MyCoreEngine::SceneSwapStatus::Superseded:
             break; // a request replaced before it ran is not news
         default:
-            sceneStatus_ = "Scene load FAILED: " + r.message;
+            setSceneStatus_("Scene load FAILED: " + r.message);
             break;
         }
     });
@@ -1255,8 +1255,8 @@ bool EditorApplication::saveScene_(MyCoreEngine::Scene& scene)
 {
     MyCoreEngine::SceneSerializer serializer(scene, *assets_);
     const bool ok = serializer.Save(currentScenePath_);
-    sceneStatus_ = ok ? (std::string("Saved ") + currentScenePath_)
-                      : "Save FAILED (see console)";
+    setSceneStatus_(ok ? (std::string("Saved ") + currentScenePath_)
+                       : "Save FAILED (see console)");
     return ok;
 }
 
@@ -1267,8 +1267,8 @@ void EditorApplication::saveAll_(MyCoreEngine::Scene& scene)
     // deliberate build setting, not dirty state, so it stays its own action.
     const bool sceneOk = saveScene_(scene);
     if (const char* ini = ImGui::GetIO().IniFilename) ImGui::SaveIniSettingsToDisk(ini);
-    sceneStatus_ = sceneOk ? "Saved all (scene + layout)"
-                           : "Scene save FAILED (layout saved)";
+    setSceneStatus_(sceneOk ? "Saved all (scene + layout)"
+                            : "Scene save FAILED (layout saved)");
 }
 
 void EditorApplication::newScene_(MyCoreEngine::Scene& scene)
@@ -1289,11 +1289,21 @@ void EditorApplication::newScene_(MyCoreEngine::Scene& scene)
     // wholesale caster removal bypasses the departure-sphere flow: the old
     // scene's shadows would stay baked otherwise
     forceAllCSMUpdate_();
-    sceneStatus_ = "New scene";
+    setSceneStatus_("New scene");
 }
 
 void EditorApplication::DrawMainMenuBar(MyCoreEngine::Scene& scene)
 {
+    // Let the status line decay back to the scene name. Ticked here, ahead of
+    // the side bar rather than inside it, so a collapsed or clipped title bar
+    // cannot freeze a stale message on screen. ImGui's own frame time is the
+    // clock: this function runs exactly once per frame and nothing else needs
+    // to know about the timeout.
+    if (sceneStatusTtl_ > 0.f) {
+        sceneStatusTtl_ -= ImGui::GetIO().DeltaTime;
+        if (sceneStatusTtl_ <= 0.f) sceneStatus_.clear();
+    }
+
     // Scene file ops are disabled during Play: saving would persist transient
     // play state, and loading/newing gets overwritten by Stop's restore anyway.
     const bool canEdit = !playing_;
@@ -1440,7 +1450,7 @@ void EditorApplication::DrawMainMenuBar(MyCoreEngine::Scene& scene)
                 ImGui::Separator();
                 if (ImGui::MenuItem("Set Current Scene as Player Startup", nullptr, false, canEdit)) {
                     setStartupScene_(currentScenePath_);
-                    sceneStatus_ = buildSettingsStatus_; // surface the result in the bar
+                    setSceneStatus_(buildSettingsStatus_); // surface it in the bar
                 }
                 ImGui::Separator();
                 if (ImGui::MenuItem("Exit"))
