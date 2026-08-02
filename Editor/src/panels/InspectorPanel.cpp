@@ -752,6 +752,16 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
                     "below, then scaled by how far the real surface departs from it.");
 
                 const bool scaling = ud->scale.mode != MyCoreEngine::ui::UIScaleMode::Constant;
+                // Say WHY the two fields below are dead. Constant ignores them
+                // entirely -- ComputeUIScale returns 1.0 before it reads
+                // either -- and a greyed-out slider with no explanation reads
+                // as a broken feature rather than as an inactive mode. This is
+                // also the state every scene saved before scaling existed loads
+                // in, since a missing uiScaleMode key defaults to Constant.
+                if (!scaling) {
+                    ImGui::TextDisabled("Constant: authored pixels are screen pixels.");
+                    ImGui::TextDisabled("Switch to Scale With Screen to use these.");
+                }
                 ImGui::BeginDisabled(!scaling);
                 float ref[2] = { ud->scale.reference.x, ud->scale.reference.y };
                 if (ImGui::DragFloat2("Reference", ref, 8.0f, 64.0f, 8192.0f, "%.0f")) {

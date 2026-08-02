@@ -1129,7 +1129,19 @@ reasonably write. It is also wrong on every screen but one: a HUD authored again
 
 Set a **reference resolution** on the `UIDocumentComponent` — Inspector ▸ **UI
 Document ▸ Scaling** — and the whole document scales by how far the real surface
-departs from it. The shipped sample does this; a freshly added component does too.
+departs from it.
+
+**Scale Mode is `Constant` by default, and `Constant` ignores everything below
+it.** `ComputeUIScale` returns `1.0` for `Constant` before it looks at the
+reference or the match, and the Inspector greys both fields out — so a document
+left on the default scales by exactly nothing, and dragging Reference does
+nothing visible because the control is disabled. Switch **Scale Mode** to *Scale
+With Screen* first.
+
+The same applies to any scene saved before this feature existed: a `uiDocument`
+with no `uiScaleMode` key loads as `Constant`, because the serializer defaults a
+missing key to the component's own default
+(`SceneSerializer.cpp`). The shipped sample scene sets it explicitly.
 
 | Field | |
 |---|---|
