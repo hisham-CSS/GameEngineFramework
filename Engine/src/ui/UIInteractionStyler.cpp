@@ -46,12 +46,24 @@ void UIInteractionStyler::restyle_(UIElement& el) const {
     // The cascade has no undo, so a state ending means re-running it from
     // scratch. Shared with class-toggle bindings, which need the identical
     // operation for the identical reason.
-    sheet_->Recascade(el);
+    //
+    // And for the same reason as there, one element is not always enough:
+    // `.panel:hover .label` styles the LABEL on the PANEL's state, so hovering
+    // the panel has to re-run the cascade for everything that state can reach.
+    // Walking from the parent covers descendants and both sibling forms in one
+    // pass. A sheet with no multi-compound rule skips all of it.
+    if (!sheet_->hasContextualRules()) {
+        sheet_->Recascade(el);
+        // Bindings wrote into the Style that was just discarded, so they have
+        // to run again. Without this, hovering a bound health bar would snap it
+        // back to its stylesheet default until the next value change.
+        if (binder_) binder_->ReapplyFor(&el);
+        return;
+    }
 
-    // Bindings wrote into the Style that was just discarded, so they have to
-    // run again. Without this, hovering a bound health bar would snap it back
-    // to its stylesheet default until the next value change.
-    if (binder_) binder_->ReapplyFor(&el);
+    UIElement* root = el.parent() ? el.parent() : &el;
+    sheet_->RecascadeSubtree(*root);
+    if (binder_) binder_->ReapplyForSubtree(root);
 }
 
 bool UIInteractionStyler::Update() {

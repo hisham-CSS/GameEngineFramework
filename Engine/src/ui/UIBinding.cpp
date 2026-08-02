@@ -663,14 +663,46 @@ bool UIBinder::apply_(Entry& e) {
             // one of them. Without the guard, applying a class binding would
             // re-enter itself.
             inRecascade_ = true;
-            sheet_->Recascade(*e.el);
-            ReapplyFor(e.el);
+            recascadeFor_(e.el);
             inRecascade_ = false;
         }
         return true;
     }
     }
     return false;
+}
+
+std::size_t UIBinder::ReapplyForSubtree(UIElement* root) {
+    if (!root) return 0;
+    std::size_t n = ReapplyFor(root);
+    for (const auto& c : root->children()) n += ReapplyForSubtree(c.get());
+    return n;
+}
+
+void UIBinder::recascadeFor_(UIElement* el) {
+    if (!sheet_ || !el) return;
+
+    // The common case: no rule in the sheet depends on any element other than
+    // the one being styled, so nothing outside `el` can have changed meaning.
+    if (!sheet_->hasContextualRules()) {
+        sheet_->Recascade(*el);
+        ReapplyFor(el);
+        return;
+    }
+
+    // A contextual sheet is the hard case. Adding `.selected` to a row changes
+    // which rules match its CHILDREN (`.selected .idx`) and its following
+    // SIBLINGS (`.selected + .row`), and the cascade has no undo, so each of
+    // those has to be re-run from scratch. Walking from the PARENT covers all
+    // four combinator forms in one pass, because a selector's subject is always
+    // its last compound and therefore always somewhere inside the changed
+    // element's parent's subtree.
+    //
+    // Bounded by that subtree, and only on an EDGE — the caller has already
+    // returned early when the class was not actually added or removed.
+    UIElement* root = el->parent() ? el->parent() : el;
+    sheet_->RecascadeSubtree(*root);
+    ReapplyForSubtree(root);
 }
 
 UIBindTick UIBinder::UpdateToSource() {

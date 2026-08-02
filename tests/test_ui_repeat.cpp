@@ -28,6 +28,7 @@
 #include "../Engine/src/ui/UIAssetDocument.h"
 #include "../Engine/src/ui/UIElement.h"
 #include "../Engine/src/ui/UIMarkup.h"
+#include "../Engine/src/ui/UIStyleSheet.h"
 #include "../Engine/src/ui/UIRepeat.h"
 #include "../Engine/src/ui/UIRepeatPool.h"
 #include "ui_shipped_hud.h"
@@ -68,13 +69,16 @@ struct Rig {
     std::vector<UIRepeatSpec> specs;
     std::vector<std::string> errors;
     std::vector<std::unique_ptr<UIRepeatPool>> pools;
+    // Optional, and only for the tests that need the cascade to run. Declared
+    // before the binder so it outlives the pointer the binder holds to it.
+    UIStyleSheet sheet;
     UIBinder binder;
 
     // Declared last so it is destroyed FIRST: it caches a UIDataSource* into
     // every slot, exactly as UIAssetDocument's member order guarantees.
     ~Rig() { binder.Clear(); }
 
-    bool Load(const char* xml) {
+    bool Load(const char* xml, const char* css = nullptr) {
         ctx.RegisterSource("hud", &hud);
         if (!UIMarkup::LoadInto(doc, xml, errors, "t.cxml", &specs)) return false;
         for (const auto& s : specs) {
@@ -82,7 +86,11 @@ struct Rig {
             pools.back()->Build(s, ctx, errors, "t.cxml");
         }
         Refresh();
-        binder.Rebuild(doc, ctx, "t.cxml");
+        // Cascade BEFORE the first bind, the order UIAssetDocument uses: rules
+        // are the pre-bind default and a binding then outranks them.
+        if (css && !sheet.ParseString(css, "t.cstyle")) return false;
+        if (css) sheet.ApplyTo(doc.root());
+        binder.Rebuild(doc, ctx, "t.cxml", css ? &sheet : nullptr);
         return true;
     }
     void Refresh() { for (auto& p : pools) p->Refresh(ctx); }
@@ -941,4 +949,61 @@ TEST(UIRepeat, TheShippedHudHidesTheSurplusWhenTheInventoryIsShorterThanThePool)
     for (std::size_t i = 2; i < bag->children().size(); ++i) {
         EXPECT_EQ(bag->children()[i]->style().display, DisplayMode::None) << "slot " << i;
     }
+}
+
+
+// A class toggled on a row INSIDE a repeat, with a contextual sheet, is the
+// exact shape hud.cxml ships (`.bag-row` carries `row-selected`, and the pool
+// has more slots than the list has rows). U23a widened the re-cascade to the
+// changed element's parent subtree, which here is the POOL -- so it re-runs the
+// cascade over the absent slots too.
+//
+// That is safe only because $present is an injected Display BINDING rather than
+// a raw style write: the re-cascade resets Style, and ReapplyForSubtree puts
+// the binding's answer back. If $present were ever changed to a direct write,
+// this test is what fails.
+TEST(UIRepeat, AClassToggleInsideAPoolDoesNotResurrectAbsentSlots) {
+    Rig r;
+    UIList l;
+    for (const char* n : { "one", "two" }) {
+        UIRecord& row = l.Add();
+        row.SetString("name", n);
+        row.SetBool("sel", false);
+    }
+    r.hud.SetList("inventory", std::move(l));
+
+    ASSERT_TRUE(r.Load(R"(<UI data-source="hud">
+      <Element name="bag" repeat="inventory" repeat-count="4">
+        <Element name="slot" classes="chosen: {sel}">
+          <Label name="slotName" class="nm" text="{name}"/>
+        </Element>
+      </Element></UI>)",
+      ".nm { color: rgba(10, 10, 10, 1); }\n"
+      ".chosen .nm { color: rgba(250, 200, 60, 1); }\n")) << r.firstError();
+    ASSERT_TRUE(r.sheet.hasContextualRules());
+    r.Frame();
+
+    // Two rows, four slots: slots 2 and 3 are absent and must stay hidden.
+    ASSERT_EQ(r.slot(0)->style().display, DisplayMode::Flex);
+    ASSERT_EQ(r.slot(2)->style().display, DisplayMode::None);
+    ASSERT_EQ(r.slot(3)->style().display, DisplayMode::None);
+
+    // Select row 0. The re-cascade now walks every sibling slot.
+    UIList l2;
+    for (const char* n : { "one", "two" }) {
+        UIRecord& row = l2.Add();
+        row.SetString("name", n);
+        row.SetBool("sel", std::string(n) == "one");
+    }
+    r.hud.SetList("inventory", std::move(l2));
+    r.Frame();
+
+    EXPECT_TRUE(r.slot(0)->HasClass("chosen"));
+    EXPECT_NEAR(r.slot(0)->Find("slotName")->style().textColor.r, 250.0f / 255.0f, 0.01f)
+        << "the contextual rule did not reach the row's own label";
+    EXPECT_NEAR(r.slot(1)->Find("slotName")->style().textColor.r, 10.0f / 255.0f, 0.01f)
+        << "an unselected row picked up the selected colour";
+    EXPECT_EQ(r.slot(2)->style().display, DisplayMode::None)
+        << "the widened re-cascade resurrected an absent slot";
+    EXPECT_EQ(r.slot(3)->style().display, DisplayMode::None);
 }

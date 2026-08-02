@@ -293,3 +293,102 @@ TEST(UIClassBind, AResolvedDocumentDoesNotRecollectOnEveryWrite) {
     EXPECT_EQ(b.binder.bindingCount(), 1u);
     EXPECT_EQ(b.el("e"), before);
 }
+
+
+// ---------------------------------------- what the toggle reaches (U23a)
+//
+// A toggled class changes which rules match the element's DESCENDANTS and its
+// following SIBLINGS, not just itself, and the cascade has no undo for any of
+// them. Re-cascading only the element carrying the attribute -- which is what
+// this did until U23a -- leaves every contextual rule permanently unapplied.
+//
+// This was not hypothetical: hud.cstyle shipped `.row-selected .bag-index`
+// under a comment calling it "the pattern to copy", and it had never once run.
+
+TEST(UIClassBind, AToggledClassRestylesDescendants) {
+    ClassBound b;
+    b.src.SetBool("sel", false);
+    ASSERT_TRUE(b.Load(
+        ".idx { color: rgba(10, 10, 10, 1); }\n"
+        ".row-selected .idx { color: rgba(250, 200, 60, 1); }\n",
+        R"(<UI data-source="s">
+           <Element name="row" class="row" classes="row-selected: {sel}">
+             <Label name="idx" class="idx" text="7"/>
+           </Element></UI>)")) << (b.errors.empty() ? "" : b.errors[0]);
+    b.binder.UpdateToTarget();
+    ASSERT_NEAR(b.el("idx")->style().textColor.r, 10.0f / 255.0f, 0.01f);
+
+    b.src.SetBool("sel", true);
+    b.binder.UpdateToTarget();
+    EXPECT_TRUE(b.el("row")->HasClass("row-selected"));
+    EXPECT_NEAR(b.el("idx")->style().textColor.r, 250.0f / 255.0f, 0.01f)
+        << "the descendant was never re-cascaded";
+
+    // And back: the point of re-cascading rather than un-applying.
+    b.src.SetBool("sel", false);
+    b.binder.UpdateToTarget();
+    EXPECT_NEAR(b.el("idx")->style().textColor.r, 10.0f / 255.0f, 0.01f)
+        << "the descendant kept the selected colour after deselection";
+}
+
+TEST(UIClassBind, AToggledClassReachesArbitraryDepth) {
+    ClassBound b;
+    b.src.SetBool("sel", false);
+    ASSERT_TRUE(b.Load(
+        ".on .deep { color: rgba(250, 200, 60, 1); }\n",
+        R"(<UI data-source="s">
+           <Element name="row" classes="on: {sel}">
+             <Element name="mid"><Element name="inner">
+               <Label name="deep" class="deep" text="7"/>
+             </Element></Element>
+           </Element></UI>)")) << (b.errors.empty() ? "" : b.errors[0]);
+    b.binder.UpdateToTarget();
+    b.src.SetBool("sel", true);
+    b.binder.UpdateToTarget();
+    EXPECT_NEAR(b.el("deep")->style().textColor.r, 250.0f / 255.0f, 0.01f);
+}
+
+// Sibling combinators are why the walk starts at the PARENT rather than at the
+// element: `.on + .next` styles something that is not inside `.on` at all.
+TEST(UIClassBind, AToggledClassRestylesFollowingSiblings) {
+    ClassBound b;
+    b.src.SetBool("sel", false);
+    ASSERT_TRUE(b.Load(
+        ".on + .next { color: rgba(250, 200, 60, 1); }\n"
+        ".on ~ .far  { color: rgba(60, 200, 250, 1); }\n",
+        R"(<UI data-source="s"><Element name="wrap">
+             <Element name="a" classes="on: {sel}"/>
+             <Label name="b" class="next" text="1"/>
+             <Label name="c" class="far"  text="2"/>
+           </Element></UI>)")) << (b.errors.empty() ? "" : b.errors[0]);
+    b.binder.UpdateToTarget();
+    b.src.SetBool("sel", true);
+    b.binder.UpdateToTarget();
+    EXPECT_NEAR(b.el("b")->style().textColor.r, 250.0f / 255.0f, 0.01f)
+        << "adjacent sibling not re-cascaded";
+    EXPECT_NEAR(b.el("c")->style().textColor.b, 250.0f / 255.0f, 0.01f)
+        << "general sibling not re-cascaded";
+}
+
+// The widened walk must not cost anything on a sheet that cannot need it. A
+// sheet with no multi-compound selector re-cascades exactly one element, which
+// is what hasContextualRules() gates.
+TEST(UIClassBind, APlainSheetStillRestylesOnlyTheOneElement) {
+    ClassBound b;
+    b.src.SetBool("sel", false);
+    ASSERT_TRUE(b.Load(kCss, R"(<UI data-source="s"><Element name="wrap">
+           <Element name="e" class="box" classes="low-health: {isLow}"/>
+           <Element name="sib" class="box"/></Element></UI>)"))
+        << (b.errors.empty() ? "" : b.errors[0]);
+    EXPECT_FALSE(b.sheet.hasContextualRules());
+
+    // A raw style write on a SIBLING survives, because nothing re-cascades it.
+    // (A contextual sheet would legitimately discard this -- that is the cost
+    // of the feature, and the gate is what keeps plain sheets from paying it.)
+    b.el("sib")->style().textColor = { 0.5f, 0.5f, 0.5f, 1.0f };
+    b.src.SetBool("isLow", true);
+    b.binder.UpdateToTarget();
+    EXPECT_NEAR(b.el("e")->style().backgroundColor.r, 1.0f, 0.01f) << "the toggle itself";
+    EXPECT_NEAR(b.el("sib")->style().textColor.r, 0.5f, 0.01f)
+        << "a plain sheet re-cascaded a sibling it had no rule for";
+}

@@ -158,6 +158,19 @@ namespace MyCoreEngine::ui {
         bool hasAncestors() const { return parts.size() > 1; }
         std::uint8_t pseudo() const { return subject().pseudo; }
 
+        // Could `el` be a compound that carries a state pseudo and is NOT the
+        // subject — as `.panel` is in `.panel:hover .label`?
+        //
+        // Those elements are invisible to every other query here: the chain as
+        // a whole never matches them (they are not the subject), yet it is
+        // THEIR state that decides whether the rule applies to somebody else.
+        // Asking only the subject, as HasStateRuleFor used to, meant such a
+        // rule put nothing on the watch list and was completely inert.
+        //
+        // Deliberately ignores position in the chain: it answers "could this
+        // element's state matter", which is what a watcher needs.
+        bool MatchesNonSubjectStatePart(const UIElement& el) const;
+
         bool Matches(const UIElement& el) const;
         // Everything except interaction state, on every part. Used to decide,
         // once at load, WHICH elements a pseudo rule could ever apply to — an
@@ -266,8 +279,31 @@ namespace MyCoreEngine::ui {
         // re-measure on every hover is not free.
         void Recascade(UIElement& el) const;
 
+        // True when ANY rule has a multi-compound selector, i.e. some element's
+        // appearance depends on another element's classes or state.
+        //
+        // This is the gate on the subtree re-cascade below. A sheet made only
+        // of single-compound rules — which is most of them — cannot have a
+        // rule whose match changes because a DIFFERENT element changed, so it
+        // pays nothing for the correctness the contextual case needs.
+        bool hasContextualRules() const { return hasContextualRules_; }
+
+        // Re-cascades `el` and every descendant. What the contextual case
+        // needs, because the cascade has no undo and a class or state change on
+        // one element can change which rules match its descendants and its
+        // following siblings.
+        //
+        // Callers pass the element's PARENT when there is one: that single step
+        // up covers descendants (`.on .x`), children (`.on > .x`) and both
+        // sibling forms (`.on + .x`, `.on ~ .x`) in one walk, because a
+        // selector's subject is always the last compound and therefore always
+        // inside the changed element's parent's subtree.
+        void RecascadeSubtree(UIElement& root) const;
+
     private:
         std::vector<UIRule> rules_;
+        // Recomputed on every successful parse; see hasContextualRules().
+        bool hasContextualRules_ = false;
         std::vector<std::string> errors_;
     };
 

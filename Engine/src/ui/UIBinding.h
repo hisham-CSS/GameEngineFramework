@@ -154,6 +154,11 @@ namespace MyCoreEngine::ui {
         // what changed is that the value written into the element was thrown
         // away. Returns the number applied.
         std::size_t ReapplyFor(const UIElement* el);
+        // ReapplyFor over a whole subtree. Needed wherever the cascade was
+        // re-run for a REGION rather than a single element — a contextual
+        // sheet's class toggle or state change — because every element the
+        // re-cascade reset has lost whatever its bindings had written.
+        std::size_t ReapplyForSubtree(UIElement* root);
 
         const std::vector<std::string>& errors() const { return errors_; }
         const std::vector<std::string>& notes()  const { return notes_;  }
@@ -267,6 +272,10 @@ namespace MyCoreEngine::ui {
         // Set while a class binding is re-cascading its element, so ReapplyFor
         // cannot re-enter the binding that triggered it.
         bool              inRecascade_ = false;
+        // Re-cascade the region a class toggle on `el` can affect, and re-apply
+        // the bindings inside it. Which region depends on whether the sheet has
+        // contextual rules at all — see the definition.
+        void recascadeFor_(UIElement* el);
     };
 
 } // namespace MyCoreEngine::ui

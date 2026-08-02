@@ -636,6 +636,16 @@ bool UISelector::MatchesIgnoringState(const UIElement& el) const {
     return !parts.empty() && matchChain(parts, el, /*stateAware=*/false);
 }
 
+bool UISelector::MatchesNonSubjectStatePart(const UIElement& el) const {
+    // All but the last: the subject is handled by the plain chain match, which
+    // is stricter and correct for it.
+    for (std::size_t i = 0; i + 1 < parts.size(); ++i) {
+        const UICompound& c = parts[i].compound;
+        if (c.pseudo && c.MatchesIgnoringState(el)) return true;
+    }
+    return false;
+}
+
 void UISelector::Specificity(int& ids, int& cls, int& types) const {
     ids = cls = types = 0;
     // SUMMED across every compound: `.panel .btn` is two classes, which is what
@@ -696,7 +706,11 @@ bool UIStyleSheet::ParseNumberValue(const std::string& s, float& out) {
     return parseNumber(trim(s), out);
 }
 
-void UIStyleSheet::Clear() { rules_.clear(); errors_.clear(); }
+void UIStyleSheet::Clear() {
+    rules_.clear();
+    errors_.clear();
+    hasContextualRules_ = false;
+}
 
 bool UIStyleSheet::ParseString(const std::string& text, const std::string& originName) {
     std::vector<UIRule> parsed;
@@ -893,6 +907,14 @@ bool UIStyleSheet::ParseString(const std::string& text, const std::string& origi
         return false;
     }
     rules_ = std::move(parsed);
+    // One pass, once, so the hot paths can ask a bool instead of scanning.
+    hasContextualRules_ = false;
+    for (const UIRule& r : rules_) {
+        for (const UISelector& s : r.selectors) {
+            if (s.hasAncestors()) { hasContextualRules_ = true; break; }
+        }
+        if (hasContextualRules_) break;
+    }
     return true;
 }
 
@@ -969,6 +991,11 @@ void UIStyleSheet::ApplyTo(UIElement& root) const {
     for (const auto& c : root.children()) ApplyTo(*c);
 }
 
+void UIStyleSheet::RecascadeSubtree(UIElement& root) const {
+    Recascade(root);
+    for (const auto& c : root.children()) RecascadeSubtree(*c);
+}
+
 void UIStyleSheet::Recascade(UIElement& el) const {
     std::string keepText = std::move(el.style().text);
     el.style() = Style{};
@@ -979,7 +1006,16 @@ void UIStyleSheet::Recascade(UIElement& el) const {
 bool UIStyleSheet::HasStateRuleFor(const UIElement& el) const {
     for (const auto& r : rules_) {
         for (const auto& s : r.selectors) {
+            // The SUBJECT carries the state: `.btn:hover`. The element being
+            // styled is the one whose state matters, so the whole chain has to
+            // match it.
             if (s.pseudo() && s.MatchesIgnoringState(el)) return true;
+            // An ANCESTOR or SIBLING carries the state: `.panel:hover .label`.
+            // The watched element is the PANEL, which never matches the chain
+            // as a whole because it is not the subject. Note this is NOT the
+            // same as `.panel .btn:hover`, where the state is the BUTTON's and
+            // the panel needs no watching at all — hence "non-subject".
+            if (s.MatchesNonSubjectStatePart(el)) return true;
         }
     }
     return false;

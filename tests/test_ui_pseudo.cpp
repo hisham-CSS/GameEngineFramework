@@ -497,3 +497,73 @@ TEST(UIPseudoHud, HoverStateSurvivesAHotReload) {
     hud.Frame();
     EXPECT_NE(btn->style().backgroundColor, idle) << "hover stopped working after a reload";
 }
+
+
+// -------------------------------- state on a NON-SUBJECT compound (U23a)
+//
+// `.panel:hover .label` reads the PANEL's state and styles the LABEL. Both
+// halves of that were broken until U23a, independently:
+//
+//  - HasStateRuleFor asked only the selector's SUBJECT for a pseudo, so the
+//    panel went on no watch list and hovering it triggered nothing at all;
+//  - and the re-cascade covered one element, so even a watched panel would not
+//    have restyled the label.
+
+TEST(UIPseudoState, AnAncestorsHoverIsWatchedAndReachesTheDescendant) {
+    UIStyleSheet sheet;
+    ASSERT_TRUE(sheet.ParseString(
+        ".panel { width: 100px; height: 100px; }\n"
+        ".label { color: rgba(10, 10, 10, 1); }\n"
+        ".panel:hover .label { color: rgba(250, 200, 60, 1); }\n", "t.cstyle"));
+
+    UIDocument doc;
+    std::vector<std::string> errors;
+    ASSERT_TRUE(UIMarkup::LoadInto(doc,
+        R"(<UI><Element name="panel" class="panel">)"
+        R"(<Label name="lbl" class="label" text="hi"/></Element></UI>)",
+        errors, "t.cxml")) << (errors.empty() ? "" : errors[0]);
+
+    EXPECT_TRUE(sheet.HasStateRuleFor(*doc.root().Find("panel")))
+        << "the panel is not watched, so its hover triggers no restyle at all";
+
+    UIBindingContext ctx;
+    UIBinder binder;
+    UIInteractionStyler styler;
+    sheet.ApplyTo(doc.root());
+    binder.Rebuild(doc, ctx, "t.cxml", &sheet);
+    styler.Rebuild(doc, sheet, &binder);
+    doc.Layout(400.f, 400.f);
+
+    UIElement* lbl = doc.root().Find("lbl");
+    ASSERT_NEAR(lbl->style().textColor.r, 10.0f / 255.0f, 0.01f);
+
+    UIPointerState p;
+    p.position = { 50.f, 50.f };
+    p.inside = true;
+    doc.UpdatePointer(p);
+    styler.Update();
+    EXPECT_NEAR(lbl->style().textColor.r, 250.0f / 255.0f, 0.01f)
+        << "hovering the ancestor did not reach the descendant";
+
+    p.position = { -1.f, -1.f };
+    p.inside = false;
+    doc.UpdatePointer(p);
+    styler.Update();
+    EXPECT_NEAR(lbl->style().textColor.r, 10.0f / 255.0f, 0.01f)
+        << "the descendant kept the hover colour after the pointer left";
+}
+
+// The mirror image, and the reason the query is "non-subject" rather than "any
+// part": in `.panel .btn:hover` the state is the BUTTON's. Watching the panel
+// too would restyle a subtree on every pointer crossing for no reason.
+TEST(UIPseudoState, AnAncestorWithNoPseudoOfItsOwnIsNotWatched) {
+    UIStyleSheet sheet;
+    ASSERT_TRUE(sheet.ParseString(".panel .btn:hover { color: red; }", "t.cstyle"));
+    UIDocument doc;
+    std::vector<std::string> errors;
+    ASSERT_TRUE(UIMarkup::LoadInto(doc,
+        R"(<UI><Element name="panel" class="panel">)"
+        R"(<Element name="b" class="btn"/></Element></UI>)", errors, "t.cxml"));
+    EXPECT_TRUE(sheet.HasStateRuleFor(*doc.root().Find("b")));
+    EXPECT_FALSE(sheet.HasStateRuleFor(*doc.root().Find("panel")));
+}
