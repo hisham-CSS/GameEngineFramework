@@ -127,6 +127,14 @@ namespace MyCoreEngine {
         bool RequestSwap(std::string path, SceneSwapOrigin origin = SceneSwapOrigin::Game);
 
         bool swapPending() const { return pending_.has_value(); }
+
+        // How many observers are subscribed. Diagnostic, and worth having:
+        // the tempting way to implement "rebuild the subsystems after a swap"
+        // is to re-run the Install* helpers, each of which subscribes another
+        // observer AND another tick subscriber. Three of each per swap is
+        // thirty by the tenth, and the only symptom is that the game gets
+        // slower the more scenes you visit.
+        std::size_t observerCount() const { return observers_.size(); }
         const std::string& pendingPath() const;
         void CancelPendingSwap();
 

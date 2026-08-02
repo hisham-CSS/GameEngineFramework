@@ -76,7 +76,19 @@ namespace MyCoreEngine {
         // already-cleared registry every accessor in those handlers silently
         // no-ops.
         if (SceneLoader* loader = app.sceneLoader()) {
-            loader->AddObserver([&world](Scene&) { world.Clear(); });
+            loader->AddObserver(
+                [&world](Scene&) { world.Clear(); },
+                [&app, &world](Scene& s) {
+                    if (!app.gameplayEnabled()) return;
+                    // Build then Start, the same order and for the same reason
+                    // as startPlay_: compiling first surfaces a syntax error
+                    // before a single OnStart has run.
+                    //
+                    // The input pointer set above survives Clear, so scripts in
+                    // the new scene can read input from their first frame.
+                    world.Rebuild(s.registry);
+                    world.Start(s.registry);
+                });
         }
 
         return app.AddFixedUpdate([&scene, &world](float fixedDt) {

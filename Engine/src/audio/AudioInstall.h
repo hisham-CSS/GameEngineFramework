@@ -48,7 +48,13 @@ namespace MyCoreEngine {
         // will-unload, not did-load: a voice from the departing scene must
         // be stopped before the entity that owns it is gone.
         if (SceneLoader* loader = app.sceneLoader()) {
-            loader->AddObserver([&world](Scene&) { world.Clear(); });
+            loader->AddObserver(
+                [&world](Scene&) { world.Clear(); },
+                [&app, &world](Scene& s) {
+                    // play-on-start sources in the new scene begin now, exactly
+                    // as they would have if the game had booted into it.
+                    if (app.gameplayEnabled()) world.Start(s.registry);
+                });
         }
 
         return app.AddUpdate([&scene, &world, &app, fallback](float /*dt*/) {

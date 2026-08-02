@@ -20,6 +20,7 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <iostream>
 #include <vector>
 
 
@@ -398,6 +399,10 @@ void EditorApplication::Run() {
             undo_.clear();            // ...including all of the history's
             gameDirector_.reset();    // ...and the Game view's camera handles
             pendingModelOps_.clear(); // in-flight ops were aimed at the old scene
+            // Play is now standing on a scene it did not start in, so Stop
+            // cannot restore its snapshot over the top. Deliberately does NOT
+            // clear playSnapshot_: it is the fallback if the reload fails.
+            if (playing_) playSwapped_ = true;
         },
         [this](MyCoreEngine::Scene& s) {        // did load
             // Re-apply the quality tier: the perf toggles serialize, but the
@@ -2176,6 +2181,9 @@ void EditorApplication::startPlay_(MyCoreEngine::Scene& scene)
     if (playing_) return;
     undo_.cancelEdit(); // a half-open drag must not commit against play state
     playSnapshot_ = UndoHistory::captureScene(scene.registry);
+    // Where Stop has to get back to, captured BEFORE the session can move it.
+    playReturnScene_ = currentScenePath_;
+    playSwapped_ = false;
     undo_.setRecordingEnabled(false);
     resetGameClock(); // deterministic first tick for every session
     // Build native bodies from the CURRENT (edit-mode) poses: play starts
@@ -2199,10 +2207,46 @@ void EditorApplication::stopPlay_(MyCoreEngine::Scene& scene)
 {
     if (!playing_) return;
     setGameplayEnabled(false);
+    setGameplayInputEnabled(false); // no game to receive input once stopped
+    // BEFORE anything below: the swap observers read playing_ (to arm
+    // playSwapped_) and gameplayEnabled() (to decide whether to rebuild). Both
+    // must already say "stopped" or the reload underneath would re-arm the flag
+    // it is answering and build bodies edit mode does not want.
+    playing_ = false;
+    undo_.setRecordingEnabled(true);
+
+    if (playSwapped_) {
+        // The session changed scene. The snapshot describes a DIFFERENT file,
+        // so restoring it here would put the pre-Play entities into whatever
+        // scene the game ended on -- and currentScenePath_ points at that one,
+        // which makes the next Ctrl+S an unrecoverable overwrite.
+        //
+        // Go back to the file Play started from instead. Host origin, so the
+        // edit-mode gate lets it through.
+        playSwapped_ = false;
+        const bool back = loadSceneFromFile_(scene, playReturnScene_);
+        if (back) {
+            // The load's own observers did the selection/undo/CSM work.
+            playSnapshot_.clear();
+            pendingModelOps_.erase(
+                std::remove_if(pendingModelOps_.begin(), pendingModelOps_.end(),
+                               [](const PendingModelOp& op) { return op.requestedDuringPlay; }),
+                pendingModelOps_.end());
+            return;
+        }
+        // Renamed, deleted or corrupted while the game was running. Fall
+        // through to the snapshot restore: those entities are the only copy of
+        // the pre-Play scene that still exists, and dropping them because the
+        // FILE went missing would turn a recoverable problem into data loss.
+        // currentScenePath_ is corrected below so Save still cannot go astray.
+        setSceneStatus_("Stop: could not reload '" + playReturnScene_ +
+                        "' - restored the pre-Play scene in memory instead");
+        std::cerr << "[editor] " << sceneStatus_ << "\n";
+    }
+
     // Drop every native body BEFORE the restore: restoreScene() clears the
     // registry and resurrects entities via create(hint), so the entity->body
     // map would survive looking valid while pointing at freed bodies.
-    setGameplayInputEnabled(false); // no game to receive input once stopped
     physics_.Clear();
     // Same hazard as bodies: restoreScene() clears the registry and
     // resurrects entities via create(hint), so every entity->instance pair
@@ -2212,8 +2256,12 @@ void EditorApplication::stopPlay_(MyCoreEngine::Scene& scene)
     audio_.Clear();   // stop all voices when leaving Play
     UndoHistory::restoreScene(scene.registry, assets_.get(), playSnapshot_);
     playSnapshot_.clear();
-    undo_.setRecordingEnabled(true);
-    playing_ = false;
+    // The restored entities came from playReturnScene_, so that is what Save
+    // must target -- not whatever the game swapped to.
+    if (!playReturnScene_.empty()) {
+        std::snprintf(currentScenePath_, sizeof(currentScenePath_), "%s",
+                      playReturnScene_.c_str());
+    }
     // handles survive the restore, but the Game view must CUT back to the
     // edit-mode camera — blending from the play session's last pose would
     // look like gameplay continuing after Stop

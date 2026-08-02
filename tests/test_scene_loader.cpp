@@ -520,3 +520,124 @@ TEST(SceneLoader, AnEditModeGateCanRefuseGameSwapsAndStillAllowHostOnes) {
     EXPECT_TRUE(loader.DrainPendingSwap()) << "the gate refused during play";
     std::remove("test_loader_a.json");
 }
+
+
+// ------------------------------------------- the rebuild half of the swap
+//
+// Every subsystem subscribes Clear() to will-unload. Clear on its own is only
+// half a scene swap: a cleared world stays cleared, so a game that changed
+// scene arrived with no bodies, no script instances and no voices, and the only
+// symptom was that gameplay looked switched off.
+//
+// These tests are the CONTRACT the Install* helpers implement, exercised
+// against a real SceneLoader. The gate is app.gameplayEnabled(), which already
+// means "gameplay is live" -- always true in the shipped player, true in the
+// editor only between Play and Stop -- so a bool stands in for it here.
+
+namespace {
+// Writes a scene whose entities all carry a static box collider, so a
+// PhysicsWorld built against it has a body per entity.
+std::string writePhysicsScene(const char* path, int n) {
+    std::string s = R"({"version":1,"entities":[)";
+    for (int i = 0; i < n; ++i) {
+        if (i) s += ",";
+        // "type" is the BodyType ENUM as an int (0 = Static), not a name --
+        // hand-writing "Static" here silently fails validation and the swap is
+        // refused before it starts.
+        // A Transform is required as well as the body: PhysicsWorld::Build
+        // views <RigidBody, Transform>, so a body with no pose is silently
+        // not a body at all.
+        s += R"({"name":"B)" + std::to_string(i) + R"(")"
+             R"(,"transform":{"position":[0,)" + std::to_string(i * 3) + R"(,0])"
+             R"(,"rotation":[0,0,0],"scale":[1,1,1]})"
+             R"(,"rigidBody":{"type":0})"
+             R"(,"boxCollider":{"halfExtents":[1,1,1]}})";
+    }
+    s += "]}";
+    std::ofstream(path) << s;
+    return path;
+}
+} // namespace
+
+TEST(SceneLoader, ASubsystemRebuiltOnDidLoadTracksTheNewScene) {
+    writePhysicsScene("test_loader_p1.json", 2);
+    writePhysicsScene("test_loader_p2.json", 5);
+    AssetManager assets;
+    Scene scene;
+    RegisterBuiltinPhysicsBackends();
+    PhysicsWorld world;
+    ASSERT_TRUE(world.SetBackend(DefaultPhysicsBackendName()));
+
+    SceneLoader loader(scene, assets);
+    bool gameplayLive = true;
+    // Exactly the pair PhysicsInstall subscribes.
+    loader.AddObserver([&world](Scene&) { world.Clear(); },
+                       [&](Scene& s) { if (gameplayLive) world.Rebuild(s.registry); });
+
+    loader.RequestSwap("test_loader_p1.json");
+    ASSERT_TRUE(loader.DrainPendingSwap());
+    EXPECT_EQ(world.BodyCount(), 2u) << "the first scene's bodies were never built";
+
+    loader.RequestSwap("test_loader_p2.json");
+    ASSERT_TRUE(loader.DrainPendingSwap());
+    EXPECT_EQ(world.BodyCount(), 5u)
+        << "a cleared world stayed cleared - the swap left the game with no physics";
+
+    // ...and the tenth swap costs what the first did. A Rebuild that leaked
+    // would show up here as a count that keeps climbing.
+    for (int i = 0; i < 8; ++i) {
+        loader.RequestSwap(i % 2 ? "test_loader_p2.json" : "test_loader_p1.json");
+        ASSERT_TRUE(loader.DrainPendingSwap());
+    }
+    EXPECT_EQ(world.BodyCount(), 5u);
+    std::remove("test_loader_p1.json");
+    std::remove("test_loader_p2.json");
+}
+
+// Edit mode has no bodies on purpose -- the editor builds them at Play and
+// destroys them at Stop -- so a File > Open while stopped must not give it any.
+TEST(SceneLoader, TheRebuildIsSkippedWhenGameplayIsNotLive) {
+    writePhysicsScene("test_loader_p1.json", 3);
+    AssetManager assets;
+    Scene scene;
+    RegisterBuiltinPhysicsBackends();
+    PhysicsWorld world;
+    ASSERT_TRUE(world.SetBackend(DefaultPhysicsBackendName()));
+
+    SceneLoader loader(scene, assets);
+    bool gameplayLive = false;
+    loader.AddObserver([&world](Scene&) { world.Clear(); },
+                       [&](Scene& s) { if (gameplayLive) world.Rebuild(s.registry); });
+
+    loader.RequestSwap("test_loader_p1.json", SceneSwapOrigin::Host);
+    ASSERT_TRUE(loader.DrainPendingSwap());
+    EXPECT_EQ(world.BodyCount(), 0u) << "edit mode was handed live bodies";
+
+    // Press Play: the host builds, and from then on swaps track.
+    gameplayLive = true;
+    world.Rebuild(scene.registry);
+    EXPECT_EQ(world.BodyCount(), 3u);
+    std::remove("test_loader_p1.json");
+}
+
+// Observer count is the cheap proof that "rebuild after a swap" was not
+// implemented by re-running the Install helpers, each of which subscribes
+// another observer AND another tick subscriber. Three per swap is thirty by
+// swap ten, and the symptom is quadratic slowdown with no other clue.
+TEST(SceneLoader, SwappingRepeatedlyNeverAccumulatesObservers) {
+    writeScene("test_loader_a.json", 2);
+    AssetManager assets;
+    Scene scene;
+    SceneLoader loader(scene, assets);
+    loader.AddObserver([](Scene&) {}, [](Scene&) {});
+    loader.AddObserver([](Scene&) {}, [](Scene&) {});
+    const std::size_t before = loader.observerCount();
+    ASSERT_EQ(before, 2u);
+
+    for (int i = 0; i < 10; ++i) {
+        loader.RequestSwap("test_loader_a.json");
+        ASSERT_TRUE(loader.DrainPendingSwap());
+    }
+    EXPECT_EQ(loader.observerCount(), before);
+    std::remove("test_loader_a.json");
+}

@@ -208,6 +208,14 @@ private:
     Transform gizmoBefore_{};      // selected entity's transform before the drag
 
     bool playing_ = false;                      // play-in-editor state
+    // A game-initiated scene swap DURING play invalidates the whole Stop
+    // contract: playSnapshot_ holds the scene you pressed Play in, but the
+    // registry now holds a different one entirely. Restoring the snapshot over
+    // it would resurrect the old entities into a file they do not belong to --
+    // and currentScenePath_ has already followed the swap, so the next Ctrl+S
+    // would write them straight over it. Stop reloads instead.
+    bool playSwapped_ = false;
+    std::string playReturnScene_;   // what to reload; captured at Play
     UndoHistory::SceneSnapshot playSnapshot_;   // edit-mode scene, restored on Stop
 
     // Physics: one active backend for the whole world. Bodies exist only for

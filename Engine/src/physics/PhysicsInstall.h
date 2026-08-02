@@ -39,8 +39,22 @@ namespace MyCoreEngine {
         // switch scenes without leaking it.
         //
         // will-unload, not did-load: the outgoing entities must still be alive.
+        //
+        // ...and then BUILD the incoming ones, because a cleared world stays
+        // cleared. Without the second hook a game that changed scene arrived
+        // with no bodies at all: nothing fell, nothing collided, and the only
+        // clue was that it looked like physics had been switched off.
+        //
+        // Gated on gameplayEnabled(), which already means "gameplay is live":
+        // always true in the shipped player, true in the editor only between
+        // Play and Stop. Edit mode deliberately has no bodies -- startPlay_
+        // builds them -- and this must not give it any.
         if (SceneLoader* loader = app.sceneLoader()) {
-            loader->AddObserver([&world](Scene&) { world.Clear(); });
+            loader->AddObserver(
+                [&world](Scene&) { world.Clear(); },
+                [&app, &world](Scene& s) {
+                    if (app.gameplayEnabled()) world.Rebuild(s.registry);
+                });
         }
 
         return app.AddFixedUpdate([&scene, &world](float fixedDt) {
