@@ -109,6 +109,7 @@ add_library(Engine SHARED
     src/ui/UIWorld.cpp
     src/ui/DemoUIContent.h
     src/ui/DemoUIContent.cpp
+    src/ui/MenuUIContent.cpp
     src/render/passes/UIPass.h
     src/render/passes/UIPass.cpp
     src/render/passes/OutlinePass.h

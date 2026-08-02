@@ -75,4 +75,5 @@
 #include "../src/ui/UIComponent.h"
 #include "../src/ui/UIWorld.h"
 #include "../src/ui/DemoUIContent.h"
+#include "../src/ui/MenuUIContent.h"
 

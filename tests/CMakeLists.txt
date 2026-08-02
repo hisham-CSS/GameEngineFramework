@@ -101,6 +101,7 @@ engine_test(test_ui_markup)        # CXML subset: tree building, inline style, s
 engine_test(test_ui_hotreload)     # asset reload: change detection, re-binding, failure safety
 engine_test(test_ui_value)         # the bound-value transport: coercion refusals, non-finite gate
 engine_test(test_ui_binding)       # data sources, {hole} templates, the binder, hot-reload survival
+engine_test(test_ui_menu)        # main-menu verbs + what a scene swap does to the UI
 engine_test(test_ui_pseudo)        # :hover/:active — specificity, re-cascade, what it must not destroy
 engine_test(test_ui_focus)         # keyboard focus, tab order, :focus/:disabled, UTF-8 input
 engine_test(test_ui_selectors)     # descendant/child combinators, summed specificity
