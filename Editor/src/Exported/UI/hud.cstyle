@@ -15,6 +15,17 @@
   if a rule seems to do nothing.
 */
 
+/* Base text size. `font-scale` multiplies the BAKED ATLAS SIZE (48px, set where
+   the host loads the font), so this is 18px and 1.0 would be 48px.
+
+   It has to be a rule rather than a default: nothing in this system inherits,
+   so an element no font-scale rule matches falls back to Style's own default of
+   1.0 -- full atlas size. `*` has the lowest possible specificity, so every
+   rule below still wins on its own elements. */
+* {
+  font-scale: 0.375;
+}
+
 #hud {
   flex-direction: column;
   padding: 16px;
@@ -205,7 +216,7 @@
 .bag-index {
   width: 26px;
   color: rgba(255, 255, 255, 0.35);
-  font-scale: 0.85;
+  font-scale: 0.31875;   /* 15.3px */
 }
 
 .bag-name {
@@ -256,7 +267,7 @@
   margin: 0px 4px 0px 0px;
   color: rgba(255, 255, 255, 0.55);
   background-color: rgba(0, 0, 0, 0.35);
-  font-scale: 0.9;
+  font-scale: 0.3375;   /* 16.2px */
 }
 
 /* Same specificity as `.tab` (one class each), so ORDER decides and this has to
@@ -279,7 +290,7 @@
 
 .tab-readout {
   color: rgba(255, 255, 255, 0.35);
-  font-scale: 0.8;
+  font-scale: 0.3;   /* 14.4px */
   margin: 4px 0px 0px 0px;
 }
 
@@ -290,7 +301,7 @@
 
 .log-header {
   color: rgba(255, 255, 255, 0.55);
-  font-scale: 0.85;
+  font-scale: 0.31875;   /* 15.3px */
   margin: 12px 0px 0px 0px;
 }
 

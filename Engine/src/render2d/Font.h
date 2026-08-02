@@ -22,6 +22,25 @@
 
 namespace MyCoreEngine {
 
+    // The size both hosts bake the UI font at, and therefore the unit that
+    // `font-scale` in a .cstyle multiplies: 0.375 is 18px, 1.0 is 48px.
+    //
+    // Deliberately large. A menu title wants ~40px, and there is no font-size,
+    // font-family or font-weight property in the stylesheet language -- the
+    // atlas IS the size, so magnifying a small one is the only alternative and
+    // it looks it. Downsampling from 48 costs nothing and makes body text
+    // sharper too. The atlas auto-grows through 512..4096 (Font.cpp), so a
+    // larger bake just picks a bigger one.
+    //
+    // Here rather than in each host because it is half of a contract whose
+    // other half is authored in a text file: change this and every font-scale
+    // in every .cstyle silently means something else. kUIFontBaseScale is the
+    // value a stylesheet uses to mean "ordinary text", and the two are checked
+    // against each other in tests/test_ui_stylesheet.cpp.
+    constexpr float kUIFontAtlasPixels = 48.0f;
+    constexpr float kUIFontBodyPixels  = 18.0f;
+    constexpr float kUIFontBaseScale   = kUIFontBodyPixels / kUIFontAtlasPixels;
+
     // One packed glyph, in pixels at the baked height.
     struct Glyph {
         glm::vec2 uvMin{ 0.0f };   // atlas UVs

@@ -509,7 +509,10 @@ void EditorApplication::Run() {
         // whose .cxml and .cstyle hot-reload. Edit either while the editor runs and
         // the Game view updates in place, with no rebuild and without losing
         // the scene you were testing.
-        if (!uiFont_.LoadFromFile("Exported/Fonts/Roboto.ttf", 18.0f)) {
+        // The atlas size is the unit `font-scale` multiplies, so it is a shared
+        // constant rather than a literal here -- see Font.h.
+        if (!uiFont_.LoadFromFile("Exported/Fonts/Roboto.ttf",
+                                  MyCoreEngine::kUIFontAtlasPixels)) {
             std::cout << "EDITOR: UI font missing - drawing without text" << std::endl;
         }
         uiWorld_.SetFont(&uiFont_);

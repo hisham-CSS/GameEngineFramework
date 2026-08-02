@@ -394,3 +394,33 @@ TEST(UIStyleSheetPaint, AStylesheetPathOutsideTheProjectIsRejectedBeforeItIsOpen
     ASSERT_FALSE(s.errors().empty());
     EXPECT_NE(s.errors()[0].find("outside the project"), std::string::npos) << s.errors()[0];
 }
+
+
+// ------------------------------------- the shipped sheet's base text size
+//
+// `font-scale` multiplies the BAKED ATLAS SIZE, so the number in a .cstyle and
+// the number the host passes to Font::LoadFromFile are two halves of one
+// contract -- and only one of them is C++. Changing the bake without rewriting
+// every font-scale in every stylesheet silently resizes all the text in the
+// game, which is exactly the kind of change that gets made for a good reason
+// and noticed three commits later.
+//
+// Nothing INHERITS in this system, so the base size has to be a rule: an
+// element no font-scale rule matches takes Style's own default of 1.0, i.e.
+// full atlas size.
+TEST(UIStyleSheetHud, TheShippedSheetSetsABaseTextSizeMatchingTheBakedAtlas) {
+    UIStyleSheet sheet;
+    ASSERT_TRUE(sheet.LoadFromFile("Exported/UI/hud.cstyle"))
+        << (sheet.errors().empty() ? std::string() : sheet.errors()[0]);
+
+    // A bare document root: no type, no name, no classes, so `*` is the only
+    // selector that can reach it.
+    UIDocument doc;
+    sheet.ApplyTo(doc.root());
+
+    EXPECT_NEAR(doc.root().style().fontScale, kUIFontBaseScale, 1e-5f)
+        << "unstyled text would render at "
+        << doc.root().style().fontScale * kUIFontAtlasPixels << "px, not the intended "
+        << kUIFontBodyPixels << "px - the sheet's base rule and Font.h's "
+           "kUIFontAtlasPixels have drifted apart";
+}

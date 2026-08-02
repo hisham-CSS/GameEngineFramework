@@ -184,7 +184,10 @@ public:
         // build cannot drift.
         // The UI comes from the SCENE: entities carrying a UIDocumentComponent.
         // Nothing here names a file — swapping the HUD is a scene edit.
-        if (!uiFont_.LoadFromFile("Exported/Fonts/Roboto.ttf", 18.0f)) {
+        // The atlas size is the unit `font-scale` multiplies, so it is a shared
+        // constant rather than a literal here -- see Font.h.
+        if (!uiFont_.LoadFromFile("Exported/Fonts/Roboto.ttf",
+                                  MyCoreEngine::kUIFontAtlasPixels)) {
             std::cerr << "PLAYER: UI font missing - drawing without text" << std::endl;
         }
         uiWorld_.SetFont(&uiFont_);

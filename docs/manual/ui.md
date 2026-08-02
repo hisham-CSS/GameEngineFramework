@@ -1134,8 +1134,14 @@ departs from it. The shipped sample does this; a freshly added component does to
 | Field | |
 |---|---|
 | **Scale Mode** | `Constant` (authored pixels are screen pixels) or `Scale With Screen` |
-| **Reference** | the resolution your stylesheet's pixels were written for. Default 1920x1080 |
+| **Reference** | the resolution your stylesheet's pixels were written for. Default 1920x1080; both shipped documents declare **1280x720** |
 | **Match** | `0` follows width, `1` follows height, between blends the two |
+
+Both shipped documents — the sample HUD and the main menu — use `1280x720` with
+match `0`, which is the player's own window size. So in the shipped player the
+scale is exactly `1.0`: an authored pixel is a real pixel and nothing resamples.
+Picking a reference the game never actually runs at is a quiet way to make all
+your text soft, which is what the sample HUD did while it declared 1920x1080.
 
 Width is the usual choice: a HUD runs out of horizontal room first, and an
 ultrawide should show *more*, not bigger. The blend is in log space, so a match of
@@ -1178,11 +1184,32 @@ become 100%.
 A wheel notch and a page are **authored** amounts, so they travel twice as far in
 real pixels at scale 2 — that is what keeps a notch covering the same three rows.
 
-**Text magnifies rather than re-baking.** The glyph atlas is baked once at 18px, so
-above roughly 1.5x text gets soft. Measurement stays exact at every scale
-(`Font::Measure` is linear in its scale argument), so layout is never wrong — only
-crispness suffers. A pixel-height-keyed font cache is the fix and it is not built
-yet.
+**Text magnifies rather than re-baking.** The glyph atlas is baked once, at
+`kUIFontAtlasPixels` (`Engine/src/render2d/Font.h`), and every size on screen is
+that atlas scaled. Measurement stays exact at every scale (`Font::Measure` is
+linear in its scale argument), so layout is never wrong — only crispness suffers,
+and only when magnifying. A pixel-height-keyed font cache is the real fix and is
+not built yet.
+
+That is why the atlas is baked at **48px** rather than at body-text size: a menu
+title wants around 40px, and there is no `font-size`, `font-family` or
+`font-weight` property to reach for — the atlas *is* the size. Baking large means
+ordinary text downsamples (free, and sharper) instead of headings upsampling.
+
+**`font-scale` therefore multiplies the atlas size, not a body size.** `0.375` is
+18px and `1.0` is 48px. Nothing in this system inherits, so an element that no
+`font-scale` rule matches takes `Style`'s own default of `1.0` — full atlas size.
+A stylesheet that wants ordinary text to be ordinary has to say so:
+
+```css
+* { font-scale: 0.375; }   /* 18px against the 48px atlas */
+```
+
+`hud.cstyle` and `menu.cstyle` both open with that rule. The bake size and the
+base scale are two halves of one contract with only one half in C++, so
+`tests/test_ui_stylesheet.cpp` asserts they still agree — change the bake without
+rewriting the stylesheets and the suite says so instead of every string in the
+game quietly changing size.
 
 ---
 
