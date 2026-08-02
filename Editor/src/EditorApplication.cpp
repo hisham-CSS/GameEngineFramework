@@ -531,6 +531,9 @@ void EditorApplication::Run() {
                                               int w, int h, float dt) {
             uiWorld_.Update(scene.registry, w, h, dt);
             uiWorld_.Draw(r2d);
+            // The Inspector reports what the scale settings resolve to, and
+            // this is the only place that knows the real UI surface.
+            inspector_.SetUISurfaceSize(float(w), float(h));
         });
 
         // Audio: per-frame listener/source update installed for the app's life;

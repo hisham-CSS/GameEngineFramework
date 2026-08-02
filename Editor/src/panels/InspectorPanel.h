@@ -22,6 +22,12 @@ public:
     // the camera is stationary.
     // pOpen (optional) drives the window's close button; the editor gates the
     // whole Draw on the same bool so the tab X hides the Inspector.
+    // The size the UI is actually being laid out against, so the Scaling
+    // section can show what the settings RESOLVE TO rather than only what they
+    // are. Fed from the Game view's UI pass; zero means the Game panel is
+    // hidden and there is nothing honest to report.
+    void SetUISurfaceSize(float w, float h) { uiSurfaceW_ = w; uiSurfaceH_ = h; }
+
     bool Draw(entt::registry& reg, entt::entity selected, UndoHistory& undo,
               MyCoreEngine::AssetManager* assets = nullptr,
               const MyCoreEngine::ScriptWorld* scripts = nullptr,
@@ -37,6 +43,9 @@ public:
     void DrawAsset(const void* indexNode, bool* pOpen = nullptr);
 
 private:
+    float uiSurfaceW_ = 0.0f;   // see SetUISurfaceSize
+    float uiSurfaceH_ = 0.0f;
+
     // asset-view cache, refreshed when the highlighted path changes
     std::string assetPath_;
     std::uintmax_t assetSize_ = 0;

@@ -781,6 +781,47 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
                     "0 follows WIDTH, 1 follows HEIGHT, between blends the two.\n"
                     "Width is the usual choice: a HUD runs out of horizontal room\n"
                     "first, and an ultrawide should show more rather than bigger.");
+
+                // What the settings RESOLVE TO. Without this the whole feature
+                // is inferred from how big things look, and Match in particular
+                // reads as broken whenever it is merely inert: it blends
+                // fit-to-width against fit-to-height, so on a surface whose
+                // ASPECT matches the reference the two endpoints are the same
+                // number and the slider provably cannot do anything. That is
+                // the common case, not an edge case -- a 16:9 Game view against
+                // a 16:9 reference -- and it is invisible without the numbers.
+                if (scaling && uiSurfaceW_ > 0.0f && uiSurfaceH_ > 0.0f) {
+                    const MyCoreEngine::ui::UIScaleSettings& sc = ud->scale;
+                    const glm::vec2 surf{ uiSurfaceW_, uiSurfaceH_ };
+                    const float now = MyCoreEngine::ui::ComputeUIScale(sc, surf);
+
+                    MyCoreEngine::ui::UIScaleSettings ends = sc;
+                    ends.match = 0.0f;
+                    const float byWidth = MyCoreEngine::ui::ComputeUIScale(ends, surf);
+                    ends.match = 1.0f;
+                    const float byHeight = MyCoreEngine::ui::ComputeUIScale(ends, surf);
+
+                    ImGui::TextDisabled("Surface %.0fx%.0f  ->  scale %.3f",
+                                        uiSurfaceW_, uiSurfaceH_, now);
+                    ImGui::SetItemTooltip(
+                        "The UI surface the document is laid out against -- the\n"
+                        "Game view here, the window in the shipped player.");
+                    const float spread = byWidth > 0.0f
+                                             ? std::abs(byHeight - byWidth) / byWidth : 0.0f;
+                    if (spread < 0.01f) {
+                        ImGui::TextDisabled("Match does nothing here: %.3f..%.3f",
+                                            byWidth, byHeight);
+                        ImGui::SetItemTooltip(
+                            "Match blends fit-to-WIDTH against fit-to-HEIGHT. This\n"
+                            "surface has the same aspect as the Reference, so the\n"
+                            "two agree and there is nothing to blend.\n\n"
+                            "Change the Game view's aspect, or the Reference's, to\n"
+                            "see it move.");
+                    } else {
+                        ImGui::TextDisabled("Match spans %.3f (width) .. %.3f (height)",
+                                            byWidth, byHeight);
+                    }
+                }
                 ImGui::EndDisabled();
 
                 ImGui::SeparatorText("Region");
