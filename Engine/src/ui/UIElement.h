@@ -486,6 +486,23 @@ namespace MyCoreEngine::ui {
         // document has nothing focusable at all.
         UIElement* FocusNext(bool backwards = false);
 
+        // Activate the focused element: synthesize a Click on it, through the
+        // ordinary bubble path a real click takes.
+        //
+        // This is what makes the UI operable without a mouse, and it is one
+        // function rather than a feature because UIBinding attaches every
+        // authored on-* as a plain Click listener -- so this lights up every
+        // on-click in every document with no markup change anywhere. It is
+        // equally the gamepad's A button: a pad needs no separate path, only a
+        // host that calls this.
+        //
+        // Returns false when there is nothing to activate, INCLUDING when the
+        // focused element is a text edit -- a field owns its own Enter (a
+        // multi-line one inserts a newline), and a single-line field leaves it
+        // for a container that may want to mean "submit". Neither should be a
+        // click on the field itself.
+        bool ActivateFocused();
+
         // Deepest PICKABLE element containing `pos`, or null. Topmost wins:
         // children are tested in reverse paint order, and an `overflowHidden`
         // parent that does not contain the point rejects its whole subtree.

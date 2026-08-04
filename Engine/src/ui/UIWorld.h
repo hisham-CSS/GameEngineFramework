@@ -97,6 +97,23 @@ namespace MyCoreEngine {
         ui::UIAssetDocument* document(entt::entity e);
 
         std::size_t liveCount() const { return live_.size(); }
+
+        // Is the game's UI currently USING the keyboard? Both hosts need this
+        // to decide whether a key belongs to the UI or to the game, and until
+        // now only the editor could answer it -- for ImGui, not for this.
+        //
+        // FOCUS, not existence. A HUD is on screen for the whole game and does
+        // not thereby own the Escape key; something has to be focused for the
+        // UI to have a claim on it. That also keeps a game QUITTABLE: at boot
+        // nothing is focused, so Escape still reaches the host.
+        //
+        // Only INTERACTIVE documents count. A decorative overlay is explicitly
+        // marked not-interactive and must not silently eat input.
+        bool wantsKeyboard() const;
+        // Narrower: a TEXT FIELD has focus, so every printable key is content.
+        // This is what must suppress a game action bound to a letter -- and
+        // what makes Escape-while-typing not quit the game.
+        bool wantsTextInput() const;
         // Every error reported by the last reconcile, one per failed load.
         const std::vector<std::string>& errors() const { return errors_; }
 

@@ -1585,6 +1585,22 @@ void UIDocument::followCaret_(UIElement& el, const Font* font) {
     }
 }
 
+bool UIDocument::ActivateFocused() {
+    // Revalidated exactly like the pointer path does: a handler may have
+    // removed the focused element since it was focused.
+    if (!focused_ || !isInTree_(focused_) || !isInteractable_(*focused_)) return false;
+    // A text edit owns its own Enter — see the header.
+    if (focused_->textEdit()) return false;
+
+    UIEvent e;
+    e.type = UIEventType::Click;
+    // The element's CENTRE. A Click carries a position and handlers may read
+    // it; a synthesized one should be somewhere honest rather than {0,0}.
+    e.position = focused_->layout().position + focused_->layout().size * 0.5f;
+    bubble_(focused_, e);
+    return true;
+}
+
 void UIDocument::UpdateKeyboard(const UIKeyboardState& kb, const Font* font) {
     UIPassScope pass(font, scale_);
     // The focused element may have been removed since last frame by gameplay or
@@ -1671,6 +1687,13 @@ void UIDocument::UpdateKeyboard(const UIKeyboardState& kb, const Font* font) {
                           k.key == UIKey::Home || k.key == UIKey::End)) {
             consumed = keyboardScroll_(target, k.key);
         }
+
+        // ENTER ACTIVATES. Until this existed the key simply fell off the end
+        // of this chain: a focused Button received KeyDown, nothing consumed
+        // it, and the UI was unusable without a mouse. A consumption check for
+        // the same reason as Tab below -- a handler that took Enter, or a
+        // multi-line field inserting a newline, has already had its say.
+        if (!consumed && k.key == UIKey::Enter) consumed = ActivateFocused();
 
         // Tab is navigation ONLY if nothing consumed it — a handler, or a field
         // that wanted it. That is what would let a multi-line field keep its

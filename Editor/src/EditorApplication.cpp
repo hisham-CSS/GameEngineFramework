@@ -78,14 +78,23 @@ void EditorApplication::Run() {
             // still blocks regardless (WantTextInput).
             const bool inViewport = viewportFocused_ || viewportHovered_ || camLooking_;
             MyCoreEngine::Application::UICapture caps;
-            caps.keyboard = ui_.WantTextInput() || !inViewport;
+            // The GAME's UI counts too, not just ImGui's. inViewport follows
+            // HOVER of the Scene image, while the game UI keeps receiving input
+            // as long as the Game surface holds focus -- so moving the cursor
+            // from the Game panel across the Scene viewport used to make capK
+            // false while a game TextField still had focus, and Escape then
+            // reached the quit path and closed THE EDITOR, losing unsaved work.
+            caps.keyboard = ui_.WantTextInput() || uiWorld_.wantsKeyboard() || !inViewport;
             // the viewport is an ImGui window too — camera controls
             // must keep working while the mouse is over it
             caps.mouse = ui_.WantCaptureMouse() && !viewportHovered_;
             // Reported separately because `keyboard` above is mostly about
             // WHERE the pointer is, not about typing. Gameplay input keys off
             // this narrow flag alone.
-            caps.textInput = ui_.WantTextInput();
+            // Same widening as above: a space typed into the GAME'''s text field
+            // is content, and without this it also fires whatever gameplay
+            // action is bound to Space (InputMap binds "Jump" there by default).
+            caps.textInput = ui_.WantTextInput() || uiWorld_.wantsTextInput();
             return caps;
         });
     });

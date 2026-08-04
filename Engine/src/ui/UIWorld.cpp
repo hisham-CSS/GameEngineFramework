@@ -14,6 +14,23 @@ using ui::UIAssetDocument;
 UIWorld::UIWorld() = default;
 UIWorld::~UIWorld() = default;
 
+bool UIWorld::wantsKeyboard() const {
+    for (const auto& [e, live] : live_) {
+        if (!live.doc || !live.enabled || !live.interactive) continue;
+        if (live.doc->document().focused()) return true;
+    }
+    return false;
+}
+
+bool UIWorld::wantsTextInput() const {
+    for (const auto& [e, live] : live_) {
+        if (!live.doc || !live.enabled || !live.interactive) continue;
+        const ui::UIElement* f = live.doc->document().focused();
+        if (f && f->textEdit()) return true;
+    }
+    return false;
+}
+
 void UIWorld::Clear() {
     live_.clear();
     order_.clear();

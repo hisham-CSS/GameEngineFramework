@@ -317,3 +317,109 @@ TEST(UIInput, ShippedHudButtonIncrementsTheScore) {
     hud.Frame();
     EXPECT_EQ(hud.find("scoreLabel")->style().text, "SCORE 100");
 }
+
+
+// ------------------------------------- keyboard / pad activation (U25a)
+//
+// Until ActivateFocused existed, Enter on a focused Button fell off the end of
+// UpdateKeyboard's default chain and the UI could not be operated without a
+// mouse. UITabView.cpp said so in its own source: "there is no
+// Enter-activates-a-Button anywhere yet."
+//
+// The reason this is one function rather than a feature: UIBinding attaches
+// every authored on-* as an ordinary Click listener, so synthesizing a Click
+// lights up every on-click in every document with no markup change.
+
+TEST(UIActivate, EnterOnAFocusedButtonFiresItsOnClick) {
+    ShippedHud hud;
+    hud.Frame();
+    UIElement* btn = hud.find("scoreButton");
+    ASSERT_NE(btn, nullptr);
+    ASSERT_EQ(hud.data().GetInt("score"), 0);
+
+    hud.doc().SetFocus(btn);
+    UIKeyboardState kb;
+    kb.keys.push_back(UIKeyEvent{ UIKey::Enter });
+    hud.world.SetKeyboard(kb);
+    hud.Frame();
+
+    EXPECT_EQ(hud.data().GetInt("score"), 100)
+        << "Enter on a focused button did not run its action";
+}
+
+TEST(UIActivate, EnterDoesNothingWithNothingFocused) {
+    ShippedHud hud;
+    hud.Frame();
+    hud.doc().SetFocus(nullptr);
+    UIKeyboardState kb;
+    kb.keys.push_back(UIKeyEvent{ UIKey::Enter });
+    hud.world.SetKeyboard(kb);
+    hud.Frame();
+    EXPECT_EQ(hud.data().GetInt("score"), 0);
+}
+
+// A field owns its own Enter. A multi-line one inserts a newline (and consumes
+// the key before this is reached); a single-line one leaves it for a container
+// that may want to mean "submit". Neither is a click on the field itself.
+TEST(UIActivate, EnterInATextFieldDoesNotSynthesizeAClick) {
+    ShippedHud hud;
+    hud.Frame();
+    UIElement* field = hud.find("nameField");
+    ASSERT_NE(field, nullptr);
+    ASSERT_NE(field->textEdit(), nullptr);
+
+    hud.doc().SetFocus(field);
+    EXPECT_FALSE(hud.doc().ActivateFocused())
+        << "a focused text field reported itself activatable";
+}
+
+// The direct API, which is what a gamepad's A button will call. Proves the
+// activation path is not keyboard-specific.
+TEST(UIActivate, ActivateFocusedIsTheWholePadPath) {
+    ShippedHud hud;
+    hud.Frame();
+    UIElement* btn = hud.find("scoreButton");
+    ASSERT_NE(btn, nullptr);
+    hud.doc().SetFocus(btn);
+
+    EXPECT_TRUE(hud.doc().ActivateFocused());
+    EXPECT_EQ(hud.data().GetInt("score"), 100);
+    EXPECT_TRUE(hud.doc().ActivateFocused());
+    EXPECT_EQ(hud.data().GetInt("score"), 200) << "activation is not repeatable";
+}
+
+// ------------------------------------------ what the host is told (U25a)
+//
+// Both hosts ask the UI whether it is using the keyboard, to decide whether a
+// key belongs to the UI or to the game. Before this, only the editor could
+// answer -- for ImGui, not for the game's UI -- and the shipped Player had NO
+// capture provider at all, so Escape and gamepad BACK quit the game even while
+// a text field had focus.
+
+TEST(UICaptureQuery, NothingFocusedMeansTheGameKeepsItsKeys) {
+    ShippedHud hud;
+    hud.Frame();
+    hud.doc().SetFocus(nullptr);
+    EXPECT_FALSE(hud.world.wantsKeyboard())
+        << "a HUD that merely EXISTS claimed the keyboard - the game would "
+           "become unquittable";
+    EXPECT_FALSE(hud.world.wantsTextInput());
+}
+
+TEST(UICaptureQuery, AFocusedTextFieldClaimsBothKeyboardAndText) {
+    ShippedHud hud;
+    hud.Frame();
+    hud.doc().SetFocus(hud.find("nameField"));
+    EXPECT_TRUE(hud.world.wantsKeyboard());
+    EXPECT_TRUE(hud.world.wantsTextInput()) << "typing would still fire game actions";
+}
+
+// A focused BUTTON wants the keyboard (Enter must reach it) but is not typing,
+// so a letter bound to a game action is still the game's.
+TEST(UICaptureQuery, AFocusedButtonWantsKeysButIsNotTyping) {
+    ShippedHud hud;
+    hud.Frame();
+    hud.doc().SetFocus(hud.find("scoreButton"));
+    EXPECT_TRUE(hud.world.wantsKeyboard());
+    EXPECT_FALSE(hud.world.wantsTextInput());
+}

@@ -206,6 +206,29 @@ public:
                 [w] { const char* t = glfwGetClipboardString(w); return std::string(t ? t : ""); });
         }
         // The two things a file cannot carry: a named action and a converter.
+        // Until this existed, the shipped game had NO capture provider at all
+        // -- SetUICaptureProvider was called in exactly one place in the whole
+        // repo, and it was the editor. So Application::RunLoop's `capK` was
+        // permanently false and the quit check ran unconditionally: "Quit" is
+        // bound to Escape AND to gamepad BACK, so typing your name into the
+        // menu and pressing Escape exited the game.
+        //
+        // A one-frame lag is unavoidable and harmless: this runs before
+        // input_->update, and a whole frame before uiWorld_.Update inside the
+        // render pass, so it answers for the PREVIOUS frame's focus. Focus does
+        // not move without input, so the only way to notice would be to press
+        // Escape on the exact frame you first clicked into a field.
+        SetUICaptureProvider([this] {
+            UICapture caps;
+            caps.keyboard = uiWorld_.wantsKeyboard();
+            caps.textInput = uiWorld_.wantsTextInput();
+            // The pointer is NOT captured. A game's UI and its camera share the
+            // mouse -- the UI takes clicks by hit-testing, which is a decision
+            // per press rather than a mode.
+            caps.mouse = false;
+            return caps;
+        });
+
         InstallDemoUIContent(uiWorld_);
 
         // The menu's verbs. AFTER the demo content, because the menu's name
