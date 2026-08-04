@@ -244,16 +244,52 @@ TEST(MenuUIContent, ReportSwapAppendsToTheLogAndFollowsTheNewestRow) {
 }
 
 // A demo instrument, not a diagnostic record. An unbounded vector behind a
-// six-slot window is a leak with a view.
-TEST(MenuUIContent, TheSwapLogIsBounded) {
+// four-slot window is a leak with a view.
+//
+// The COUNTER is separate and monotonic: it is what the SYSTEM tab asks you to
+// watch across a session, and tying it to the log length made it silently stop
+// climbing once the log hit its cap.
+TEST(MenuUIContent, TheSwapLogIsBoundedButTheCounterIsNot) {
     UIWorld world;
     InstallMenuUIContent(world, MenuUIHooks{});
     SceneSwapResult r;
     r.status = SceneSwapStatus::Ok;
     r.path = "a.json";
     for (int i = 0; i < 200; ++i) MenuUIReportSwap(world, r);
-    EXPECT_LE(world.shared().GetInt("menuSwaps"), 32)
-        << "the swap log grows without bound";
+
+    UIDataSource& src = world.shared();
+    const int li = src.ListIndexOf("swapLog");
+    ASSERT_GE(li, 0);
+    EXPECT_LE(src.ListRowCount(li), 32u) << "the swap log grows without bound";
+    EXPECT_EQ(src.GetInt("menuSwaps"), 200) << "the counter stopped counting";
+}
+
+// Clearing the CONSOLE is not resetting the counter -- clearing a log has never
+// reset an uptime.
+TEST(MenuUIContent, ClearEmptiesTheLogAndLeavesTheCounterAlone) {
+    UIWorld world;
+    InstallMenuUIContent(world, MenuUIHooks{});
+    UIDataSource& src = world.shared();
+    SceneSwapResult r;
+    r.status = SceneSwapStatus::Ok;
+    r.path = "a.json";
+    for (int i = 0; i < 5; ++i) MenuUIReportSwap(world, r);
+
+    const int li = src.ListIndexOf("swapLog");
+    ASSERT_GE(li, 0);
+    ASSERT_EQ(src.ListRowCount(li), 5u);
+    ASSERT_EQ(src.GetInt("swapLogCursor"), 4);
+
+    ASSERT_TRUE(invoke(src, "menuLogClear"));
+    EXPECT_EQ(src.ListRowCount(li), 0u);
+    EXPECT_EQ(src.GetInt("swapLogCursor"), 0) << "a cursor left past the end of an "
+                                                 "empty list";
+    EXPECT_EQ(src.GetInt("menuSwaps"), 5) << "clearing the console reset the counter";
+
+    // ...and the log still works afterwards.
+    MenuUIReportSwap(world, r);
+    EXPECT_EQ(src.ListRowCount(li), 1u);
+    EXPECT_EQ(src.GetInt("menuSwaps"), 6);
 }
 
 // Two hosts in one process must not share a log. The editor is one UIWorld;

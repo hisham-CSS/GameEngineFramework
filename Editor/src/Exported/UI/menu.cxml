@@ -177,7 +177,11 @@
           <Element class="row-left">
             <Button class="btn btn-step" text="PREV" on-click="menuLogPrev"/>
             <Button class="btn btn-step" text="NEXT" on-click="menuLogNext"/>
-            <Label class="page-note" text="{menuSwaps} logged"/>
+            <Button class="btn btn-step" text="CLEAR" on-click="menuLogClear"/>
+            <!-- The COUNTER is not the log length: clearing the console does
+                 not reset how many swaps this session has done, which is the
+                 number the panel above asks you to watch. -->
+            <Label class="page-note" text="{menuSwaps} this session"/>
           </Element>
         </Tab>
 

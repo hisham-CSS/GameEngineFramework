@@ -32,11 +32,20 @@ namespace {
         bool ok = true;
     };
 
+    struct Log {
+        std::vector<SwapRow> rows;
+        // MONOTONIC, and deliberately not rows.size(): the log is a console
+        // that caps and can be cleared, while "how many swaps has this session
+        // done" is the number the demo actually asks you to watch. Tying them
+        // together meant the counter silently stopped climbing at the cap.
+        long long lifetimeSwaps = 0;
+    };
+
     // Keyed on the UIWorld so this file owns no singleton: a process has one
     // host, but a test can stand up several and they must not share a log.
     // Main thread only, like everything else in the UI.
-    std::unordered_map<const UIWorld*, std::vector<SwapRow>>& swapLogs() {
-        static std::unordered_map<const UIWorld*, std::vector<SwapRow>> m;
+    std::unordered_map<const UIWorld*, Log>& swapLogs() {
+        static std::unordered_map<const UIWorld*, Log> m;
         return m;
     }
 
@@ -131,7 +140,7 @@ void InstallMenuUIContent(UIWorld& world, const MenuUIHooks& hooks) {
     ui::UIDataSource& src = world.shared();
     const MenuUIHooks h = hooks;   // by VALUE: the actions outlive the caller's
 
-    swapLogs()[&world].clear();
+    swapLogs()[&world] = Log{};
 
     // ---- seed everything the markup binds to, BEFORE any document loads ----
     // A binding pass against a missing property is a diagnostic, not a crash,
@@ -222,11 +231,23 @@ void InstallMenuUIContent(UIWorld& world, const MenuUIHooks& hooks) {
     // a CURSOR fed to repeat-offset, clamped by the pool to the last full page
     // so the panel never shrinks to a partial window at either end.
     const auto moveCursor = [&src, &world](long long by) {
-        const auto& rows = swapLogs()[&world];
+        const auto& rows = swapLogs()[&world].rows;
         const long long last = rows.empty() ? 0 : (long long)rows.size() - 1;
         src.SetInt("swapLogCursor",
                    std::clamp(src.GetInt("swapLogCursor") + by, 0LL, last));
     };
+    // Clears the CONSOLE, not the counter. Clearing a log has never reset an
+    // uptime, and the swap count is the thing the SYSTEM tab asks you to watch
+    // across a session.
+    src.AddAction("menuLogClear", [&src, &world] {
+        Log& log = swapLogs()[&world];
+        if (log.rows.empty()) return;   // equality-gated anyway, but say it
+        log.rows.clear();
+        publishSwapLog(src, log.rows);
+        src.SetInt("swapLogCursor", 0);
+        setStatus(src, "Log cleared.", true);
+    });
+
     src.AddAction("menuLogPrev", [moveCursor] { moveCursor(-1); });
     src.AddAction("menuLogNext", [moveCursor] { moveCursor(+1); });
 }
@@ -236,7 +257,8 @@ void MenuUIReportSwap(UIWorld& world, const SceneSwapResult& r) {
     // re-entered from inside a UI action via RequestSwap's synchronous failure
     // path, while UIWorld is mid-iteration over its documents.
     ui::UIDataSource& src = world.shared();
-    std::vector<SwapRow>& rows = swapLogs()[&world];
+    Log& log = swapLogs()[&world];
+    std::vector<SwapRow>& rows = log.rows;
 
     SwapRow row;
     row.path = baseName(r.path);
@@ -258,7 +280,7 @@ void MenuUIReportSwap(UIWorld& world, const SceneSwapResult& r) {
     rows.push_back(std::move(row));
     if (rows.size() > kSwapLogMax) rows.erase(rows.begin());
     publishSwapLog(src, rows);
-    src.SetInt("menuSwaps", (long long)rows.size());
+    src.SetInt("menuSwaps", ++log.lifetimeSwaps);
     // Follow the newest entry, so a swap you just caused is the one on screen.
     src.SetInt("swapLogCursor", rows.empty() ? 0 : (long long)rows.size() - 1);
 }
