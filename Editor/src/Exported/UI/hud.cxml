@@ -116,6 +116,13 @@
            source of truth, and the two would otherwise disagree the moment
            anyone typed. -->
       <TextField name="nameField" class="field" bind-value="playerName" maxlength="24"/>
+
+      <!-- The return leg. `menuBackToMenu` is the same Application::LoadScene
+           call NEW GAME makes, in the other direction — there is nothing
+           special about "the menu" to the loader. Registered by
+           InstallMenuUIContent; a host that installs only the demo content
+           reports it as an unknown action and this document still loads. -->
+      <Button name="menuButton" class="btn" text="MENU" on-click="menuBackToMenu"/>
     </Element>
 
     <!-- The other direction: what you type in the field above lands in the data

@@ -450,7 +450,7 @@ TEST(UIPseudoHud, TheShippedButtonStylesItselfOnHoverAndPress) {
     // filter had stopped filtering — and a TabView generates its headers, so it
     // is exactly the kind of feature that could add watched elements without
     // anyone writing one.
-    EXPECT_EQ(hud.assets()->styler().watchedCount(), 9u);
+    EXPECT_EQ(hud.assets()->styler().watchedCount(), 10u);
 
     const glm::vec4 idle = btn->style().backgroundColor;
     const glm::vec2 c = btn->layout().position + btn->layout().size * 0.5f;
@@ -483,7 +483,7 @@ TEST(UIPseudoHud, HoverStateSurvivesAHotReload) {
     EXPECT_TRUE(hud.assets()->binder().ok())
         << (hud.assets()->binder().errors().empty() ? ""
                                                     : hud.assets()->binder().errors()[0]);
-    EXPECT_EQ(hud.assets()->styler().watchedCount(), 9u)
+    EXPECT_EQ(hud.assets()->styler().watchedCount(), 10u)
         << "the watch list was not rebuilt after a reload";
     hud.Frame();
     EXPECT_EQ(hud.find("scoreLabel")->style().text, "SCORE 700")

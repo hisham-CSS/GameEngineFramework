@@ -10,6 +10,10 @@
 #include "../Engine/src/core/SceneLoader.h"
 #include "../Engine/src/ui/MenuUIContent.h"
 #include "../Engine/src/ui/UIDataSource.h"
+#include "../Engine/src/ui/UIAssetDocument.h"
+#include "../Engine/src/ui/UIBinding.h"
+#include "../Engine/src/ui/UIElement.h"
+#include "../Engine/src/ui/UIStyleSheet.h"
 #include "../Engine/src/ui/UIWorld.h"
 
 #include <fstream>
@@ -301,4 +305,187 @@ TEST(MenuUIContent, CountersReflectTheLiveWorld) {
     MenuUIPublishCounters(world, MenuUIHooks{});
     EXPECT_EQ(world.shared().GetInt("menuLiveDocs"), 1);
     std::remove("test_menu_a.json");
+}
+
+
+// ------------------------------------------------- the shipped menu asset
+//
+// The whole point of a load-time diagnostic is that a typo fails the SUITE
+// rather than shipping as a control that silently does nothing. These load the
+// real Exported/menu.* through the real path a scene uses, with the real hooks
+// installed, and demand SILENCE.
+namespace {
+
+struct ShippedMenu {
+    Scene   scene;
+    UIWorld world;
+    entt::entity entity{ entt::null };
+
+    ShippedMenu() {
+        // Both, and in this order: the menu's pilot field binds to `playerName`,
+        // which InstallDemoUIContent seeds.
+        InstallDemoUIContent(world);
+        InstallMenuUIContent(world, MenuUIHooks{});
+        entity = scene.registry.create();
+        UIDocumentComponent ud;
+        ud.markup = "Exported/UI/menu.cxml";
+        ud.stylesheet = "Exported/UI/menu.cstyle";
+        scene.registry.emplace<UIDocumentComponent>(entity, ud);
+    }
+    void Frame(int w = 1280, int h = 720) { world.Update(scene.registry, w, h, 0.016f); }
+    UIElement* find(const char* n) {
+        auto* a = world.document(entity);
+        return a ? a->document().root().Find(n) : nullptr;
+    }
+};
+
+} // namespace
+
+TEST(ShippedMenuAsset, LoadsWithNoErrorsAndNoUnresolvedBindings) {
+    ShippedMenu m;
+    // With the swap log POPULATED, which is the steady state: an empty pool has
+    // absent slots, and a bare hole inside an absent slot resolves to nothing
+    // by construction -- see the next test.
+    SceneSwapResult r;
+    r.status = SceneSwapStatus::Ok;
+    r.path = "Exported/scene.json";
+    r.report.entitiesCreated = 4;
+    for (int i = 0; i < 6; ++i) MenuUIReportSwap(m.world, r);
+
+    m.Frame();
+    for (const std::string& e : m.world.errors()) ADD_FAILURE() << e;
+
+    auto* doc = m.world.document(m.entity);
+    ASSERT_NE(doc, nullptr) << "menu.cxml did not load at all";
+    for (const std::string& e : doc->errors()) ADD_FAILURE() << e;
+    // A misspelt path or action is a BINDER diagnostic, not a load error, and
+    // it is exactly how a dead button ships.
+    EXPECT_EQ(doc->binder().unresolvedCount(), 0u);
+}
+
+// An empty `repeat=` list is not an error, but it is not silent either: every
+// slot is absent, `$present` hides it, and a bare hole inside it resolves to
+// nothing -- which any converter then reports. The shipped HUD does the same
+// thing with an unseeded inventory.
+//
+// Documented rather than fixed. The real fix is for the binder to skip an
+// absent slot's bindings entirely (it is display:none and its data does not
+// exist), which is a change to the U18 pool contract and does not belong in a
+// demo commit. What matters here is that it stays a DIAGNOSTIC: the document
+// still loads, the visible rows still bind, and nothing is drawn wrong.
+TEST(ShippedMenuAsset, AnEmptySwapLogStillLoadsAndDrawsNothing) {
+    ShippedMenu m;
+    m.Frame();
+    auto* doc = m.world.document(m.entity);
+    ASSERT_NE(doc, nullptr);
+    for (const std::string& e : doc->errors()) ADD_FAILURE() << e;
+
+    UIElement* log = m.find("swapLog");
+    ASSERT_NE(log, nullptr);
+    ASSERT_FALSE(log->children().empty()) << "the pool was never built";
+    for (const auto& row : log->children()) {
+        EXPECT_EQ(row->style().display, DisplayMode::None)
+            << "an absent slot is visible with no row behind it";
+    }
+}
+
+TEST(ShippedMenuAsset, HasTheElementsItsStylesheetAndVerbsAssume) {
+    ShippedMenu m;
+    m.Frame();
+    for (const char* n : { "backdrop", "veil", "frame", "brand", "logo", "title",
+                           "card", "menuTabs", "newGame", "quit", "volumeFill",
+                           "swapLog", "status", "statusText", "pilot" }) {
+        EXPECT_NE(m.find(n), nullptr) << "menu.cxml is missing #" << n;
+    }
+}
+
+// The trap that would make the whole card land in the top-left corner: an
+// absolutely positioned element with only right/bottom written. Style::Edges
+// defaults every side to 0 and UIElement pushes all four, so left/top win.
+TEST(ShippedMenuAsset, EveryAbsoluteElementWritesAllFourInsets) {
+    ShippedMenu m;
+    m.Frame();
+    for (const char* n : { "backdrop", "veil" }) {
+        UIElement* e = m.find(n);
+        ASSERT_NE(e, nullptr) << n;
+        EXPECT_EQ(e->style().position, PositionType::Absolute) << n;
+        EXPECT_FLOAT_EQ(e->style().inset.left, 0.0f) << n;
+        EXPECT_FLOAT_EQ(e->style().inset.top, 0.0f) << n;
+        EXPECT_FLOAT_EQ(e->style().inset.right, 0.0f) << n;
+        EXPECT_FLOAT_EQ(e->style().inset.bottom, 0.0f) << n;
+    }
+}
+
+// A full-screen decorative layer that swallows clicks is the single easiest way
+// to ship a menu where no button works.
+TEST(ShippedMenuAsset, TheFullScreenLayersDoNotEatClicks) {
+    ShippedMenu m;
+    m.Frame();
+    EXPECT_FALSE(m.find("backdrop")->style().pickable);
+    EXPECT_FALSE(m.find("veil")->style().pickable);
+}
+
+// The base rule, same contract the HUD has: font-scale multiplies the 48px
+// atlas, and nothing inherits.
+TEST(ShippedMenuAsset, DeclaresTheSameBaseTextSizeAsTheBakedAtlas) {
+    UIStyleSheet sheet;
+    ASSERT_TRUE(sheet.LoadFromFile("Exported/UI/menu.cstyle"))
+        << (sheet.errors().empty() ? std::string() : sheet.errors()[0]);
+    UIDocument doc;
+    sheet.ApplyTo(doc.root());
+    EXPECT_NEAR(doc.root().style().fontScale, kUIFontBaseScale, 1e-5f);
+}
+
+// The scene file itself: it must load, and it must have a camera. A camera-less
+// scene drops the Game view and the shipped player onto a free-fly diagnostic
+// camera, which is the exact trap that once made a built game look like it
+// ignored the scene's camera.
+TEST(ShippedMenuAsset, TheMenuSceneLoadsAndHasACamera) {
+    AssetManager assets;
+    Scene scene;
+    SceneSerializer sz(scene, assets);
+    SceneLoadReport rep;
+    ASSERT_TRUE(sz.Load("Exported/menu.json", &rep)) << "Exported/menu.json did not load";
+    EXPECT_TRUE(rep.complete())
+        << rep.failedModels.size() << " model(s) in menu.json did not import";
+
+    int cameras = 0, documents = 0;
+    for (auto e : scene.registry.view<CameraComponent>()) { (void)e; ++cameras; }
+    for (auto e : scene.registry.view<UIDocumentComponent>()) { (void)e; ++documents; }
+    EXPECT_GT(cameras, 0) << "menu.json has no camera - the player would fall back "
+                             "to a free-fly debug camera";
+    ASSERT_EQ(documents, 1);
+
+    // And it must ask for scaling. Left on the default (Constant) the menu is
+    // authored pixels on every screen, which is the bug the HUD shipped with.
+    for (auto e : scene.registry.view<UIDocumentComponent>()) {
+        const auto& ud = scene.registry.get<UIDocumentComponent>(e);
+        EXPECT_EQ(ud.scale.mode, ui::UIScaleMode::ScaleWithScreen);
+        EXPECT_FLOAT_EQ(ud.scale.reference.x, 1280.0f);
+        EXPECT_FLOAT_EQ(ud.scale.reference.y, 720.0f);
+    }
+}
+
+// The return leg. hud.cxml names `menuBackToMenu`, which only
+// InstallMenuUIContent registers -- so a host that installs one and not the
+// other ships a dead button.
+TEST(ShippedMenuAsset, TheHudsMenuButtonNamesAnActionThatExists) {
+    UIWorld world;
+    InstallDemoUIContent(world);
+    InstallMenuUIContent(world, MenuUIHooks{});
+    EXPECT_TRUE(hasAction(world.shared(), "menuBackToMenu"));
+
+    Scene scene;
+    const entt::entity e = scene.registry.create();
+    UIDocumentComponent ud;
+    ud.markup = "Exported/UI/hud.cxml";
+    ud.stylesheet = "Exported/UI/hud.cstyle";
+    scene.registry.emplace<UIDocumentComponent>(e, ud);
+    world.Update(scene.registry, 1280, 720, 0.016f);
+
+    auto* doc = world.document(e);
+    ASSERT_NE(doc, nullptr);
+    EXPECT_NE(doc->document().root().Find("menuButton"), nullptr);
+    EXPECT_EQ(doc->binder().unresolvedCount(), 0u)
+        << "the shipped HUD has an unresolved binding with both contents installed";
 }

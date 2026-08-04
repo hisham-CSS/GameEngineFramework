@@ -97,6 +97,9 @@ class PlayerApplication : public MyCoreEngine::Application {
     // Declared AFTER uiWorld_ is not required — the world only holds a pointer
     // — but it must outlive the GL context, which the host owns.
     MyCoreEngine::ui::UITextureCache uiTextures_;
+    // A MEMBER, not a local in Run(): the UI draw callback captures it and is
+    // invoked for the app's whole life, which outlasts Run()'s stack frame.
+    MyCoreEngine::MenuUIHooks  menuHooks_;
 public:
     PlayerApplication() : Application(1280, 720, "Cat Splat Player") {}
 
@@ -204,6 +207,21 @@ public:
         }
         // The two things a file cannot carry: a named action and a converter.
         InstallDemoUIContent(uiWorld_);
+
+        // The menu's verbs. AFTER the demo content, because the menu's name
+        // field binds to `playerName`, which is seeded there.
+        //
+        // The shipped player has no reason to refuse any of them: there is no
+        // edit mode, gameplay is always live, and Quit means quit.
+        menuHooks_.app = this;
+        menuHooks_.scene = &scene;
+        menuHooks_.renderer = &renderer();
+        menuHooks_.audio = &audio_;
+        menuHooks_.initialVolume = settings.masterVolume;
+        InstallMenuUIContent(uiWorld_, menuHooks_);
+        sceneLoader.SetOnSwapComplete([this](const SceneSwapResult& r) {
+            MenuUIReportSwap(uiWorld_, r);
+        });
         // Nothing else in the player installs these (there is no ImGui here),
         // so no chaining is needed. Installed once, for the app's life.
         if (GLFWwindow* win = GetNativeWindow()) {
@@ -246,6 +264,9 @@ public:
             uiWorld_.SetKeyboard(g_uiKeys);
             g_uiKeys.clear();
 
+            // Before Update, so the frame that draws the counters draws the
+            // current ones. Pushed rather than polled -- see MenuUIContent.h.
+            MenuUIPublishCounters(uiWorld_, menuHooks_);
             uiWorld_.Update(scene.registry, w, h, dt);
             uiWorld_.Draw(r2d);
         });

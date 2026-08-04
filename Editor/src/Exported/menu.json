@@ -1,0 +1,74 @@
+{
+ "version": 1,
+ "entities": [
+  {
+   "name": "Main Camera",
+   "transform": {
+    "position": [
+     0.0,
+     2.0,
+     8.0
+    ],
+    "rotation": [
+     -6.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "camera": {
+    "fovDeg": 55.0,
+    "nearClip": 0.1,
+    "farClip": 500.0,
+    "priority": 0,
+    "enabled": true
+   }
+  },
+  {
+   "name": "Menu",
+   "uiDocument": {
+    "markup": "Exported/UI/menu.cxml",
+    "stylesheet": "Exported/UI/menu.cstyle",
+    "sortOrder": 0,
+    "enabled": true,
+    "interactive": true,
+    "uiScaleMode": 1,
+    "uiScaleReference": [
+     1280.0,
+     720.0
+    ],
+    "uiScaleMatch": 0.0
+   }
+  }
+ ],
+ "settings": {
+  "ao": 1.0,
+  "aoMapEnabled": true,
+  "iblEnabled": true,
+  "iblIntensity": 1.0,
+  "instancingEnabled": true,
+  "lightColor": [
+   1.0,
+   1.0,
+   1.0
+  ],
+  "lightDir": [
+   0.28221628069877625,
+   -0.9407208561897278,
+   0.18814417719841003
+  ],
+  "lightIntensity": 2.0,
+  "lodDistanceScale": 1.0,
+  "lodEnabled": true,
+  "metallic": 0.0,
+  "metallicMapEnabled": true,
+  "normalMapEnabled": true,
+  "pbrEnabled": true,
+  "roughness": 0.5,
+  "roughnessMapEnabled": true
+ }
+}

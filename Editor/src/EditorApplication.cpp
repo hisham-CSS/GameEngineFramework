@@ -419,6 +419,10 @@ void EditorApplication::Run() {
     // Report what a swap did, wherever it came from — including the ones the
     // editor did not initiate.
     sceneLoader_->SetOnSwapComplete([this](const MyCoreEngine::SceneSwapResult& r) {
+        // The menu's log first: it touches only the shared data source, which
+        // is safe even on the re-entrant path (RequestSwap reports Invalid and
+        // Superseded synchronously, from inside a UI action).
+        MyCoreEngine::MenuUIReportSwap(uiWorld_, r);
         switch (r.status) {
         case MyCoreEngine::SceneSwapStatus::Ok:
             // The File menu's target follows the scene that is actually open,
@@ -527,8 +531,37 @@ void EditorApplication::Run() {
             [] { const char* t = ImGui::GetClipboardText(); return std::string(t ? t : ""); });
         // The two things a file cannot carry: a named action and a converter.
         MyCoreEngine::InstallDemoUIContent(uiWorld_);
+
+        // The menu's verbs, with the editor's three refusals wired in. The Game
+        // panel dispatches the running document's clicks even while STOPPED, so
+        // without these a menu button in a document being AUTHORED would change
+        // the master volume, retune the renderer, or close the editor.
+        menuHooks_.app = this;
+        menuHooks_.scene = &scene;
+        menuHooks_.renderer = &gameRenderer_;   // the view the game is previewed in
+        menuHooks_.audio = &audio_;
+        menuHooks_.initialVolume = masterVolume_;
+        menuHooks_.allowHostMutation = [this] { return playing_; };
+        // Quit must not take the EDITOR down. Stopping the session is the
+        // honest analogue of a game closing.
+        menuHooks_.onQuit = [this, &scene] {
+            if (playing_) stopPlay_(scene);
+        };
+        // The editor keeps its own mirror of a value AudioWorld cannot be asked
+        // for, so it owns persistence or the two desync.
+        menuHooks_.onMasterVolume = [this](float v) {
+            masterVolume_ = v;
+            saveMasterVolume_();
+        };
+        // A tier's CSM half lives on the Renderer and is not serialized, and the
+        // editor has TWO renderers.
+        menuHooks_.onQualityChanged = [this] { forceAllCSMUpdate_(); };
+        MyCoreEngine::InstallMenuUIContent(uiWorld_, menuHooks_);
         gameRenderer_.SetUIDraw([this, &scene](MyCoreEngine::Renderer2D& r2d,
                                               int w, int h, float dt) {
+            // Before Update, so the frame that draws the counters draws the
+            // current ones. Pushed rather than polled -- see MenuUIContent.h.
+            MyCoreEngine::MenuUIPublishCounters(uiWorld_, menuHooks_);
             uiWorld_.Update(scene.registry, w, h, dt);
             uiWorld_.Draw(r2d);
             // The Inspector reports what the scale settings resolve to, and

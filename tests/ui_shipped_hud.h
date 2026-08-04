@@ -19,7 +19,15 @@ struct ShippedHud {
     ShippedHud() {
         // Before the component exists, so the first binding pass has real
         // values — the same ordering a game uses.
+        //
+        // BOTH contents, because both hosts install both. hud.cxml's MENU
+        // button names `menuBackToMenu`, which only InstallMenuUIContent
+        // registers — a harness that installed one and not the other would
+        // report a dead button that no shipped configuration actually has.
+        // The hooks are empty here: every host verb is inert without an
+        // Application, which is what makes this safe in a headless test.
         MyCoreEngine::InstallDemoUIContent(world);
+        MyCoreEngine::InstallMenuUIContent(world, MyCoreEngine::MenuUIHooks{});
         entity = scene.registry.create();
         MyCoreEngine::UIDocumentComponent ud;
         ud.markup = "Exported/UI/hud.cxml";

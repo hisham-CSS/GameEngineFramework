@@ -140,6 +140,10 @@ void InstallMenuUIContent(UIWorld& world, const MenuUIHooks& hooks) {
     publishQuality(src, h.scene ? h.scene->GetQualityLevel()
                                 : Scene::QualityLevel::High);
     src.SetBool("menuVSync", true);
+    // A bool has no text form a hole can render -- `{flag | int}` reads as 1/0 --
+    // so the LABEL is published next to the flag, the same way the quality tier
+    // publishes a name beside its three booleans.
+    src.SetString("menuVSyncName", "ON");
     src.SetInt("menuSwaps", 0);
     src.SetInt("menuLiveDocs", 0);
     src.SetInt("menuObservers", 0);
@@ -210,6 +214,7 @@ void InstallMenuUIContent(UIWorld& world, const MenuUIHooks& hooks) {
         const bool on = !src.GetBool("menuVSync");
         h.app->setVSync(on);
         src.SetBool("menuVSync", on);
+        src.SetString("menuVSyncName", on ? "ON" : "OFF");
         setStatus(src, on ? "VSync on" : "VSync off", true);
     });
 

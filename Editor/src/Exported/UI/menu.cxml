@@ -1,0 +1,195 @@
+<!--
+  Main menu — the demo that actually changes scene.
+
+  Nothing installs this either: Exported/menu.json has an entity carrying a
+  UIDocumentComponent that points here. The verbs behind the buttons are named
+  C++ functions registered by InstallMenuUIContent (Engine/src/ui/MenuUIContent.h)
+  — a file cannot carry a function, and that is the ONLY thing it cannot carry.
+
+  WHAT THIS DEMONSTRATES, and where to look when it breaks:
+
+    NEW GAME          Application::LoadScene. The swap is DEFERRED: this handler
+                      runs inside UIWorld::Update, inside the UI render pass, so
+                      the registry is replaced at the next frame boundary
+                      instead of underneath the tree being iterated.
+    SETTINGS          real host state — master volume, quality tier, vsync. Each
+                      one changes something you can observe, because a control
+                      that visibly does nothing is worse than no control.
+    SYSTEM            a live instrument. DOCS / OBSERVERS / TEXTURES are read
+                      from the running host every frame, and the swap log is a
+                      `repeat=` over a list the C++ side appends to. Watch
+                      OBSERVERS while you bounce between scenes: it must not
+                      move. If it climbs by three per swap, something is
+                      re-running the Install* helpers.
+
+  ONE LAYOUT RULE WORTH KNOWING. `position: absolute` in this engine writes all
+  four insets unconditionally (UIElement.cpp), and Style::Edges defaults every
+  side to 0 rather than to "unset" — so `right: 20px` alone does NOT right-align
+  anything, it lands top-left with a 20px right inset that flexbox ignores.
+  Absolute is used exactly twice here (#backdrop, #veil) and both write all four
+  as zero. Everything else is ordinary flexbox.
+
+  ART is placeholder and committed, so this renders on a fresh clone with no
+  asset pipeline: tools/gen_ui_placeholder_art.py regenerates it.
+-->
+<UI name="menu" data-source="scene">
+
+  <!-- Full-bleed backdrop. `cover` crops to fill rather than distorting, which
+       is what you want for a photograph and what `stretch` would get wrong the
+       moment the window is not 16:9. pointer-events:none in the stylesheet, or
+       this layer eats every click meant for the card. -->
+  <Element name="backdrop" class="backdrop"/>
+  <!-- A flat scrim over the art so text keeps its contrast no matter what the
+       artist replaces the backdrop with. Also absolute, also all-four-zero. -->
+  <Element name="veil" class="veil"/>
+
+  <Element name="frame" class="frame">
+
+    <!-- ---------------------------------------------------- brand column -->
+    <Element name="brand" class="brand">
+      <!-- An Element with a background-image IS the image element: there is no
+           <Image> tag, and adding one would buy nothing a sized box does not
+           already do. `stretch` here because the logo is square and the box is
+           square, so there is nothing to crop. -->
+      <Element name="logo" class="logo"/>
+      <Label name="title" class="brand-title" text="CAT SPLAT"/>
+      <Label name="subtitle" class="brand-sub" text="ENGINE DEMO"/>
+      <Element name="rule" class="brand-rule"/>
+      <!-- Two-way: type here and {playerName} updates everywhere, including the
+           sample HUD's greeting after NEW GAME — the shared data source is
+           host-lifetime, so it survives the scene swap. -->
+      <Label class="field-label" text="PILOT"/>
+      <TextField name="pilot" class="field" bind-value="playerName" maxlength="24"/>
+    </Element>
+
+    <!-- ------------------------------------------------------- the card -->
+    <Element name="card" class="card">
+      <TabView name="menuTabs" bind-selected="activeTab">
+
+        <Tab label="PLAY" class="page">
+          <Label class="page-title" text="START"/>
+          <Label class="page-note"
+                 text="Loads Exported/scene.json through Application::LoadScene."/>
+
+          <Button name="newGame" class="btn btn-primary" text="NEW GAME"
+                  on-click="menuNewGame"/>
+          <Button name="quit" class="btn" text="QUIT" on-click="menuQuit"/>
+
+          <Element class="spacer"/>
+          <Label class="page-note"
+                 text="The swap runs at the next frame boundary, never inside this click."/>
+        </Tab>
+
+        <Tab label="SETTINGS" class="page">
+          <Label class="page-title" text="AUDIO"/>
+          <Element class="row">
+            <Label class="row-label" text="MASTER VOLUME"/>
+            <Label class="row-value" text="{menuVolumePct}%"/>
+          </Element>
+          <!-- There is no slider widget, so this is a pair of buttons and a
+               bound bar rather than a fake drag. The bar is a real width
+               binding: `percent` turns 0..1 into a CSS percentage, unit
+               included, so the value reads as a QUANTITY and not only as a
+               number. -->
+          <Element class="meter">
+            <Element name="volumeFill" class="meter-fill" bind="width: {menuVolume | percent}"/>
+          </Element>
+          <Element class="row-left">
+            <Button class="btn btn-step" text="-" on-click="menuVolumeDown"/>
+            <Button class="btn btn-step" text="+" on-click="menuVolumeUp"/>
+            <Label class="page-note" text="Saved to Exported/project.json."/>
+          </Element>
+
+          <Label class="page-title" text="GRAPHICS"/>
+          <Element class="row">
+            <Label class="row-label" text="QUALITY TIER"/>
+            <Label class="row-value" text="{menuQualityName}"/>
+          </Element>
+          <!-- `classes=` toggles the selected look from a bool the C++ side
+               publishes. There is deliberately no `==` in a hole — a hole is a
+               PATH — so "which tier is current" arrives as three bools rather
+               than as a comparison in the markup. -->
+          <Element class="row-left">
+            <Button class="btn btn-chip" classes="chip-on: {menuQLow}"
+                    text="LOW" on-click="menuQualityLow"/>
+            <Button class="btn btn-chip" classes="chip-on: {menuQMed}"
+                    text="MEDIUM" on-click="menuQualityMedium"/>
+            <Button class="btn btn-chip" classes="chip-on: {menuQHigh}"
+                    text="HIGH" on-click="menuQualityHigh"/>
+          </Element>
+
+          <Element class="row">
+            <Label class="row-label" text="VSYNC"/>
+            <Button class="btn btn-chip" classes="chip-on: {menuVSync}"
+                    text="{menuVSyncName}" on-click="menuVSyncToggle"/>
+          </Element>
+        </Tab>
+
+        <Tab label="SYSTEM" class="page">
+          <Label class="page-title" text="LIVE COUNTERS"/>
+          <!-- Pushed once a frame by MenuUIPublishCounters, never polled: a
+               polled property on this source would defeat the binder's version
+               fast path for every binding in every document in the process. -->
+          <Element class="stats">
+            <Element class="stat">
+              <Label class="stat-num" text="{menuSwaps}"/>
+              <Label class="stat-cap" text="SWAPS"/>
+            </Element>
+            <Element class="stat">
+              <Label class="stat-num" text="{menuLiveDocs}"/>
+              <Label class="stat-cap" text="DOCS"/>
+            </Element>
+            <Element class="stat">
+              <Label class="stat-num" text="{menuObservers}"/>
+              <Label class="stat-cap" text="OBSERVERS"/>
+            </Element>
+            <Element class="stat">
+              <Label class="stat-num" text="{menuTextures}"/>
+              <Label class="stat-cap" text="TEXTURES"/>
+            </Element>
+          </Element>
+          <Label class="page-note"
+                 text="OBSERVERS must not move as you swap. Three per swap means the Install helpers are being re-run."/>
+
+          <Label class="page-title" text="SWAP LOG"/>
+          <!-- The same fixed-pool `repeat=` the sample HUD's inventory uses:
+               four slots built once at load, and the DATA slides through them.
+               The window is clamped to the last full page, so it never shrinks
+               to a partial view at either end. -->
+          <Element name="swapLog" class="log" repeat="swapLog" repeat-count="4"
+                   repeat-offset="swapLogCursor">
+            <Element class="log-row">
+              <Label class="log-idx" text="{$index}"/>
+              <Label class="log-path" text="{path}"/>
+              <!-- NO class toggle here, deliberately. A repeat pool writes an
+                   EMPTY value into every column of an ABSENT slot (correct: a
+                   stale row must not linger), but the binder still evaluates
+                   that slot's bindings -- and a bool binding handed nothing is
+                   recorded as a DOCUMENT ERROR. With a log that starts empty,
+                   every slot is absent at boot, so a class toggle here would
+                   make the shipped menu report errors on startup.
+                   A `text` hole is fine: nothing renders as empty.
+                   The ok/bad colouring lives on the status line below instead,
+                   which is outside the pool. -->
+              <Label class="log-status" text="{status}"/>
+            </Element>
+          </Element>
+          <Element class="row-left">
+            <Button class="btn btn-step" text="PREV" on-click="menuLogPrev"/>
+            <Button class="btn btn-step" text="NEXT" on-click="menuLogNext"/>
+            <Label class="page-note" text="{menuSwaps} logged"/>
+          </Element>
+        </Tab>
+
+      </TabView>
+
+      <!-- One status line for the whole menu, coloured by a bool rather than by
+           a colour written from C++ — the LOOK belongs in the stylesheet. -->
+      <Element name="status" class="status">
+        <Label name="statusText" class="status-text"
+               classes="status-bad: {menuStatusOk | not}" text="{menuStatus}"/>
+      </Element>
+    </Element>
+
+  </Element>
+</UI>

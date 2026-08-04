@@ -126,6 +126,9 @@ private:
     // which Application owns. Application only drains it, at the frame
     // boundary — see Application::RunLoop.
     std::unique_ptr<MyCoreEngine::SceneLoader> sceneLoader_;
+    // The menu's host verbs, kept because the per-frame counter push needs them
+    // and because the editor's refusals capture `this`.
+    MyCoreEngine::MenuUIHooks menuHooks_;
     // Refuses GAME-originated swaps while stopped. The Game panel dispatches
     // the game's UI clicks even in edit mode, so without this a menu button in
     // a document being authored could replace the scene under the author.
