@@ -525,3 +525,67 @@ TEST(ShippedMenuAsset, TheHudsMenuButtonNamesAnActionThatExists) {
     EXPECT_EQ(doc->binder().unresolvedCount(), 0u)
         << "the shipped HUD has an unresolved binding with both contents installed";
 }
+
+
+// ------------------------------------- volume commit-on-release (U25b)
+//
+// A <Slider> writes menuVolume straight into the shared source through its
+// two-way binding, so the persistence can no longer hang off a named action.
+// Without a settle, a continuous drag would do a ProjectSettings
+// load-modify-save once per input frame -- and the shipped Player takes exactly
+// that branch, because it installs no onMasterVolume hook.
+
+TEST(MenuUIContent, ADragAppliesAudioEveryFrameButWritesDiskOnce) {
+    UIWorld world;
+    int writes = 0;
+    float lastWritten = -1.0f;
+    MenuUIHooks h;
+    h.initialVolume = 0.0f;
+    h.onMasterVolume = [&](float v) { ++writes; lastWritten = v; };
+    InstallMenuUIContent(world, h);
+    UIDataSource& src = world.shared();
+
+    // Prime, so the watch does not treat the seeded value as a change.
+    MenuUIPublishCounters(world, h);
+    ASSERT_EQ(writes, 0) << "installing wrote to disk";
+
+    // 30 frames of a drag: the value moves every frame.
+    for (int i = 1; i <= 30; ++i) {
+        src.SetNumber("menuVolume", float(i) / 30.0f);
+        MenuUIPublishCounters(world, h);
+    }
+    EXPECT_EQ(writes, 0) << "the disk was written DURING the drag";
+    EXPECT_EQ(src.GetInt("menuVolumePct"), 100) << "the readout did not follow the drag";
+
+    // Let go: the value stops moving and settles.
+    for (int i = 0; i < 20; ++i) MenuUIPublishCounters(world, h);
+    EXPECT_EQ(writes, 1) << "settling wrote " << writes << " times";
+    EXPECT_NEAR(lastWritten, 1.0f, 1e-5f);
+
+    // ...and it stays settled rather than rewriting every frame afterwards.
+    for (int i = 0; i < 60; ++i) MenuUIPublishCounters(world, h);
+    EXPECT_EQ(writes, 1) << "a settled value kept writing";
+}
+
+// The stepped buttons are a different gesture: a click is already settled, so
+// it commits immediately rather than waiting a quarter of a second.
+TEST(MenuUIContent, TheStepButtonsCommitImmediately) {
+    UIWorld world;
+    int writes = 0;
+    MenuUIHooks h;
+    h.initialVolume = 0.5f;
+    h.volumeStep = 0.25f;
+    h.onMasterVolume = [&](float) { ++writes; };
+    InstallMenuUIContent(world, h);
+    UIDataSource& src = world.shared();
+    MenuUIPublishCounters(world, h);
+
+    ASSERT_TRUE(invoke(src, "menuVolumeUp"));
+    EXPECT_EQ(writes, 1) << "a click did not commit";
+    EXPECT_NEAR(src.GetNumber("menuVolume"), 0.75f, 1e-5f);
+
+    // The watch must not then ALSO commit it when it settles: the value it sees
+    // is the one already written.
+    for (int i = 0; i < 30; ++i) MenuUIPublishCounters(world, h);
+    EXPECT_EQ(writes, 1) << "the settle double-wrote a value a click already committed";
+}

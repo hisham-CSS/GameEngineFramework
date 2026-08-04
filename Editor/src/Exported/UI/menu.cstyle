@@ -296,6 +296,39 @@
   border-color: rgba(255, 255, 255, 0.08);
 }
 
+/* The <Slider> IS the track: a plain box that owns a value. Taller than the
+   old read-only meter because it is now a hit target you have to be able to
+   press accurately. */
+.slider {
+  width: 100%;
+  height: 18px;
+  background-color: rgba(0, 0, 0, 0.5);
+  border-radius: 9px;
+  border-width: 1px;
+  border-color: rgba(255, 255, 255, 0.08);
+  padding: 0;
+}
+
+.slider:hover {
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+/* A slider is focusable BY TYPE, like a field, so it needs a visible focus
+   state or a Tab stop reads as a dropped keystroke. */
+.slider:focus {
+  border-color: rgba(255, 196, 72, 0.9);
+}
+
+.slider-fill {
+  height: 100%;
+  background-color: rgba(255, 196, 72, 1);
+  border-radius: 9px;
+  /* Click-through: the press is resolved by walking UP from whatever was hit,
+     so this would work either way -- but a decorative fill should never be a
+     hit target on principle. */
+  pointer-events: none;
+}
+
 /* `width` is BOUND in the markup, so the value here is only the pre-bind
    default — the loader says so at startup rather than letting the two
    disagree silently. */

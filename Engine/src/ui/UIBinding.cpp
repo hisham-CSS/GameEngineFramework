@@ -620,12 +620,29 @@ bool UIBinder::apply_(Entry& e) {
         return true;
     }
     case UIBindTarget::Kind::Value: {
+        if (!e.pushSrc) return false;
+        // A slider's half. Guarded on inequality like the field's below, and
+        // routed through SetValue so a value arriving from the source is
+        // clamped and quantised by exactly the same rules a drag obeys -- a
+        // source that writes 3.0 into a 0..1 slider gets 1.0, not a thumb off
+        // the end of its track.
+        if (UISliderState* sl = e.el->slider()) {
+            UIValue v;
+            if (!e.pushSrc->ReadAt(e.pushIndex, v)) return false;
+            float f = 0.0f;
+            if (!v.AsNumber(f)) {
+                reportOnce_(e, v, std::string("a <Slider> needs a number, got ") +
+                                      v.KindName());
+                return false;
+            }
+            return sl->SetValue(f);
+        }
         // The source -> element half of a text field's two-way binding. Guarded
         // on inequality, because assigning the same string back would be a
         // needless caret clamp every time the source version moves for some
         // unrelated reason.
         UITextEdit* ed = e.el->textEdit();
-        if (!ed || !e.pushSrc) return false;
+        if (!ed) return false;
         UIValue v;
         if (!e.pushSrc->ReadAt(e.pushIndex, v)) return false;
         std::string s = v.kind == UIValue::Kind::None ? std::string() : v.ToDisplayString();
@@ -734,9 +751,18 @@ UIBindTick UIBinder::UpdateToSource() {
             case UIBindTarget::StateProp::Focused: now = UIValue::Bool(e.el->isFocused()); break;
             }
         } else if (kind == UIBindTarget::Kind::Value) {
-            const UITextEdit* ed = e.el->textEdit();
-            if (!ed) continue;
-            now = UIValue::Str(ed->value());
+            // The same attribute serves both, because it is the same
+            // relationship: the element owns a value and the source wants it.
+            // A slider pushes a NUMBER rather than a string -- a volume of 0.5
+            // must arrive as 0.5, not as "0.5", or every consumer would have to
+            // parse it back.
+            if (const UISliderState* sl = e.el->slider()) {
+                now = UIValue::Number(sl->value);
+            } else if (const UITextEdit* ed = e.el->textEdit()) {
+                now = UIValue::Str(ed->value());
+            } else {
+                continue;
+            }
         } else {
             continue;
         }

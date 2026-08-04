@@ -17,6 +17,7 @@
 #include "UIEvent.h"
 #include "UIStyleSheet.h"   // UIDeclaration (for inline styles)
 #include "UIBinding.h"      // UIBinding / UIBoundAction (authored, owned here)
+#include "UISlider.h"       // UISliderState (owned by slider elements)
 #include "UITextField.h"    // UITextEdit (owned by text-field elements)
 
 #include <glm/glm.hpp>
@@ -313,9 +314,14 @@ namespace MyCoreEngine::ui {
         // label in the tree.
         UITextEdit*       textEdit()       { return edit_.get(); }
         const UITextEdit* textEdit() const { return edit_.get(); }
+        // Held the same way and for the same reason: a <Slider> owns a number,
+        // and everything else about it is authored.
+        UISliderState*       slider()       { return slider_.get(); }
+        const UISliderState* slider() const { return slider_.get(); }
         // Turns this element into a text field (idempotent). Done by markup for
         // `<TextField>`, and available to code building a tree by hand.
         UITextEdit& MakeTextField();
+        UISliderState& MakeSlider();
         // Pushes the edit buffer's DISPLAY text into style().text through
         // setText, so measurement, layout and painting need to know nothing
         // about text fields. Called after every edit.
@@ -353,6 +359,7 @@ namespace MyCoreEngine::ui {
         std::vector<UIBoundAction> actions_;
         std::string   dataSource_;
         std::unique_ptr<UITextEdit> edit_;   // text fields only
+        std::unique_ptr<UISliderState> slider_;  // <Slider> only
         std::unique_ptr<UIScrollState> scroll_; // `overflow: scroll` only
         std::uint32_t textRevision_ = 0;
         // Last fontScale handed to the layout engine, so pushStyles_ can tell
@@ -503,6 +510,13 @@ namespace MyCoreEngine::ui {
         // click on the field itself.
         bool ActivateFocused();
 
+    private:
+        // Cursor -> value for a captured slider. Private because the capture is
+        // the only caller: a slider's value moves from a drag, from the two-way
+        // binding, or from a key -- never from an arbitrary poke.
+        void applySliderFromCursor_(UIElement& el, const glm::vec2& cursor);
+    public:
+
         // Deepest PICKABLE element containing `pos`, or null. Topmost wins:
         // children are tested in reverse paint order, and an `overflowHidden`
         // parent that does not contain the point rejects its whole subtree.
@@ -600,18 +614,31 @@ namespace MyCoreEngine::ui {
         // a hot reload frees the whole tree, and a stylesheet-only save triggers
         // one, so a pointer held across frames without that check is a
         // use-after-free during the advertised edit-and-save loop.
-        UIElement* scrollDrag_ = nullptr;
+        // WHAT OWNS THE POINTER, if anything.
+        //
+        // A press on a scrollbar thumb, a scrollbar track or a slider takes the
+        // pointer for as long as it is HELD, and everything underneath stops
+        // seeing hover, move and click until it is released. That is what makes
+        // dragging a thumb past the end of its track keep working — the gesture
+        // every user makes at 0% and 100% — instead of the control going dead
+        // the moment the cursor leaves its box.
+        //
+        // This began as three scrollbar-specific members. It is one mechanism
+        // with a tag because a slider drag IS a thumb drag: same press, same
+        // grab offset, same clamp, different value on the other end.
+        enum class Capture : std::uint8_t { None, ScrollThumb, ScrollTrack, Slider };
+        Capture    captureKind_ = Capture::None;
+        UIElement* capture_ = nullptr;
         // Held while a press sits on the TRACK, so the row underneath receives
         // no move, no hover and no Click on release.
-        UIElement* scrollTrackPress_ = nullptr;
         // The element a wheel GESTURE latched onto. Chaining is only safe with
         // this: it is what stops a list reaching its end mid-gesture from
         // handing the rest of the flick to whatever contains it.
         UIElement* wheelLatch_ = nullptr;
         float lastWheelTime_ = -1000.0f;   // in docClock_ seconds
         float docClock_ = 0.0f;            // accumulated by AdvanceTime
-        int   scrollDragAxis_ = 0;      // 0 = x, 1 = y
-        float scrollDragGrab_ = 0.0f;   // cursor offset within the thumb at press
+        int   captureAxis_ = 0;      // 0 = x, 1 = y
+        float captureGrab_ = 0.0f;   // cursor offset within the thumb at press
         bool  scrollDirty_ = false;
         bool  pendingFocusReveal_ = false;
         // Set by measureScroll_ when the tree holds any scroll state at all, so

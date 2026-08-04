@@ -86,18 +86,30 @@
             <Label class="row-label" text="MASTER VOLUME"/>
             <Label class="row-value" text="{menuVolumePct}%"/>
           </Element>
-          <!-- There is no slider widget, so this is a pair of buttons and a
-               bound bar rather than a fake drag. The bar is a real width
-               binding: `percent` turns 0..1 into a CSS percentage, unit
-               included, so the value reads as a QUANTITY and not only as a
-               number. -->
-          <Element class="meter">
-            <Element name="volumeFill" class="meter-fill" bind="width: {menuVolume | percent}"/>
-          </Element>
+          <!-- A REAL slider: press anywhere on it to jump, then drag. The drag
+               is a pointer CAPTURE, so it keeps tracking past either end of the
+               track instead of going dead the moment the cursor leaves the box
+               -- which is the gesture everybody makes at 0% and 100%.
+
+               `bind-value` is the same two-way attribute a TextField uses,
+               because it is the same relationship. The slider pushes a NUMBER,
+               so nothing downstream has to parse a string back.
+
+               The fill is an ordinary child bound to the same property. The
+               <Slider> paints nothing itself: it owns a value and knows how to
+               turn a cursor into one, and the look is entirely authored. -->
+          <Slider name="volume" class="slider" bind-value="menuVolume"
+                  min="0" max="1" key-step="0.05">
+            <Element name="volumeFill" class="slider-fill"
+                     bind="width: {menuVolume | percent}"/>
+          </Slider>
           <Element class="row-left">
+            <!-- Kept for an exact notch, and they still work. A click is
+                 already a settled gesture, so unlike a drag these commit to
+                 disk immediately. -->
             <Button class="btn btn-step" text="-" on-click="menuVolumeDown"/>
             <Button class="btn btn-step" text="+" on-click="menuVolumeUp"/>
-            <Label class="page-note" text="Saved to Exported/project.json."/>
+            <Label class="page-note" text="Drag, or focus it and use the arrows."/>
           </Element>
 
           <Label class="page-title" text="GRAPHICS"/>

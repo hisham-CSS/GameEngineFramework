@@ -1,5 +1,7 @@
 #include "UIMarkup.h"
 
+#include <cstdlib>   // strtof, for a <Slider>'s bounds
+
 #include "UIElement.h"
 #include "UIStyleSheet.h"
 #include "../core/PathSandbox.h"
@@ -76,6 +78,8 @@ namespace {
                 n == "focusable" || n == "disabled" ||
                 n == "value" || n == "maxlength" || n == "mask" ||
                 n == "multiline" ||
+                n == "min" || n == "max" || n == "step" || n == "key-step" ||
+                n == "vertical" ||
                 // EXACT entries, not a "repeat-" prefix rule: the exact-match
                 // allow-list is the only reason `repeat-cont=` is reported
                 // rather than quietly ignored.
@@ -152,6 +156,7 @@ namespace {
         el.setEnabled(!disabled);
 
         const bool isField = (type == "TextField");
+        const bool isSlider = (type == "Slider");
 
         // `text` is a TEMPLATE now: literal text with {holes} that read named
         // values. A constant template still compiles, so there is exactly one
@@ -364,8 +369,9 @@ namespace {
         }
 
         if (const pugi::xml_attribute a = node.attribute("bind-value")) {
-            if (!isField) {
-                errors.push_back(loc + "'bind-value' is only valid on a <TextField>");
+            if (!isField && !isSlider) {
+                errors.push_back(loc +
+                    "'bind-value' is only valid on a <TextField> or <Slider>");
                 return false;
             }
             UIBinding b;
@@ -439,10 +445,67 @@ namespace {
         // and `text` means the opposite of one: the VALUE decides what a field
         // shows. Silently ignoring either is exactly the class of no-op this
         // loader reports.
-        for (const char* attr : { "value", "maxlength", "mask", "multiline" }) {
+        for (const char* attr : { "maxlength", "mask", "multiline" }) {
             if (node.attribute(attr) && !isField) {
                 errors.push_back(loc + "'" + attr + "' is only valid on a <TextField>");
                 return false;
+            }
+        }
+        // `value` is the one they SHARE: both own a value and both bind it
+        // two-way through bind-value. Everything else is exclusive.
+        if (node.attribute("value") && !isField && !isSlider) {
+            errors.push_back(loc + "'value' is only valid on a <TextField> or <Slider>");
+            return false;
+        }
+        for (const char* attr : { "min", "max", "step", "key-step", "vertical" }) {
+            if (node.attribute(attr) && !isSlider) {
+                errors.push_back(loc + "'" + attr + "' is only valid on a <Slider>");
+                return false;
+            }
+        }
+        if (isSlider) {
+            if (node.attribute("text")) {
+                errors.push_back(loc + "a <Slider> shows its 'value', not 'text'");
+                return false;
+            }
+            UISliderState& sl = el.MakeSlider();
+            // Parsed with the same strictness as everything else here: a
+            // mistyped bound is a load error naming the attribute, not a
+            // silent 0 that makes the control inert.
+            const auto num = [&](const char* attr, float& out) {
+                const pugi::xml_attribute a = node.attribute(attr);
+                if (!a) return true;
+                const std::string v = trim(a.value());
+                char* end = nullptr;
+                const float f = std::strtof(v.c_str(), &end);
+                if (v.empty() || !end || *end != '\0') {
+                    errors.push_back(loc + attr + ": expected a number, got '" + v + "'");
+                    return false;
+                }
+                out = f;
+                return true;
+            };
+            if (!num("min", sl.min) || !num("max", sl.max) ||
+                !num("step", sl.step) || !num("key-step", sl.keyStep)) return false;
+            if (sl.max == sl.min) {
+                errors.push_back(loc + "min and max are both " + trim(std::to_string(sl.min)) +
+                                       ": the slider would have no range");
+                return false;
+            }
+            if (const pugi::xml_attribute a = node.attribute("vertical")) {
+                const std::string v = lower(trim(a.value()));
+                if (v.empty() || v == "true") sl.vertical = true;
+                else if (v == "false")        sl.vertical = false;
+                else {
+                    errors.push_back(loc + "vertical: expected true|false, got '" + v + "'");
+                    return false;
+                }
+            }
+            // LAST, so min/max/step are in place to clamp and quantise it.
+            if (const pugi::xml_attribute a = node.attribute("value")) {
+                sl.SetValue(std::strtof(trim(a.value()).c_str(), nullptr));
+            } else {
+                sl.SetValue(sl.min);
             }
         }
         if (isField) {

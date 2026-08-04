@@ -32,6 +32,18 @@ namespace {
         bool ok = true;
     };
 
+    // Per-world volume reconciliation state. See MenuUIPublishCounters.
+    struct VolumeWatch {
+        float last = -1.0f;      // -1 => not primed
+        float pending = 0.0f;    // what to write when it settles
+        int   stillFor = 0;      // frames since it last moved
+        bool  dirty = false;     // moved since the last disk write
+    };
+
+    // ~0.25s at 60Hz. Long enough that a drag never touches the disk mid-gesture,
+    // short enough that letting go and immediately quitting still saves.
+    constexpr int kVolumeSettleFrames = 15;
+
     struct Log {
         std::vector<SwapRow> rows;
         // MONOTONIC, and deliberately not rows.size(): the log is a console
@@ -46,6 +58,11 @@ namespace {
     // Main thread only, like everything else in the UI.
     std::unordered_map<const UIWorld*, Log>& swapLogs() {
         static std::unordered_map<const UIWorld*, Log> m;
+        return m;
+    }
+
+    std::unordered_map<const UIWorld*, VolumeWatch>& volumeWatches() {
+        static std::unordered_map<const UIWorld*, VolumeWatch> m;
         return m;
     }
 
@@ -104,10 +121,16 @@ namespace {
         src.SetList("swapLog", std::move(l));
     }
 
-    void applyVolume(const MenuUIHooks& h, ui::UIDataSource& src, float v) {
+    // The LIVE half: what you hear, every frame it moves.
+    void applyVolumeLive(const MenuUIHooks& h, ui::UIDataSource& src, float v) {
         v = std::clamp(v, 0.0f, 1.0f);
         if (h.audio) h.audio->SetMasterVolume(v);
         publishVolume(src, v);
+    }
+
+    // The PERSISTED half, which touches the disk and so must not run per frame.
+    void commitVolume(const MenuUIHooks& h, float v) {
+        v = std::clamp(v, 0.0f, 1.0f);
         if (h.onMasterVolume) {
             // The host owns persistence. The editor does, because it keeps its
             // own mirror of a value AudioWorld cannot be asked for.
@@ -120,6 +143,25 @@ namespace {
             s.masterVolume = v;
             s.Save();
         }
+    }
+
+    // The stepped buttons still exist for a mouse user who wants an exact
+    // notch. They commit immediately: a click is already a settled gesture.
+    //
+    // ...and then tell the watch so, or it would see menuVolume move, mark
+    // itself dirty, and commit the SAME value again a quarter of a second
+    // later. Every writer of this value has to leave the watch agreeing with
+    // the source, which is the price of having two paths to one setting.
+    void applyVolume(const UIWorld& world, const MenuUIHooks& h,
+                     ui::UIDataSource& src, float v) {
+        v = std::clamp(v, 0.0f, 1.0f);
+        applyVolumeLive(h, src, v);
+        commitVolume(h, v);
+        VolumeWatch& vw = volumeWatches()[&world];
+        vw.last = v;
+        vw.pending = v;
+        vw.stillFor = 0;
+        vw.dirty = false;
     }
 
     void applyQuality(const MenuUIHooks& h, ui::UIDataSource& src,
@@ -141,6 +183,7 @@ void InstallMenuUIContent(UIWorld& world, const MenuUIHooks& hooks) {
     const MenuUIHooks h = hooks;   // by VALUE: the actions outlive the caller's
 
     swapLogs()[&world] = Log{};
+    volumeWatches()[&world] = VolumeWatch{};
 
     // ---- seed everything the markup binds to, BEFORE any document loads ----
     // A binding pass against a missing property is a diagnostic, not a crash,
@@ -199,13 +242,13 @@ void InstallMenuUIContent(UIWorld& world, const MenuUIHooks& hooks) {
     // and faking one out of a drag would be a worse lie than a pair of buttons.
     // The bar next to them is a real bound width, so the value is still visible
     // as a quantity rather than only as a number.
-    src.AddAction("menuVolumeUp", [&src, h] {
+    src.AddAction("menuVolumeUp", [&src, &world, h] {
         if (!allowed(h)) return;
-        applyVolume(h, src, float(src.GetNumber("menuVolume")) + h.volumeStep);
+        applyVolume(world, h, src, float(src.GetNumber("menuVolume")) + h.volumeStep);
     });
-    src.AddAction("menuVolumeDown", [&src, h] {
+    src.AddAction("menuVolumeDown", [&src, &world, h] {
         if (!allowed(h)) return;
-        applyVolume(h, src, float(src.GetNumber("menuVolume")) - h.volumeStep);
+        applyVolume(world, h, src, float(src.GetNumber("menuVolume")) - h.volumeStep);
     });
 
     src.AddAction("menuQualityLow", [&src, h] {
@@ -287,6 +330,28 @@ void MenuUIReportSwap(UIWorld& world, const SceneSwapResult& r) {
 
 void MenuUIPublishCounters(UIWorld& world, const MenuUIHooks& hooks) {
     ui::UIDataSource& src = world.shared();
+
+    // ---- master volume, written straight into the source by the <Slider> ----
+    VolumeWatch& vw = volumeWatches()[&world];
+    const float now = std::clamp(src.GetNumber("menuVolume", 0.0f), 0.0f, 1.0f);
+    if (vw.last < 0.0f) {
+        vw.last = now;                       // prime, without a spurious write
+    } else if (now != vw.last) {
+        vw.last = now;
+        vw.pending = now;
+        vw.stillFor = 0;
+        vw.dirty = true;
+        // Audio follows the drag with no delay -- the whole point of a slider
+        // is hearing what you are choosing.
+        if (hooks.audio) hooks.audio->SetMasterVolume(now);
+        // Keep the percentage readout in step. publishVolume would rewrite
+        // menuVolume itself, which is where the slider's value LIVES, so only
+        // the derived field is touched here.
+        src.SetInt("menuVolumePct", (long long)std::lround(now * 100.0f));
+    } else if (vw.dirty && ++vw.stillFor >= kVolumeSettleFrames) {
+        commitVolume(hooks, vw.pending);
+        vw.dirty = false;
+    }
     src.SetInt("menuLiveDocs", (long long)world.liveCount());
     if (const ui::UITextureCache* tc = world.textureCache()) {
         src.SetInt("menuTextures", (long long)tc->size());

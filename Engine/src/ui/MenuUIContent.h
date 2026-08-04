@@ -86,6 +86,18 @@ namespace MyCoreEngine {
 
     // Call once per frame from the host's UI-draw lambda, BEFORE UIWorld::Update.
     //
+    // Also reconciles the master volume, which a <Slider> now writes DIRECTLY
+    // into the shared source through its two-way binding rather than through a
+    // named action. Audio follows every change immediately; the SETTING is
+    // written to disk only once the value stops moving.
+    //
+    // Settle detection rather than a release event, deliberately: it is the
+    // same code for a mouse drag, an arrow key and a gamepad stick, and none of
+    // them has to tell this file which device it was. Without it a continuous
+    // drag would do a ProjectSettings load-modify-save once per input frame --
+    // the shipped Player takes exactly that branch, because it installs no
+    // onMasterVolume hook.
+    //
     // Push, not Observe. UIDataSource::hasPolled() is a WHOLE-SOURCE flag, so a
     // single polled property on the shared source would defeat the binder's
     // version fast path for every binding in every document in the process, for

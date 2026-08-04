@@ -287,6 +287,17 @@ void UIElement::setDataSourceName(std::string s) {
 
 std::uint32_t UIElement::structureEpoch() { return g_structureEpoch; }
 
+UISliderState& UIElement::MakeSlider() {
+    if (!slider_) {
+        slider_ = std::make_unique<UISliderState>();
+        // A slider you cannot focus cannot be driven by a keyboard or a pad,
+        // which is most of the point of having one. Comes with the type, like
+        // a field's focusability.
+        focusable_ = true;
+    }
+    return *slider_;
+}
+
 UITextEdit& UIElement::MakeTextField() {
     if (!edit_) {
         edit_ = std::make_unique<UITextEdit>();
@@ -1156,6 +1167,29 @@ bool UIDocument::isInTree_(const UIElement* el) const {
     return W{ el }(*root_);
 }
 
+// Cursor -> slider value, in the element's OWN box.
+//
+// layout() is in REAL surface pixels and so is the pointer, so no scale
+// conversion belongs here — that happens where authored lengths ENTER layout,
+// not where laid-out rects come out of it.
+void UIDocument::applySliderFromCursor_(UIElement& el, const glm::vec2& cursor) {
+    UISliderState& sl = *el.slider_;
+    const ComputedLayout& L = el.layout();
+    const bool v = sl.vertical;
+    const float len = v ? L.size.y : L.size.x;
+    if (!(len > 0.0f)) return;
+    float t = ((v ? cursor.y : cursor.x) - (v ? L.position.y : L.position.x)) / len;
+    // Vertical sliders read bottom-up: the top of the box is the MAXIMUM, which
+    // is what a mixer fader looks like and the opposite of screen-space y.
+    if (v) t = 1.0f - t;
+    if (sl.SetNormalised(t)) {
+        // Same flag the scroll drag sets: the value has to reach the source and
+        // the bound fill has to relayout THIS frame, or the bar trails the
+        // cursor for the whole drag.
+        scrollDirty_ = true;
+    }
+}
+
 void UIDocument::UpdatePointer(const UIPointerState& p, const Font* font) {
     UIPassScope pass(font, scale_);
     // Drop cached targets that are no longer in the tree. Gameplay or a handler
@@ -1165,8 +1199,7 @@ void UIDocument::UpdatePointer(const UIPointerState& p, const Font* font) {
     if (pressed_ && !isInTree_(pressed_)) pressed_ = nullptr;
     // The bar targets are held across frames just like the two above, and a hot
     // reload — which a stylesheet-only save triggers — frees the whole tree.
-    if (scrollDrag_ && !isInTree_(scrollDrag_)) scrollDrag_ = nullptr;
-    if (scrollTrackPress_ && !isInTree_(scrollTrackPress_)) scrollTrackPress_ = nullptr;
+    if (capture_ && !isInTree_(capture_)) { capture_ = nullptr; captureKind_ = Capture::None; }
     if (wheelLatch_ && !isInTree_(wheelLatch_)) wheelLatch_ = nullptr;
 
     // ---- scrollbar press ---------------------------------------------------
@@ -1175,7 +1208,7 @@ void UIDocument::UpdatePointer(const UIPointerState& p, const Font* font) {
     // to hitTest_, so without this a press on one would reach the row
     // underneath: its on-click would fire, :active would light up, and focus
     // would leave whatever field the user was typing in.
-    if (p.buttonDown && !wasDown_ && !scrollDrag_ && !scrollTrackPress_ && p.inside) {
+    if (p.buttonDown && !wasDown_ && !capture_ && p.inside) {
         int axis = 0;
         bool onThumb = false;
         if (UIElement* s = hitScrollBar_(*root_, p.position, axis, onThumb)) {
@@ -1183,11 +1216,12 @@ void UIDocument::UpdatePointer(const UIPointerState& p, const Font* font) {
             // "drag the thumb, then press PageDown" is a coin flip.
             if (s->focusable_) SetFocus(s);
             if (onThumb) {
-                scrollDrag_ = s;
-                scrollDragAxis_ = axis;
+                capture_ = s;
+                captureKind_ = Capture::ScrollThumb;
+                captureAxis_ = axis;
                 const ComputedLayout& th = axis ? s->scroll_->thumbY : s->scroll_->thumbX;
-                scrollDragGrab_ = axis ? p.position.y - th.position.y
-                                       : p.position.x - th.position.x;
+                captureGrab_ = axis ? p.position.y - th.position.y
+                                    : p.position.x - th.position.x;
             } else {
                 // ONE page per press, toward the click. Hold-to-repeat would
                 // need "how long held", and UpdatePointer has no dt — it is the
@@ -1200,25 +1234,63 @@ void UIDocument::UpdatePointer(const UIPointerState& p, const Font* font) {
                 glm::vec2 next = s->scroll_->offset;
                 (axis ? next.y : next.x) += dir * pageAmount_(*s, axis);
                 if (s->SetScrollOffset(next)) scrollDirty_ = true;
-                scrollTrackPress_ = s;
+                capture_ = s;
+                captureKind_ = Capture::ScrollTrack;
             }
         }
     }
+    // A SLIDER press, resolved after the scrollbars (which are painted over
+    // everything and must win) but before the ordinary hit-test, because the
+    // press has to become a value immediately: clicking anywhere on a slider
+    // jumps to that value, exactly like a native one.
+    if (p.buttonDown && !wasDown_ && !capture_ && p.inside) {
+        if (UIElement* hit = HitTest(p.position)) {
+            for (UIElement* e = hit; e; e = e->parent_) {
+                if (!e->slider_ || !isInteractable_(*e)) continue;
+                capture_ = e;
+                captureKind_ = Capture::Slider;
+                captureAxis_ = e->slider_->vertical ? 1 : 0;
+                // No grab offset: a press JUMPS to the pressed value rather
+                // than picking the thumb up where it was. That is what makes
+                // the whole track clickable, and the drag then continues from
+                // there with no discontinuity because the value already
+                // matches the cursor.
+                captureGrab_ = 0.0f;
+                if (e->focusable_) SetFocus(e);
+                applySliderFromCursor_(*e, p.position);
+                break;
+            }
+        }
+    }
+
     // A press on the track owns the pointer for as long as it is held, so the
     // row underneath receives no move, no hover and no Click on release.
-    if (scrollTrackPress_) {
-        if (!p.buttonDown) scrollTrackPress_ = nullptr;
+    if (captureKind_ == Capture::ScrollTrack) {
+        if (!p.buttonDown) { capture_ = nullptr; captureKind_ = Capture::None; }
         hadPointer_ = p.inside;
         wasDown_ = p.buttonDown;
         lastPos_ = p.position;
         return;
     }
-    if (scrollDrag_) {
+    if (captureKind_ == Capture::Slider) {
         if (!p.buttonDown) {
-            scrollDrag_ = nullptr;
+            capture_ = nullptr;
+            captureKind_ = Capture::None;
         } else {
-            UIScrollState& sc = *scrollDrag_->scroll_;
-            const int a = scrollDragAxis_;
+            applySliderFromCursor_(*capture_, p.position);
+        }
+        hadPointer_ = p.inside;
+        wasDown_ = p.buttonDown;
+        lastPos_ = p.position;
+        return;
+    }
+    if (captureKind_ == Capture::ScrollThumb) {
+        if (!p.buttonDown) {
+            capture_ = nullptr;
+            captureKind_ = Capture::None;
+        } else {
+            UIScrollState& sc = *capture_->scroll_;
+            const int a = captureAxis_;
             const ComputedLayout& track = a ? sc.trackY : sc.trackX;
             const ComputedLayout& thumb = a ? sc.thumbY : sc.thumbX;
             const float trackLen = a ? track.size.y : track.size.x;
@@ -1227,13 +1299,13 @@ void UIDocument::UpdatePointer(const UIPointerState& p, const Font* font) {
             if (free > 0.0f) {
                 const float cursor = a ? p.position.y : p.position.x;
                 const float trackTop = a ? track.position.y : track.position.x;
-                const float t = std::clamp((cursor - scrollDragGrab_ - trackTop) / free,
+                const float t = std::clamp((cursor - captureGrab_ - trackTop) / free,
                                            0.0f, 1.0f);
                 const float lo = a ? sc.minOffset.y : sc.minOffset.x;
                 const float hi = a ? sc.maxOffset.y : sc.maxOffset.x;
                 glm::vec2 next = sc.offset;
                 (a ? next.y : next.x) = lo + (hi - lo) * t;
-                if (scrollDrag_->SetScrollOffset(next)) scrollDirty_ = true;
+                if (capture_->SetScrollOffset(next)) scrollDirty_ = true;
             }
         }
         hadPointer_ = p.inside;
@@ -1686,6 +1758,30 @@ void UIDocument::UpdateKeyboard(const UIKeyboardState& kb, const Font* font) {
         if (!consumed && (k.key == UIKey::PageUp || k.key == UIKey::PageDown ||
                           k.key == UIKey::Home || k.key == UIKey::End)) {
             consumed = keyboardScroll_(target, k.key);
+        }
+
+        // A FOCUSED SLIDER takes the arrows along its own axis, ahead of the
+        // scroll defaults below -- otherwise Left/Right on a slider inside a
+        // scroller would page the container instead of moving the value, which
+        // is the one thing the user is looking at.
+        //
+        // The cross-axis arrows are deliberately left alone, so Up/Down still
+        // reach navigation on a horizontal slider.
+        if (!consumed && target && target->slider()) {
+            UISliderState& sl = *target->slider();
+            const UIKey lo = sl.vertical ? UIKey::Down : UIKey::Left;
+            const UIKey hi = sl.vertical ? UIKey::Up   : UIKey::Right;
+            if (k.key == lo || k.key == hi) {
+                sl.Nudge(k.key == hi ? +1.0f : -1.0f);
+                // The value has to reach the source and the bound fill has to
+                // relayout THIS frame, exactly as a drag does.
+                scrollDirty_ = true;
+                consumed = true;
+            } else if (k.key == UIKey::Home || k.key == UIKey::End) {
+                sl.SetValue(k.key == UIKey::Home ? sl.min : sl.max);
+                scrollDirty_ = true;
+                consumed = true;
+            }
         }
 
         // ENTER ACTIVATES. Until this existed the key simply fell off the end
