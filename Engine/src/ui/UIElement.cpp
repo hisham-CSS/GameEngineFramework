@@ -986,6 +986,15 @@ void UIDocument::AdvanceTime(float dt) {
     // the same frame, which is the ordering UIWorld::Update guarantees.
     docClock_ += dt;
 
+    // Release a synthesized press once its flash has been on screen long
+    // enough to see. Revalidated, because a handler fired BY that press may
+    // have removed the element it was on -- a menu button that swaps the scene
+    // is exactly that case.
+    if (activated_ && docClock_ >= activateUntil_) {
+        if (isInTree_(activated_)) activated_->pressed_ = false;
+        activated_ = nullptr;
+    }
+
     // Gated on the document containing a scroller AT ALL, not on one being
     // known to animate: the target can be moved by anything, including app code
     // calling ScrollIntoView, and none of those can arm a document flag. A HUD
@@ -1865,6 +1874,17 @@ bool UIDocument::ActivateFocused() {
     if (!focused_ || !isInTree_(focused_) || !isInteractable_(*focused_)) return false;
     // A text edit owns its own Enter — see the header.
     if (focused_->textEdit()) return false;
+
+    // Hold the press briefly so `:active` can be seen. The frame order does the
+    // rest for free: this runs inside UpdateNav, and RestyleInteractive later in
+    // the same frame sees the rising edge; AdvanceTime clears it next frame and
+    // the falling edge is seen then.
+    if (activated_ && activated_ != focused_ && isInTree_(activated_)) {
+        activated_->pressed_ = false;
+    }
+    activated_ = focused_;
+    activated_->pressed_ = true;
+    activateUntil_ = docClock_ + kActivateFlashSeconds;
 
     UIEvent e;
     e.type = UIEventType::Click;

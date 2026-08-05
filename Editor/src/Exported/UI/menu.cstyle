@@ -188,6 +188,11 @@
   background-color: rgba(255, 196, 72, 0.16);
 }
 
+.verb-small:active {
+  background-color: rgba(255, 196, 72, 0.3);
+  color: rgba(255, 236, 190, 1);
+}
+
 .hint {
   font-scale: 0.27;
   color: rgba(138, 148, 166, 1);
@@ -293,6 +298,22 @@
   pointer-events: none;
 }
 
+/* THE FILL is the focus cue, not the ring.
+ *
+ * `border-width` is paint-only -- it never reaches yoga, so it does not inset
+ * the content box -- and the track's focus ring was the same literal colour as
+ * this fill. At 100% the fill covers the whole track and a focused slider was
+ * pixel-identical to an unfocused one. Brightening the fill works because it is
+ * the one surface the fill cannot paint over.
+ *
+ * This is the first multi-compound selector in the file, so it flips the
+ * sheet's contextual flag: from here on a state edge re-cascades the changed
+ * element's parent subtree rather than one element. At this document's size
+ * that is noise, but it is a real change and worth knowing. */
+.slider:focus .slider-fill {
+  background-color: rgba(255, 226, 158, 1);
+}
+
 .chips {
   flex-direction: row;
   align-items: center;
@@ -315,6 +336,13 @@
   color: rgba(255, 255, 255, 1);
 }
 
+/* Reachable from a PAD now, not just a mouse -- see UIDocument::ActivateFocused.
+   Below .chip.chip-on so a selected chip still flashes when pressed. */
+.chip:active {
+  background-color: rgba(255, 226, 158, 0.55);
+  color: rgba(16, 18, 24, 1);
+}
+
 /* A chip is small enough that a border reads as a deliberate outline rather
    than a mis-sized box, so it keeps one -- but it gets a fill too, because on a
    pad the focused chip has to be findable at a glance. */
@@ -324,11 +352,28 @@
   color: rgba(255, 255, 255, 1);
 }
 
-/* Toggled by `classes=` from a bool the C++ side publishes. */
-.chip-on {
+/* Toggled by `classes=` from a bool the C++ side publishes.
+ *
+ * `.chip.chip-on`, NOT `.chip-on`, and it MUST sit below `.chip:focus`.
+ * A pseudo-class counts as a class here exactly as in CSS, so `.chip:focus` is
+ * (0,2,0) while a bare `.chip-on` is (0,1,0) -- focus therefore won every one
+ * of these declarations, and the selected quality tier went blank the moment
+ * you navigated onto it. On a pad focus is always somewhere, so that was at the
+ * precise instant anyone reads the row. Two classes ties the specificity, and
+ * the tiebreak is file order. */
+.chip.chip-on {
   background-color: rgba(255, 196, 72, 0.92);
   border-color: rgba(255, 216, 130, 1);
   color: rgba(16, 18, 24, 1);
+}
+
+/* ...and (0,3,0) for the focused-AND-selected case, which the tie above cannot
+   express: without this a focused ON chip would look identical to an unfocused
+   one, so the focus ring would vanish instead of the fill. */
+.chip.chip-on:focus,
+.chip.chip-on:hover {
+  border-color: rgba(255, 255, 255, 0.95);
+  border-width: 2px;
 }
 
 .field {

@@ -516,6 +516,9 @@ namespace MyCoreEngine::ui {
         // for a container that may want to mean "submit". Neither should be a
         // click on the field itself.
         bool ActivateFocused();
+        // How long a synthesized press stays lit. Long enough to register as a
+        // press at 60Hz, short enough not to lag the action it confirms.
+        static constexpr float kActivateFlashSeconds = 0.08f;
 
         // Where navigation is currently confined, or the document root when no
         // scope is open. Everything that walks the focus order goes through
@@ -652,6 +655,17 @@ namespace MyCoreEngine::ui {
         UIElement* hovered_ = nullptr;   // deepest element under the pointer
         UIElement* pressed_ = nullptr;   // element that received PointerDown
         UIElement* focused_ = nullptr;   // keyboard focus; at most one
+        // A synthesized press, held briefly so it can be SEEN.
+        //
+        // pressed_ is otherwise written only on the pointer-down edge, so
+        // `:active` -- the only press state a stylesheet can express -- was
+        // unreachable from a gamepad or from Enter. Confirming anything on the
+        // input this menu exists for changed no pixels at all.
+        //
+        // A deadline on the document clock rather than a countdown, so a long
+        // frame cannot stretch the flash and a stall cannot swallow it.
+        UIElement* activated_ = nullptr;
+        float      activateUntil_ = 0.0f;
         // The open focus scopes, innermost LAST.
         std::vector<UIElement*> scopeStack_;
         // What was last focused INSIDE each scope, so re-entering one puts you

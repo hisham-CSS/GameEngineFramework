@@ -17,6 +17,7 @@
 #include "../Engine/src/ui/UIStyleSheet.h"
 #include "../Engine/src/ui/UIWorld.h"
 
+#include <cmath>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -687,4 +688,156 @@ TEST(ShippedMenuAsset, OpeningOnePanelClosesTheOtherAndHidesTheVerbs) {
     m.Frame();
     EXPECT_FALSE(src.GetBool("panelOpen"));
     EXPECT_NE(m.find("verbs")->style().display, DisplayMode::None);
+}
+
+
+// ------------------------------------------------- the press flash (U26a)
+//
+// pressed_ is written only on the pointer-down edge, so `:active` -- the one
+// press state a stylesheet can express -- was unreachable from a gamepad or
+// from Enter. On the input this menu was rewritten for, confirming anything
+// changed no pixels at all.
+
+TEST(UIActivateFlash, ActivatingHoldsThePressLongEnoughToSee) {
+    UIDocument doc;
+    std::vector<std::string> errors;
+    ASSERT_TRUE(UIMarkup::LoadInto(doc,
+        R"(<UI><Button name="b" text="go"/></UI>)", errors, "t.cxml"));
+    doc.Layout(400.f, 400.f);
+    UIElement* b = doc.root().Find("b");
+    ASSERT_NE(b, nullptr);
+    ASSERT_FALSE(b->isPressed());
+
+    doc.SetFocus(b);
+    ASSERT_TRUE(doc.ActivateFocused());
+    EXPECT_TRUE(b->isPressed()) << "activating produced no press state at all";
+
+    // Still lit a frame later: a one-frame flash is not a flash.
+    doc.AdvanceTime(1.0f / 60.0f);
+    EXPECT_TRUE(b->isPressed()) << "the flash lasted a single frame";
+
+    // ...and released once the flash has been on screen long enough.
+    doc.AdvanceTime(UIDocument::kActivateFlashSeconds);
+    EXPECT_FALSE(b->isPressed()) << "the press never released";
+}
+
+// A deadline on the document clock rather than a countdown, so one long frame
+// releases it rather than stretching the flash.
+TEST(UIActivateFlash, ALongFrameReleasesItRatherThanStretchingIt) {
+    UIDocument doc;
+    std::vector<std::string> errors;
+    ASSERT_TRUE(UIMarkup::LoadInto(doc,
+        R"(<UI><Button name="b" text="go"/></UI>)", errors, "t.cxml"));
+    doc.Layout(400.f, 400.f);
+    UIElement* b = doc.root().Find("b");
+    doc.SetFocus(b);
+    doc.ActivateFocused();
+
+    doc.AdvanceTime(2.0f);          // one very long frame
+    EXPECT_FALSE(b->isPressed());
+}
+
+// Activating a SECOND element while the first is still lit must not leave the
+// first stuck pressed forever.
+TEST(UIActivateFlash, ASecondActivationReleasesTheFirst) {
+    UIDocument doc;
+    std::vector<std::string> errors;
+    ASSERT_TRUE(UIMarkup::LoadInto(doc,
+        R"(<UI><Button name="a" text="a"/><Button name="b" text="b"/></UI>)",
+        errors, "t.cxml"));
+    doc.Layout(400.f, 400.f);
+    UIElement* a = doc.root().Find("a");
+    UIElement* b = doc.root().Find("b");
+
+    doc.SetFocus(a);
+    doc.ActivateFocused();
+    ASSERT_TRUE(a->isPressed());
+
+    doc.SetFocus(b);
+    doc.ActivateFocused();
+    EXPECT_FALSE(a->isPressed()) << "the first button stayed pressed forever";
+    EXPECT_TRUE(b->isPressed());
+}
+
+// A handler fired BY the press may remove the element it was on -- a menu
+// button that swaps the scene is exactly that -- so the release revalidates.
+TEST(UIActivateFlash, ReleasingSurvivesTheElementBeingRemoved) {
+    UIDocument doc;
+    std::vector<std::string> errors;
+    ASSERT_TRUE(UIMarkup::LoadInto(doc,
+        R"(<UI><Element name="wrap"><Button name="b" text="go"/></Element></UI>)",
+        errors, "t.cxml"));
+    doc.Layout(400.f, 400.f);
+    doc.SetFocus(doc.root().Find("b"));
+    doc.ActivateFocused();
+
+    ASSERT_NE(doc.root().Find("wrap")->RemoveChild(doc.root().Find("b")), nullptr);
+    doc.AdvanceTime(1.0f);          // must not touch freed memory
+    SUCCEED();
+}
+
+// ------------------------------------------- the shipped sheet's cascade
+//
+// A pseudo-class counts as a class, so `.chip:focus` (0,2,0) beat a bare
+// `.chip-on` (0,1,0) and took ALL of its declarations with it. On a pad focus
+// is always somewhere, so the selected quality tier went blank exactly when it
+// was being read.
+
+TEST(ShippedMenuStyle, ASelectedChipStaysSelectedWhileFocused) {
+    UIStyleSheet sheet;
+    ASSERT_TRUE(sheet.LoadFromFile("Exported/UI/menu.cstyle"))
+        << (sheet.errors().empty() ? std::string() : sheet.errors()[0]);
+
+    UIDocument doc;
+    std::vector<std::string> errors;
+    ASSERT_TRUE(UIMarkup::LoadInto(doc,
+        R"(<UI><Button name="c" class="chip"/></UI>)", errors, "t.cxml"));
+    UIElement* c = doc.root().Find("c");
+    ASSERT_NE(c, nullptr);
+
+    // Selected but not focused: the gold fill states the current value.
+    c->AddClass("chip-on");
+    sheet.ApplyTo(doc.root());
+    const glm::vec4 lit = c->style().backgroundColor;
+    ASSERT_GT(lit.r, 0.9f);
+    ASSERT_GT(lit.a, 0.8f) << "a selected chip is not filled at all";
+
+    // ...and focused, it must still be recognisably the selected one.
+    doc.SetFocus(c);
+    sheet.Recascade(*c);
+    EXPECT_GT(c->style().backgroundColor.a, 0.8f)
+        << "the selected chip lost its fill the moment it was focused";
+    EXPECT_NEAR(c->style().backgroundColor.r, lit.r, 0.02f);
+}
+
+// `border-width` is paint-only and never insets the content box, so a fill at
+// 100% paints straight over the track's focus ring -- and they were the same
+// colour. A focused slider at full volume was pixel-identical to an unfocused
+// one.
+TEST(ShippedMenuStyle, AFocusedSliderIsDistinguishableAtFullValue) {
+    UIStyleSheet sheet;
+    ASSERT_TRUE(sheet.LoadFromFile("Exported/UI/menu.cstyle"))
+        << (sheet.errors().empty() ? std::string() : sheet.errors()[0]);
+
+    UIDocument doc;
+    std::vector<std::string> errors;
+    ASSERT_TRUE(UIMarkup::LoadInto(doc,
+        R"(<UI><Slider name="s" class="slider" min="0" max="1" value="1">)"
+        R"(<Element name="f" class="slider-fill"/></Slider></UI>)",
+        errors, "t.cxml")) << (errors.empty() ? "" : errors[0]);
+    sheet.ApplyTo(doc.root());
+
+    UIElement* s = doc.root().Find("s");
+    UIElement* f = doc.root().Find("f");
+    ASSERT_NE(s, nullptr);
+    ASSERT_NE(f, nullptr);
+    const glm::vec4 idle = f->style().backgroundColor;
+
+    doc.SetFocus(s);
+    sheet.RecascadeSubtree(*s);
+    const glm::vec4 lit = f->style().backgroundColor;
+    EXPECT_GT(std::abs(lit.r - idle.r) + std::abs(lit.g - idle.g) +
+              std::abs(lit.b - idle.b), 0.05f)
+        << "the FILL does not change on focus, and at 100% it covers the ring - "
+           "a focused slider is invisible";
 }
