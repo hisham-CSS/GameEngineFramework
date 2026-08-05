@@ -73,6 +73,7 @@
 #include "../src/ui/UIInteractionStyler.h"
 #include "../src/ui/UIAssetDocument.h"
 #include "../src/ui/UIComponent.h"
+#include "../src/ui/UINavSynth.h"
 #include "../src/ui/UIWorld.h"
 #include "../src/ui/DemoUIContent.h"
 #include "../src/ui/MenuUIContent.h"

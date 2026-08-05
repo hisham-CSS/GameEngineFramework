@@ -192,7 +192,14 @@ void UIWorld::Update(entt::registry& reg, int widthPx, int heightPx, float dt) {
         // state, or it stays lit up under a menu that took the pointer away. It
         // zeroes their wheel for free, too.
         doc.UpdatePointer(e == pointerTarget ? pointer_ : ui::UIPointerState{}, font_);
-        if (e == keyboardTarget) doc.UpdateKeyboard(keyboard_, font_);
+        if (e == keyboardTarget) {
+            doc.UpdateKeyboard(keyboard_, font_);
+            // PAGE first, then the rest: a shoulder press changes which panel
+            // is on screen, and a directional move in the same frame should
+            // land in the panel it just switched to.
+            if (nav_.page != 0) ad.PageTabs(nav_.page);
+            doc.UpdateNav(nav_);
+        }
 
         ad.PublishToSources();
         bool relayout = ad.RestyleInteractive();
@@ -210,6 +217,7 @@ void UIWorld::Update(entt::registry& reg, int widthPx, int heightPx, float dt) {
 
     // Consumed once, like every other edge-triggered input in this system.
     keyboard_.clear();
+    nav_.clear();
     // The wheel is a per-frame DELTA living inside an otherwise level-triggered
     // struct, so it is cleared here rather than by the host: a host that updates
     // without a matching SetPointer would otherwise replay one flick forever.

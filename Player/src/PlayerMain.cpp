@@ -100,6 +100,7 @@ class PlayerApplication : public MyCoreEngine::Application {
     // A MEMBER, not a local in Run(): the UI draw callback captures it and is
     // invoked for the app's whole life, which outlasts Run()'s stack frame.
     MyCoreEngine::MenuUIHooks  menuHooks_;
+    MyCoreEngine::UINavSynth   navSynth_;   // holds the auto-repeat clock
 public:
     PlayerApplication() : Application(1280, 720, "Cat Splat Player") {}
 
@@ -290,6 +291,9 @@ public:
             // Before Update, so the frame that draws the counters draws the
             // current ones. Pushed rather than polled -- see MenuUIContent.h.
             MenuUIPublishCounters(uiWorld_, menuHooks_);
+            // The controller. Unconditional: the shipped game has no edit mode
+            // and no competing panels, so a pad always drives the UI.
+            uiWorld_.SetNav(navSynth_.Poll(input(), dt));
             uiWorld_.Update(scene.registry, w, h, dt);
             uiWorld_.Draw(r2d);
         });

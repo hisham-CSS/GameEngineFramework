@@ -187,6 +187,28 @@ namespace MyCoreEngine {
         // bound and silently did nothing forever.
         map.bindKey("Jump", GLFW_KEY_SPACE);
         map.bindGamepadButton("Jump", GLFW_GAMEPAD_BUTTON_A);
+
+        // ---- the UI's own navigation ----
+        // Prefixed, and separate from the gameplay actions above, for two
+        // reasons. A game that rebinds "Jump" must not thereby break its menus;
+        // and "UIConfirm" DELIBERATELY shares the A button with Jump, because
+        // on a pad that is the same button and always will be. What keeps them
+        // from firing together is not the binding, it is that the UI reports
+        // itself as capturing input while it has focus, so the gameplay block
+        // reads neutral -- see Application::RunLoop and UIWorld::wantsKeyboard.
+        map.bindGamepadButton("UIConfirm", GLFW_GAMEPAD_BUTTON_A);
+        map.bindGamepadButton("UIBack",    GLFW_GAMEPAD_BUTTON_B);
+        map.bindGamepadButton("UIPagePrev", GLFW_GAMEPAD_BUTTON_LEFT_BUMPER);
+        map.bindGamepadButton("UIPageNext", GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER);
+        // D-pad AND left stick. The stick arrives as an axis pair and is
+        // thresholded into a direction by the host; the d-pad is four buttons
+        // and is already discrete.
+        map.bindGamepadButton("UINavUp",    GLFW_GAMEPAD_BUTTON_DPAD_UP);
+        map.bindGamepadButton("UINavDown",  GLFW_GAMEPAD_BUTTON_DPAD_DOWN);
+        map.bindGamepadButton("UINavLeft",  GLFW_GAMEPAD_BUTTON_DPAD_LEFT);
+        map.bindGamepadButton("UINavRight", GLFW_GAMEPAD_BUTTON_DPAD_RIGHT);
+        map.bindGamepadAxis("UINavX", GLFW_GAMEPAD_AXIS_LEFT_X);
+        map.bindGamepadAxis("UINavY", GLFW_GAMEPAD_AXIS_LEFT_Y, /*inverted=*/true);
     }
 
     float InputMap::applyDeadzone_(float v) const {

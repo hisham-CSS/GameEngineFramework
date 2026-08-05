@@ -129,6 +129,7 @@ private:
     // The menu's host verbs, kept because the per-frame counter push needs them
     // and because the editor's refusals capture `this`.
     MyCoreEngine::MenuUIHooks menuHooks_;
+    MyCoreEngine::UINavSynth  navSynth_;   // holds the auto-repeat clock
     // Refuses GAME-originated swaps while stopped. The Game panel dispatches
     // the game's UI clicks even in edit mode, so without this a menu button in
     // a document being authored could replace the scene under the author.

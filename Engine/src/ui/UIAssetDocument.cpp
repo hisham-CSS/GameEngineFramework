@@ -143,6 +143,19 @@ void UIAssetDocument::UpdateRepeats() {
     for (auto& p : pools_) p->Refresh(ctx_);
 }
 
+void UIAssetDocument::PageTabs(int by) {
+    if (by == 0) return;
+    for (auto& t : tabs_) {
+        if (!t) continue;
+        const int n = int(t->count());
+        if (n <= 0) continue;
+        // Wrapping modulo that works for negatives, so a left press on the
+        // first page lands on the last rather than on -1.
+        const int next = ((t->selected() + by) % n + n) % n;
+        t->Select(next);
+    }
+}
+
 void UIAssetDocument::UpdateTabs() {
     for (auto& t : tabs_) t->Refresh();
 }

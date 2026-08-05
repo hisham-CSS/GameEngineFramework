@@ -1657,6 +1657,58 @@ void UIDocument::followCaret_(UIElement& el, const Font* font) {
     }
 }
 
+UIElement* UIDocument::FocusMove(UINavDir dir) {
+    if (dir == UINavDir::None) return focused_;
+    // Nothing focused yet: the first press lands somewhere rather than nowhere.
+    // FocusNext already starts from the beginning when focused_ is null.
+    if (!focused_ || !isInTree_(focused_)) return FocusNext(false);
+
+    // LINEAR, for now — see the header. Up and Left run the order backwards,
+    // Down and Right run it forwards, which is what a column or a row of
+    // controls means either way round.
+    const bool backwards = (dir == UINavDir::Up || dir == UINavDir::Left);
+    return FocusNext(backwards);
+}
+
+bool UIDocument::UpdateNav(const UINavState& nav) {
+    bool consumed = false;
+
+    for (const UINavDir d : nav.moves) {
+        // A focused SLIDER eats the along-axis moves, exactly as it eats the
+        // arrow keys: a stick pushed left on a volume slider must change the
+        // volume, not jump to the previous control. This is the one place the
+        // pad and the keyboard have to agree, and they do because both end up
+        // in the same state object.
+        if (focused_ && isInTree_(focused_) && focused_->slider()) {
+            UISliderState& sl = *focused_->slider();
+            const UINavDir lo = sl.vertical ? UINavDir::Down : UINavDir::Left;
+            const UINavDir hi = sl.vertical ? UINavDir::Up   : UINavDir::Right;
+            if (d == lo || d == hi) {
+                sl.Nudge(d == hi ? +1.0f : -1.0f);
+                scrollDirty_ = true;   // reach the source and relayout this frame
+                consumed = true;
+                continue;
+            }
+        }
+        if (FocusMove(d)) consumed = true;
+    }
+
+    if (nav.activate && ActivateFocused()) consumed = true;
+
+    if (nav.back) {
+        // "Back out of what I am in". Blurring is the one meaning that is true
+        // in every UI; anything beyond it (close this panel, leave the menu) is
+        // the game's to decide, which is why an unhandled back is REPORTED
+        // rather than invented here.
+        if (focused_) {
+            SetFocus(nullptr);
+            consumed = true;
+        }
+    }
+
+    return consumed;
+}
+
 bool UIDocument::ActivateFocused() {
     // Revalidated exactly like the pointer path does: a handler may have
     // removed the focused element since it was focused.

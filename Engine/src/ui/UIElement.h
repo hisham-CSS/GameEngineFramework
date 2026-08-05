@@ -17,6 +17,7 @@
 #include "UIEvent.h"
 #include "UIStyleSheet.h"   // UIDeclaration (for inline styles)
 #include "UIBinding.h"      // UIBinding / UIBoundAction (authored, owned here)
+#include "UINav.h"          // UINavState (directional navigation)
 #include "UISlider.h"       // UISliderState (owned by slider elements)
 #include "UITextField.h"    // UITextEdit (owned by text-field elements)
 
@@ -509,6 +510,32 @@ namespace MyCoreEngine::ui {
         // for a container that may want to mean "submit". Neither should be a
         // click on the field itself.
         bool ActivateFocused();
+
+        // Move focus in a DIRECTION.
+        //
+        // THIS SIGNATURE IS THE SEAM. Today the body is linear: it walks the
+        // same Tab order FocusNext does, because Tab order already reaches
+        // every focusable and a menu laid out as a column agrees with it.
+        // Tomorrow the body becomes a geometric search over the laid-out rects
+        // — which is what a 2D layout actually needs, and what every console UI
+        // does — and NOTHING above this function changes.
+        //
+        // That split is deliberate rather than lazy. The neighbour-finder is a
+        // short function wrapped in a long case matrix (overlaps, nested
+        // scrollers, edges, generated tab headers, repeat= slots that come and
+        // go) and four constants that cannot be tuned without a controller in
+        // hand. The plumbing has none of that risk and delivers most of the
+        // value, so it ships first.
+        //
+        // With nothing focused, ANY direction focuses the first focusable —
+        // otherwise the first press of a d-pad on a freshly opened menu would
+        // do nothing, which reads as a dead controller.
+        UIElement* FocusMove(UINavDir dir);
+
+        // The whole gamepad path. Returns true if anything was consumed, so a
+        // host can give an unhandled `back` its own meaning (close the menu,
+        // quit) rather than guessing.
+        bool UpdateNav(const UINavState& nav);
 
     private:
         // Cursor -> value for a captured slider. Private because the capture is

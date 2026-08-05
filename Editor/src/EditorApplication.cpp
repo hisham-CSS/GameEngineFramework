@@ -571,6 +571,14 @@ void EditorApplication::Run() {
             // Before Update, so the frame that draws the counters draws the
             // current ones. Pushed rather than polled -- see MenuUIContent.h.
             MyCoreEngine::MenuUIPublishCounters(uiWorld_, menuHooks_);
+            // The controller, but ONLY while the Game surface has focus. The
+            // editor's own panels are ImGui's and a pad must not drive both at
+            // once -- and in edit mode the Game panel is a preview, not a game.
+            if (playing_ && gameSurfaceFocused_) {
+                uiWorld_.SetNav(navSynth_.Poll(input(), dt));
+            } else {
+                navSynth_.repeat.Reset();
+            }
             uiWorld_.Update(scene.registry, w, h, dt);
             uiWorld_.Draw(r2d);
             // The Inspector reports what the scale settings resolve to, and

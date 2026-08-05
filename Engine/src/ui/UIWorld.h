@@ -66,6 +66,10 @@ namespace MyCoreEngine {
         // and whether the keyboard belongs to the game right now.
         void SetPointer(const ui::UIPointerState& p) { pointer_ = p; }
         void SetKeyboard(const ui::UIKeyboardState& k) { keyboard_ = k; }
+        // Directional navigation, routed to the same document the keyboard goes
+        // to: a pad and a keyboard drive one focus, so they must not disagree
+        // about which document owns it.
+        void SetNav(const ui::UINavState& n) { nav_ = n; }
 
         // The system clipboard, for Ctrl+C/X/V in text fields. Handed to every
         // document as it loads. Without it those keys do nothing rather than
@@ -145,6 +149,7 @@ namespace MyCoreEngine {
         std::function<std::string()>            clipRead_;
         ui::UIPointerState pointer_{};
         ui::UIKeyboardState keyboard_{};
+        ui::UINavState      nav_{};
         int width_ = 0, height_ = 0;
     };
 

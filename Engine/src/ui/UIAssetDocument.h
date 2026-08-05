@@ -112,8 +112,13 @@ namespace MyCoreEngine::ui {
         // Tab views by index or by the name= the author wrote. The named
         // lookup is the WRITE path from game code — `Select(2)` — which is what
         // U20 ships instead of a two-way binding.
-        std::size_t tabViewCount() const { return tabs_.size(); }
         UITabView* tabView(std::size_t i) { return i < tabs_.size() ? tabs_[i].get() : nullptr; }
+        std::size_t tabViewCount() const { return tabs_.size(); }
+        // Step every TabView in this document by `by` pages, wrapping. What a
+        // pair of shoulder buttons means. Wrapping rather than clamping because
+        // a pad user cycling right through the last page expects the first,
+        // and there is no visible "end" to bump against.
+        void PageTabs(int by);
         UITabView* tabView(const std::string& name) {
             for (auto& t : tabs_) {
                 if (t->name() == name) return t.get();
