@@ -78,6 +78,7 @@ namespace {
                 n == "focusable" || n == "disabled" ||
                 n == "value" || n == "maxlength" || n == "mask" ||
                 n == "multiline" ||
+                n == "focus-scope" ||
                 n == "min" || n == "max" || n == "step" || n == "key-step" ||
                 n == "vertical" ||
                 // EXACT entries, not a "repeat-" prefix rule: the exact-match
@@ -140,6 +141,19 @@ namespace {
         const std::string type = el.type();
         bool focusable = (type == "Button" || type == "TextField");
         bool disabled = false;
+        // A FOCUS SCOPE confines navigation to its own subtree while it is
+        // visible. Without it, opening a panel merely ADDS its controls to one
+        // flat ring, so walking off the end of a settings page wanders back to
+        // the main verbs -- which is not what any menu anywhere does.
+        if (const pugi::xml_attribute a = node.attribute("focus-scope")) {
+            const std::string v = lower(trim(a.value()));
+            if (v.empty() || v == "true") el.setFocusScope(true);
+            else if (v == "false")        el.setFocusScope(false);
+            else {
+                errors.push_back(loc + "focus-scope: expected true|false, got '" + v + "'");
+                return false;
+            }
+        }
         for (const char* attr : { "focusable", "disabled" }) {
             const pugi::xml_attribute a = node.attribute(attr);
             if (!a) continue;
@@ -404,10 +418,14 @@ namespace {
             // event would silently change what every on-click means too. A C++
             // handler calling StopPropagation is the way to suppress it.
             else if (evName == "wheel")         type = UIEventType::Wheel;
+            // `on-back` belongs on a focus-scope root: it is what B / Escape
+            // invokes while that scope is open, and its job is to set whatever
+            // app state hides the panel again.
+            else if (evName == "back")          type = UIEventType::Back;
             else {
                 errors.push_back(loc + "unknown event '" + evName + "' in '" + n +
                                  "' (click|pointer-down|pointer-up|pointer-enter|"
-                                 "pointer-leave|pointer-move|wheel)");
+                                 "pointer-leave|pointer-move|wheel|back)");
                 return false;
             }
 

@@ -1602,9 +1602,122 @@ void UIDocument::revealFocus_() {
     }
 }
 
+// Depth-first, so a nested scope is always found after the one containing it —
+// which is what makes the collected order a valid STACK with no sorting.
+static void collectVisibleScopes_(UIElement& el, std::vector<UIElement*>& out) {
+    if (el.style().display == DisplayMode::None || !el.isEnabled()) return;
+    if (el.isFocusScope()) out.push_back(&el);
+    for (const auto& c : el.children()) collectVisibleScopes_(*c, out);
+}
+
+UIElement& UIDocument::focusRoot() {
+    // Innermost open scope, or the whole document. Revalidated because a hot
+    // reload frees the tree and a handler may have removed a panel.
+    while (!scopeStack_.empty()) {
+        UIElement* top = scopeStack_.back();
+        if (top && isInTree_(top) && top->style().display != DisplayMode::None) return *top;
+        scopeStack_.pop_back();
+    }
+    return *root_;
+}
+
+// What was last focused inside `scope`, or null. Revalidated at the point of
+// use like every other cached element pointer in this file.
+UIElement* UIDocument::scopeMemoryFor_(UIElement* scope) {
+    for (auto& kv : scopeMemory_) {
+        if (kv.first != scope) continue;
+        UIElement* el = kv.second;
+        if (el && isInTree_(el) && isInteractable_(*el)) return el;
+        kv.second = nullptr;
+        return nullptr;
+    }
+    return nullptr;
+}
+
+void UIDocument::rememberScopeFocus_(UIElement* scope) {
+    if (!scope) return;
+    // Only remember something that is actually INSIDE this scope: focus may
+    // already have moved elsewhere by the time a scope closes.
+    UIElement* f = focused_;
+    bool inside = false;
+    for (UIElement* p = f; p; p = p->parent_) {
+        if (p == scope) { inside = true; break; }
+    }
+    if (!inside) f = nullptr;
+    for (auto& kv : scopeMemory_) {
+        if (kv.first == scope) { kv.second = f; return; }
+    }
+    scopeMemory_.emplace_back(scope, f);
+}
+
+// Focus the remembered element for the current top scope, or its first
+// focusable. A scope with nothing focused cannot be driven by a pad at all.
+void UIDocument::focusIntoScope_(UIElement* scope) {
+    if (UIElement* remembered = scopeMemoryFor_(scope)) {
+        SetFocus(remembered);
+        return;
+    }
+    std::vector<UIElement*> inside;
+    collectFocusables_(scope ? *scope : *root_, inside);
+    SetFocus(inside.empty() ? nullptr : inside.front());
+}
+
+void UIDocument::SyncFocusScopes() {
+    std::vector<UIElement*> open;
+    collectVisibleScopes_(*root_, open);
+
+    bool changed = false;
+
+    // POP anything no longer open, innermost first, REMEMBERING where focus was
+    // inside it. That memory is the whole feature: opening SETTINGS hides the
+    // verb column and therefore pops it, and closing SETTINGS has to come back
+    // to the SETTINGS verb rather than to the top of the list.
+    while (!scopeStack_.empty()) {
+        UIElement* top = scopeStack_.back();
+        const bool stillOpen = top && isInTree_(top) &&
+                               std::find(open.begin(), open.end(), top) != open.end();
+        if (stillOpen) break;
+        rememberScopeFocus_(top);
+        scopeStack_.pop_back();
+        changed = true;
+    }
+
+    // PUSH anything newly open, outermost first, so the stack ends up ordered.
+    for (UIElement* s : open) {
+        if (std::find(scopeStack_.begin(), scopeStack_.end(), s) != scopeStack_.end()) continue;
+        // The scope being LEFT keeps its memory too, so a sibling panel opening
+        // does not erase where you were in the one you came from.
+        if (!scopeStack_.empty()) rememberScopeFocus_(scopeStack_.back());
+        scopeStack_.push_back(s);
+        changed = true;
+    }
+
+    // One focus decision, after the stack has settled -- rather than one per
+    // push and pop, which is how the intermediate states used to clobber each
+    // other when a panel opening also closed the column behind it.
+    if (!changed) return;
+    UIElement* top = scopeStack_.empty() ? nullptr : scopeStack_.back();
+    // Focus already inside the new top scope is left exactly where it is: a
+    // scope closing somewhere ELSE should not move it.
+    //
+    // ...but only if it is still reachable. Closing an inner panel leaves focus
+    // on an element that is inside the outer scope AND inside the hidden inner
+    // one, so the containment test alone would strand focus on something the
+    // user cannot see or tab out of. isInteractable_ walks the whole ancestor
+    // chain for exactly this.
+    if (focused_ && isInTree_(focused_) && isInteractable_(*focused_)) {
+        for (UIElement* p = focused_; p; p = p->parent_) {
+            if (p == top) return;
+        }
+    }
+    focusIntoScope_(top);
+}
+
 UIElement* UIDocument::FocusNext(bool backwards) {
     std::vector<UIElement*> order;
-    collectFocusables_(*root_, order);
+    // THE SCOPE, not the document. This one substitution is what turns "opening
+    // a panel adds more places to go" into "opening a panel takes navigation".
+    collectFocusables_(focusRoot(), order);
     if (order.empty()) { SetFocus(nullptr); return nullptr; }
 
     size_t next = backwards ? order.size() - 1 : 0;
@@ -1671,6 +1784,10 @@ UIElement* UIDocument::FocusMove(UINavDir dir) {
 }
 
 bool UIDocument::UpdateNav(const UINavState& nav) {
+    // Before anything reads focus: a panel opened by last frame's click has to
+    // own navigation by the time this frame's d-pad press is dispatched.
+    SyncFocusScopes();
+
     bool consumed = false;
 
     for (const UINavDir d : nav.moves) {
@@ -1696,11 +1813,20 @@ bool UIDocument::UpdateNav(const UINavState& nav) {
     if (nav.activate && ActivateFocused()) consumed = true;
 
     if (nav.back) {
-        // "Back out of what I am in". Blurring is the one meaning that is true
-        // in every UI; anything beyond it (close this panel, leave the menu) is
-        // the game's to decide, which is why an unhandled back is REPORTED
-        // rather than invented here.
-        if (focused_) {
+        // Ask the innermost open SCOPE to close itself. The document cannot do
+        // it: a panel is visible because an `if=` reads app state, so the app
+        // has to flip that state and the stack then follows visibility like
+        // everything else. One direction of causality, no second notion of
+        // "open" to fall out of step.
+        if (!scopeStack_.empty() && isInTree_(scopeStack_.back())) {
+            UIEvent e;
+            e.type = UIEventType::Back;
+            bubble_(scopeStack_.back(), e);
+            consumed = true;
+        } else if (focused_) {
+            // No scope open: back out of the control instead. That is the one
+            // meaning true in every UI, and an unhandled back is REPORTED so a
+            // host can give it its own (close the menu, quit).
             SetFocus(nullptr);
             consumed = true;
         }

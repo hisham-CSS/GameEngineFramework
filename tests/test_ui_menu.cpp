@@ -13,6 +13,7 @@
 #include "../Engine/src/ui/UIAssetDocument.h"
 #include "../Engine/src/ui/UIBinding.h"
 #include "../Engine/src/ui/UIElement.h"
+#include "../Engine/src/ui/UINav.h"
 #include "../Engine/src/ui/UIStyleSheet.h"
 #include "../Engine/src/ui/UIWorld.h"
 
@@ -369,6 +370,7 @@ struct ShippedMenu {
         scene.registry.emplace<UIDocumentComponent>(entity, ud);
     }
     void Frame(int w = 1280, int h = 720) { world.Update(scene.registry, w, h, 0.016f); }
+    UIDocument& doc() { return world.document(entity)->document(); }
     UIElement* find(const char* n) {
         auto* a = world.document(entity);
         return a ? a->document().root().Find(n) : nullptr;
@@ -428,9 +430,11 @@ TEST(ShippedMenuAsset, AnEmptySwapLogStillLoadsAndDrawsNothing) {
 TEST(ShippedMenuAsset, HasTheElementsItsStylesheetAndVerbsAssume) {
     ShippedMenu m;
     m.Frame();
-    for (const char* n : { "backdrop", "veil", "frame", "brand", "logo", "title",
-                           "card", "menuTabs", "newGame", "quit", "volumeFill",
-                           "swapLog", "status", "statusText", "pilot" }) {
+    for (const char* n : { "backdrop", "veil", "ramp", "frame",
+                           "verbs", "logo", "title",
+                           "newGame", "settings", "system", "quit",
+                           "settingsPanel", "volume", "volumeFill", "pilot",
+                           "systemPanel", "swapLog" }) {
         EXPECT_NE(m.find(n), nullptr) << "menu.cxml is missing #" << n;
     }
 }
@@ -441,7 +445,7 @@ TEST(ShippedMenuAsset, HasTheElementsItsStylesheetAndVerbsAssume) {
 TEST(ShippedMenuAsset, EveryAbsoluteElementWritesAllFourInsets) {
     ShippedMenu m;
     m.Frame();
-    for (const char* n : { "backdrop", "veil" }) {
+    for (const char* n : { "backdrop", "veil", "ramp" }) {
         UIElement* e = m.find(n);
         ASSERT_NE(e, nullptr) << n;
         EXPECT_EQ(e->style().position, PositionType::Absolute) << n;
@@ -459,6 +463,7 @@ TEST(ShippedMenuAsset, TheFullScreenLayersDoNotEatClicks) {
     m.Frame();
     EXPECT_FALSE(m.find("backdrop")->style().pickable);
     EXPECT_FALSE(m.find("veil")->style().pickable);
+    EXPECT_FALSE(m.find("ramp")->style().pickable);
 }
 
 // The base rule, same contract the HUD has: font-scale multiplies the 48px
@@ -588,4 +593,98 @@ TEST(MenuUIContent, TheStepButtonsCommitImmediately) {
     // is the one already written.
     for (int i = 0; i < 30; ++i) MenuUIPublishCounters(world, h);
     EXPECT_EQ(writes, 1) << "the settle double-wrote a value a click already committed";
+}
+
+
+// ------------------------------------ the shipped menu's navigation (U25e)
+//
+// The redesign is a STACK: the verb column and each panel are focus scopes, and
+// opening a panel TAKES navigation instead of adding to it. These assert the
+// shipped asset actually wires that up, because getting it wrong is invisible
+// until somebody picks up a controller.
+
+TEST(ShippedMenuAsset, TheVerbColumnAndEachPanelAreFocusScopes) {
+    ShippedMenu m;
+    m.Frame();
+    for (const char* n : { "verbs", "settingsPanel", "systemPanel" }) {
+        UIElement* e = m.find(n);
+        ASSERT_NE(e, nullptr) << n;
+        EXPECT_TRUE(e->isFocusScope())
+            << "#" << n << " is not a focus scope, so opening it would ADD to the "
+               "navigation ring rather than take it";
+    }
+}
+
+TEST(ShippedMenuAsset, OpeningSettingsTakesNavigationAndBackReturnsIt) {
+    ShippedMenu m;
+    m.Frame();
+    UIDataSource& src = m.world.shared();
+
+    // Boot: the verb column owns navigation.
+    UIElement* focused = m.doc().focused();
+    ASSERT_NE(focused, nullptr) << "nothing was focused at boot - a pad would do nothing";
+    UIElement* verbs = m.find("verbs");
+    bool insideVerbs = false;
+    for (UIElement* p = focused; p; p = p->parent()) if (p == verbs) insideVerbs = true;
+    EXPECT_TRUE(insideVerbs) << "boot focus is not in the verb column";
+
+    // Open SETTINGS the way its button does.
+    ASSERT_TRUE(invoke(src, "menuOpenSettings"));
+    m.Frame();
+    EXPECT_TRUE(src.GetBool("panelOpen")) << "the verb column would still be visible";
+
+    UIElement* panel = m.find("settingsPanel");
+    UIElement* f2 = m.doc().focused();
+    ASSERT_NE(f2, nullptr) << "opening SETTINGS left nothing focused";
+    bool insidePanel = false;
+    for (UIElement* p = f2; p; p = p->parent()) if (p == panel) insidePanel = true;
+    EXPECT_TRUE(insidePanel) << "opening SETTINGS did not move focus into it";
+
+    // Walk a long way: navigation must never escape back to NEW GAME.
+    for (int i = 0; i < 20; ++i) {
+        UINavState n;
+        n.moves.push_back(UINavDir::Down);
+        m.doc().UpdateNav(n);
+        bool still = false;
+        for (UIElement* p = m.doc().focused(); p; p = p->parent()) if (p == panel) still = true;
+        ASSERT_TRUE(still) << "navigation escaped SETTINGS after " << i << " moves";
+    }
+
+    // Back closes it through the panel's on-back, and the app's bool follows.
+    UINavState back;
+    back.back = true;
+    m.doc().UpdateNav(back);
+    EXPECT_FALSE(src.GetBool("panelOpen")) << "back did not reach the panel's on-back";
+    m.Frame();
+
+    UIElement* f3 = m.doc().focused();
+    ASSERT_NE(f3, nullptr);
+    bool backInVerbs = false;
+    for (UIElement* p = f3; p; p = p->parent()) if (p == verbs) backInVerbs = true;
+    EXPECT_TRUE(backInVerbs) << "closing SETTINGS did not return navigation to the verbs";
+}
+
+// Only one panel at a time, and the verb column hides for BOTH -- otherwise a
+// pad user cycles through NEW GAME behind an open page.
+TEST(ShippedMenuAsset, OpeningOnePanelClosesTheOtherAndHidesTheVerbs) {
+    ShippedMenu m;
+    m.Frame();
+    UIDataSource& src = m.world.shared();
+
+    ASSERT_TRUE(invoke(src, "menuOpenSettings"));
+    m.Frame();
+    EXPECT_TRUE(src.GetBool("panelSettings"));
+    EXPECT_FALSE(src.GetBool("panelSystem"));
+    EXPECT_EQ(m.find("verbs")->style().display, DisplayMode::None);
+
+    ASSERT_TRUE(invoke(src, "menuOpenSystem"));
+    m.Frame();
+    EXPECT_FALSE(src.GetBool("panelSettings"));
+    EXPECT_TRUE(src.GetBool("panelSystem"));
+    EXPECT_EQ(m.find("settingsPanel")->style().display, DisplayMode::None);
+
+    ASSERT_TRUE(invoke(src, "menuClosePanel"));
+    m.Frame();
+    EXPECT_FALSE(src.GetBool("panelOpen"));
+    EXPECT_NE(m.find("verbs")->style().display, DisplayMode::None);
 }

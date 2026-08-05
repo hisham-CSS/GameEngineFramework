@@ -313,6 +313,11 @@ namespace MyCoreEngine::ui {
         // inline because a caret, a selection and a length limit are state ONE
         // kind of element has, and putting them on UIElement would cost every
         // label in the tree.
+        // A scope root CONFINES navigation to its subtree while it is visible
+        // (focus-scope="true"). See UIDocument::SyncFocusScopes.
+        bool isFocusScope() const { return focusScope_; }
+        void setFocusScope(bool on) { focusScope_ = on; }
+
         UITextEdit*       textEdit()       { return edit_.get(); }
         const UITextEdit* textEdit() const { return edit_.get(); }
         // Held the same way and for the same reason: a <Slider> owns a number,
@@ -361,6 +366,7 @@ namespace MyCoreEngine::ui {
         std::string   dataSource_;
         std::unique_ptr<UITextEdit> edit_;   // text fields only
         std::unique_ptr<UISliderState> slider_;  // <Slider> only
+        bool focusScope_ = false;               // focus-scope="true"
         std::unique_ptr<UIScrollState> scroll_; // `overflow: scroll` only
         std::uint32_t textRevision_ = 0;
         // Last fontScale handed to the layout engine, so pushStyles_ can tell
@@ -511,6 +517,30 @@ namespace MyCoreEngine::ui {
         // click on the field itself.
         bool ActivateFocused();
 
+        // Where navigation is currently confined, or the document root when no
+        // scope is open. Everything that walks the focus order goes through
+        // this, which is what makes "the menu takes navigation" one rule rather
+        // than a special case in each caller.
+        UIElement& focusRoot();
+
+        // Reconcile the scope STACK against what is currently visible.
+        //
+        // Visibility is the single source of truth, deliberately: a panel is
+        // shown by an `if=` bound to app state, and making the stack follow
+        // that -- rather than having a second, parallel notion of "open" --
+        // means the two cannot disagree. Pushing remembers what was focused and
+        // moves focus into the new scope; popping puts it back.
+        //
+        // Called once per frame from UpdateNav, and idempotent when nothing
+        // changed, so a host that calls it twice pays a walk and nothing else.
+        void SyncFocusScopes();
+
+    private:
+        UIElement* scopeMemoryFor_(UIElement* scope);
+        void rememberScopeFocus_(UIElement* scope);
+        void focusIntoScope_(UIElement* scope);
+    public:
+
         // Move focus in a DIRECTION.
         //
         // THIS SIGNATURE IS THE SEAM. Today the body is linear: it walks the
@@ -622,6 +652,19 @@ namespace MyCoreEngine::ui {
         UIElement* hovered_ = nullptr;   // deepest element under the pointer
         UIElement* pressed_ = nullptr;   // element that received PointerDown
         UIElement* focused_ = nullptr;   // keyboard focus; at most one
+        // The open focus scopes, innermost LAST.
+        std::vector<UIElement*> scopeStack_;
+        // What was last focused INSIDE each scope, so re-entering one puts you
+        // back where you were rather than at the top of its list.
+        //
+        // Keyed on the scope rather than stored alongside the stack, because a
+        // scope's memory has to outlive its own closing: opening SETTINGS hides
+        // the verb column, which POPS it, and the whole point is that closing
+        // SETTINGS returns to the SETTINGS verb rather than to NEW GAME.
+        //
+        // A vector rather than a map: a document has a handful of scopes, and
+        // this is walked only when one opens or closes.
+        std::vector<std::pair<UIElement*, UIElement*>> scopeMemory_;
         bool  hadPointer_ = false;       // pointer was inside last frame
         bool  wasDown_ = false;
         glm::vec2 lastPos_{ 0.0f };

@@ -105,6 +105,31 @@ def placeholder_badge():
     _save(img, "placeholder.png")
 
 
+def scrim_ramp():
+    """256x16 left-to-right darkening ramp, stretched across the screen.
+
+    There is no gradient PROPERTY in the stylesheet language, but a stretched
+    linear ramp is still a linear ramp -- and stretching 256px across 1280 is
+    exactly the case bilinear filtering handles perfectly, because the source is
+    already a smooth gradient. 16px tall because it never varies vertically.
+
+    This is what keeps the menu's type legible over ARBITRARY backdrop art:
+    darkest under the verb column on the left, clear on the right where the art
+    should show.
+    """
+    w, h = 256, 16
+    img = Image.new("RGBA", (w, h))
+    px = img.load()
+    for x in range(w):
+        t = x / float(w - 1)
+        # Eased rather than linear: a straight ramp reads as a visible band edge
+        # where it meets the untouched art.
+        a = int(round(235 * (1.0 - t) ** 1.6))
+        for y in range(h):
+            px[x, y] = INK + (a,)
+    _save(img, "scrim_ramp.png")
+
+
 if __name__ == "__main__":
     if not os.path.isdir("Editor"):
         sys.exit("run me from the repo root")
@@ -112,3 +137,4 @@ if __name__ == "__main__":
     logo()
     panel_texture()
     placeholder_badge()
+    scrim_ramp()

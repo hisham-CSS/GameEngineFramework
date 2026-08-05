@@ -32,6 +32,10 @@ namespace MyCoreEngine::ui {
         TextInput,     // bubbles, to the FOCUSED element; carries typed UTF-8
         ValueChanged,  // bubbles; a control's value was edited by the user
         Wheel,         // bubbles, to the HOVERED element; default action scrolls
+        // bubbles, to the innermost open FOCUS SCOPE. B on a pad, Escape on a
+        // keyboard. The document never closes a panel itself -- a panel's
+        // visibility is app state -- so this is how it asks.
+        Back,
     };
 
     // A platform-neutral key identity. Deliberately small: only keys the UI

@@ -201,6 +201,19 @@ void InstallMenuUIContent(UIWorld& world, const MenuUIHooks& hooks) {
     src.SetInt("menuObservers", 0);
     src.SetInt("menuTextures", 0);
     src.SetInt("swapLogCursor", 0);
+    // WHICH PANEL IS OPEN. Three bools rather than a string, because a hole is
+    // a PATH and there is deliberately no `==` in the markup -- the same reason
+    // the quality tier publishes three bools beside its name.
+    //
+    // These drive `if=`, which drives DISPLAY, which is what the focus scope
+    // stack follows. One direction of causality: the app owns "open", the
+    // markup owns "visible", and the stack owns "where navigation goes".
+    src.SetBool("panelSettings", false);
+    src.SetBool("panelSystem", false);
+    // Derived, and published rather than expressed in markup: a hole is a PATH,
+    // so there is no `||` to write `if="!panelSettings && !panelSystem"` with.
+    // One bool the verb column hides on, however many panels there end up being.
+    src.SetBool("panelOpen", false);
     setStatus(src, "Ready.", true);
     publishSwapLog(src, {});
 
@@ -290,6 +303,18 @@ void InstallMenuUIContent(UIWorld& world, const MenuUIHooks& hooks) {
         src.SetInt("swapLogCursor", 0);
         setStatus(src, "Log cleared.", true);
     });
+
+    // Opening a panel is one bool. Closing it is the same bool, and `on-back`
+    // on the panel's focus-scope root is what B and Escape invoke -- so a pad,
+    // a keyboard and a mouse all close it through one path.
+    const auto openPanel = [&src](const char* which) {
+        src.SetBool("panelSettings", which && std::string(which) == "settings");
+        src.SetBool("panelSystem",   which && std::string(which) == "system");
+        src.SetBool("panelOpen",     which != nullptr);
+    };
+    src.AddAction("menuOpenSettings", [openPanel] { openPanel("settings"); });
+    src.AddAction("menuOpenSystem",   [openPanel] { openPanel("system"); });
+    src.AddAction("menuClosePanel",   [openPanel] { openPanel(nullptr); });
 
     src.AddAction("menuLogPrev", [moveCursor] { moveCursor(-1); });
     src.AddAction("menuLogNext", [moveCursor] { moveCursor(+1); });

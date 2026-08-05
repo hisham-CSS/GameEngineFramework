@@ -1,209 +1,181 @@
 <!--
-  Main menu — the demo that actually changes scene.
+  Main menu — cinematic, and navigable with a controller.
 
-  Nothing installs this either: Exported/menu.json has an entity carrying a
+  Nothing installs this: Exported/menu.json has an entity carrying a
   UIDocumentComponent that points here. The verbs behind the buttons are named
   C++ functions registered by InstallMenuUIContent (Engine/src/ui/MenuUIContent.h)
   — a file cannot carry a function, and that is the ONLY thing it cannot carry.
 
-  WHAT THIS DEMONSTRATES, and where to look when it breaks:
+  THE NAVIGATION MODEL, which is the whole reason this file was rewritten.
 
-    NEW GAME          Application::LoadScene. The swap is DEFERRED: this handler
-                      runs inside UIWorld::Update, inside the UI render pass, so
-                      the registry is replaced at the next frame boundary
-                      instead of underneath the tree being iterated.
-    SETTINGS          real host state — master volume, quality tier, vsync. Each
-                      one changes something you can observe, because a control
-                      that visibly does nothing is worse than no control.
-    SYSTEM            a live instrument. DOCS / OBSERVERS / TEXTURES are read
-                      from the running host every frame, and the swap log is a
-                      `repeat=` over a list the C++ side appends to. Watch
-                      OBSERVERS while you bounce between scenes: it must not
-                      move. If it climbs by three per swap, something is
-                      re-running the Install* helpers.
+  A menu is a STACK, not a flat page. Before focus scopes existed, opening a
+  panel merely ADDED its controls to one document-wide ring: walking off the end
+  of SETTINGS wandered back up to NEW GAME, which is not what any menu anywhere
+  does. Now:
 
-  ONE LAYOUT RULE WORTH KNOWING. `position: absolute` in this engine writes all
-  four insets unconditionally (UIElement.cpp), and Style::Edges defaults every
-  side to 0 rather than to "unset" — so `right: 20px` alone does NOT right-align
-  anything, it lands top-left with a 20px right inset that flexbox ignores.
-  Absolute is used exactly twice here (#backdrop, #veil) and both write all four
-  as zero. Everything else is ordinary flexbox.
+    focus-scope="true"   confines navigation to that subtree while it is VISIBLE.
+    on-back="..."        is what B / Escape invoke while that scope is the
+                         innermost open one.
+
+  Visibility is the single source of truth. A panel is shown by `if=` reading an
+  app bool; the scope stack follows DISPLAY, so "open" and "where navigation
+  goes" cannot drift apart. Opening remembers what was focused and moves focus
+  into the panel; closing puts it back exactly where it was — so SETTINGS
+  returns you to the SETTINGS verb, never to the top of the list.
+
+  TWO LAYOUT RULES WORTH KNOWING.
+    `position: absolute` writes all four insets unconditionally and Edges
+    defaults every side to 0, so a lone `right:` does not right-align anything.
+    Absolute is used three times here and all three write all four as zero.
+    `gap`, `flex-grow` and the insets are NUMBERS and reject a px unit; width,
+    height, border-radius and border-width are Lengths and require one.
 
   ART is placeholder and committed, so this renders on a fresh clone with no
   asset pipeline: tools/gen_ui_placeholder_art.py regenerates it.
 -->
 <UI name="menu" data-source="scene">
 
-  <!-- Full-bleed backdrop. `cover` crops to fill rather than distorting, which
-       is what you want for a photograph and what `stretch` would get wrong the
-       moment the window is not 16:9. pointer-events:none in the stylesheet, or
-       this layer eats every click meant for the card. -->
   <Element name="backdrop" class="backdrop"/>
-  <!-- A flat scrim over the art so text keeps its contrast no matter what the
-       artist replaces the backdrop with. Also absolute, also all-four-zero. -->
+  <!-- Two scrims rather than one. The flat veil guarantees a contrast floor
+       over ARBITRARY art; the ramp is a stretched linear gradient asset, which
+       is how you get a gradient with no gradient property. -->
   <Element name="veil" class="veil"/>
+  <Element name="ramp" class="ramp"/>
 
   <Element name="frame" class="frame">
 
-    <!-- ---------------------------------------------------- brand column -->
-    <Element name="brand" class="brand">
-      <!-- An Element with a background-image IS the image element: there is no
-           <Image> tag, and adding one would buy nothing a sized box does not
-           already do. `stretch` here because the logo is square and the box is
-           square, so there is nothing to crop. -->
+    <!-- ================================================ the verb column == -->
+    <!-- The root scope. It is a scope too, so that closing a panel returns
+         navigation HERE rather than to the document at large. `if=` hides it
+         while a panel is open: a pad user must not be able to cycle through
+         NEW GAME behind an open settings page. -->
+    <Element name="verbs" class="verbs" focus-scope="true"
+             if="!panelOpen">
       <Element name="logo" class="logo"/>
       <Label name="title" class="brand-title" text="CAT SPLAT"/>
       <Label name="subtitle" class="brand-sub" text="ENGINE DEMO"/>
-      <Element name="rule" class="brand-rule"/>
-      <!-- Two-way: type here and {playerName} updates everywhere, including the
-           sample HUD's greeting after NEW GAME — the shared data source is
-           host-lifetime, so it survives the scene swap. -->
-      <Label class="field-label" text="PILOT"/>
-      <TextField name="pilot" class="field" bind-value="playerName" maxlength="24"/>
+      <Element class="rule"/>
+
+      <!-- No fills, no borders, no radii. The only shape in the menu is the
+           gold rule; a verb is TYPE, and its focus state is a colour and a
+           marker. That is the whole visual idea. -->
+      <Button name="newGame" class="verb" text="NEW GAME" on-click="menuNewGame"/>
+      <Button name="settings" class="verb" text="SETTINGS" on-click="menuOpenSettings"/>
+      <Button name="system"   class="verb" text="SYSTEM"   on-click="menuOpenSystem"/>
+      <Button name="quit"     class="verb" text="QUIT"     on-click="menuQuit"/>
+
+      <Element class="rule-thin"/>
+      <Label class="hint" text="{menuStatus}" classes="hint-bad: {menuStatusOk | not}"/>
     </Element>
 
-    <!-- ------------------------------------------------------- the card -->
-    <Element name="card" class="card">
-      <TabView name="menuTabs" bind-selected="activeTab">
+    <!-- ==================================================== the panels === -->
+    <!-- Each is its own scope. Only one is open at a time, but nothing here
+         depends on that: nest two and the stack nests with them. -->
 
-        <Tab label="PLAY" class="page">
-          <Label class="page-title" text="START"/>
-          <Label class="page-note"
-                 text="Loads Exported/scene.json through Application::LoadScene."/>
+    <Element name="settingsPanel" class="panel" focus-scope="true"
+             if="panelSettings" on-back="menuClosePanel">
+      <Element class="panel-head">
+        <Label class="panel-title" text="SETTINGS"/>
+        <Label class="panel-hint" text="B / ESC to go back"/>
+      </Element>
 
-          <Button name="newGame" class="btn btn-primary" text="NEW GAME"
-                  on-click="menuNewGame"/>
-          <Button name="quit" class="btn" text="QUIT" on-click="menuQuit"/>
+      <Label class="group" text="AUDIO"/>
+      <Element class="opt">
+        <Label class="opt-label" text="MASTER VOLUME"/>
+        <Label class="opt-value" text="{menuVolumePct}%"/>
+      </Element>
+      <!-- Press anywhere to jump, then drag; the drag is a pointer CAPTURE so
+           it keeps tracking past either end of the track. Focused, the arrows
+           and a gamepad stick both nudge it — the pad and the keyboard end up
+           in the same UISliderState, so they cannot disagree. -->
+      <Slider name="volume" class="slider" bind-value="menuVolume"
+              min="0" max="1" key-step="0.05">
+        <Element name="volumeFill" class="slider-fill"
+                 bind="width: {menuVolume | percent}"/>
+      </Slider>
 
-          <Element class="spacer"/>
-          <Label class="page-note"
-                 text="The swap runs at the next frame boundary, never inside this click."/>
-        </Tab>
+      <Label class="group" text="GRAPHICS"/>
+      <Element class="opt">
+        <Label class="opt-label" text="QUALITY"/>
+        <Label class="opt-value" text="{menuQualityName}"/>
+      </Element>
+      <Element class="chips">
+        <Button class="chip" classes="chip-on: {menuQLow}"
+                text="LOW" on-click="menuQualityLow"/>
+        <Button class="chip" classes="chip-on: {menuQMed}"
+                text="MEDIUM" on-click="menuQualityMedium"/>
+        <Button class="chip" classes="chip-on: {menuQHigh}"
+                text="HIGH" on-click="menuQualityHigh"/>
+      </Element>
 
-        <Tab label="SETTINGS" class="page">
-          <Label class="page-title" text="AUDIO"/>
-          <Element class="row">
-            <Label class="row-label" text="MASTER VOLUME"/>
-            <Label class="row-value" text="{menuVolumePct}%"/>
-          </Element>
-          <!-- A REAL slider: press anywhere on it to jump, then drag. The drag
-               is a pointer CAPTURE, so it keeps tracking past either end of the
-               track instead of going dead the moment the cursor leaves the box
-               -- which is the gesture everybody makes at 0% and 100%.
+      <Element class="opt">
+        <Label class="opt-label" text="VSYNC"/>
+        <Button class="chip" classes="chip-on: {menuVSync}"
+                text="{menuVSyncName}" on-click="menuVSyncToggle"/>
+      </Element>
 
-               `bind-value` is the same two-way attribute a TextField uses,
-               because it is the same relationship. The slider pushes a NUMBER,
-               so nothing downstream has to parse a string back.
+      <Label class="group" text="PILOT"/>
+      <TextField name="pilot" class="field" bind-value="playerName" maxlength="24"/>
 
-               The fill is an ordinary child bound to the same property. The
-               <Slider> paints nothing itself: it owns a value and knows how to
-               turn a cursor into one, and the look is entirely authored. -->
-          <Slider name="volume" class="slider" bind-value="menuVolume"
-                  min="0" max="1" key-step="0.05">
-            <Element name="volumeFill" class="slider-fill"
-                     bind="width: {menuVolume | percent}"/>
-          </Slider>
-          <Element class="row-left">
-            <!-- Kept for an exact notch, and they still work. A click is
-                 already a settled gesture, so unlike a drag these commit to
-                 disk immediately. -->
-            <Button class="btn btn-step" text="-" on-click="menuVolumeDown"/>
-            <Button class="btn btn-step" text="+" on-click="menuVolumeUp"/>
-            <Label class="page-note" text="Drag, or focus it and use the arrows."/>
-          </Element>
+      <Element class="panel-foot">
+        <Button name="settingsBack" class="verb-small" text="BACK"
+                on-click="menuClosePanel"/>
+      </Element>
+    </Element>
 
-          <Label class="page-title" text="GRAPHICS"/>
-          <Element class="row">
-            <Label class="row-label" text="QUALITY TIER"/>
-            <Label class="row-value" text="{menuQualityName}"/>
-          </Element>
-          <!-- `classes=` toggles the selected look from a bool the C++ side
-               publishes. There is deliberately no `==` in a hole — a hole is a
-               PATH — so "which tier is current" arrives as three bools rather
-               than as a comparison in the markup. -->
-          <Element class="row-left">
-            <Button class="btn btn-chip" classes="chip-on: {menuQLow}"
-                    text="LOW" on-click="menuQualityLow"/>
-            <Button class="btn btn-chip" classes="chip-on: {menuQMed}"
-                    text="MEDIUM" on-click="menuQualityMedium"/>
-            <Button class="btn btn-chip" classes="chip-on: {menuQHigh}"
-                    text="HIGH" on-click="menuQualityHigh"/>
-          </Element>
+    <Element name="systemPanel" class="panel" focus-scope="true"
+             if="panelSystem" on-back="menuClosePanel">
+      <Element class="panel-head">
+        <Label class="panel-title" text="SYSTEM"/>
+        <Label class="panel-hint" text="B / ESC to go back"/>
+      </Element>
 
-          <Element class="row">
-            <Label class="row-label" text="VSYNC"/>
-            <Button class="btn btn-chip" classes="chip-on: {menuVSync}"
-                    text="{menuVSyncName}" on-click="menuVSyncToggle"/>
-          </Element>
-        </Tab>
+      <!-- Pushed once a frame by MenuUIPublishCounters, never polled: a polled
+           property on this source would defeat the binder's version fast path
+           for every binding in every document in the process. -->
+      <Element class="stats">
+        <Element class="stat">
+          <Label class="stat-num" text="{menuSwaps}"/>
+          <Label class="stat-cap" text="SWAPS"/>
+        </Element>
+        <Element class="stat">
+          <Label class="stat-num" text="{menuLiveDocs}"/>
+          <Label class="stat-cap" text="DOCS"/>
+        </Element>
+        <Element class="stat">
+          <Label class="stat-num" text="{menuObservers}"/>
+          <Label class="stat-cap" text="OBSERVERS"/>
+        </Element>
+        <Element class="stat">
+          <Label class="stat-num" text="{menuTextures}"/>
+          <Label class="stat-cap" text="TEXTURES"/>
+        </Element>
+      </Element>
+      <Label class="panel-note"
+             text="OBSERVERS must not move as you swap scenes. Three per swap means the Install helpers are being re-run."/>
 
-        <Tab label="SYSTEM" class="page">
-          <Label class="page-title" text="LIVE COUNTERS"/>
-          <!-- Pushed once a frame by MenuUIPublishCounters, never polled: a
-               polled property on this source would defeat the binder's version
-               fast path for every binding in every document in the process. -->
-          <Element class="stats">
-            <Element class="stat">
-              <Label class="stat-num" text="{menuSwaps}"/>
-              <Label class="stat-cap" text="SWAPS"/>
-            </Element>
-            <Element class="stat">
-              <Label class="stat-num" text="{menuLiveDocs}"/>
-              <Label class="stat-cap" text="DOCS"/>
-            </Element>
-            <Element class="stat">
-              <Label class="stat-num" text="{menuObservers}"/>
-              <Label class="stat-cap" text="OBSERVERS"/>
-            </Element>
-            <Element class="stat">
-              <Label class="stat-num" text="{menuTextures}"/>
-              <Label class="stat-cap" text="TEXTURES"/>
-            </Element>
-          </Element>
-          <Label class="page-note"
-                 text="OBSERVERS must not move as you swap. Three per swap means the Install helpers are being re-run."/>
+      <Label class="group" text="SWAP LOG"/>
+      <!-- A fixed pool: four slots built once at load, and the DATA slides
+           through them. No class toggle in the row template — a pool writes an
+           EMPTY value into every column of an ABSENT slot, and a bool binding
+           handed nothing is a document error. -->
+      <Element name="swapLog" class="log" repeat="swapLog" repeat-count="4"
+               repeat-offset="swapLogCursor">
+        <Element class="log-row">
+          <Label class="log-idx" text="{$index}"/>
+          <Label class="log-path" text="{path}"/>
+          <Label class="log-status" text="{status}"/>
+        </Element>
+      </Element>
+      <Element class="chips">
+        <Button class="chip" text="PREV" on-click="menuLogPrev"/>
+        <Button class="chip" text="NEXT" on-click="menuLogNext"/>
+        <Button class="chip" text="CLEAR" on-click="menuLogClear"/>
+      </Element>
 
-          <Label class="page-title" text="SWAP LOG"/>
-          <!-- The same fixed-pool `repeat=` the sample HUD's inventory uses:
-               four slots built once at load, and the DATA slides through them.
-               The window is clamped to the last full page, so it never shrinks
-               to a partial view at either end. -->
-          <Element name="swapLog" class="log" repeat="swapLog" repeat-count="4"
-                   repeat-offset="swapLogCursor">
-            <Element class="log-row">
-              <Label class="log-idx" text="{$index}"/>
-              <Label class="log-path" text="{path}"/>
-              <!-- NO class toggle here, deliberately. A repeat pool writes an
-                   EMPTY value into every column of an ABSENT slot (correct: a
-                   stale row must not linger), but the binder still evaluates
-                   that slot's bindings -- and a bool binding handed nothing is
-                   recorded as a DOCUMENT ERROR. With a log that starts empty,
-                   every slot is absent at boot, so a class toggle here would
-                   make the shipped menu report errors on startup.
-                   A `text` hole is fine: nothing renders as empty.
-                   The ok/bad colouring lives on the status line below instead,
-                   which is outside the pool. -->
-              <Label class="log-status" text="{status}"/>
-            </Element>
-          </Element>
-          <Element class="row-left">
-            <Button class="btn btn-step" text="PREV" on-click="menuLogPrev"/>
-            <Button class="btn btn-step" text="NEXT" on-click="menuLogNext"/>
-            <Button class="btn btn-step" text="CLEAR" on-click="menuLogClear"/>
-            <!-- The COUNTER is not the log length: clearing the console does
-                 not reset how many swaps this session has done, which is the
-                 number the panel above asks you to watch. -->
-            <Label class="page-note" text="{menuSwaps} this session"/>
-          </Element>
-        </Tab>
-
-      </TabView>
-
-      <!-- One status line for the whole menu, coloured by a bool rather than by
-           a colour written from C++ — the LOOK belongs in the stylesheet. -->
-      <Element name="status" class="status">
-        <Label name="statusText" class="status-text"
-               classes="status-bad: {menuStatusOk | not}" text="{menuStatus}"/>
+      <Element class="panel-foot">
+        <Button name="systemBack" class="verb-small" text="BACK"
+                on-click="menuClosePanel"/>
       </Element>
     </Element>
 

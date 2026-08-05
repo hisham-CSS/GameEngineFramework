@@ -1,32 +1,37 @@
 /*
-  Main menu styling. Structure is in menu.cxml; this file is the whole look.
+  Main menu styling — cinematic. Structure is in menu.cxml; this is the look.
 
   HOT RELOAD: the running app reads the STAGED copy next to the executable
   (build/bin/<config>/Exported/UI/), which every build refreshes from this file.
   Save that copy while the editor or player is running and the change appears
-  within a quarter of a second — no rebuild, no restart. Copy it back here to
-  keep it.
+  within a quarter of a second. Copy it back here to keep it.
 
-  TWO RULES THIS FILE OBEYS, both of which cost real time to rediscover:
+  THREE RULES THIS FILE OBEYS, each of which costs real time to rediscover:
 
   1. `position: absolute` writes ALL FOUR insets. Style::Edges defaults every
      side to 0 rather than to "unset", and UIElement pushes all four to yoga
-     unconditionally, so left/top always win over a right/bottom you wrote
-     alone. Absolute appears twice here and both write all four as zero.
+     unconditionally, so left/top always win over a right/bottom written alone.
+     Absolute appears three times here and all three write all four as zero.
 
-  2. `gap` is a NUMBER, not a Length: `gap: 10` is right and `gap: 10px` is a
-     parse error. Same for flex-grow, flex-shrink and the four insets. The
-     parser reports the RULE's line rather than the declaration's, so look at
-     every declaration in the block it names.
+  2. `gap`, `flex-grow`, `flex-shrink` and the four insets are NUMBERS and
+     reject a unit: `gap: 10` is right, `gap: 10px` is a parse error that kills
+     the whole sheet. width / height / border-radius / border-width are Lengths
+     and require one. The parser reports the RULE's line rather than the
+     declaration's, so read every line in the block it names.
 
-  3. `font-scale` multiplies the BAKED ATLAS SIZE, which is 48px
-     (kUIFontAtlasPixels in Font.h). So 0.375 is 18px and 1.0 is 48px. Nothing
-     inherits, so the `*` rule below is what makes "ordinary text" ordinary —
-     without it every unstyled label renders at full atlas size.
+  3. `font-scale` multiplies the BAKED ATLAS SIZE, 48px (kUIFontAtlasPixels in
+     Font.h). So 0.375 is 18px and 1.0 is 48px. Nothing inherits, which is why
+     the `*` rule below exists at all.
+
+  THE VISUAL IDEA: the art is the hero and the UI is type over it. No button
+  fills, no borders on the verbs, no radii. The only shape in the whole menu is
+  a gold rule. A verb's state is a COLOUR and a marker, which is also the only
+  kind of motion this engine can express cheaply — colour is one of two
+  properties on the binder's non-layout fast path.
 */
 
 * {
-  font-scale: 0.375;              /* 18px against the 48px atlas */
+  font-scale: 0.375;
 }
 
 #menu {
@@ -35,11 +40,8 @@
   color: rgba(232, 236, 244, 1);
 }
 
-/* ------------------------------------------------------------ backdrop -- */
+/* ------------------------------------------------------- the three layers - */
 
-/* `cover` crops to fill instead of distorting, which is what a photographic
-   backdrop needs the moment the window stops being 16:9. Both layers are
-   click-through, or they would swallow every press meant for the card. */
 .backdrop {
   position: absolute;
   left: 0; top: 0; right: 0; bottom: 0;
@@ -48,314 +50,303 @@
   pointer-events: none;
 }
 
+/* A contrast FLOOR, so the menu stays legible over art nobody has seen yet. */
 .veil {
   position: absolute;
   left: 0; top: 0; right: 0; bottom: 0;
-  background-color: rgba(8, 10, 16, 0.72);
+  background-color: rgba(8, 10, 16, 0.55);
   pointer-events: none;
 }
 
-/* ---------------------------------------------------------- the layout -- */
+/* ...and a directional ramp on top of it: dark under the type on the left,
+   clear on the right where the art should show. There is no gradient PROPERTY,
+   but a stretched linear ramp is still a linear ramp, and stretching a 256px
+   gradient across the screen is the one case bilinear filtering handles
+   perfectly. */
+.ramp {
+  position: absolute;
+  left: 0; top: 0; right: 0; bottom: 0;
+  background-image: "Exported/UI/art/scrim_ramp.png";
+  background-size: stretch;
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------- the frame -- */
 
 .frame {
   width: 100%;
   height: 100%;
   flex-direction: row;
   align-items: center;
-  padding: 48px 56px;
-  gap: 48;
+  padding: 56px 72px;
 }
 
-.brand {
-  width: 300px;
+/* ------------------------------------------------------- the verb column -- */
+
+.verbs {
+  width: 460px;
   flex-direction: column;
   align-items: flex-start;
-  gap: 10;
+  gap: 2;
 }
 
 .logo {
-  width: 128px;
-  height: 128px;
+  width: 96px;
+  height: 96px;
   background-image: "Exported/UI/art/logo.png";
-  background-size: stretch;      /* square art in a square box: nothing to crop */
-  margin: 0 0 6px 0;
+  background-size: stretch;
+  margin: 0 0 14px 0;
 }
 
-/* 0.83 * 48 = 40px, and the atlas is 48 — so this magnifies by nothing. That
-   is the entire reason the font is baked at 48 rather than at body size. */
+/* 0.83 * 48 = 40px against a 48px atlas: no magnification at all, which is the
+   entire reason the font is baked large. */
 .brand-title {
   font-scale: 0.83;
   color: rgba(255, 255, 255, 1);
 }
 
 .brand-sub {
-  font-scale: 0.33;
+  font-scale: 0.3;
   color: rgba(255, 196, 72, 1);
+  margin: 2px 0 0 0;
 }
 
-.brand-rule {
-  width: 72px;
+.rule {
+  width: 84px;
   height: 3px;
   background-color: rgba(255, 196, 72, 1);
-  border-radius: 2px;
-  margin: 8px 0 14px 0;
+  margin: 22px 0 18px 0;
 }
 
-.field-label {
-  font-scale: 0.29;
-  color: rgba(150, 160, 178, 1);
+.rule-thin {
+  width: 220px;
+  height: 1px;
+  background-color: rgba(255, 255, 255, 0.12);
+  margin: 22px 0 12px 0;
 }
 
-.field {
-  width: 100%;
-  padding: 9px 12px;
-  background-color: rgba(0, 0, 0, 0.45);
-  border-width: 1px;
-  border-color: rgba(255, 255, 255, 0.14);
-  border-radius: 8px;
-  color: rgba(232, 236, 244, 1);
+/* A VERB is type. No fill, no border, no radius — the padding is a hit target,
+   not a shape. */
+.verb {
+  padding: 9px 0;
+  background-color: rgba(0, 0, 0, 0);
+  border-width: 0px;
+  font-scale: 0.71;                     /* 34px */
+  color: rgba(176, 184, 200, 1);
 }
 
-.field:focus {
-  border-color: rgba(255, 196, 72, 0.9);
-  background-color: rgba(0, 0, 0, 0.6);
+.verb:hover {
+  color: rgba(255, 255, 255, 1);
 }
 
-/* ------------------------------------------------------------- the card - */
-
-/* NO background-image here, on purpose. A background-image is a SEPARATE quad
-   drawn OVER the background colour (not a tint of it), so an opaque panel
-   texture would throw away this card's translucency -- and panel.png is 64x64
-   flat navy, which at a 10x stretch adds nothing but softness. A solid fill
-   plus a radius and a hairline border is both crisper and genuinely see-through
-   over the backdrop.
-
-   `fill.a *= outer` in the box shader clips the fill to the BORDER box, which
-   is what stops a translucent card showing the scene through its own rounded
-   corners. background-image is still demonstrated twice, on .backdrop (cover)
-   and .logo (stretch) -- both background-size values. */
-.card {
-  flex-grow: 1;
-  height: 100%;
-  max-width: 720px;
-  flex-direction: column;
-  background-color: rgba(18, 21, 30, 0.88);
-  border-width: 1px;
-  border-color: rgba(255, 255, 255, 0.1);
-  border-radius: 18px;
-  padding: 8px;
-}
-
-/* ------------------------------------------------------------ tab strip - */
-
-/* A <Tab> produces TWO elements: the header (styled by `.tab`, engine-supplied)
-   and the panel (which takes everything else the Tab carried). Selection is a
-   plain CLASS on the header, so `.tab.selected` is the whole styling story. */
-.tab {
-  padding: 10px 20px;
-  margin: 0 4px 0 0;
-  color: rgba(150, 160, 178, 1);
-  background-color: rgba(255, 255, 255, 0.03);
-  border-radius: 10px;
-  border-width: 1px;
-  border-color: rgba(0, 0, 0, 0);
-  font-scale: 0.33;
-}
-
-.tab:hover {
-  color: rgba(232, 236, 244, 1);
-  background-color: rgba(255, 255, 255, 0.08);
-}
-
-.tab.selected {
-  color: rgba(16, 18, 24, 1);
-  background-color: rgba(255, 196, 72, 1);
-  border-color: rgba(255, 216, 130, 1);
-}
-
-.tab:focus {
-  border-color: rgba(255, 196, 72, 0.8);
-}
-
-/* The panel a <Tab> becomes. */
-.page {
-  flex-direction: column;
-  padding: 22px 20px 12px 20px;
-  gap: 10;
-}
-
-.page-title {
-  font-scale: 0.35;
+/* FOCUS is the important state here, not hover: this menu is meant to be
+   driven by a pad, where hover does not exist. Left padding opens up to make
+   room for the marker below, so the focused verb visibly steps forward. */
+.verb:focus {
   color: rgba(255, 196, 72, 1);
-  margin: 6px 0 2px 0;
+  padding: 9px 0 9px 22px;
 }
 
-.page-note {
+/* The marker. A left border rather than a separate element: one property, no
+   extra box, and it cannot fall out of step with the focus state. */
+.verb:focus {
+  border-width: 3px;
+  border-color: rgba(255, 196, 72, 1);
+}
+
+.verb:active {
+  color: rgba(255, 224, 150, 1);
+}
+
+.verb-small {
+  padding: 8px 0;
+  background-color: rgba(0, 0, 0, 0);
+  border-width: 0px;
+  font-scale: 0.36;
+  color: rgba(160, 170, 188, 1);
+}
+
+.verb-small:hover { color: rgba(255, 255, 255, 1); }
+.verb-small:focus {
+  color: rgba(255, 196, 72, 1);
+  border-width: 2px;
+  border-color: rgba(255, 196, 72, 1);
+  padding: 8px 0 8px 14px;
+}
+
+.hint {
   font-scale: 0.27;
   color: rgba(138, 148, 166, 1);
 }
 
-.spacer {
-  height: 8px;
+.hint-bad {
+  color: rgba(240, 130, 110, 1);
 }
 
-/* --------------------------------------------------------------- rows --- */
+/* ------------------------------------------------------------ the panels -- */
 
-.row {
+/* A panel REPLACES the verb column rather than sitting beside it, which is what
+   makes the stack legible: one thing has navigation at a time. */
+.panel {
+  width: 620px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6;
+}
+
+.panel-head {
+  flex-direction: row;
+  /* NOT `baseline` -- the supported values are auto|flex-start|center|flex-end|
+     stretch, and the loader reports anything else rather than ignoring it.
+     flex-end lines the small hint up with the bottom of the title, which is
+     what baseline was reaching for. */
+  align-items: flex-end;
+  justify-content: space-between;
+  width: 100%;
+  margin: 0 0 6px 0;
+}
+
+.panel-title {
+  font-scale: 0.71;
+  color: rgba(255, 255, 255, 1);
+}
+
+.panel-hint {
+  font-scale: 0.27;
+  color: rgba(138, 148, 166, 1);
+}
+
+.panel-note {
+  font-scale: 0.25;
+  color: rgba(128, 138, 156, 1);
+  margin: 2px 0 8px 0;
+}
+
+.panel-foot {
+  margin: 18px 0 0 0;
+}
+
+.group {
+  font-scale: 0.29;
+  color: rgba(255, 196, 72, 1);
+  margin: 16px 0 4px 0;
+}
+
+.opt {
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
   width: 100%;
+  padding: 4px 0;
 }
 
-.row-left {
-  flex-direction: row;
-  align-items: center;
-  gap: 8;
+.opt-label {
+  font-scale: 0.33;
+  color: rgba(210, 217, 230, 1);
 }
 
-.row-label {
-  font-scale: 0.31;
-  color: rgba(196, 204, 218, 1);
-}
-
-.row-value {
-  font-scale: 0.31;
+.opt-value {
+  font-scale: 0.33;
   color: rgba(255, 196, 72, 1);
 }
 
-/* ------------------------------------------------------------- buttons -- */
+/* --------------------------------------------------------------- controls - */
 
-.btn {
-  padding: 11px 18px;
-  background-color: rgba(255, 255, 255, 0.06);
-  border-width: 1px;
-  border-color: rgba(255, 255, 255, 0.14);
-  border-radius: 10px;
-  color: rgba(232, 236, 244, 1);
-  font-scale: 0.33;
-}
-
-.btn:hover {
-  background-color: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.28);
-}
-
-.btn:active {
-  background-color: rgba(255, 196, 72, 0.28);
-  border-color: rgba(255, 196, 72, 0.7);
-}
-
-.btn:focus {
-  border-color: rgba(255, 196, 72, 0.85);
-}
-
-.btn-primary {
-  background-color: rgba(255, 196, 72, 1);
-  border-color: rgba(255, 216, 130, 1);
-  color: rgba(16, 18, 24, 1);
-  padding: 15px 22px;
-  font-scale: 0.4;
-  margin: 4px 0 0 0;
-}
-
-.btn-primary:hover {
-  background-color: rgba(255, 210, 110, 1);
-}
-
-.btn-primary:active {
-  background-color: rgba(226, 168, 48, 1);
-}
-
-.btn-step {
-  padding: 8px 16px;
-  font-scale: 0.31;
-}
-
-.btn-chip {
-  padding: 7px 14px;
-  font-scale: 0.29;
-  color: rgba(160, 170, 188, 1);
-}
-
-/* Toggled by `classes=` from a bool the C++ side publishes. */
-.chip-on {
-  background-color: rgba(255, 196, 72, 0.9);
-  border-color: rgba(255, 216, 130, 1);
-  color: rgba(16, 18, 24, 1);
-}
-
-/* --------------------------------------------------------------- meter -- */
-
-.meter {
-  width: 100%;
-  height: 10px;
-  background-color: rgba(0, 0, 0, 0.5);
-  border-radius: 5px;
-  border-width: 1px;
-  border-color: rgba(255, 255, 255, 0.08);
-}
-
-/* The <Slider> IS the track: a plain box that owns a value. Taller than the
-   old read-only meter because it is now a hit target you have to be able to
-   press accurately. */
 .slider {
   width: 100%;
-  height: 18px;
-  background-color: rgba(0, 0, 0, 0.5);
-  border-radius: 9px;
+  height: 16px;
+  background-color: rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
   border-width: 1px;
-  border-color: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.06);
   padding: 0;
+  margin: 2px 0 0 0;
 }
 
-.slider:hover {
-  border-color: rgba(255, 255, 255, 0.22);
-}
+.slider:hover { border-color: rgba(255, 255, 255, 0.2); }
 
-/* A slider is focusable BY TYPE, like a field, so it needs a visible focus
-   state or a Tab stop reads as a dropped keystroke. */
+/* Focusable BY TYPE, like a field — so it needs a visible focus state or a Tab
+   stop reads as a dropped keystroke. */
 .slider:focus {
-  border-color: rgba(255, 196, 72, 0.9);
+  border-color: rgba(255, 196, 72, 1);
+  border-width: 2px;
 }
 
 .slider-fill {
   height: 100%;
   background-color: rgba(255, 196, 72, 1);
-  border-radius: 9px;
-  /* Click-through: the press is resolved by walking UP from whatever was hit,
-     so this would work either way -- but a decorative fill should never be a
-     hit target on principle. */
+  border-radius: 8px;
   pointer-events: none;
 }
 
-/* `width` is BOUND in the markup, so the value here is only the pre-bind
-   default — the loader says so at startup rather than letting the two
-   disagree silently. */
-.meter-fill {
-  width: 50%;
-  height: 100%;
-  background-color: rgba(255, 196, 72, 1);
-  border-radius: 5px;
+.chips {
+  flex-direction: row;
+  align-items: center;
+  gap: 8;
+  margin: 4px 0 0 0;
 }
 
-/* --------------------------------------------------------- the counters - */
+.chip {
+  padding: 8px 16px;
+  background-color: rgba(255, 255, 255, 0.05);
+  border-width: 1px;
+  border-color: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  font-scale: 0.29;
+  color: rgba(168, 178, 196, 1);
+}
+
+.chip:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 1);
+}
+
+.chip:focus {
+  border-color: rgba(255, 196, 72, 1);
+  color: rgba(255, 255, 255, 1);
+}
+
+/* Toggled by `classes=` from a bool the C++ side publishes. */
+.chip-on {
+  background-color: rgba(255, 196, 72, 0.92);
+  border-color: rgba(255, 216, 130, 1);
+  color: rgba(16, 18, 24, 1);
+}
+
+.field {
+  width: 100%;
+  padding: 10px 12px;
+  background-color: rgba(0, 0, 0, 0.4);
+  border-width: 1px;
+  border-color: rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  color: rgba(232, 236, 244, 1);
+  margin: 2px 0 0 0;
+}
+
+.field:focus {
+  border-color: rgba(255, 196, 72, 1);
+  background-color: rgba(0, 0, 0, 0.55);
+}
+
+/* ------------------------------------------------------------- the stats -- */
 
 .stats {
   flex-direction: row;
   gap: 10;
   width: 100%;
+  margin: 4px 0 0 0;
 }
 
 .stat {
   flex-grow: 1;
   flex-direction: column;
   align-items: center;
-  padding: 12px 6px;
-  background-color: rgba(0, 0, 0, 0.35);
-  border-radius: 12px;
+  padding: 14px 6px;
+  background-color: rgba(255, 255, 255, 0.04);
+  border-radius: 4px;
   border-width: 1px;
-  border-color: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.07);
 }
 
 .stat-num {
@@ -364,21 +355,21 @@
 }
 
 .stat-cap {
-  font-scale: 0.25;
+  font-scale: 0.23;
   color: rgba(138, 148, 166, 1);
 }
 
-/* ------------------------------------------------------------ swap log -- */
+/* ----------------------------------------------------------- the swap log - */
 
 .log {
   width: 100%;
   flex-direction: column;
   gap: 3;
   padding: 8px;
-  background-color: rgba(0, 0, 0, 0.35);
-  border-radius: 10px;
+  background-color: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
   border-width: 1px;
-  border-color: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.06);
 }
 
 .log-row {
@@ -386,7 +377,7 @@
   align-items: center;
   gap: 10;
   padding: 5px 8px;
-  border-radius: 6px;
+  border-radius: 3px;
   background-color: rgba(255, 255, 255, 0.03);
 }
 
@@ -404,28 +395,5 @@
 
 .log-status {
   font-scale: 0.25;
-  color: rgba(120, 200, 140, 1);
-}
-
-.log-bad {
-  color: rgba(240, 110, 100, 1);
-}
-
-/* -------------------------------------------------------------- status -- */
-
-.status {
-  width: 100%;
-  padding: 10px 20px;
-  border-radius: 10px;
-  background-color: rgba(0, 0, 0, 0.3);
-  margin: 4px 0 0 0;
-}
-
-.status-text {
-  font-scale: 0.27;
   color: rgba(150, 200, 165, 1);
-}
-
-.status-bad {
-  color: rgba(240, 130, 110, 1);
 }
