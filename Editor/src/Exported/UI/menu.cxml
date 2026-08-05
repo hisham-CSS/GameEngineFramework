@@ -85,9 +85,11 @@
         <Label class="opt-value" text="{menuVolumePct}%"/>
       </Element>
       <!-- Press anywhere to jump, then drag; the drag is a pointer CAPTURE so
-           it keeps tracking past either end of the track. Focused, the arrows
-           and a gamepad stick both nudge it — the pad and the keyboard end up
-           in the same UISliderState, so they cannot disagree. -->
+           it keeps tracking past either end of the track.
+           `key-step` is the DIGITAL grain: one arrow press, one d-pad press.
+           A STICK is analog and moves it continuously instead, at a rate --
+           stepping an analog input in fixed notches is what made a pad feel
+           like it was snapping. -->
       <Slider name="volume" class="slider" bind-value="menuVolume"
               min="0" max="1" key-step="0.05">
         <Element name="volumeFill" class="slider-fill"

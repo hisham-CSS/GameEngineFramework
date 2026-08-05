@@ -37,6 +37,14 @@ namespace MyCoreEngine {
             const int n = repeat.Tick(held, dt);
             for (int i = 0; i < n; ++i) nav.moves.push_back(held);
 
+            // Raw, for whatever can use it continuously. The discrete moves
+            // above and this are the SAME stick reported two ways: UpdateNav
+            // picks one per control, and suppresses the other so a slider never
+            // gets both.
+            nav.axisX = in.axis("UINavX");
+            nav.axisY = in.axis("UINavY");
+            nav.dt = dt;
+
             nav.activate = in.wasPressed("UIConfirm");
             nav.back     = in.wasPressed("UIBack");
             nav.page     = (in.wasPressed("UIPageNext") ? 1 : 0) -

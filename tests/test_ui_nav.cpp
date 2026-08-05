@@ -16,6 +16,7 @@
 #include "../Engine/src/ui/UIDataSource.h"
 #include "../Engine/src/ui/UINav.h"
 
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -464,4 +465,128 @@ TEST(UIFocusScopeMarkup, RejectsAnUnknownOnEventAndNamesBack) {
     ASSERT_FALSE(errs.empty());
     EXPECT_NE(errs[0].find("back"), std::string::npos)
         << "the diagnostic does not list back: " << errs[0];
+}
+
+
+// ------------------------------------------- analog vs digital slider (U25f)
+//
+// Reported: "controller vol slider controls seem to snap to every 5 percent".
+// They did -- the stick was being reported only as discrete d-pad-shaped moves,
+// so a continuum was being driven in keyStep notches.
+//
+// A control that can use the analog value gets the analog value. Discrete moves
+// still traverse a MENU, because a list has positions rather than a continuum.
+
+namespace {
+
+UINavState navStick(float x, float dt) {
+    UINavState n;
+    n.axisX = x;
+    n.dt = dt;
+    // The synthesiser reports BOTH from one stick: the repeater's discrete move
+    // and the raw axis. Reproducing that here is the point -- the value must
+    // not move twice.
+    if (x > 0.5f)  n.moves.push_back(UINavDir::Right);
+    if (x < -0.5f) n.moves.push_back(UINavDir::Left);
+    return n;
+}
+
+} // namespace
+
+TEST(UINavAnalog, AStickMovesASliderContinuouslyRatherThanInNotches) {
+    UIDocument doc;
+    std::vector<std::string> errors;
+    ASSERT_TRUE(UIMarkup::LoadInto(doc,
+        R"(<UI><Slider name="s" min="0" max="1" value="0" )"
+        R"(key-step="0.05"/></UI>)", errors, "t.cxml"))
+        << (errors.empty() ? "" : errors[0]);
+    doc.Layout(400.f, 400.f);
+    UIElement* s = doc.root().Find("s");
+    ASSERT_NE(s, nullptr);
+    s->slider()->analogSeconds = 1.0f;   // full range in one second
+    doc.SetFocus(s);
+
+    // 23 frames at 60Hz is 0.3833s, so at one range per second the value lands
+    // on 0.3833 -- deliberately NOT a multiple of the 0.05 keyStep, which is
+    // what makes the notch check below able to tell the two apart at all. (Half
+    // a second would have landed on exactly 0.5, which IS a notch, and the
+    // first version of this test could not have failed.)
+    for (int i = 0; i < 23; ++i) doc.UpdateNav(navStick(1.0f, 1.0f / 60.0f));
+    EXPECT_NEAR(s->slider()->value, 23.0f / 60.0f, 0.02f)
+        << "a held stick did not move the slider at a RATE";
+
+    // ...and it is not landing on notch boundaries.
+    const float v = s->slider()->value;
+    const float notch = v / 0.05f;
+    EXPECT_GT(std::abs(notch - std::round(notch)), 1e-3f)
+        << "the value is quantised to key-step, so the stick is still digital";
+}
+
+// The discrete move and the axis arrive together from ONE stick. If both were
+// applied the slider would move twice as fast as asked.
+TEST(UINavAnalog, TheAnalogPathSuppressesTheDiscreteMoveFromTheSameStick) {
+    UIDocument doc;
+    std::vector<std::string> errors;
+    ASSERT_TRUE(UIMarkup::LoadInto(doc,
+        R"(<UI><Slider name="s" min="0" max="1" value="0" key-step="0.25"/></UI>)",
+        errors, "t.cxml")) << (errors.empty() ? "" : errors[0]);
+    doc.Layout(400.f, 400.f);
+    UIElement* s = doc.root().Find("s");
+    s->slider()->analogSeconds = 10.0f;   // deliberately slow
+    doc.SetFocus(s);
+
+    // One frame: the analog contribution is tiny. If the discrete move ALSO
+    // applied, the value would jump by a whole 0.25 notch.
+    doc.UpdateNav(navStick(1.0f, 1.0f / 60.0f));
+    EXPECT_LT(s->slider()->value, 0.05f)
+        << "the value moved by a key-step notch as well as by the stick";
+}
+
+// A D-PAD has no analog value, so it must still move in notches -- a digital
+// control needs a digital grain or it cannot be aimed at all.
+TEST(UINavAnalog, ADPadStillMovesInNotches) {
+    UIDocument doc;
+    std::vector<std::string> errors;
+    ASSERT_TRUE(UIMarkup::LoadInto(doc,
+        R"(<UI><Slider name="s" min="0" max="1" value="0" key-step="0.1"/></UI>)",
+        errors, "t.cxml")) << (errors.empty() ? "" : errors[0]);
+    doc.Layout(400.f, 400.f);
+    UIElement* s = doc.root().Find("s");
+    doc.SetFocus(s);
+
+    // A d-pad press: a discrete move with NO axis deflection.
+    UINavState n;
+    n.moves.push_back(UINavDir::Right);
+    n.dt = 1.0f / 60.0f;
+    doc.UpdateNav(n);
+    EXPECT_NEAR(s->slider()->value, 0.1f, 1e-4f)
+        << "a d-pad press did not move by exactly one key-step";
+}
+
+// A stick below the threshold does nothing at all, so a resting pad with a
+// little drift does not creep the volume.
+TEST(UINavAnalog, ARestingStickDoesNotCreepTheValue) {
+    UIDocument doc;
+    std::vector<std::string> errors;
+    ASSERT_TRUE(UIMarkup::LoadInto(doc,
+        R"(<UI><Slider name="s" min="0" max="1" value="0.5"/></UI>)",
+        errors, "t.cxml")) << (errors.empty() ? "" : errors[0]);
+    doc.Layout(400.f, 400.f);
+    UIElement* s = doc.root().Find("s");
+    doc.SetFocus(s);
+
+    for (int i = 0; i < 120; ++i) doc.UpdateNav(navStick(0.2f, 1.0f / 60.0f));
+    EXPECT_FLOAT_EQ(s->slider()->value, 0.5f) << "a resting stick crept the value";
+}
+
+// clear() must drop the axes too, or one frame of deflection would keep driving
+// a focused slider with the pad sitting untouched on the desk.
+TEST(UINavAnalog, ClearingTheStateDropsTheAxes) {
+    UINavState n = navStick(1.0f, 0.016f);
+    ASSERT_GT(n.axisX, 0.0f);
+    n.clear();
+    EXPECT_FLOAT_EQ(n.axisX, 0.0f);
+    EXPECT_FLOAT_EQ(n.axisY, 0.0f);
+    EXPECT_FLOAT_EQ(n.dt, 0.0f);
+    EXPECT_TRUE(n.empty());
 }

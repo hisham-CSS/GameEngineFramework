@@ -1790,20 +1790,44 @@ bool UIDocument::UpdateNav(const UINavState& nav) {
 
     bool consumed = false;
 
+    // ---- a focused slider takes the stick, CONTINUOUSLY ----
+    //
+    // Discrete moves are how you traverse a menu; a slider is not a menu. A
+    // stick pushed on one moves it at a rate, which is what makes a pad feel
+    // analog instead of ratcheting through notches.
+    //
+    // Consuming the axis here also SUPPRESSES the discrete moves along the same
+    // axis below, because the repeater is producing both from one stick and the
+    // value would otherwise move twice.
+    bool analogAte = false;
+    if (focused_ && isInTree_(focused_) && focused_->slider() && nav.dt > 0.0f) {
+        UISliderState& sl = *focused_->slider();
+        const float a = sl.vertical ? nav.axisY : nav.axisX;
+        // Above the same threshold the discrete path uses, so there is no band
+        // where a stick does neither.
+        if (a > 0.5f || a < -0.5f) {
+            const float rate = sl.analogSeconds > 0.0f
+                                   ? sl.span() / sl.analogSeconds : 0.0f;
+            if (sl.SetValue(sl.value + a * rate * nav.dt)) scrollDirty_ = true;
+            analogAte = true;
+            consumed = true;
+        }
+    }
+
     for (const UINavDir d : nav.moves) {
-        // A focused SLIDER eats the along-axis moves, exactly as it eats the
-        // arrow keys: a stick pushed left on a volume slider must change the
-        // volume, not jump to the previous control. This is the one place the
-        // pad and the keyboard have to agree, and they do because both end up
-        // in the same state object.
+        // A focused SLIDER eats the along-axis moves. With a D-PAD (or the
+        // arrow keys) that is a notch; with a STICK the analog path above has
+        // already moved it and this only has to stay out of the way.
         if (focused_ && isInTree_(focused_) && focused_->slider()) {
             UISliderState& sl = *focused_->slider();
             const UINavDir lo = sl.vertical ? UINavDir::Down : UINavDir::Left;
             const UINavDir hi = sl.vertical ? UINavDir::Up   : UINavDir::Right;
             if (d == lo || d == hi) {
-                sl.Nudge(d == hi ? +1.0f : -1.0f);
-                scrollDirty_ = true;   // reach the source and relayout this frame
-                consumed = true;
+                if (!analogAte) {
+                    sl.Nudge(d == hi ? +1.0f : -1.0f);
+                    scrollDirty_ = true;   // reach the source and relayout now
+                    consumed = true;
+                }
                 continue;
             }
         }

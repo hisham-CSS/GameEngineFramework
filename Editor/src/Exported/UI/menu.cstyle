@@ -125,53 +125,67 @@
   margin: 22px 0 12px 0;
 }
 
-/* A VERB is type. No fill, no border, no radius — the padding is a hit target,
-   not a shape. */
+/* A VERB is type on a BAND.
+ *
+ * FULL WIDTH is the whole trick, and getting it wrong is what made the first
+ * attempt look sloppy: a button sizes to its text, so any highlight drawn on it
+ * hugs the glyphs and reads as a badly-fitted box rather than a selection. A
+ * row that spans the column reads as a row.
+ *
+ * And NO BORDER. `border-width` is a single uniform float -- there is no
+ * border-left-width in this system -- so the "left marker" the first version
+ * asked for came out as a rectangle around the text on all four sides. That is
+ * exactly what the screenshot showed.
+ *
+ * The padding is constant across every state, so focus moving does not reflow
+ * the column. A highlight that also nudges the text is two changes where one
+ * will do, and the nudge is the one that reads as jitter. */
 .verb {
-  padding: 9px 0;
+  width: 100%;
+  padding: 10px 18px;
   background-color: rgba(0, 0, 0, 0);
   border-width: 0px;
+  border-radius: 3px;
   font-scale: 0.71;                     /* 34px */
   color: rgba(176, 184, 200, 1);
 }
 
 .verb:hover {
   color: rgba(255, 255, 255, 1);
+  background-color: rgba(255, 255, 255, 0.05);
 }
 
-/* FOCUS is the important state here, not hover: this menu is meant to be
-   driven by a pad, where hover does not exist. Left padding opens up to make
-   room for the marker below, so the focused verb visibly steps forward. */
+/* FOCUS is the important state here, not hover: this menu is meant to be driven
+   by a pad, where hover does not exist. Colour AND a band, so it survives being
+   looked at on a bright backdrop where colour alone would not carry. */
 .verb:focus {
-  color: rgba(255, 196, 72, 1);
-  padding: 9px 0 9px 22px;
-}
-
-/* The marker. A left border rather than a separate element: one property, no
-   extra box, and it cannot fall out of step with the focus state. */
-.verb:focus {
-  border-width: 3px;
-  border-color: rgba(255, 196, 72, 1);
+  color: rgba(255, 214, 120, 1);
+  background-color: rgba(255, 196, 72, 0.16);
 }
 
 .verb:active {
-  color: rgba(255, 224, 150, 1);
+  background-color: rgba(255, 196, 72, 0.3);
+  color: rgba(255, 236, 190, 1);
 }
 
 .verb-small {
-  padding: 8px 0;
+  padding: 8px 14px;
   background-color: rgba(0, 0, 0, 0);
   border-width: 0px;
+  border-radius: 3px;
   font-scale: 0.36;
   color: rgba(160, 170, 188, 1);
 }
 
-.verb-small:hover { color: rgba(255, 255, 255, 1); }
+.verb-small:hover {
+  color: rgba(255, 255, 255, 1);
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+/* Same band, same reason, same constant padding. */
 .verb-small:focus {
-  color: rgba(255, 196, 72, 1);
-  border-width: 2px;
-  border-color: rgba(255, 196, 72, 1);
-  padding: 8px 0 8px 14px;
+  color: rgba(255, 214, 120, 1);
+  background-color: rgba(255, 196, 72, 0.16);
 }
 
 .hint {
@@ -301,8 +315,12 @@
   color: rgba(255, 255, 255, 1);
 }
 
+/* A chip is small enough that a border reads as a deliberate outline rather
+   than a mis-sized box, so it keeps one -- but it gets a fill too, because on a
+   pad the focused chip has to be findable at a glance. */
 .chip:focus {
   border-color: rgba(255, 196, 72, 1);
+  background-color: rgba(255, 196, 72, 0.18);
   color: rgba(255, 255, 255, 1);
 }
 

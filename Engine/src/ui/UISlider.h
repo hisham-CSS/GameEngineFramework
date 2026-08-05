@@ -30,8 +30,17 @@ namespace MyCoreEngine::ui {
         // tenths.
         float step = 0.0f;
         // How far a single arrow press moves it. Independent of `step` so a
-        // continuous slider still has a sensible keyboard and gamepad grain.
+        // continuous slider still has a sensible keyboard and D-PAD grain --
+        // both are digital, and a digital control has to move in notches.
         float keyStep = 0.05f;
+        // How fast a fully deflected STICK moves it, in value per second. An
+        // analog input deserves an analog response; stepping it in keyStep
+        // notches is what made a pad feel like it was snapping.
+        //
+        // Expressed as a fraction of the range so it means the same thing on a
+        // 0..1 volume and a 60..110 field of view: the default crosses the
+        // whole range in about a second and a half.
+        float analogSeconds = 1.5f;
         // Vertical sliders exist (a mixer channel), and the drag maths differs
         // only in which axis it reads.
         bool vertical = false;

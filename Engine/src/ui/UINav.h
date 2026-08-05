@@ -39,10 +39,28 @@ namespace MyCoreEngine::ui {
         // Shoulder buttons: -1 previous page, +1 next. Zero is no change.
         int  page = 0;
 
+        // The RAW stick, deadzoned but not thresholded, and this frame's dt.
+        //
+        // Discrete `moves` are how you traverse a MENU -- a list has positions,
+        // not a continuum. But a slider is a continuum, and stepping one in
+        // fixed notches because the input happened to arrive as a d-pad event
+        // is why a stick on a volume bar feels wrong. A control that can use
+        // the analog value gets the analog value.
+        float axisX = 0.0f;
+        float axisY = 0.0f;
+        float dt = 0.0f;
+
         bool empty() const {
             return moves.empty() && !activate && !back && page == 0;
         }
-        void clear() { moves.clear(); activate = false; back = false; page = 0; }
+        void clear() {
+            moves.clear();
+            activate = false; back = false; page = 0;
+            // The axes too: UIWorld clears this after every frame, and a stale
+            // deflection left behind would keep driving a focused slider with
+            // the pad sitting untouched on the desk.
+            axisX = axisY = dt = 0.0f;
+        }
     };
 
     // Turns a HELD direction into the series of edges a UI expects: one
