@@ -35,7 +35,7 @@ A host wires the system up once and never mentions a specific UI again:
 ```cpp
 UIWorld uiWorld;                        // outlives the draw callback
 uiWorld.SetFont(&font);
-InstallDemoUIContent(uiWorld);          // the sample's action + converter
+InstallDemoUIContent(uiWorld);          // the sample's values, actions and converter
 
 renderer().SetUIDraw([&](Renderer2D& r2d, int w, int h, float dt) {
     uiWorld.SetPointer(pointerState);   // see "Input" below
@@ -45,16 +45,29 @@ renderer().SetUIDraw([&](Renderer2D& r2d, int w, int h, float dt) {
 });
 ```
 
+`InstallDemoUIContent` does three things: it seeds the properties `hud.cxml`
+binds to, it registers the three named actions the markup calls (`addScore` on
+the score button, `invPrev` and `invNext` on the inventory's PREV/NEXT), and it
+registers the `healthTint` converter. The seeding happens **before** the
+document exists, so the first binding pass has real values rather than a frame
+of defaults.
+
 The only C++ a UI needs is what a file cannot carry: **named actions** and
 **converters**. Everything else — structure, appearance, values, interaction
 states — is content that hot-reloads.
 
 `UIWorld::Update` runs each document through `Update(dt)` → `UpdateRepeats()` →
 `UpdateTabs()` → `UpdateToTarget()` → `AdvanceTime(dt)` → `Layout` →
-`UpdatePointer` → `UpdateKeyboard` → `PublishToSources()` →
-`RestyleInteractive()` → `UpdateToTarget()` again → a conditional second
-`Layout`. That second binder pass is what lands a tab switch or a class toggle
-in the same frame as the click that caused it.
+`UpdatePointer`. Then, **only for the document that owns the keyboard** — the
+focused one, or the pointer's document when nothing has focus — it runs
+`UpdateKeyboard` → `PageTabs` (when a page intent is pending) → `UpdateNav`.
+Every document then finishes with `PublishToSources()` → `RestyleInteractive()`
+→ `UpdateToTarget()` again → a conditional second `Layout`.
+
+Paging comes **before** the directional move because a shoulder press changes
+which panel is on screen, and a stick move in the same frame should land in the
+panel it just switched to. That second binder pass is what lands a tab switch or
+a class toggle in the same frame as the click that caused it.
 Bindings run **before** layout so a changed label is measured at its new width
 on the frame it changes; a `setText` from an input handler never was — it lands
 after the solve and paints at the previous frame's size.
@@ -104,8 +117,11 @@ Parsed by `UIMarkup` (`Engine/src/ui/UIMarkup.h`, pugixml).
 | `on-<event>` | calls a named action the app registered |
 | `focusable` | `true`/`false` — puts the element in the tab order |
 | `disabled` | `true`/`false` (bare = true) — inert, skipped by Tab, matches `:disabled` |
-| `value` / `maxlength` / `mask` / `multiline` | `<TextField>` only — see [Text entry](#text-entry) |
-| `bind-value` | `<TextField>` only — a **two-way** value binding |
+| `value` | `<TextField>` or `<Slider>` — what the control starts with; both own a value |
+| `maxlength` / `mask` / `multiline` | `<TextField>` only — see [Text entry](#text-entry) |
+| `bind-value` | `<TextField>` or `<Slider>` — a **two-way** value binding |
+| `min` / `max` / `step` / `key-step` / `key-step-max` / `key-ramp` / `vertical` | `<Slider>` only — see [Sliders](#sliders) |
+| `focus-scope` / `on-back` | a navigation region and what backs out of it — see [Directional navigation](#directional-navigation-gamepad-and-keyboard) |
 | `push-hovered` / `push-pressed` / `push-focused` | element state back to the source |
 | `classes` | toggles classes from bools — `classes="low-health: {isLow}"` |
 | `repeat` / `repeat-count` / `repeat-offset` | repeats one template over a list — see [Collections](#collections-repeat) |
@@ -120,14 +136,27 @@ produced an element no stylesheet rule and no `Find()` could ever locate.
 The root tag maps onto the document's existing root, so `<UI name="hud">` names
 and styles the root itself rather than creating an extra wrapper.
 
-Tag names are free-form, with two the loader knows by name. A `<Button>` and a
-`<TextField>` are focusable by default (see
-[Keyboard](#keyboard-focus-and-tab-order)), and a `<TextField>` additionally gets
-a text-editing model: it shows its `value`, so a `text=` on one is a load error,
-and `value`, `maxlength`, `mask`, `multiline` and `bind-value` are refused on
-anything else (see [Text entry](#text-entry)). Beyond that the tag is only a
-selector hook — `Label` and `Button` carry no built-in behaviour, not even
-Enter-to-click on a focused button. Behaviour comes from the handlers you attach.
+Tag names are free-form, with a few the loader knows by name.
+
+A `<Button>` is focusable by default, because that is what the word means. A
+`<TextField>` and a `<Slider>` are focusable for a stronger reason: each owns a
+**value**, and a value no keyboard or pad can reach is one only a mouse can
+change. Both display that value, so a `text=` on either is a load error.
+
+`value` and `bind-value` are the pair those two share — both own a value and
+both bind it two-way through the same mechanism — so each is an error only on a
+tag that is neither. Everything else is exclusive: `maxlength`, `mask` and
+`multiline` to a `<TextField>` (see [Text entry](#text-entry)), and `min`,
+`max`, `step`, `key-step`, `key-step-max`, `key-ramp` and `vertical` to a
+`<Slider>` (see [Sliders](#sliders)).
+
+Beyond that the tag is only a selector hook: `Label` and `Button` carry no
+tag-specific behaviour, and what a button *does* still comes from the handlers
+you attach. What focus buys is operability without a mouse — Enter, and the
+pad's A, run `ActivateFocused`, which synthesizes a Click at the focused
+element's centre and bubbles it along the path a real click takes, holding the
+press briefly so `:active` can be seen. It is keyed on **focus, not on the
+tag**, so it lights up every authored `on-click` with no markup change.
 
 **Gotcha:** the file path is run through the same containment check as models,
 scripts, clips and HDRis (`PathIsContained`). Absolute paths and `..` are
@@ -181,14 +210,15 @@ engine does; left-to-right would need to backtrack over the whole subtree.
 | Size | `width`, `height`, `min-width`, `min-height`, `max-width`, `max-height` |
 | Box | `margin`, `padding` (1–4 value CSS shorthand) |
 | Position | `position: relative\|absolute`, `left`, `top`, `right`, `bottom` |
-| Paint | `background-color`, `color`, `font-scale` |
+| Paint | `background-color`, `background-color-to`, `background-gradient: none\|vertical\|horizontal`, `background-image`, `background-size: stretch\|cover`, `border-radius`, `border-width`, `border-color`, `color`, `font-scale` |
 | Behaviour | `overflow` / `overflow-x` / `overflow-y`: `visible\|hidden\|scroll`, `pointer-events: auto\|none`, `display: flex\|none` |
 | Scrollbar | `scrollbar-width`, `scrollbar-min-thumb`, `scrollbar-color`, `scrollbar-thumb-color`, `scrollbar-visibility: auto\|always`, `scroll-behavior: instant\|smooth` |
 
 Lengths — `auto`, `Npx`, `N%`, or a bare number (treated as px) — are the
-**Size** group: `width`, `height`, `min-*`, `max-*`. `scrollbar-width` and
-`scrollbar-min-thumb` are lengths too, but must be a **non-negative pixel**
-count — `auto`, a percentage or a negative is reported. `margin` and `padding`
+**Size** group: `width`, `height`, `min-*`, `max-*`. `scrollbar-width`,
+`scrollbar-min-thumb`, `border-radius` and `border-width` are lengths too, but
+must be a **non-negative pixel** count — `auto`, a percentage or a negative is
+reported, since none of the four is a percentage of anything meaningful. `margin` and `padding`
 take 1–4 **pixel** values (`8px` or a bare `8`; `%` and `auto` are reported).
 Everything else numeric — `left`, `top`, `right`, `bottom`, `gap`, `flex-grow`,
 `flex-shrink`, `font-scale` — is a plain **number**, pixels where that is
@@ -197,10 +227,23 @@ meaningful, and the number parser rejects trailing text: `left: 0` is right,
 `#rrggbbaa`, `rgb(r,g,b)`, `rgba(r,g,b,a)` (channels 0–255, alpha 0–1), or a
 handful of names.
 
-**Not supported, and reported as errors rather than silently ignored:**
-any other pseudo-class, at-rules, variables, and property inheritance. No PROPERTY cascades from parent to child — every element
-is styled independently, and a context selector constrains *which* elements a
-rule reaches rather than passing values down.
+**Not supported, and reported as errors rather than silently ignored:** any
+other pseudo-class, and variables. Both fail the parse, and a failed parse
+rejects the whole sheet rather than leaving a `.btn:focus` rule that quietly
+applies all the time.
+
+**At-rules are not supported and are not detected**, which is worse. The parser
+has no concept of `@`: it reads from the start of a rule to the next `{` as a
+selector list, so `@media screen` becomes a compound whose type name is
+`@media` and matches nothing. A statement at-rule is worse still — `@import
+"theme.cstyle";` has no brace of its own, so the scan runs past it into the
+following rule and absorbs it, and `@import "theme.cstyle"; .btn` parses as a
+perfectly valid three-part descendant selector. Nothing is reported and the
+`.btn` rule silently stops matching. Keep at-rules out of `.cstyle` files.
+
+**Property inheritance** is not supported: no property cascades from parent to
+child. Every element is styled independently, and a context selector constrains
+*which* elements a rule reaches rather than passing values down.
 
 ### Interaction styling
 
@@ -212,16 +255,29 @@ rule reaches rather than passing values down.
 
 `:hover` is true for the element under the pointer **and its ancestors**, as in
 CSS, so a button and the panel containing it are both hovered. `:active` is true
-only for the element the press landed on. Compounds work: `.btn:hover:active`
+for a single element and never its ancestors — but the press behind it need not
+come from a pointer. Confirming with Enter, or with the pad's activate intent,
+runs `ActivateFocused`, which raises the press on the **focused** element and
+holds it briefly so the flash can be seen; that element may be nowhere near the
+cursor. Without it, `:active` — the only press state a stylesheet can express —
+was unreachable from a gamepad, so confirming a menu item on the input the menu
+exists for changed no pixels at all. Compounds work: `.btn:hover:active`
 requires both.
 
-Drive it by calling `RestyleInteractive()` once per frame, **after**
-`UpdatePointer` (which is where hover and press are decided):
+Drive it by calling `RestyleInteractive()` once per frame, **after every input
+pass**, because all three decide state a rule can match: the pointer sets hover
+and press, and the other two move focus and raise that synthesized press.
 
 ```cpp
 doc.UpdatePointer(pointer);
+doc.UpdateKeyboard(kb);
+doc.UpdateNav(nav);
 if (assets.RestyleInteractive()) doc.Layout(w, h, font);  // a state rule can change a box
 ```
+
+Restyling before `UpdateNav` would push a confirm's `:active` to the following
+frame — and on a frame longer than the hold, `AdvanceTime` releases the press at
+the top of the next one, so the restyle would never see it at all.
 
 **How it works, and the one caveat.** The cascade has no undo — applying a rule
 copies its declarations in and records nothing about what they overwrote — so
@@ -288,12 +344,185 @@ that swallowed Tab would strand a keyboard user inside it.
 tab order, and matches `:disabled`. A disabled panel whose buttons still worked
 would be a trap.
 
+**Enter activates** whatever has focus, by the same path a click takes -- a
+keyboard needs no second mechanism. In a SINGLE-LINE text field it means
+"done" instead, and leaves the field; a multi-line one keeps it, because there
+it inserts a newline. Space is deliberately not a UI key at all: `InputMap`
+binds `Jump` to it, and gameplay input is gated only on a text field having
+focus, so Space on a focused menu button would press the button and jump.
+
+**Escape** is `Back` -- see [Directional
+navigation](#directional-navigation-gamepad-and-keyboard), which is where the
+rules for it live, because the pad's B runs the same code.
+
 | Event | Goes to | Bubbles |
 |---|---|---|
 | `FocusIn` / `FocusOut` | the element gaining/losing focus | no (like the DOM) |
 | `KeyDown` | the focused element | yes |
 | `TextInput` | the focused element | yes |
 | `ValueChanged` | the control that was edited | yes |
+
+---
+
+---
+
+## Directional navigation (gamepad and keyboard)
+
+Tab order is fine for a form and wrong for a menu. A menu is a **shape**, and
+moving through it should follow that shape: down goes to the thing below, not
+to whatever happens to be next in the markup.
+
+**The UI never learns what a gamepad is.** `UINavState` carries intents —
+"move up", "activate", "back" — not devices, so a host synthesises them from
+whatever it likes: a stick, a d-pad, WASD, an on-screen touch pad. Device
+knowledge stays in `InputMap`, which is where it already lives.
+
+```cpp
+uiWorld.SetNav(navSynth.Poll(input(), dt, !uiWorld.wantsTextInput()));
+```
+
+The shipped player does that unconditionally, since a game has no competing
+panels. The editor gates it on the Game surface holding focus AND the Scene
+viewport not being under the hand -- the editor fly camera reads the same WASD,
+and whatever makes the camera eligible for those keys has to make the game UI
+ineligible, or one press drives both.
+
+`UINavSynth` reads named actions (`UINavUp`, `UINavX`, `UIConfirm`, `UIBack`,
+`UIPagePrev`/`UIPageNext`) and turns them into intents. Rebind the actions and
+the same code drives a menu from a flight stick.
+
+### Two doors, one for each grammar
+
+A keyboard reaches the UI **twice**, and keeping those paths from colliding is
+the whole design:
+
+- **Arrows and Escape** arrive as `UIKey` events in `UIKeyboardState` and are
+  handled at the END of the existing consumption chain: a text caret takes them
+  first, then a tab strip, then a focused slider's notch, then page scrolling,
+  and only then do they fall through to a focus move. The precedence is free,
+  by construction rather than by special case.
+- **WASD** goes through `InputMap` and `UINavSynth`, because `UIKey` has no
+  letters and never will — a letter is text.
+
+The arrows are deliberately **not** bound as nav actions. They would then
+arrive down both paths in one frame, and a focused slider would move two
+notches per tap.
+
+That leaves one problem, which is why `InputMap` queries take a source filter:
+WASD navigating a menu and WASD typing a name are the same four keys, and the
+**pad** half of those actions types nothing and must stay live. Unbinding kills
+both halves and `setSuppressed` kills the whole map, so hosts pass
+`!wantsTextInput()` and only the key half goes quiet.
+
+### How a move is chosen
+
+`FocusMove` works over the laid-out rectangles, in two stages: **the nearest row
+in the direction of travel wins, then the nearest control within it.**
+
+A single weighted score cannot express that, and the shipped menu proved it. A
+VSYNC toggle sits at the far right of its row while a text field two rows down
+is full width and therefore overlaps the quality chips horizontally — scored
+together, the field won on a zero off-axis distance and Down skipped VSYNC
+entirely. No choice of penalty fixes a false comparison between a near row and
+a far one.
+
+**Edges, not centres**, decide what counts as the next row: a candidate is
+"below" only if it starts at or after where the current element *ends*. Same-row
+siblings are therefore not below one another by construction, which is why a row
+of chips costs **one** press to pass rather than three.
+
+There is **no wrap** — Down at the bottom does nothing, because a menu that
+teleports you to the top is disorienting. Tab still wraps; it is a different
+gesture. With nothing focused, any direction focuses the first focusable, or the
+first press on a freshly opened menu would read as a dead controller.
+
+### Auto-repeat
+
+`UINavRepeater` turns a held direction into the series of edges a UI expects:
+one immediately, then a pause, then a run. It is a pure function of a held
+direction and `dt`, so the feel of a menu is testable without hardware — and it
+lives in one place so a keyboard and a pad cannot drift apart on it.
+
+A new direction fires **at once**. Waiting out the delay before the first move
+is the difference between a menu that answers and one that feels broken.
+
+### Focus scopes
+
+```xml
+<Element name="verbs" focus-scope="true" if="!panelOpen"> ... </Element>
+<Element name="settingsPanel" focus-scope="true"
+         if="panelSettings" on-back="menuClosePanel"> ... </Element>
+```
+
+`focus-scope="true"` confines navigation to that subtree **while it is visible**.
+`on-back="..."` is what B or Escape invoke while that scope is the innermost one.
+
+Visibility is the single source of truth. A panel is shown by an `if=` reading
+app state, and the scope stack follows **display**, so "open" and "where
+navigation goes" cannot drift apart. Each scope remembers the last thing focused
+inside it, so closing SETTINGS returns you to the SETTINGS verb rather than to
+the top of the list.
+
+Scopes nest, and backing out unwinds one level at a time.
+
+### What back means
+
+`UIDocument::Back` is one implementation shared by the pad's B and the
+keyboard's Escape, so the two cannot drift on what backing out means. In order:
+
+1. **A text field you are typing in is the innermost thing you are in**, so back
+   leaves the field and nothing else. A field inside a panel with an `on-back`
+   would otherwise lose the whole page to one Escape mid-word.
+2. Otherwise the innermost open **scope** is asked, by bubbling a `Back` event
+   to it. The document does not close the panel itself — a panel is visible
+   because an `if=` reads app state, so the app has to flip that state.
+3. With no scope open, back **blurs**.
+
+If nothing handled it, the document says so rather than inventing a meaning.
+A scope with no `on-back` declares a navigation region, not a back action, so
+back there belongs to the game:
+
+```cpp
+uiWorld.Update(reg, w, h, dt);
+if (uiWorld.backWentUnhandled()) closeThePauseMenu();   // or quit
+```
+
+Without that, back at a root menu would be silently swallowed by the scope that
+happens to be on the stack, and "close the menu" would have no way to exist.
+
+### Button prompts that follow the device
+
+Telling a keyboard player to press A is a small lie that makes a menu feel
+ported rather than made. `UIWorld` works out which grammar is live from the
+pointer, keyboard and nav state it already receives — no fourth thing for a host
+to feed and forget — and publishes it to the shared source every frame:
+
+| Property | Value |
+|---|---|
+| `uiDevice` | `"gamepad"` or `"keyboard"` |
+| `uiPad` / `uiKeyboard` | bools, for gating two sets of glyph **art** with `if=` |
+| `uiTyping` | a text field has focus |
+| `uiGlyphSelect` | `A` / `ENTER` |
+| `uiGlyphBack` | `B` / `ESC` |
+| `uiGlyphNav` | `L STICK` / `WASD` / `ARROWS` |
+
+```xml
+<Label class="keycap" text="{uiGlyphSelect}"/>
+<Label class="keyname" text="SELECT"/>
+```
+
+It is **sticky**: only activity flips it, so a pad resting on the desk does not
+keep stealing the prompts back and the legend does not flicker every time you
+stop to read it. Reaching for the **mouse** counts, before any button is
+pressed — that is the moment you have switched.
+
+`uiGlyphNav` says `ARROWS` rather than `WASD` while a text field has focus,
+because those four keys are letters there and the field eats all of them, while
+the arrows keep working. A WASD *icon* is the same lie a WASD label is, which is
+what `uiTyping` is for.
+
+Size a keycap to its **content**. A fixed 24px circle sized for "A" cuts
+"ENTER" clean in half.
 
 ---
 
@@ -311,6 +540,10 @@ would disagree the moment anyone typed. `maxlength` is a **byte** budget, which
 is the limit a caller can reason about without knowing what the user will type;
 it only ever truncates on a character boundary. `mask` renders one glyph per
 *character*, so a masked field never leaks the byte length of non-ASCII input.
+It also stops a click from moving the caret at all: a click is measured against
+the string that is *drawn*, and an offset into a row of asterisks is not an
+offset into the value, so a masked field keeps the caret it had rather than
+jumping somewhere arbitrary. Use the arrows, Home and End inside one.
 
 **Every offset is a byte offset into UTF-8, and every operation moves by whole
 codepoints.** That is the only representation the renderer and the font can use
@@ -328,7 +561,7 @@ character — which is the classic way text fields corrupt anything but ASCII.
 | Ctrl+A | selects all (a bare `a` stays typeable) |
 | Ctrl+C / X / V | copy, cut, paste — see below |
 | Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z | undo, redo |
-| click | places the caret at the nearest character boundary |
+| click | places the caret at the nearest character boundary (not on a masked field — see above) |
 | Tab | **leaves** the field — it is not consumed |
 
 Editing runs as a **default action**: the `KeyDown` or `TextInput` event is
@@ -339,14 +572,37 @@ actually changed — moving the caret is not an edit.
 
 **Multi-line.** `multiline="true"` is what makes Enter, Up and Down mean
 anything, and it is what turns Home and End from "the value" into "this line".
-A single-line field leaves all four to whatever contains it, so Enter can still
-submit a form. The attribute is an error on anything but a `<TextField>`.
+The attribute is an error on anything but a `<TextField>`.
+
+A single-line field declines Enter, Up and Down — but they do not simply vanish
+into whatever contains it. A handler on the field or an ancestor sees each of
+them first and can still claim one, which is how you make Enter submit a form.
+If nothing does:
+
+- **Up and Down become directional focus navigation**, like any other unclaimed
+  arrow. With one line there is nowhere to move, so the field is not a dead end
+  for anyone without a mouse.
+- **Enter blurs the field**: commit and leave. That is the same outcome Escape
+  and the pad's B give, deliberately — `bind-value` publishes every keystroke as
+  it is typed, so there is no pending edit for one key to keep and the other to
+  throw away.
+
+Home and End the field keeps either way; single-line they act on the whole
+value, which is why they never reach a scroller wrapped around it.
 
 **A field always clips to its own box and always scrolls its text to follow the
 caret**, whatever `overflow` says — `overflow` governs children, and a field has
 none. So a long value stays inside its box and typing past the width scrolls
-rather than spilling. A field does not size itself to fit, so give a multiline
-one a `height` or `max-height`.
+rather than spilling.
+
+A field **does** measure itself, like any other text leaf — because that is what
+it is. Its `value` becomes the text yoga measures, so the box takes the width of
+its widest line, clamped to whatever the parent offers, and the height of its
+line count. An unconstrained multi-line field therefore grows a line every time
+you press Enter and never scrolls vertically, since its box always already fits
+its text; and an empty one has nothing to measure and collapses to its padding.
+Give a multi-line field a `height`, or a `max-height` if you want it to grow to
+a limit and scroll past that.
 
 A **multiline** field paints a scrollbar once its text is taller than its box,
 and that bar drags and takes the wheel like any other. A single-line field never
@@ -387,6 +643,101 @@ a field). The caret blinks on a one-second cycle and is reset to solid on every
 edit, because a caret blinking to its own schedule while you type reads as
 dropped input. Drive it by calling `doc.AdvanceTime(dt)` once per frame, and
 pass the font to `UpdatePointer` so a click can place the caret.
+
+---
+
+---
+
+## Sliders
+
+A `<Slider>` is an interactive **box**, not a painted widget. It owns a number
+and knows how to turn a cursor position into one; the look is whatever you put
+inside it and style. That is the same division as everything else here —
+structure in markup, appearance in the stylesheet, and only the part that
+cannot be authored written in C++.
+
+```xml
+<Slider name="volume" class="slider" bind-value="menuVolume"
+        min="0" max="1" key-step="0.01" key-step-max="0.05" key-ramp="10">
+  <Element name="volumeFill" class="slider-fill"
+           bind="width: {menuVolume | percent}"/>
+</Slider>
+```
+
+```css
+.slider      { flex-grow: 1; height: 14px; border-radius: 7px; }
+.slider-fill { height: 100%; border-radius: 7px; pointer-events: none; }
+```
+
+The fill is an ordinary child bound to the same value. Nothing about it is
+special-cased: a thumb, a notched track or a radial dial are the same idea with
+different markup.
+
+`bind-value` is two-way through exactly the mechanism a `<TextField>` uses,
+because it is the same relationship — the element owns a value, the source
+wants it, and either end may move it.
+
+| Attribute | Means |
+|---|---|
+| `min` / `max` | The range, in **your** units. A volume is 0..1, a field of view is 60..110. |
+| `value` | Where it starts, if no binding supplies one. |
+| `step` | Quantises the value. `0` (the default) is continuous. A "quality 1..5" slider wants this; a volume slider must not have it. |
+| `key-step` | What ONE digital press moves. |
+| `key-step-max` | What a HELD press ramps up to. |
+| `key-ramp` | How many presses of a held run reach `key-step-max`. |
+| `vertical` | A mixer channel. Only the axis the drag reads changes. |
+
+### Three inputs, three grains
+
+This is the part worth understanding, because getting it wrong is what makes a
+slider feel broken.
+
+**A pointer is continuous.** Pressing anywhere on the track jumps there and
+begins a drag, and the drag is a pointer **capture**: it keeps tracking after
+the cursor leaves the element, and past either end of the track, until the
+button comes up. Without capture, dragging quickly off the end of a volume bar
+would drop the drag and leave the value wherever your hand happened to be.
+
+**A stick is analog**, so it gets an analog response: full deflection crosses
+`analogSeconds` worth of range per second (1.5s across the whole range by
+default), scaled by how far it is pushed. Stepping a stick in fixed notches
+because the input arrived as a d-pad event is what makes a pad feel like it is
+snapping.
+
+**A key or d-pad is digital, and it accelerates.** One press moves `key-step`,
+because a tap is how you ask for a small change and a control that only moves
+in 5% jumps cannot be set to 43%. Holding ramps to `key-step-max` over
+`key-ramp` presses, because 1% a notch across a whole range is a long wait.
+
+The ramp is counted rather than timed on purpose. A keyboard's auto-repeat rate
+belongs to the operating system and a pad's belongs to `UINavRepeater`, so a
+time-based ramp would feel like two different controls; "ten notches to full
+speed" is the same promise on both.
+
+A run ends by **reversing** or by **going quiet**. Reversing means you
+overshot and want the fine grain back to land where you meant; quiet means you
+let go, and without it ten deliberate taps would accelerate as though you had
+held. Quiet needs a clock, which a press does not have, so `UISliderState::Tick`
+runs from `UIDocument::AdvanceTime` — and its idle window is deliberately longer
+than the pad's own 0.40s auto-repeat delay, or a held d-pad would reset its run
+between the first press and the second and never accelerate at all.
+
+Declaring only `key-step` keeps the old behaviour, every press the same size:
+the ceiling rises to meet a coarser declared floor. Declaring both and
+inverting them is a load error, because holding moving *slower* than tapping
+has no sensible reading.
+
+### Focus
+
+`:focus` on a slider is worth a word of warning. `border-width` is **paint
+only** — it does not inset the content box — so at 100% a full-width fill
+covers a focus ring entirely, and a focused slider ends up pixel-identical to
+an unfocused one. Light the **fill**, not just the ring:
+
+```css
+.slider:focus            { border-color: rgba(255, 196, 72, 1); }
+.slider:focus .slider-fill { background-color: rgba(255, 255, 255, 1); }
+```
 
 ---
 
@@ -597,8 +948,14 @@ through its ancestors, with `e.target` (what was hit) and `e.currentTarget`
 walk. Multiple handlers per type run in registration order.
 
 Available: `OnClick`, `OnPointerDown/Up/Move/Enter/Leave`, `OnWheel`,
-`OnFocusIn`/`OnFocusOut`, `OnKeyDown`, `OnTextInput` and `OnValueChanged` — one
-thin wrapper over `AddEventListener` per event type. A **click** requires press
+`OnFocusIn`/`OnFocusOut`, `OnKeyDown`, `OnTextInput` and `OnValueChanged` — a
+thin wrapper over `AddEventListener` each.
+
+`Back` is the one event type with no wrapper, because it does not go to whatever
+was hit or focused: `UIDocument::Back` bubbles it from the innermost open focus
+scope, so it belongs to the few elements that declare one rather than being a
+shorthand every element wants. Attach it with `on-back="..."` in markup, or
+`AddEventListener(UIEventType::Back, ...)` in C++. A **click** requires press
 *and* release on the same element, so sliding off a button before letting go
 correctly cancels it. Prefer an authored `on-click="actionName"` where you can —
 a bound action survives a hot reload by itself, while a handler attached in C++
@@ -760,7 +1117,8 @@ already has a home you cannot hook.
 | Problem | When | Effect |
 |---|---|---|
 | unknown attribute, malformed hole, unknown bound property, constant `bind` | load | **fails the load**, running UI untouched |
-| unknown source / property / converter / action | `Rebuild` | reported once **with the names that do exist**; that binding stays pending and resolves if you register later |
+| unknown source / property / converter | `Rebuild` | reported once **with the names that do exist**; the binding stays pending, and registering the source rebuilds at once |
+| unknown **action** | `Rebuild` | reported once with the action names that do exist, and **no listener is attached** — the control is dead, not pending. `AddAction` bumps no version and unresolved actions are not tracked the way bindings are, so registering it later fixes nothing by itself. Register actions before the document loads |
 | value won't convert, non-finite, negative size | runtime | reported once per binding, re-armed on a kind change; that write is skipped |
 | a bound property that the stylesheet also declares | load | a **note** — the rule is the pre-bind default, and saying so beats editing the `.cstyle` and watching nothing happen |
 
@@ -848,8 +1206,14 @@ a list that added and removed children would make every binder in *every* docume
 re-collect and re-resolve on the frames it changed size. Here the elements stand
 still and the data slides through them — and because every `UIDataSource` setter is
 equality-gated, a slot whose row did not change writes nothing and re-applies
-nothing. Sliding a window costs exactly the slots that actually changed; an idle
-list costs three integer compares.
+nothing. Sliding a window costs exactly the slots that actually changed. An idle list
+costs the compares that prove it is idle — the source pointer, the list's
+version and the clamped offset — plus the name lookups that produce them, since
+`Refresh` runs every frame and there is no way to read a version without first
+resolving it by name. That work is bounded by how many sources and properties
+you have declared, not by `repeat-count` or by the length of the list, so a
+64-slot pool over a 10,000-row list is still cheap on an idle frame — just not
+free.
 
 | Attribute | |
 |---|---|
@@ -931,6 +1295,19 @@ would describe the pool rather than the list. Window it by hand with
 An idle frame is one integer compare per source plus one per binding — no
 allocations, no tree walks, no string work. Only a write that can change a
 **box** triggers a re-layout, so a bound colour never does.
+
+**That price holds only while nothing in play is polled.** A polled property has
+no version to compare against, so the binder must read it and re-apply every
+frame — and the test it uses, `hasPolled()`, is a property of the **source**,
+not of the property. One polled value therefore re-applies *every* binding that
+reads that source, every frame, whether or not anything changed. A bound length
+re-writes its style and reports a layout as written, so a single polled property
+can put a full `Layout` back into every frame.
+
+This is easy to hit by accident, because **`Notify::Poll` is `Observe`'s
+default**. Pass `Notify::OnWrite` and call `MarkChanged(name)` when the value
+actually moves, or keep polled properties on a source of their own so they
+cannot wake the bindings that read your `Set*` values.
 
 ---
 
@@ -1076,6 +1453,40 @@ a worse bug than content sitting under a 2px rule. **Keep `padding` ≥
 
 Both are authored lengths, so both scale with [the UI scale](#scaling-to-the-screen).
 
+### Gradients
+
+Two stops, on the background, on any axis:
+
+```css
+.verb:focus {
+  background-color: rgba(255, 196, 72, 0.28);   /* the FROM stop */
+  background-color-to: rgba(255, 196, 72, 0.04);/* the TO stop   */
+  background-gradient: horizontal;              /* or vertical, or none */
+}
+```
+
+`background-gradient` defaults to `none`, and with it the `-to` colour is
+ignored entirely — so adding the property to a stylesheet changes nothing until
+you ask for it.
+
+There is no shader for this and no second draw. The vertex colour is already
+interpolated across the quad, so two corner colours **are** the gradient: a
+gradient fill costs exactly what a flat one costs. That also bounds what it can
+do — two stops, corner to corner. A three-stop ramp, a radial, or a gradient at
+an arbitrary angle is not expressible; for those, author the ramp as an image
+and stretch it, which is what the menu's scrim does.
+
+A gradient degrades rather than misdraws: with the mode at `none` — or on a
+context where the box shader is unavailable — the element falls back to the
+plain sprite path and paints its flat `background-color`. Two equal stops are
+not a special case; they go through the same path and simply come out flat.
+
+Good places for it: a focus band that fades out across a button, a slider fill
+with a lit top edge, a card that is a soft wash rather than a flat slab. Bad
+place: anywhere the two stops are far enough apart to band, since there is no
+dithering.
+
+
 ### What a rounded element does not do
 
 **It does not clip its children round.** Clipping is the axis-aligned scissor
@@ -1149,14 +1560,20 @@ missing key to the component's own default
 | **Reference** | the resolution your stylesheet's pixels were written for. Default 1920x1080; both shipped documents declare **1280x720** |
 | **Match** | `0` follows width, `1` follows height, between blends the two |
 
-Both shipped documents — the sample HUD and the main menu — use `1280x720` with
-match `0`, which is the player's own window size. So in the shipped player the
-scale is exactly `1.0`: an authored pixel is a real pixel and nothing resamples.
-Picking a reference the game never actually runs at is a quiet way to make all
-your text soft, which is what the sample HUD did while it declared 1920x1080.
+Both shipped documents — the sample HUD and the main menu — declare `1280x720`,
+which is the player's own window size, so in the shipped player the scale is
+exactly `1.0` whichever match they use: an authored pixel is a real pixel and
+nothing resamples. Picking a reference the game never actually runs at is a
+quiet way to make all your text soft, which is what the sample HUD did while it
+declared 1920x1080.
 
-Width is the usual choice: a HUD runs out of horizontal room first, and an
-ultrawide should show *more*, not bigger. The blend is in log space, so a match of
+They differ on the **match**, deliberately, and the difference is instructive.
+The HUD follows width (`0`): its furniture is anchored to the edges and runs out
+of horizontal room first, and an ultrawide should show *more*, not bigger. The
+menu follows height (`1`), because it is a centred column and height is what
+constrains it — following width, a 5120x1440 gave a settings panel 2880 real
+pixels across and verbs at four times their authored size. Same reference, two
+shapes, two answers. The blend is in log space, so a match of
 `0.5` on a surface that halved in width and doubled in height gives exactly `1.0` —
 the geometric mean. A linear blend would give `1.25` and visibly favour whichever
 axis grew.
@@ -1193,8 +1610,16 @@ Percentages are **not** scaled. A percentage is already relative to a parent tha
 has itself been scaled, so scaling it too would compound and a 50%-wide bar would
 become 100%.
 
-A wheel notch and a page are **authored** amounts, so they travel twice as far in
-real pixels at scale 2 — that is what keeps a notch covering the same three rows.
+A wheel notch is an **authored** amount, so it travels twice as far in real
+pixels at scale 2 — that is what keeps a notch covering the same three rows.
+
+A page is not, and does not need to be: it is 90% of the element's own laid-out
+box, and that box is already in real pixels, so there is nothing to convert. The
+page therefore tracks the **box** rather than the scale. A scroller sized in
+authored px doubles at scale 2 and its page doubles with it; one sized as a
+percentage, or by `flex-grow` against a real viewport, keeps its real height and
+its page is unchanged. Both are right, because a page means *this much of what
+you can see*, not a fixed distance.
 
 **Text magnifies rather than re-baking.** The glyph atlas is baked once, at
 `kUIFontAtlasPixels` (`Engine/src/render2d/Font.h`), and every size on screen is
@@ -1323,9 +1748,17 @@ a binder index and hot-reload stamps, so only a *path* change reloads — toggli
 `enabled` keeps all three. Removing the component or destroying the entity drops
 the document on the next `Update`.
 
-**Input goes to one document**: the topmost interactive one under the pointer,
-or whichever holds focus. Otherwise a pause menu and the HUD beneath it would
-both react to the same click. Documents that lose input get an empty pointer
+**Input goes to two targets, and usually they are the same document.** The
+pointer goes to the topmost interactive document under it. The keyboard — and
+directional navigation with it — goes to whichever interactive document holds
+focus, falling back to the pointer's document when nothing does. Otherwise a
+pause menu and the HUD beneath it would both react to the same click.
+
+They were one target until the wheel arrived. Focus took the pointer with it,
+which was harmless while the pointer only meant clicks, since you had to click
+to move focus in the first place; a wheel notch arrives with no click, so a
+panel you were merely hovering got an empty state and silently refused to
+scroll. Documents that lose input get an empty pointer
 state rather than being skipped, so they also drop their hover and press styling
 instead of staying lit under a menu.
 
@@ -1397,10 +1830,14 @@ reset, so a leaked blend or depth state would corrupt the next pass.
 | `Engine/src/ui/UIRepeatPool.h` | The fixed slot pool a `repeat=` slides over its list |
 | `Engine/src/ui/UIInteractionStyler.h` | pseudo-class re-cascading |
 | `Engine/src/ui/UITextField.h` | `UITextEdit` — the text-entry model |
+| `Engine/src/ui/UISlider.h` | `UISliderState` — a slider's value and its digital ramp |
+| `Engine/src/ui/UINav.h` | `UINavState`, `UINavRepeater` — directional INTENTS, no devices |
+| `Engine/src/ui/UINavSynth.h` | Named input actions -> intents, the one file that knows a pad exists |
 | `Engine/src/ui/UIComponent.h` | `UIDocumentComponent` — UI on an entity |
 | `Engine/src/ui/UIWorld.h` | Drives every document in a scene |
 | `Engine/src/ui/UIAssetDocument.h` | Markup + stylesheet assets with hot reload |
-| `Engine/src/ui/DemoUIContent.h` | The sample's one action and one converter |
+| `Engine/src/ui/DemoUIContent.h` | The sample's seeded values, its three actions (`addScore`, `invPrev`, `invNext`) and its `healthTint` converter |
+| `Engine/src/ui/MenuUIContent.h` | The sample menu's verbs, and the host hooks they need |
 | `Engine/src/render/passes/UIPass.h` | The render pass and the `UIDrawFn` hook |
 
 ## Not there yet
@@ -1408,8 +1845,16 @@ reset, so a leaked blend or depth state would corrupt the next pass.
 Word wrap: text breaks where you put a newline and nowhere else. IME composition
 (dead keys and layouts work, because text arrives already decoded, but there is
 no composition window). A checkbox, which is why `:checked` is still refused.
-Transitions and animation. `position: fixed`, `position: sticky`, and
-portals.
+Transitions and animation. `position: fixed`, `position: sticky`, and portals.
+
+Gradients are two stops, corner to corner — no three-stop ramps, no radials, no
+arbitrary angle. Borders are a single uniform width and are **paint only**: no
+per-side widths, and a border does not inset the content box.
+
+On input: no touch, so no kinetic scrolling and no on-screen keyboard; no
+rebinding UI from inside the UI, though `InputMap` is rebindable at runtime and
+that is where it would go; and one nav focus per document, so two players cannot
+drive two cursors through one menu.
 
 Within scrolling specifically: kinetic/touch momentum, which needs touch input
 this engine does not have; a reserved scrollbar gutter — CSS invented
