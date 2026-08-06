@@ -67,7 +67,7 @@ namespace MyCoreEngine::ui {
             ScrollbarVisibility, ScrollBehavior,
             BorderRadius, BorderWidth, BorderColor,
             BackgroundImage, BackgroundSize,
-            BackgroundColorTo, BackgroundGradient,
+            BackgroundColorTo, BackgroundGradient, WhiteSpace,
         };
 
         // True when writing `a` also writes a field `b` writes — i.e. one is a

@@ -173,6 +173,10 @@
    Padding is constant across every state, so moving focus does not reflow. */
 .verb {
   width: 100%;
+  /* A verb is one line by definition. Text wraps by default now, and a longer
+     word in a 320px column would silently become a two-line button whose
+     neighbours all shift down. */
+  white-space: nowrap;
   padding: 11px 16px;
   border-radius: 3px;
   font-scale: 0.71;
@@ -475,6 +479,9 @@
    min-width keeps the one-letter case from collapsing to a sliver. */
 .keycap {
   min-width: 26px;
+  /* "L STICK" has a space in it, so it is one squeeze away from becoming two
+     lines inside a 24px-tall pill. A prompt is a label, not a paragraph. */
+  white-space: nowrap;
   padding: 5px 9px;
   background-color: rgba(255, 255, 255, 0.10);
   border-radius: 12px;

@@ -14,7 +14,9 @@
 #include "Engine.h"
 #include "../Engine/src/render2d/Font.h"
 #include "../Engine/src/render2d/Renderer2D.h"
+#include "../Engine/src/ui/UIElement.h"
 
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -239,4 +241,282 @@ TEST_F(FontTest, DrawsInsideItsBoxAndBatches) {
     r2d.Shutdown();
     glDeleteFramebuffers(1, &fbo);
     glDeleteTextures(1, &tex);
+}
+
+
+// ---- word wrap ------------------------------------------------------------
+//
+// Pure arithmetic over glyph advances, but it still needs a REAL baked font:
+// the break points depend on the actual widths, and a stub with uniform
+// advances would agree with any implementation, including a wrong one.
+
+namespace {
+
+// The wrapped lines as strings, which is what an assertion wants to read.
+std::vector<std::string> wrapped(const Font& f, const std::string& s,
+                                 float maxW, float scale = 1.0f) {
+    std::vector<Font::Line> lines;
+    f.WrapLines(s, maxW, scale, lines);
+    std::vector<std::string> out;
+    for (const Font::Line& l : lines) out.push_back(s.substr(l.begin, l.end - l.begin));
+    return out;
+}
+
+} // namespace
+
+TEST_F(FontTest, WrapWithNoLimitIsExactlyTheUnwrappedMeasure) {
+    REQUIRE_FONT(path);
+    Font f;
+    ASSERT_TRUE(f.LoadFromFile(path, 24.f));
+
+    const std::string s = "the quick brown fox";
+    const auto lines = wrapped(f, s, 0.0f);
+    ASSERT_EQ(lines.size(), 1u) << "an unbounded wrap broke a line anyway";
+    EXPECT_EQ(lines[0], s);
+
+    const glm::vec2 a = f.Measure(s);
+    const glm::vec2 b = f.MeasureWrapped(s, 0.0f);
+    EXPECT_NEAR(a.x, b.x, 0.01f);
+    EXPECT_NEAR(a.y, b.y, 0.01f);
+}
+
+TEST_F(FontTest, WrapBreaksAtSpacesAndDropsThem) {
+    REQUIRE_FONT(path);
+    Font f;
+    ASSERT_TRUE(f.LoadFromFile(path, 24.f));
+
+    // Wide enough for two short words, not three.
+    const float w = f.Measure("quick brown ").x;
+    const auto lines = wrapped(f, "the quick brown fox jumps", w);
+    ASSERT_GE(lines.size(), 2u) << "nothing wrapped at all";
+
+    for (const std::string& l : lines) {
+        EXPECT_FALSE(l.empty()) << "an empty line came out of a wrap";
+        EXPECT_NE(l.front(), ' ') << "a line began with the space it broke on: '" << l << "'";
+        EXPECT_NE(l.back(), ' ')  << "a line kept the space it broke on: '" << l << "'";
+    }
+
+    // Nothing is lost: the words, in order, are the words that went in.
+    std::string joined;
+    for (const std::string& l : lines) { if (!joined.empty()) joined += ' '; joined += l; }
+    EXPECT_EQ(joined, "the quick brown fox jumps") << "wrapping dropped or duplicated text";
+}
+
+TEST_F(FontTest, EveryWrappedLineActuallyFits) {
+    REQUIRE_FONT(path);
+    Font f;
+    ASSERT_TRUE(f.LoadFromFile(path, 24.f));
+
+    const std::string s = "wrapping has exactly one job and this is it";
+    for (float w : { 60.f, 100.f, 180.f, 400.f }) {
+        std::vector<Font::Line> lines;
+        f.WrapLines(s, w, 1.0f, lines);
+        for (const Font::Line& l : lines) {
+            // A line may exceed the limit ONLY when it is a single unbreakable
+            // glyph -- which this sentence has none of.
+            EXPECT_LE(l.width, w + 0.5f)
+                << "a line overflowed a " << w << "px limit: '"
+                << s.substr(l.begin, l.end - l.begin) << "'";
+            // ...and the recorded width is the measured width.
+            EXPECT_NEAR(l.width, f.Measure(s.substr(l.begin, l.end - l.begin)).x, 0.5f);
+        }
+    }
+}
+
+// A word longer than the whole line is BROKEN, not allowed to overflow --
+// DrawText walks the pen with no clipping, so an unbroken one paints across
+// everything to its right.
+TEST_F(FontTest, AWordLongerThanTheLineIsBrokenMidWord) {
+    REQUIRE_FONT(path);
+    Font f;
+    ASSERT_TRUE(f.LoadFromFile(path, 24.f));
+
+    const std::string s = "Exported/Model/a_very_long_asset_path.obj";
+    const float w = f.Measure("Exported").x;
+    const auto lines = wrapped(f, s, w);
+    ASSERT_GT(lines.size(), 1u) << "a too-long word was not broken";
+
+    std::string joined;
+    for (const std::string& l : lines) joined += l;
+    EXPECT_EQ(joined, s) << "breaking mid-word lost or duplicated bytes";
+}
+
+// An authored newline is an instruction, not a hint.
+TEST_F(FontTest, AnExplicitNewlineAlwaysBreaksEvenWhenItWouldFit) {
+    REQUIRE_FONT(path);
+    Font f;
+    ASSERT_TRUE(f.LoadFromFile(path, 24.f));
+
+    const auto lines = wrapped(f, "a\nb", 10000.0f);
+    ASSERT_EQ(lines.size(), 2u) << "an explicit newline was ignored";
+    EXPECT_EQ(lines[0], "a");
+    EXPECT_EQ(lines[1], "b");
+
+    // ...and a trailing one leaves a real blank line, so the paragraph is as
+    // tall as it was written.
+    const auto trailing = wrapped(f, "a\n", 10000.0f);
+    ASSERT_EQ(trailing.size(), 2u);
+    EXPECT_EQ(trailing[1], "");
+    EXPECT_NEAR(f.MeasureWrapped("a\n", 0.0f).y, f.lineHeight() * 2.0f, 0.01f);
+}
+
+TEST_F(FontTest, WrappedHeightGrowsWithTheLineCountAndWidthIsTheWidestLine) {
+    REQUIRE_FONT(path);
+    Font f;
+    ASSERT_TRUE(f.LoadFromFile(path, 24.f));
+
+    const std::string s = "one two three four five six seven eight";
+    const float wide = f.Measure(s).x;
+    const glm::vec2 unwrapped = f.MeasureWrapped(s, 0.0f);
+    const glm::vec2 narrow = f.MeasureWrapped(s, wide * 0.34f);
+
+    EXPECT_GT(narrow.y, unwrapped.y) << "wrapping did not make it taller";
+    EXPECT_LT(narrow.x, unwrapped.x) << "wrapping did not make it narrower";
+    EXPECT_LE(narrow.x, wide * 0.34f + 0.5f) << "the widest line overflowed";
+    // Height is a whole number of lines, always.
+    const float lines = narrow.y / f.lineHeight();
+    EXPECT_NEAR(lines, std::round(lines), 0.001f);
+}
+
+// The empty string keeps its stable row height, wrapped or not -- layout wants
+// a line box for a label whose binding has not arrived yet.
+TEST_F(FontTest, AnEmptyStringStillMeasuresOneLineTall) {
+    REQUIRE_FONT(path);
+    Font f;
+    ASSERT_TRUE(f.LoadFromFile(path, 24.f));
+    const glm::vec2 m = f.MeasureWrapped("", 100.0f);
+    EXPECT_FLOAT_EQ(m.x, 0.0f);
+    EXPECT_NEAR(m.y, f.lineHeight(), 0.01f);
+}
+
+// SCALE is applied to the advances, so a wrap at scale 2 breaks in the same
+// places a wrap at half the width does at scale 1.
+TEST_F(FontTest, WrappingRespectsTheScale) {
+    REQUIRE_FONT(path);
+    Font f;
+    ASSERT_TRUE(f.LoadFromFile(path, 24.f));
+
+    const std::string s = "alpha beta gamma delta epsilon";
+    const auto small = wrapped(f, s, 100.0f, 1.0f);
+    const auto big = wrapped(f, s, 200.0f, 2.0f);
+    EXPECT_EQ(small, big) << "the same text at twice the scale in twice the "
+                             "width broke differently";
+}
+
+
+// ---- wrap through LAYOUT --------------------------------------------------
+//
+// The rest of the UI suite lays out with NO font, so text measures zero and
+// wrapping is inert there. These are the only tests that put a real font into
+// yoga's measure callback, which is the only place the feature can actually be
+// wrong: whether a label reports the height its wrapped text needs, and whether
+// it stops reporting a width wider than the box it was given.
+
+namespace {
+
+using MyCoreEngine::ui::UIDocument;
+using MyCoreEngine::ui::UIElement;
+using MyCoreEngine::ui::Style;
+using MyCoreEngine::ui::StyleLength;
+using MyCoreEngine::ui::WhiteSpace;
+
+const char* kLongText =
+    "wrapping exists so that a long sentence stops painting over whatever "
+    "happens to be sitting to the right of it";
+
+} // namespace
+
+TEST_F(FontTest, ALabelWrapsInsideAFixedWidthParentAndGrowsTaller) {
+    REQUIRE_FONT(path);
+    Font f;
+    ASSERT_TRUE(f.LoadFromFile(path, 24.f));
+
+    UIDocument doc;
+    UIElement* box = doc.root().AddChild("box");
+    box->style().width = StyleLength::Px(200.0f);
+    UIElement* label = box->AddChild("label");
+    label->setText(kLongText);
+
+    doc.Layout(800.0f, 600.0f, &f);
+
+    const float oneLine = f.lineHeight();
+    EXPECT_LE(label->layout().size.x, 200.5f)
+        << "the label reported itself wider than the box it was given";
+    EXPECT_GT(label->layout().size.y, oneLine * 2.0f)
+        << "a long sentence in a 200px box did not wrap (height "
+        << label->layout().size.y << " vs one line " << oneLine << ")";
+
+    // ...and the height really is a whole number of lines.
+    const float lines = label->layout().size.y / oneLine;
+    EXPECT_NEAR(lines, std::round(lines), 0.01f);
+}
+
+// `white-space: nowrap` keeps the OLD behaviour exactly: one line, clamped to
+// the offer. That is what every existing document gets by asking for it.
+TEST_F(FontTest, NoWrapStaysOnOneLineAndIsClampedToTheOffer) {
+    REQUIRE_FONT(path);
+    Font f;
+    ASSERT_TRUE(f.LoadFromFile(path, 24.f));
+
+    UIDocument doc;
+    UIElement* box = doc.root().AddChild("box");
+    box->style().width = StyleLength::Px(200.0f);
+    UIElement* label = box->AddChild("label");
+    label->setText(kLongText);
+    label->style().whiteSpace = WhiteSpace::NoWrap;
+
+    doc.Layout(800.0f, 600.0f, &f);
+
+    EXPECT_NEAR(label->layout().size.y, f.lineHeight(), 1.0f)
+        << "a nowrap label took more than one line";
+    EXPECT_LE(label->layout().size.x, 200.5f)
+        << "a nowrap label blew out the row it was in";
+}
+
+// A label with room to spare must be UNCHANGED by the feature -- this is the
+// case every shipped document is in, and the reason wrapping can be the
+// default at all.
+TEST_F(FontTest, TextThatAlreadyFitsMeasuresIdenticallyWrappedOrNot) {
+    REQUIRE_FONT(path);
+    Font f;
+    ASSERT_TRUE(f.LoadFromFile(path, 24.f));
+
+    UIDocument wrap, nowrap;
+    for (int i = 0; i < 2; ++i) {
+        UIDocument& d = i ? nowrap : wrap;
+        UIElement* box = d.root().AddChild("box");
+        box->style().width = StyleLength::Px(600.0f);
+        UIElement* label = box->AddChild("label");
+        label->setText("MASTER VOLUME");
+        if (i) label->style().whiteSpace = WhiteSpace::NoWrap;
+        d.Layout(800.0f, 600.0f, &f);
+    }
+    UIElement* a = wrap.root().Find("label");
+    UIElement* b = nowrap.root().Find("label");
+    ASSERT_TRUE(a && b);
+    EXPECT_NEAR(a->layout().size.x, b->layout().size.x, 0.01f)
+        << "wrapping changed the width of text that already fitted";
+    EXPECT_NEAR(a->layout().size.y, b->layout().size.y, 0.01f)
+        << "wrapping changed the height of text that already fitted";
+}
+
+// A TEXT FIELD never wraps, whatever the stylesheet says: UITextEdit's caret,
+// selection and Up/Down are all defined over '\n' lines, so a visual break the
+// model knows nothing about would put the caret on the wrong row.
+TEST_F(FontTest, ATextFieldDoesNotWrapEvenWhenAskedTo) {
+    REQUIRE_FONT(path);
+    Font f;
+    ASSERT_TRUE(f.LoadFromFile(path, 24.f));
+
+    UIDocument doc;
+    UIElement* box = doc.root().AddChild("box");
+    box->style().width = StyleLength::Px(200.0f);
+    UIElement* field = box->AddChild("field");
+    field->MakeTextField().setValue(kLongText);
+    field->SyncTextFromEdit();
+    field->style().whiteSpace = WhiteSpace::Normal;   // asked for, ignored
+
+    doc.Layout(800.0f, 600.0f, &f);
+    EXPECT_NEAR(field->layout().size.y, f.lineHeight(), 1.0f)
+        << "a field wrapped, which would put its caret on the wrong row";
 }

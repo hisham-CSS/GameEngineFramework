@@ -211,7 +211,7 @@ engine does; left-to-right would need to backtrack over the whole subtree.
 | Box | `margin`, `padding` (1–4 value CSS shorthand) |
 | Position | `position: relative\|absolute`, `left`, `top`, `right`, `bottom` |
 | Paint | `background-color`, `background-color-to`, `background-gradient: none\|vertical\|horizontal`, `background-image`, `background-size: stretch\|cover`, `border-radius`, `border-width`, `border-color`, `color`, `font-scale` |
-| Behaviour | `overflow` / `overflow-x` / `overflow-y`: `visible\|hidden\|scroll`, `pointer-events: auto\|none`, `display: flex\|none` |
+| Behaviour | `overflow` / `overflow-x` / `overflow-y`: `visible\|hidden\|scroll`, `pointer-events: auto\|none`, `display: flex\|none`, `white-space: normal\|nowrap` |
 | Scrollbar | `scrollbar-width`, `scrollbar-min-thumb`, `scrollbar-color`, `scrollbar-thumb-color`, `scrollbar-visibility: auto\|always`, `scroll-behavior: instant\|smooth` |
 
 Lengths — `auto`, `Npx`, `N%`, or a bare number (treated as px) — are the
@@ -1737,6 +1737,53 @@ The engine ships **Roboto** (`Exported/Fonts/Roboto.ttf`, SIL Open Font License
 
 ---
 
+### Word wrap
+
+Text wraps by default, at spaces, inside whatever width its parent offers:
+
+```css
+.blurb  { width: 320px; }              /* wraps, because that is the default */
+.verb   { white-space: nowrap; }       /* one line, whatever happens */
+```
+
+`white-space` is `normal` or `nowrap`, and `normal` is the default as it is on
+the web. That default changes only elements that were **already** wrong: a label
+longer than its offer used to have its MEASURE clamped to the box while
+`DrawText` kept walking the pen, so the glyphs ran straight out of the element
+and over whatever was beside it. Nothing in the shipped HUD or menu is long
+enough to wrap, which is what makes the new default safe to adopt.
+
+**A word longer than the line is broken mid-word** rather than allowed to
+overflow. Refusing to break it is the other defensible choice and it is the
+wrong one here, for the same reason: an asset path in a narrow panel would paint
+across its neighbours. A break costs you a hyphen-less split; an overflow costs
+you the panel.
+
+**Breaks drop the space they broke on**, from both sides. A line whose measured
+width included that space would centre and right-align wrong, by exactly one
+space, and the run of spaces after it would otherwise indent the next line.
+
+**An explicit `\n` always breaks**, even where the text would have fitted — an
+authored break is an instruction, not a hint — and a trailing one leaves a real
+blank line, so a paragraph is as tall as it was written.
+
+**A `<TextField>` never wraps**, whatever the stylesheet says. `UITextEdit`'s
+caret, selection and Up/Down are all defined over `\n`-delimited lines, so a
+visual break the model knew nothing about would put the caret on the wrong row
+the moment a line got long. Fields scroll instead, which they already do.
+
+Wrapping happens twice per frame per text leaf: once in yoga's measure callback,
+against the width the parent offers, and once at draw, against the element's
+final laid-out box. That is deliberate rather than cached — yoga may probe a
+measure function several times per solve and the last probe is not necessarily
+the width it settled on, so drawing against the final box is the only way the
+glyphs cannot disagree with the layout that placed them.
+
+`Font::WrapLines` is the whole implementation and is directly testable: it takes
+a string, a width and a scale, and returns byte ranges into the original with
+each line's measured width.
+
+
 ## UI as scene content
 
 A `UIDocumentComponent` puts UI on an **entity**, so a scene declares its own
@@ -1869,9 +1916,10 @@ reset, so a leaked blend or depth state would corrupt the next pass.
 
 ## Not there yet
 
-Word wrap: text breaks where you put a newline and nowhere else. IME composition
-(dead keys and layouts work, because text arrives already decoded, but there is
-no composition window). A checkbox, which is why `:checked` is still refused.
+IME composition (dead keys and layouts work, because text arrives already
+decoded, but there is no composition window). Wrapping is greedy and breaks at
+ASCII spaces only: no hyphenation, no Knuth-Plass paragraph fitting, and no
+line-breaking for scripts that do not use spaces. A checkbox, which is why `:checked` is still refused.
 Transitions and animation. `position: fixed`, `position: sticky`, and portals.
 
 Gradients are two stops, corner to corner — no three-stop ramps, no radials, no

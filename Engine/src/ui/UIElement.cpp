@@ -85,6 +85,33 @@ namespace {
         return f->Measure(text, fontScale * g_uiScale);
     }
 
+    // Does this element wrap, and does it have a width to wrap INTO?
+    //
+    // A TEXT EDIT never wraps, whatever the stylesheet says. UITextEdit's
+    // caret, selection and Up/Down are all defined over '\n'-delimited lines,
+    // so a visual break the model knows nothing about would put the caret on
+    // the wrong row the moment a line got long. Fields scroll instead, which
+    // they already do.
+    inline bool wraps_(const UIElement& el) {
+        return el.style().whiteSpace == WhiteSpace::Normal && !el.textEdit();
+    }
+
+    // The width a wrapped text leaf may use, in REAL pixels: its own content
+    // box less its padding. Zero or negative means "unbounded", which is what
+    // WrapLines wants for "do not break".
+    inline float wrapWidth_(const UIElement& el) {
+        const Style& s = el.style();
+        return el.layout().size.x - sx_(s.padding.left) - sx_(s.padding.right);
+    }
+
+    // Measure honouring `white-space`. `avail` is the width offered, already
+    // in real pixels; <= 0 means unbounded.
+    inline glm::vec2 measureWrap_(const Font* f, const UIElement& el, float avail) {
+        const Style& s = el.style();
+        if (!wraps_(el)) return f->Measure(s.text, s.fontScale * g_uiScale);
+        return f->MeasureWrapped(s.text, avail, s.fontScale * g_uiScale);
+    }
+
     // Text leaves size themselves from the font, which is what makes a label
     // behave like it does on the web (shrink-wrapping its content) instead of
     // needing a hand-set width.
@@ -95,11 +122,23 @@ namespace {
         if (!el) return out;
         const Font* font = g_measureFont;
         if (!font || !font->IsValid()) return out; // no font: measures empty, still lays out
-        const glm::vec2 m = measure_(font, el->style().text, el->style().fontScale);
+        // WRAP AGAINST THE OFFER. yoga calls this with the width the parent can
+        // give -- Exactly when it is fixed, AtMost when it is a maximum, and
+        // Undefined when the element may take as much as it likes. Only the
+        // first two constrain anything, and an Undefined offer arrives as NaN,
+        // which every comparison would answer false to. Hence the explicit
+        // mode test rather than a width check.
+        const bool bounded = (widthMode == YGMeasureModeExactly ||
+                              widthMode == YGMeasureModeAtMost);
+        // Padding is not the text's to use: yoga hands out the CONTENT width
+        // for Exactly, but AtMost is the outer offer, so the same subtraction
+        // is right for both only because we then clamp the result below.
+        const glm::vec2 m = measureWrap_(font, *el, bounded ? width : 0.0f);
         out.width = m.x;
         out.height = m.y;
         // Respect a hard constraint from the parent so a long label cannot blow
-        // the row out; we do not wrap yet, so it simply clips to the offer.
+        // the row out. A wrapped one already fits; a `nowrap` one is clipped to
+        // the offer exactly as it always was.
         if (widthMode == YGMeasureModeExactly) out.width = width;
         else if (widthMode == YGMeasureModeAtMost) out.width = std::min(out.width, width);
         return out;
@@ -577,7 +616,11 @@ void UIDocument::readLayout_(UIElement& el, const glm::vec2& parentOrigin) {
     // drop glyphs that are on screen.
     glm::vec2 lo = pos, hi = pos + el.layout_.size;
     if (!el.style_.text.empty() && g_measureFont && g_measureFont->IsValid()) {
-        const glm::vec2 m = measure_(g_measureFont, el.style_.text, el.style_.fontScale);
+        // The same wrap the draw will use, so the culling bound stays a
+        // SUPERSET of what is painted. Measuring unwrapped here would report a
+        // box far wider and one line tall for text that is about to be drawn
+        // narrow and tall -- conservative in x, and wrong in y.
+        const glm::vec2 m = measureWrap_(g_measureFont, el, wrapWidth_(el));
         hi = glm::max(hi, pos + glm::vec2(sx_(el.style_.padding.left),
                                           sx_(el.style_.padding.top)) + m);
     }
@@ -931,7 +974,28 @@ void UIDocument::draw_(const UIElement& el, Renderer2D& r2d, const Font* font,
     }
 
     if (!s.text.empty() && haveFont) {
-        r2d.DrawText(*font, s.text, tp, s.textColor, layer, s.fontScale * g_uiScale);
+        const float fs = s.fontScale * g_uiScale;
+        if (!wraps_(el)) {
+            r2d.DrawText(*font, s.text, tp, s.textColor, layer, fs);
+        } else {
+            // Wrapped against the element's OWN laid-out width rather than
+            // whatever yoga last offered the measure callback. yoga may probe a
+            // measure function several times per solve, and the last probe is
+            // not necessarily the width it settled on -- drawing against the
+            // final box is the only way the glyphs cannot disagree with the
+            // layout that placed them.
+            std::vector<Font::Line> lines;
+            font->WrapLines(s.text, wrapWidth_(el), fs, lines);
+            const float lineH = font->lineHeight() * fs;
+            glm::vec2 p = tp;
+            for (const Font::Line& l : lines) {
+                if (l.end > l.begin) {
+                    r2d.DrawText(*font, s.text.substr(l.begin, l.end - l.begin),
+                                 p, s.textColor, layer, fs);
+                }
+                p.y += lineH;
+            }
+        }
     }
 
     // Parent before child (painter's algorithm) AND on a higher layer, so a

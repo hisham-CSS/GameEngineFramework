@@ -74,6 +74,18 @@ namespace MyCoreEngine::ui {
     // plus four more scale sites — neither is needed to dress a menu, and both
     // can be added later without changing what these two mean.
     enum class BackgroundSize : std::uint8_t { Stretch, Cover };
+
+    // Whether a text leaf may break its own lines.
+    //
+    // `Normal` wraps at spaces inside whatever width the parent offers, and
+    // breaks a word too long to fit rather than letting it paint outside the
+    // box. `NoWrap` breaks only where the author put a '\n'.
+    //
+    // NORMAL IS THE DEFAULT, as on the web, and the case it changes was
+    // already wrong: a label longer than its offer used to have its MEASURE
+    // clamped while DrawText kept walking the pen, so the text ran straight
+    // out of the element and over whatever was beside it.
+    enum class WhiteSpace : std::uint8_t { Normal, NoWrap };
     // A two-stop fill. `None` is the default everywhere, so every stylesheet
     // written before this existed renders byte-identical.
     enum class BackgroundGradient : std::uint8_t { None, Vertical, Horizontal };
@@ -150,6 +162,7 @@ namespace MyCoreEngine::ui {
         // cascade.
         int            backgroundImage = 0;
         BackgroundSize backgroundSize = BackgroundSize::Stretch;
+        WhiteSpace     whiteSpace = WhiteSpace::Normal;
         // The second stop, and which way it runs. Only read when
         // backgroundGradient is not None.
         glm::vec4          backgroundColorTo{ 0.0f, 0.0f, 0.0f, 0.0f };

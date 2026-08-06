@@ -88,6 +88,43 @@ namespace MyCoreEngine {
         // (0, lineHeight) rather than nothing — layout wants a stable row height.
         glm::vec2 Measure(const std::string& utf8, float scale = 1.0f) const;
 
+        // ---- word wrap ------------------------------------------------------
+        //
+        // One line of wrapped text: a byte range into the ORIGINAL string, so
+        // wrapping allocates one small vector rather than a string per line
+        // every frame. `width` is that line's measured width, which the caller
+        // needs anyway for alignment and for the widest-line measure.
+        struct Line {
+            std::size_t begin = 0, end = 0;   // [begin, end) bytes
+            float       width = 0.0f;
+        };
+
+        // Greedy word wrap at `maxWidthPx`, appending to `out`.
+        //
+        // BREAKS AT SPACES, and the trailing spaces stay OUT of the line: a
+        // line whose measured width includes the space that caused the break
+        // would right-align and centre wrong, by exactly one space.
+        //
+        // A WORD LONGER THAN THE LINE is broken mid-word rather than allowed to
+        // overflow. Refusing to break it is the other defensible choice and it
+        // is the wrong one here: a URL or a 40-character asset path in a
+        // 200px panel would silently paint across everything to its right,
+        // because DrawText walks the pen with no clipping of its own.
+        //
+        // `maxWidthPx <= 0` means "no limit", so a caller with no constraint to
+        // offer gets the same answer Measure gives.
+        //
+        // Explicit '\n' always breaks, and always starts a new line even when
+        // the text would have fitted — an authored break is an instruction, not
+        // a hint.
+        void WrapLines(const std::string& utf8, float maxWidthPx, float scale,
+                       std::vector<Line>& out) const;
+
+        // Measure(), but wrapped: the widest LINE by height * lineCount.
+        // Same stable-row-height rule for the empty string.
+        glm::vec2 MeasureWrapped(const std::string& utf8, float maxWidthPx,
+                                 float scale = 1.0f) const;
+
         // Decodes UTF-8 into codepoints. Invalid bytes yield U+FFFD rather than
         // throwing or truncating, so hostile/mojibake text degrades visibly
         // instead of silently dropping the rest of the string.

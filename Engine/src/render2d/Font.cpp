@@ -136,32 +136,132 @@ const Glyph* Font::FindGlyph(std::uint32_t cp) const {
     return (it == glyphs_.end()) ? nullptr : &it->second;
 }
 
+namespace {
+
+    // ONE decode step, shared by DecodeUTF8 and WrapLines.
+    //
+    // Factored out the moment there were two callers: wrapping needs the BYTE
+    // OFFSET of each codepoint, which the vector-returning decoder throws away,
+    // and a second hand-written decoder beside this one is exactly how a
+    // wrapper ends up disagreeing with a renderer about where a character
+    // starts. Advances `i` past the codepoint and returns it; invalid input
+    // yields U+FFFD and consumes one byte, so a bad string always terminates.
+    std::uint32_t stepUTF8(const std::string& s, std::size_t& i) {
+        const unsigned char* p = reinterpret_cast<const unsigned char*>(s.data());
+        const std::size_t n = s.size();
+        const unsigned char c = p[i];
+        std::uint32_t cp = 0;
+        int extra = 0;
+        if (c < 0x80)                { cp = c;           extra = 0; }
+        else if ((c & 0xE0) == 0xC0) { cp = c & 0x1Fu;   extra = 1; }
+        else if ((c & 0xF0) == 0xE0) { cp = c & 0x0Fu;   extra = 2; }
+        else if ((c & 0xF8) == 0xF0) { cp = c & 0x07u;   extra = 3; }
+        else { ++i; return 0xFFFDu; }                     // stray continuation
+        if (i + std::size_t(extra) >= n) { i = n; return 0xFFFDu; }  // truncated
+        for (int k = 1; k <= extra; ++k) {
+            const unsigned char cc = p[i + std::size_t(k)];
+            if ((cc & 0xC0) != 0x80) { ++i; return 0xFFFDu; }
+            cp = (cp << 6) | (cc & 0x3Fu);
+        }
+        i += std::size_t(extra) + 1;
+        return cp;
+    }
+
+} // namespace
+
 std::vector<std::uint32_t> Font::DecodeUTF8(const std::string& s) {
     std::vector<std::uint32_t> out;
     out.reserve(s.size());
-    const unsigned char* p = reinterpret_cast<const unsigned char*>(s.data());
-    const unsigned char* end = p + s.size();
-    while (p < end) {
-        const unsigned char c = *p;
-        std::uint32_t cp = 0;
-        int extra = 0;
-        if (c < 0x80)            { cp = c;          extra = 0; }
-        else if ((c & 0xE0) == 0xC0) { cp = c & 0x1Fu; extra = 1; }
-        else if ((c & 0xF0) == 0xE0) { cp = c & 0x0Fu; extra = 2; }
-        else if ((c & 0xF8) == 0xF0) { cp = c & 0x07u; extra = 3; }
-        else { out.push_back(0xFFFDu); ++p; continue; } // stray continuation
-        if (p + extra >= end) { out.push_back(0xFFFDu); break; } // truncated
-        bool ok = true;
-        for (int i = 1; i <= extra; ++i) {
-            const unsigned char cc = p[i];
-            if ((cc & 0xC0) != 0x80) { ok = false; break; }
-            cp = (cp << 6) | (cc & 0x3Fu);
-        }
-        if (!ok) { out.push_back(0xFFFDu); ++p; continue; }
-        out.push_back(cp);
-        p += extra + 1;
-    }
+    for (std::size_t i = 0; i < s.size();) out.push_back(stepUTF8(s, i));
     return out;
+}
+
+void Font::WrapLines(const std::string& utf8, float maxWidthPx, float scale,
+                     std::vector<Line>& out) const {
+    if (!IsValid()) return;
+    const bool bounded = maxWidthPx > 0.0f;
+
+    std::size_t lineBegin = 0;      // first byte of the line being built
+    float lineW = 0.0f;             // its width so far
+    // The last place a break could go: end of the last word, and where to
+    // resume after it. Kept as a pair because they differ by the run of spaces
+    // that must belong to NEITHER line.
+    std::size_t breakEnd = 0, breakResume = 0;
+    bool haveBreak = false;
+    float breakW = 0.0f;
+
+    std::size_t i = 0;
+    while (i < utf8.size()) {
+        const std::size_t cpStart = i;
+        const std::uint32_t cp = stepUTF8(utf8, i);
+
+        if (cp == '\n') {
+            out.push_back(Line{ lineBegin, cpStart, lineW });
+            lineBegin = i;
+            lineW = 0.0f;
+            haveBreak = false;
+            continue;
+        }
+
+        const Glyph* g = FindGlyph(cp);
+        const float adv = g ? g->advance * scale : 0.0f;
+
+        if (cp == ' ') {
+            // A break opportunity ENDS the word before it; the spaces
+            // themselves are dropped from both sides.
+            breakEnd = cpStart;
+            breakW = lineW;
+            // Swallow the whole run, so two spaces do not start the next line
+            // with one.
+            std::size_t j = i;
+            while (j < utf8.size()) {
+                const std::size_t k = j;
+                if (stepUTF8(utf8, j) != ' ') { j = k; break; }
+            }
+            breakResume = j;
+            haveBreak = true;
+            lineW += adv;
+            continue;
+        }
+
+        // Would this glyph overflow? Compared BEFORE adding it, so the line
+        // that is emitted actually fits.
+        if (bounded && lineW + adv > maxWidthPx && cpStart > lineBegin) {
+            if (haveBreak && breakEnd > lineBegin) {
+                out.push_back(Line{ lineBegin, breakEnd, breakW });
+                lineBegin = breakResume;
+                // Re-measure the tail: the partial word already consumed since
+                // the break has to be carried onto the new line.
+                lineW = 0.0f;
+                for (std::size_t k = lineBegin; k < cpStart;) {
+                    const std::uint32_t c2 = stepUTF8(utf8, k);
+                    if (const Glyph* g2 = FindGlyph(c2)) lineW += g2->advance * scale;
+                }
+            } else {
+                // A word longer than the whole line: break inside it.
+                out.push_back(Line{ lineBegin, cpStart, lineW });
+                lineBegin = cpStart;
+                lineW = 0.0f;
+            }
+            haveBreak = false;
+        }
+        lineW += adv;
+    }
+
+    // The last line, always -- including the empty one after a trailing '\n',
+    // because a paragraph that ends in a break really does have a blank line.
+    out.push_back(Line{ lineBegin, utf8.size(), lineW });
+}
+
+glm::vec2 Font::MeasureWrapped(const std::string& utf8, float maxWidthPx,
+                               float scale) const {
+    if (!IsValid()) return { 0.0f, 0.0f };
+    std::vector<Line> lines;
+    WrapLines(utf8, maxWidthPx, scale, lines);
+    float widest = 0.0f;
+    for (const Line& l : lines) widest = std::max(widest, l.width);
+    const int n = lines.empty() ? 1 : int(lines.size());
+    return { widest, lineHeight_ * scale * float(n) };
 }
 
 void Font::AppendUTF8(std::string& out, std::uint32_t cp) {
