@@ -1258,6 +1258,30 @@ may not carry its own `if=` — it would have to lose one or the other, and a su
 row left visible is still laid out, painted and clickable. Put the condition on a
 child, or publish it as a row column.
 
+**An absent slot binds nothing.** While `$present` is false, every binding on that
+slot's subtree is skipped — not applied, and not reported. That matters because the
+pool deliberately writes an EMPTY value into every column it is not filling, so a
+stale row cannot linger when the window slides onto a shorter list; and an empty
+value has no type, so a bool class toggle, an `if=` or a converter would each call
+a completely normal state a document error. A four-slot log that starts empty
+reported four of them at load.
+
+So you can put a class toggle, an `if=` or a converter in a row template without
+having to think about how long the list is:
+
+```xml
+<Label class="log-status" classes="log-bad: {ok | not}" text="{status}"/>
+```
+
+The one binding that is never gated is anything that reads `$present` itself —
+including the visibility the pool compiles for you. Gate that and a slot going
+absent would never be told to hide, and would sit there drawing the last row it
+held.
+
+A slot that fills again picks its bindings straight back up: the skip happens
+before any change-detection stamp, so the frame the window reaches it, every
+binding on it applies at once.
+
 `$index` and `$count` are written **only when the template reads them**. An absolute
 index moves on every window step and change detection is per source, so publishing
 one nothing reads would re-apply the whole pool on every notch of a scroll that

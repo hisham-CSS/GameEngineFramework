@@ -1,6 +1,7 @@
 #include "UIBinding.h"
 
 #include "UIElement.h"
+#include "UIRepeat.h"   // kRepeatPresentProp -- the absent-slot gate
 
 #include <algorithm>
 #include <cctype>
@@ -187,6 +188,7 @@ void UIBinder::collect_(UIElement& el, const std::string& inheritedSource) {
         e.layoutAffecting = !colourOnly;
         resolve_(e, scope);
         resolvePush_(e, scope);
+        resolveSlotGate_(e, scope);
         entries_.push_back(e);
     }
 
@@ -219,6 +221,30 @@ void UIBinder::collect_(UIElement& el, const std::string& inheritedSource) {
     if (sheet_) noteShadowedDeclarations_(el, *sheet_);
 
     for (const auto& c : el.children()) collect_(*c, scope);
+}
+
+// Is this element inside a repeat SLOT, and if so where is that slot's
+// $present? Answered once per collect, so the per-frame cost is a pointer
+// compare.
+void UIBinder::resolveSlotGate_(Entry& e, const std::string& scope) {
+    e.gateSrc = nullptr;
+    e.gateIndex = -1;
+    if (scope.empty()) return;
+    UIDataSource* src = ctx_->Find(scope);
+    if (!src) return;
+    const int idx = src->IndexOf(kRepeatPresentProp);
+    if (idx < 0) return;   // not a slot source; almost everything
+
+    // A BINDING THAT READS $present IS EXEMPT, and this is the line the whole
+    // feature turns on. The slot root's own `if=` is compiled from
+    // {$present} (UIMarkup) -- gate that and a slot going absent would never
+    // be told to hide, so it would sit there showing the last row it held.
+    // Anything asking about presence has to keep running while absent.
+    for (const UIHole& h : e.binding->tmpl.holes()) {
+        if (h.propName == kRepeatPresentProp) return;
+    }
+    e.gateSrc = src;
+    e.gateIndex = idx;
 }
 
 void UIBinder::resolvePush_(Entry& e, const std::string& inheritedSource) {
@@ -587,7 +613,24 @@ bool UIBinder::applyStyle_(Entry& e) {
     return true;
 }
 
+// An absent slot: not drawn, not hit-tested, and holding no row. Evaluating
+// its bindings is wasted work AND a false diagnostic.
+bool UIBinder::slotAbsent_(const Entry& e) {
+    if (!e.gateSrc || e.gateIndex < 0) return false;
+    UIValue v;
+    if (!e.gateSrc->ReadAt(e.gateIndex, v)) return false;
+    bool present = false;
+    return v.AsBool(present) && !present;
+}
+
 bool UIBinder::apply_(Entry& e) {
+    // THE GATE LIVES HERE, not only in the per-frame loop, because there are
+    // four ways into this function: the loop, Rebuild's closing force-apply,
+    // ReapplyFor and ReapplyForSubtree. The force-apply is the one that caught
+    // me -- gating only the loop still reported every absent slot at load,
+    // which is exactly the frame the shipped log is empty on.
+    if (slotAbsent_(e)) return false;
+
     const UIBinding& b = *e.binding;
     const auto& holes = b.tmpl.holes();
 
@@ -844,6 +887,14 @@ UIBindTick UIBinder::UpdateToTarget() {
         const UIBindTarget::Kind kind = e.binding->target.kind;
         // Element -> source only; it has nothing to do in this direction.
         if (kind == UIBindTarget::Kind::State) continue;
+
+        // AN ABSENT REPEAT SLOT holds no row and is display:none. apply_
+        // refuses it anyway; skipping here as well is the cost half, since it
+        // also avoids walking every hole in holesMoved_ for a slot that is not
+        // on screen. Deliberately BEFORE any version stamp, so the frame the
+        // window slides onto this slot the stamp still differs and every
+        // binding on it applies at once.
+        if (slotAbsent_(e)) continue;
 
         // A `bind-value` carries no template, so it resolves through pushSrc
         // rather than the read path every other binding uses. Without this it

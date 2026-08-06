@@ -1007,3 +1007,121 @@ TEST(UIRepeat, AClassToggleInsideAPoolDoesNotResurrectAbsentSlots) {
         << "the widened re-cascade resurrected an absent slot";
     EXPECT_EQ(r.slot(3)->style().display, DisplayMode::None);
 }
+
+
+// ======================================== an absent slot binds nothing (#92) ==
+//
+// A pool writes an EMPTY value into every column it is not filling, and that is
+// deliberate: a stale row must not linger when the window slides onto a shorter
+// list. But an empty value is Kind::None, so every binding needing a TYPED one
+// -- a bool class toggle, an `if=`, a converter -- was calling a perfectly
+// normal state a DOCUMENT ERROR. The shipped swap log is four slots and starts
+// empty, so it reported four of them at load, and the only way to author around
+// it was to leave the status colourless and let "refused" read like a success.
+
+namespace {
+
+// Two slots, a class toggle and a converter in the row -- the two shapes that
+// used to error on an absent slot.
+const char* kAbsentXml =
+    R"(<UI data-source="hud"><Element name="bag" repeat="rows" repeat-count="2">)"
+    R"(<Element name="row">)"
+    R"(<Label name="cell" classes="bad: {ok | not}" text="{label}"/>)"
+    R"(</Element></Element></UI>)";
+
+UIList rowsWithOk(int n) {
+    UIList l;
+    for (int i = 0; i < n; ++i) {
+        UIRecord& r = l.Add();
+        r.SetString("label", "row" + std::to_string(i));
+        r.SetBool("ok", (i % 2) == 0);
+    }
+    return l;
+}
+
+} // namespace
+
+// THE REPORTED BUG, in its simplest form.
+TEST(UIRepeatAbsentSlot, AnEmptyListReportsNoBindingErrorsAtAll) {
+    Rig r;
+    r.hud.SetList("rows", rowsWithOk(0));
+    ASSERT_TRUE(r.Load(kAbsentXml)) << r.firstError();
+
+    ASSERT_TRUE(r.binder.errors().empty())
+        << "an empty list reported " << r.binder.errors().size()
+        << " binding errors at load, first: " << r.binder.errors()[0];
+
+    r.Frame();
+    r.Frame();
+    EXPECT_TRUE(r.binder.errors().empty()) << "...and again on a later frame";
+}
+
+// A PARTIALLY filled pool: the present slot still binds.
+TEST(UIRepeatAbsentSlot, TheFilledSlotStillBindsWhileTheEmptyOneIsQuiet) {
+    Rig r;
+    r.hud.SetList("rows", rowsWithOk(1));
+    ASSERT_TRUE(r.Load(kAbsentXml)) << r.firstError();
+    r.Frame();
+
+    ASSERT_TRUE(r.binder.errors().empty()) << r.binder.errors()[0];
+    EXPECT_EQ(r.textOf(0, "cell"), "row0")
+        << "gating the absent slot also silenced the present one";
+}
+
+// THE TRANSITION, which is the part worth defending: a slot that fills has to
+// pick its bindings back up rather than stay on whatever it last showed.
+TEST(UIRepeatAbsentSlot, ASlotThatFillsPicksItsBindingsBackUp) {
+    Rig r;
+    r.hud.SetList("rows", rowsWithOk(1));
+    ASSERT_TRUE(r.Load(kAbsentXml)) << r.firstError();
+    r.Frame();
+    const std::string whileAbsent = r.textOf(1, "cell");
+
+    r.hud.SetList("rows", rowsWithOk(2));
+    r.Frame();
+    EXPECT_EQ(r.textOf(1, "cell"), "row1")
+        << "a slot that gained a row kept what it had while absent ('"
+        << whileAbsent << "')";
+    EXPECT_TRUE(r.binder.errors().empty()) << r.binder.errors()[0];
+
+    // ...and shrinking again goes quiet rather than erroring.
+    r.hud.SetList("rows", rowsWithOk(1));
+    r.Frame();
+    EXPECT_TRUE(r.binder.errors().empty())
+        << "shrinking the list reported an error for the slot it emptied";
+}
+
+// THE CLASS TOGGLE actually works on the rows that DO have data -- the whole
+// point of fixing this was being able to author one at all.
+TEST(UIRepeatAbsentSlot, TheClassToggleStillTracksARealRow) {
+    Rig r;
+    r.hud.SetList("rows", rowsWithOk(2));   // row0 ok=true, row1 ok=false
+    ASSERT_TRUE(r.Load(kAbsentXml)) << r.firstError();
+    r.Frame();
+
+    UIElement* a = r.slot(0)->Find("cell");
+    UIElement* b = r.slot(1)->Find("cell");
+    ASSERT_TRUE(a && b);
+    EXPECT_FALSE(a->HasClass("bad")) << "an ok row was marked bad";
+    EXPECT_TRUE(b->HasClass("bad")) << "a failed row was not marked bad";
+}
+
+// THE ONE BINDING THAT MUST NOT BE GATED. A slot's own visibility comes from an
+// `if=` compiled from {$present}; gate that and a slot going absent is never
+// told to hide, so it keeps drawing the last row it held.
+TEST(UIRepeatAbsentSlot, TheSlotStillHidesItselfWhenItsRowGoesAway) {
+    Rig r;
+    r.hud.SetList("rows", rowsWithOk(2));
+    ASSERT_TRUE(r.Load(kAbsentXml)) << r.firstError();
+    r.Frame();
+
+    UIElement* slot1 = r.slot(1);
+    ASSERT_NE(slot1, nullptr);
+    EXPECT_NE(slot1->style().display, DisplayMode::None) << "a filled slot is hidden";
+
+    r.hud.SetList("rows", rowsWithOk(1));
+    r.Frame();
+    EXPECT_EQ(slot1->style().display, DisplayMode::None)
+        << "the emptied slot never hid - it is still laid out and drawing its "
+           "old row";
+}

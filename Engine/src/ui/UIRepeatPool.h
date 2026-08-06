@@ -12,6 +12,13 @@
 // equality-gated, so a slot whose row did not change bumps no version and
 // re-applies no binding — which means sliding a window costs exactly the slots
 // that actually changed, and an idle list costs one integer compare.
+//
+// An ABSENT slot (one the window has run past the end of) is written with an
+// EMPTY value in every column, deliberately, so a stale row cannot linger. The
+// BINDER knows to skip a slot whose $present is false rather than trying to
+// type an empty value — see UIBinder::slotAbsent_ — so a row template may
+// carry a class toggle, an `if=` or a converter without caring how long the
+// list is.
 #include "../core/Core.h"
 #include "UIDataSource.h"
 #include "UIRepeat.h"

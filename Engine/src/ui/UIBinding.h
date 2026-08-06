@@ -225,6 +225,23 @@ namespace MyCoreEngine::ui {
             // cache going stale when something else writes the same property.
             std::int32_t     pushIndex = -1;
             UIDataSource*    pushSrc = nullptr;
+            // THE ABSENT-SLOT GATE. Set only when this element's own scope is a
+            // repeat SLOT source: where to read that slot's `$present`. While
+            // it reads false the binding is skipped entirely -- not applied,
+            // and not reported.
+            //
+            // A pool writes an EMPTY value into every column of an absent slot,
+            // deliberately, so a stale row cannot linger when the window slides
+            // onto a shorter list. But an empty value is Kind::None, and any
+            // binding that needs a TYPED one -- a bool class toggle, an `if=`,
+            // a converter -- was calling that a document error. A four-slot log
+            // that starts empty reported four errors at boot for a state that
+            // is completely normal.
+            //
+            // Null on everything that is not in a pool, which is almost
+            // everything, so the check costs one pointer compare.
+            UIDataSource*    gateSrc = nullptr;
+            std::int32_t     gateIndex = -1;
         };
         struct ActionEntry {
             UIElement*    el = nullptr;
@@ -239,6 +256,10 @@ namespace MyCoreEngine::ui {
         // Resolves the write-back target of a State/Value binding, reporting a
         // read-only property rather than dropping the write in silence.
         void resolvePush_(Entry& e, const std::string& inheritedSource);
+        // Fills gateSrc/gateIndex when this element sits in a repeat slot.
+        void resolveSlotGate_(Entry& e, const std::string& scope);
+        // Is that slot currently holding no row?
+        static bool slotAbsent_(const Entry& e);
         bool apply_(Entry& e);
         // Renders `tmpl` into scratch_; false with an error already reported if
         // a hole could not be read or converted.

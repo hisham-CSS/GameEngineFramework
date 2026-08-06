@@ -181,15 +181,23 @@
         </Element>
 
         <!-- A fixed pool: four slots built once at load, and the DATA slides
-             through them. No class toggle in the row template — a pool writes
-             an EMPTY value into every column of an ABSENT slot, and a bool
-             binding handed nothing is a document error. -->
+             through them. The elements stand still and the rows move.
+
+             The class toggle on `ok` is here BECAUSE an absent slot no longer
+             evaluates its bindings. A pool deliberately writes an EMPTY value
+             into every column it is not filling, so a stale row cannot linger
+             when the window slides onto a shorter list — and a bool binding
+             handed nothing used to be a document error. This log starts empty,
+             so all four slots reported one at boot, and the only way to author
+             around it was to leave the status colourless and let "refused" and
+             "load failed" read exactly like a success. -->
         <Element name="swapLog" class="log" repeat="swapLog" repeat-count="4"
                  repeat-offset="swapLogCursor">
           <Element class="log-row">
             <Label class="log-idx" text="{$index}"/>
             <Label class="log-path" text="{path}"/>
-            <Label class="log-status" text="{status}"/>
+            <Label class="log-status" classes="log-bad: {ok | not}"
+                   text="{status}"/>
           </Element>
         </Element>
 

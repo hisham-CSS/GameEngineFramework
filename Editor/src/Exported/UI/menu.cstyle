@@ -423,15 +423,19 @@
   color: rgba(198, 206, 222, 1);
 }
 
-/* NEUTRAL, deliberately. This used to be green unconditionally, so "invalid",
-   "refused", "load failed" and "superseded" all rendered as successes — a
-   status colour that lies is worse than none. Colouring it per row needs a bool
-   binding in the template, and a repeat pool writes an EMPTY value into every
-   column of an ABSENT slot, which makes a bool binding a document error the
-   moment the log is shorter than the pool. The text already says which it is. */
+/* NEUTRAL by default, RED when the row says something went wrong.
+   It was unconditionally green once, so "invalid", "refused", "load failed"
+   and "superseded" all rendered as successes — a status colour that lies is
+   worse than none. Colouring per row needs a bool binding in the row template,
+   which was a document error for every ABSENT slot until the binder learned to
+   skip them. */
 .log-status {
   font-scale: 0.27;
   color: rgba(132, 142, 162, 1);
+}
+
+.log-bad {
+  color: rgba(240, 130, 110, 1);
 }
 
 /* ------------------------------------------------------------ the footer -- */
