@@ -1797,11 +1797,86 @@ UIElement* UIDocument::FocusMove(UINavDir dir) {
     // FocusNext already starts from the beginning when focused_ is null.
     if (!focused_ || !isInTree_(focused_)) return FocusNext(false);
 
-    // LINEAR, for now — see the header. Up and Left run the order backwards,
-    // Down and Right run it forwards, which is what a column or a row of
-    // controls means either way round.
-    const bool backwards = (dir == UINavDir::Up || dir == UINavDir::Left);
-    return FocusNext(backwards);
+    std::vector<UIElement*> order;
+    collectFocusables_(focusRoot(), order);
+    if (order.size() < 2) return focused_;
+
+    const ComputedLayout& from = focused_->layout();
+    // Nothing has been laid out yet -- a document updated before its first
+    // Layout, or a scope whose panel opened this very frame. Geometry cannot
+    // answer, so fall back to the walk rather than trapping focus in place.
+    if (!(from.size.x > 0.0f) || !(from.size.y > 0.0f)) {
+        return FocusNext(dir == UINavDir::Up || dir == UINavDir::Left);
+    }
+
+    const bool horizontal = (dir == UINavDir::Left || dir == UINavDir::Right);
+
+    // EDGES, not centres. A candidate counts as "below" only if it starts at or
+    // after where the current element ENDS -- which is precisely what makes a
+    // row of same-y siblings not below one another, and it is the whole reason
+    // Down used to walk LOW, MEDIUM, HIGH one press at a time.
+    //
+    // Centres cannot express this: three chips in a row and the button above
+    // them all have different centre x, so a centre test made the button above
+    // count as being to the RIGHT of the first chip by ten pixels, and it won.
+    const float kEdgeSlack = 1.0f;    // abutting rects count as adjacent
+    const float kOffPenalty = 2.5f;   // directly-ahead beats near-but-diagonal
+
+    const float fromLo = horizontal ? from.position.x : from.position.y;
+    const float fromHi = fromLo + (horizontal ? from.size.x : from.size.y);
+    const float crossLo = horizontal ? from.position.y : from.position.x;
+    const float crossHi = crossLo + (horizontal ? from.size.y : from.size.x);
+    const bool forward = (dir == UINavDir::Right || dir == UINavDir::Down);
+
+    UIElement* best = nullptr;
+    float bestScore = 0.0f;
+    bool anyGeometry = false;
+
+    for (UIElement* c : order) {
+        if (c == focused_) continue;
+        const ComputedLayout& to = c->layout();
+        if (!(to.size.x > 0.0f) || !(to.size.y > 0.0f)) continue;
+        anyGeometry = true;
+
+        const float toLo = horizontal ? to.position.x : to.position.y;
+        const float toHi = toLo + (horizontal ? to.size.x : to.size.y);
+
+        // Must CLEAR the current element along the axis.
+        float along;
+        if (forward) {
+            if (toLo < fromHi - kEdgeSlack) continue;
+            along = toLo - fromHi;
+        } else {
+            if (toHi > fromLo + kEdgeSlack) continue;
+            along = fromLo - toHi;
+        }
+        if (along < 0.0f) along = 0.0f;
+
+        // Off-axis is the GAP BETWEEN RECTS, zero when they overlap -- so a
+        // wide row below a narrow item wins over something nearer but off to
+        // the side.
+        const float cLo = horizontal ? to.position.y : to.position.x;
+        const float cHi = cLo + (horizontal ? to.size.y : to.size.x);
+        float off = 0.0f;
+        if (cLo > crossHi)      off = cLo - crossHi;
+        else if (crossLo > cHi) off = crossLo - cHi;
+
+        const float score = along + kOffPenalty * off;
+        if (!best || score < bestScore) { best = c; bestScore = score; }
+    }
+
+    // NOTHING laid out anywhere: same fallback as above, for the same reason.
+    if (!anyGeometry) {
+        return FocusNext(dir == UINavDir::Up || dir == UINavDir::Left);
+    }
+    // Nothing in that direction. Deliberately NO WRAP: pressing Down at the
+    // bottom of a list should do nothing, which is what every console UI does
+    // and what stops a menu feeling like a carousel. Tab still wraps, because
+    // Tab is a different affordance with no direction to run out of.
+    if (!best) return focused_;
+
+    SetFocus(best);
+    return focused_;
 }
 
 bool UIDocument::UpdateNav(const UINavState& nav) {

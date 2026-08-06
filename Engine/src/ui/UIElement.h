@@ -546,19 +546,27 @@ namespace MyCoreEngine::ui {
 
         // Move focus in a DIRECTION.
         //
-        // THIS SIGNATURE IS THE SEAM. Today the body is linear: it walks the
-        // same Tab order FocusNext does, because Tab order already reaches
-        // every focusable and a menu laid out as a column agrees with it.
-        // Tomorrow the body becomes a geometric search over the laid-out rects
-        // — which is what a 2D layout actually needs, and what every console UI
-        // does — and NOTHING above this function changes.
+        // GEOMETRIC, over the laid-out rects, within the current focus scope.
         //
-        // That split is deliberate rather than lazy. The neighbour-finder is a
-        // short function wrapped in a long case matrix (overlaps, nested
-        // scrollers, edges, generated tab headers, repeat= slots that come and
-        // go) and four constants that cannot be tuned without a controller in
-        // hand. The plumbing has none of that risk and delivers most of the
-        // value, so it ships first.
+        // Tab order is wrong for a 2D layout and it shows: three chips in a row
+        // share a y, so a linear walk made Down step through LOW, MEDIUM and
+        // HIGH one press at a time before reaching the next setting. Down now
+        // means "the nearest thing actually below", so a row costs one press to
+        // pass and Left/Right move within it.
+        //
+        // The rules, all four of which are the tuning:
+        //   - a candidate must CLEAR the current element along the axis, not
+        //     merely differ from it, or same-row siblings count as below;
+        //   - off-axis distance is the GAP BETWEEN RECTS, zero when they
+        //     overlap, so a wide row below a narrow item wins over something
+        //     nearer but off to the side;
+        //   - off-axis is penalised harder than along-axis, so directly-ahead
+        //     beats diagonal;
+        //   - NO WRAP. Down at the bottom does nothing. Tab still wraps.
+        //
+        // Falls back to the linear walk when nothing has geometry yet, rather
+        // than trapping focus: a document can be navigated before its first
+        // Layout, and a degenerate rect must never be a dead end.
         //
         // With nothing focused, ANY direction focuses the first focusable —
         // otherwise the first press of a d-pad on a freshly opened menu would

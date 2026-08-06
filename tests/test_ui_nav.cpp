@@ -15,6 +15,7 @@
 #include "../Engine/src/ui/UIBinding.h"
 #include "../Engine/src/ui/UIDataSource.h"
 #include "../Engine/src/ui/UINav.h"
+#include "../Engine/src/ui/UIStyleSheet.h"
 
 #include <cmath>
 #include <string>
@@ -589,4 +590,135 @@ TEST(UINavAnalog, ClearingTheStateDropsTheAxes) {
     EXPECT_FLOAT_EQ(n.axisY, 0.0f);
     EXPECT_FLOAT_EQ(n.dt, 0.0f);
     EXPECT_TRUE(n.empty());
+}
+
+
+// ------------------------------------------ spatial navigation (U26e)
+//
+// Reported: "horizontally spaced buttons in a row still consume the up and down
+// inputs ... you have to press down 3 times to get past the graphical settings".
+//
+// Exactly right, and it is what FocusMove was left as a seam for. Tab order is
+// one-dimensional; a row of three chips shares a y, so a linear walk treats each
+// as "after" the last and Down stepped through all three. Geometry does not: a
+// sibling at the same y is not below anything.
+
+namespace {
+
+// A column: one button, a ROW of three, then another button. The shape the
+// complaint is about.
+struct Grid {
+    UIDocument doc;
+    std::vector<std::string> errors;
+    UIStyleSheet sheet;
+
+    bool Load() {
+        const char* css =
+            "#col { width: 400px; flex-direction: column; }"
+            "#row { width: 400px; flex-direction: row; }"
+            ".item { width: 120px; height: 40px; }"
+            ".chip { width: 100px; height: 32px; }";
+        if (!sheet.ParseString(css, "t.cstyle")) return false;
+        const char* xml =
+            R"(<UI><Element name="col">)"
+            R"(<Button name="above" class="item" text="a"/>)"
+            R"(<Element name="row" class="row">)"
+            R"(  <Button name="low"  class="chip" text="LOW"/>)"
+            R"(  <Button name="med"  class="chip" text="MED"/>)"
+            R"(  <Button name="high" class="chip" text="HIGH"/>)"
+            R"(</Element>)"
+            R"(<Button name="below" class="item" text="b"/>)"
+            R"(</Element></UI>)";
+        if (!UIMarkup::LoadInto(doc, xml, errors, "t.cxml")) return false;
+        sheet.ApplyTo(doc.root());
+        doc.Layout(600.f, 600.f);
+        return true;
+    }
+    std::string focusName() {
+        UIElement* f = doc.focused();
+        return f ? f->name() : std::string("<none>");
+    }
+    void Move(UINavDir d) { doc.UpdateNav(move(d)); }
+    std::string firstError() const { return errors.empty() ? std::string() : errors[0]; }
+};
+
+} // namespace
+
+// THE COMPLAINT, directly. One press past the whole row, not three.
+TEST(UISpatialNav, DownStepsPastAWholeRowInOnePress) {
+    Grid g;
+    ASSERT_TRUE(g.Load()) << g.firstError();
+    g.doc.SetFocus(g.doc.root().Find("above"));
+
+    g.Move(UINavDir::Down);
+    EXPECT_EQ(g.focusName(), "low") << "Down did not reach the row";
+
+    g.Move(UINavDir::Down);
+    EXPECT_EQ(g.focusName(), "below")
+        << "Down walked ALONG the row instead of past it - this is the reported "
+           "bug: three presses to clear three chips";
+}
+
+// ...and the row is still reachable sideways, which is the other half: skipping
+// it vertically is only correct if left/right still works within it.
+TEST(UISpatialNav, LeftAndRightMoveWithinTheRow) {
+    Grid g;
+    ASSERT_TRUE(g.Load()) << g.firstError();
+    g.doc.SetFocus(g.doc.root().Find("low"));
+
+    g.Move(UINavDir::Right);
+    EXPECT_EQ(g.focusName(), "med");
+    g.Move(UINavDir::Right);
+    EXPECT_EQ(g.focusName(), "high");
+    g.Move(UINavDir::Left);
+    EXPECT_EQ(g.focusName(), "med");
+}
+
+// Up out of the row lands on the thing above it, not on a sibling chip.
+TEST(UISpatialNav, UpLeavesTheRowRatherThanWalkingIt) {
+    Grid g;
+    ASSERT_TRUE(g.Load()) << g.firstError();
+    g.doc.SetFocus(g.doc.root().Find("high"));
+    g.Move(UINavDir::Up);
+    EXPECT_EQ(g.focusName(), "above");
+}
+
+// NO WRAP. Down at the bottom does nothing, which is what every console UI does
+// and what stops a menu feeling like a carousel.
+TEST(UISpatialNav, TheEdgesDoNotWrap) {
+    Grid g;
+    ASSERT_TRUE(g.Load()) << g.firstError();
+
+    g.doc.SetFocus(g.doc.root().Find("below"));
+    g.Move(UINavDir::Down);
+    EXPECT_EQ(g.focusName(), "below") << "Down wrapped round from the bottom";
+
+    g.doc.SetFocus(g.doc.root().Find("above"));
+    g.Move(UINavDir::Up);
+    EXPECT_EQ(g.focusName(), "above") << "Up wrapped round from the top";
+}
+
+// Right from the LAST chip must not jump to another row just because something
+// over there happens to be to the right. Nothing is to its right in its band.
+TEST(UISpatialNav, RightFromTheEndOfARowDoesNotJumpRows) {
+    Grid g;
+    ASSERT_TRUE(g.Load()) << g.firstError();
+    g.doc.SetFocus(g.doc.root().Find("high"));
+    g.Move(UINavDir::Right);
+    EXPECT_EQ(g.focusName(), "high");
+}
+
+// Geometry cannot answer before a Layout. Falling back to the linear walk keeps
+// a pad working; trapping focus would look like a dead controller.
+TEST(UISpatialNav, FallsBackToTheLinearWalkWithNoGeometry) {
+    UIDocument doc;
+    std::vector<std::string> errors;
+    ASSERT_TRUE(UIMarkup::LoadInto(doc,
+        R"(<UI><Button name="a" text="a"/><Button name="b" text="b"/></UI>)",
+        errors, "t.cxml"));
+    // NO Layout call: every rect is degenerate.
+    doc.SetFocus(doc.root().Find("a"));
+    doc.UpdateNav(move(UINavDir::Down));
+    EXPECT_EQ(doc.focused(), doc.root().Find("b"))
+        << "with no geometry the move did nothing - focus is trapped";
 }

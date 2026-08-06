@@ -841,3 +841,30 @@ TEST(ShippedMenuStyle, AFocusedSliderIsDistinguishableAtFullValue) {
         << "the FILL does not change on focus, and at 100% it covers the ring - "
            "a focused slider is invisible";
 }
+
+// The shipped menu's own settings page, which is where the complaint came from.
+TEST(ShippedMenuAsset, DownClearsTheQualityRowInOnePress) {
+    ShippedMenu m;
+    m.Frame();
+    UIDataSource& src = m.world.shared();
+    ASSERT_TRUE(invoke(src, "menuOpenSettings"));
+    m.Frame();
+
+    // Walk the whole panel top to bottom and count how often focus lands on a
+    // chip. Three chips share a row, so a correct walk touches at most one.
+    int chipStops = 0;
+    std::string last;
+    for (int i = 0; i < 12; ++i) {
+        UINavState n;
+        n.moves.push_back(UINavDir::Down);
+        m.doc().UpdateNav(n);
+        UIElement* f = m.doc().focused();
+        if (!f) break;
+        if (f->name() == last) break;          // hit the bottom, no wrap
+        last = f->name();
+        if (f->HasClass("chip")) ++chipStops;
+    }
+    EXPECT_LE(chipStops, 1)
+        << "walking down the settings page stopped on " << chipStops
+        << " chips - a row should cost one press, not one per chip";
+}
