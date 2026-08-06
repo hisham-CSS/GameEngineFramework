@@ -37,24 +37,61 @@ def _save(img, name):
 
 
 def menu_backdrop():
-    """1280x720 vertical gradient with a faint grid.
+    """2560x1080 (21:9): a lit room, not a test pattern.
 
-    `background-size: cover` on the menu root. Sized at 720p rather than 4K on
-    purpose: it is a soft gradient, so it survives being scaled up, and a
-    committed 4K PNG would dwarf every other asset in the repo.
+    THREE DECISIONS, all of them about what survives `background-size: cover`.
+
+    AUTHORED AT 21:9, not 16:9. Cover scales to fill and crops the rest, so a
+    16:9 source on a 32:9 monitor loses two thirds of its height. Authoring in
+    the middle of the range every real display sits in means the crop is modest
+    in both directions rather than severe in one.
+
+    NOTHING SHARP. The old version drew a 64px grid, which is exactly the wrong
+    thing here: a full-screen menu scales with the surface, so on a 4K screen
+    those became 190px squares of visible banding, and it read as an engine
+    test pattern rather than as art. Everything here is low-frequency, so
+    cropping it, scaling it 4x, or letting bilinear filtering smear it all
+    leave it looking the same.
+
+    A LIGHT SOURCE, low and left. The verb column lives there, and the gold
+    accents everywhere in the menu now have something to be motivated by. The
+    vignette pulling the corners down is what keeps the footer legible over
+    arbitrary art; the veil and ramp layers in menu.cxml do the rest.
+
+    Rendered small and upscaled, because every gradient in it is smooth and a
+    per-pixel Python loop over 2.7M pixels is not free. The PNG stays under
+    100KB precisely because there is nothing sharp in it to encode.
     """
-    w, h = 1280, 720
-    img = Image.new("RGBA", (w, h))
-    d = ImageDraw.Draw(img)
-    for y in range(h):
-        t = y / (h - 1)
-        # Dark at the top, slightly warmer and lighter toward the bottom.
-        d.line([(0, y), (w, y)],
-               fill=(int(12 + 26 * t), int(14 + 28 * t), int(22 + 34 * t), 255))
-    for x in range(0, w, 64):
-        d.line([(x, 0), (x, h)], fill=(255, 255, 255, 8))
-    for y in range(0, h, 64):
-        d.line([(0, y), (w, y)], fill=(255, 255, 255, 8))
+    sw, sh = 256, 108          # authored small, upscaled at the end
+    w, h = 2560, 1080
+    img = Image.new("RGB", (sw, sh))
+    px = img.load()
+
+    # The warm source, in small-image coordinates: low and left of centre.
+    gx, gy = sw * 0.26, sh * 0.82
+    grad = (sw * 0.30) ** 2
+
+    for y in range(sh):
+        v = y / (sh - 1)
+        # Base: deep ink at the top easing to a cooler slate low down. Both
+        # ends stay far below the type's luminance -- this is a floor, not a
+        # midtone.
+        br = 10 + 16 * v
+        bg = 12 + 19 * v
+        bb = 18 + 27 * v
+        for x in range(sw):
+            u = x / (sw - 1)
+            d = ((x - gx) ** 2 + (y - gy) ** 2) / grad
+            glow = 1.0 / (1.0 + d * d * d * 2.2)      # tight, fast-falling
+            # Vignette: distance from centre, strongest in the corners.
+            cx, cy = (u - 0.5) * 2.0, (v - 0.5) * 2.0
+            vig = 1.0 - 0.55 * min(1.0, (cx * cx * 0.60 + cy * cy) ** 1.2)
+            r = (br + 46 * glow) * vig
+            g = (bg + 33 * glow) * vig
+            b = (bb + 12 * glow) * vig
+            px[x, y] = (int(min(255, r)), int(min(255, g)), int(min(255, b)))
+
+    img = img.resize((w, h), Image.BICUBIC)
     _save(img, "menu_backdrop.png")
 
 

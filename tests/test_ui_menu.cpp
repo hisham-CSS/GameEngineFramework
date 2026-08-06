@@ -355,21 +355,34 @@ TEST(MenuUIContent, CountersReflectTheLiveWorld) {
 // installed, and demand SILENCE.
 namespace {
 
+// The shipped menu, stood up from the SHIPPED SCENE FILE rather than from a
+// component assembled here.
+//
+// That distinction turned out to matter. Hand-building the component left
+// `scale` at its default (Constant, 1.0), while Exported/menu.json ships
+// ScaleWithScreen against 1280x720 -- so every geometry assertion in this file
+// was measuring a configuration no player will ever see, and a panel that
+// stays 720 real pixels wide on a 4K screen looked correct.
 struct ShippedMenu {
+    AssetManager assets;
     Scene   scene;
     UIWorld world;
     entt::entity entity{ entt::null };
+    bool    loaded = false;
 
     ShippedMenu() {
         // Both, and in this order: the menu's pilot field binds to `playerName`,
         // which InstallDemoUIContent seeds.
         InstallDemoUIContent(world);
         InstallMenuUIContent(world, MenuUIHooks{});
-        entity = scene.registry.create();
-        UIDocumentComponent ud;
-        ud.markup = "Exported/UI/menu.cxml";
-        ud.stylesheet = "Exported/UI/menu.cstyle";
-        scene.registry.emplace<UIDocumentComponent>(entity, ud);
+
+        SceneLoader loader(scene, assets);
+        loaded = loader.RequestSwap("Exported/menu.json") &&
+                 loader.DrainPendingSwap();
+        for (const entt::entity e : scene.registry.view<UIDocumentComponent>()) {
+            entity = e;
+            break;
+        }
     }
     void Frame(int w = 1280, int h = 720) { world.Update(scene.registry, w, h, 0.016f); }
     UIDocument& doc() { return world.document(entity)->document(); }
@@ -511,6 +524,16 @@ TEST(ShippedMenuAsset, TheMenuSceneLoadsAndHasACamera) {
         EXPECT_EQ(ud.scale.mode, ui::UIScaleMode::ScaleWithScreen);
         EXPECT_FLOAT_EQ(ud.scale.reference.x, 1280.0f);
         EXPECT_FLOAT_EQ(ud.scale.reference.y, 720.0f);
+        // HEIGHT, and this is the opposite of the HUD's choice on purpose.
+        //
+        // Width-match is right for a HUD, whose furniture is anchored to the
+        // edges and whose horizontal room runs out first. A full-screen MENU
+        // is a vertical stack in the middle of the screen: height is what
+        // constrains it, and following width means a 32:9 monitor gets the
+        // same menu at 4x rather than the same menu with more room around it.
+        // Measured, that was a 2880px-wide settings panel.
+        EXPECT_FLOAT_EQ(ud.scale.match, 1.0f)
+            << "the menu follows WIDTH, so it balloons on an ultrawide";
     }
 }
 
@@ -948,4 +971,96 @@ TEST(ShippedMenuAsset, TheLegendNamesTheButtonsTheCurrentDeviceActuallyHas) {
     EXPECT_NE(m.find("legendBack")->style().display, DisplayMode::None)
         << "an open panel does not offer BACK";
     EXPECT_EQ(cap("keyBack"), "B");
+}
+
+
+// ---------------------------------------------------- shape at any screen
+
+namespace {
+
+// The whole settings page laid out at one surface size, with the panel open.
+struct MenuShape {
+    float panelW = 0, panelH = 0, footerBottom = 0, verbsW = 0, frameW = 0;
+};
+
+MenuShape shapeAt(int w, int h) {
+    ShippedMenu m;
+    m.Frame(w, h);
+    invoke(m.world.shared(), "menuOpenSettings");
+    m.Frame(w, h);
+    const auto box = [&](const char* n) {
+        UIElement* e = m.find(n);
+        return e ? e->layout() : ComputedLayout{};
+    };
+    MenuShape s;
+    s.panelW = box("settingsPanel").size.x;
+    s.panelH = box("settingsPanel").size.y;
+    s.footerBottom = box("footer").position.y + box("footer").size.y;
+    s.frameW = box("frame").size.x;
+    // The verb column is hidden with the panel open; measure it separately.
+    ShippedMenu root;
+    root.Frame(w, h);
+    UIElement* v = root.find("verbs");
+    s.verbsW = v ? v->layout().size.x : 0.0f;
+    return s;
+}
+
+} // namespace
+
+// AN ULTRAWIDE SHOWS MORE, NOT BIGGER.
+//
+// The menu follows HEIGHT (menu.json's uiScaleMatch), so two surfaces of the
+// same height lay out identically however wide they are -- 2560x1080 is a
+// 1920x1080 with more room beside it, not a 1080p menu at 1.33x.
+//
+// This is what width-match got wrong, and it was not subtle: on a 5120x1440
+// the settings panel measured 2880 real pixels across, and the verbs rendered
+// at four times their authored size.
+TEST(ShippedMenuAsset, TheLayoutFollowsHeightSoAnUltrawideShowsMoreNotBigger) {
+    const MenuShape hd = shapeAt(1920, 1080);
+    ASSERT_GT(hd.panelW, 0.0f) << "the shipped menu did not lay out at all";
+
+    for (int w : { 2560, 3440, 5120 }) {
+        const MenuShape uw = shapeAt(w, 1080);
+        EXPECT_NEAR(uw.panelW, hd.panelW, 0.5f)
+            << w << "x1080 sized the settings panel differently from 1920x1080";
+        EXPECT_NEAR(uw.panelH, hd.panelH, 0.5f)
+            << w << "x1080 sized the settings panel differently from 1920x1080";
+        EXPECT_NEAR(uw.verbsW, hd.verbsW, 0.5f)
+            << w << "x1080 sized the verb column differently";
+        // ...and the extra width is genuinely extra room, not extra content.
+        EXPECT_NEAR(uw.frameW, float(w), 0.5f);
+    }
+}
+
+// It still GROWS with a taller screen -- following height must not be mistaken
+// for not scaling at all, which is the bug the HUD originally shipped with.
+TEST(ShippedMenuAsset, TheLayoutStillGrowsWithATallerScreen) {
+    const MenuShape a = shapeAt(1280, 720);
+    const MenuShape b = shapeAt(2560, 1440);
+    EXPECT_NEAR(b.panelW, a.panelW * 2.0f, 1.0f)
+        << "doubling the surface height did not double the menu";
+}
+
+// Nothing leaves the screen at any shape a real display has. The footer is the
+// one that would go first: it is pinned to the bottom of a frame that is 100%
+// of the surface, so anything that overflows pushes it off.
+TEST(ShippedMenuAsset, NothingRunsOffTheScreenAtAnyRealDisplayShape) {
+    struct S { const char* name; int w, h; };
+    const S sizes[] = {
+        { "720p",       1280, 720 },  { "1080p",      1920, 1080 },
+        { "1440p",      2560, 1440 }, { "4K",         3840, 2160 },
+        { "21:9",       2560, 1080 }, { "34in UW",    3440, 1440 },
+        { "32:9",       5120, 1440 }, { "4:3",        1280, 1024 },
+        { "small",      1024, 600 },  { "laptop 16:10", 1920, 1200 },
+    };
+    for (const S& sz : sizes) {
+        const MenuShape s = shapeAt(sz.w, sz.h);
+        EXPECT_LE(s.footerBottom, float(sz.h) + 0.5f)
+            << sz.name << " (" << sz.w << "x" << sz.h
+            << ") pushed the footer off the bottom of the screen";
+        EXPECT_LE(s.panelW, float(sz.w) + 0.5f)
+            << sz.name << " (" << sz.w << "x" << sz.h
+            << ") made the settings panel wider than the screen";
+    }
 }
