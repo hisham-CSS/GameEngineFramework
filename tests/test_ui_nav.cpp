@@ -1129,7 +1129,7 @@ TEST(UIDevicePrompts, TheGlyphNamesAndGatingBoolsFollowTheDevice) {
 
     EXPECT_EQ(str("uiGlyphSelect"), "ENTER");
     EXPECT_EQ(str("uiGlyphBack"), "ESC");
-    EXPECT_EQ(str("uiGlyphNav"), "WASD");
+    EXPECT_EQ(str("uiGlyphNav"), "ARROWS");
     EXPECT_TRUE(flag("uiKeyboard"));
     EXPECT_FALSE(flag("uiPad"));
 
@@ -1330,21 +1330,19 @@ TEST(UIKeyboardNav, EscapeOnTheFrameAPanelOpensStillReachesThatPanel) {
 }
 
 
-// THE MOVE PROMPT NAMES THE THING THAT WORKS.
+// THE MOVE PROMPT NAMES THE KEYS THAT ALWAYS WORK.
 //
-// Reported from a real session: navigate onto a text field with WASD and those
-// four keys immediately become letters, so the legend is telling you to press
-// something that types "w". The arrows do not have that problem -- Up and Down
-// still navigate out of a single-line field -- so that is what the prompt has
-// to say while a field holds focus.
-TEST(UIDevicePrompts, TheMovePromptSaysARROWSWhileATextFieldHasFocus) {
+// Both WASD and the arrows drive the menu, but only one of them always does:
+// W, A, S and D become letters the moment a field takes focus and the field
+// eats all four. So the legend says ARROWS everywhere, rather than advertising
+// the fragile half until the exact moment a player tries it.
+TEST(UIDevicePrompts, TheMovePromptNamesTheArrowsWhetherOrNotAFieldHasFocus) {
     ShippedHud hud;
     hud.Frame();
     const auto nav = [&] { return hud.world.shared().GetString("uiGlyphNav"); };
-    ASSERT_EQ(nav(), "WASD");
+    EXPECT_EQ(nav(), "ARROWS") << "the legend names WASD, which stops working in a field";
     EXPECT_FALSE(hud.world.shared().GetBool("uiTyping"));
 
-    // Focus the HUD's own field, the way navigating onto it would.
     UIElement* field = nullptr;
     for (UIElement* e : { hud.find("nameField"), hud.find("pilot"),
                           hud.find("playerField") }) {
@@ -1354,14 +1352,14 @@ TEST(UIDevicePrompts, TheMovePromptSaysARROWSWhileATextFieldHasFocus) {
     hud.doc().SetFocus(field);
     hud.Frame();
 
+    EXPECT_EQ(nav(), "ARROWS") << "the prompt changed when it had no reason to";
+    // uiTyping still moves, because glyph ART may want to say more than a
+    // single label can.
     EXPECT_TRUE(hud.world.shared().GetBool("uiTyping"));
-    EXPECT_EQ(nav(), "ARROWS")
-        << "the legend still says WASD while a field is eating W, A, S and D";
 
-    // ...and back again the moment focus leaves it.
     hud.doc().SetFocus(nullptr);
     hud.Frame();
-    EXPECT_EQ(nav(), "WASD");
+    EXPECT_EQ(nav(), "ARROWS");
     EXPECT_FALSE(hud.world.shared().GetBool("uiTyping"));
 }
 

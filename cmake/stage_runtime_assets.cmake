@@ -28,5 +28,23 @@ foreach(f ${seedFiles})
     get_filename_component(name "${f}" NAME)
     if(NOT EXISTS "${DST}/${name}")
         file(COPY "${f}" DESTINATION "${DST}")
+    else()
+        # SEEDED-ONLY IS SAFE BUT SILENT, and the silence is its own bug: an
+        # authored change to one of these in the source tree never reaches a
+        # tree that has already been built once, so the file is visibly right
+        # in the repo and the running game disagrees with it. That cost a whole
+        # debugging session on a menu.json scale setting that "did nothing".
+        #
+        # Still not copied -- overwriting is what reverts editor-saved scenes,
+        # which is worse. Just say so, and only when they actually differ.
+        file(SHA256 "${f}" srcHash)
+        file(SHA256 "${DST}/${name}" dstHash)
+        if(NOT srcHash STREQUAL dstHash)
+            message(STATUS
+                "[stage] KEEPING the staged ${name}: it differs from the source "
+                "copy, and these are editor-writable so a build must not "
+                "overwrite them. If the SOURCE one is the one you want, delete "
+                "${DST}/${name} and build again.")
+        endif()
     endif()
 endforeach()

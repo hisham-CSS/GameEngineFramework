@@ -941,7 +941,7 @@ TEST(ShippedMenuAsset, TheLegendNamesTheButtonsTheCurrentDeviceActuallyHas) {
     };
 
     // Keyboard is the boot assumption, and these must be the KEYBOARD names.
-    EXPECT_EQ(cap("keyNav"), "WASD");
+    EXPECT_EQ(cap("keyNav"), "ARROWS");
     EXPECT_EQ(cap("keySelect"), "ENTER");
 
     // Pick up a pad: the same three labels, different words.

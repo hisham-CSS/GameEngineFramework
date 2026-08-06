@@ -61,16 +61,8 @@ void UIWorld::updateDevice_() {
     // later still finds the values already there, rather than showing the
     // wrong prompts until the next time the player switches devices.
     const bool pad = (device_ == ui::UINavDevice::Gamepad);
-    // A TEXT FIELD HAS FOCUS, so the keyboard's two ways of moving stop being
-    // interchangeable: W A S D are letters now and the field eats all four,
-    // while the arrows keep working -- Up and Down navigate out of a
-    // single-line field and Left/Right run the caret.
-    //
-    // Naming WASD in that state is a prompt that is wrong exactly when the
-    // player tries it. The pad is unaffected: a stick types nothing.
-    //
     // Read from the PREVIOUS frame's focus, since this runs before the
-    // document loop. One frame of lag on a label, against telling the truth.
+    // document loop. One frame of lag on a label, which is imperceptible.
     const bool typing = wantsTextInput();
     shared_.SetBool("uiPad", pad);
     shared_.SetBool("uiKeyboard", !pad);
@@ -82,9 +74,18 @@ void UIWorld::updateDevice_() {
     // same lie a WASD label is.
     shared_.SetString("uiGlyphSelect", pad ? "A" : "ENTER");
     shared_.SetString("uiGlyphBack",   pad ? "B" : "ESC");
-    shared_.SetString("uiGlyphNav",    pad      ? "L STICK"
-                                     : typing  ? "ARROWS"
-                                               : "WASD");
+    // ARROWS, ALWAYS -- not "WASD until you reach a text field".
+    //
+    // Both drive the menu, but only one of them ALWAYS does: W A S and D are
+    // letters the moment a field takes focus, and the field eats all four. A
+    // prompt that names WASD is therefore wrong at exactly the moment a player
+    // tries it, and a prompt that swaps to ARROWS only while typing spends most
+    // of its life advertising the fragile half.
+    //
+    // So the legend names the half that is true everywhere, and WASD stays a
+    // convenience you find rather than one you are promised. `uiTyping` is
+    // still published for a game that wants to say more.
+    shared_.SetString("uiGlyphNav", pad ? "L STICK" : "ARROWS");
 }
 
 void UIWorld::Clear() {

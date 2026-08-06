@@ -504,7 +504,7 @@ to feed and forget — and publishes it to the shared source every frame:
 | `uiTyping` | a text field has focus |
 | `uiGlyphSelect` | `A` / `ENTER` |
 | `uiGlyphBack` | `B` / `ESC` |
-| `uiGlyphNav` | `L STICK` / `WASD` / `ARROWS` |
+| `uiGlyphNav` | `L STICK` / `ARROWS` |
 
 ```xml
 <Label class="keycap" text="{uiGlyphSelect}"/>
@@ -516,10 +516,13 @@ keep stealing the prompts back and the legend does not flicker every time you
 stop to read it. Reaching for the **mouse** counts, before any button is
 pressed — that is the moment you have switched.
 
-`uiGlyphNav` says `ARROWS` rather than `WASD` while a text field has focus,
-because those four keys are letters there and the field eats all of them, while
-the arrows keep working. A WASD *icon* is the same lie a WASD label is, which is
-what `uiTyping` is for.
+`uiGlyphNav` says `ARROWS` and never `WASD`, even though both drive the menu.
+Only one of them always does: W, A, S and D become letters the moment a field
+takes focus and the field eats all four, so a prompt naming WASD is wrong at
+exactly the moment a player tries it — and one that swaps only while typing
+spends most of its life advertising the fragile half. WASD stays a convenience
+you find rather than one you are promised. `uiTyping` is published for a game
+that wants to say more than one label can.
 
 Size a keycap to its **content**. A fixed 24px circle sized for "A" cuts
 "ENTER" clean in half.
