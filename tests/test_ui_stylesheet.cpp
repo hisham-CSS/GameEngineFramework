@@ -12,6 +12,7 @@
 #include "../Engine/src/ui/UIAssetPath.h"
 #include "../Engine/src/ui/UIStyleSheet.h"
 #include "../Engine/src/ui/UIElement.h"
+#include "../Engine/src/ui/UIMarkup.h"
 
 #include <cstdio>
 #include <fstream>
@@ -423,4 +424,44 @@ TEST(UIStyleSheetHud, TheShippedSheetSetsABaseTextSizeMatchingTheBakedAtlas) {
         << doc.root().style().fontScale * kUIFontAtlasPixels << "px, not the intended "
         << kUIFontBodyPixels << "px - the sheet's base rule and Font.h's "
            "kUIFontAtlasPixels have drifted apart";
+}
+
+
+// A two-stop fill is authorable, and its default is None so no existing sheet
+// changes. The renderer half is pixel-tested in test_renderer2d.cpp.
+TEST(UIStyleSheetGradient, ParsesBothDirectionsAndTheSecondStop) {
+    UIStyleSheet s;
+    ASSERT_TRUE(s.ParseString(
+        ".a { background-color: #101010; background-color-to: #303030;"
+        "     background-gradient: vertical; }"
+        ".b { background-gradient: horizontal; }"
+        ".c { background-gradient: none; }", "t.cstyle"))
+        << (s.errors().empty() ? std::string() : s.errors()[0]);
+
+    UIDocument doc;
+    std::vector<std::string> errs;
+    ASSERT_TRUE(UIMarkup::LoadInto(doc,
+        R"(<UI><Element name="a" class="a"/><Element name="b" class="b"/>)"
+        R"(<Element name="c" class="c"/><Element name="d"/></UI>)", errs, "t.cxml"));
+    s.ApplyTo(doc.root());
+
+    EXPECT_EQ(doc.root().Find("a")->style().backgroundGradient,
+              BackgroundGradient::Vertical);
+    EXPECT_NEAR(doc.root().Find("a")->style().backgroundColorTo.r, 48.f / 255.f, 0.01f);
+    EXPECT_EQ(doc.root().Find("b")->style().backgroundGradient,
+              BackgroundGradient::Horizontal);
+    EXPECT_EQ(doc.root().Find("c")->style().backgroundGradient,
+              BackgroundGradient::None);
+    // Untouched by any rule: the default has to be None, or every existing
+    // stylesheet in the project would start rendering differently.
+    EXPECT_EQ(doc.root().Find("d")->style().backgroundGradient,
+              BackgroundGradient::None);
+}
+
+TEST(UIStyleSheetGradient, RejectsAnUnknownDirectionByName) {
+    UIStyleSheet s;
+    EXPECT_FALSE(s.ParseString(".a { background-gradient: diagonal; }", "t.cstyle"));
+    ASSERT_FALSE(s.errors().empty());
+    EXPECT_NE(s.errors()[0].find("background-gradient"), std::string::npos)
+        << s.errors()[0];
 }

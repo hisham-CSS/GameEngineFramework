@@ -505,3 +505,92 @@ TEST(Renderer2DCover, ADegenerateBoxOrImageReturnsTheWholeImage) {
         EXPECT_FLOAT_EQ(r.uvMax.y, 1.f);
     }
 }
+
+
+// --------------------------------------------------------- two-stop fills
+//
+// The gradient is not a shader feature: vColor is already interpolated across
+// the quad (declared without `flat` in both vertex shaders, and both fragment
+// stages multiply by it), so writing two corner colours instead of one IS the
+// whole thing. These read actual PIXELS, because that claim is only worth
+// anything if the rasteriser really does the interpolation.
+
+TEST_F(Renderer2DTest, AVerticalGradientRampsFromTopToBottom) {
+    if (!r2d.supportsRoundedBoxes()) GTEST_SKIP() << "no box shader on this driver";
+    clear();
+    r2d.BeginScreen(kW, kH);
+    Renderer2D::BoxStyle box;
+    box.radiusPx = 0.0f;
+    box.gradient = Renderer2D::BoxGradient::Vertical;
+    box.fillTo = { 0.f, 0.f, 0.f, 1.f };                 // black at the bottom
+    r2d.DrawBox({ 0.f, 0.f }, { float(kW), float(kH) },
+                { 1.f, 0.f, 0.f, 1.f }, box, 0, TexRegion{}, 0);   // red at the top
+    r2d.End();
+
+    const auto px = readback();
+    const int top = red(px, kW / 2, 1);
+    const int mid = red(px, kW / 2, kH / 2);
+    const int bot = red(px, kW / 2, kH - 2);
+    EXPECT_GT(top, 200) << "the first stop is not at the top";
+    EXPECT_LT(bot, 55)  << "the second stop is not at the bottom";
+    EXPECT_GT(mid, 60);
+    EXPECT_LT(mid, 195) << "the middle is not interpolated - it is a flat fill "
+                           "or a hard split, so vColor is not ramping";
+}
+
+TEST_F(Renderer2DTest, AHorizontalGradientRampsLeftToRight) {
+    if (!r2d.supportsRoundedBoxes()) GTEST_SKIP() << "no box shader on this driver";
+    clear();
+    r2d.BeginScreen(kW, kH);
+    Renderer2D::BoxStyle box;
+    box.gradient = Renderer2D::BoxGradient::Horizontal;
+    box.fillTo = { 0.f, 0.f, 0.f, 1.f };
+    r2d.DrawBox({ 0.f, 0.f }, { float(kW), float(kH) },
+                { 1.f, 0.f, 0.f, 1.f }, box, 0, TexRegion{}, 0);
+    r2d.End();
+
+    const auto px = readback();
+    EXPECT_GT(red(px, 1, kH / 2), 200)      << "the first stop is not on the left";
+    EXPECT_LT(red(px, kW - 2, kH / 2), 55)  << "the second stop is not on the right";
+    // ...and it does NOT ramp on the other axis.
+    EXPECT_NEAR(red(px, kW / 2, 2), red(px, kW / 2, kH - 3), 12)
+        << "a horizontal gradient also ramped vertically";
+}
+
+// The degrade to DrawSprite carries ONE tint for the whole quad, so a gradient
+// on an unrounded, unbordered box would silently come out flat if it took that
+// path. It has to be suppressed.
+TEST_F(Renderer2DTest, AGradientSuppressesTheFlatSpriteDegrade) {
+    if (!r2d.supportsRoundedBoxes()) GTEST_SKIP() << "no box shader on this driver";
+    clear();
+    r2d.BeginScreen(kW, kH);
+    Renderer2D::BoxStyle box;      // NO radius, NO border: the degrade case
+    box.gradient = Renderer2D::BoxGradient::Vertical;
+    box.fillTo = { 0.f, 0.f, 0.f, 1.f };
+    r2d.DrawBox({ 0.f, 0.f }, { float(kW), float(kH) },
+                { 1.f, 0.f, 0.f, 1.f }, box, 0, TexRegion{}, 0);
+    r2d.End();
+
+    const auto px = readback();
+    EXPECT_GT(red(px, kW / 2, 1) - red(px, kW / 2, kH - 2), 150)
+        << "an unrounded gradient box came out FLAT - it took the DrawSprite "
+           "degrade, which has only one tint";
+}
+
+// The default is None on every box, so this cannot change any existing caller.
+TEST_F(Renderer2DTest, WithoutAGradientTheFillIsStillFlat) {
+    if (!r2d.supportsRoundedBoxes()) GTEST_SKIP() << "no box shader on this driver";
+    clear();
+    r2d.BeginScreen(kW, kH);
+    Renderer2D::BoxStyle box;
+    box.radiusPx = 6.0f;
+    box.fillTo = { 0.f, 1.f, 0.f, 1.f };   // set, but gradient is None
+    r2d.DrawBox({ 0.f, 0.f }, { float(kW), float(kH) },
+                { 1.f, 0.f, 0.f, 1.f }, box, 0, TexRegion{}, 0);
+    r2d.End();
+
+    const auto px = readback();
+    EXPECT_NEAR(red(px, kW / 2, kH / 4), red(px, kW / 2, 3 * kH / 4), 4)
+        << "fillTo leaked into a box whose gradient is None";
+    EXPECT_LT(green(px, kW / 2, kH / 2), 40) << "the second stop was used anyway";
+}

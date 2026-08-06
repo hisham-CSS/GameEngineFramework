@@ -257,6 +257,12 @@ namespace {
         { "cover",   int(BackgroundSize::Cover)   },
     };
 
+    const std::vector<EnumTable> kBackgroundGradient = {
+        { "none",       int(BackgroundGradient::None)       },
+        { "vertical",   int(BackgroundGradient::Vertical)   },
+        { "horizontal", int(BackgroundGradient::Horizontal) },
+    };
+
     #define P1(p) { Prop::p, Prop::p }
     const PropSpec kProps[] = {
         { "flex-direction",   Prop::FlexDirection,   UIPropValueKind::Enum,    &kDirection, nullptr, nullptr, P1(FlexDirection), false },
@@ -297,6 +303,8 @@ namespace {
         { "border-color",     Prop::BorderColor,     UIPropValueKind::Color,  nullptr, nullptr, nullptr, P1(BorderColor),  false },
         { "background-image", Prop::BackgroundImage, UIPropValueKind::AssetPath, nullptr, nullptr, nullptr, P1(BackgroundImage), false },
         { "background-size",  Prop::BackgroundSize,  UIPropValueKind::Enum,   &kBackgroundSize, nullptr, nullptr, P1(BackgroundSize), false },
+        { "background-color-to", Prop::BackgroundColorTo, UIPropValueKind::Color, nullptr, nullptr, nullptr, P1(BackgroundColorTo), false },
+        { "background-gradient", Prop::BackgroundGradient, UIPropValueKind::Enum, &kBackgroundGradient, nullptr, nullptr, P1(BackgroundGradient), false },
         { "scrollbar-thumb-color",Prop::ScrollbarThumbColor, UIPropValueKind::Color,  nullptr, nullptr, nullptr, P1(ScrollbarThumbColor), false },
         { "scrollbar-visibility", Prop::ScrollbarVisibility, UIPropValueKind::Enum, &kScrollbarVis, nullptr, nullptr, P1(ScrollbarVisibility), false },
         { "scroll-behavior",      Prop::ScrollBehavior,      UIPropValueKind::Enum, &kScrollBehavior, nullptr, nullptr, P1(ScrollBehavior), false },
@@ -493,6 +501,8 @@ void UIDeclaration::ApplyTo(Style& s) const {
     case Prop::BorderColor:     s.borderColor = color; break;
     case Prop::BackgroundImage: s.backgroundImage = assetId; break;
     case Prop::BackgroundSize:  s.backgroundSize = (BackgroundSize)enumValue; break;
+    case Prop::BackgroundColorTo: s.backgroundColorTo = color; break;
+    case Prop::BackgroundGradient: s.backgroundGradient = (BackgroundGradient)enumValue; break;
     case Prop::ScrollbarColor:      s.scrollbarColor = color; break;
     case Prop::ScrollbarThumbColor: s.scrollbarThumbColor = color; break;
     case Prop::ScrollbarVisibility: s.scrollbarVisibility = (ScrollbarVisibility)enumValue; break;

@@ -330,7 +330,14 @@ void Renderer2D::DrawBox(const glm::vec2& pos, const glm::vec2& size,
     // through the plain stream keeps every existing background quad, every
     // square background-image and every glyph in one batch class, so this
     // feature costs nothing at all until somebody uses it.
-    if (!roundedReady_ || (box.radiusPx <= 0.0f && box.borderPx <= 0.0f)) {
+    // A GRADIENT also has to take the box path. The degrade below goes through
+    // DrawSprite, which carries one tint for the whole quad -- so a two-stop
+    // fill on an unrounded, unbordered box would silently come out flat. It is
+    // still gated on the shader being available, because without it there is
+    // nothing better to do than the flat fill.
+    const bool wantsGradient = roundedReady_ && box.gradient != BoxGradient::None;
+    if (!roundedReady_ ||
+        (box.radiusPx <= 0.0f && box.borderPx <= 0.0f && !wantsGradient)) {
         DrawSprite(pos, size, texture, region, fill, layer);
         return;
     }
@@ -349,8 +356,19 @@ void Renderer2D::DrawBox(const glm::vec2& pos, const glm::vec2& size,
     v[1].local = {  half.x, -half.y };
     v[2].local = {  half.x,  half.y };
     v[3].local = { -half.x,  half.y };
+    // Corner order is TL, TR, BR, BL -- so a vertical ramp splits 0,1 from 2,3
+    // and a horizontal one splits 0,3 from 1,2. The rasteriser interpolates the
+    // rest; there is no gradient code beyond this choice.
+    const bool vert = box.gradient == BoxGradient::Vertical;
+    const bool horz = box.gradient == BoxGradient::Horizontal;
+    const glm::vec4 stop[4] = {
+        fill,
+        horz ? box.fillTo : fill,
+        (vert || horz) ? box.fillTo : fill,
+        vert ? box.fillTo : fill,
+    };
     for (int i = 0; i < 4; ++i) {
-        v[i].color  = fill;
+        v[i].color  = stop[i];
         v[i].half   = half;
         v[i].border = box.borderColor;
         v[i].shape  = { box.radiusPx, box.borderPx };

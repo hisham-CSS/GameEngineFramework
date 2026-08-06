@@ -74,6 +74,9 @@ namespace MyCoreEngine::ui {
     // plus four more scale sites — neither is needed to dress a menu, and both
     // can be added later without changing what these two mean.
     enum class BackgroundSize : std::uint8_t { Stretch, Cover };
+    // A two-stop fill. `None` is the default everywhere, so every stylesheet
+    // written before this existed renders byte-identical.
+    enum class BackgroundGradient : std::uint8_t { None, Vertical, Horizontal };
 
     struct StyleLength {
         enum class Unit { Auto, Point, Percent };
@@ -147,6 +150,10 @@ namespace MyCoreEngine::ui {
         // cascade.
         int            backgroundImage = 0;
         BackgroundSize backgroundSize = BackgroundSize::Stretch;
+        // The second stop, and which way it runs. Only read when
+        // backgroundGradient is not None.
+        glm::vec4          backgroundColorTo{ 0.0f, 0.0f, 0.0f, 0.0f };
+        BackgroundGradient backgroundGradient = BackgroundGradient::None;
 
         // ---- text ----
         // A non-empty `text` makes the element a text leaf: it measures itself

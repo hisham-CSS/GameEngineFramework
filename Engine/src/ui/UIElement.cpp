@@ -825,6 +825,18 @@ void UIDocument::draw_(const UIElement& el, Renderer2D& r2d, const Font* font,
     // scaled here — the two new entries on this file's sx_ audit list.
     Renderer2D::BoxStyle boxStyle;
     boxStyle.radiusPx = sx_(s.borderRadius);
+    // A gradient forces the box path even with no radius and no border -- see
+    // DrawBox. Mapped rather than cast: the two enums are independent types and
+    // nothing should quietly depend on their orders matching.
+    switch (s.backgroundGradient) {
+    case BackgroundGradient::Vertical:
+        boxStyle.gradient = Renderer2D::BoxGradient::Vertical; break;
+    case BackgroundGradient::Horizontal:
+        boxStyle.gradient = Renderer2D::BoxGradient::Horizontal; break;
+    default:
+        boxStyle.gradient = Renderer2D::BoxGradient::None; break;
+    }
+    boxStyle.fillTo = s.backgroundColorTo;
     boxStyle.borderPx = sx_(s.borderWidth);
     boxStyle.borderColor = s.borderColor;
     const bool shaped = boxStyle.radiusPx > 0.0f || boxStyle.borderPx > 0.0f;

@@ -109,10 +109,24 @@ namespace MyCoreEngine {
         //
         // The radius is CLAMPED in the shader to min(halfW, halfH), so a
         // radius of 9999 is a stadium rather than an erased element.
+        // Which way a two-stop fill runs, or None for a flat one.
+        enum class BoxGradient : std::uint8_t { None, Vertical, Horizontal };
+
         struct BoxStyle {
             float     radiusPx = 0.0f;
             float     borderPx = 0.0f;
             glm::vec4 borderColor{ 0.0f };   // straight alpha, composited OVER the fill
+            // The SECOND stop. Ignored unless `gradient` is set, so a flat box
+            // needs no extra thought and every existing caller is unchanged.
+            //
+            // This costs no shader work at all: vColor is interpolated across
+            // the quad already (it is declared without `flat` in both vertex
+            // shaders, and both fragment stages multiply by it), so writing two
+            // corner colours instead of one IS the gradient -- and it still
+            // gets the rounded silhouette, the border and the texture
+            // composite, because none of that changes.
+            glm::vec4   fillTo{ 0.0f };
+            BoxGradient gradient = BoxGradient::None;
         };
 
         // Rounded / bordered / textured box.
