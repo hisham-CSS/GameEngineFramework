@@ -106,11 +106,16 @@
         <Element class="opt">
           <Label class="opt-label" text="MASTER VOLUME"/>
           <!-- Press anywhere to jump, then drag: the drag is a pointer CAPTURE,
-               so it keeps tracking past either end of the track. `key-step` is
-               the DIGITAL grain, for an arrow or a d-pad; a stick is analog and
-               moves it continuously at a rate instead. -->
+               so it keeps tracking past either end of the track.
+
+               THREE INPUTS, THREE GRAINS. A stick is analog and moves it
+               continuously at a rate. A digital press ACCELERATES: one tap is
+               1%, because a control that can only move in 5% jumps cannot be
+               set to 43%, and holding ramps to 5% over ten notches, because
+               1% at a time across a whole range is a long wait. -->
           <Slider name="volume" class="slider" bind-value="menuVolume"
-                  min="0" max="1" key-step="0.05">
+                  min="0" max="1" key-step="0.01" key-step-max="0.05"
+                  key-ramp="10">
             <Element name="volumeFill" class="slider-fill"
                      bind="width: {menuVolume | percent}"/>
           </Slider>

@@ -1015,6 +1015,15 @@ void UIDocument::AdvanceTime(float dt) {
     // with no scroller pays nothing; one with a scroller pays a walk that
     // touches only the elements holding scroll state.
     if (hasScrollers_ && dt > 0.0f) advanceScroll_(*root_, dt);
+
+    // The FOCUSED slider's digital-repeat clock, and only that one: a slider
+    // accelerates while its arrows or d-pad are held, and "held" is really
+    // "presses kept arriving", which is a thing only a clock can notice
+    // stopping. Nothing else in the tree can be mid-run, because nothing else
+    // is receiving the presses.
+    if (focused_ && isInTree_(focused_) && focused_->slider()) {
+        focused_->slider()->Tick(dt);
+    }
 }
 
 // Scrolls the nearest ancestor of `from` that has range on the key's axis.
@@ -2176,7 +2185,26 @@ void UIDocument::UpdateKeyboard(const UIKeyboardState& kb, const Font* font) {
         // multi-line field inserting a newline, has already had its say.
         //
         // Space is deliberately NOT here -- see UIKey for why.
-        if (!consumed && k.key == UIKey::Enter) consumed = ActivateFocused();
+        //
+        // A SINGLE-LINE FIELD's Enter is "done": commit and leave. It used to
+        // fall off the end of the chain and do nothing at all, because both
+        // halves declined it and each was right to -- UITextEdit consumes
+        // Enter only when multi-line (there is no newline to insert
+        // otherwise), and ActivateFocused refuses to fire a click on a text
+        // edit. Nothing was left to say what the key meant.
+        //
+        // Leaving is the same outcome Escape produces, and that is not an
+        // oversight: `bind-value` publishes every keystroke as it is typed, so
+        // there is no pending edit for one key to keep and the other to throw
+        // away. Two names for the same true thing beats one of them lying.
+        if (!consumed && k.key == UIKey::Enter) {
+            if (target && target->textEdit() && !target->textEdit()->multiline()) {
+                SetFocus(nullptr);
+                consumed = true;
+            } else {
+                consumed = ActivateFocused();
+            }
+        }
 
         // ESCAPE IS BACK, and it is the SAME code the pad's B runs -- one
         // notion of "back out of what I am in", not a keyboard one and a

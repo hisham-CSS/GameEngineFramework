@@ -80,7 +80,7 @@ namespace {
                 n == "multiline" ||
                 n == "focus-scope" ||
                 n == "min" || n == "max" || n == "step" || n == "key-step" ||
-                n == "vertical" ||
+                n == "key-step-max" || n == "key-ramp" || n == "vertical" ||
                 // EXACT entries, not a "repeat-" prefix rule: the exact-match
                 // allow-list is the only reason `repeat-cont=` is reported
                 // rather than quietly ignored.
@@ -475,7 +475,8 @@ namespace {
             errors.push_back(loc + "'value' is only valid on a <TextField> or <Slider>");
             return false;
         }
-        for (const char* attr : { "min", "max", "step", "key-step", "vertical" }) {
+        for (const char* attr : { "min", "max", "step", "key-step",
+                                  "key-step-max", "key-ramp", "vertical" }) {
             if (node.attribute(attr) && !isSlider) {
                 errors.push_back(loc + "'" + attr + "' is only valid on a <Slider>");
                 return false;
@@ -505,6 +506,26 @@ namespace {
             };
             if (!num("min", sl.min) || !num("max", sl.max) ||
                 !num("step", sl.step) || !num("key-step", sl.keyStep)) return false;
+            // The HELD grain, and how many presses reach it.
+            const bool declaredMax = bool(node.attribute("key-step-max"));
+            float rampf = float(sl.keyRamp);
+            if (!num("key-step-max", sl.keyStepMax) || !num("key-ramp", rampf)) return false;
+            sl.keyRamp = int(rampf);
+            if (!declaredMax) {
+                // A slider that declares ONLY key-step keeps the behaviour it
+                // has always had: every press the same size. Raising the
+                // ceiling to meet a coarser floor is what makes that true --
+                // erroring instead would mean adding a default to this struct
+                // broke documents that never mentioned it.
+                sl.keyStepMax = std::max(sl.keyStepMax, sl.keyStep);
+            } else if (sl.keyStepMax < sl.keyStep) {
+                // Declaring BOTH and inverting them is a real mistake, and one
+                // with no sensible reading: holding would move it slower than
+                // tapping.
+                errors.push_back(loc + "key-step-max is smaller than key-step: "
+                                       "holding would move it SLOWER than tapping");
+                return false;
+            }
             if (sl.max == sl.min) {
                 errors.push_back(loc + "min and max are both " + trim(std::to_string(sl.min)) +
                                        ": the slider would have no range");

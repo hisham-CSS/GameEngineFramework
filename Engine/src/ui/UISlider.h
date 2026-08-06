@@ -29,10 +29,25 @@ namespace MyCoreEngine::ui {
         // the whole complaint that started this was a control that moved in
         // tenths.
         float step = 0.0f;
-        // How far a single arrow press moves it. Independent of `step` so a
-        // continuous slider still has a sensible keyboard and D-PAD grain --
-        // both are digital, and a digital control has to move in notches.
-        float keyStep = 0.05f;
+        // THE DIGITAL GRAIN, and it accelerates.
+        //
+        // `keyStep` is what ONE press moves -- fine, because a tap is how you
+        // ask for a small change, and a control that can only move in 5%
+        // jumps cannot be set to 43%. `keyStepMax` is what a HELD key or d-pad
+        // reaches, because holding is how you ask for a large one, and 1% a
+        // notch across a whole range is a long wait.
+        //
+        // Independent of `step` so a continuous slider still has a sensible
+        // keyboard and D-PAD grain -- both are digital, and a digital control
+        // has to move in notches.
+        float keyStep = 0.01f;
+        float keyStepMax = 0.05f;
+        // How many presses of a HELD run reach keyStepMax. Counted rather than
+        // timed on purpose: the keyboard's auto-repeat rate is the operating
+        // system's and the pad's is UINavRepeater's, so a time-based ramp would
+        // feel like two different controls. "Ten notches to full speed" is the
+        // same promise on both.
+        int keyRamp = 10;
         // How fast a fully deflected STICK moves it, in value per second. An
         // analog input deserves an analog response; stepping it in keyStep
         // notches is what made a pad feel like it was snapping.
@@ -73,7 +88,47 @@ namespace MyCoreEngine::ui {
         }
 
         bool SetNormalised(float t) { return SetValue(fromNormalised(t)); }
-        bool Nudge(float dir) { return SetValue(value + dir * keyStep); }
+
+        // ONE digital press. The step grows the longer a run of them lasts, so
+        // a tap is fine and a hold is fast, out of the same gesture.
+        //
+        // A "run" is broken by REVERSING or by going quiet -- see Tick. Both
+        // matter: reversing means you overshot and want the fine grain back,
+        // and quiet means you let go. Without the reset, tapping ten times to
+        // creep up on a value would accelerate as if you had held it.
+        bool Nudge(float dir) {
+            const float sign = dir < 0.0f ? -1.0f : 1.0f;
+            if (sign != runDir_) run_ = 0;
+            const float t = keyRamp > 0
+                ? std::clamp(float(run_) / float(keyRamp), 0.0f, 1.0f) : 1.0f;
+            const float grain = keyStep + (keyStepMax - keyStep) * t;
+            ++run_;
+            runDir_ = sign;
+            idle_ = 0.0f;
+            return SetValue(value + sign * grain);
+        }
+
+        // Per-frame clock for the acceleration above, called from
+        // UIDocument::AdvanceTime. Nudge itself cannot do this: it has no dt,
+        // and "the presses stopped" is a thing that happens when nothing calls
+        // it at all.
+        //
+        // The idle window has to clear the PAD's auto-repeat delay (0.40s in
+        // UINavRepeater) or a held d-pad would reset its own run between the
+        // first press and the second and never accelerate at all.
+        void Tick(float dt) {
+            if (runDir_ == 0.0f) return;
+            idle_ += dt;
+            if (idle_ > 0.5f) { run_ = 0; runDir_ = 0.0f; idle_ = 0.0f; }
+        }
+
+        // Exposed for tests: how many presses into the current run we are.
+        int digitalRun() const { return run_; }
+
+    private:
+        int   run_ = 0;
+        float runDir_ = 0.0f;
+        float idle_ = 0.0f;
     };
 
 } // namespace MyCoreEngine::ui

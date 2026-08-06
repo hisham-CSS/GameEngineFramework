@@ -15,6 +15,7 @@
 #include "../Engine/src/ui/UIBinding.h"
 #include "../Engine/src/ui/UIDataSource.h"
 #include "../Engine/src/ui/UINav.h"
+#include "../Engine/src/ui/UISlider.h"
 #include "../Engine/src/ui/UINavSynth.h"
 #include "../Engine/src/ui/UIStyleSheet.h"
 
@@ -1382,4 +1383,220 @@ TEST(UIDevicePrompts, ThePadsMovePromptIsUnaffectedByATextField) {
     hud.Frame();
     EXPECT_EQ(hud.world.shared().GetString("uiGlyphNav"), "L STICK")
         << "a text field changed the PAD's prompt, which types nothing";
+}
+
+
+// ------------------------------------------- the digital grain accelerates
+//
+// Reported: the volume slider "snaps to 5 percent" on a d-pad or the arrows.
+// It did -- one press was one key-step and key-step was 0.05 -- and the fix is
+// not simply a smaller step, because then crossing the range takes a hundred
+// presses. A tap is how you ask for a small change and a hold is how you ask
+// for a large one, so the step grows with the run.
+
+TEST(UISliderRamp, OnePressMovesTheFineStepAndAHeldRunReachesTheCoarseOne) {
+    UISliderState sl;
+    sl.min = 0.0f; sl.max = 1.0f;
+    sl.keyStep = 0.01f; sl.keyStepMax = 0.05f; sl.keyRamp = 10;
+
+    // A TAP. This is the reported bug: it must be the fine grain, so a value
+    // like 43% is reachable at all.
+    sl.Nudge(+1.0f);
+    EXPECT_NEAR(sl.value, 0.01f, 1e-5f) << "one press did not move the fine step";
+
+    // A HELD RUN, with the clock kept warm the way AdvanceTime does between
+    // repeats. By the end of the ramp each press is the coarse grain.
+    for (int i = 0; i < 20; ++i) { sl.Tick(0.12f); sl.Nudge(+1.0f); }
+    const float before = sl.value;
+    sl.Tick(0.12f);
+    sl.Nudge(+1.0f);
+    EXPECT_NEAR(sl.value - before, 0.05f, 1e-5f)
+        << "a long hold never reached key-step-max";
+
+    // ...and it is MONOTONIC on the way up, never a jump straight to the top.
+    UISliderState m;
+    m.min = 0.0f; m.max = 100.0f;
+    m.keyStep = 1.0f; m.keyStepMax = 5.0f; m.keyRamp = 10;
+    float last = 0.0f, prevDelta = 0.0f;
+    for (int i = 0; i < 10; ++i) {
+        m.Tick(0.12f);
+        m.Nudge(+1.0f);
+        const float d = m.value - last;
+        EXPECT_GE(d + 1e-4f, prevDelta) << "the step shrank at press " << i;
+        EXPECT_LE(d, 5.0f + 1e-4f) << "the step overshot key-step-max at press " << i;
+        prevDelta = d;
+        last = m.value;
+    }
+}
+
+// LETTING GO RESETS IT. Ten deliberate taps must not accelerate like a hold,
+// or creeping up on a value gets harder the longer you take over it.
+TEST(UISliderRamp, GoingQuietReturnsToTheFineStep) {
+    UISliderState sl;
+    sl.min = 0.0f; sl.max = 10.0f;
+    sl.keyStep = 0.01f; sl.keyStepMax = 0.05f; sl.keyRamp = 10;
+
+    for (int i = 0; i < 15; ++i) { sl.Tick(0.12f); sl.Nudge(+1.0f); }
+    ASSERT_GT(sl.digitalRun(), 5) << "the run never built up";
+
+    // A human pause. The idle window has to be longer than the PAD's 0.40s
+    // auto-repeat delay, so this is deliberately just past it.
+    for (int i = 0; i < 40; ++i) sl.Tick(0.016f);   // 0.64s
+    EXPECT_EQ(sl.digitalRun(), 0) << "the run survived the player letting go";
+
+    const float before = sl.value;
+    sl.Nudge(+1.0f);
+    EXPECT_NEAR(sl.value - before, 0.01f, 1e-5f)
+        << "the press after a pause was still moving at hold speed";
+}
+
+// A HELD D-PAD MUST STILL RAMP. UINavRepeater waits 0.40s before the second
+// move, so an idle window any shorter than that would reset the run between
+// the first press and the second and the ramp could never start.
+TEST(UISliderRamp, ThePadsAutoRepeatDelayDoesNotBreakTheRun) {
+    UISliderState sl;
+    sl.min = 0.0f; sl.max = 1.0f;
+    sl.keyStep = 0.01f; sl.keyStepMax = 0.05f; sl.keyRamp = 10;
+
+    sl.Nudge(+1.0f);                                  // the immediate first move
+    for (int i = 0; i < 25; ++i) sl.Tick(0.016f);     // 0.40s of repeat delay
+    sl.Nudge(+1.0f);
+    EXPECT_EQ(sl.digitalRun(), 2)
+        << "the pad's own repeat delay reset the run, so a held d-pad never "
+           "accelerates";
+}
+
+// REVERSING resets it too: you overshot, and you want the fine grain back to
+// land on the value you actually wanted.
+TEST(UISliderRamp, ReversingDirectionReturnsToTheFineStep) {
+    UISliderState sl;
+    sl.min = 0.0f; sl.max = 10.0f;
+    sl.keyStep = 0.01f; sl.keyStepMax = 0.05f; sl.keyRamp = 10;
+
+    for (int i = 0; i < 15; ++i) { sl.Tick(0.12f); sl.Nudge(+1.0f); }
+    const float peak = sl.value;
+    sl.Nudge(-1.0f);
+    EXPECT_NEAR(peak - sl.value, 0.01f, 1e-5f)
+        << "overshooting and coming back was still at hold speed";
+}
+
+// The whole thing through the REAL path: the shipped menu's volume slider,
+// driven by the d-pad the way UINavSynth feeds it.
+TEST(UISliderRamp, TheShippedVolumeSliderTapsFineAndHoldsCoarse) {
+    UIDocument doc;
+    UIStyleSheet sheet;
+    std::vector<std::string> errors;
+    ASSERT_TRUE(UIMarkup::LoadInto(doc,
+        R"(<UI><Slider name="v" min="0" max="1" value="0")"
+        R"( key-step="0.01" key-step-max="0.05" key-ramp="10"/></UI>)",
+        errors, "t.cxml")) << (errors.empty() ? "" : errors[0]);
+    doc.Layout(400.f, 400.f);
+    UIElement* v = doc.root().Find("v");
+    ASSERT_TRUE(v && v->slider());
+    doc.SetFocus(v);
+
+    const auto press = [&](UINavDir d) {
+        UINavState n;
+        n.moves.push_back(d);
+        n.dt = 0.12f;
+        doc.AdvanceTime(0.12f);
+        doc.UpdateNav(n);
+    };
+
+    press(UINavDir::Right);
+    EXPECT_NEAR(v->slider()->value, 0.01f, 1e-5f) << "one d-pad press was not 1%";
+
+    // Started at ZERO, and the run stays short of the ceiling: 21 accelerating
+    // presses cover about 0.83, so the one being measured is a real step and
+    // not a clamp against max.
+    for (int i = 0; i < 20; ++i) press(UINavDir::Right);
+    const float before = v->slider()->value;
+    ASSERT_LT(before, 0.9f) << "the run reached the top; the next press would clamp";
+    press(UINavDir::Right);
+    EXPECT_NEAR(v->slider()->value - before, 0.05f, 1e-5f)
+        << "holding right on the d-pad never reached 5% a notch";
+}
+
+// The markup contract. Declaring only `key-step` must keep the behaviour it
+// always had -- every press the same size -- rather than failing to load
+// because a default that document never mentioned is now smaller.
+TEST(UISliderRamp, ASliderThatDeclaresOnlyKeyStepDoesNotAccelerate) {
+    UIDocument doc;
+    std::vector<std::string> errors;
+    ASSERT_TRUE(UIMarkup::LoadInto(doc,
+        R"(<UI><Slider name="s" min="0" max="1" value="0" key-step="0.25"/></UI>)",
+        errors, "t.cxml")) << (errors.empty() ? "" : errors[0]);
+    UISliderState* sl = doc.root().Find("s")->slider();
+    ASSERT_NE(sl, nullptr);
+    EXPECT_FLOAT_EQ(sl->keyStep, 0.25f);
+    EXPECT_FLOAT_EQ(sl->keyStepMax, 0.25f)
+        << "the ceiling did not rise to meet a coarser declared floor";
+
+    for (int i = 0; i < 3; ++i) { sl->Tick(0.12f); sl->Nudge(+1.0f); }
+    EXPECT_NEAR(sl->value, 0.75f, 1e-5f) << "it accelerated when it was told not to";
+}
+
+// ...but declaring BOTH and inverting them has no sensible reading.
+TEST(UISliderRamp, AnInvertedPairIsALoadError) {
+    UIDocument doc;
+    std::vector<std::string> errors;
+    EXPECT_FALSE(UIMarkup::LoadInto(doc,
+        R"(<UI><Slider name="s" min="0" max="1" key-step="0.2" key-step-max="0.05"/></UI>)",
+        errors, "t.cxml"));
+    ASSERT_FALSE(errors.empty());
+    EXPECT_NE(errors[0].find("SLOWER than tapping"), std::string::npos) << errors[0];
+}
+
+// ------------------------------------------------ Enter in a single line
+
+// It used to do NOTHING. Both halves of the chain declined it and each was
+// right to: UITextEdit consumes Enter only when multi-line, and
+// ActivateFocused refuses to fire a click on a text edit. Nothing was left to
+// say what the key meant.
+TEST(UIKeyboardNav, EnterLeavesASingleLineFieldAndStaysInAMultiLineOne) {
+    UIDocument doc;
+    std::vector<std::string> errors;
+    ASSERT_TRUE(UIMarkup::LoadInto(doc,
+        R"(<UI><TextField name="one" value="ada"/>)"
+        R"(<TextField name="many" multiline="true" value="a&#10;b"/></UI>)",
+        errors, "t.cxml")) << (errors.empty() ? "" : errors[0]);
+    doc.Layout(400.f, 400.f);
+
+    UIElement* one = doc.root().Find("one");
+    UIElement* many = doc.root().Find("many");
+    ASSERT_TRUE(one && one->textEdit() && many && many->textEdit());
+
+    UIKeyboardState kb;
+    kb.keys.push_back(UIKeyEvent{ UIKey::Enter });
+
+    doc.SetFocus(one);
+    const std::string before = one->textEdit()->value();
+    doc.UpdateKeyboard(kb, nullptr);
+    EXPECT_EQ(doc.focused(), nullptr) << "Enter in a single-line field did nothing";
+    EXPECT_EQ(one->textEdit()->value(), before)
+        << "Enter typed a newline into a single-line field";
+
+    // Multi-line keeps it: there IS a newline to insert, so the field wants it.
+    doc.SetFocus(many);
+    doc.UpdateKeyboard(kb, nullptr);
+    EXPECT_EQ(doc.focused(), many) << "Enter left a multi-line field mid-paragraph";
+    EXPECT_NE(many->textEdit()->value().find("\n"), std::string::npos);
+}
+
+// Enter still ACTIVATES everything that is not a field -- the fix must not
+// have been a special case that swallowed the ordinary path.
+TEST(UIKeyboardNav, EnterStillActivatesAButton) {
+    UIDocument doc;
+    std::vector<std::string> errors;
+    ASSERT_TRUE(UIMarkup::LoadInto(doc,
+        R"(<UI><Button name="b" text="GO"/></UI>)", errors, "t.cxml"));
+    doc.Layout(400.f, 400.f);
+    int clicks = 0;
+    doc.root().Find("b")->OnClick([&](UIEvent&) { ++clicks; });
+    doc.SetFocus(doc.root().Find("b"));
+
+    UIKeyboardState kb;
+    kb.keys.push_back(UIKeyEvent{ UIKey::Enter });
+    doc.UpdateKeyboard(kb, nullptr);
+    EXPECT_EQ(clicks, 1);
 }
