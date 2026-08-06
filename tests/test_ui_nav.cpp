@@ -722,3 +722,112 @@ TEST(UISpatialNav, FallsBackToTheLinearWalkWithNoGeometry) {
     EXPECT_EQ(doc.focused(), doc.root().Find("b"))
         << "with no geometry the move did nothing - focus is trapped";
 }
+
+
+// ------------------------------------------- the nearest row wins (U26f)
+//
+// Reported: "when i scroll passed quality settings - it jumps over vsync option
+// to the text box".
+//
+// The exact geometry of the shipped settings page: a LEFT-aligned row of chips,
+// then a row whose only control is pushed to the FAR RIGHT (its row is
+// space-between), then a FULL-WIDTH field. Scored as one number, the field wins
+// on a zero off-axis distance despite being much further away, and the
+// right-aligned control is skipped. No penalty value fixes that -- it is a false
+// comparison between a near row and a far one.
+
+namespace {
+
+// 600 wide, mirroring the panel: chips at the left, a right-aligned toggle one
+// row down, a full-width field below that.
+struct SkipRig {
+    UIDocument doc;
+    UIStyleSheet sheet;
+    std::vector<std::string> errors;
+
+    bool Load() {
+        const char* css =
+            "#panel { width: 600px; flex-direction: column; align-items: flex-start; }"
+            "#chips { flex-direction: row; gap: 8; }"
+            ".chip  { width: 100px; height: 32px; }"
+            "#optrow { width: 600px; flex-direction: row; justify-content: space-between;"
+            "          align-items: center; padding: 4px 0; }"
+            "#field { width: 600px; height: 40px; margin: 20px 0 0 0; }";
+        if (!sheet.ParseString(css, "t.cstyle")) return false;
+        const char* xml =
+            R"(<UI><Element name="panel">)"
+            R"(<Element name="chips">)"
+            R"(  <Button name="low" class="chip" text="LOW"/>)"
+            R"(  <Button name="med" class="chip" text="MED"/>)"
+            R"(  <Button name="high" class="chip" text="HIGH"/>)"
+            R"(</Element>)"
+            R"(<Element name="optrow">)"
+            R"(  <Label name="vsyncLabel" text="VSYNC"/>)"
+            R"(  <Button name="vsync" class="chip" text="ON"/>)"
+            R"(</Element>)"
+            R"(<TextField name="field"/>)"
+            R"(</Element></UI>)";
+        if (!UIMarkup::LoadInto(doc, xml, errors, "t.cxml")) return false;
+        sheet.ApplyTo(doc.root());
+        doc.Layout(800.f, 800.f);
+        return true;
+    }
+    std::string focusName() {
+        UIElement* f = doc.focused();
+        return f ? f->name() : std::string("<none>");
+    }
+    void Move(UINavDir d) { doc.UpdateNav(move(d)); }
+    std::string firstError() const { return errors.empty() ? std::string() : errors[0]; }
+};
+
+} // namespace
+
+TEST(UISpatialNav, ARightAlignedControlIsNotSkippedForAFullWidthOneBelowIt) {
+    SkipRig r;
+    ASSERT_TRUE(r.Load()) << r.firstError();
+
+    // Sanity: the geometry really is the awkward one. The toggle must be far to
+    // the right of the chips, and the field must overlap them.
+    UIElement* high  = r.doc.root().Find("high");
+    UIElement* vsync = r.doc.root().Find("vsync");
+    UIElement* field = r.doc.root().Find("field");
+    ASSERT_TRUE(high && vsync && field);
+    ASSERT_GT(vsync->layout().position.x,
+              high->layout().position.x + high->layout().size.x + 100.f)
+        << "the test layout does not reproduce the reported one";
+    ASSERT_LT(field->layout().position.x, high->layout().position.x + 1.f)
+        << "the field does not overlap the chips, so there is nothing to steal";
+
+    r.doc.SetFocus(high);
+    r.Move(UINavDir::Down);
+    EXPECT_EQ(r.focusName(), "vsync")
+        << "Down skipped the right-aligned toggle and jumped to the text field - "
+           "the reported bug";
+
+    r.Move(UINavDir::Down);
+    EXPECT_EQ(r.focusName(), "field") << "and the field is still reachable after it";
+}
+
+// The same rule read upwards.
+TEST(UISpatialNav, UpFromAFullWidthControlReachesTheRowJustAboveIt) {
+    SkipRig r;
+    ASSERT_TRUE(r.Load()) << r.firstError();
+    r.doc.SetFocus(r.doc.root().Find("field"));
+    r.Move(UINavDir::Up);
+    EXPECT_EQ(r.focusName(), "vsync") << "Up skipped the row directly above";
+}
+
+// Stage one must not swallow stage two: within the nearest row, the closest
+// across still wins. From LOW, the next row down is the toggle's -- and there
+// is only one control in it -- but from the FIELD going up, the toggle row and
+// the chip row are distinct and the nearer must win.
+TEST(UISpatialNav, WithinTheChosenRowTheNearestAcrossStillWins) {
+    Grid g;
+    ASSERT_TRUE(g.Load()) << g.firstError();
+    g.doc.SetFocus(g.doc.root().Find("below"));
+    g.Move(UINavDir::Up);
+    // The chip row is the nearest row up; within it, `low` is nearest across to
+    // `below` (both start at x=0).
+    EXPECT_EQ(g.focusName(), "low")
+        << "the nearest row was chosen but the wrong member of it";
+}

@@ -1811,16 +1811,25 @@ UIElement* UIDocument::FocusMove(UINavDir dir) {
 
     const bool horizontal = (dir == UINavDir::Left || dir == UINavDir::Right);
 
-    // EDGES, not centres. A candidate counts as "below" only if it starts at or
-    // after where the current element ENDS -- which is precisely what makes a
-    // row of same-y siblings not below one another, and it is the whole reason
-    // Down used to walk LOW, MEDIUM, HIGH one press at a time.
+    // ROW-MAJOR, in two stages: find the nearest ROW in this direction, then
+    // pick the best candidate WITHIN it.
     //
-    // Centres cannot express this: three chips in a row and the button above
-    // them all have different centre x, so a centre test made the button above
-    // count as being to the RIGHT of the first chip by ten pixels, and it won.
-    const float kEdgeSlack = 1.0f;    // abutting rects count as adjacent
-    const float kOffPenalty = 2.5f;   // directly-ahead beats near-but-diagonal
+    // A single weighted score cannot express this, and the menu proved it. The
+    // VSYNC toggle sits at the far RIGHT of its row (that row is
+    // space-between), while the text field two rows further down is full width
+    // and therefore overlaps the quality chips horizontally. Scored together,
+    // the field won on a zero off-axis distance and Down SKIPPED VSYNC
+    // entirely. No choice of penalty fixes that -- it is a false comparison
+    // between a near row and a far one.
+    //
+    // Two stages says the obvious thing instead: vertical movement is between
+    // ROWS and horizontal movement is within one.
+    //
+    // EDGES, not centres, decide what counts as the next row. A candidate is
+    // "below" only if it starts at or after where the current element ENDS, so
+    // same-row siblings are not below one another by construction -- which is
+    // what makes a row of chips cost one press to pass rather than three.
+    const float kEdgeSlack = 1.0f;
 
     const float fromLo = horizontal ? from.position.x : from.position.y;
     const float fromHi = fromLo + (horizontal ? from.size.x : from.size.y);
@@ -1828,8 +1837,13 @@ UIElement* UIDocument::FocusMove(UINavDir dir) {
     const float crossHi = crossLo + (horizontal ? from.size.y : from.size.x);
     const bool forward = (dir == UINavDir::Right || dir == UINavDir::Down);
 
-    UIElement* best = nullptr;
-    float bestScore = 0.0f;
+    // How far apart two candidates may START and still count as one row.
+    // Derived from the current element's own size so it scales with the UI and
+    // tolerates a row whose items are centre-aligned at different heights.
+    const float band = std::max(8.0f, 0.5f * (horizontal ? from.size.x : from.size.y));
+
+    struct Cand { UIElement* el; float along; float off; };
+    std::vector<Cand> cands;
     bool anyGeometry = false;
 
     for (UIElement* c : order) {
@@ -1841,7 +1855,6 @@ UIElement* UIDocument::FocusMove(UINavDir dir) {
         const float toLo = horizontal ? to.position.x : to.position.y;
         const float toHi = toLo + (horizontal ? to.size.x : to.size.y);
 
-        // Must CLEAR the current element along the axis.
         float along;
         if (forward) {
             if (toLo < fromHi - kEdgeSlack) continue;
@@ -1852,17 +1865,34 @@ UIElement* UIDocument::FocusMove(UINavDir dir) {
         }
         if (along < 0.0f) along = 0.0f;
 
-        // Off-axis is the GAP BETWEEN RECTS, zero when they overlap -- so a
-        // wide row below a narrow item wins over something nearer but off to
-        // the side.
+        // Off-axis is the GAP BETWEEN RECTS, zero when they overlap.
         const float cLo = horizontal ? to.position.y : to.position.x;
         const float cHi = cLo + (horizontal ? to.size.y : to.size.x);
         float off = 0.0f;
         if (cLo > crossHi)      off = cLo - crossHi;
         else if (crossLo > cHi) off = crossLo - cHi;
 
-        const float score = along + kOffPenalty * off;
-        if (!best || score < bestScore) { best = c; bestScore = score; }
+        cands.push_back(Cand{ c, along, off });
+    }
+
+    UIElement* best = nullptr;
+    if (!cands.empty()) {
+        // STAGE ONE: the nearest row wins outright, however far to the side its
+        // members are. This is the rule that stops a full-width control further
+        // down from stealing a press from a right-aligned one just above it.
+        float nearest = cands.front().along;
+        for (const Cand& c : cands) nearest = std::min(nearest, c.along);
+
+        // STAGE TWO: within that row, the closest across. Along-axis breaks a
+        // tie, so two controls stacked inside one band still resolve.
+        float bestOff = 0.0f, bestAlong = 0.0f;
+        for (const Cand& c : cands) {
+            if (c.along > nearest + band) continue;
+            if (!best || c.off < bestOff ||
+                (c.off == bestOff && c.along < bestAlong)) {
+                best = c.el; bestOff = c.off; bestAlong = c.along;
+            }
+        }
     }
 
     // NOTHING laid out anywhere: same fallback as above, for the same reason.
