@@ -1327,3 +1327,59 @@ TEST(UIKeyboardNav, EscapeOnTheFrameAPanelOpensStillReachesThatPanel) {
         << "Escape one frame after the panel opened went to the OLD scope - "
            "the panel stays open and the press is reported unhandled";
 }
+
+
+// THE MOVE PROMPT NAMES THE THING THAT WORKS.
+//
+// Reported from a real session: navigate onto a text field with WASD and those
+// four keys immediately become letters, so the legend is telling you to press
+// something that types "w". The arrows do not have that problem -- Up and Down
+// still navigate out of a single-line field -- so that is what the prompt has
+// to say while a field holds focus.
+TEST(UIDevicePrompts, TheMovePromptSaysARROWSWhileATextFieldHasFocus) {
+    ShippedHud hud;
+    hud.Frame();
+    const auto nav = [&] { return hud.world.shared().GetString("uiGlyphNav"); };
+    ASSERT_EQ(nav(), "WASD");
+    EXPECT_FALSE(hud.world.shared().GetBool("uiTyping"));
+
+    // Focus the HUD's own field, the way navigating onto it would.
+    UIElement* field = nullptr;
+    for (UIElement* e : { hud.find("nameField"), hud.find("pilot"),
+                          hud.find("playerField") }) {
+        if (e && e->textEdit()) { field = e; break; }
+    }
+    ASSERT_NE(field, nullptr) << "the shipped HUD has no text field to focus";
+    hud.doc().SetFocus(field);
+    hud.Frame();
+
+    EXPECT_TRUE(hud.world.shared().GetBool("uiTyping"));
+    EXPECT_EQ(nav(), "ARROWS")
+        << "the legend still says WASD while a field is eating W, A, S and D";
+
+    // ...and back again the moment focus leaves it.
+    hud.doc().SetFocus(nullptr);
+    hud.Frame();
+    EXPECT_EQ(nav(), "WASD");
+    EXPECT_FALSE(hud.world.shared().GetBool("uiTyping"));
+}
+
+// A stick types nothing, so the pad's prompt must NOT change in a field.
+TEST(UIDevicePrompts, ThePadsMovePromptIsUnaffectedByATextField) {
+    ShippedHud hud;
+    hud.world.SetNav(padNav());
+    hud.Frame();
+    ASSERT_EQ(hud.world.shared().GetString("uiGlyphNav"), "L STICK");
+
+    UIElement* field = nullptr;
+    for (UIElement* e : { hud.find("nameField"), hud.find("pilot"),
+                          hud.find("playerField") }) {
+        if (e && e->textEdit()) { field = e; break; }
+    }
+    ASSERT_NE(field, nullptr);
+    hud.doc().SetFocus(field);
+    hud.world.SetNav(padNav());
+    hud.Frame();
+    EXPECT_EQ(hud.world.shared().GetString("uiGlyphNav"), "L STICK")
+        << "a text field changed the PAD's prompt, which types nothing";
+}

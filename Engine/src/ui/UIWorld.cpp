@@ -61,15 +61,30 @@ void UIWorld::updateDevice_() {
     // later still finds the values already there, rather than showing the
     // wrong prompts until the next time the player switches devices.
     const bool pad = (device_ == ui::UINavDevice::Gamepad);
+    // A TEXT FIELD HAS FOCUS, so the keyboard's two ways of moving stop being
+    // interchangeable: W A S D are letters now and the field eats all four,
+    // while the arrows keep working -- Up and Down navigate out of a
+    // single-line field and Left/Right run the caret.
+    //
+    // Naming WASD in that state is a prompt that is wrong exactly when the
+    // player tries it. The pad is unaffected: a stick types nothing.
+    //
+    // Read from the PREVIOUS frame's focus, since this runs before the
+    // document loop. One frame of lag on a label, against telling the truth.
+    const bool typing = wantsTextInput();
     shared_.SetBool("uiPad", pad);
     shared_.SetBool("uiKeyboard", !pad);
+    shared_.SetBool("uiTyping", typing);
     shared_.SetString("uiDevice", pad ? "gamepad" : "keyboard");
     // Text, so a game with no glyph art still reads correctly. A game WITH
-    // glyph art ignores these and gates two icons on uiPad/uiKeyboard instead.
+    // glyph art ignores these and gates two icons on uiPad/uiKeyboard instead
+    // -- and gets uiTyping for the same reason, because a WASD ICON is the
+    // same lie a WASD label is.
     shared_.SetString("uiGlyphSelect", pad ? "A" : "ENTER");
     shared_.SetString("uiGlyphBack",   pad ? "B" : "ESC");
-    shared_.SetString("uiGlyphNav",    pad ? "L STICK" : "WASD");
-
+    shared_.SetString("uiGlyphNav",    pad      ? "L STICK"
+                                     : typing  ? "ARROWS"
+                                               : "WASD");
 }
 
 void UIWorld::Clear() {

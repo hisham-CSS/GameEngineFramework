@@ -1134,6 +1134,21 @@ TEST(UIBindingHotReload, TheShippedMultilineFieldEditsAndUndoes) {
         << "the seeded notes should arrive with their line break intact";
 
     hud.doc().SetFocus(notes);
+    // A FRAME BETWEEN FOCUSING AND TYPING, which is what a player does and
+    // what this test needs to keep being about undo.
+    //
+    // `bind-value` re-applies source -> field whenever the WHOLE SOURCE's
+    // version moves, not only when its own property does (UIBinding.cpp, the
+    // Kind::Value branch). Focusing a field changes `uiTyping` and
+    // `uiGlyphNav` on the shared source -- the prompts have to know -- so the
+    // next apply would overwrite text typed BETWEEN frames, before
+    // PublishToSources had a chance to send it the other way.
+    //
+    // A host never hits that: UpdateKeyboard and PublishToSources are in the
+    // same Update, so the field is always the authority by the time the next
+    // apply runs. Typing out-of-band is a thing only a test does.
+    hud.Frame();
+
     ed->MoveToEnd(false);
     UIKeyboardState kb;
     kb.text = "abc";

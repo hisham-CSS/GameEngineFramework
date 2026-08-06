@@ -90,6 +90,12 @@ namespace MyCoreEngine {
         // with `if=`, `uiDevice` as a string, and `uiGlyphSelect` /
         // `uiGlyphBack` / `uiGlyphNav` as ready-made text for a game that has
         // no art yet.
+        //
+        // `uiTyping` goes with them: while a text field has focus the
+        // keyboard's two ways of moving stop being interchangeable, because
+        // the field eats W A S and D and the arrows still work. uiGlyphNav
+        // already says ARROWS in that state; the bool is there so glyph ART
+        // can make the same switch.
         ui::UINavDevice inputDevice() const { return device_; }
 
         // The system clipboard, for Ctrl+C/X/V in text fields. Handed to every

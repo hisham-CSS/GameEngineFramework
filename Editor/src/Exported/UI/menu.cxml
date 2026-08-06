@@ -215,6 +215,12 @@
            keycap widens to fit -- a fixed 24px circle sized for "A" clipped
            "ENTER" clean in half.
 
+           MOVE says ARROWS, not WASD, once PILOT has focus. Those four keys
+           are letters in a text field and the field eats all of them, so the
+           prompt would be wrong at exactly the moment you tried it; the arrows
+           keep working there (Up and Down navigate out, Left and Right run the
+           caret). The pad's L STICK is unaffected -- a stick types nothing.
+
            WHETHER IT DOES ANYTHING. BACK is hidden at the root, where nothing
            is open to back out of. That is not decoration: the verb column is a
            focus scope with no `on-back`, so the press genuinely goes nowhere
