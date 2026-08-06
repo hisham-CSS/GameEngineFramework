@@ -154,7 +154,36 @@ For a veto — refusing a swap outright — implement `ISceneSwapObserver` and r
 
 The editor drains its own File-menu loads **immediately** rather than at the frame boundary, because they come from a menu handler rather than from game code holding a view, and the caller wants the yes/no now for the status line. Game-originated swaps still take the deferred path.
 
-Loading is synchronous: the frame that swaps is as long as the scene takes to read. Asynchronous loading — a progress bar, a background parse — is not implemented.
+### Loading without a stall
+
+```c++
+app.LoadSceneAsync("Exported/level2.json");
+```
+
+Same swap, same guarantees — deferred, validated at request time, same observers in the same order. What changes is *when* the expensive part happens.
+
+**What can and cannot move off the main thread.** The destructive half never will: a load creates entities, and the registry is single-threaded by design. But that half is cheap. The seconds go into importing the meshes and textures the scene names, and those can move — `AssetManager` has decoded on worker threads and finalised GL on the main thread since the asset pipeline landed.
+
+So an async request collects the model paths at request time, hands them to `AssetManager::RequestModel`, and **holds the swap until every one has settled**. Nothing is torn down while they load, so the outgoing scene keeps running and rendering at full rate. That is the whole feature: it is what makes a loading screen possible, because a synchronous load has no frame in which to draw one.
+
+By the time the swap runs, every `GetModel` inside it is a cache hit — so the window in which the world is actually gone shrinks from "however long the models take" to "however long entity creation takes".
+
+The paths come from the same probe `Validate` runs, so a path the sandbox refuses is never warmed, for the same reason it is never opened.
+
+**Progress**, for the screen you now have somewhere to draw:
+
+```c++
+if (loader.swapPrewarming())
+    DrawBar(loader.prewarmDone(), loader.prewarmTotal());
+```
+
+The shipped menu binds exactly this: `menuLoading`, `menuLoadDone`, `menuLoadTotal` and `menuLoadPct` are published every frame, and the footer swaps its status line for a `LOADING n/m` while a swap warms.
+
+**Failure is settling, not hanging.** A model that will never arrive settles as `Failed` and the swap proceeds; the miss is reported through `SceneLoadReport::failedModels`, where a missing asset has always been reported. A swap that waited for a file that does not exist would be a worse bug than the one it was avoiding.
+
+**It degrades honestly.** With no `JobSystem` attached — `SetJobSystem`, which both hosts call — or with a scene that names no models, `LoadSceneAsync` *is* `LoadScene`. The swap still happens; it simply is not warmed first. Superseding or cancelling a warming swap releases its handles, so a scene you changed your mind about does not stay pinned in the cache.
+
+Which to use: async for a scene a player waits on (a level, New Game), synchronous for anything small enough that a hitch is cheaper than a frame of loading UI. Still not implemented: parsing the JSON itself on a worker, and streaming a scene in pieces rather than as one atomic swap.
 
 ## The startup scene and project.json
 

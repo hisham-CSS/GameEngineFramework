@@ -395,6 +395,10 @@ void EditorApplication::Run() {
     // both the Scene and the AssetManager, and BEFORE the Install* calls below
     // so physics/scripts/audio can subscribe their own teardown to it.
     sceneLoader_ = std::make_unique<MyCoreEngine::SceneLoader>(scene, *assets_);
+    // The Application's pool, so RequestSwapAsync can warm a scene's models on
+    // workers instead of importing them inside the swap. Without this the async
+    // request is simply the synchronous one.
+    sceneLoader_->SetJobSystem(&jobs());
     setSceneLoader(sceneLoader_.get());
     editModeGate_.playing = &playing_;
     sceneLoader_->AddObserver(&editModeGate_);

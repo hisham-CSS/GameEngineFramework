@@ -16,9 +16,12 @@
 
 #include "Engine.h"
 #include "../Engine/src/core/SceneLoader.h"
+#include "../Engine/src/core/JobSystem.h"
 
 #include <cstdio>
+#include <chrono>
 #include <fstream>
+#include <thread>
 #include <string>
 #include <vector>
 
@@ -640,4 +643,219 @@ TEST(SceneLoader, SwappingRepeatedlyNeverAccumulatesObservers) {
     }
     EXPECT_EQ(loader.observerCount(), before);
     std::remove("test_loader_a.json");
+}
+
+
+// ================================================ asynchronous swaps (U24) ==
+//
+// The destructive half of a swap cannot leave the main thread and never will:
+// a load creates entities, and the registry is single-threaded. What CAN leave
+// is the expensive half -- importing the meshes a scene names -- so a swap
+// warms those on workers first and holds the teardown until they have settled.
+//
+// The property that matters is what happens MEANWHILE: nothing has been torn
+// down, so the outgoing scene is still there.
+
+namespace {
+
+// A scene naming `n` models, at paths that do not exist. Absent is the right
+// shape here: the request still goes through the sandbox, still runs on a
+// worker, and still SETTLES -- as Failed. A model that will never arrive must
+// not hold a swap open forever.
+std::string writeModelScene(const char* path, int n) {
+    std::string s = R"({"version":1,"entities":[)";
+    for (int i = 0; i < n; ++i) {
+        if (i) s += ",";
+        s += R"({"name":"M)" + std::to_string(i) +
+             R"(","model":"Exported/Model/async_probe_)" + std::to_string(i) + R"(.obj"})";
+    }
+    s += "]}";
+    std::ofstream(path) << s;
+    return path;
+}
+
+// Pumps until the prewarm settles, so a hang fails the test rather than it.
+//
+// The sleep is load-bearing, not politeness: pumpCompletions returns at once
+// when nothing has finished, so a tight loop laps the workers thousands of
+// times and gives up before the first decode lands. It also has to outlast the
+// CAP -- kMaxConcurrentDecodes is 2, so with three models the third only
+// launches from another completion, one round later.
+bool settle(SceneLoader& loader, JobSystem& jobs) {
+    for (int i = 0; i < 3000 && loader.swapPrewarming(); ++i) {
+        jobs.pumpCompletions(1.0f);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    return !loader.swapPrewarming();
+}
+
+} // namespace
+
+TEST(SceneLoaderAsync, CollectsExactlyThePathsALoadWouldImport) {
+    // Two entities share a path, one names a path the sandbox refuses, and one
+    // carries an empty model component.
+    std::ofstream("test_async_paths.json") << R"({"version":1,"entities":[)"
+        R"({"name":"A","model":"Exported/Model/one.obj"},)"
+        R"({"name":"B","model":"Exported/Model/one.obj"},)"
+        R"({"name":"C","model":"../../evil.obj"},)"
+        R"({"name":"D","model":""}]})";
+
+    AssetManager assets;
+    std::vector<std::string> paths;
+    ASSERT_TRUE(SceneSerializer::CollectModelPaths("test_async_paths.json", assets, paths));
+
+    ASSERT_EQ(paths.size(), 1u)
+        << "the warm list is not the set a load would actually import";
+    EXPECT_EQ(paths[0], "Exported/Model/one.obj");
+    std::remove("test_async_paths.json");
+}
+
+TEST(SceneLoaderAsync, AFileThatWouldNotLoadCollectsNothing) {
+    std::ofstream("test_async_bad.json") << R"({"version":1,"entities":[{"name":5}]})";
+    AssetManager assets;
+    std::vector<std::string> paths;
+    EXPECT_FALSE(SceneSerializer::CollectModelPaths("test_async_bad.json", assets, paths));
+    EXPECT_TRUE(paths.empty()) << "a rejected file left paths behind to warm";
+    std::remove("test_async_bad.json");
+}
+
+// THE POINT OF THE FEATURE.
+TEST(SceneLoaderAsync, TheOutgoingSceneSurvivesUntilEveryModelHasSettled) {
+    writeScene("test_async_from.json", 4);
+    writeModelScene("test_async_to.json", 3);
+
+    AssetManager assets;
+    JobSystem jobs;
+    Scene scene;
+    SceneLoader loader(scene, assets);
+    loader.SetJobSystem(&jobs);
+
+    ASSERT_TRUE(loader.RequestSwap("test_async_from.json", SceneSwapOrigin::Host));
+    ASSERT_TRUE(loader.DrainPendingSwap());
+    ASSERT_EQ(namedCount(scene), 4);
+
+    ASSERT_TRUE(loader.RequestSwapAsync("test_async_to.json", SceneSwapOrigin::Host));
+    EXPECT_EQ(loader.prewarmTotal(), 3u) << "the models were never requested";
+
+    // Draining WHILE it warms must do nothing at all -- not tear down, not load.
+    int spins = 0;
+    while (loader.swapPrewarming() && spins++ < 3000) {
+        EXPECT_FALSE(loader.DrainPendingSwap())
+            << "the swap ran with models still in flight";
+        EXPECT_EQ(namedCount(scene), 4)
+            << "the outgoing scene was torn down while the new one was loading";
+        jobs.pumpCompletions(1.0f);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_FALSE(loader.swapPrewarming()) << "the prewarm never settled";
+    EXPECT_EQ(loader.prewarmDone(), 3u);
+
+    // ...and now it runs.
+    EXPECT_TRUE(loader.DrainPendingSwap());
+    EXPECT_EQ(namedCount(scene), 3);
+    EXPECT_EQ(loader.prewarmTotal(), 0u) << "the warmed handles were never released";
+
+    std::remove("test_async_from.json");
+    std::remove("test_async_to.json");
+}
+
+// A model that will never arrive settles as Failed rather than hanging the
+// swap. The scene is still loadable; the miss is reported where a missing
+// asset has always been reported.
+TEST(SceneLoaderAsync, AModelThatCannotLoadStillSettlesAndTheSwapProceeds) {
+    writeModelScene("test_async_missing.json", 2);
+
+    AssetManager assets;
+    JobSystem jobs;
+    Scene scene;
+    SceneLoader loader(scene, assets);
+    loader.SetJobSystem(&jobs);
+
+    ASSERT_TRUE(loader.RequestSwapAsync("test_async_missing.json", SceneSwapOrigin::Host));
+    ASSERT_TRUE(settle(loader, jobs)) << "a model that cannot load hung the swap";
+
+    EXPECT_TRUE(loader.DrainPendingSwap());
+    EXPECT_EQ(namedCount(scene), 2) << "the entities still exist";
+    EXPECT_FALSE(loader.lastResult().report.complete())
+        << "a scene whose models all failed called itself complete";
+    std::remove("test_async_missing.json");
+}
+
+// DEGRADES HONESTLY: no pool means no prewarm and the same swap, rather than a
+// swap that silently never runs.
+TEST(SceneLoaderAsync, WithNoJobSystemItIsExactlyTheSynchronousSwap) {
+    writeScene("test_async_nopool.json", 2);
+    AssetManager assets;
+    Scene scene;
+    SceneLoader loader(scene, assets);          // no SetJobSystem
+
+    ASSERT_TRUE(loader.RequestSwapAsync("test_async_nopool.json", SceneSwapOrigin::Host));
+    EXPECT_EQ(loader.prewarmTotal(), 0u);
+    EXPECT_FALSE(loader.swapPrewarming());
+    EXPECT_TRUE(loader.DrainPendingSwap()) << "the swap never ran without a pool";
+    EXPECT_EQ(namedCount(scene), 2);
+    std::remove("test_async_nopool.json");
+}
+
+// Validation still happens at REQUEST time, which is the whole reason it is
+// there rather than at the drain.
+TEST(SceneLoaderAsync, ABadFileIsRefusedAtRequestTimeAndWarmsNothing) {
+    AssetManager assets;
+    JobSystem jobs;
+    Scene scene;
+    SceneLoader loader(scene, assets);
+    loader.SetJobSystem(&jobs);
+
+    EXPECT_FALSE(loader.RequestSwapAsync("no_such_scene_at_all.json", SceneSwapOrigin::Host));
+    EXPECT_EQ(loader.lastResult().status, SceneSwapStatus::Invalid);
+    EXPECT_EQ(loader.prewarmTotal(), 0u) << "a refused swap still queued decodes";
+    EXPECT_FALSE(loader.swapPending());
+}
+
+// Superseding a warming swap drops ITS handles, or every scene ever requested
+// would stay pinned in the cache.
+TEST(SceneLoaderAsync, SupersedingAWarmingSwapReleasesTheModelsItWasWarming) {
+    writeModelScene("test_async_a.json", 3);
+    writeScene("test_async_b.json", 1);
+
+    AssetManager assets;
+    JobSystem jobs;
+    Scene scene;
+    SceneLoader loader(scene, assets);
+    loader.SetJobSystem(&jobs);
+
+    ASSERT_TRUE(loader.RequestSwapAsync("test_async_a.json", SceneSwapOrigin::Host));
+    ASSERT_EQ(loader.prewarmTotal(), 3u);
+
+    ASSERT_TRUE(loader.RequestSwapAsync("test_async_b.json", SceneSwapOrigin::Host));
+    EXPECT_EQ(loader.prewarmTotal(), 0u)
+        << "the superseded swap's models are still being warmed";
+    EXPECT_EQ(loader.pendingPath(), "test_async_b.json");
+
+    ASSERT_TRUE(settle(loader, jobs));
+    EXPECT_TRUE(loader.DrainPendingSwap());
+    EXPECT_EQ(namedCount(scene), 1);
+
+    std::remove("test_async_a.json");
+    std::remove("test_async_b.json");
+}
+
+// Cancelling releases them too.
+TEST(SceneLoaderAsync, CancellingAWarmingSwapReleasesItsModels) {
+    writeModelScene("test_async_cancel.json", 3);
+    AssetManager assets;
+    JobSystem jobs;
+    Scene scene;
+    SceneLoader loader(scene, assets);
+    loader.SetJobSystem(&jobs);
+
+    ASSERT_TRUE(loader.RequestSwapAsync("test_async_cancel.json", SceneSwapOrigin::Host));
+    ASSERT_EQ(loader.prewarmTotal(), 3u);
+    loader.CancelPendingSwap();
+    EXPECT_EQ(loader.prewarmTotal(), 0u);
+    EXPECT_FALSE(loader.swapPrewarming());
+    EXPECT_FALSE(loader.swapPending());
+
+    jobs.pumpCompletions(1.0f);   // the in-flight decodes must still land safely
+    std::remove("test_async_cancel.json");
 }

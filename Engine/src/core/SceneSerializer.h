@@ -56,6 +56,19 @@ namespace MyCoreEngine {
         static bool Validate(const std::string& path, AssetManager& assets,
                              std::string* whyNot = nullptr);
 
+        // Every model path the scene REFERENCES, deduped, in file order.
+        //
+        // Runs the SAME probe Validate does, so the two can never disagree
+        // about which paths a load would actually import: a path the sandbox
+        // refuses is absent here for the same reason it is never opened there.
+        // Returns false when the file would not load at all.
+        //
+        // Exists so a swap can warm those models on worker threads BEFORE it
+        // tears the outgoing scene down -- see SceneLoader::RequestSwapAsync.
+        // Cheap for the same reason Validate is: a JSON walk, no asset I/O.
+        static bool CollectModelPaths(const std::string& path, AssetManager& assets,
+                                      std::vector<std::string>& out);
+
         static constexpr int kVersion = 1;
 
     private:
@@ -68,6 +81,9 @@ namespace MyCoreEngine {
         bool dryRun_ = false;
         // Filled during a non-probe load; null when the caller did not ask.
         SceneLoadReport* report_ = nullptr;
+        // Set only on a CollectModelPaths probe. Null on every other pass,
+        // including the probe a real Load runs against itself.
+        std::vector<std::string>* collect_ = nullptr;
     };
 
 } // namespace MyCoreEngine

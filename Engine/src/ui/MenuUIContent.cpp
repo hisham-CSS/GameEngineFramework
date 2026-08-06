@@ -201,6 +201,14 @@ void InstallMenuUIContent(UIWorld& world, const MenuUIHooks& hooks) {
     src.SetInt("menuObservers", 0);
     src.SetInt("menuTextures", 0);
     src.SetInt("swapLogCursor", 0);
+    // SEEDED, not merely published each frame. MenuUIPublishCounters only runs
+    // when a host with an Application is driving, and a document binds at LOAD
+    // -- so without these the menu reports three unresolved holes on any host
+    // that has not started one yet, which includes every test.
+    src.SetBool("menuLoading", false);
+    src.SetInt("menuLoadDone", 0);
+    src.SetInt("menuLoadTotal", 0);
+    src.SetInt("menuLoadPct", 100);
     // WHICH PANEL IS OPEN. Three bools rather than a string, because a hole is
     // a PATH and there is deliberately no `==` in the markup -- the same reason
     // the quality tier publishes three bools beside its name.
@@ -226,7 +234,9 @@ void InstallMenuUIContent(UIWorld& world, const MenuUIHooks& hooks) {
     // case nothing whatsoever has been touched.
     src.AddAction("menuNewGame", [&src, h] {
         if (!h.app) return;
-        if (!h.app->LoadScene(h.playScenePath)) {
+        // ASYNC: the game scene has models, and this is the one swap a player
+        // actually waits on. The menu stays up and responsive while they warm.
+        if (!h.app->LoadSceneAsync(h.playScenePath)) {
             setStatus(src, "Cannot load " + baseName(h.playScenePath), false);
         }
     });
@@ -235,7 +245,10 @@ void InstallMenuUIContent(UIWorld& world, const MenuUIHooks& hooks) {
     // there is nothing special about "the menu" to the loader.
     src.AddAction("menuBackToMenu", [&src, h] {
         if (!h.app) return;
-        if (!h.app->LoadScene(h.menuScenePath)) {
+        // Async here too, for one rule rather than two. A scene with no models
+        // warms nothing and drains on the very next frame, so this is exactly
+        // the synchronous call until the day the menu grows some.
+        if (!h.app->LoadSceneAsync(h.menuScenePath)) {
             setStatus(src, "Cannot load " + baseName(h.menuScenePath), false);
         }
     });
@@ -301,6 +314,14 @@ void InstallMenuUIContent(UIWorld& world, const MenuUIHooks& hooks) {
         log.rows.clear();
         publishSwapLog(src, log.rows);
         src.SetInt("swapLogCursor", 0);
+    // SEEDED, not merely published each frame. MenuUIPublishCounters only runs
+    // when a host with an Application is driving, and a document binds at LOAD
+    // -- so without these the menu reports three unresolved holes on any host
+    // that has not started one yet, which includes every test.
+    src.SetBool("menuLoading", false);
+    src.SetInt("menuLoadDone", 0);
+    src.SetInt("menuLoadTotal", 0);
+    src.SetInt("menuLoadPct", 100);
         setStatus(src, "Log cleared.", true);
     });
 
@@ -355,6 +376,20 @@ void MenuUIReportSwap(UIWorld& world, const SceneSwapResult& r) {
 
 void MenuUIPublishCounters(UIWorld& world, const MenuUIHooks& hooks) {
     ui::UIDataSource& src = world.shared();
+
+    // ---- loading progress, for a screen that has to say something ----------
+    // Published unconditionally: the setters are equality-gated, so the frames
+    // where nothing is loading cost one compare and wake nothing.
+    if (hooks.app && hooks.app->sceneLoader()) {
+        const SceneLoader& sl = *hooks.app->sceneLoader();
+        const std::size_t total = sl.prewarmTotal();
+        const std::size_t done = sl.prewarmDone();
+        src.SetBool("menuLoading", sl.swapPrewarming());
+        src.SetInt("menuLoadDone", (long long)done);
+        src.SetInt("menuLoadTotal", (long long)total);
+        src.SetInt("menuLoadPct",
+                   total ? (long long)((done * 100) / total) : 100);
+    }
 
     // ---- master volume, written straight into the source by the <Slider> ----
     VolumeWatch& vw = volumeWatches()[&world];

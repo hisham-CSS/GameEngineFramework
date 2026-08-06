@@ -20,6 +20,7 @@
 // list, so a subsystem that forgets to subscribe is a missing subscription
 // rather than a silent leak.
 #include "Core.h"
+#include "AssetManager.h"      // ModelRequestHandle, for the prewarm list
 #include "SceneSerializer.h"   // SceneLoadReport
 
 #include <cstdint>
@@ -33,6 +34,7 @@ namespace MyCoreEngine {
 
     class Scene;
     class AssetManager;
+    class JobSystem;
 
     // Who asked. Host = the editor's File > Open, the player's boot. Game = a
     // UI action or a script — content asking, which a host may refuse. The
@@ -126,7 +128,42 @@ namespace MyCoreEngine {
         // A second request before the first runs supersedes it.
         bool RequestSwap(std::string path, SceneSwapOrigin origin = SceneSwapOrigin::Game);
 
+        // The SAME swap, with the models warmed on worker threads first.
+        //
+        // The destructive part cannot move off the main thread and never will:
+        // a load creates entities, and the registry is single-threaded by
+        // design. What CAN move is the expensive part -- importing the meshes
+        // and textures the scene names, which is where the seconds actually go.
+        //
+        // So this collects those paths at request time, hands them to
+        // AssetManager::RequestModel (decode on a worker, GL finalize on the
+        // main thread), and holds the swap until every one has settled. The
+        // OUTGOING scene stays alive and rendering at full rate throughout,
+        // which is the whole point: a loading screen you can look at.
+        //
+        // By the time the swap runs, every GetModel inside it is a cache hit,
+        // so the window in which the scene is torn down shrinks from "however
+        // long the models take" to "however long entity creation takes".
+        //
+        // DEGRADES HONESTLY. With no JobSystem attached, or with a scene that
+        // names no models, this is exactly RequestSwap -- the swap still
+        // happens, it simply is not warmed first.
+        bool RequestSwapAsync(std::string path, SceneSwapOrigin origin = SceneSwapOrigin::Game);
+
+        // Where the worker pool comes from. Non-owning; the Application's pool
+        // outlives the loader in both hosts. Without one, RequestSwapAsync is
+        // RequestSwap.
+        void SetJobSystem(JobSystem* jobs) { jobs_ = jobs; }
+
         bool swapPending() const { return pending_.has_value(); }
+
+        // A pending swap is waiting on its models. A host draws its loading
+        // screen while this is true, and DrainPendingSwap does nothing.
+        bool swapPrewarming() const;
+        // Settled / total models for that wait, so a progress bar has numbers.
+        // Both zero when nothing is prewarming.
+        std::size_t prewarmDone() const;
+        std::size_t prewarmTotal() const { return prewarm_.size(); }
 
         // How many observers are subscribed. Diagnostic, and worth having:
         // the tempting way to implement "rebuild the subsystems after a swap"
@@ -166,6 +203,15 @@ namespace MyCoreEngine {
         ObserverHandle     nextHandle_ = 1;
 
         std::optional<SceneSwapContext> pending_;
+        JobSystem* jobs_ = nullptr;
+        // Held only while a prewarmed swap is in flight, and cleared the moment
+        // it runs, is superseded or is cancelled.
+        //
+        // Holding them at all is the point: a handle keeps its model alive, so
+        // the cache entry the swap is about to read cannot be collected between
+        // the decode finishing and the load asking for it. Holding them any
+        // LONGER would pin every model of every scene ever prewarmed.
+        std::vector<AssetManager::ModelRequestHandle> prewarm_;
         // Guards re-entry: an observer that requests a swap from inside a hook
         // gets the NEXT frame, not a nested swap.
         bool            swapping_ = false;

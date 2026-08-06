@@ -208,7 +208,14 @@
          while that panel is open — which is when every one of them is written. -->
     <Element name="footer" class="footer">
       <Label name="statusText" class="status" text="{menuStatus}"
-             classes="status-bad: {menuStatusOk | not}"/>
+             classes="status-bad: {menuStatusOk | not}" if="!menuLoading"/>
+      <!-- The async swap's own line, and the reason it exists: while the next
+           scene's models warm on worker threads NOTHING has been torn down, so
+           this menu is still live, still animating, and still able to say how
+           far along it is. A synchronous load has no frame in which to draw
+           this at all. -->
+      <Label name="loadingText" class="status" if="menuLoading"
+             text="LOADING  {menuLoadDone}/{menuLoadTotal}"/>
       <!-- The button legend. A is named nowhere else in the menu, and B was a
            whisper in the corner of one panel. Gated so it only claims what is
            actually true, in two ways:

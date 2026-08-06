@@ -61,7 +61,50 @@ const std::string& SceneLoader::pendingPath() const {
     return pending_ ? pending_->path : kNoPath;
 }
 
-void SceneLoader::CancelPendingSwap() { pending_.reset(); }
+void SceneLoader::CancelPendingSwap() {
+    pending_.reset();
+    prewarm_.clear();
+}
+
+bool SceneLoader::swapPrewarming() const {
+    return pending_.has_value() && prewarmDone() < prewarm_.size();
+}
+
+std::size_t SceneLoader::prewarmDone() const {
+    std::size_t done = 0;
+    for (const auto& h : prewarm_) {
+        // FAILED counts as settled. A model that will never arrive must not
+        // hold the swap forever -- the load reports it through
+        // SceneLoadReport::failedModels, which is where a missing asset has
+        // always been reported, and the scene is otherwise perfectly loadable.
+        if (!h || h->state == AssetManager::LoadState::Live ||
+                  h->state == AssetManager::LoadState::Failed) ++done;
+    }
+    return done;
+}
+
+bool SceneLoader::RequestSwapAsync(std::string path, SceneSwapOrigin origin) {
+    // The ordinary request first: it validates, supersedes and records, and
+    // every one of those has to behave identically whether or not the models
+    // are warmed. Async is a prologue to the same swap, not a second one.
+    const std::string requested = path;
+    if (!RequestSwap(std::move(path), origin)) return false;
+
+    prewarm_.clear();
+    if (!jobs_) return true;   // no pool: RequestSwap, exactly
+
+    // The paths come from the SAME probe Validate just ran, so anything the
+    // sandbox refuses is absent here and nothing tries to warm a file the load
+    // will not open either.
+    std::vector<std::string> paths;
+    if (!SceneSerializer::CollectModelPaths(requested, assets_, paths)) return true;
+
+    prewarm_.reserve(paths.size());
+    for (const std::string& p : paths) {
+        prewarm_.push_back(assets_.RequestModel(*jobs_, p));
+    }
+    return true;
+}
 
 bool SceneLoader::RequestSwap(std::string path, SceneSwapOrigin origin) {
     // Validated HERE, not at the drain. The swap tears the outgoing scene's
@@ -95,6 +138,10 @@ bool SceneLoader::RequestSwap(std::string path, SceneSwapOrigin origin) {
 
 bool SceneLoader::DrainPendingSwap() {
     if (!pending_ || swapping_) return false;
+    // STILL WARMING. Nothing has been torn down, so the outgoing scene keeps
+    // running and rendering at full rate -- which is the entire feature. The
+    // host draws its loading screen and calls this again next frame.
+    if (swapPrewarming()) return false;
 
     swapping_ = true;
     struct Guard {
@@ -104,6 +151,13 @@ bool SceneLoader::DrainPendingSwap() {
 
     const SceneSwapContext ctx = *pending_;
     pending_.reset();
+    // Dropped AFTER the load, not here: a handle is what keeps a warmed model
+    // in the cache, and releasing them before GetModel asks would let the
+    // collector undo the whole prewarm between one line and the next.
+    struct DropWarm {
+        std::vector<AssetManager::ModelRequestHandle>* v;
+        ~DropWarm() { v->clear(); }
+    } dropWarm{ &prewarm_ };
 
     // 1. Veto, before anything is touched.
     for (const Entry& e : observers_) {

@@ -133,6 +133,9 @@ public:
         // through exactly the path a menu button later will — one code path,
         // and the Install* helpers below can subscribe their teardown to it.
         SceneLoader sceneLoader(scene, assets);
+        // The Application's pool, so RequestSwapAsync can warm a scene's models
+        // on workers instead of importing them inside the swap.
+        sceneLoader.SetJobSystem(&jobs());
         setSceneLoader(&sceneLoader);
 
         SceneSerializer serializer(scene, assets);

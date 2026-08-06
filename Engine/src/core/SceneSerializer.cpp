@@ -313,6 +313,18 @@ namespace MyCoreEngine {
         return false;
     }
 
+    bool SceneSerializer::CollectModelPaths(const std::string& path, AssetManager& assets,
+                                            std::vector<std::string>& out) {
+        out.clear();
+        Scene scratch;
+        SceneSerializer probe(scratch, assets);
+        probe.dryRun_ = true;
+        probe.collect_ = &out;
+        if (probe.Load(path)) return true;
+        out.clear();
+        return false;
+    }
+
     bool SceneSerializer::Load(const std::string& path, SceneLoadReport* report) {
         // Honour the documented guarantee that a bad file leaves the current
         // scene intact. Only a JSON *syntax* error and a bad version were
@@ -533,6 +545,16 @@ namespace MyCoreEngine {
                     // which is all this pass needs. Skip the actual import so
                     // validating a scene costs a JSON walk rather than loading
                     // every model twice.
+                    //
+                    // A CollectModelPaths probe records it here, INSIDE the
+                    // sandbox branch, so the list it returns is exactly the set
+                    // a real load would import -- never a path this pass just
+                    // refused.
+                    if (collect_ &&
+                        std::find(collect_->begin(), collect_->end(), modelPath)
+                            == collect_->end()) {
+                        collect_->push_back(modelPath);
+                    }
                     entity.addComponent<ModelComponent>(ModelComponent{});
                 }
                 else {

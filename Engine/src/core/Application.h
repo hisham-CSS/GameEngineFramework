@@ -86,6 +86,19 @@ namespace MyCoreEngine
 		               SceneSwapOrigin origin = SceneSwapOrigin::Game) {
 			return sceneLoader_ && sceneLoader_->RequestSwap(path, origin);
 		}
+
+		// The same call, with the new scene's models warmed on worker threads
+		// before anything is torn down. The CURRENT scene keeps running and
+		// rendering while they load, which is what makes a loading screen
+		// possible at all -- see SceneLoader::RequestSwapAsync.
+		//
+		// Prefer this for a scene a PLAYER waits on (a level, New Game). The
+		// synchronous one is right for anything small enough that a hitch is
+		// cheaper than a frame of loading UI.
+		bool LoadSceneAsync(const std::string& path,
+		                    SceneSwapOrigin origin = SceneSwapOrigin::Game) {
+			return sceneLoader_ && sceneLoader_->RequestSwapAsync(path, origin);
+		}
 		Window&   window() { return window_; }
 		GLFWwindow* GetNativeWindow() { return window_.getGLFWwindow(); }
 
