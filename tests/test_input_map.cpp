@@ -340,3 +340,88 @@ TEST(InputMap, SuppressingDoesNotManufactureAnEdgeOnRelease) {
     in.beginInputPhase();
     EXPECT_FALSE(in.consumePressed("Jump")) << "focus change forged a press";
 }
+
+
+// ------------------------------------------------- source filtering (U27a)
+//
+// The UI binds WASD to menu navigation AND leaves those actions on the pad.
+// While a text field has focus the KEY half has to go quiet and the pad half
+// must keep working -- a pad types nothing. Unbinding kills both and
+// setSuppressed kills the whole map, so the queries take a source mask.
+
+TEST(InputMapSources, AFilteredReadSeesOnlyTheSourcesItAskedFor) {
+    FakeInput input;
+    input.bindKey("UINavUp", GLFW_KEY_W);
+    input.bindGamepadButton("UINavUp", GLFW_GAMEPAD_BUTTON_DPAD_UP);
+    input.padPresent = true;
+
+    input.keys[GLFW_KEY_W] = true;
+    input.update(nullptr);
+    EXPECT_TRUE(input.isDown("UINavUp"));
+    EXPECT_TRUE(input.isDown("UINavUp", MyCoreEngine::Src_Key));
+    EXPECT_FALSE(input.isDown("UINavUp", MyCoreEngine::Src_Pad))
+        << "a key satisfied a pad-filtered read - typing would navigate";
+
+    // The d-pad, with the key STILL held. Both sources report independently;
+    // short-circuiting on the first hit would have hidden the pad entirely.
+    input.pad.buttons[GLFW_GAMEPAD_BUTTON_DPAD_UP] = GLFW_PRESS;
+    input.update(nullptr);
+    EXPECT_TRUE(input.isDown("UINavUp", MyCoreEngine::Src_Key));
+    EXPECT_TRUE(input.isDown("UINavUp", MyCoreEngine::Src_Pad));
+}
+
+// The edge is per-SOURCE. Otherwise a filtered read would depend on inputs it
+// deliberately excluded: holding W while pressing the d-pad would produce no
+// pad edge, and the pad would look dead for as long as a key was down.
+TEST(InputMapSources, ThePressEdgeIsPerSourceNotPerAction) {
+    FakeInput input;
+    input.bindKey("UIConfirm", GLFW_KEY_SPACE);
+    input.bindGamepadButton("UIConfirm", GLFW_GAMEPAD_BUTTON_A);
+    input.padPresent = true;
+
+    input.keys[GLFW_KEY_SPACE] = true;
+    input.update(nullptr);
+    EXPECT_TRUE(input.wasPressed("UIConfirm", MyCoreEngine::Src_Key));
+
+    // Held. The ACTION has no new edge, but the PAD does.
+    input.pad.buttons[GLFW_GAMEPAD_BUTTON_A] = GLFW_PRESS;
+    input.update(nullptr);
+    EXPECT_FALSE(input.wasPressed("UIConfirm"))
+        << "the whole-action edge fired twice for one continuous press";
+    EXPECT_TRUE(input.wasPressed("UIConfirm", MyCoreEngine::Src_Pad))
+        << "the pad's own press was invisible because a key was already held";
+
+    // ...and release is symmetric: dropping the key is a key-release even
+    // though the action is still down on the pad.
+    input.keys[GLFW_KEY_SPACE] = false;
+    input.update(nullptr);
+    EXPECT_TRUE(input.isDown("UIConfirm"));
+    EXPECT_TRUE(input.wasReleased("UIConfirm", MyCoreEngine::Src_Key));
+    EXPECT_FALSE(input.wasReleased("UIConfirm"));
+}
+
+// The defaults themselves. WASD must navigate the UI, and the ARROWS must NOT
+// be bound here: they already reach UIDocument::UpdateKeyboard as UIKey events
+// with a full consumption chain, and binding them again would deliver one
+// press down both paths -- two notches per tap on a focused slider.
+TEST(InputMapSources, DefaultBindingsPutWASDOnNavAndLeaveTheArrowsAlone) {
+    FakeInput input;
+    MyCoreEngine::BindDefaultActions(input);
+
+    input.keys[GLFW_KEY_W] = true;
+    input.keys[GLFW_KEY_A] = true;
+    input.update(nullptr);
+    EXPECT_TRUE(input.isDown("UINavUp"))    << "W does not navigate";
+    EXPECT_TRUE(input.isDown("UINavLeft"))  << "A does not navigate";
+
+    input.keys[GLFW_KEY_W] = false;
+    input.keys[GLFW_KEY_A] = false;
+    input.keys[GLFW_KEY_UP] = true;
+    input.keys[GLFW_KEY_LEFT] = true;
+    input.update(nullptr);
+    EXPECT_FALSE(input.isDown("UINavUp"))
+        << "the UP ARROW is bound as a nav action - it also arrives as a UIKey, "
+           "so a focused slider will move two notches per press";
+    EXPECT_FALSE(input.isDown("UINavLeft"))
+        << "the LEFT ARROW is bound as a nav action - same double-delivery";
+}

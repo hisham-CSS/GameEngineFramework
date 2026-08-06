@@ -47,6 +47,12 @@ namespace MyCoreEngine::ui {
         None = 0,
         Tab, Enter, Escape, Backspace, Delete,
         Left, Right, Up, Down, Home, End, PageUp, PageDown,
+        // NO Space. It would activate a focused control the way Enter does,
+        // and it is the obvious thing to want -- but InputMap binds "Jump" to
+        // GLFW_KEY_SPACE and gameplay input is NOT gated on the UI having
+        // focus (only on a TEXT FIELD having it, see UICapture::textInput).
+        // So Space on a focused menu button pressed the button AND jumped.
+        // Enter and the pad's A both activate; that is enough.
         // Letters used by editing shortcuts, not for text: typing 'a' delivers
         // TextInput("a"), while Ctrl+A delivers KeyDown{A, ctrl}.
         A, C, V, X, Z, Y,

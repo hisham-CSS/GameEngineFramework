@@ -571,11 +571,35 @@ void EditorApplication::Run() {
             // Before Update, so the frame that draws the counters draws the
             // current ones. Pushed rather than polled -- see MenuUIContent.h.
             MyCoreEngine::MenuUIPublishCounters(uiWorld_, menuHooks_);
-            // The controller, but ONLY while the Game surface has focus. The
-            // editor's own panels are ImGui's and a pad must not drive both at
-            // once -- and in edit mode the Game panel is a preview, not a game.
-            if (playing_ && gameSurfaceFocused_) {
-                uiWorld_.SetNav(navSynth_.Poll(input(), dt));
+            // Nav, but ONLY while the Game surface has focus. The editor's own
+            // panels are ImGui's and a pad must not drive both at once -- and
+            // in edit mode the Game panel is a preview, not a game.
+            //
+            // ...and only while the SCENE VIEWPORT is not the thing under the
+            // hand. gameSurfaceFocused_ is CLICK-LATCHED, not hover-tracked, so
+            // it survives the cursor wandering off to the Scene view -- and the
+            // fly camera's own gate (Application::RunLoop, !capK) opens exactly
+            // there. Both would then act on one press: WASD and the left stick
+            // are bound to MoveForward/MoveRight as well as to the nav actions.
+            //
+            // The visible symptom is worse than double movement. With nothing
+            // focused in the game's UI, capK is false, so the first W flies the
+            // camera AND hands focus to the HUD -- after which wantsKeyboard()
+            // is true, capK is true, and the fly camera silently stops
+            // responding with nothing on screen to say why.
+            //
+            // One condition rather than two that can both be true: whatever
+            // makes the editor's camera eligible for the keys makes the game's
+            // UI ineligible.
+            const bool editorCameraHasTheKeys =
+                viewportHovered_ || viewportFocused_ || camLooking_;
+            if (playing_ && gameSurfaceFocused_ && !editorCameraHasTheKeys) {
+                // WASD navigates the menu, but the SAME four keys type a
+                // pilot name. The flag silences the key half of the nav
+                // actions and leaves the pad half alone -- a pad types
+                // nothing, so it has no reason to go quiet.
+                uiWorld_.SetNav(navSynth_.Poll(input(), dt,
+                                               !uiWorld_.wantsTextInput()));
             } else {
                 navSynth_.repeat.Reset();
             }

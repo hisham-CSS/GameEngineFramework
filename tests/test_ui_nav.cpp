@@ -15,9 +15,11 @@
 #include "../Engine/src/ui/UIBinding.h"
 #include "../Engine/src/ui/UIDataSource.h"
 #include "../Engine/src/ui/UINav.h"
+#include "../Engine/src/ui/UINavSynth.h"
 #include "../Engine/src/ui/UIStyleSheet.h"
 
 #include <cmath>
+#include <unordered_map>
 #include <string>
 #include <vector>
 
@@ -854,4 +856,474 @@ TEST(UISpatialNav, WithinTheChosenRowTheNearestAcrossStillWins) {
     // `below` (both start at x=0).
     EXPECT_EQ(g.focusName(), "low")
         << "the nearest row was chosen but the wrong member of it";
+}
+
+
+// =================================================== the keyboard (U27a) ===
+//
+// A keyboard drives this UI the way a pad does, and the two grammars reach the
+// document through DIFFERENT doors on purpose:
+//
+//   ARROWS / ESCAPE / SPACE  ->  UIKeyboardState -> UpdateKeyboard, at the END
+//       of the existing consumption chain, so a text caret, a tab strip, a
+//       focused slider's notch and page scrolling each decline first.
+//   WASD                     ->  InputMap -> UINavSynth -> UpdateNav, because
+//       UIKey deliberately has no letters (a letter is text).
+//
+// Binding the arrows BOTH ways is the bug this arrangement exists to prevent:
+// one press would arrive twice and a slider would move two notches.
+
+namespace {
+
+// A column of three buttons with a slider in the middle of them, plus a text
+// field -- every consumer of an arrow key in one tree.
+struct KeyRig {
+    UIDocument doc;
+    UIStyleSheet sheet;
+    std::vector<std::string> errors;
+
+    bool Load() {
+        const char* css =
+            "#col { width: 300px; flex-direction: column; align-items: flex-start; }"
+            ".row { width: 300px; height: 40px; }";
+        if (!sheet.ParseString(css, "t.cstyle")) return false;
+        const char* xml =
+            R"(<UI><Element name="col">)"
+            R"(<Button name="top" class="row" text="TOP"/>)"
+            R"(<Slider name="vol" class="row" min="0" max="1" value="0.5" key-step="0.1"/>)"
+            R"(<TextField name="field" class="row" value="abc"/>)"
+            R"(<Button name="bottom" class="row" text="BOTTOM"/>)"
+            R"(</Element></UI>)";
+        if (!UIMarkup::LoadInto(doc, xml, errors, "t.cxml")) return false;
+        sheet.ApplyTo(doc.root());
+        doc.Layout(600.f, 600.f);
+        return true;
+    }
+    void Key(UIKey k) {
+        UIKeyboardState kb;
+        kb.keys.push_back(UIKeyEvent{ k });
+        doc.UpdateKeyboard(kb, nullptr);
+    }
+    std::string focusName() {
+        UIElement* f = doc.focused();
+        return f ? f->name() : std::string("<none>");
+    }
+    std::string firstError() const { return errors.empty() ? std::string() : errors[0]; }
+};
+
+} // namespace
+
+// The new fallback: an arrow nothing else wanted moves focus. Before this, a
+// focused Button received the KeyDown, every default action declined it, and
+// the key fell off the end of the chain doing nothing -- the UI could be
+// TABBED but not navigated, which is not how any menu behaves.
+TEST(UIKeyboardNav, AnUnclaimedArrowMovesFocus) {
+    KeyRig r;
+    ASSERT_TRUE(r.Load()) << r.firstError();
+    r.doc.SetFocus(r.doc.root().Find("top"));
+
+    r.Key(UIKey::Down);
+    EXPECT_EQ(r.focusName(), "vol") << "Down on a button did not navigate";
+}
+
+// ...and it is genuinely LAST. A focused slider's own notch is a default
+// action ahead of it, so the arrow moves the VALUE and focus stays put.
+TEST(UIKeyboardNav, ASliderKeepsItsOwnAxisArrowsAndMovesExactlyOneNotch) {
+    KeyRig r;
+    ASSERT_TRUE(r.Load()) << r.firstError();
+    UIElement* vol = r.doc.root().Find("vol");
+    ASSERT_TRUE(vol && vol->slider());
+    r.doc.SetFocus(vol);
+    const float before = vol->slider()->value;
+
+    r.Key(UIKey::Right);
+    EXPECT_EQ(r.focusName(), "vol") << "an arrow the slider wanted also moved focus";
+    // ONE step. Two would mean the key reached both UpdateKeyboard and
+    // UpdateNav -- exactly what binding the arrows as nav actions would cause.
+    EXPECT_NEAR(vol->slider()->value, before + 0.1f, 1e-5f)
+        << "the slider moved by something other than one key-step";
+
+    // The CROSS axis is not the slider's, so it still navigates.
+    r.Key(UIKey::Down);
+    EXPECT_EQ(r.focusName(), "field")
+        << "the cross-axis arrow was swallowed by a horizontal slider";
+}
+
+// A text field owns the arrows ALONG its text, and only those.
+//
+// UITextEdit has always declined Up/Down in a single-line field on purpose --
+// "Up must stay available to whatever contains a single-line field" is a
+// comment older than this feature. Until now nothing WAS that container, so
+// the key did nothing at all and a keyboard user who reached the PILOT field
+// could only leave it with Tab. The fallback is the container it was waiting
+// for, and the precedence falls out of the chain rather than being special-
+// cased: the field declines, so navigation gets its turn.
+TEST(UIKeyboardNav, ASingleLineFieldKeepsLeftAndRightButLetsUpAndDownNavigate) {
+    KeyRig r;
+    ASSERT_TRUE(r.Load()) << r.firstError();
+    r.doc.SetFocus(r.doc.root().Find("field"));
+
+    // ALONG the text: the caret's, focus stays.
+    r.Key(UIKey::Left);
+    EXPECT_EQ(r.focusName(), "field") << "Left moved focus out of a field mid-caret";
+    r.Key(UIKey::Right);
+    EXPECT_EQ(r.focusName(), "field") << "Right moved focus out of a field mid-caret";
+
+    // ACROSS it: meaningless in one line, so it is navigation.
+    r.Key(UIKey::Down);
+    EXPECT_EQ(r.focusName(), "bottom")
+        << "Down in a single-line field went nowhere - the field is a dead end "
+           "for anyone without a mouse";
+}
+
+// ...and a MULTI-LINE field keeps them, because there they mean something.
+// Same chain, opposite outcome, decided by the field rather than by a test for
+// the element's type.
+TEST(UIKeyboardNav, AMultiLineFieldKeepsUpAndDownForItsOwnCaret) {
+    UIDocument doc;
+    std::vector<std::string> errors;
+    ASSERT_TRUE(UIMarkup::LoadInto(doc,
+        R"(<UI><TextField name="notes" multiline="true" value="one&#10;two"/>)"
+        R"(<Button name="after" text="AFTER"/></UI>)", errors, "t.cxml"))
+        << (errors.empty() ? "" : errors[0]);
+    doc.Layout(400.f, 400.f);
+    UIElement* notes = doc.root().Find("notes");
+    ASSERT_TRUE(notes && notes->textEdit());
+    ASSERT_TRUE(notes->textEdit()->multiline())
+        << "the rig did not actually build a multi-line field";
+    doc.SetFocus(notes);
+
+    UIKeyboardState kb;
+    kb.keys.push_back(UIKeyEvent{ UIKey::Down });
+    doc.UpdateKeyboard(kb, nullptr);
+    EXPECT_EQ(doc.focused(), notes)
+        << "Down left a multi-line field instead of moving to the next line";
+}
+
+// ENTER activates. Space deliberately does NOT reach the UI at all: InputMap
+// binds "Jump" to it and gameplay input is gated only on a TEXT FIELD having
+// focus, so Space on a focused menu button pressed the button AND jumped.
+TEST(UIKeyboardNav, EnterActivatesAndSpaceIsNotAUIKeyAtAll) {
+    KeyRig r;
+    ASSERT_TRUE(r.Load()) << r.firstError();
+    int clicks = 0;
+    r.doc.root().Find("top")->OnClick([&](UIEvent&) { ++clicks; });
+    r.doc.SetFocus(r.doc.root().Find("top"));
+
+    r.Key(UIKey::Enter);
+    EXPECT_EQ(clicks, 1) << "Enter did not press a focused button";
+
+    // And nothing else in the chain activates: the guard against Space coming
+    // back is that UIKey has no entry for it, so a host cannot map one.
+}
+
+// Escape runs the SAME UIDocument::Back the pad's B runs. One notion of
+// backing out, not a keyboard one and a controller one that drift apart.
+TEST(UIKeyboardNav, EscapeRunsTheSameBackThePadDoes) {
+    // The SAME rig the pad's back test uses, driven by a key instead. That is
+    // the assertion: one tree, two grammars, identical outcome.
+    Scoped s;
+    ASSERT_TRUE(s.Load()) << s.firstError();
+    s.Frame();
+    s.src.SetBool("open", true);
+    s.Frame();
+    ASSERT_EQ(s.focusName(), "p1");
+    ASSERT_EQ(s.backs, 0);
+
+    UIKeyboardState kb;
+    kb.keys.push_back(UIKeyEvent{ UIKey::Escape });
+    s.doc.UpdateKeyboard(kb, nullptr);
+    EXPECT_EQ(s.backs, 1) << "Escape did not reach the scope's on-back";
+
+    s.Frame();
+    EXPECT_EQ(s.focusName(), "v1")
+        << "the stack did not pop after the app closed the panel";
+}
+
+// Escape inside a FIELD blurs the field rather than closing the panel around
+// it. UITextEdit deliberately declines the key, so it falls through to Back,
+// whose no-scope branch is a blur -- but the scope branch must not fire while
+// the user is plainly still inside a control.
+TEST(UIKeyboardNav, EscapeInAFieldBlursItRatherThanClosingThePanel) {
+    KeyRig r;
+    ASSERT_TRUE(r.Load()) << r.firstError();   // no focus scopes in this tree
+    r.doc.SetFocus(r.doc.root().Find("field"));
+    UIKeyboardState kb;
+    kb.keys.push_back(UIKeyEvent{ UIKey::Escape });
+    r.doc.UpdateKeyboard(kb, nullptr);
+    EXPECT_EQ(r.doc.focused(), nullptr) << "Escape did not blur the field";
+}
+
+
+// ================================================ the live device (U27b) ===
+//
+// Button prompts have to agree with the hands on the desk. UIWorld derives
+// which grammar is live from the three input states it ALREADY receives --
+// no fourth thing for a host to feed and forget -- and republishes it into the
+// shared source, where markup binds it like any other value.
+
+namespace {
+
+std::string devStr(MyCoreEngine::UIWorld& w) {
+    return w.shared().GetString("uiDevice");
+}
+
+MyCoreEngine::ui::UINavState padNav() {
+    MyCoreEngine::ui::UINavState n;
+    n.device = MyCoreEngine::ui::UINavDevice::Gamepad;
+    n.moves.push_back(MyCoreEngine::ui::UINavDir::Down);
+    return n;
+}
+
+} // namespace
+
+TEST(UIDevicePrompts, ThePadTakesOverAndTheMouseTakesItBack) {
+    ShippedHud hud;
+    hud.Frame();
+    // A fresh process assumes keyboard/mouse: that is what a desktop build
+    // boots into, and guessing "pad" would show the wrong prompts to everyone
+    // who never picks one up.
+    EXPECT_EQ(devStr(hud.world), "keyboard");
+
+    hud.world.SetNav(padNav());
+    hud.Frame();
+    EXPECT_EQ(hud.world.inputDevice(), MyCoreEngine::ui::UINavDevice::Gamepad);
+    EXPECT_EQ(devStr(hud.world), "gamepad");
+
+    // STICKY: silence must not flip it back. Otherwise the legend would flicker
+    // between the two every time the player stopped to read it.
+    hud.world.SetNav(MyCoreEngine::ui::UINavState{});
+    hud.Frame();
+    hud.Frame();
+    EXPECT_EQ(devStr(hud.world), "gamepad") << "an idle frame stole the prompts back";
+
+    // Reaching for the MOUSE is the switch, before any button is pressed.
+    hud.Point(100.0f, 100.0f);
+    hud.Frame();
+    EXPECT_EQ(devStr(hud.world), "keyboard")
+        << "moving the mouse did not take the prompts back from the pad";
+}
+
+TEST(UIDevicePrompts, AKeystrokeCountsAsTheKeyboard) {
+    ShippedHud hud;
+    hud.world.SetNav(padNav());
+    hud.Frame();
+    ASSERT_EQ(devStr(hud.world), "gamepad");
+
+    MyCoreEngine::ui::UIKeyboardState kb;
+    kb.keys.push_back(MyCoreEngine::ui::UIKeyEvent{ MyCoreEngine::ui::UIKey::Down });
+    hud.world.SetKeyboard(kb);
+    hud.world.SetNav(MyCoreEngine::ui::UINavState{});
+    hud.Frame();
+    EXPECT_EQ(devStr(hud.world), "keyboard") << "an arrow key did not claim the prompts";
+}
+
+// The glyph names markup actually binds. Text rather than art, so a game with
+// no icons still reads correctly; the two bools are there for one that has art.
+TEST(UIDevicePrompts, TheGlyphNamesAndGatingBoolsFollowTheDevice) {
+    ShippedHud hud;
+    hud.Frame();
+    const auto str  = [&](const char* k) { return hud.world.shared().GetString(k); };
+    const auto flag = [&](const char* k) { return hud.world.shared().GetBool(k); };
+
+    EXPECT_EQ(str("uiGlyphSelect"), "ENTER");
+    EXPECT_EQ(str("uiGlyphBack"), "ESC");
+    EXPECT_EQ(str("uiGlyphNav"), "WASD");
+    EXPECT_TRUE(flag("uiKeyboard"));
+    EXPECT_FALSE(flag("uiPad"));
+
+    hud.world.SetNav(padNav());
+    hud.Frame();
+    EXPECT_EQ(str("uiGlyphSelect"), "A");
+    EXPECT_EQ(str("uiGlyphBack"), "B");
+    EXPECT_EQ(str("uiGlyphNav"), "L STICK");
+    EXPECT_TRUE(flag("uiPad"));
+    EXPECT_FALSE(flag("uiKeyboard"))
+        << "both gating bools were true at once - a document would show two "
+           "sets of prompts stacked on each other";
+}
+
+
+// ------------------------------------------- WASD through the synth (U27a)
+
+namespace {
+
+// The real default bindings over a scripted device, so these assert the
+// SHIPPED configuration rather than a convenient one.
+class NavFakeInput : public MyCoreEngine::InputMap {
+public:
+    std::unordered_map<int, bool> keys;
+    bool padPresent = false;
+    GLFWgamepadstate pad{};
+protected:
+    bool pollKey(GLFWwindow*, int key) const override {
+        auto it = keys.find(key);
+        return it != keys.end() && it->second;
+    }
+    bool pollMouseButton(GLFWwindow*, int) const override { return false; }
+    bool pollGamepad(GLFWgamepadstate& out) const override {
+        if (padPresent) out = pad;
+        return padPresent;
+    }
+};
+
+} // namespace
+
+TEST(UINavSynthKeyboard, WASDProducesMovesThroughTheSameRepeatClockAsThePad) {
+    NavFakeInput in;
+    MyCoreEngine::BindDefaultActions(in);
+    MyCoreEngine::UINavSynth synth;
+
+    in.keys[GLFW_KEY_S] = true;
+    in.update(nullptr);
+    MyCoreEngine::ui::UINavState n = synth.Poll(in, 0.016f);
+    ASSERT_EQ(n.moves.size(), 1u) << "S did not produce a move";
+    EXPECT_EQ(n.moves[0], UINavDir::Down);
+    EXPECT_EQ(n.device, UINavDevice::KeyboardMouse)
+        << "a key was attributed to the pad, so the prompts would say 'PRESS A'";
+
+    // HELD: the UI's own repeat clock, not the operating system's. Silence
+    // through the initial delay is the proof it went through UINavRepeater --
+    // OS key repeat would have produced an event here.
+    int during = 0;
+    for (int i = 0; i < 20; ++i) {
+        in.update(nullptr);
+        during += int(synth.Poll(in, 0.016f).moves.size());
+    }
+    EXPECT_EQ(during, 0) << "a held key repeated before the nav delay elapsed";
+}
+
+// THE POINT OF THE SOURCE FILTER. Typing a pilot name must not walk the menu,
+// and the pad must keep working while you do it -- a pad types nothing, so it
+// has no reason to go quiet. Unbinding would kill both halves at once.
+TEST(UINavSynthKeyboard, TypingSilencesWASDAndLeavesTheDPadAlone) {
+    NavFakeInput in;
+    MyCoreEngine::BindDefaultActions(in);
+    in.padPresent = true;
+    MyCoreEngine::UINavSynth synth;
+
+    in.keys[GLFW_KEY_D] = true;      // the letter, mid-word
+    in.update(nullptr);
+    MyCoreEngine::ui::UINavState n = synth.Poll(in, 0.016f, /*allowKeyboard=*/false);
+    EXPECT_TRUE(n.moves.empty())
+        << "typing 'd' into a name field navigated the menu right";
+
+    // The d-pad, with the key still held: still live.
+    in.pad.buttons[GLFW_GAMEPAD_BUTTON_DPAD_DOWN] = GLFW_PRESS;
+    in.update(nullptr);
+    n = synth.Poll(in, 0.016f, /*allowKeyboard=*/false);
+    ASSERT_EQ(n.moves.size(), 1u)
+        << "the pad went quiet too, so a controller could not leave a text field";
+    EXPECT_EQ(n.moves[0], UINavDir::Down);
+    EXPECT_EQ(n.device, UINavDevice::Gamepad);
+}
+
+// The stick is pad activity even when it produces no discrete move, so easing
+// a slider a few percent still flips the prompts.
+TEST(UINavSynthKeyboard, AnAnalogNudgeBelowTheMoveThresholdStillClaimsTheDevice) {
+    NavFakeInput in;
+    MyCoreEngine::BindDefaultActions(in);
+    in.padPresent = true;
+    in.pad.axes[GLFW_GAMEPAD_AXIS_LEFT_X] = 0.30f;   // past deadzone, under 0.5
+    in.update(nullptr);
+
+    MyCoreEngine::UINavSynth synth;
+    MyCoreEngine::ui::UINavState n = synth.Poll(in, 0.016f);
+    EXPECT_TRUE(n.moves.empty()) << "a small deflection produced a discrete move";
+    EXPECT_NE(n.axisX, 0.0f)     << "the analog value never reached the state";
+    EXPECT_EQ(n.device, UINavDevice::Gamepad)
+        << "a stick that was moving the value did not claim the prompts";
+}
+
+
+// ------------------------------------------------- what the review found
+
+// BACK LEAVES THE FIELD FIRST. A text field you are typing in is the innermost
+// thing you are in, ahead of any panel around it.
+//
+// The shipped menu is exactly this shape: PILOT sits inside settingsPanel,
+// which is a scope WITH an on-back. Without the text-edit branch in Back(),
+// one Escape mid-name matched the scope branch and threw away the whole page.
+TEST(UIKeyboardNav, BackLeavesATextFieldBeforeItClosesThePanelAroundIt) {
+    UIDocument doc;
+    UIDataSource src;
+    UIBindingContext ctx;
+    UIBinder binder;
+    std::vector<std::string> errors;
+    int backs = 0;
+    ctx.RegisterSource("s", &src);
+    src.SetBool("open", true);
+    src.AddAction("close", [&] { ++backs; src.SetBool("open", false); });
+
+    ASSERT_TRUE(UIMarkup::LoadInto(doc,
+        R"(<UI data-source="s">)"
+        R"(<Element name="panel" focus-scope="true" if="open" on-back="close">)"
+        R"(<TextField name="pilot" value="ada"/><Button name="ok" text="OK"/>)"
+        R"(</Element></UI>)", errors, "t.cxml")) << (errors.empty() ? "" : errors[0]);
+    binder.Rebuild(doc, ctx, "t.cxml");
+    binder.UpdateToTarget();
+    doc.Layout(400.f, 400.f);
+    doc.UpdateNav(UINavState{});               // pushes the scope
+
+    UIElement* pilot = doc.root().Find("pilot");
+    ASSERT_TRUE(pilot && pilot->textEdit());
+    doc.SetFocus(pilot);
+
+    UIKeyboardState kb;
+    kb.keys.push_back(UIKeyEvent{ UIKey::Escape });
+    doc.UpdateKeyboard(kb, nullptr);
+    EXPECT_EQ(backs, 0)
+        << "Escape mid-name closed the whole settings page instead of leaving "
+           "the field";
+    EXPECT_EQ(doc.focused(), nullptr) << "Escape did not leave the field";
+
+    // ...and a SECOND press, now that nothing is focused, closes the panel.
+    doc.UpdateKeyboard(kb, nullptr);
+    EXPECT_EQ(backs, 1) << "a second Escape did not close the panel";
+}
+
+// The pad's B is the same gesture and must have the same two steps -- the
+// branch is in Back(), not in the Escape hook, precisely so it cannot drift.
+TEST(UIKeyboardNav, ThePadsBackAlsoLeavesTheFieldFirst) {
+    UIDocument doc;
+    std::vector<std::string> errors;
+    ASSERT_TRUE(UIMarkup::LoadInto(doc,
+        R"(<UI><Element name="panel" focus-scope="true">)"
+        R"(<TextField name="pilot" value="ada"/></Element></UI>)", errors, "t.cxml"));
+    doc.Layout(400.f, 400.f);
+    doc.SyncFocusScopes();
+    doc.SetFocus(doc.root().Find("pilot"));
+
+    UINavState n;
+    n.back = true;
+    EXPECT_TRUE(doc.UpdateNav(n));
+    EXPECT_EQ(doc.focused(), nullptr) << "B did not leave the field";
+}
+
+// ESCAPE AND B SEE THE SAME SCOPE STACK.
+//
+// SyncFocusScopes has one caller inside UpdateNav, and UIWorld runs the
+// keyboard pass FIRST -- so for one frame after a panel opened, Escape
+// dispatched Back into the scope that had just been hidden. That scope is the
+// verb column, which has no on-back, so the press was swallowed and the panel
+// stayed open. B, arriving after the sync, closed it. Same gesture, two
+// outcomes, one frame apart.
+TEST(UIKeyboardNav, EscapeOnTheFrameAPanelOpensStillReachesThatPanel) {
+    Scoped s;
+    ASSERT_TRUE(s.Load()) << s.firstError();
+    s.Frame();
+    ASSERT_EQ(s.focusName(), "v1");
+
+    // Open it BETWEEN frames, the way a click handler does, then press Escape
+    // on the very next frame with no nav pass in between.
+    s.src.SetBool("open", true);
+    s.binder.UpdateToTarget();
+    s.doc.Layout(400.f, 400.f);
+
+    UIKeyboardState kb;
+    kb.keys.push_back(UIKeyEvent{ UIKey::Escape });
+    s.doc.UpdateKeyboard(kb, nullptr);
+    EXPECT_EQ(s.backs, 1)
+        << "Escape one frame after the panel opened went to the OLD scope - "
+           "the panel stays open and the press is reported unhandled";
 }

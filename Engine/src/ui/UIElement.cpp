@@ -1966,37 +1966,57 @@ bool UIDocument::UpdateNav(const UINavState& nav) {
 
     if (nav.activate && ActivateFocused()) consumed = true;
 
-    if (nav.back) {
-        // Ask the innermost open SCOPE to close itself. The document cannot do
-        // it: a panel is visible because an `if=` reads app state, so the app
-        // has to flip that state and the stack then follows visibility like
-        // everything else. One direction of causality, no second notion of
-        // "open" to fall out of step.
-        if (!scopeStack_.empty() && isInTree_(scopeStack_.back())) {
-            UIEvent e;
-            e.type = UIEventType::Back;
-            // Consumed only if something actually HANDLED it. A scope root with
-            // no `on-back` -- the menu's own verb column is one -- declares a
-            // navigation region, not a back action, so back there belongs to
-            // the HOST: close the menu, quit, whatever the game means by it.
-            //
-            // Claiming it unconditionally is what made the escape hatch below
-            // unreachable in the one document that needed it: the root scope is
-            // always on the stack, so control never got past this branch.
-            // No blur here either -- inside a declared scope, an unwanted back
-            // should leave you exactly where you were rather than stranding the
-            // page with nothing focused and no pointer to recover it.
-            if (bubble_(scopeStack_.back(), e)) consumed = true;
-        } else if (focused_) {
-            // No scope open: back out of the control instead. That is the one
-            // meaning true in every UI, and an unhandled back is REPORTED so a
-            // host can give it its own (close the menu, quit).
-            SetFocus(nullptr);
-            consumed = true;
-        }
-    }
+    if (nav.back && Back()) consumed = true;
 
     return consumed;
+}
+
+bool UIDocument::Back() {
+    // A TEXT FIELD YOU ARE TYPING IN is the innermost thing you are in, ahead
+    // of any panel around it. Back means "back out of what I am in", so it has
+    // to leave the field first and close the panel only on a second press.
+    //
+    // Without this the shipped menu had a trap: PILOT sits inside
+    // settingsPanel, which is a scope WITH an `on-back`, so the scope branch
+    // below matched and one Escape mid-name threw away the whole page. It is
+    // here rather than in the Escape branch on purpose -- the pad's B is the
+    // same gesture and would have had the same trap.
+    if (focused_ && isInTree_(focused_) && focused_->textEdit()) {
+        SetFocus(nullptr);
+        return true;
+    }
+
+    // Ask the innermost open SCOPE to close itself. The document cannot do it:
+    // a panel is visible because an `if=` reads app state, so the app has to
+    // flip that state and the stack then follows visibility like everything
+    // else. One direction of causality, no second notion of "open" to fall out
+    // of step.
+    if (!scopeStack_.empty() && isInTree_(scopeStack_.back())) {
+        UIEvent e;
+        e.type = UIEventType::Back;
+        // Handled only if something actually RAN. A scope root with no
+        // `on-back` -- the menu's own verb column is one -- declares a
+        // navigation region, not a back action, so back there belongs to the
+        // HOST: close the menu, quit, whatever the game means by it.
+        //
+        // Claiming it unconditionally is what made the escape hatch below
+        // unreachable in the one document that needed it: the root scope is
+        // always on the stack, so control never got past this branch.
+        // No blur here either -- inside a declared scope, an unwanted back
+        // should leave you exactly where you were rather than stranding the
+        // page with nothing focused and no pointer to recover it.
+        if (bubble_(scopeStack_.back(), e)) return true;
+        backUnhandled_ = true;
+        return false;
+    }
+    if (focused_) {
+        // No scope open: back out of the control instead. That is the one
+        // meaning true in every UI.
+        SetFocus(nullptr);
+        return true;
+    }
+    backUnhandled_ = true;
+    return false;
 }
 
 bool UIDocument::ActivateFocused() {
@@ -2028,6 +2048,18 @@ bool UIDocument::ActivateFocused() {
 
 void UIDocument::UpdateKeyboard(const UIKeyboardState& kb, const Font* font) {
     UIPassScope pass(font, scale_);
+    // BEFORE anything reads the scope stack, for exactly the reason UpdateNav
+    // says the same thing: a panel opened by last frame's click has to own
+    // navigation by the time this frame's key is dispatched.
+    //
+    // It has to be here TOO, not only in UpdateNav, because UIWorld runs the
+    // keyboard pass FIRST. Without it Escape and the pad's B were not the same
+    // gesture after all: B was preceded by a sync and Escape was not, so for
+    // one frame after opening SETTINGS, Escape bubbled Back into the verb
+    // column that had just been hidden -- which has no `on-back`, so the press
+    // was reported unhandled and the panel stayed open. Idempotent when the
+    // stack has not moved, so the second call costs a comparison.
+    SyncFocusScopes();
     // The focused element may have been removed since last frame by gameplay or
     // by a handler; dispatching into it would be a use-after-free.
     if (focused_ && (!isInTree_(focused_) || !isInteractable_(*focused_))) {
@@ -2142,7 +2174,35 @@ void UIDocument::UpdateKeyboard(const UIKeyboardState& kb, const Font* font) {
         // it, and the UI was unusable without a mouse. A consumption check for
         // the same reason as Tab below -- a handler that took Enter, or a
         // multi-line field inserting a newline, has already had its say.
+        //
+        // Space is deliberately NOT here -- see UIKey for why.
         if (!consumed && k.key == UIKey::Enter) consumed = ActivateFocused();
+
+        // ESCAPE IS BACK, and it is the SAME code the pad's B runs -- one
+        // notion of "back out of what I am in", not a keyboard one and a
+        // controller one that drift. Placed after the field's own editing, so
+        // Escape in a text field blurs it (UITextEdit deliberately declines
+        // the key) rather than closing the panel around it.
+        if (!consumed && k.key == UIKey::Escape) consumed = Back();
+
+        // AN UNCLAIMED ARROW IS NAVIGATION. Last in the chain, which is the
+        // entire design: a text caret, a tab strip, a focused slider's notch
+        // and page scrolling have each already declined it, so moving focus
+        // cannot steal a key one of them wanted.
+        //
+        // This is why the arrows are NOT bound as InputMap nav actions -- they
+        // would arrive here AND through UpdateNav in the same frame, and a
+        // slider would move two notches per press. WASD has no such chain
+        // available (UIKey has no letters, because a letter is text) and so
+        // goes the other way. See BindDefaultActions.
+        if (!consumed && (k.key == UIKey::Up || k.key == UIKey::Down ||
+                          k.key == UIKey::Left || k.key == UIKey::Right)) {
+            const UINavDir d = k.key == UIKey::Up   ? UINavDir::Up
+                             : k.key == UIKey::Down ? UINavDir::Down
+                             : k.key == UIKey::Left ? UINavDir::Left
+                                                    : UINavDir::Right;
+            consumed = (FocusMove(d) != nullptr);
+        }
 
         // Tab is navigation ONLY if nothing consumed it — a handler, or a field
         // that wanted it. That is what would let a multi-line field keep its

@@ -657,9 +657,22 @@ TEST(ShippedMenuAsset, OpeningSettingsTakesNavigationAndBackReturnsIt) {
         ASSERT_TRUE(still) << "navigation escaped SETTINGS after " << i << " moves";
     }
 
-    // Back closes it through the panel's on-back, and the app's bool follows.
+    // Twenty presses with no wrap parks focus on the LAST control, which in
+    // this panel is the PILOT field -- so back has two steps here, and both
+    // are deliberate: a field you are typing in is the innermost thing you are
+    // in, so the first press leaves it and only the second closes the page.
+    // Without that, one Escape mid-name threw away the whole settings screen.
+    ASSERT_EQ(m.doc().focused()->name(), "pilot")
+        << "the walk no longer ends on the field this test is about";
+
     UINavState back;
     back.back = true;
+    m.doc().UpdateNav(back);
+    EXPECT_TRUE(src.GetBool("panelOpen"))
+        << "back closed the whole page from inside a text field";
+    EXPECT_EQ(m.doc().focused(), nullptr) << "back did not leave the field";
+
+    // NOW it closes, through the panel's on-back, and the app's bool follows.
     m.doc().UpdateNav(back);
     EXPECT_FALSE(src.GetBool("panelOpen")) << "back did not reach the panel's on-back";
     m.Frame();
@@ -888,4 +901,51 @@ TEST(ShippedMenuAsset, DownClearsTheQualityRowInOnePress) {
     // used to let the field steal the press.
     EXPECT_EQ(stops("vsync"), 1) << "VSYNC was skipped walking down: " << trail;
     EXPECT_EQ(stops("pilot"), 1) << "PILOT was never reached: " << trail;
+}
+
+
+// The end of the chain the device tests start: UIWorld publishes the glyph
+// names, menu.cxml binds them, and the legend the player is looking at changes.
+// Asserting the published VALUE is not enough -- a hole with a typo in it
+// publishes fine and renders blank.
+TEST(ShippedMenuAsset, TheLegendNamesTheButtonsTheCurrentDeviceActuallyHas) {
+    ShippedMenu m;
+    m.Frame();
+
+    const auto cap = [&](const char* n) {
+        UIElement* e = m.find(n);
+        return e ? e->style().text : std::string("<missing>");
+    };
+
+    // Keyboard is the boot assumption, and these must be the KEYBOARD names.
+    EXPECT_EQ(cap("keyNav"), "WASD");
+    EXPECT_EQ(cap("keySelect"), "ENTER");
+
+    // Pick up a pad: the same three labels, different words.
+    UINavState pad;
+    pad.device = UINavDevice::Gamepad;
+    pad.moves.push_back(UINavDir::Down);
+    m.world.SetNav(pad);
+    m.Frame();
+    EXPECT_EQ(cap("keyNav"), "L STICK")
+        << "the legend still names a keyboard after the player picked up a pad";
+    EXPECT_EQ(cap("keySelect"), "A");
+
+    // BACK only exists while something is open to back out of -- and it is not
+    // decoration: the verb column is a focus scope with no on-back, so at the
+    // root the press genuinely goes to the host instead.
+    // `if=` gates DISPLAY, not existence -- the element stays in the tree so
+    // its bindings keep a stable identity across toggles.
+    // `if=` gates DISPLAY, not existence, and it gates the ROW -- hiding a
+    // parent leaves the child's own display alone, so the cap inside is the
+    // wrong thing to ask.
+    ASSERT_NE(m.find("legendBack"), nullptr);
+    EXPECT_EQ(m.find("legendBack")->style().display, DisplayMode::None)
+        << "the root menu offers BACK, which does nothing there";
+    UIDataSource& src = m.world.shared();
+    ASSERT_TRUE(invoke(src, "menuOpenSettings"));
+    m.Frame();
+    EXPECT_NE(m.find("legendBack")->style().display, DisplayMode::None)
+        << "an open panel does not offer BACK";
+    EXPECT_EQ(cap("keyBack"), "B");
 }

@@ -293,7 +293,12 @@ public:
             MenuUIPublishCounters(uiWorld_, menuHooks_);
             // The controller. Unconditional: the shipped game has no edit mode
             // and no competing panels, so a pad always drives the UI.
-            uiWorld_.SetNav(navSynth_.Poll(input(), dt));
+            // WASD navigates the menu, but the SAME four keys type a pilot
+            // name. The flag silences the key half of the nav actions and
+            // leaves the pad half alone -- a pad types nothing, so it has no
+            // reason to go quiet.
+            uiWorld_.SetNav(navSynth_.Poll(input(), dt,
+                                           !uiWorld_.wantsTextInput()));
             uiWorld_.Update(scene.registry, w, h, dt);
             uiWorld_.Draw(r2d);
         });

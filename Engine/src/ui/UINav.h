@@ -24,6 +24,13 @@ namespace MyCoreEngine::ui {
 
     enum class UINavDir : std::uint8_t { None, Up, Down, Left, Right };
 
+    // WHICH KIND OF THING the player last touched. Not which device — the UI
+    // has no business knowing an Xbox pad from a DualSense — only which of the
+    // two INPUT GRAMMARS is live, because that is what a button prompt has to
+    // agree with. Showing "PRESS A" to someone on a keyboard is a small lie
+    // that makes a menu feel like it was ported rather than made.
+    enum class UINavDevice : std::uint8_t { None, KeyboardMouse, Gamepad };
+
     struct UINavState {
         // One entry per discrete move this frame. A vector rather than a single
         // direction because a fast flick can legitimately produce two, and
@@ -50,12 +57,18 @@ namespace MyCoreEngine::ui {
         float axisY = 0.0f;
         float dt = 0.0f;
 
+        // What produced the intents ABOVE, this frame. None when there were
+        // none -- silence must not flip the prompts, or setting the pad down
+        // and not touching anything would eventually redraw the whole legend.
+        UINavDevice device = UINavDevice::None;
+
         bool empty() const {
             return moves.empty() && !activate && !back && page == 0;
         }
         void clear() {
             moves.clear();
             activate = false; back = false; page = 0;
+            device = UINavDevice::None;
             // The axes too: UIWorld clears this after every frame, and a stale
             // deflection left behind would keep driving a focused slider with
             // the pad sitting untouched on the desk.

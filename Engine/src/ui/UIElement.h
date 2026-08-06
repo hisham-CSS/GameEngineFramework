@@ -580,6 +580,24 @@ namespace MyCoreEngine::ui {
         // quit) rather than guessing.
         bool UpdateNav(const UINavState& nav);
 
+        // "Back out of what I am in", and the one implementation of it: the
+        // pad's B and the keyboard's Escape both land here, so the two cannot
+        // drift on what backing out means.
+        //
+        // Returns whether anything HANDLED it. False means the document had
+        // nothing to close and no focus to drop -- see backWentUnhandled().
+        bool Back();
+
+        // True if a Back since the last call found no taker. Consuming clears
+        // it, so the host reads it exactly once per frame and a press cannot be
+        // acted on twice. This is the seam that lets a game say what back means
+        // at its ROOT menu, where the UI itself has no answer.
+        bool ConsumeBackUnhandled() {
+            const bool b = backUnhandled_;
+            backUnhandled_ = false;
+            return b;
+        }
+
     private:
         // Cursor -> value for a captured slider. Private because the capture is
         // the only caller: a slider's value moves from a drag, from the two-way
@@ -679,6 +697,8 @@ namespace MyCoreEngine::ui {
         float      activateUntil_ = 0.0f;
         // The open focus scopes, innermost LAST.
         std::vector<UIElement*> scopeStack_;
+        // Set by Back() when nothing took it; drained by ConsumeBackUnhandled.
+        bool backUnhandled_ = false;
         // What was last focused INSIDE each scope, so re-entering one puts you
         // back where you were rather than at the top of its list.
         //

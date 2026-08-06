@@ -81,6 +81,17 @@ namespace MyCoreEngine {
         // host that forgets to ask simply gets nothing rather than a stale yes.
         bool backWentUnhandled() const { return backUnhandled_; }
 
+        // WHICH INPUT GRAMMAR the player is using right now, so button prompts
+        // can say something true. Derived from the pointer, the keyboard and
+        // the nav state this class already receives -- no host wiring.
+        //
+        // Also published to the shared source every frame, which is how MARKUP
+        // reaches it: `uiPad` / `uiKeyboard` for gating two sets of glyph art
+        // with `if=`, `uiDevice` as a string, and `uiGlyphSelect` /
+        // `uiGlyphBack` / `uiGlyphNav` as ready-made text for a game that has
+        // no art yet.
+        ui::UINavDevice inputDevice() const { return device_; }
+
         // The system clipboard, for Ctrl+C/X/V in text fields. Handed to every
         // document as it loads. Without it those keys do nothing rather than
         // half-working against a private buffer nothing else can see.
@@ -145,6 +156,10 @@ namespace MyCoreEngine {
         };
 
         void reconcile_(entt::registry& reg);
+        // Resolves the live input grammar and publishes it. Called once per
+        // Update, BEFORE reconcile_, so a document loading this frame already
+        // finds the prompt values in the shared source.
+        void updateDevice_();
 
         std::unordered_map<entt::entity, Live> live_;
         // Rebuilt each Update and sorted by (sortOrder, entity). Kept as a
@@ -161,6 +176,13 @@ namespace MyCoreEngine {
         ui::UIKeyboardState keyboard_{};
         ui::UINavState      nav_{};
         bool                backUnhandled_ = false;
+        ui::UINavDevice     device_ = ui::UINavDevice::KeyboardMouse;
+        // Last frame's pointer, so a MOVE counts as activity. Seeded to a
+        // position no real cursor occupies would be wrong -- a first frame at
+        // (0,0) is legitimate -- so it starts equal and the first genuine move
+        // is what flips it.
+        glm::vec2           prevPointerPos_{ 0.0f };
+        bool                prevButtonDown_ = false;
         int width_ = 0, height_ = 0;
     };
 

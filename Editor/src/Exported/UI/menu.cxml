@@ -206,15 +206,30 @@
              classes="status-bad: {menuStatusOk | not}"/>
       <!-- The button legend. A is named nowhere else in the menu, and B was a
            whisper in the corner of one panel. Gated so it only claims what is
-           actually true: BACK does nothing at the root, where nothing is open
-           to back out of. -->
+           actually true, in two ways:
+
+           WHICH BUTTON. The caps are BOUND, not typed, and UIWorld republishes
+           them the moment the player's hands move: A/B/L STICK on a pad,
+           ENTER/ESC/WASD on a keyboard. Telling a keyboard player to press A
+           is a small lie that makes a menu feel ported rather than made. The
+           keycap widens to fit -- a fixed 24px circle sized for "A" clipped
+           "ENTER" clean in half.
+
+           WHETHER IT DOES ANYTHING. BACK is hidden at the root, where nothing
+           is open to back out of. That is not decoration: the verb column is a
+           focus scope with no `on-back`, so the press genuinely goes nowhere
+           (UIWorld hands it to the host instead). -->
       <Element class="legend">
         <Element class="key">
-          <Label class="keycap" text="A"/>
+          <Label name="keyNav" class="keycap" text="{uiGlyphNav}"/>
+          <Label class="keyname" text="MOVE"/>
+        </Element>
+        <Element class="key">
+          <Label name="keySelect" class="keycap" text="{uiGlyphSelect}"/>
           <Label class="keyname" text="SELECT"/>
         </Element>
-        <Element class="key" if="panelOpen">
-          <Label class="keycap" text="B"/>
+        <Element name="legendBack" class="key" if="panelOpen">
+          <Label name="keyBack" class="keycap" text="{uiGlyphBack}"/>
           <Label class="keyname" text="BACK"/>
         </Element>
       </Element>

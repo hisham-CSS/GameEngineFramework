@@ -31,6 +31,47 @@ bool UIWorld::wantsTextInput() const {
     return false;
 }
 
+// Which input GRAMMAR is live, derived from the three states this class already
+// receives rather than from a fourth one the hosts would have to feed.
+//
+// STICKY. Only actual activity flips it, so a pad resting on the desk does not
+// keep stealing the prompts back from a keyboard, and a mouse that has not moved
+// does not either. Silence changes nothing.
+//
+// The pointer counts as keyboard/mouse, and it has to: clicking SETTINGS with a
+// mouse and then seeing "PRESS A TO SELECT" is the same lie in the other
+// direction. A MOVE counts, not just a click -- reaching for the mouse is the
+// moment you have switched, before you press anything.
+void UIWorld::updateDevice_() {
+    if (nav_.device == ui::UINavDevice::Gamepad) {
+        device_ = ui::UINavDevice::Gamepad;
+    } else if (nav_.device == ui::UINavDevice::KeyboardMouse ||
+               !keyboard_.keys.empty() || !keyboard_.text.empty() ||
+               pointer_.buttonDown != prevButtonDown_ ||
+               pointer_.wheel != glm::vec2{ 0.0f } ||
+               pointer_.position != prevPointerPos_) {
+        device_ = ui::UINavDevice::KeyboardMouse;
+    }
+    prevPointerPos_ = pointer_.position;
+    prevButtonDown_ = pointer_.buttonDown;
+
+    // PUBLISHED EVERY FRAME, not only on the edge. The setters are
+    // equality-gated, so an unchanged value costs one compare and wakes no
+    // binding -- and doing it unconditionally means a document that loads
+    // later still finds the values already there, rather than showing the
+    // wrong prompts until the next time the player switches devices.
+    const bool pad = (device_ == ui::UINavDevice::Gamepad);
+    shared_.SetBool("uiPad", pad);
+    shared_.SetBool("uiKeyboard", !pad);
+    shared_.SetString("uiDevice", pad ? "gamepad" : "keyboard");
+    // Text, so a game with no glyph art still reads correctly. A game WITH
+    // glyph art ignores these and gates two icons on uiPad/uiKeyboard instead.
+    shared_.SetString("uiGlyphSelect", pad ? "A" : "ENTER");
+    shared_.SetString("uiGlyphBack",   pad ? "B" : "ESC");
+    shared_.SetString("uiGlyphNav",    pad ? "L STICK" : "WASD");
+
+}
+
 void UIWorld::Clear() {
     live_.clear();
     order_.clear();
@@ -114,6 +155,7 @@ void UIWorld::Update(entt::registry& reg, int widthPx, int heightPx, float dt) {
     width_ = widthPx;
     height_ = heightPx;
     backUnhandled_ = false;   // one frame's answer, never a stale one
+    updateDevice_();
     reconcile_(reg);
 
     order_.clear();
@@ -199,11 +241,11 @@ void UIWorld::Update(entt::registry& reg, int widthPx, int heightPx, float dt) {
             // is on screen, and a directional move in the same frame should
             // land in the panel it just switched to.
             if (nav_.page != 0) ad.PageTabs(nav_.page);
-            // Only the keyboard target is asked, and only when back was
-            // actually pressed: a document that never saw the press cannot
-            // have declined it.
-            const bool consumed = doc.UpdateNav(nav_);
-            if (nav_.back && !consumed) backUnhandled_ = true;
+            doc.UpdateNav(nav_);
+            // Drained AFTER both input passes, because BOTH can raise it:
+            // Escape goes through UpdateKeyboard and the pad's B through
+            // UpdateNav, and they run the same UIDocument::Back.
+            if (doc.ConsumeBackUnhandled()) backUnhandled_ = true;
         }
 
         ad.PublishToSources();

@@ -55,23 +55,27 @@ namespace MyCoreEngine {
 
         for (auto& [name, a] : actions_) {
             a.prev = a.down;
-            bool down = false;
+            a.prevMask = a.mask;
+            // EVERY source is polled, not just up to the first hit: a filtered
+            // read has to know whether the PAD is holding an action that a key
+            // is also holding, and short-circuiting on the key would hide it.
+            std::uint8_t mask = 0;
             for (int k : a.keys) {
-                if (pollKey(window, k)) { down = true; break; }
+                if (pollKey(window, k)) { mask |= Src_Key; break; }
             }
-            if (!down) {
-                for (int b : a.mouseButtons) {
-                    if (pollMouseButton(window, b)) { down = true; break; }
-                }
+            for (int b : a.mouseButtons) {
+                if (pollMouseButton(window, b)) { mask |= Src_Mouse; break; }
             }
-            if (!down && padConnected_) {
+            if (padConnected_) {
                 for (int b : a.padButtons) {
                     if (b >= 0 && b <= GLFW_GAMEPAD_BUTTON_LAST && pad.buttons[b] == GLFW_PRESS) {
-                        down = true;
+                        mask |= Src_Pad;
                         break;
                     }
                 }
             }
+            a.mask = mask;
+            const bool down = (mask != 0);
             a.down = down;
             // Latch the down-edge so a fixed tick that does not run on this
             // frame can still see it later. Retired by the Application once a
@@ -102,20 +106,22 @@ namespace MyCoreEngine {
 
     // --- queries ---
 
-    bool InputMap::isDown(const std::string& action) const {
+    bool InputMap::isDown(const std::string& action, std::uint8_t sources) const {
         if (suppressed_) return false;
         auto it = actions_.find(action);
-        return it != actions_.end() && it->second.down;
+        return it != actions_.end() && (it->second.mask & sources) != 0;
     }
-    bool InputMap::wasPressed(const std::string& action) const {
+    bool InputMap::wasPressed(const std::string& action, std::uint8_t sources) const {
         if (suppressed_) return false;
         auto it = actions_.find(action);
-        return it != actions_.end() && it->second.down && !it->second.prev;
+        if (it == actions_.end()) return false;
+        return (it->second.mask & sources) != 0 && (it->second.prevMask & sources) == 0;
     }
-    bool InputMap::wasReleased(const std::string& action) const {
+    bool InputMap::wasReleased(const std::string& action, std::uint8_t sources) const {
         if (suppressed_) return false;
         auto it = actions_.find(action);
-        return it != actions_.end() && !it->second.down && it->second.prev;
+        if (it == actions_.end()) return false;
+        return (it->second.mask & sources) == 0 && (it->second.prevMask & sources) != 0;
     }
     float InputMap::axis(const std::string& axis) const {
         if (suppressed_) return 0.f;
@@ -209,6 +215,31 @@ namespace MyCoreEngine {
         map.bindGamepadButton("UINavRight", GLFW_GAMEPAD_BUTTON_DPAD_RIGHT);
         map.bindGamepadAxis("UINavX", GLFW_GAMEPAD_AXIS_LEFT_X);
         map.bindGamepadAxis("UINavY", GLFW_GAMEPAD_AXIS_LEFT_Y, /*inverted=*/true);
+
+        // WASD, and WASD ONLY. The arrow keys are deliberately absent, and that
+        // is the single most important line in this function:
+        //
+        // A keyboard reaches the UI TWICE. UIKeyboardState carries the arrows
+        // to UIDocument::UpdateKeyboard, where they already run a consumption
+        // chain -- a text caret takes them first, then a tab strip, then a
+        // focused slider's notch, then page scrolling, and only then do they
+        // fall through to navigation. Binding them HERE as well would deliver
+        // the same physical press down both paths in the same frame: a slider
+        // would move two notches per tap and a tab strip would switch tabs AND
+        // move focus off the strip.
+        //
+        // WASD cannot use that path at all -- UIKey deliberately has no letters,
+        // because a letter is text -- so it comes through here, and the host
+        // silences the KEY half of these actions (not the pad half, which types
+        // nothing) whenever the UI wants text input. See UINavSynth::Poll.
+        //
+        // The cost is a documented asymmetry: arrows switch tabs where W and S
+        // move focus past the strip. Each grammar is self-consistent, WASD
+        // behaves exactly as the pad does, and neither fires twice.
+        map.bindKey("UINavUp",    GLFW_KEY_W);
+        map.bindKey("UINavDown",  GLFW_KEY_S);
+        map.bindKey("UINavLeft",  GLFW_KEY_A);
+        map.bindKey("UINavRight", GLFW_KEY_D);
     }
 
     float InputMap::applyDeadzone_(float v) const {

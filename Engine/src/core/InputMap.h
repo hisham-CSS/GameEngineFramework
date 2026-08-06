@@ -2,12 +2,30 @@
 #include "Core.h"
 #include <GLFW/glfw3.h>
 
+#include <cstdint>   // std::uint8_t, named below in the source mask
 #include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
 namespace MyCoreEngine {
+
+    // WHICH KIND OF HARDWARE satisfied an action, as a mask so a query can ask
+    // for a subset. Bindings are OR'd, and normally that is the whole point --
+    // "Jump" should not care whether it came from Space or from A.
+    //
+    // It stops being the point exactly once: the UI binds WASD to menu
+    // navigation AND leaves those actions on the pad, and while a text field
+    // has focus the keyboard half has to go quiet while the pad half keeps
+    // working. Unbinding cannot express that (it would kill both), and neither
+    // can setSuppressed (it kills the whole map). Hence a source filter.
+    enum InputSource : std::uint8_t {
+        Src_Key   = 1,
+        Src_Mouse = 2,
+        Src_Pad   = 4,
+        Src_KeyboardMouse = Src_Key | Src_Mouse,
+        Src_Any   = Src_Key | Src_Mouse | Src_Pad,
+    };
 
     // Named, rebindable input mapping.
     //
@@ -45,9 +63,18 @@ namespace MyCoreEngine {
         void update(GLFWwindow* window);
 
         // --- queries ---
-        bool  isDown(const std::string& action) const;
-        bool  wasPressed(const std::string& action) const;  // went down this frame
-        bool  wasReleased(const std::string& action) const; // went up this frame
+        //
+        // `sources` narrows which bindings count. The default asks all of them,
+        // which is what every caller but the UI's navigation wants -- see
+        // InputSource for the one case that does not.
+        //
+        // The edge queries are edge-per-SOURCE: wasPressed(a, Src_Pad) is true
+        // on the frame the PAD's contribution goes down, even if a key was
+        // already holding the action. Anything else would make a filtered read
+        // depend on inputs it deliberately excluded.
+        bool  isDown(const std::string& action, std::uint8_t sources = Src_Any) const;
+        bool  wasPressed(const std::string& action, std::uint8_t sources = Src_Any) const;
+        bool  wasReleased(const std::string& action, std::uint8_t sources = Src_Any) const;
         float axis(const std::string& axis) const;          // clamped to [-1, 1]
 
         // Edge-triggered press for FIXED-TICK consumers. Use this instead of
@@ -117,6 +144,10 @@ namespace MyCoreEngine {
             std::vector<int> padButtons;
             bool down = false;
             bool prev = false;
+            // Which SOURCES are holding it, this frame and last. `down` is
+            // exactly (mask != 0) and is kept as its own field only because
+            // every existing read goes through it on the hot path.
+            std::uint8_t mask = 0, prevMask = 0;
             // Set on the down-edge, cleared by the Application (or once a
             // LATER phase asks). Bridges frames that run no fixed tick.
             //

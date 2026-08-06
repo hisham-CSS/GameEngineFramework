@@ -464,10 +464,14 @@
   gap: 8;
 }
 
+/* NO FIXED WIDTH. The cap holds a BOUND glyph name that changes with the
+   player's hands -- "A" on a pad, "ENTER" on a keyboard, "L STICK" vs "WASD" --
+   and a 24px circle sized for a single letter cut "ENTER" in half. It sizes to
+   its text and keeps a pill radius large enough to round whatever lands in it.
+   min-width keeps the one-letter case from collapsing to a sliver. */
 .keycap {
-  width: 24px;
-  height: 24px;
-  padding: 5px 0 0 8px;
+  min-width: 26px;
+  padding: 5px 9px;
   background-color: rgba(255, 255, 255, 0.10);
   border-radius: 12px;
   border-width: 1px;
