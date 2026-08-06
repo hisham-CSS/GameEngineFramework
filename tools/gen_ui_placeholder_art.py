@@ -71,26 +71,6 @@ def logo():
     _save(img, "logo.png")
 
 
-def panel_texture():
-    """64x64 tile of very low-contrast noise, for `background-size: stretch`.
-
-    Stretching a NOISE tile is the one case where stretch is honest: there is no
-    structure to distort. A panel with a drawn border would need 9-slice, which
-    U22 explicitly does not ship.
-    """
-    import random
-    random.seed(20260731)   # committed output must be byte-stable
-    s = 64
-    img = Image.new("RGBA", (s, s))
-    px = img.load()
-    for y in range(s):
-        for x in range(s):
-            n = random.randint(-6, 6)
-            px[x, y] = (max(0, PANEL[0] + n), max(0, PANEL[1] + n),
-                        max(0, PANEL[2] + n), 255)
-    _save(img, "panel.png")
-
-
 def placeholder_badge():
     """96x96 'PLACEHOLDER' swatch, for anywhere real art is still missing.
 
@@ -135,6 +115,5 @@ if __name__ == "__main__":
         sys.exit("run me from the repo root")
     menu_backdrop()
     logo()
-    panel_texture()
     placeholder_badge()
     scrim_ramp()

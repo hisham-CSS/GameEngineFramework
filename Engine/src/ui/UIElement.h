@@ -349,7 +349,9 @@ namespace MyCoreEngine::ui {
     private:
         friend class UIDocument;
 
-        void dispatchLocal_(UIEvent& e);
+        // Returns whether any listener actually RAN, which is how Back tells
+        // "a scope closed itself" from "nobody wanted it".
+        bool dispatchLocal_(UIEvent& e);
 
         void* yogaNode_ = nullptr;   // YGNodeRef, opaque here on purpose
         UIElement* parent_ = nullptr;
@@ -642,7 +644,8 @@ namespace MyCoreEngine::ui {
         void advanceScroll_(UIElement& el, float dt);
         // Bubbles `e` from `target` up through its ancestors, honouring
         // StopPropagation.
-        static void bubble_(UIElement* target, UIEvent& e);
+        // Returns whether any listener ran ANYWHERE along the chain.
+        static bool bubble_(UIElement* target, UIEvent& e);
         // True if `el` is still reachable from the root. Cached hover/press
         // pointers must be validated this way because a handler (or gameplay)
         // may have removed the element between frames; comparing addresses

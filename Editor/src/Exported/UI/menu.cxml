@@ -1,27 +1,41 @@
 <!--
-  Main menu — cinematic, and navigable with a controller.
+  Main menu — cinematic, controller-first.
 
   Nothing installs this: Exported/menu.json has an entity carrying a
   UIDocumentComponent that points here. The verbs behind the buttons are named
   C++ functions registered by InstallMenuUIContent (Engine/src/ui/MenuUIContent.h)
   — a file cannot carry a function, and that is the ONLY thing it cannot carry.
 
-  THE NAVIGATION MODEL, which is the whole reason this file was rewritten.
+  THE FRAME IS FIXED; ONLY THE STAGE CHANGES.
 
-  A menu is a STACK, not a flat page. Before focus scopes existed, opening a
-  panel merely ADDED its controls to one document-wide ring: walking off the end
-  of SETTINGS wandered back up to NEW GAME, which is not what any menu anywhere
-  does. Now:
+  Header, stage, footer. The header carries the brand and a breadcrumb, the
+  footer carries the status line and the button legend, and only the middle
+  swaps. Everything about that is load-bearing:
+
+    - the brand used to live INSIDE the verb column, which is hidden whenever a
+      panel is open — so two of the three screens had no identity at all, and
+      opening one read as a page reload rather than a step inward;
+    - the status line lived there too, and setStatus fires from INSIDE the
+      panels ("Quality: HIGH", "VSync on", "Log cleared."), so every message was
+      written to a label that was hidden at that moment. You saw them, stale,
+      only after backing out;
+    - the stage takes flex-grow, so panels of different heights no longer move
+      the content top by 30-40px when they open.
+
+  THE NAVIGATION MODEL.
 
     focus-scope="true"   confines navigation to that subtree while it is VISIBLE.
-    on-back="..."        is what B / Escape invoke while that scope is the
-                         innermost open one.
+    on-back="..."        is what B / Escape invoke while that scope is innermost.
 
-  Visibility is the single source of truth. A panel is shown by `if=` reading an
-  app bool; the scope stack follows DISPLAY, so "open" and "where navigation
-  goes" cannot drift apart. Opening remembers what was focused and moves focus
-  into the panel; closing puts it back exactly where it was — so SETTINGS
-  returns you to the SETTINGS verb, never to the top of the list.
+  Visibility is the single source of truth: a panel is shown by `if=` reading an
+  app bool, and the scope stack follows DISPLAY, so "open" and "where navigation
+  goes" cannot drift. Each scope remembers the last thing focused inside it, so
+  closing SETTINGS returns you to the SETTINGS verb rather than the top.
+
+  Movement is GEOMETRIC, over the laid-out rects: the nearest ROW in the
+  direction of travel wins, then the nearest control within it. That is why a
+  row of chips costs one press to pass and why a right-aligned toggle is not
+  skipped in favour of a full-width control further down.
 
   TWO LAYOUT RULES WORTH KNOWING.
     `position: absolute` writes all four insets unconditionally and Edges
@@ -36,148 +50,173 @@
 <UI name="menu" data-source="scene">
 
   <Element name="backdrop" class="backdrop"/>
-  <!-- Two scrims rather than one. The flat veil guarantees a contrast floor
-       over ARBITRARY art; the ramp is a stretched linear gradient asset, which
-       is how you get a gradient with no gradient property. -->
+  <!-- Two scrims. The flat veil is a contrast FLOOR over art nobody has seen
+       yet; the ramp is a stretched linear gradient asset, which is how you get
+       a directional gradient with no gradient property on a full-screen box. -->
   <Element name="veil" class="veil"/>
   <Element name="ramp" class="ramp"/>
 
   <Element name="frame" class="frame">
 
-    <!-- ================================================ the verb column == -->
-    <!-- The root scope. It is a scope too, so that closing a panel returns
-         navigation HERE rather than to the document at large. `if=` hides it
-         while a panel is open: a pad user must not be able to cycle through
-         NEW GAME behind an open settings page. -->
-    <Element name="verbs" class="verbs" focus-scope="true"
-             if="!panelOpen">
-      <Element name="logo" class="logo"/>
-      <Label name="title" class="brand-title" text="CAT SPLAT"/>
-      <Label name="subtitle" class="brand-sub" text="ENGINE DEMO"/>
-      <Element class="rule"/>
-
-      <!-- No fills, no borders, no radii. The only shape in the menu is the
-           gold rule; a verb is TYPE, and its focus state is a colour and a
-           marker. That is the whole visual idea. -->
-      <Button name="newGame" class="verb" text="NEW GAME" on-click="menuNewGame"/>
-      <Button name="settings" class="verb" text="SETTINGS" on-click="menuOpenSettings"/>
-      <Button name="system"   class="verb" text="SYSTEM"   on-click="menuOpenSystem"/>
-      <Button name="quit"     class="verb" text="QUIT"     on-click="menuQuit"/>
-
-      <Element class="rule-thin"/>
-      <Label class="hint" text="{menuStatus}" classes="hint-bad: {menuStatusOk | not}"/>
-    </Element>
-
-    <!-- ==================================================== the panels === -->
-    <!-- Each is its own scope. Only one is open at a time, but nothing here
-         depends on that: nest two and the stack nests with them. -->
-
-    <Element name="settingsPanel" class="panel" focus-scope="true"
-             if="panelSettings" on-back="menuClosePanel">
-      <Element class="panel-head">
-        <Label class="panel-title" text="SETTINGS"/>
-        <Label class="panel-hint" text="B / ESC to go back"/>
+    <!-- ===================================================== the header == -->
+    <!-- Persistent. The brand lives here rather than in the verb column, so it
+         survives a panel opening. -->
+    <Element name="header" class="header">
+      <Element class="brand">
+        <Element name="logo" class="logo"/>
+        <Element class="brand-text">
+          <Label name="title" class="brand-title" text="CAT SPLAT"/>
+          <Label name="subtitle" class="brand-sub" text="ENGINE DEMO"/>
+        </Element>
       </Element>
-
-      <Label class="group" text="AUDIO"/>
-      <Element class="opt">
-        <Label class="opt-label" text="MASTER VOLUME"/>
-        <Label class="opt-value" text="{menuVolumePct}%"/>
-      </Element>
-      <!-- Press anywhere to jump, then drag; the drag is a pointer CAPTURE so
-           it keeps tracking past either end of the track.
-           `key-step` is the DIGITAL grain: one arrow press, one d-pad press.
-           A STICK is analog and moves it continuously instead, at a rate --
-           stepping an analog input in fixed notches is what made a pad feel
-           like it was snapping. -->
-      <Slider name="volume" class="slider" bind-value="menuVolume"
-              min="0" max="1" key-step="0.05">
-        <Element name="volumeFill" class="slider-fill"
-                 bind="width: {menuVolume | percent}"/>
-      </Slider>
-
-      <Label class="group" text="GRAPHICS"/>
-      <Element class="opt">
-        <Label class="opt-label" text="QUALITY"/>
-        <Label class="opt-value" text="{menuQualityName}"/>
-      </Element>
-      <Element class="chips">
-        <Button class="chip" classes="chip-on: {menuQLow}"
-                text="LOW" on-click="menuQualityLow"/>
-        <Button class="chip" classes="chip-on: {menuQMed}"
-                text="MEDIUM" on-click="menuQualityMedium"/>
-        <Button class="chip" classes="chip-on: {menuQHigh}"
-                text="HIGH" on-click="menuQualityHigh"/>
-      </Element>
-
-      <Element class="opt">
-        <Label class="opt-label" text="VSYNC"/>
-        <Button class="chip" classes="chip-on: {menuVSync}"
-                text="{menuVSyncName}" on-click="menuVSyncToggle"/>
-      </Element>
-
-      <Label class="group" text="PILOT"/>
-      <TextField name="pilot" class="field" bind-value="playerName" maxlength="24"/>
-
-      <Element class="panel-foot">
-        <Button name="settingsBack" class="verb-small" text="BACK"
-                on-click="menuClosePanel"/>
+      <!-- Where you are. Three labels rather than one bound string, because a
+           hole is a PATH and there is no expression language to pick between
+           them — the same reason the quality tier publishes three bools. -->
+      <Element class="crumb">
+        <Label class="crumb-text" text="MAIN MENU" if="!panelOpen"/>
+        <Label class="crumb-text" text="SETTINGS"  if="panelSettings"/>
+        <Label class="crumb-text" text="SYSTEM"    if="panelSystem"/>
       </Element>
     </Element>
 
-    <Element name="systemPanel" class="panel" focus-scope="true"
-             if="panelSystem" on-back="menuClosePanel">
-      <Element class="panel-head">
-        <Label class="panel-title" text="SYSTEM"/>
-        <Label class="panel-hint" text="B / ESC to go back"/>
+    <!-- ====================================================== the stage == -->
+    <!-- flex-grow: 1, so whatever is inside it, the header stays put and the
+         footer stays down. -->
+    <Element name="stage" class="stage">
+
+      <Element name="verbs" class="verbs" focus-scope="true" if="!panelOpen">
+        <Element class="rule"/>
+        <Button name="newGame"  class="verb" text="NEW GAME" on-click="menuNewGame"/>
+        <Button name="settings" class="verb" text="SETTINGS" on-click="menuOpenSettings"/>
+        <Button name="system"   class="verb" text="SYSTEM"   on-click="menuOpenSystem"/>
+        <!-- Separated and coloured differently on focus: QUIT is the one verb
+             here you cannot undo, and it should not look like NEW GAME. -->
+        <Button name="quit"     class="verb verb-danger" text="QUIT" on-click="menuQuit"/>
       </Element>
 
-      <!-- Pushed once a frame by MenuUIPublishCounters, never polled: a polled
-           property on this source would defeat the binder's version fast path
-           for every binding in every document in the process. -->
-      <Element class="stats">
-        <Element class="stat">
-          <Label class="stat-num" text="{menuSwaps}"/>
-          <Label class="stat-cap" text="SWAPS"/>
-        </Element>
-        <Element class="stat">
-          <Label class="stat-num" text="{menuLiveDocs}"/>
-          <Label class="stat-cap" text="DOCS"/>
-        </Element>
-        <Element class="stat">
-          <Label class="stat-num" text="{menuObservers}"/>
-          <Label class="stat-cap" text="OBSERVERS"/>
-        </Element>
-        <Element class="stat">
-          <Label class="stat-num" text="{menuTextures}"/>
-          <Label class="stat-cap" text="TEXTURES"/>
-        </Element>
-      </Element>
-      <Label class="panel-note"
-             text="OBSERVERS must not move as you swap scenes. Three per swap means the Install helpers are being re-run."/>
+      <!-- ONE ROW SHAPE for every setting: [label] [control], same height, same
+           label column. A settings list is scanned rather than read, and three
+           different grammars at three different heights gave the eye no line to
+           run down. The section headings are gone with them: they occupied more
+           vertical space than the rows they labelled while separating them by
+           less than the rows separated each other. -->
+      <Element name="settingsPanel" class="panel" focus-scope="true"
+               if="panelSettings" on-back="menuClosePanel">
 
-      <Label class="group" text="SWAP LOG"/>
-      <!-- A fixed pool: four slots built once at load, and the DATA slides
-           through them. No class toggle in the row template — a pool writes an
-           EMPTY value into every column of an ABSENT slot, and a bool binding
-           handed nothing is a document error. -->
-      <Element name="swapLog" class="log" repeat="swapLog" repeat-count="4"
-               repeat-offset="swapLogCursor">
-        <Element class="log-row">
-          <Label class="log-idx" text="{$index}"/>
-          <Label class="log-path" text="{path}"/>
-          <Label class="log-status" text="{status}"/>
+        <Element class="opt">
+          <Label class="opt-label" text="MASTER VOLUME"/>
+          <!-- Press anywhere to jump, then drag: the drag is a pointer CAPTURE,
+               so it keeps tracking past either end of the track. `key-step` is
+               the DIGITAL grain, for an arrow or a d-pad; a stick is analog and
+               moves it continuously at a rate instead. -->
+          <Slider name="volume" class="slider" bind-value="menuVolume"
+                  min="0" max="1" key-step="0.05">
+            <Element name="volumeFill" class="slider-fill"
+                     bind="width: {menuVolume | percent}"/>
+          </Slider>
+          <Label class="opt-value" text="{menuVolumePct}%"/>
         </Element>
-      </Element>
-      <Element class="chips">
-        <Button class="chip" text="PREV" on-click="menuLogPrev"/>
-        <Button class="chip" text="NEXT" on-click="menuLogNext"/>
-        <Button class="chip" text="CLEAR" on-click="menuLogClear"/>
+
+        <Element class="opt">
+          <Label class="opt-label" text="QUALITY"/>
+          <!-- No separate readout: the lit chip IS the value. Stating it twice
+               was two things to keep in sync and one of them redundant. -->
+          <Element class="chips">
+            <Button name="qLow"  class="chip" classes="chip-on: {menuQLow}"
+                    text="LOW"    on-click="menuQualityLow"/>
+            <Button name="qMed"  class="chip" classes="chip-on: {menuQMed}"
+                    text="MEDIUM" on-click="menuQualityMedium"/>
+            <Button name="qHigh" class="chip" classes="chip-on: {menuQHigh}"
+                    text="HIGH"   on-click="menuQualityHigh"/>
+          </Element>
+        </Element>
+
+        <Element class="opt">
+          <Label class="opt-label" text="VSYNC"/>
+          <Element class="chips">
+            <Button name="vsync" class="chip" classes="chip-on: {menuVSync}"
+                    text="{menuVSyncName}" on-click="menuVSyncToggle"/>
+          </Element>
+        </Element>
+
+        <Element class="opt">
+          <Label class="opt-label" text="PILOT"/>
+          <!-- Two-way: type here and {playerName} updates everywhere, including
+               the sample HUD's greeting after NEW GAME. The shared data source
+               is host-lifetime, so it survives the scene swap. -->
+          <TextField name="pilot" class="field" bind-value="playerName"
+                     maxlength="24"/>
+        </Element>
+
       </Element>
 
-      <Element class="panel-foot">
-        <Button name="systemBack" class="verb-small" text="BACK"
-                on-click="menuClosePanel"/>
+      <Element name="systemPanel" class="panel" focus-scope="true"
+               if="panelSystem" on-back="menuClosePanel">
+
+        <!-- Pushed once a frame by MenuUIPublishCounters, never polled: a
+             polled property on this source would defeat the binder's version
+             fast path for every binding in every document in the process. -->
+        <Element class="stats">
+          <Element class="stat">
+            <Label class="stat-num" text="{menuSwaps}"/>
+            <Label class="stat-cap" text="SWAPS"/>
+          </Element>
+          <Element class="stat">
+            <Label class="stat-num" text="{menuLiveDocs}"/>
+            <Label class="stat-cap" text="DOCS"/>
+          </Element>
+          <Element class="stat">
+            <Label class="stat-num" text="{menuObservers}"/>
+            <Label class="stat-cap" text="OBSERVERS"/>
+          </Element>
+          <Element class="stat">
+            <Label class="stat-num" text="{menuTextures}"/>
+            <Label class="stat-cap" text="TEXTURES"/>
+          </Element>
+        </Element>
+
+        <!-- A fixed pool: four slots built once at load, and the DATA slides
+             through them. No class toggle in the row template — a pool writes
+             an EMPTY value into every column of an ABSENT slot, and a bool
+             binding handed nothing is a document error. -->
+        <Element name="swapLog" class="log" repeat="swapLog" repeat-count="4"
+                 repeat-offset="swapLogCursor">
+          <Element class="log-row">
+            <Label class="log-idx" text="{$index}"/>
+            <Label class="log-path" text="{path}"/>
+            <Label class="log-status" text="{status}"/>
+          </Element>
+        </Element>
+
+        <Element class="chips">
+          <Button name="logPrev"  class="chip" text="PREV"  on-click="menuLogPrev"/>
+          <Button name="logNext"  class="chip" text="NEXT"  on-click="menuLogNext"/>
+          <Button name="logClear" class="chip" text="CLEAR" on-click="menuLogClear"/>
+        </Element>
+
+      </Element>
+
+    </Element>
+
+    <!-- ===================================================== the footer == -->
+    <!-- Persistent, so a message written from inside a panel is actually SEEN
+         while that panel is open — which is when every one of them is written. -->
+    <Element name="footer" class="footer">
+      <Label name="statusText" class="status" text="{menuStatus}"
+             classes="status-bad: {menuStatusOk | not}"/>
+      <!-- The button legend. A is named nowhere else in the menu, and B was a
+           whisper in the corner of one panel. Gated so it only claims what is
+           actually true: BACK does nothing at the root, where nothing is open
+           to back out of. -->
+      <Element class="legend">
+        <Element class="key">
+          <Label class="keycap" text="A"/>
+          <Label class="keyname" text="SELECT"/>
+        </Element>
+        <Element class="key" if="panelOpen">
+          <Label class="keycap" text="B"/>
+          <Label class="keyname" text="BACK"/>
+        </Element>
       </Element>
     </Element>
 

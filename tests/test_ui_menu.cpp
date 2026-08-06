@@ -17,6 +17,7 @@
 #include "../Engine/src/ui/UIStyleSheet.h"
 #include "../Engine/src/ui/UIWorld.h"
 
+#include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <string>
@@ -432,10 +433,15 @@ TEST(ShippedMenuAsset, HasTheElementsItsStylesheetAndVerbsAssume) {
     ShippedMenu m;
     m.Frame();
     for (const char* n : { "backdrop", "veil", "ramp", "frame",
-                           "verbs", "logo", "title",
-                           "newGame", "settings", "system", "quit",
-                           "settingsPanel", "volume", "volumeFill", "pilot",
-                           "systemPanel", "swapLog" }) {
+                           // the fixed frame: these three persist across every
+                           // screen, which is the whole point of them
+                           "header", "logo", "title", "subtitle",
+                           "stage", "footer", "statusText",
+                           "verbs", "newGame", "settings", "system", "quit",
+                           "settingsPanel", "volume", "volumeFill",
+                           "qLow", "qMed", "qHigh", "vsync", "pilot",
+                           "systemPanel", "swapLog",
+                           "logPrev", "logNext", "logClear" }) {
         EXPECT_NE(m.find(n), nullptr) << "menu.cxml is missing #" << n;
     }
 }
@@ -850,21 +856,36 @@ TEST(ShippedMenuAsset, DownClearsTheQualityRowInOnePress) {
     ASSERT_TRUE(invoke(src, "menuOpenSettings"));
     m.Frame();
 
-    // Walk the whole panel top to bottom and count how often focus lands on a
-    // chip. Three chips share a row, so a correct walk touches at most one.
-    int chipStops = 0;
-    std::string last;
+    // Walk the whole panel top to bottom and record where focus lands.
+    //
+    // Counting by CLASS would be wrong: VSYNC is a chip too, in a row of its
+    // own, and stopping on it is correct. The invariant is about the QUALITY
+    // ROW -- three controls sharing one line -- so name those three.
+    std::vector<std::string> walk;
     for (int i = 0; i < 12; ++i) {
         UINavState n;
         n.moves.push_back(UINavDir::Down);
         m.doc().UpdateNav(n);
         UIElement* f = m.doc().focused();
         if (!f) break;
-        if (f->name() == last) break;          // hit the bottom, no wrap
-        last = f->name();
-        if (f->HasClass("chip")) ++chipStops;
+        if (!walk.empty() && f->name() == walk.back()) break;  // bottom, no wrap
+        walk.push_back(f->name());
     }
-    EXPECT_LE(chipStops, 1)
-        << "walking down the settings page stopped on " << chipStops
-        << " chips - a row should cost one press, not one per chip";
+    const auto stops = [&](const char* n) {
+        return (int)std::count(walk.begin(), walk.end(), std::string(n));
+    };
+    const std::string trail = [&] {
+        std::string s;
+        for (const std::string& n : walk) s += (s.empty() ? "" : " -> ") + n;
+        return s;
+    }();
+
+    EXPECT_LE(stops("qLow") + stops("qMed") + stops("qHigh"), 1)
+        << "the quality row cost more than one press: " << trail;
+
+    // ...and the row AFTER it is not skipped on the way past. VSYNC sits alone
+    // in its row while PILOT below is full width, which is the geometry that
+    // used to let the field steal the press.
+    EXPECT_EQ(stops("vsync"), 1) << "VSYNC was skipped walking down: " << trail;
+    EXPECT_EQ(stops("pilot"), 1) << "PILOT was never reached: " << trail;
 }

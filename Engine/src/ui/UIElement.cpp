@@ -346,18 +346,20 @@ void UIElement::RemoveOwnedListeners(const void* owner) {
 
 void UIElement::ClearEventListeners() { listeners_.clear(); }
 
-void UIElement::dispatchLocal_(UIEvent& e) {
+bool UIElement::dispatchLocal_(UIEvent& e) {
     // Iterate by INDEX over a snapshot of the count: a handler is allowed to
     // add listeners (or mutate the tree), and a range-for over a vector that
     // reallocates mid-dispatch is undefined behaviour. Handlers added during
     // dispatch deliberately do not run until the next event.
+    bool ran = false;
     const size_t n = listeners_.size();
     for (size_t i = 0; i < n && i < listeners_.size(); ++i) {
         if (listeners_[i].type != e.type) continue;
         UIEventHandler h = listeners_[i].fn; // copy: the vector may move
-        if (h) h(e);
-        if (e.propagationStopped) return;
+        if (h) { h(e); ran = true; }
+        if (e.propagationStopped) return ran;
     }
+    return ran;
 }
 
 UIElement* UIElement::Find(const std::string& n) {
@@ -1164,13 +1166,15 @@ glm::vec2 UIDocument::axisLockedDelta_(const UIElement& el, glm::vec2 raw) {
     return { sc.scrollsX() ? raw.x : 0.0f, sc.scrollsY() ? raw.y : 0.0f };
 }
 
-void UIDocument::bubble_(UIElement* target, UIEvent& e) {
+bool UIDocument::bubble_(UIElement* target, UIEvent& e) {
+    bool ran = false;
     e.target = target;
     for (UIElement* cur = target; cur; cur = cur->parent_) {
         e.currentTarget = cur;
-        cur->dispatchLocal_(e);
-        if (e.propagationStopped) return;
+        ran |= cur->dispatchLocal_(e);
+        if (e.propagationStopped) return ran;
     }
+    return ran;
 }
 
 bool UIDocument::isInTree_(const UIElement* el) const {
@@ -1971,8 +1975,18 @@ bool UIDocument::UpdateNav(const UINavState& nav) {
         if (!scopeStack_.empty() && isInTree_(scopeStack_.back())) {
             UIEvent e;
             e.type = UIEventType::Back;
-            bubble_(scopeStack_.back(), e);
-            consumed = true;
+            // Consumed only if something actually HANDLED it. A scope root with
+            // no `on-back` -- the menu's own verb column is one -- declares a
+            // navigation region, not a back action, so back there belongs to
+            // the HOST: close the menu, quit, whatever the game means by it.
+            //
+            // Claiming it unconditionally is what made the escape hatch below
+            // unreachable in the one document that needed it: the root scope is
+            // always on the stack, so control never got past this branch.
+            // No blur here either -- inside a declared scope, an unwanted back
+            // should leave you exactly where you were rather than stranding the
+            // page with nothing focused and no pointer to recover it.
+            if (bubble_(scopeStack_.back(), e)) consumed = true;
         } else if (focused_) {
             // No scope open: back out of the control instead. That is the one
             // meaning true in every UI, and an unhandled back is REPORTED so a

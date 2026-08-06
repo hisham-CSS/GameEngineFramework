@@ -113,6 +113,7 @@ void UIWorld::reconcile_(entt::registry& reg) {
 void UIWorld::Update(entt::registry& reg, int widthPx, int heightPx, float dt) {
     width_ = widthPx;
     height_ = heightPx;
+    backUnhandled_ = false;   // one frame's answer, never a stale one
     reconcile_(reg);
 
     order_.clear();
@@ -198,7 +199,11 @@ void UIWorld::Update(entt::registry& reg, int widthPx, int heightPx, float dt) {
             // is on screen, and a directional move in the same frame should
             // land in the panel it just switched to.
             if (nav_.page != 0) ad.PageTabs(nav_.page);
-            doc.UpdateNav(nav_);
+            // Only the keyboard target is asked, and only when back was
+            // actually pressed: a document that never saw the press cannot
+            // have declined it.
+            const bool consumed = doc.UpdateNav(nav_);
+            if (nav_.back && !consumed) backUnhandled_ = true;
         }
 
         ad.PublishToSources();

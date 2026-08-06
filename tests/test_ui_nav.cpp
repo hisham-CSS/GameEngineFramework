@@ -368,6 +368,30 @@ TEST(UIFocusScope, BackWithNoScopeOpenIsJustABlur) {
         << "back claimed to consume with nothing focused and no scope open";
 }
 
+// ...and inside a scope that DECLINES it. A focus scope with no `on-back` --
+// the shipped menu's verb column is exactly this -- declares a navigation
+// region, not a back action. It used to consume back anyway, purely because it
+// was on the stack, which made the reporting above unreachable in the one
+// document that needed it: at the root menu B did nothing and the host was
+// never told, so "close the menu" and "quit" had no way to exist.
+TEST(UIFocusScope, BackInsideAScopeWithNoHandlerIsReportedToTheHost) {
+    UIDocument doc;
+    std::vector<std::string> errors;
+    ASSERT_TRUE(UIMarkup::LoadInto(doc,
+        R"(<UI><Element name="verbs" focus-scope="true">)"
+        R"(<Button name="v1" text="a"/><Button name="v2" text="b"/>)"
+        R"(</Element></UI>)", errors, "t.cxml")) << (errors.empty() ? "" : errors[0]);
+    doc.Layout(400.f, 400.f);
+    doc.SyncFocusScopes();          // the push seeds focus on v1
+    ASSERT_NE(doc.focused(), nullptr);
+    const UIElement* was = doc.focused();
+
+    EXPECT_FALSE(doc.UpdateNav(navBack()))
+        << "a scope with no on-back swallowed back - the host can never see it";
+    EXPECT_EQ(doc.focused(), was)
+        << "declining back also blurred, stranding the page with nothing focused";
+}
+
 // Nesting: a panel inside a panel pushes again, and backing out unwinds one
 // level at a time rather than jumping to the root.
 TEST(UIFocusScope, ScopesNestAndUnwindOneLevelAtATime) {

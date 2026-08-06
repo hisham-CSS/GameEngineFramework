@@ -71,6 +71,16 @@ namespace MyCoreEngine {
         // about which document owns it.
         void SetNav(const ui::UINavState& n) { nav_ = n; }
 
+        // True for the frame in which BACK was pressed and NOTHING in the UI
+        // wanted it: no panel to close, no scope that declared an `on-back`.
+        // That is the host's cue to give it a meaning of its own -- close the
+        // pause menu, quit to desktop -- and it is the only way to find out,
+        // since a document that handles back closes itself silently.
+        //
+        // Valid after Update() until the next one. Cleared every frame, so a
+        // host that forgets to ask simply gets nothing rather than a stale yes.
+        bool backWentUnhandled() const { return backUnhandled_; }
+
         // The system clipboard, for Ctrl+C/X/V in text fields. Handed to every
         // document as it loads. Without it those keys do nothing rather than
         // half-working against a private buffer nothing else can see.
@@ -150,6 +160,7 @@ namespace MyCoreEngine {
         ui::UIPointerState pointer_{};
         ui::UIKeyboardState keyboard_{};
         ui::UINavState      nav_{};
+        bool                backUnhandled_ = false;
         int width_ = 0, height_ = 0;
     };
 
