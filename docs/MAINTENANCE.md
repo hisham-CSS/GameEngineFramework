@@ -72,8 +72,11 @@ The process that works here, and has now found drift twice at scale:
 
 The most recent run is preserved verbatim in
 [AUDIT_FINDINGS.md](AUDIT_FINDINGS.md) -- 12 readers, 85 agents, 52 findings
-that survived refutation. Treat it as a work queue and re-read each entry
-against the source before acting on it.
+that survived refutation, all since fixed. Keep it: the WHY sections are the
+best record this repository has of what actually goes wrong here, and several
+of the invariants below were written from them. If you run the process again,
+file the results the same way -- one entry per finding, the verifier's
+reasoning intact, a marker added when it is closed.
 
 Step 2 is what makes it worth doing. Reviewers are confidently wrong often
 enough that an unfiltered list wastes more time than it saves; a refutation pass
@@ -166,6 +169,54 @@ every other one a re-collect.
 `UIStyleSheet::Recascade` assigns a fresh `Style{}` and re-applies rules and
 bindings. Anything written straight into `style()` from C++ is lost on the next
 state edge — a `:hover` is enough. Author it as a class, a binding or a rule.
+
+### `Transform::modelMatrix` is a CACHE, not the pose
+
+Only `Scene::UpdateTransforms` writes it, and hosts run that once per FRAME --
+after the whole fixed-step loop. Anything that reads it mid-tick sees last
+frame's pose, and right after a load it sees identity.
+
+Read it only when `dirty` is false; otherwise resolve the live chain:
+
+```c++
+const glm::mat4 world = t.dirty ? ResolveWorldMatrix(reg, e) : t.modelMatrix;
+```
+
+This has now bitten four times: physics bodies built at the origin at unit
+scale, light gathering, kinematic bodies chasing a stale target, and a scale set
+during a tick being reverted by the next step of the same frame.
+
+### One predicate, one place
+
+When two pieces of code have to agree about whether something happens, do not
+write the condition twice -- give one of them a way to ASK the other.
+
+The LDR post chain counted "enabled effects" in the Renderer while each pass
+also required a valid shader; one failed shader compile made the count too high,
+so no pass ever saw itself as last and the whole frame was left in an off-screen
+buffer. The count now calls `IRenderPass::wantsLdrSlot`, which is the same
+expression `execute` guards on. The test file had a third copy of the predicate
+and therefore agreed with the bug.
+
+If a comment says "MUST match X", that is the smell: make it call X.
+
+### A class added is not a class applied
+
+`UIElement::AddClass`/`RemoveClass` only record the class. The cascade has no
+undo, so nothing restyles until something re-runs it -- `UIBinder`'s class
+branch does, and so does `RecascadeAfterClassChange` for widgets managing their
+own state. Two comments asserted the opposite and `.selected` on a tab header
+was inert for as long as they did.
+
+### State that outlives a scene swap
+
+A swap replaces the registry, so anything holding handles or a last-rendered
+value has to be reset in `Application::Run`'s `swappedThisFrame` block: the
+fixed-step accumulator, pause and time scale, the camera director, and the CSM
+cascades. The dirty-caster flow cannot express wholesale replacement -- the
+departed casters have no `Transform` left to mark dirty -- so shadows need
+`forceCSMUpdate` outright. A host caching anything else per scene resets it
+through a `SceneLoader` observer, next to where the loader is created.
 
 ### Renderer
 

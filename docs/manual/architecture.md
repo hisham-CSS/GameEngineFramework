@@ -181,8 +181,8 @@ flowchart TD
     F2 --> G{"gameplayEnabled_ and not swapped?"}
     G -- yes --> H["fixedStep_.advance: fixedUpdate_ then subscribers"]
     H --> I["update_(gameDt) + updateSubscribers_"]
-    G -- no --> J
-    I --> P["press-latch test: clearPressLatches unless a tick is owed"]
+    G -- no --> P
+    I --> P["press-latch test (ALWAYS runs): clearPressLatches unless a tick is owed"]
     P --> J["scene.UpdateTransforms()"]
     J --> K["director_.Update (if renderFromSceneCamera_)"]
     K --> L["renderer_.RenderFrame  -- timed as sceneRenderMs_"]
@@ -208,7 +208,7 @@ Step by step:
    - `update_(gameDt)` runs once, only if `gameDt > 0.f`, inside its own `input_->beginInputPhase()` (the variable-rate consumption phase), and is followed by every `updateSubscribers_` entry registered with `AddUpdate`, in registration order. Both hosts install scripting and audio there, so `ScriptWorld::Update` and the audio tick run at the *same* point in the loop in the editor and in the shipped player.
    - The whole block is bracketed by `input_->setSuppressed(!gameplayInput_)` / `setSuppressed(false)`, scoped to the gameplay hooks only — the fly-camera block above has already read the same map, so the editor's Scene view keeps flying while the running game reads neutral (every query returns released/0 and `consumePressed` neither reports nor consumes; polling continues underneath, so unsuppressing produces no spurious edge). The editor drives this with `setGameplayInputEnabled(playing_ && gameSurfaceFocused_)` — panel focus is not enough, the game *surface* must have it.
 
-7b. **Press-latch bookkeeping** — immediately after the block, a press latch survives only when a fixed tick was owed but none ran (`gameplayEnabled_ && gameplayInput_ && hasFixedConsumers && gameDt > 0.f && fixedSteps == 0`); otherwise `input_->clearPressLatches()` drops it, so a key pressed while paused, in edit mode, or with the Game view unfocused can never fire later.
+7b. **Press-latch bookkeeping** — immediately after the block, a press latch survives only when a fixed tick was owed but none ran (`gameplayEnabled_ && gameplayInput_ && hasFixedConsumers && gameDt > 0.f && fixedSteps == 0`); otherwise `input_->clearPressLatches()` drops it, so a key pressed while paused, in edit mode, or with the Game view unfocused can never fire later. This runs on **every** frame, including the ones that skip the gameplay block entirely — which is exactly the case the latch has to be cleared for, and why the diagram routes both branches of the decision through it.
 
 8. **`scene.UpdateTransforms()`** — unconditional. Runs even in edit mode.
 9. **Camera director** — only when `renderFromSceneCamera_`. Placed *after* `UpdateTransforms` so camera entities' world matrices are current and the view tracks gameplay with **no frame lag**.
@@ -406,7 +406,7 @@ Consumers include a single umbrella header:
 #include "Engine.h"
 ```
 
-`Engine/include/Engine.h` pulls in the public surface: `Application`, `Camera`, `CameraDirector`, `Model`, `Shader`, `Entity`, `Renderer`, `Scene`, `Event`/`EventBus`, `ImageIO`, `AssetManager`, `Material`, `SceneSerializer`, `SceneLoader`, `ProjectSettings`, `FixedTimestep`, `InputMap`, `JobSystem`, `RenderTarget`, `GLInit`, the `assets/` headers, `render/CSMSplits.h`, the physics core, the scripting core, the audio core, the 2D layer (`Renderer2D`, `Font`), and the in-game UI (`UIStyle`, `UIValue`, `UIDataSource`, `UIBinding`, `UITextField`, `UIElement`, `UIStyleSheet`, `UIMarkup`, `UIInteractionStyler`, `UIAssetDocument`, `UIComponent`, `UIWorld`, `DemoUIContent`).
+`Engine/include/Engine.h` pulls in the public surface: `Application`, `Camera`, `CameraDirector`, `Model`, `Shader`, `Entity`, `Renderer`, `Scene`, `Event`/`EventBus`, `ImageIO`, `AssetManager`, `Material`, `SceneSerializer`, `SceneLoader`, `ProjectSettings`, `FixedTimestep`, `InputMap`, `JobSystem`, `RenderTarget`, `GLInit`, the `assets/` headers, `render/CSMSplits.h`, the physics core, the scripting core, the audio core, the 2D layer (`Renderer2D`, `Font`), and the in-game UI (`UIStyle`, `UIValue`, `UIDataSource`, `UIBinding`, `UITextField`, `UIElement`, `UIStyleSheet`, `UIMarkup`, `UIInteractionStyler`, `UIAssetDocument`, `UIComponent`, `UINavSynth`, `UIWorld`, `DemoUIContent`, `MenuUIContent`).
 
 **Important:** the concrete physics backends are deliberately *not* exported. `Engine.h` exposes `PhysicsTypes`, `PhysicsComponents`, `IPhysicsBackend`, `PhysicsBackendRegistry`, `PhysicsWorld`, and `PhysicsInstall` only — callers select a backend *by name* through the registry, so no consumer ever includes an SDK header.
 
