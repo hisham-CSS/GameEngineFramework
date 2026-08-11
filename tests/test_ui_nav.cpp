@@ -1598,3 +1598,38 @@ TEST(UIKeyboardNav, EnterStillActivatesAButton) {
     doc.UpdateKeyboard(kb, nullptr);
     EXPECT_EQ(clicks, 1);
 }
+
+// TEMP VERIFICATION TEST -- DELETE
+TEST(TempNestedBack, NestedOnBackDoubleFires) {
+    UIDocument doc;
+    UIDataSource src;
+    UIBindingContext ctx;
+    UIBinder binder;
+    std::vector<std::string> errors;
+    ctx.RegisterSource("s", &src);
+    src.SetBool("pause", true);
+    src.SetBool("inv", true);
+    int outerBacks = 0, innerBacks = 0;
+    src.AddAction("closePause", [&] { ++outerBacks; src.SetBool("pause", false); });
+    src.AddAction("closeInventory", [&] { ++innerBacks; src.SetBool("inv", false); });
+
+    ASSERT_TRUE(UIMarkup::LoadInto(doc,
+        R"(<UI data-source="s">)"
+        R"(<Element name="pausePanel" focus-scope="true" if="pause" on-back="closePause">)"
+        R"(  <Button name="p1" text="p"/>)"
+        R"(  <Element name="invPanel" focus-scope="true" if="inv" on-back="closeInventory">)"
+        R"(    <Button name="i1" text="i"/></Element>)"
+        R"(</Element></UI>)", errors, "t.cxml"))
+        << (errors.empty() ? "" : errors[0]);
+    binder.Rebuild(doc, ctx, "t.cxml");
+
+    binder.UpdateToTarget();
+    doc.Layout(400.f, 400.f);
+    doc.UpdateNav(UINavState{});
+    EXPECT_EQ(doc.focused() ? doc.focused()->name() : std::string("<none>"), "i1");
+
+    UINavState n; n.back = true;
+    doc.UpdateNav(n);
+    EXPECT_EQ(innerBacks, 1) << "inner on-back did not run";
+    EXPECT_EQ(outerBacks, 0) << "OUTER on-back ALSO ran on one press";
+}

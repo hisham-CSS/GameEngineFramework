@@ -71,6 +71,18 @@ engine predictable:
   worth reading; most of them were expensive to discover.
 - Code samples use `using namespace MyCoreEngine;` for brevity.
 
+## Working on the engine itself
+
+These pages describe how to USE the engine. Two more describe how to change it:
+
+- **[Maintenance guide](../MAINTENANCE.md)** -- the change loop (including
+  proving a fix by reverting it), how the documentation audit works, the
+  invariants that keep biting, and the closed lists that must be updated
+  together.
+- **[Style guide](../STYLE.md)** -- how code is written here: comments that name
+  the bug they prevent, tests named as properties, diagnostics that list what
+  exists, and the API shapes the engine relies on.
+
 ## Status
 
 The engine is under active development and this manual describes what exists

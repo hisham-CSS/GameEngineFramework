@@ -22,9 +22,12 @@ create/delete).
 | **[Building on Linux](docs/BUILDING_LINUX.md)** | The Linux build path (the engine targets Windows **and** Linux) |
 | **[API Reference](docs/api-index.md)** | Generated per-class reference. Build it with the `docs` CMake target (requires Doxygen) |
 | **[Engine Audit & Roadmap](docs/ENGINE_AUDIT_2026-07.md)** | The phased roadmap ledger and its status |
+| **[Maintenance Guide](docs/MAINTENANCE.md)** | Working on the engine itself: the change loop, the documentation audit, and the invariants that keep biting |
+| **[Style Guide](docs/STYLE.md)** | How code is written here — comments, tests, diagnostics and API shape |
 
 New here? Read [Getting Started](docs/manual/getting-started.md), then
-[Engine Architecture](docs/manual/architecture.md).
+[Engine Architecture](docs/manual/architecture.md). Changing the engine rather
+than using it? Start with the [Maintenance Guide](docs/MAINTENANCE.md).
 
 ## Feature Matrix
 
@@ -78,7 +81,7 @@ GameEngineFramework/
 ├── Editor/          # Editor application (ImGui) + Exported/ shaders & sample assets
 ├── Player/          # Standalone player (loads a scene.json, no editor UI)
 ├── Cooker/          # Headless AssetCooker (asset validation)
-├── docs/            # Manual (docs/manual/), API index, Linux build guide, audit/roadmap
+├── docs/            # Manual (docs/manual/), API index, maintenance + style guides, Linux build, audit
 ├── tests/           # GoogleTest unit tests
 ├── cmake/           # Build helpers (runtime-asset staging, etc.)
 ├── resources/       # App icon (.ico + shared .rc; regenerate via scripts/make_icon.py)
