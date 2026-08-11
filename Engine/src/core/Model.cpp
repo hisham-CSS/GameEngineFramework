@@ -560,7 +560,15 @@ namespace MyCoreEngine {
             return cpu; // valid=false: finalize yields an empty model
         }
 
-        cpu.directory = path.substr(0, path.find_last_of("/\\"));
+        // npos-guarded: a separator-less path ("cube.obj", the ordinary case
+        // when the working directory IS the asset directory) makes
+        // find_last_of return npos, and substr(0, npos) returns the WHOLE
+        // string -- so the directory became the model's own filename and every
+        // texture resolved to "cube.obj/diffuse.png". stbi_load then failed and
+        // finalize_ cached id 0 under that bogus key, so the model rendered
+        // untextured with nothing logged about a path.
+        const auto slash = path.find_last_of("/\\");
+        cpu.directory = (slash == std::string::npos) ? std::string() : path.substr(0, slash);
         cpu.valid = true;
         MLOG("scene meshes=%u materials=%u", scene->mNumMeshes, scene->mNumMaterials);
 

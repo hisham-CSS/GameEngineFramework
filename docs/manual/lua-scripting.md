@@ -68,7 +68,13 @@ than key codes, so scripts survive rebinding — but the two are separate name
 spaces. Bound by default: the actions `Jump` (Space / gamepad A) and `Quit`
 (Escape / gamepad Back), and the axes `MoveForward` and `MoveRight` (W/S,
 A/D, the arrow keys, left stick) plus `LookX`/`LookY` (right stick — gamepad
-only; mouse look is handled by the Application, not the InputMap). Anything
+only; mouse look is handled by the Application, not the InputMap). The same
+call also installs ten UI-navigation names — the actions `UIConfirm`,
+`UIBack`, `UIPagePrev`, `UIPageNext` and `UINavUp`/`Down`/`Left`/`Right`
+(d-pad **and** W/S/A/D), plus the axes `UINavX`/`UINavY` (left stick) — which
+are there for the in-game UI but are perfectly ordinary names a script may
+read. See [Default bindings](gameplay-scripting.md#default-bindings) for the
+full table. Anything
 else you must bind yourself, and a name in the wrong space counts as unbound:
 `input.down("MoveForward")` warns once and reads false.
 

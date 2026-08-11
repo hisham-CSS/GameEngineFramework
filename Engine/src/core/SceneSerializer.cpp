@@ -696,8 +696,16 @@ namespace MyCoreEngine {
                 if (!as.clip.empty()) {
                     std::filesystem::path containedClip;
                     if (!PathIsContained(/*baseDir=*/"", as.clip, containedClip)) {
-                        std::cerr << "[SceneSerializer] rejected audio clip path outside the project: '"
-                                  << as.clip << "'\n";
+                        // Logged on the REAL pass only, like the model branch
+                        // above: Load runs a full dry-run probe of itself for
+                        // validation, so an unguarded diagnostic here printed
+                        // every rejection twice and read as two different bad
+                        // paths. The clearing stays unconditional so the probe
+                        // still validates the same scene the load will build.
+                        if (!dryRun_) {
+                            std::cerr << "[SceneSerializer] rejected audio clip path outside the project: '"
+                                      << as.clip << "'\n";
+                        }
                         as.clip.clear();
                     }
                 }
@@ -759,8 +767,10 @@ namespace MyCoreEngine {
                     if (p->empty()) continue;
                     std::filesystem::path contained;
                     if (!PathIsContained(/*baseDir=*/"", *p, contained)) {
-                        std::cerr << "[SceneSerializer] rejected UI path outside the project: '"
-                                  << *p << "'\n";
+                        if (!dryRun_) {   // see the audio branch: the probe walks here too
+                            std::cerr << "[SceneSerializer] rejected UI path outside the project: '"
+                                      << *p << "'\n";
+                        }
                         p->clear();
                     }
                 }

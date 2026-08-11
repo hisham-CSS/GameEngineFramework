@@ -32,7 +32,14 @@ namespace MyCoreEngine {
     // Digital ACTIONS are bound to keys, mouse buttons, and/or gamepad buttons
     // (multiple bindings are OR'd). Analog AXES are bound to key pairs
     // (positive/negative, e.g. W/S) and/or gamepad axes (contributions are
-    // summed, clamped to [-1, 1], with a radial deadzone on stick input).
+    // summed, clamped to [-1, 1], with a per-axis scaled deadzone on stick input: each gamepad
+    // axis is thresholded against its own |value| and the remainder rescaled
+    // back out to full range. Per-AXIS, and deliberately NOT the radial
+    // deadzone a stick usually gets -- an Axis here is a NAME, not a stick.
+    // The two halves of the left stick are two independent names (MoveRight is
+    // LEFT_X, MoveForward is LEFT_Y), each free to also carry key pairs and
+    // unrelated hardware, so there is no point at which the map knows which
+    // two names form a pair).
     //
     // Call update(window) once per frame, then query by name:
     //   input.bindKey("Jump", GLFW_KEY_SPACE);

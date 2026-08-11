@@ -301,9 +301,13 @@ void clearAxis(const std::string& axis);
 void  setGamepadDeadzone(float dz);
 float gamepadDeadzone() const;
 
-bool  isDown(const std::string& action) const;
-bool  wasPressed(const std::string& action) const;  // went down this frame
-bool  wasReleased(const std::string& action) const; // went up this frame
+// `sources` is a mask of InputSource (Src_Key, Src_Mouse, Src_Pad, and the
+// combinations Src_KeyboardMouse and Src_Any). It answers "is this action down
+// ON THIS KIND OF DEVICE", edges included, which is what lets the UI show pad
+// prompts or keyboard prompts based on what was last used.
+bool  isDown(const std::string& action, std::uint8_t sources = Src_Any) const;
+bool  wasPressed(const std::string& action, std::uint8_t sources = Src_Any) const;
+bool  wasReleased(const std::string& action, std::uint8_t sources = Src_Any) const;
 float axis(const std::string& axis) const;          // clamped to [-1, 1]
 
 bool gamepadConnected() const;
@@ -329,7 +333,24 @@ them whenever a new map is installed via `installInput`:
 | `Quit` | action | `Escape`, gamepad `Back` |
 | `Jump` | action | `Space`, gamepad `A` |
 
-The axes drive the built-in free-fly camera. `Jump` has no engine-side
+...and ten more, for driving a UI without a mouse. They are installed by the
+same call, so they are present in every host:
+
+| Name | Kind | Bound to |
+| --- | --- | --- |
+| `UIConfirm` | action | gamepad `A` |
+| `UIBack` | action | gamepad `B` |
+| `UIPagePrev` / `UIPageNext` | action | left / right bumper |
+| `UINavUp` / `UINavDown` / `UINavLeft` / `UINavRight` | action | d-pad, **and** `W`/`S`/`A`/`D` |
+| `UINavX` / `UINavY` | axis | left stick |
+
+`UINavUp`/`Down`/`Left`/`Right` deliberately carry the same `W`/`S`/`A`/`D` keys
+as `MoveForward`/`MoveRight`, because the same keys drive the camera and the UI
+in different contexts; the host decides which is listening. Arrow keys are
+**not** bound here — the UI takes those directly as `UIKey` events, which is why
+a prompt asking for a direction names the arrows rather than WASD.
+
+The first four axes drive the built-in free-fly camera. `Jump` has no engine-side
 consumer — it exists so gameplay and scripts have one conventional action
 bound out of the box. Add your own names in your install function:
 
