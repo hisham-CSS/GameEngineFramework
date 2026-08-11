@@ -347,6 +347,24 @@ namespace MyCoreEngine {
         (void)e;
     }
 
+    // Runs OnStart on demand for an instance about to receive its first tick.
+    //
+    // Start() deliberately skips instances whose ScriptComponent is disabled
+    // and leaves `started` false -- but the Inspector's Enabled checkbox is
+    // live during Play. Ticking it mid-session used to run OnUpdate against
+    // state OnStart never initialised, and Stop() then skipped OnDestroy too,
+    // because Clear() gates teardown on `started`. So the script that never
+    // started also never cleaned up.
+    void ScriptWorld::ensureStarted_(entt::entity e, Instance& inst) {
+        if (inst.started || inst.failed || !IsValid(inst.id)) return;
+        inst.started = true;
+        if (!inst.has[int(ScriptCallback::Start)]) return;
+        ScriptError err{};
+        if (!backend_->callStart(inst.id, toScript(e), err)) {
+            fail_(e, inst, err, "OnStart");
+        }
+    }
+
     void ScriptWorld::Start(entt::registry& reg) {
         if (!backend_) return;
         host_->reg = &reg;
@@ -379,12 +397,16 @@ namespace MyCoreEngine {
             if (it == instances_.end()) continue;
             Instance& inst = it->second;
             if (inst.failed || !IsValid(inst.id)) continue;
-            if (!inst.has[int(ScriptCallback::Update)]) continue;
             const ScriptComponent* sc = reg.try_get<ScriptComponent>(e);
             if (!sc || !sc->enabled) continue;
             // A script whose entity died this frame is skipped rather than
             // handed a dangling self.
             if (!reg.valid(e)) continue;
+            // BEFORE the has[Update] test on purpose: an instance enabled
+            // mid-Play must start even if its only other hook is OnCollision.
+            ensureStarted_(e, inst);
+            if (inst.failed) continue;
+            if (!inst.has[int(ScriptCallback::Update)]) continue;
 
             ScriptError err{};
             if (!backend_->callUpdate(inst.id, toScript(e), dt, err)) {
@@ -401,10 +423,12 @@ namespace MyCoreEngine {
             if (it == instances_.end()) continue;
             Instance& inst = it->second;
             if (inst.failed || !IsValid(inst.id)) continue;
-            if (!inst.has[int(ScriptCallback::FixedUpdate)]) continue;
             const ScriptComponent* sc = reg.try_get<ScriptComponent>(e);
             if (!sc || !sc->enabled) continue;
             if (!reg.valid(e)) continue;
+            ensureStarted_(e, inst);
+            if (inst.failed) continue;
+            if (!inst.has[int(ScriptCallback::FixedUpdate)]) continue;
 
             ScriptError err{};
             if (!backend_->callFixedUpdate(inst.id, toScript(e), fixedDt, err)) {
@@ -417,6 +441,13 @@ namespace MyCoreEngine {
                                         bool isTrigger, const glm::vec3& point,
                                         const glm::vec3& normal, float impulse) {
         if (!backend_) return;
+        // Build() sets this and ~ScriptWorld nulls it, so check rather than
+        // assume. Without a registry the enabled gate below cannot be applied,
+        // and dispatching to a script that may be disabled is the bug being
+        // fixed -- so stand down instead of guessing.
+        entt::registry* reg = host_ ? host_->reg : nullptr;
+        if (!reg) return;
+
         // Both sides get the hook, each seeing the OTHER as `other`.
         const entt::entity pair[2][2] = { { a, b }, { b, a } };
         for (const auto& side : pair) {
@@ -424,6 +455,16 @@ namespace MyCoreEngine {
             if (it == instances_.end()) continue;
             Instance& inst = it->second;
             if (inst.failed || !IsValid(inst.id)) continue;
+            // Same gate Update and FixedUpdate apply. Build() loads disabled
+            // scripts on purpose (so their errors surface), so the instance is
+            // fully live and callCollision would have run its body -- a
+            // disabled script was the only thing in the engine that still
+            // reacted to the world.
+            if (!reg->valid(side[0])) continue;
+            const ScriptComponent* sc = reg->try_get<ScriptComponent>(side[0]);
+            if (!sc || !sc->enabled) continue;
+            ensureStarted_(side[0], inst);
+            if (inst.failed) continue;
             if (!inst.has[int(ScriptCallback::Collision)]) continue;
 
             ScriptCollision hit{};

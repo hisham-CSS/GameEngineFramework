@@ -98,6 +98,16 @@ namespace MyCoreEngine {
         // Entities that had a RigidBody but no usable collider (diagnostics).
         const std::vector<entt::entity>& SkippedEntities() const { return skipped_; }
 
+        // The body built for an entity, or an invalid id if it has none
+        // (no RigidBody, no collider, or it was skipped). Pair it with
+        // Backend()->getBodyState to ask the simulation directly -- which is
+        // the only way to observe a KINEMATIC body, since Step drives those
+        // and deliberately never reads them back into the Transform.
+        BodyId BodyFor(entt::entity e) const {
+            const auto it = entityToBody_.find(e);
+            return it == entityToBody_.end() ? BodyId{} : it->second;
+        }
+
     private:
         // Fills `out` from whichever collider component the entity carries.
         // false when the entity has no collider at all.

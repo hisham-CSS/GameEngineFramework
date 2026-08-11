@@ -117,17 +117,19 @@ namespace MyCoreEngine {
     public:
         void setSystem(JPH::PhysicsSystem* s) { system_ = s; }
 
-        void rememberBody(uint32_t idx, uint64_t userData) {
+        // Sensor-ness is cached alongside the user data for the same reason
+        // the user data is: OnContactRemoved gets no bodies to ask.
+        void rememberBody(uint32_t idx, uint64_t userData, bool isSensor) {
             std::lock_guard<std::mutex> lock(mutex_);
-            userData_[idx] = userData;
+            bodies_[idx] = CachedBody{ userData, isSensor };
         }
         void forgetBody(uint32_t idx) {
             std::lock_guard<std::mutex> lock(mutex_);
-            userData_.erase(idx);
+            bodies_.erase(idx);
         }
         void clearBodies() {
             std::lock_guard<std::mutex> lock(mutex_);
-            userData_.clear();
+            bodies_.clear();
         }
 
         void beginStep() {
@@ -198,8 +200,21 @@ namespace MyCoreEngine {
             std::lock_guard<std::mutex> lock(mutex_);
             // cached at create time: the bodies themselves may be gone, and
             // we cannot lock them here anyway
-            if (auto it = userData_.find(i1); it != userData_.end()) e.userDataA = it->second;
-            if (auto it = userData_.find(i2); it != userData_.end()) e.userDataB = it->second;
+            //
+            // isTrigger is part of that payload. It used to be left at its
+            // false default here while OnContactAdded set it, so every Begin
+            // for a trigger was followed by an End that claimed to be a solid
+            // collision -- and PhysX reports true for BOTH phases, so the same
+            // scene behaved differently depending on the backend. A listener
+            // filtering on isTrigger saw enters without exits.
+            if (auto it = bodies_.find(i1); it != bodies_.end()) {
+                e.userDataA = it->second.userData;
+                e.isTrigger = e.isTrigger || it->second.isSensor;
+            }
+            if (auto it = bodies_.find(i2); it != bodies_.end()) {
+                e.userDataB = it->second.userData;
+                e.isTrigger = e.isTrigger || it->second.isSensor;
+            }
             events_.push_back(e);
         }
 
@@ -207,7 +222,8 @@ namespace MyCoreEngine {
         JPH::PhysicsSystem* system_ = nullptr;
         mutable std::mutex mutex_;
         std::vector<ContactEvent> events_;
-        std::unordered_map<uint32_t, uint64_t> userData_;
+        struct CachedBody { uint64_t userData = 0; bool isSensor = false; };
+        std::unordered_map<uint32_t, CachedBody> bodies_;
     };
 
     struct JoltPhysicsBackend::Impl {
@@ -331,7 +347,7 @@ namespace MyCoreEngine {
         const uint32_t idx = body->GetID().GetIndexAndSequenceNumber();
         I.bodies.insert(idx);
         // OnContactRemoved gets no Body pointers, so cache the payload now
-        I.contacts.rememberBody(idx, desc.userData);
+        I.contacts.rememberBody(idx, desc.userData, desc.isTrigger);
         return BodyId{ static_cast<uint64_t>(idx) };
     }
 

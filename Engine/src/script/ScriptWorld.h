@@ -118,6 +118,9 @@ namespace MyCoreEngine {
 
         // Marks the instance failed, records the message once, and logs it.
         void fail_(entt::entity e, Instance& inst, const ScriptError& err, const char* during);
+        // Start an instance that Start() skipped (it was disabled then) but
+        // that is now about to be ticked or handed a collision.
+        void ensureStarted_(entt::entity e, Instance& inst);
         bool defaultResolve_(const std::string& path, std::string& out) const;
 
         // DECLARATION ORDER IS LOAD-BEARING. Members destruct in reverse

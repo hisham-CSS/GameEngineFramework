@@ -156,12 +156,12 @@ All of these round-trip through the scene file under the JSON keys `rigidBody`, 
 
 `Step` runs in four phases, in this order:
 
-1. Push **kinematic** poses into the backend — they are driven by gameplay/animation and must move the simulation, not be overwritten by it.
+1. Push **kinematic** poses into the backend — they are driven by gameplay/animation and must move the simulation, not be overwritten by it. The pose is resolved from the **live TRS chain** when the `Transform` is dirty, exactly as `Build` does, not from the `modelMatrix` cache. That matters because `Scene::UpdateTransforms` fills the cache once per *frame*, after the whole fixed-step loop: a platform moved from `OnFixedUpdate` is dirty and its cache still holds the previous frame's pose.
 2. `backend->step(fixedDt)`.
 3. Read **dynamic** poses back into `Transform`. Static bodies are authored and kinematic ones are driven, so neither is read back.
 4. Fan out collision/trigger events — deliberately last, so listeners see transforms that already reflect this step.
 
-On read-back, the simulated pose is rebuilt into a world matrix that preserves the entity's authored scale, converted to local space when the entity is parented (via `ResolveWorldMatrix` of the parent), decomposed with `DecomposeTRS`, and then `Transform::dirty` is set. That last flag is load-bearing: `UpdateTransforms` only revisits dirty nodes, so without it the simulated pose would never reach `modelMatrix` or the renderer.
+On read-back, the simulated pose is rebuilt into a world matrix that preserves the entity's authored scale — resolved the same live way, for the same reason: `DecomposeTRS` writes all three of position, rotation and scale, so taking the scale from the frame-old cache would quietly revert any scale set during the tick — converted to local space when the entity is parented (via `ResolveWorldMatrix` of the parent), decomposed with `DecomposeTRS`, and then `Transform::dirty` is set. That last flag is load-bearing: `UpdateTransforms` only revisits dirty nodes, so without it the simulated pose would never reach `modelMatrix` or the renderer.
 
 ---
 
@@ -206,12 +206,14 @@ The backend-level `ContactEvent` carries opaque `userData`; `PhysicsWorld` resol
 |---|---|---|
 | `phase` | `ContactPhase` | `Begin` or `End` |
 | `a`, `b` | `entt::entity` | The two entities; either may be `entt::null` |
-| `isTrigger` | `bool` | True when either side is a trigger/sensor |
+| `isTrigger` | `bool` | True when either side is a trigger/sensor — on **both** phases, so `Begin`/`End` pairs match |
 | `point` | `glm::vec3` | Representative world contact point — meaningful only on `Begin` |
 | `normal` | `glm::vec3` | Representative world normal — meaningful only on `Begin` |
 | `impulse` | `float` | Impact strength in N·s; `0` on `End` |
 
 `point`/`normal` are only meaningful on `Begin`: an `End` event fires when the pair separates, and some backends have no manifold left to report by then.
+
+`isTrigger`, by contrast, is meaningful on both — a listener that filters on it sees every enter matched by its exit. Jolt needs help to manage that: `OnContactRemoved` receives only a sub-shape pair, with no bodies to ask (they may already be destroyed), so sensor-ness is cached at body-creation time alongside the user data.
 
 An entity handle may come back `entt::null` because an `End` event can name a body whose entity was destroyed during the very step that produced the event. `PhysicsWorld` validates each side against the registry and drops the event only if *both* sides are unresolved — so **always check before using a handle**.
 

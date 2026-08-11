@@ -715,3 +715,111 @@ TEST(LuaSandbox, ScriptPathTraversalIsRejected) {
         EXPECT_EQ(world.FailedCount(), 1u) << "traversal path accepted: " << evil;
     }
 }
+
+// A disabled script must be disabled for EVERY hook, not just the ticking
+// ones. Update and FixedUpdate checked ScriptComponent::enabled; collision
+// dispatch did not -- and Build deliberately loads disabled scripts (so their
+// syntax errors surface immediately), so the instance is fully live and its
+// OnCollision body really did run. A disabled script was the one thing in the
+// engine that still reacted to the world.
+TEST(LuaScripting, DisabledScriptDoesNotReceiveCollisions) {
+    if (!luaAvailable()) GTEST_SKIP() << "Lua backend not built";
+    ScriptFixture f;
+    ASSERT_TRUE(f.world.SetBackend("Lua"));
+    f.sources["hit.lua"] = R"(
+        function OnCollision(c)
+            self:setPosition(vec3.new(99, 0, 0))
+        end
+    )";
+    const entt::entity off = f.makeEntity("off", "hit.lua");
+    const entt::entity on  = f.makeEntity("on",  "hit.lua");
+    f.reg.get<ScriptComponent>(off).enabled = false;
+
+    f.world.Build(f.reg);
+    f.world.Start(f.reg);
+    f.world.DispatchCollision(off, on, "begin", false, glm::vec3(0.f),
+                              glm::vec3(0, 1, 0), 4.5f);
+
+    EXPECT_FLOAT_EQ(f.pos(off).x, 0.0f)
+        << "a DISABLED script ran its OnCollision";
+    EXPECT_FLOAT_EQ(f.pos(on).x, 99.0f)
+        << "the enabled side stopped receiving collisions -- the gate is too wide";
+}
+
+// Enabling a script mid-session must still run OnStart before anything else.
+// Start() skips disabled instances and leaves `started` false, but the
+// Inspector's Enabled checkbox is live during Play, so ticking it used to run
+// OnUpdate against state OnStart never initialised.
+TEST(LuaScripting, EnablingMidSessionStartsBeforeTheFirstUpdate) {
+    if (!luaAvailable()) GTEST_SKIP() << "Lua backend not built";
+    ScriptFixture f;
+    ASSERT_TRUE(f.world.SetBackend("Lua"));
+    // OnUpdate reads a field OnStart creates. Without the start, `speed` is nil
+    // and the arithmetic raises -- which is what a real script would do.
+    f.sources["late.lua"] = R"(
+        function OnStart() speed = 10 end
+        function OnUpdate(dt) self:translate(vec3.new(speed * dt, 0, 0)) end
+    )";
+    const entt::entity e = f.makeEntity("late", "late.lua");
+    f.reg.get<ScriptComponent>(e).enabled = false;
+
+    f.world.Build(f.reg);
+    f.world.Start(f.reg);          // skipped: still disabled
+    f.world.Update(f.reg, 0.1f);
+    ASSERT_FLOAT_EQ(f.pos(e).x, 0.0f) << "the disabled script ran";
+
+    // The author ticks Enabled in the Inspector, mid-Play.
+    f.reg.get<ScriptComponent>(e).enabled = true;
+    f.world.Update(f.reg, 0.1f);
+
+    EXPECT_EQ(f.world.FailedCount(), 0u)
+        << "OnUpdate ran before OnStart, so it used state that was never set up";
+    EXPECT_FLOAT_EQ(f.pos(e).x, 1.0f)
+        << "the script did not move as OnStart configured it";
+}
+
+// log() must name the entity that called it.
+//
+// `self` lives only in the per-instance sol::environment, but log/logWarn/
+// logError/print are bound at GLOBAL scope -- and a C function bound there
+// cannot see its caller\'s _ENV. sol::state_view::operator[] reads _G, where
+// `self` is never written, so every one of these read nil and every line in
+// the editor console came out attributed to "<entity>". With several scripts
+// logging, the console said nothing about which one was talking, which is the
+// entire reason IScriptHost::log takes an entity at all.
+TEST(LuaScripting, LogLinesNameTheCallingEntity) {
+    if (!luaAvailable()) GTEST_SKIP() << "Lua backend not built";
+    ScriptFixture f;
+    ASSERT_TRUE(f.world.SetBackend("Lua"));
+    f.sources["talk.lua"] = R"(
+        function OnUpdate(dt)
+            log("hello")
+            print("printed")
+            logWarn("careful")
+        end
+    )";
+    f.makeEntity("Turret", "talk.lua");
+    f.makeEntity("Door",   "talk.lua");
+
+    f.world.Build(f.reg);
+    f.world.Start(f.reg);
+    f.world.ClearMessages();
+    f.world.Update(f.reg, 0.1f);
+
+    const auto& msgs = f.world.DrainMessages();
+    ASSERT_FALSE(msgs.empty()) << "nothing was logged at all";
+
+    int turret = 0, door = 0, anonymous = 0;
+    for (const std::string& m : msgs) {
+        if (m.find("Turret:") != std::string::npos) ++turret;
+        if (m.find("Door:")   != std::string::npos) ++door;
+        if (m.find("<entity>") != std::string::npos) ++anonymous;
+    }
+
+    EXPECT_EQ(anonymous, 0)
+        << anonymous << " of " << msgs.size() << " log line(s) could not say which "
+           "entity wrote them -- the binding read _G[\"self\"], which is always nil";
+    // Three calls each, from two entities, and both sides attributed.
+    EXPECT_EQ(turret, 3) << "Turret's three log calls were not all attributed to it";
+    EXPECT_EQ(door, 3)   << "Door's three log calls were not all attributed to it";
+}

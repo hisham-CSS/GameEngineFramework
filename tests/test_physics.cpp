@@ -356,6 +356,67 @@ TEST(PhysicsConformance, TriggerReportsOverlapWithoutBlocking) {
     }
 }
 
+// A trigger is a trigger on the way OUT as well as on the way in. Jolt filled
+// isTrigger in OnContactAdded from the live bodies, but OnContactRemoved gets
+// only a SubShapeIDPair -- no bodies to ask, possibly already destroyed -- and
+// left the flag at its false default. PhysX reports true for both phases, so
+// the same scene behaved differently under the two backends, and a listener
+// filtering on isTrigger saw enters with no matching exits: doorways that
+// opened and never closed, counters that only ever went up.
+TEST(PhysicsConformance, TriggerExitIsAlsoFlaggedAsATrigger) {
+    for (const auto& name : AllBackends()) {
+        auto be = PhysicsBackendRegistry::Create(name);
+        ASSERT_NE(be, nullptr) << name;
+        PhysicsSettings s{};
+        ASSERT_TRUE(be->initialize(s)) << name;
+        if (!be->supportsTriggers() || !be->supportsContactEvents()) {
+            be->shutdown();
+            continue;
+        }
+
+        // A thin trigger slab with nothing under it, so the ball falls in,
+        // falls out, and both edges are observed in one run.
+        BodyDesc t{};
+        t.type = BodyType::Static;
+        t.shape.type = ShapeType::Box;
+        t.shape.halfExtents = { 4.f, 0.5f, 4.f };
+        t.position = { 0.f, 2.f, 0.f };
+        t.isTrigger = true;
+        t.userData = 777;
+        ASSERT_TRUE(be->createBody(t).valid()) << name;
+
+        BodyDesc b{};
+        b.type = BodyType::Dynamic;
+        b.shape.type = ShapeType::Sphere;
+        b.shape.radius = 0.25f;
+        b.position = { 0.f, 8.f, 0.f };
+        b.mass = 1.f;
+        b.userData = 888;
+        ASSERT_TRUE(be->createBody(b).valid()) << name;
+
+        int begins = 0, ends = 0, endsFlagged = 0;
+        for (int i = 0; i < 400; ++i) {
+            be->step(1.f / 60.f);
+            for (const auto& e : be->contactEvents()) {
+                if (e.phase == ContactPhase::Begin && e.isTrigger) ++begins;
+                if (e.phase == ContactPhase::End) {
+                    ++ends;
+                    if (e.isTrigger) ++endsFlagged;
+                }
+            }
+        }
+
+        ASSERT_GT(begins, 0) << name << ": the ball never entered the trigger";
+        ASSERT_GT(ends, 0) << name << ": the ball never left the trigger, so this "
+                                      "test cannot say anything about exit events";
+        EXPECT_EQ(endsFlagged, ends)
+            << name << ": " << (ends - endsFlagged) << " of " << ends
+            << " trigger EXIT event(s) were reported as ordinary collisions -- "
+               "isTrigger is unset on the End phase";
+        be->shutdown();
+    }
+}
+
 // ---- PhysicsWorld <-> ECS integration -------------------------------------
 
 namespace {
@@ -577,4 +638,88 @@ TEST(PhysicsWorldTest, RaycastMapsHitBackToEntity) {
     ASSERT_TRUE(world.Raycast({ 0.f, 20.f, 0.f }, { 0.f, -1.f, 0.f }, 100.f, hit));
     EXPECT_EQ(world.EntityFromHit(hit), box)
         << "a hit must resolve back to the owning ECS entity";
+}
+
+// Step's counterpart to BuildUsesWorldPoseEvenWithDirtyTransforms above: the
+// SAME cache, the same trap, on the per-tick path this time.
+//
+// Transform::modelMatrix is filled once per frame by Scene::UpdateTransforms,
+// AFTER the whole fixed-step loop. So anything that moves a transform inside a
+// tick -- a script, the gameplay fixed-update slot, a contact listener -- is
+// invisible to a Step that reads the cache, and stays invisible until the next
+// frame. Both phases of Step used to read it.
+
+// 1) KINEMATIC PUSH. A kinematic body is driven BY gameplay, so gameplay moving
+//    it mid-tick is the entire point of the body type.
+TEST(PhysicsWorldTest, KinematicPushUsesTheLiveTransformNotTheCache) {
+    for (const auto& name : AllBackends()) {
+        Scene scene;
+        Entity platformEnt = scene.createEntity();
+        const entt::entity platform = platformEnt;
+        Transform t{};
+        t.position = { 0.f, 1.f, 0.f };
+        platformEnt.addComponent<Transform>(t);
+        platformEnt.addComponent<RigidBody>(RigidBody{ BodyType::Kinematic });
+        platformEnt.addComponent<BoxCollider>(BoxCollider{ glm::vec3(1.f) });
+        scene.UpdateTransforms();
+
+        PhysicsWorld world;
+        ASSERT_TRUE(world.SetBackend(name)) << name;
+        world.Build(scene.registry);
+
+        // Gameplay moves the platform mid-tick: position changes, dirty is set,
+        // and modelMatrix still holds the OLD pose -- exactly the state Step
+        // sees when a script drives a platform from OnFixedUpdate.
+        auto& tr = scene.registry.get<Transform>(platform);
+        tr.position = { 5.f, 1.f, 0.f };
+        tr.dirty = true;
+        ASSERT_NEAR(tr.modelMatrix[3].x, 0.f, 1e-4f)
+            << name << ": the cache was refreshed, so this test proves nothing";
+
+        world.Step(scene.registry, 1.f / 60.f);
+
+        // Ask the simulation directly: a kinematic body is driven, never read
+        // back into its Transform, so the ECS cannot answer this.
+        const BodyId id = world.BodyFor(platform);
+        ASSERT_TRUE(id.valid()) << name << ": no body was built for the platform";
+        BodyState st{};
+        ASSERT_TRUE(world.Backend()->getBodyState(id, st)) << name;
+        EXPECT_NEAR(st.position.x, 5.f, 1e-3f)
+            << name << ": the kinematic body was pushed to x=" << st.position.x
+            << " -- Step read the stale modelMatrix cache instead of resolving "
+               "the live TRS chain, so the body chased last frame's pose";
+    }
+}
+
+// 2) READ-BACK. Phase 3 re-derives the entity's scale to rebuild a world
+//    matrix. Taking that from the cache meant DecomposeTRS wrote a frame-old
+//    scale straight back over Transform::scale, silently undoing any scale set
+//    during the tick. It looked like an effect that only worked at high frame
+//    rates, because only a short frame left no second step to revert it.
+TEST(PhysicsWorldTest, StepPreservesAScaleSetDuringTheSameFrame) {
+    for (const auto& name : AllBackends()) {
+        Scene scene;
+        const entt::entity box = buildFallScene(scene);
+
+        PhysicsWorld world;
+        ASSERT_TRUE(world.SetBackend(name)) << name;
+        world.Build(scene.registry);
+
+        // A listener squashes the box mid-frame. No UpdateTransforms follows --
+        // that is the whole point; it runs once per FRAME, after every step.
+        auto& tr = scene.registry.get<Transform>(box);
+        tr.scale = { 2.f, 0.5f, 2.f };
+        tr.dirty = true;
+
+        // The next step of the SAME frame.
+        world.Step(scene.registry, 1.f / 60.f);
+
+        const glm::vec3 after = scene.registry.get<Transform>(box).scale;
+        EXPECT_NEAR(after.x, 2.0f, 1e-3f) << name;
+        EXPECT_NEAR(after.y, 0.5f, 1e-3f)
+            << name << ": the scale set this frame was reverted to " << after.y
+            << " -- Step rebuilt the world matrix from the stale modelMatrix "
+               "cache and DecomposeTRS wrote the old scale back";
+        EXPECT_NEAR(after.z, 2.0f, 1e-3f) << name;
+    }
 }

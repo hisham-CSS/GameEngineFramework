@@ -133,10 +133,14 @@ Maps a mesh's material slot index to an override. `MaterialHandle` is `std::shar
 | Field | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `path` | `std::string` | `""` | script file, relative to `Exported/Scripts` |
-| `enabled` | `bool` | `true` | a disabled script still loads (so errors surface) but never runs |
+| `enabled` | `bool` | `true` | a disabled script still loads (so errors surface) but never runs — no update, no fixed update, and no collisions |
 
 Each entity gets its own instance with isolated globals, even when several
 entities share one file. See [Lua Scripting](lua-scripting.md).
+
+The checkbox is live during Play. Ticking it mid-session runs `OnStart` before
+the first hook that instance receives, so `OnStart` keeps its promise ("once,
+before the first update") no matter when the script was switched on.
 
 **`AudioSourceComponent`** (in `namespace MyCoreEngine`)
 
@@ -184,6 +188,7 @@ through the registry like other tags (`emplace` returns `void` for empty types).
 | `enabled` | off hides it and stops it consuming input |
 | `interactive` | off for a decorative overlay that must not swallow clicks |
 | `regionX` / `regionY` / `regionW` / `regionH` | the part of the UI surface this document occupies, as fractions (`0, 0, 1, 1` — the whole surface — by default). Normalized rather than pixels so a layout means the same thing at 1080p and 4K; layout runs at the region's size, so a sidebar's `width: 50%` is half the *sidebar*, and the document's rects are offset into place so painting, hit-testing and clipping all follow. Nonsense values are clamped rather than producing a negative or off-surface box (a zero-area region simply is not drawn), and all four serialize as a single `region` array |
+| `scale` | how authored pixels become screen pixels: a `ui::UIScaleSettings` (`Engine/src/ui/UIScale.h`) of `mode` (`Constant` by default, or `ScaleWithScreen`), `reference` (`{1920, 1080}`), and `match` (`0` follows width, `1` follows height, in between blends the two in log space). `Constant` returns `1.0` before it looks at either of the others, so a document left on the default scales by exactly nothing. Computed from the **whole UI surface**, never from this document's region — a sidebar occupying a quarter of the screen must scale by how big the *screen* is, or it would shrink its own text on exactly the large display the feature exists to serve |
 
 Attaches an in-game UI to the entity, so a scene declares its own interface
 rather than the executable doing it. Driven by `UIWorld`, which every host runs

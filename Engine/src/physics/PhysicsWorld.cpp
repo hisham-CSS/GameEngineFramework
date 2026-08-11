@@ -188,8 +188,17 @@ namespace MyCoreEngine {
             const auto* rb = reg.try_get<RigidBody>(e);
             const auto* t = reg.try_get<Transform>(e);
             if (!rb || !t || rb->type != BodyType::Kinematic) continue;
-            backend_->setBodyTransform(id, glm::vec3(t->modelMatrix[3]),
-                                       matrixRotation(t->modelMatrix));
+            // Same trap Build guards against 60 lines up, and Scene.cpp guards
+            // for lights: modelMatrix is a CACHE that only Scene::UpdateTransforms
+            // fills, and nothing clears `dirty` in between. A script that moves a
+            // kinematic platform inside FixedUpdate marks the Transform dirty and
+            // the cache still holds LAST frame's pose (identity on the first tick
+            // after a load), so the body chased a stale target -- or sat at the
+            // origin -- while the rendered mesh was somewhere else entirely.
+            const glm::mat4 world = t->dirty ? ResolveWorldMatrix(reg, e)
+                                             : t->modelMatrix;
+            backend_->setBodyTransform(id, glm::vec3(world[3]),
+                                       matrixRotation(world));
         }
 
         // 2) Simulate one fixed step.
@@ -206,8 +215,18 @@ namespace MyCoreEngine {
             if (!t || !backend_->getBodyState(id, st)) continue;
 
             // Rebuild a world matrix from the simulated pose, preserving the
-            // entity's authored scale.
-            const glm::vec3 scale = matrixScale(t->modelMatrix);
+            // entity's authored scale -- resolved from the LIVE TRS chain, the
+            // way Build does it, not from modelMatrix.
+            //
+            // modelMatrix is a cache Scene::UpdateTransforms fills once per
+            // frame, AFTER the whole fixed-step loop has run. Reading scale
+            // from it meant the DecomposeTRS below wrote a frame-old scale back
+            // over Transform::scale, so a scale set INSIDE the tick -- by the
+            // gameplay fixed-update slot, a script, or a contact listener from
+            // phase 4 -- was silently reverted on the very next step. It looked
+            // like an effect that only worked at high frame rates.
+            const glm::vec3 scale = matrixScale(t->dirty ? ResolveWorldMatrix(reg, e)
+                                                         : t->modelMatrix);
             glm::mat4 world = glm::translate(glm::mat4(1.f), st.position) *
                               glm::mat4_cast(st.rotation) *
                               glm::scale(glm::mat4(1.f), scale);

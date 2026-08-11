@@ -131,6 +131,20 @@ namespace MyCoreEngine {
     struct LuaScriptBackend::Impl {
         sol::state   lua;
         IScriptHost* host = nullptr;
+
+        // The entity whose callback is running RIGHT NOW.
+        //
+        // `self` lives only in the per-instance sol::environment. log(), print()
+        // and friends are bound at global scope, and a C function bound there
+        // cannot see its caller's _ENV -- sol::state_view::operator[] reads _G,
+        // where `self` is never written. So `v["self"]` was always nil and every
+        // single log line was attributed to the "<entity>" placeholder, which is
+        // exactly the traceability IScriptHost::log exists to provide.
+        //
+        // invoke() brackets the call with this. Nested invokes cannot happen
+        // (the host never re-enters a script from inside one), but the save and
+        // restore is written to nest correctly anyway.
+        ScriptEntity currentSelf = kInvalidScriptEntity;
         ScriptSettings settings{};
         uint64_t     nextId = 1;
         LuaMemory    mem{};
@@ -231,9 +245,15 @@ namespace MyCoreEngine {
             // by entt, so a cached `self` could outlive its entity.
             inst->env["self"] = LuaEntity{ self, host };
 
+            // Global log()/print() read this, not _G["self"] -- see currentSelf.
+            const ScriptEntity prevSelf = currentSelf;
+            currentSelf = self;
+
             armHook();
             sol::protected_function_result r = f(std::forward<Args>(args)...);
             disarmHook();
+
+            currentSelf = prevSelf;
 
             if (!r.valid()) {
                 sol::error e = r;
@@ -294,36 +314,29 @@ namespace MyCoreEngine {
             "setVelocity", &LuaEntity::setVelocity);
 
         IScriptHost* h = host;
+        Impl* self_ = this;   // for currentSelf; see its declaration
 
         // ---- globals available to every script ----
-        lua.set_function("log", [h](sol::this_state s, const std::string& m) {
-            sol::state_view v(s);
-            LuaEntity self = v["self"].get_or(LuaEntity{});
-            if (h) h->log(self.id, "info", m.c_str());
+        lua.set_function("log", [h, self_](const std::string& m) {
+            if (h) h->log(self_->currentSelf, "info", m.c_str());
         });
-        lua.set_function("logWarn", [h](sol::this_state s, const std::string& m) {
-            sol::state_view v(s);
-            LuaEntity self = v["self"].get_or(LuaEntity{});
-            if (h) h->log(self.id, "warn", m.c_str());
+        lua.set_function("logWarn", [h, self_](const std::string& m) {
+            if (h) h->log(self_->currentSelf, "warn", m.c_str());
         });
-        lua.set_function("logError", [h](sol::this_state s, const std::string& m) {
-            sol::state_view v(s);
-            LuaEntity self = v["self"].get_or(LuaEntity{});
-            if (h) h->log(self.id, "error", m.c_str());
+        lua.set_function("logError", [h, self_](const std::string& m) {
+            if (h) h->log(self_->currentSelf, "error", m.c_str());
         });
 
         // Lua's own print goes to stdout, which a shipped game has no console
         // for. Route it to the engine log so print() works the way an author
         // expects and shows up in the editor console.
-        lua.set_function("print", [h](sol::this_state s, sol::variadic_args va) {
+        lua.set_function("print", [h, self_](sol::variadic_args va) {
             std::string out;
             for (auto v : va) {
                 if (!out.empty()) out += "\t";
                 out += sol::state_view(v.lua_state())["tostring"](v).get<std::string>();
             }
-            sol::state_view v(s);
-            LuaEntity self = v["self"].get_or(LuaEntity{});
-            if (h) h->log(self.id, "info", out.c_str());
+            if (h) h->log(self_->currentSelf, "info", out.c_str());
         });
 
         lua.set_function("find", [h](const std::string& n) {
