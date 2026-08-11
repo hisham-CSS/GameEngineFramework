@@ -122,6 +122,18 @@ void EditorApplication::Run() {
         const entt::entity selAtFrameStart = selected_;
 
         if (panels_.scene) DrawViewport(scene);
+        else {
+            // Same hazard the Game panel's else-branch below guards, and the
+            // same fix. These three are written ONLY inside DrawViewport, so
+            // closing the Scene panel froze them at whatever they were: close
+            // it while hovering and `inViewport` stays true forever, so the
+            // capture provider keeps handing the fly camera every keystroke and
+            // Esc, and the game's UI never gets a key again. Closing it
+            // mid-right-drag latched camLooking_ the same way.
+            viewportHovered_ = false;
+            viewportFocused_ = false;
+            camLooking_ = false;
+        }
 
         //Information Panel (reads the SCENE view's render stats — draw it
         //before the Game view renders and overwrites them)
@@ -355,7 +367,7 @@ void EditorApplication::Run() {
         // entry that was just undone), and not during play (play-mode
         // changes are discarded on Stop, not undone).
         ImGuiIO& io = ImGui::GetIO();
-        if (io.KeyCtrl && !io.WantTextInput &&
+        if (io.KeyCtrl && !io.WantTextInput && !gameIsTyping_() &&
             !ImGuizmo::IsUsing() && !undo_.editActive() &&
             ImGui::GetDragDropPayload() == nullptr &&
             !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel)) {
@@ -1006,14 +1018,21 @@ void EditorApplication::DrawGameViewport(MyCoreEngine::Scene& scene,
         // look broken: the key was fine, the panel just did not have focus.
         if (playing_) {
             ImGui::SameLine();
-            if (gameViewFocused_) {
+            // gameSurfaceFocused_, not gameViewFocused_: the NARROWER flag is
+            // the one the gameplay gate, the key forwarding and the highlight
+            // border all read. The wider one is set by any left click inside
+            // the panel -- including on the Blend field, the camera combo or
+            // the aspect lock -- so the label read "Input: game" while input
+            // was in fact going nowhere near it.
+            if (gameSurfaceFocused_) {
                 ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1.f), "| Input: game");
             } else {
-                ImGui::TextColored(ImVec4(1.f, 0.75f, 0.2f, 1.f), "| Click to give input to the game");
+                ImGui::TextColored(ImVec4(1.f, 0.75f, 0.2f, 1.f), "| Click the image to give input to the game");
             }
             if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Gameplay reads input only while this panel is focused,\n"
-                                  "so the Scene view stays navigable while playing.");
+                ImGui::SetTooltip("Gameplay reads input only while the game SURFACE holds the\n"
+                                  "keyboard -- clicking the toolbar above focuses the panel but\n"
+                                  "not the game. The Scene view stays navigable while playing.");
             }
         }
     }
@@ -1342,6 +1361,13 @@ void EditorApplication::DrawTimeControls()
 
 bool EditorApplication::saveScene_(MyCoreEngine::Scene& scene)
 {
+    // No target: an untitled scene. Ask where, rather than writing to "" (which
+    // just fails) or to whatever file happened to be open before.
+    if (currentScenePath_[0] == '\0') {
+        pendingSaveAs_ = true;
+        setSceneStatus_("This scene has no file yet - choose one");
+        return false;
+    }
     MyCoreEngine::SceneSerializer serializer(scene, *assets_);
     const bool ok = serializer.Save(currentScenePath_);
     setSceneStatus_(ok ? (std::string("Saved ") + currentScenePath_)
@@ -1378,7 +1404,12 @@ void EditorApplication::newScene_(MyCoreEngine::Scene& scene)
     // wholesale caster removal bypasses the departure-sphere flow: the old
     // scene's shadows would stay baked otherwise
     forceAllCSMUpdate_();
-    setSceneStatus_("New scene");
+    // UNTITLED. The new scene has never been saved anywhere, so it has no save
+    // target -- keeping the old one made the next Ctrl+S overwrite the file the
+    // author had just closed, with no prompt and nothing in the status bar to
+    // suggest it had happened. Save and Ctrl+S now route to Save As instead.
+    currentScenePath_[0] = '\0';
+    setSceneStatus_("New scene (unsaved - use Save Scene As)");
 }
 
 void EditorApplication::DrawMainMenuBar(MyCoreEngine::Scene& scene)
@@ -1537,7 +1568,8 @@ void EditorApplication::DrawMainMenuBar(MyCoreEngine::Scene& scene)
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("Save the scene AND the editor layout.");
                 ImGui::Separator();
-                if (ImGui::MenuItem("Set Current Scene as Player Startup", nullptr, false, canEdit)) {
+                if (ImGui::MenuItem("Set Current Scene as Player Startup", nullptr, false,
+                                    canEdit && currentScenePath_[0] != '\0')) {
                     setStartupScene_(currentScenePath_);
                     setSceneStatus_(buildSettingsStatus_); // surface it in the bar
                 }
@@ -1548,8 +1580,17 @@ void EditorApplication::DrawMainMenuBar(MyCoreEngine::Scene& scene)
             }
 
             if (ImGui::BeginMenu("Edit")) {
-                const bool canU = undo_.canUndo();
-                const bool canR = undo_.canRedo();
+                // Play-gated for the same reason the Ctrl+Z handler is, and the
+                // File menu above: recording is OFF during a session, so every
+                // entry in the history describes the PRE-PLAY registry.
+                // Rewinding one from here applied a pre-play snapshot into the
+                // LIVE registry -- destroying and create(hint)-resurrecting
+                // entities under handles that PhysicsWorld::entityToBody_ and
+                // ScriptWorld::instances_ still map to native bodies and script
+                // instances. That is precisely why stopPlay_ Clear()s both
+                // before its own restore.
+                const bool canU = canEdit && undo_.canUndo();
+                const bool canR = canEdit && undo_.canRedo();
                 const auto& entries = undo_.entries();
                 const size_t cur = undo_.cursor();
                 // Show WHAT would be undone/redone, like a real editor -- the
@@ -1561,7 +1602,9 @@ void EditorApplication::DrawMainMenuBar(MyCoreEngine::Scene& scene)
                 if (ImGui::MenuItem(uL.c_str(), "Ctrl+Z", false, canU)) doUndo_(scene);
                 if (ImGui::MenuItem(rL.c_str(), "Ctrl+Y", false, canR)) doRedo_(scene);
                 ImGui::Separator();
-                if (ImGui::MenuItem("Clear History", nullptr, false, canU || canR)) undo_.clear();
+                if (ImGui::MenuItem("Clear History", nullptr, false,
+                                    canEdit && (undo_.canUndo() || undo_.canRedo())))
+                    undo_.clear();
                 ImGui::EndMenu();
             }
 
@@ -1590,12 +1633,21 @@ void EditorApplication::DrawMainMenuBar(MyCoreEngine::Scene& scene)
     // Keyboard shortcuts. Gated on not-typing so Ctrl+S in a text field is a
     // normal keystroke, and on canEdit for the same reason as the menu items.
     ImGuiIO& io = ImGui::GetIO();
-    if (canEdit && io.KeyCtrl && !io.WantTextInput &&
+    if (canEdit && io.KeyCtrl && !io.WantTextInput && !gameIsTyping_() &&
         ImGui::IsKeyPressed(ImGuiKey_S, false)) {
         if (io.KeyShift) saveAll_(scene); else saveScene_(scene);
     }
 
+    // A save with no target asked for this modal (see saveScene_).
+    if (pendingSaveAs_) { openSaveAs = true; pendingSaveAs_ = false; }
+
     if (openNew)    ImGui::OpenPopup("New Scene?");
+    // Seed the scratch buffer from the current target, so both modals open
+    // showing where you are rather than an empty box. An untitled scene gets a
+    // suggestion instead of nothing.
+    if (openOpen || openSaveAs)
+        std::snprintf(scenePathEdit_, sizeof(scenePathEdit_), "%s",
+                      currentScenePath_[0] ? currentScenePath_ : "Exported/scene.json");
     if (openOpen)   ImGui::OpenPopup("Open Scene");
     if (openSaveAs) ImGui::OpenPopup("Save Scene As");
 
@@ -1618,12 +1670,14 @@ void EditorApplication::DrawMainMenuBar(MyCoreEngine::Scene& scene)
     if (ImGui::BeginPopupModal("Open Scene", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextUnformatted("Scene file to open:");
         ImGui::SetNextItemWidth(360.f);
-        ImGui::InputText("##openpath", currentScenePath_, sizeof(currentScenePath_));
+        ImGui::InputText("##openpath", scenePathEdit_, sizeof(scenePathEdit_));
         ImGui::TextDisabled("Tip: double-clicking a .json in the Asset browser also loads it.");
         ImGui::Separator();
         if (ImGui::Button("Open", ImVec2(120, 0))) {
-            loadSceneFromFile_(scene, currentScenePath_); // reports via
-                                                          // SetOnSwapComplete
+            // loadSceneFromFile_ moves currentScenePath_ itself once the swap
+            // completes, so the save target follows a load that WORKED.
+            loadSceneFromFile_(scene, scenePathEdit_); // reports via
+                                                       // SetOnSwapComplete
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
@@ -1635,9 +1689,12 @@ void EditorApplication::DrawMainMenuBar(MyCoreEngine::Scene& scene)
     if (ImGui::BeginPopupModal("Save Scene As", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextUnformatted("Save the scene to:");
         ImGui::SetNextItemWidth(360.f);
-        ImGui::InputText("##savepath", currentScenePath_, sizeof(currentScenePath_));
+        ImGui::InputText("##savepath", scenePathEdit_, sizeof(scenePathEdit_));
         ImGui::Separator();
         if (ImGui::Button("Save", ImVec2(120, 0))) {
+            // Commit HERE: Save As is exactly the gesture that retargets.
+            std::snprintf(currentScenePath_, sizeof(currentScenePath_), "%s",
+                          scenePathEdit_);
             saveScene_(scene);
             ImGui::CloseCurrentPopup();
         }
@@ -2369,6 +2426,10 @@ void EditorApplication::stopPlay_(MyCoreEngine::Scene& scene)
 
 void EditorApplication::doUndo_(MyCoreEngine::Scene& scene)
 {
+    // Belt and braces behind the menu/shortcut gates: every history entry
+    // describes the pre-play registry, so applying one into a live play session
+    // resurrects entities under handles physics and scripts still hold.
+    if (playing_) return;
     undo_.undo(scene.registry, assets_.get());
     if (!scene.registry.valid(selected_)) selected_ = entt::null;
     // snapshot restores overwrite the live matrix, so the departure pose
@@ -2378,6 +2439,7 @@ void EditorApplication::doUndo_(MyCoreEngine::Scene& scene)
 
 void EditorApplication::doRedo_(MyCoreEngine::Scene& scene)
 {
+    if (playing_) return; // see doUndo_
     undo_.redo(scene.registry, assets_.get());
     if (!scene.registry.valid(selected_)) selected_ = entt::null;
     forceAllCSMUpdate_();

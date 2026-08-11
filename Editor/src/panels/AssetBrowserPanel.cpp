@@ -104,11 +104,11 @@ void AssetBrowserPanel::drawFolderTree_(const void* nodePtr, bool isRoot) {
     }
 }
 
-AssetBrowserActions AssetBrowserPanel::drawContents_(const void* nodePtr,
-                                                     entt::registry& reg,
-                                                     entt::entity selected,
-                                                     bool playing) {
-    AssetBrowserActions actions;
+void AssetBrowserPanel::drawContents_(const void* nodePtr,
+                                      entt::registry& reg,
+                                      entt::entity selected,
+                                      bool playing,
+                                      AssetBrowserActions& actions) {
     const auto& dir = *static_cast<const AssetIndex::Node*>(nodePtr);
 
     if (dir.children.empty()) ImGui::TextDisabled("(empty)");
@@ -180,7 +180,6 @@ AssetBrowserActions AssetBrowserPanel::drawContents_(const void* nodePtr,
 
         ImGui::PopID();
     }
-    return actions;
 }
 
 AssetBrowserActions AssetBrowserPanel::Draw(entt::registry& reg, entt::entity selected,
@@ -256,7 +255,7 @@ AssetBrowserActions AssetBrowserPanel::Draw(entt::registry& reg, entt::entity se
         ImGui::SameLine(0.f, 0.f);
 
         ImGui::BeginChild("##contents", ImVec2(0, height));
-        actions = drawContents_(dir, reg, selected, playing);
+        drawContents_(dir, reg, selected, playing, actions);
         ImGui::EndChild();
     }
     ImGui::End();

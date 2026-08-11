@@ -69,21 +69,24 @@ The editor drives the camera itself through ImGui input (`installInput(std::make
 
 Default movement speed is `Camera::SPEED_DEFAULT = 20.0f` and mouse sensitivity `0.1f` (`Engine/src/core/Camera.h`). Bindings can be changed via `Application::input()`.
 
-> **Important — the input rule.** Camera keys and `Esc` act **only when the Scene viewport is focused, hovered, or you are mid-right-button look**. Everything else (typing in a field, scrolling the Assets panel, keyboarding in a detached panel on another monitor) is treated as UI input and never moves the camera or quits the app. Text editing blocks camera keys regardless. The rule lives in the `SetUICaptureProvider` lambda in `EditorApplication::Run()`:
+> **Important — the input rule.** Camera keys and `Esc` act **only when the Scene viewport is focused, hovered, or you are mid-right-button look — and nothing in the game's own UI holds focus**. Everything else (typing in a field, scrolling the Assets panel, keyboarding in a detached panel on another monitor, a focused widget in the Game panel's UI) is treated as UI input and never moves the camera or quits the app. Text editing blocks camera keys regardless, in ImGui *or* in the game. The rule lives in the `SetUICaptureProvider` lambda in `EditorApplication::Run()`:
 >
 > ```c++
 > const bool inViewport = viewportFocused_ || viewportHovered_ || camLooking_;
 > MyCoreEngine::Application::UICapture caps;
-> caps.keyboard = ui_.WantTextInput() || !inViewport;
+> // The GAME's UI counts too, not just ImGui's.
+> caps.keyboard = ui_.WantTextInput() || uiWorld_.wantsKeyboard() || !inViewport;
 > // the viewport is an ImGui window too — camera controls
 > // must keep working while the mouse is over it
 > caps.mouse = ui_.WantCaptureMouse() && !viewportHovered_;
 > // Reported separately because `keyboard` above is mostly about
 > // WHERE the pointer is, not about typing. Gameplay input keys off
 > // this narrow flag alone.
-> caps.textInput = ui_.WantTextInput();
+> caps.textInput = ui_.WantTextInput() || uiWorld_.wantsTextInput();
 > return caps;
 > ```
+>
+> Both halves are widened by the game document deliberately. `inViewport` follows *hover* of the Scene image, while the game UI keeps receiving input for as long as the Game surface holds focus — so moving the cursor from the Game panel across the Scene viewport once made `keyboard` false while a game `TextField` still had focus, and `Esc` then reached the quit path and closed the editor. And a space typed into a game field is content: without the `textInput` half it also fired whatever gameplay action is bound to Space (`InputMap` binds `Jump` there by default).
 >
 > The old rule was "fly unless typing", which predates multi-viewports: with input aggregated across detached OS windows it moved the camera while you scrolled a panel on another screen.
 
@@ -124,10 +127,20 @@ This panel is the one window in the editor holding **two** UIs: the editor's own
 
 | State | Means |
 | --- | --- |
-| panel focused | this is the active window; the Scene view stops receiving keys |
+| panel focused | this is the active window — but on its own it decides *nothing* about the keyboard |
 | **surface focused** | and the thing holding the keyboard *inside* it is the game |
 
 **Click the image to give the game the keyboard**; click the camera picker, the `Blend` field, or any other panel to take it back. While the game holds it the image is drawn with a highlight border, because otherwise "why does Tab not reach my HUD" has no visible answer.
+
+Panel focus really is inert here. The Scene view keeps its keys while
+`viewportFocused_ || viewportHovered_ || camLooking_`, and *hovering* the Scene
+image is enough — so the fly camera and `Esc` keep working while the Game panel
+is the active window, as long as the cursor is over the Scene view. The two
+never fire on one press because the game's gate is the same expression,
+negated, not because of panel focus.
+
+The status readout on the toolbar reports **surface** focus, the flag that
+actually gates things — not panel focus, which any click on the toolbar sets.
 
 Only surface focus routes keys to the game, and only surface focus enables gameplay input. Both matter:
 
@@ -143,12 +156,23 @@ Selection is driven by a `MyCoreEngine::CameraDirector` (`Engine/src/core/Camera
 * Automatically, it picks the **highest-priority enabled** `CameraComponent` that also has a `Transform`; ties break on the lowest entity **index** (not the raw handle — versions reset on scene load, so index ordering is what stays save/load-stable).
 * When the winner changes, the view **blends** from the previous *output* pose to the new camera (position lerp, orientation slerp, fov/near/far lerp, smoothstep eased).
 
-The toolbar has two controls:
+The toolbar has three controls and a readout:
 
 | Control | Meaning |
 | --- | --- |
 | Camera combo | `Auto (director)` or a specific camera entity. Cameras with `enabled == false` are listed with a ` (disabled)` suffix and can still be previewed. |
 | `Blend` | `defaultBlendSeconds`, 0–10 s. `0 = hard cut`. |
+| Aspect lock | `Free`, `16:9`, `16:10`, `4:3`, `21:9`. **Defaults to `16:9`**, so the panel letterboxes from the first frame — the black bars are the control doing its job, not a broken render. |
+| `<w>x<h>` | The **surface** resolution in pixels, dimmed. Last frame's number: this frame's panel size is not known until after the toolbar is drawn. |
+
+The aspect lock constrains the **preview only** — the shipped player uses its
+real window. It exists because a dockable panel's shape is an accident of your
+layout, and a HUD authored against this panel at 2.3:1 reads quite differently
+in a 16:9 window. The surface resolution beside it is the number that actually
+decides how a HUD lays out, which is why it is shown rather than inferred.
+
+While playing, a fourth item appears: an input-routing label saying whether the
+game currently has the keyboard. See [Who owns the keyboard](#who-owns-the-keyboard).
 
 If the overridden camera stops being valid (deleted, or its `CameraComponent` removed), the override is dropped rather than left armed — an undo could otherwise resurrect an entity under the same handle and silently hijack the Game view.
 
@@ -224,7 +248,7 @@ Not removable — everything positional depends on it (the Unity convention). Po
 Shows the model's source path, or `(no model loaded — set a path or use the Assets panel)` for an empty `ModelComponent`. A path field plus a `Load` / `Replace` button assigns a model (which also refreshes the `AABB` and adds a `Transform` if missing).
 
 * **Casts Shadows** — a checkbox over the `NoShadow` tag. Shadow casting is a property of rendered geometry, so it lives with the model.
-* **Materials** — one sub-node per material slot. Slots start **(shared)** and are shown read-only: editing the shared material would silently change every entity using that model and bypass undo. Press **Make unique for this entity** to clone it into a `MaterialOverrides` entry — base colour, emissive, metallic, roughness and AO become editable, alongside a **Shading** model picker (`PBR` / `Toon (cel)`, with Bands 2–8 / Specular / Spec size / Rim when Toon is chosen) and an **Alpha mode** picker (`Opaque` / `Mask (cutout)` / `Blend`, adding `Opacity` under Blend, `Cutoff` under Mask, and a `Double sided` checkbox for either non-opaque mode) — and **Revert to shared** to drop the override again. A **Textures** summary lists which maps the material has (albedo, normal, metallic, roughness, AO, emissive).
+* **Materials** — one sub-node per material slot **that a mesh actually uses**. The panel builds a used-slot mask from every mesh's `MaterialIndex()` and skips any slot nothing references, then numbers the survivors from 1 — so **Material 1** is the first *used* slot, not necessarily import slot 1. Import routinely leaves a spurious default material behind (Assimp adds one for OBJ) that no mesh renders with; listing it would offer a **Make unique** button whose every edit is invisible. Expect fewer sub-nodes here than the material count your DCC tool or the importer log reports: a slot missing from this list is unreferenced geometry-side, not a broken material. Slots start **(shared)** and are shown read-only: editing the shared material would silently change every entity using that model and bypass undo. Press **Make unique for this entity** to clone it into a `MaterialOverrides` entry — base colour, emissive, metallic, roughness and AO become editable, alongside a **Shading** model picker (`PBR` / `Toon (cel)`, with Bands 2–8 / Specular / Spec size / Rim when Toon is chosen) and an **Alpha mode** picker (`Opaque` / `Mask (cutout)` / `Blend`, adding `Opacity` under Blend, `Cutoff` under Mask, and a `Double sided` checkbox for either non-opaque mode) — and **Revert to shared** to drop the override again. A **Textures** summary lists which maps the material has (albedo, normal, metallic, roughness, AO, emissive).
 
 > **Gotcha:** changing the caster set without moving anything — swapping a model, removing a model, toggling **Casts Shadows** — leaves stale shadows baked into far cascades, because the normal dirty-caster flow only reacts to transforms. The Inspector reports this back to the editor (its `Draw` returns `true`), which then calls `forceAllCSMUpdate_()`.
 
@@ -317,13 +341,26 @@ Scene file I/O lives in the **File** menu on the custom title bar (Unity-style),
 not in Settings: **New Scene**, **Open Scene…**, **Save Scene** (`Ctrl+S`),
 **Save Scene As…**, **Save All** (`Ctrl+Shift+S`, scene + editor layout), and
 **Set Current Scene as Player Startup** (writes `Exported/project.json`, the file
-the Player reads at boot). All the scene-changing items are disabled during Play.
+the Player reads at boot). All the scene-changing items are disabled during Play,
+and so is the whole **Edit** menu — Undo/Redo/Clear History included, for the
+same reason: recording is off during a session, so every history entry describes
+the *pre-play* registry, and applying one to the live one resurrects entities
+under handles that physics and scripts still hold. `doUndo_`/`doRedo_` refuse
+outright as well, so no future caller can route around the menu.
 The **Edit** menu holds Undo/Redo (with the entry labels) and Clear History; the
 **Window** menu toggles each panel's visibility.
 
+**Open Scene…** and **Save Scene As…** edit a scratch buffer, not the save
+target. The target only moves when something succeeds — a load that completed,
+or the Save in Save As. Typing a path and pressing Cancel changes nothing.
+
 **New Scene** re-seeds a default Main Camera + Ground and clears the selection,
 undo history, Game-view director, in-flight model ops, and the physics, script
-and audio worlds, then forces a CSM rebuild. Loading a scene (File menu or the Assets panel) does the
+and audio worlds, then forces a CSM rebuild. It also leaves the scene
+**untitled**: it has never been saved anywhere, so `Ctrl+S` and **Save Scene**
+open **Save Scene As** rather than writing to whatever file happened to be open
+before. **Set Current Scene as Player Startup** is disabled until it has a
+file. Loading a scene (File menu or the Assets panel) does the
 same clearing through `loadSceneFromFile_`.
 
 > **Important:** wholesale scene replacement bypasses the departure-sphere

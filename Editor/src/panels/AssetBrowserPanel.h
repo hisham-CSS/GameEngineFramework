@@ -47,8 +47,14 @@ public:
 private:
     void drawBreadcrumbs_();
     void drawFolderTree_(const void* node, bool isRoot); // AssetIndex::Node*
-    AssetBrowserActions drawContents_(const void* node, entt::registry& reg,
-                                      entt::entity selected, bool playing);
+    // Fills `actions` IN PLACE. It used to return a second struct that Draw
+    // assigned over the one it had been filling, and AssetBrowserActions is a
+    // plain aggregate -- so the wholesale operator= silently discarded the
+    // toolbar's validateRequested every single frame the button was clicked.
+    // The Validate button did nothing, with no error anywhere.
+    void drawContents_(const void* node, entt::registry& reg,
+                       entt::entity selected, bool playing,
+                       AssetBrowserActions& actions);
     void navigateTo_(const std::string& relPath);
 
     std::string selectedDir_;      // relPath of the folder shown on the right

@@ -272,6 +272,20 @@ private:
     bool gameViewFocused_ = false;
     bool gameSurfaceFocused_ = false;
 
+    // A text field in the PREVIEWED document is typing, and the keys really are
+    // going there. The keyboard forward in DrawGameViewport is
+    // `gameSurfaceFocused_ && !ui_.WantTextInput()` and is NOT gated on
+    // playing_, so this is live in EDIT mode -- the only mode Ctrl+S / Ctrl+Z /
+    // Ctrl+P are enabled in. ImGui's own WantTextInput cannot see it: the Game
+    // view is an ImGui::Image, not an InputText, so typing a name into a game
+    // text field and pressing Ctrl+Z undid the last SCENE edit instead of the
+    // last character. Scoped to gameSurfaceFocused_ deliberately: a field that
+    // merely still holds focus while the user works in an ImGui panel must not
+    // deadlock the editor's shortcuts.
+    bool gameIsTyping_() const {
+        return gameSurfaceFocused_ && uiWorld_.wantsTextInput();
+    }
+
     // Which aspect ratio the Game view's surface is locked to.
     //
     // The panel is dockable and resizable, so its shape is an accident of
@@ -285,6 +299,22 @@ private:
     int gameAspect_ = 1;   // 16:9
     std::string bootStatus_;    // what happened at startup (loaded / defaulted)
     char        currentScenePath_[260] = "Exported/scene.json"; // File menu target
+
+    // The Open / Save-As modals edit THIS, never currentScenePath_ directly.
+    // ImGui::InputText writes back into its buffer every frame the value
+    // changes -- EnterReturnsTrue is not set -- so binding it to the save
+    // target meant typing a path retargeted Ctrl+S the instant the first
+    // character landed, and Cancel left it retargeted. The next save then wrote
+    // the scene that was open over a file the author had only typed the name
+    // of. Committed only where an action actually succeeds.
+    char        scenePathEdit_[260] = "";
+
+    // Set when a save was asked for with no target -- an UNTITLED scene, which
+    // is what New Scene now leaves behind. DrawMainMenuBar turns it into the
+    // Save As modal on the next frame. Before this, New Scene kept the previous
+    // file as the save target, so the very next Ctrl+S wrote a brand-new empty
+    // scene over the level the author had just been editing.
+    bool        pendingSaveAs_ = false;
     // Last save/load result, shown centred in the title bar INSTEAD of the
     // scene name. It decays back: a confirmation is worth reading once, but
     // leaving it up forever means the one label in the whole editor whose job
