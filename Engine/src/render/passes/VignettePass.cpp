@@ -14,12 +14,15 @@ void VignettePass::setup(PassContext&) {
         "Exported/Shaders/tonemap_vert.glsl", "Exported/Shaders/vignette_frag.glsl");
 }
 
+bool VignettePass::wantsLdrSlot(const PassContext&, const MyCoreEngine::Scene& scene) const {
+    return scene.PostFX().vignette.enabled && shader_ && shader_->isValid();
+}
+
 bool VignettePass::execute(PassContext& ctx, MyCoreEngine::Scene& scene, Camera&,
                            const FrameParams& fp) {
     const auto& v = scene.PostFX().vignette;
-    // Predicate MUST match what the Renderer counted into postPassesLeft;
-    // !ldrTex_A guards the rare FBO-alloc-failed case (then no chain runs).
-    if (!v.enabled || !ctx.ldrTex_A || !shader_ || !shader_->isValid()) return false;
+    // ldrTex_A guards the rare FBO-alloc-failed case (then no chain runs).
+    if (!ctx.ldrTex_A || !wantsLdrSlot(ctx, scene)) return false;
     const PassContext::PostTarget t = ctx.nextPostTarget();
 
     glBindFramebuffer(GL_FRAMEBUFFER, t.dstFBO);

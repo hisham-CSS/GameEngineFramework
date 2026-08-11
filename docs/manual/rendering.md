@@ -300,11 +300,24 @@ dim backdrop with bright lighting is a normal thing to want.
 
 ### When it re-bakes
 
-Baking costs milliseconds, so `Renderer::SyncEnvironment` re-bakes only when the
-settings actually change — or, for the procedural sky, when the sun moves more
-than 1.5°, since that sky has the sun baked into it. It is driven from
-`RenderFrame`, so neither the editor nor the player has to remember to call it
-and Play cannot end up lit differently from the shipped build.
+Baking costs milliseconds, so `Renderer::SyncEnvironment` re-bakes only when a
+setting the baker **reads** changes — or, for the procedural sky, when the sun
+moves more than 1.5°, since that sky has the sun baked into it. It is driven
+from `RenderFrame`, so neither the editor nor the player has to remember to call
+it and Play cannot end up lit differently from the shipped build.
+
+The gate is `EnvironmentSettings::sameBakeInputs`, **not** `operator==`. Two
+fields are deliberately outside it:
+
+| Field | Why it does not re-bake |
+|---|---|
+| `Sky brightness` (`skyIntensity`) | A uniform on the skybox pass, applied after the bake |
+| `Draw skybox` (`drawSkybox`) | Chooses which cube the skybox draws, applied after the bake |
+
+Both are still applied on the frame they change — `SyncEnvironment` runs the
+bake-free half of the work on the no-bake path. `operator==` stays full-value
+because the serializer round-trip and the editor's undo `snapEq` need every
+field to count; only the *gate* is narrower.
 
 ### Two failure modes worth knowing
 
@@ -423,6 +436,7 @@ depth texture id and resolution per cascade) for the forward pass to sample.
 | Base resolution | `2048` (square, same for every cascade) | `setCSMBaseResolution(int)` |
 | Max shadow distance | `200.0f` m | `setCSMMaxShadowDistance(float)` |
 | Lambda | `0.7f` | `setCSMLambda(float)` |
+| Split mode | `Lambda` — seeded by the `setLambda` above, *not* the class default; see [Split modes](#split-modes) | `setCSMLambda(float)` / `ShadowCSMPass::setSplitMode(...)` |
 | Update policy | `CameraOrSunMoved` | `setCSMUpdatePolicy(...)` |
 | Cascade update budget | `0` (= update all stale cascades) | `setCSMCascadeBudget(int)` |
 | Stability epsilons | `0.05` m, `0.5` degrees | `setCSMEpsilons(float, float)` |
@@ -449,14 +463,20 @@ uploaded to the fragment shader every frame:
 
 ### Split modes
 
-`ShadowCSMPass::SplitMode` is `Fixed` or `Lambda`, and the pass defaults to
-`Fixed`.
+`ShadowCSMPass::SplitMode` is `Fixed` or `Lambda`. The class initialiser is
+`Fixed` (`ShadowCSMPass.h`), but **that is not the mode you get**:
+`Renderer::Setup` seeds every pass it builds with `setLambda(0.7f)`, and that
+setter *selects* `Lambda`. Every pass the engine creates — the player, the
+editor's Scene view, the editor's Game view — is in `Lambda` mode from frame
+one. Reaching `Fixed` takes an explicit `setSplitMode(SplitMode::Fixed)`, which
+nothing in either host calls.
 
+- **Lambda** (what actually runs) is practical-split PSSM via
+  `MyCoreEngine::ComputeCSMSplits` (`Engine/src/render/CSMSplits.h`) —
+  `lambda = 0` is uniform, `1` is logarithmic, in between is a blend.
 - **Fixed** uses the ratio table `{0.05, 0.15, 0.40, 1.0}` of the shadow range,
-  right-aligned for fewer cascades (3 cascades → 15/40/100 %).
-- **Lambda** is practical-split PSSM via `MyCoreEngine::ComputeCSMSplits`
-  (`Engine/src/render/CSMSplits.h`) — `lambda = 0` is uniform, `1` is
-  logarithmic, in between is a blend.
+  right-aligned for fewer cascades (3 cascades → 15/40/100 %). Reachable only by
+  calling `setSplitMode` yourself; the tests exercise it, the hosts do not.
 
 ```c++
 ENGINE_API inline std::vector<float> ComputeCSMSplits(float nearZ, float farZ,
@@ -470,9 +490,10 @@ at runtime refits the cascades even if the camera never moved.
 Setting a lambda **selects** Lambda mode. `Renderer::setCSMLambda` forwards to
 `ShadowCSMPass::setLambda`, which clamps the value, sets `splitMode_` to
 `Lambda`, and marks the cascades dirty — so the editor's **Split Lambda** slider
-switches the pass out of its `Fixed` default and the new split takes effect that
-frame rather than whenever something else next invalidates the cascades. To go
-back, call `setSplitMode(SplitMode::Fixed)`.
+takes effect that frame rather than whenever something else next invalidates the
+cascades. Since `Renderer::Setup` already made that call at boot, the slider is
+adjusting a mode the pass is in, not switching it into one. To go back, call
+`setSplitMode(SplitMode::Fixed)`.
 
 > **Note** — this is also why `Renderer::CopyShadowSettingsFrom` (which the
 > editor uses to keep the Game view's second renderer in step with the Scene

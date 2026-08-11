@@ -199,3 +199,77 @@ TEST_F(IBLTest, BakeRestoresGLState) {
     glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &fbo);
     EXPECT_EQ(fbo, 0) << "capture FBO left bound";
 }
+
+// --- the re-bake gate -------------------------------------------------------
+//
+// SyncEnvironment used to decide "did anything change?" with the full-value
+// operator==, which includes skyIntensity and drawSkybox. Neither is a bake
+// input: the baker never reads them, and ApplyEnvironment applies them at the
+// very end, after `ok` is already decided. So nudging the "Sky brightness"
+// slider re-read the HDRi off disk and rebuilt irradiance, prefilter and BRDF
+// -- milliseconds per frame of the drag, to change one uniform.
+//
+// The gate now asks sameBakeInputs(). Two things have to hold, and the second
+// is the one that makes the fix a fix rather than a regression: a presentation
+// change must STILL take effect on the frame it happens, without a bake.
+
+TEST(EnvironmentBakeInputs, PresentationFieldsAreNotBakeInputs) {
+    EnvironmentSettings a;
+    EnvironmentSettings b = a;
+    b.skyIntensity = a.skyIntensity + 2.5f;
+    b.drawSkybox = !a.drawSkybox;
+
+    EXPECT_NE(a, b) << "operator== must stay full-value: the serializer round-trip "
+                       "and the editor's undo snapEq both rely on it";
+    EXPECT_TRUE(a.sameBakeInputs(b))
+        << "skyIntensity/drawSkybox reached the re-bake gate; they are applied "
+           "after the bake and change nothing it produces";
+}
+
+TEST(EnvironmentBakeInputs, EveryRealBakeInputIsCaught) {
+    const EnvironmentSettings base;
+
+    auto differs = [&](const char* what, EnvironmentSettings v) {
+        EXPECT_FALSE(base.sameBakeInputs(v))
+            << what << " changed but the gate reports the bake inputs identical, "
+               "so the environment would keep lighting the scene with the old bake";
+    };
+
+    EnvironmentSettings v;
+    v = base; v.source = EnvironmentSettings::Source::ProceduralSky; differs("source", v);
+    v = base; v.hdriPath = "Exported/Env/somewhere_else.hdr";        differs("hdriPath", v);
+    v = base; v.zenith = glm::vec3(1, 0, 0);                          differs("zenith", v);
+    v = base; v.horizon = glm::vec3(0, 1, 0);                         differs("horizon", v);
+    v = base; v.ground = glm::vec3(0, 0, 1);                          differs("ground", v);
+    v = base; v.sunIntensity = base.sunIntensity + 1.f;               differs("sunIntensity", v);
+}
+
+// The half that could have become a REGRESSION: dropping the two fields from
+// the gate must not drop them from being applied. drawSkybox is observable --
+// it selects the cube the skybox pass draws -- so it stands in for both, which
+// travel the same line of the same function.
+TEST_F(IBLTest, PresentationChangeAppliesWithoutARebake) {
+    Renderer r;
+    r.Setup(64, 64);
+
+    EnvironmentSettings env;
+    env.source = EnvironmentSettings::Source::ProceduralSky;
+    env.drawSkybox = true;
+    const glm::vec3 sun = glm::normalize(glm::vec3(-0.2f, -1.0f, -0.1f));
+
+    r.SyncEnvironment(env, sun);
+    const unsigned int drawn = r.EnvironmentCube();
+    ASSERT_NE(drawn, 0u) << "the first sync did not bake at all";
+
+    // ONLY presentation changes: the bake inputs are untouched, so no bake runs.
+    env.drawSkybox = false;
+    r.SyncEnvironment(env, sun);
+    EXPECT_EQ(r.EnvironmentCube(), 0u)
+        << "'Draw skybox' was switched off and nothing happened -- the setting is "
+           "applied inside ApplyEnvironment, which no longer runs for it";
+
+    env.drawSkybox = true;
+    r.SyncEnvironment(env, sun);
+    EXPECT_EQ(r.EnvironmentCube(), drawn)
+        << "switching the skybox back on did not restore the cube";
+}

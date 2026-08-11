@@ -120,6 +120,24 @@ struct IRenderPass {
     // Called when the window framebuffer changes (Renderer already handles this)
     virtual void resize(PassContext&, int /*w*/, int /*h*/) {}
 
-    // Do the pass� work; return true if you drew something
+    // Do the pass's work; return true if you drew something
     virtual bool execute(PassContext&, MyCoreEngine::Scene&, Camera&, const FrameParams&) = 0;
+
+    // Does this pass consume an LDR ping-pong slot this frame?
+    //
+    // The Renderer counts these into postPassesLeft BEFORE the chain runs, and
+    // nextPostTarget() gives the final slot to whoever takes the last one. So a
+    // pass that runs without being counted, or is counted and then declines,
+    // desyncs the routing -- and if the count is too HIGH nothing ever reaches
+    // isFinal, so the finished frame is left in an off-screen buffer and the
+    // window shows the clear colour. A post shader that failed to compile used
+    // to do exactly that: the count asked only whether the effect was enabled.
+    //
+    // Overriding this instead of restating the predicate in the Renderer is
+    // what makes the two impossible to disagree. It must NOT consult ldrTex_A:
+    // the count runs before the buffers are (re)allocated, and the empty-chain
+    // case is handled once, globally, by postPassesLeft = 0.
+    virtual bool wantsLdrSlot(const PassContext&, const MyCoreEngine::Scene&) const {
+        return false;
+    }
 };

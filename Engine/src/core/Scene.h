@@ -87,6 +87,22 @@ namespace MyCoreEngine {
                    sunIntensity == o.sunIntensity;
         }
         bool operator!=(const EnvironmentSettings& o) const { return !(*this == o); }
+
+        // What the BAKER actually consumes (see Renderer::ApplyEnvironment):
+        // hdriPath feeds IBLBaker::BakeFromFile, the rest feed SkyParams.
+        // skyIntensity and drawSkybox are deliberately ABSENT -- both are
+        // applied AFTER the bake and change nothing it produces. Routing them
+        // through the re-bake gate meant dragging "Sky brightness", or ticking
+        // "Draw skybox", re-read the HDRi off disk and re-baked the whole IBL
+        // chain -- milliseconds per frame of the drag, to change a uniform.
+        //
+        // operator== stays full-value on purpose: serializer round-trips and
+        // the editor's undo snapEq both need every field to count.
+        bool sameBakeInputs(const EnvironmentSettings& o) const {
+            return source == o.source && hdriPath == o.hdriPath &&
+                   zenith == o.zenith && horizon == o.horizon &&
+                   ground == o.ground && sunIntensity == o.sunIntensity;
+        }
     };
 
     struct RenderStats {
@@ -201,10 +217,15 @@ namespace MyCoreEngine {
         static constexpr size_t kMaxPunctualLights = 16;
 
         // Gathers every enabled LightComponent with a Transform, resolves it to
-        // world space, drops lights whose range cannot reach the camera's
-        // neighbourhood, and keeps the kMaxPunctualLights most influential
-        // (brightest per unit distance-squared). Pure function of the registry
-        // — no GL, no renderer state — so it is directly testable.
+        // world space, and keeps the kMaxPunctualLights most influential
+        // (brightest per unit distance-squared from the camera).
+        //
+        // Camera distance is a RANKING term only — nothing is dropped for being
+        // far away, because a lamp 400 units from the camera can still be the
+        // only thing lighting the wall the camera is pointed at. The shader's
+        // windowed range falloff is what zeroes a light that cannot reach a
+        // fragment. Pure function of the registry — no GL, no renderer state —
+        // so it is directly testable.
         static void SelectPunctualLights(entt::registry& reg, const glm::vec3& camPos,
                                          std::vector<PunctualLight>& out,
                                          size_t maxLights = kMaxPunctualLights,
@@ -355,6 +376,17 @@ namespace MyCoreEngine {
             float splitNear;
             float splitFar;
             glm::mat4 viewMatrix; // camera view matrix to check splitZ
+            // THE TRUE CASCADE INDEX this entry represents, which is NOT its
+            // position in the vector.
+            //
+            // ShadowCSMPass submits only the cascades that went stale this
+            // frame, compacted -- so cascade 3 alone arrives as bucket 0. The
+            // pass remaps buckets back through its own table for the depth
+            // ATTACHMENT, and that remap is why the depth always landed in the
+            // right texture while anything else keyed off the bucket counter
+            // silently used the wrong cascade. Shadow LOD was exactly that:
+            // a lone far cascade got the near cascade's detail.
+            int cascadeIndex = 0;
         };
         // Culls and buckets entities for all cascades in one go.
         // preDrawCallback(index) is invoked for EVERY cascade before its bucket

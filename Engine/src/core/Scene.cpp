@@ -401,8 +401,12 @@ void Scene::SelectPunctualLights(entt::registry& reg, const glm::vec3& camPos,
             p.cosOuter = std::cos(glm::radians(outer));
         }
 
-        // Range cull: a light whose sphere of influence cannot reach anywhere
-        // near the camera cannot affect a visible fragment.
+        // A RANKING term, not a cull. `reach` is how far outside its own range
+        // the camera sits, and it only feeds the score below -- nothing is
+        // dropped for it. Culling on camera distance would drop a lamp that is
+        // the only thing lighting the wall the camera is pointed at, and the
+        // shader already windows the falloff by range and skips a light whose
+        // attenuation reaches zero.
         const float d = glm::length(p.position - camPos);
         const float reach = d - p.range;
 
@@ -970,7 +974,14 @@ void Scene::RenderShadowsCombined(Shader& shadowShader, const std::vector<Cascad
 
         // Shadow maps tolerate coarse geometry: near cascades use LOD 1,
         // far cascades LOD 2 (the cascade index is already a distance proxy).
-        const int shadowLod = lodEnabled_ ? ((c <= 1) ? 1 : 2) : 0;
+        //
+        // Keyed off the PARAM, never off the loop counter. The counter is only
+        // this entry's position in the vector, and ShadowCSMPass compacts that
+        // vector down to the cascades that went stale -- so a frame updating
+        // cascade 3 alone passes it as bucket 0, and a bucket-keyed rule handed
+        // the most distant cascade the closest cascade's detail.
+        const int shadowLod =
+            lodEnabled_ ? ((cascades[c].cascadeIndex <= 1) ? 1 : 2) : 0;
 
         // Set cascade-specific uniform
         shadowShader.setMat4("uLightVP", cascades[c].lightVP);

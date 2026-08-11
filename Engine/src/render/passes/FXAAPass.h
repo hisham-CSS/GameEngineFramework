@@ -29,6 +29,7 @@ public:
 
     const char* name() const override { return "FXAA"; }
     void setup(PassContext&) override;
+    bool wantsLdrSlot(const PassContext&, const MyCoreEngine::Scene&) const override;
     bool execute(PassContext& ctx, MyCoreEngine::Scene& scene, Camera& camera,
                  const FrameParams& fp) override;
 

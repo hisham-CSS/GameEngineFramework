@@ -149,9 +149,30 @@ bool ShadowCSMPass::rebuild_(const Camera& cam, float aspect) {
 }
 
 
+// The one place cascade state leaves this pass. It writes snap_ and then hands
+// the SAME value to the context: the two used to be separate, ctx.csm was
+// filled by three near-identical copies of this block, and snap_ -- what
+// snapshot() and Renderer::getCSMSnapshot() return -- was never written at all.
+// Anything asking the pass what it published got a zeroed struct that reads as
+// "CSM is off", which is worse than no accessor.
+void ShadowCSMPass::publish_(PassContext& ctx, bool on) {
+    snap_ = {};
+    if (on) {
+        snap_.enabled = true;
+        snap_.cascades = cascades_;
+        for (int i = 0; i < kMaxCascades; ++i) {
+            snap_.lightVP[i] = lightVP_[i];
+            snap_.splitFar[i] = splitFar_[i];
+            snap_.depthTex[i] = depth_[i];
+            snap_.resPer[i] = resPer_[i];
+        }
+    }
+    ctx.csm = snap_;
+}
+
 bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const FrameParams& fp) {
     if (!enabled_) {
-        ctx.csm = {}; // publish "off"
+        publish_(ctx, false); // publish "off"
         return false;
     }
     ensureTargets_();
@@ -245,14 +266,7 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
 
     // Nothing stale: publish the still-valid snapshot and skip all GPU work.
     if (toUpdate == 0) {
-        ctx.csm.enabled = true;
-        ctx.csm.cascades = cascades_;
-        for (int i = 0; i < kMaxCascades; ++i) {
-            ctx.csm.lightVP[i] = lightVP_[i];
-            ctx.csm.splitFar[i] = splitFar_[i];
-            ctx.csm.depthTex[i] = depth_[i];
-            ctx.csm.resPer[i] = resPer_[i];
-        }
+        publish_(ctx, true);
         return false;
     }
 
@@ -350,10 +364,16 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
     // Prepare cascade parameters
     // Note: We need to map from our "updated" list back to the actual cascades.
     // BUT RenderShadowsCombined processes ALL provided cascades.
-    // If we only want to update SOME, we should passed only those.
-    // HOWEVER, RenderShadowsCombined assumes sequential buckets 0..N.
-    // If we only pass "Cascade 3", it will be bucket 0.
-    // This is fine as long as our callback maps bucket index -> actual cascade index.
+    // If we only want to update SOME, we pass only those.
+    // HOWEVER, RenderShadowsCombined receives sequential buckets 0..N, so if we
+    // pass "Cascade 3" alone it arrives as bucket 0.
+    //
+    // The callback remaps bucket -> actual cascade for the depth ATTACHMENT,
+    // and for a long time that was assumed to be enough. It is not: anything
+    // the callee derives from the bucket counter is then wrong for a partial
+    // update. Shadow LOD did exactly that, giving a lone far cascade the near
+    // cascade's geometry. CascadeParam::cascadeIndex carries the real one, and
+    // any new per-cascade decision must key off IT, not off the loop counter.
     
     struct BatchEntry {
         int actualIndex;
@@ -371,6 +391,9 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
         p.splitNear = splitZ_[i];
         p.splitFar = splitZ_[i + 1]; // splitZ is [0..cascades]
         p.viewMatrix = V;
+        // Set beside actualIndex deliberately: they are the same number, and
+        // the two must never disagree about which cascade this bucket is.
+        p.cascadeIndex = i;
 
         BatchEntry be; be.actualIndex = i; be.param = p;
         batch.push_back(be);
@@ -415,14 +438,7 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     // publish snapshot for forward
-    ctx.csm.enabled = true;
-    ctx.csm.cascades = cascades_;
-    for (int i = 0; i < kMaxCascades; ++i) {
-        ctx.csm.lightVP[i] = lightVP_[i];
-        ctx.csm.splitFar[i] = splitFar_[i];
-        ctx.csm.depthTex[i] = depth_[i];
-        ctx.csm.resPer[i] = resPer_[i];
-    }
+    publish_(ctx, true);
     
     return (toUpdate > 0);
 }

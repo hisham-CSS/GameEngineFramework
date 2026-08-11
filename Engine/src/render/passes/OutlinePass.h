@@ -17,6 +17,7 @@ public:
     ~OutlinePass() override;
     const char* name() const override { return "Outline"; }
     void setup(PassContext&) override;
+    bool wantsLdrSlot(const PassContext&, const MyCoreEngine::Scene&) const override;
     bool execute(PassContext&, MyCoreEngine::Scene&, Camera&, const FrameParams&) override;
 
 private:

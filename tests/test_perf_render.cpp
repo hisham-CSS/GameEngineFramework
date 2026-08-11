@@ -12,7 +12,7 @@
 //   pipelining overlap — stable regression metric, not a FPS estimate).
 // - assertions are on the MEDIAN (robust against OS scheduling blips);
 //   p95 is printed for eyeballing stutter.
-// - budgets are ~2x the 2026-07-12 baseline medians measured on the
+// - budgets are ~2x the 2026-07-18 baseline medians measured on the
 //   shipping target (i5-11400H + RTX 3050 Laptop, 1920x1080) — loose
 //   enough not to flake, tight enough to catch a real regression.
 //   On other machines set CSE_PERF_BUDGET_SCALE (e.g. 2.0) to loosen.

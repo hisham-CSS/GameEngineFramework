@@ -395,7 +395,11 @@ namespace MyCoreEngine {
     }
 
     void Renderer::SyncEnvironment(const EnvironmentSettings& env, const glm::vec3& sunDir) {
-        bool needsBake = !envApplied_ || env != appliedEnv_;
+        // Only the fields the baker READS gate the bake. skyIntensity and
+        // drawSkybox used to sit in this comparison via operator==, so nudging
+        // "Sky brightness" re-read the HDRi off disk and re-baked irradiance,
+        // prefilter and BRDF -- for two values the bake never looks at.
+        bool needsBake = !envApplied_ || !env.sameBakeInputs(appliedEnv_);
 
         // The procedural sky bakes the sun INTO the environment, so moving the
         // sun must re-bake or the sky keeps yesterday's sun while the shadows
@@ -404,7 +408,14 @@ namespace MyCoreEngine {
         if (!needsBake && env.source == EnvironmentSettings::Source::ProceduralSky) {
             needsBake = degBetween(sunDir, appliedSunDir_) > 1.5f;
         }
-        if (!needsBake) return;
+        if (!needsBake) {
+            // Cheap, and it has to happen on THIS path too: the presentation
+            // fields are applied by ApplyEnvironment, which no longer runs for
+            // them. Skipping it here would trade a slow slider for a dead one.
+            ApplyPresentation_(env);
+            appliedEnv_ = env;
+            return;
+        }
 
         if (ApplyEnvironment(env, sunDir)) {
             appliedEnv_ = env;
@@ -446,23 +457,28 @@ namespace MyCoreEngine {
 
         const IBLTextures& t = ibl_.textures();
         SetIBLTextures(t.irradiance, t.prefiltered, t.brdfLUT, t.maxMip);
-        SetEnvironmentCube(env.drawSkybox ? t.environment : 0u);
-        if (skyboxPass_) skyboxPass_->setIntensity(env.skyIntensity);
+        ApplyPresentation_(env);
         return true;
     }
 
+    // Everything the environment settings do that does NOT need a bake: which
+    // cube the skybox draws, and how bright. Split out so SyncEnvironment can
+    // honour a change to either without paying for an IBL rebuild.
+    void Renderer::ApplyPresentation_(const EnvironmentSettings& env) {
+        const IBLTextures& t = ibl_.textures();
+        SetEnvironmentCube(env.drawSkybox ? t.environment : 0u);
+        if (skyboxPass_) skyboxPass_->setIntensity(env.skyIntensity);
+    }
+
     int Renderer::countLdrPostPasses_(const Scene& scene) const {
-        // MUST agree with each LDR post pass's own enable predicate, or the
-        // ping-pong routing (nextPostTarget) desyncs and the final image lands
-        // in an off-screen buffer. Order here is irrelevant (it's a count); the
-        // decrement order is the pipeline insertion order: vignette, then FXAA.
-        int n = 0;
-        const auto& p = scene.PostFX();
-        if (p.outline.enabled)    ++n;
-        if (p.colorGrade.enabled) ++n;
-        if (p.vignette.enabled)   ++n;
-        if (scene.GetAAEnabled()) ++n; // FXAA, always last
-        return n;
+        // Asked of the passes themselves (IRenderPass::wantsLdrSlot) rather than
+        // restated here. The old version listed only whether each EFFECT was
+        // enabled, while every pass also requires a valid shader and the outline
+        // requires scene depth -- so one failed post-shader compile made the
+        // count too high, nothing ever reached isFinal, and the whole frame was
+        // left in an off-screen buffer: a black window from a typo in GLSL.
+        // A pass added later is counted without touching this function.
+        return pipeline_.countLdrSlots(passCtx_, scene);
     }
 
     void Renderer::releaseLDR_() {

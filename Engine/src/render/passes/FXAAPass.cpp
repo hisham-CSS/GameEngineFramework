@@ -12,14 +12,17 @@ void FXAAPass::setup(PassContext&) {
         "Exported/Shaders/tonemap_vert.glsl", "Exported/Shaders/fxaa_frag.glsl");
 }
 
+// Runs last in the LDR chain when AA is on. A broken shader means no pass,
+// which the count has to see too -- hence this, and not a copy in the Renderer.
+bool FXAAPass::wantsLdrSlot(const PassContext&, const MyCoreEngine::Scene& scene) const {
+    return scene.GetAAEnabled() && shader_ && shader_->isValid();
+}
+
 bool FXAAPass::execute(PassContext& ctx, MyCoreEngine::Scene& scene, Camera&,
                        const FrameParams& fp) {
-    // Runs last in the LDR chain when AA is on. The predicate here MUST match
-    // what the Renderer counted into postPassesLeft, or the ping-pong routing
-    // desyncs; !ldrTex_A additionally guards the (rare) FBO-alloc-failed case.
-    if (!scene.GetAAEnabled() || !ctx.ldrTex_A || !shader_ || !shader_->isValid()) {
-        return false;
-    }
+    // ldrTex_A additionally guards the (rare) FBO-alloc-failed case, where the
+    // Renderer zeroes postPassesLeft and the whole chain stands down together.
+    if (!ctx.ldrTex_A || !wantsLdrSlot(ctx, scene)) return false;
     const PassContext::PostTarget t = ctx.nextPostTarget();
 
     glBindFramebuffer(GL_FRAMEBUFFER, t.dstFBO);

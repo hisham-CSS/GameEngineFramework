@@ -32,6 +32,15 @@ public:
     void executeAll(PassContext& ctx, MyCoreEngine::Scene& scene, Camera& cam, const FrameParams& fp) {
         for (auto& p : passes_) p->execute(ctx, scene, cam, fp);
     }
+
+    // How many LDR post passes will consume a ping-pong slot this frame. Asked
+    // of the passes themselves so the count cannot drift from what they do --
+    // see IRenderPass::wantsLdrSlot. A pass added later is counted for free.
+    int countLdrSlots(const PassContext& ctx, const MyCoreEngine::Scene& scene) const {
+        int n = 0;
+        for (const auto& p : passes_) if (p->wantsLdrSlot(ctx, scene)) ++n;
+        return n;
+    }
 private:
     std::vector<std::unique_ptr<IRenderPass>> passes_;
     size_t setupCount_ = 0; // high-water mark: passes [0, setupCount_) are set up

@@ -16,6 +16,7 @@ public:
     ~ColorGradePass() override;
     const char* name() const override { return "ColorGrade"; }
     void setup(PassContext&) override;
+    bool wantsLdrSlot(const PassContext&, const MyCoreEngine::Scene&) const override;
     bool execute(PassContext&, MyCoreEngine::Scene&, Camera&, const FrameParams&) override;
 
 private:

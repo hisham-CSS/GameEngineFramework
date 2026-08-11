@@ -14,10 +14,14 @@ void ColorGradePass::setup(PassContext&) {
         "Exported/Shaders/tonemap_vert.glsl", "Exported/Shaders/colorgrade_frag.glsl");
 }
 
+bool ColorGradePass::wantsLdrSlot(const PassContext&, const MyCoreEngine::Scene& scene) const {
+    return scene.PostFX().colorGrade.enabled && shader_ && shader_->isValid();
+}
+
 bool ColorGradePass::execute(PassContext& ctx, MyCoreEngine::Scene& scene, Camera&,
                              const FrameParams& fp) {
     const auto& g = scene.PostFX().colorGrade;
-    if (!g.enabled || !ctx.ldrTex_A || !shader_ || !shader_->isValid()) return false;
+    if (!ctx.ldrTex_A || !wantsLdrSlot(ctx, scene)) return false;
     const PassContext::PostTarget t = ctx.nextPostTarget();
 
     glBindFramebuffer(GL_FRAMEBUFFER, t.dstFBO);

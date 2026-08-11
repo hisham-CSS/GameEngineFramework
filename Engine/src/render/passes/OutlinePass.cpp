@@ -15,15 +15,18 @@ void OutlinePass::setup(PassContext&) {
         "Exported/Shaders/tonemap_vert.glsl", "Exported/Shaders/outline_frag.glsl");
 }
 
+// Needs the scene depth texture as well as the effect being on. hdrDepthTex is
+// published into the context before the Renderer counts, so it is safe to ask
+// here -- and it has to be asked, or a depth-less frame would be miscounted.
+bool OutlinePass::wantsLdrSlot(const PassContext& ctx, const MyCoreEngine::Scene& scene) const {
+    return scene.PostFX().outline.enabled && ctx.hdrDepthTex &&
+           shader_ && shader_->isValid();
+}
+
 bool OutlinePass::execute(PassContext& ctx, MyCoreEngine::Scene& scene, Camera& cam,
                           const FrameParams& fp) {
     const auto& o = scene.PostFX().outline;
-    // Needs a live chain AND the scene depth texture; predicate matches the
-    // Renderer's postPassesLeft count.
-    if (!o.enabled || !ctx.ldrTex_A || !ctx.hdrDepthTex ||
-        !shader_ || !shader_->isValid()) {
-        return false;
-    }
+    if (!ctx.ldrTex_A || !wantsLdrSlot(ctx, scene)) return false;
     const PassContext::PostTarget t = ctx.nextPostTarget();
 
     glBindFramebuffer(GL_FRAMEBUFFER, t.dstFBO);

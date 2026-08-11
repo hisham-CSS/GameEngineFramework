@@ -5,6 +5,7 @@
 
 #define UNIT_TEST 1
 #include "../src/render/passes/ShadowCSMPass.h"
+#include <algorithm>
 #include "../src/render/passes/ForwardOpaquePass.h"
 #include "../src/render/passes/TonemapPass.h"
 #include "Engine.h"
@@ -684,4 +685,180 @@ TEST_F(GLFixture, Tonemap_WritesToDefaultFBO) {
     // Expect non-black output (tonemap should write something)
     int sum = int(px[0]) + int(px[1]) + int(px[2]);
     EXPECT_GT(sum, 0) << "TonemapPass failed to write to default framebuffer";
+}
+
+// A PARTIAL cascade update submits only the STALE cascades, COMPACTED -- so
+// cascade 3 alone arrives at index 0 of the vector. The pass remaps that back
+// for the depth attachment, and the remap was assumed to cover everything; it
+// does not. Anything the callee derives from its own loop counter is then
+// wrong about which cascade it is drawing, and the shadow LOD rule did exactly
+// that: a lone FAR cascade was given the NEAR cascade's full-detail geometry.
+// CascadeParam::cascadeIndex is what makes the real index reachable.
+namespace {
+
+// Records what the pass actually submitted, in order.
+struct RecordingScene : NullScene {
+    std::vector<int> cascadeIndexAt;   // CascadeParam::cascadeIndex, per bucket
+    void RenderShadowsCombined(Shader&, const std::vector<CascadeParam>& cascades,
+                               std::function<void(int)> preDrawCallback) override {
+        for (size_t i = 0; i < cascades.size(); ++i) {
+            if (preDrawCallback) preDrawCallback((int)i);
+            cascadeIndexAt.push_back(cascades[i].cascadeIndex);
+        }
+    }
+};
+
+} // namespace
+
+TEST_F(GLFixture, ShadowCascadeParamCarriesItsRealIndexNotItsBucket) {
+    PassContext ctx{};
+    GLFixture::makeHDR(ctx);
+    ctx.sunDir = glm::normalize(glm::vec3(-0.2f, -1.0f, -0.1f));
+
+    ShadowCSMPass pass;
+    pass.setup(ctx);
+    pass.setNumCascades(4);
+    pass.setBaseResolution(256);
+    pass.setMaxShadowDistance(200.f);
+    pass.setCascadeUpdateBudget(0);   // no cap: submit exactly what is stale
+    pass.setUpdatePolicy(ShadowCSMPass::UpdatePolicy::CameraOrSunMoved);
+
+    Camera cam;
+    cam.Position = { 0, 2, 5 };
+    cam.Zoom = 60.f;
+    auto aim = [&cam](float yawDeg) {
+        const float y = glm::radians(yawDeg);
+        cam.Front = glm::normalize(glm::vec3(std::sin(y), -0.2f, -std::cos(y)));
+    };
+    auto frame = [&](RecordingScene& scene) {
+        FrameParams fp{};
+        fp.view = cam.GetViewMatrix();
+        fp.proj = glm::perspective(glm::radians(cam.Zoom), 1.0f, 0.1f, 1000.0f);
+        fp.viewportW = 64; fp.viewportH = 64;
+        pass.execute(ctx, scene, cam, fp);
+    };
+
+    aim(0.f);
+    { RecordingScene warm; frame(warm); }   // first frame renders all four
+
+    // Rotating in place stales the FAR cascades first: a cascade's slice centre
+    // swings by roughly its distance times the angle, while its movement margin
+    // only grows with its radius. So a few degrees leaves cascades 0-1 valid and
+    // sends 2-3 alone into a compacted batch -- exactly the shape that made the
+    // bucket and the cascade disagree.
+    bool sawDivergence = false;
+    for (int step = 1; step <= 12 && !sawDivergence; ++step) {
+        aim(step * 2.0f);
+        RecordingScene scene;
+        frame(scene);
+
+        const auto snap = pass.getDebugSnapshot();
+        ASSERT_EQ((int)scene.cascadeIndexAt.size(), snap.lastUpdatedCount)
+            << "submitted " << scene.cascadeIndexAt.size() << " cascade(s) but the "
+               "pass says it updated " << snap.lastUpdatedCount;
+
+        for (size_t b = 0; b < scene.cascadeIndexAt.size(); ++b) {
+            // lastUpdatedIdx[b] is the pass's own record of which cascade sits
+            // in bucket b. The parameter has to agree with it, not with b.
+            EXPECT_EQ(scene.cascadeIndexAt[b], snap.lastUpdatedIdx[b])
+                << "bucket " << b << " on step " << step
+                << " carries cascadeIndex " << scene.cascadeIndexAt[b]
+                << " but the pass rendered cascade " << snap.lastUpdatedIdx[b]
+                << " there -- a callee keying LOD off its loop counter would give "
+                   "this cascade the wrong geometry";
+            if (scene.cascadeIndexAt[b] != (int)b) sawDivergence = true;
+        }
+    }
+
+    EXPECT_TRUE(sawDivergence)
+        << "no compacted batch ever occurred, so this test could not tell a "
+           "bucket-keyed rule from a cascade-keyed one; the update cadence must "
+           "have changed";
+}
+
+// snapshot() -- and Renderer::getCSMSnapshot() behind it -- returned a
+// default-constructed struct forever: snap_ was declared, returned, and never
+// written, while the real cascade state went straight into ctx.csm through
+// three copies of the same block. A caller reading the accessor saw
+// enabled=false, cascades=0 and would reasonably conclude shadows were off.
+TEST_F(GLFixture, CSMSnapshotAccessorReportsWhatThePassPublished) {
+    PassContext ctx{};
+    GLFixture::makeHDR(ctx);
+    ctx.sunDir = glm::normalize(glm::vec3(-0.2f, -1.0f, -0.1f));
+
+    ShadowCSMPass pass;
+    pass.setup(ctx);
+    pass.setNumCascades(3);
+    pass.setBaseResolution(256);
+    pass.setMaxShadowDistance(120.f);
+
+    EXPECT_FALSE(pass.snapshot().enabled) << "nothing has executed yet";
+
+    Camera cam; cam.Position = { 0, 2, 5 }; cam.Zoom = 60.f;
+    cam.Front = glm::normalize(glm::vec3(0, -0.2f, -1));
+    FrameParams fp{};
+    fp.view = cam.GetViewMatrix();
+    fp.proj = glm::perspective(glm::radians(cam.Zoom), 1.0f, 0.1f, 1000.0f);
+    fp.viewportW = 64; fp.viewportH = 64;
+
+    NullScene scene;
+    pass.execute(ctx, scene, cam, fp);
+
+    const CSMSnapshot& s = pass.snapshot();
+    EXPECT_TRUE(s.enabled) << "the pass rendered cascades but reports CSM off";
+    EXPECT_EQ(s.cascades, 3);
+    for (int i = 0; i < 3; ++i) {
+        EXPECT_EQ(s.depthTex[i], ctx.csm.depthTex[i]) << "cascade " << i;
+        EXPECT_EQ(s.splitFar[i], ctx.csm.splitFar[i]) << "cascade " << i;
+        EXPECT_EQ(s.resPer[i], ctx.csm.resPer[i]) << "cascade " << i;
+        EXPECT_NE(s.depthTex[i], 0u) << "cascade " << i << " has no depth texture";
+    }
+
+    // Disabling must be published too, or a stale snapshot outlives the feature.
+    pass.setEnabled(false);
+    pass.execute(ctx, scene, cam, fp);
+    EXPECT_FALSE(pass.snapshot().enabled) << "CSM was switched off; the accessor still says on";
+}
+
+// forceUpdate() is what a host calls when the WORLD changed in a way the
+// dirty-caster flow cannot express -- above all a scene swap, which replaces
+// the entire caster set: the departed casters have no Transform left to mark
+// dirty, and the arrivals\' dirty flags are consumed by SceneLoader\'s own
+// UpdateTransforms before the renderer ever sees them. Application::Run calls
+// it on the swap frame, and if this primitive stops rebuilding every cascade
+// the new scene silently renders against the old scene\'s depth maps.
+TEST_F(GLFixture, ForceUpdateRebuildsEveryCascadeEvenWithNothingMoving) {
+    PassContext ctx{};
+    GLFixture::makeHDR(ctx);
+    ctx.sunDir = glm::normalize(glm::vec3(-0.2f, -1.0f, -0.1f));
+
+    ShadowCSMPass pass;
+    pass.setup(ctx);
+    pass.setNumCascades(4);
+    pass.setBaseResolution(256);
+    pass.setMaxShadowDistance(200.f);
+    pass.setCascadeUpdateBudget(0);
+    pass.setUpdatePolicy(ShadowCSMPass::UpdatePolicy::CameraOrSunMoved);
+
+    Camera cam; cam.Position = { 0, 2, 5 }; cam.Zoom = 60.f;
+    cam.Front = glm::normalize(glm::vec3(0, -0.2f, -1));
+    FrameParams fp{};
+    fp.view = cam.GetViewMatrix();
+    fp.proj = glm::perspective(glm::radians(cam.Zoom), 1.0f, 0.1f, 1000.0f);
+    fp.viewportW = 64; fp.viewportH = 64;
+
+    NullScene scene;
+    pass.execute(ctx, scene, cam, fp);                       // first frame: all four
+    ASSERT_EQ(pass.getDebugSnapshot().lastUpdatedCount, 4);
+
+    pass.execute(ctx, scene, cam, fp);                       // nothing moved
+    ASSERT_EQ(pass.getDebugSnapshot().lastUpdatedCount, 0)
+        << "the cascades did not settle, so this test cannot show a forced rebuild";
+
+    pass.forceUpdate();                                      // <- the swap frame
+    pass.execute(ctx, scene, cam, fp);
+    EXPECT_EQ(pass.getDebugSnapshot().lastUpdatedCount, 4)
+        << "forceUpdate rebuilt only " << pass.getDebugSnapshot().lastUpdatedCount
+        << " of 4 cascades with the camera still -- a scene swap would keep "
+           "rendering the departed scene\'s shadows";
 }

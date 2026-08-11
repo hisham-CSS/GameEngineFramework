@@ -18,12 +18,22 @@ Tonemap normally writes straight to the output. But when one or more LDR effects
 are enabled, tonemap instead writes into buffer **A** of a ping-pong pair, each
 effect bounces the image A↔B, and the **last** enabled effect resolves to the
 output. The pair (`ldrFBO_`/`ldrFBO2_`) is allocated only while the chain is
-non-empty, so a scene with no post pays no memory. The count that drives the
-routing is `Renderer::countLdrPostPasses_`; each effect's own enable predicate
-must match it, or the routing desyncs.
+non-empty, so a scene with no post pays no memory.
 
-This design means adding an LDR effect is a small, self-contained fullscreen
-pass (see `VignettePass` for the template).
+The count that drives the routing is `Renderer::countLdrPostPasses_`, and it
+does not re-derive anything: it asks each pass `IRenderPass::wantsLdrSlot`,
+which is the same expression the pass's own `execute` guards on. That matters
+because the two must never disagree — if the count is too **high**, no pass ever
+sees itself as the last one, so the finished frame is left in an off-screen
+ping-pong buffer and the window shows the clear colour, with nothing logged. A
+post shader that failed to compile did exactly that when the count asked only
+whether the effect was switched on.
+
+So adding an LDR effect is a small, self-contained fullscreen pass (see
+`VignettePass` for the template) plus a `wantsLdrSlot` override stating every
+condition under which it will actually draw — a valid shader included. Passes
+that are not chain stages, such as `UIPass`, inherit the base `false` and are
+counted out automatically.
 
 ## Scene-depth texture
 

@@ -163,7 +163,10 @@ private:
     void markDirty_() { shadowParamsDirty_ = true; forceFullUpdateOnce_ = true; }
 
     // published to PassContext for other passes to read
+    // What the pass published on its LAST execute -- kept in step with ctx.csm
+    // by publish_(), which is the only writer of either.
     CSMSnapshot snap_{};
+    void publish_(PassContext& ctx, bool on);
 
     #ifdef UNIT_TEST
     public:

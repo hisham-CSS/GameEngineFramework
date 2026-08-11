@@ -67,6 +67,10 @@ namespace MyCoreEngine {
         // drift. Costs milliseconds — call it on change, never per frame.
         // Returns false and keeps the previous environment on failure.
         bool ApplyEnvironment(const EnvironmentSettings& env, const glm::vec3& sunDir);
+        // The cube the skybox is currently drawing (0 = none). Mirrors
+        // SetEnvironmentCube, and lets a host or a test see whether the
+        // "Draw skybox" setting actually landed.
+        unsigned int EnvironmentCube() const { return iblEnvironment_; }
         const std::string& EnvironmentError() const { return ibl_.lastError(); }
 
         // Re-bakes ONLY when the settings (or, for the procedural sky, the sun
@@ -218,6 +222,10 @@ namespace MyCoreEngine {
         // The chain buffers are needed iff this is > 0.
         int  countLdrPostPasses_(const Scene& scene) const;
         IBLBaker    ibl_;
+        // Bake-free half of ApplyEnvironment: which cube the skybox draws and
+        // how bright. Safe to call every frame; costs nothing.
+        void ApplyPresentation_(const EnvironmentSettings& env);
+
         unsigned int iblEnvironment_ = 0;
         EnvironmentSettings appliedEnv_{};
         glm::vec3           appliedSunDir_{ 0.f };
