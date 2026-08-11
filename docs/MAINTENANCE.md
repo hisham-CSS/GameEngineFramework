@@ -70,6 +70,11 @@ The process that works here, and has now found drift twice at scale:
    to refuted when uncertain, or when the claimed "reality" is itself wrong.
 3. **Spot-check the survivors yourself** against source before acting on them.
 
+The most recent run is preserved verbatim in
+[AUDIT_FINDINGS.md](AUDIT_FINDINGS.md) -- 12 readers, 85 agents, 52 findings
+that survived refutation. Treat it as a work queue and re-read each entry
+against the source before acting on it.
+
 Step 2 is what makes it worth doing. Reviewers are confidently wrong often
 enough that an unfiltered list wastes more time than it saves; a refutation pass
 turns a pile of maybes into a short list of facts. Step 3 is not optional
