@@ -123,6 +123,14 @@ bool SceneLoader::RequestSwap(std::string path, SceneSwapOrigin origin) {
         return false;
     }
 
+    // A SYNCHRONOUS request supersedes a warming one too, and has to drop its
+    // handles. RequestSwapAsync clears them on its own way in, but nothing did
+    // when a plain RequestSwap replaced a prewarmed swap -- so those models
+    // stayed pinned in the cache for the rest of the session, and
+    // swapPrewarming() kept reporting true against a swap that no longer
+    // existed, which would hold a host's loading screen up forever.
+    prewarm_.clear();
+
     if (pending_) {
         std::cerr << "[SceneLoader] swap to '" << pending_->path
                   << "' superseded by '" << path << "' before it ran.\n";

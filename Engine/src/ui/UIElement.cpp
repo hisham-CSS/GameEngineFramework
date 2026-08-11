@@ -897,8 +897,6 @@ void UIDocument::draw_(const UIElement& el, Renderer2D& r2d, const Font* font,
     boxStyle.fillTo = s.backgroundColorTo;
     boxStyle.borderPx = sx_(s.borderWidth);
     boxStyle.borderColor = s.borderColor;
-    const bool shaped = boxStyle.radiusPx > 0.0f || boxStyle.borderPx > 0.0f;
-
     // The image is a SEPARATE quad over the background colour, never a tint of
     // it. Multiplying by backgroundColor looks obvious and is fatal: the
     // default is fully transparent, so the first panel anybody writes would
@@ -906,10 +904,36 @@ void UIDocument::draw_(const UIElement& el, Renderer2D& r2d, const Font* font,
     UITextureCache::Entry img;
     if (s.backgroundImage != 0 && g_uiTextures) img = g_uiTextures->Get(s.backgroundImage);
 
+    // THE IMAGE QUAD IS NOT THE FILL QUAD, and sharing one BoxStyle between
+    // them was wrong in two ways at once.
+    //
+    // It keeps the RADIUS -- it has to be clipped to the same silhouette, or a
+    // rounded panel would square off its own backdrop. It must NOT keep the
+    // GRADIENT: DrawBox writes the ramp into the four vertex colours and the
+    // box shader multiplies the sampled texel by that colour, so a shared
+    // style fades the ARTWORK from white to background-color-to. Asking the
+    // background COLOUR to ramp silently ramped the picture on top of it.
+    Renderer2D::BoxStyle imgStyle = boxStyle;
+    imgStyle.gradient = Renderer2D::BoxGradient::None;
+    imgStyle.fillTo = glm::vec4(1.0f);   // unread once the mode is None
+
+    // ...and the border is ONE signed-distance evaluation, so exactly ONE quad
+    // may carry it. Two quads each compositing a translucent band paint it at
+    // 1-(1-a)^2, so a 0.35 border came out at 0.58. It has to be the LAST
+    // quad, because the fill covers the whole silhouette INCLUDING the band --
+    // a border left on the colour quad alone would be buried under an opaque
+    // image.
+    Renderer2D::BoxStyle fillStyle = boxStyle;
+    if (img.texture) {
+        fillStyle.borderPx = 0.0f;
+        fillStyle.borderColor = glm::vec4(0.0f);
+    }
+    const bool shaped = fillStyle.radiusPx > 0.0f || fillStyle.borderPx > 0.0f;
+
     if (s.backgroundColor.a > 0.0f || shaped) {
         // DrawBox degrades to a plain sprite when it needs neither a radius nor
         // a border, so an unstyled background costs exactly what it always did.
-        r2d.DrawBox(L.position, L.size, s.backgroundColor, boxStyle, 0, TexRegion{}, layer);
+        r2d.DrawBox(L.position, L.size, s.backgroundColor, fillStyle, 0, TexRegion{}, layer);
     }
     if (img.texture) {
         TexRegion region;
@@ -918,7 +942,7 @@ void UIDocument::draw_(const UIElement& el, Renderer2D& r2d, const Font* font,
         }
         // Same layer as the fill and emitted after it, so it composites over
         // the colour and no child's layer can land between the two.
-        r2d.DrawBox(L.position, L.size, glm::vec4(1.0f), boxStyle,
+        r2d.DrawBox(L.position, L.size, glm::vec4(1.0f), imgStyle,
                     img.texture, region, layer);
     }
 
@@ -2301,7 +2325,8 @@ void UIDocument::UpdateKeyboard(const UIKeyboardState& kb, const Font* font) {
         // This is why the arrows are NOT bound as InputMap nav actions -- they
         // would arrive here AND through UpdateNav in the same frame, and a
         // slider would move two notches per press. WASD has no such chain
-        // available (UIKey has no letters, because a letter is text) and so
+        // available (UIKey carries letters only as editing chords, never as a
+        // bare press -- a bare letter arrives as TextInput) and so
         // goes the other way. See BindDefaultActions.
         if (!consumed && (k.key == UIKey::Up || k.key == UIKey::Down ||
                           k.key == UIKey::Left || k.key == UIKey::Right)) {

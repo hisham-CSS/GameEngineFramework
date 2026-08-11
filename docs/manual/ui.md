@@ -401,8 +401,10 @@ the whole design:
   first, then a tab strip, then a focused slider's notch, then page scrolling,
   and only then do they fall through to a focus move. The precedence is free,
   by construction rather than by special case.
-- **WASD** goes through `InputMap` and `UINavSynth`, because `UIKey` has no
-  letters and never will — a letter is text.
+- **WASD** goes through `InputMap` and `UINavSynth`. `UIKey` does carry A, C,
+  V, X, Z and Y, but only as editing **chords** — a host maps them from a
+  Ctrl-modified press, and a bare letter arrives as `TextInput` — so there is no
+  plain-W key event to route.
 
 The arrows are deliberately **not** bound as nav actions. They would then
 arrive down both paths in one frame, and a focused slider would move two

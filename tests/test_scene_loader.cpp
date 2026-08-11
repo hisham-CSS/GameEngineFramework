@@ -859,3 +859,57 @@ TEST(SceneLoaderAsync, CancellingAWarmingSwapReleasesItsModels) {
     jobs.pumpCompletions(1.0f);   // the in-flight decodes must still land safely
     std::remove("test_async_cancel.json");
 }
+
+
+// A SYNCHRONOUS request supersedes a warming one too, and must drop its
+// handles. Nothing did: the models stayed pinned for the rest of the session,
+// and swapPrewarming() kept reporting true against a swap that no longer
+// existed -- which would hold a host loading screen up forever.
+TEST(SceneLoaderAsync, ASynchronousRequestReleasesAWarmingSwapsModels) {
+    writeModelScene("test_async_warm.json", 3);
+    writeScene("test_async_sync.json", 2);
+
+    AssetManager assets;
+    JobSystem jobs;
+    Scene scene;
+    SceneLoader loader(scene, assets);
+    loader.SetJobSystem(&jobs);
+
+    ASSERT_TRUE(loader.RequestSwapAsync("test_async_warm.json", SceneSwapOrigin::Host));
+    ASSERT_EQ(loader.prewarmTotal(), 3u);
+
+    ASSERT_TRUE(loader.RequestSwap("test_async_sync.json", SceneSwapOrigin::Host));
+    EXPECT_EQ(loader.prewarmTotal(), 0u)
+        << "a plain RequestSwap left the superseded swap's models pinned";
+    EXPECT_FALSE(loader.swapPrewarming())
+        << "the loader still reports warming for a swap that no longer exists";
+
+    EXPECT_TRUE(loader.DrainPendingSwap()) << "the synchronous swap never ran";
+    EXPECT_EQ(namedCount(scene), 2);
+
+    std::remove("test_async_warm.json");
+    std::remove("test_async_sync.json");
+}
+
+// ...but a REFUSED request must not cancel a legitimate warm: validation runs
+// before anything is touched, and that has to include the prewarm.
+TEST(SceneLoaderAsync, ARefusedRequestLeavesAWarmingSwapAlone) {
+    writeModelScene("test_async_keep.json", 3);
+    AssetManager assets;
+    JobSystem jobs;
+    Scene scene;
+    SceneLoader loader(scene, assets);
+    loader.SetJobSystem(&jobs);
+
+    ASSERT_TRUE(loader.RequestSwapAsync("test_async_keep.json", SceneSwapOrigin::Host));
+    ASSERT_EQ(loader.prewarmTotal(), 3u);
+
+    EXPECT_FALSE(loader.RequestSwap("no_such_scene_at_all.json", SceneSwapOrigin::Host));
+    EXPECT_EQ(loader.prewarmTotal(), 3u)
+        << "a swap that was refused threw away the warm in progress";
+    EXPECT_EQ(loader.pendingPath(), "test_async_keep.json");
+
+    ASSERT_TRUE(settle(loader, jobs));
+    EXPECT_TRUE(loader.DrainPendingSwap());
+    std::remove("test_async_keep.json");
+}

@@ -228,8 +228,10 @@ namespace MyCoreEngine {
         // would move two notches per tap and a tab strip would switch tabs AND
         // move focus off the strip.
         //
-        // WASD cannot use that path at all -- UIKey deliberately has no letters,
-        // because a letter is text -- so it comes through here, and the host
+        // WASD cannot use that path at all. UIKey carries A, C, V, X, Z and Y,
+        // but ONLY as editing chords: a host maps them from a Ctrl-modified
+        // press, and a bare letter arrives as TextInput. There is no plain-W
+        // key event to route, so WASD comes through here, and the host
         // silences the KEY half of these actions (not the pad half, which types
         // nothing) whenever the UI wants text input. See UINavSynth::Poll.
         //

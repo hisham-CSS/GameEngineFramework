@@ -110,7 +110,12 @@ namespace MyCoreEngine {
             // a line's contents never change because of text further down.
             Greedy,
             // Minimise total RAGGEDNESS over the whole paragraph -- the sum of
-            // squared leftover space on every line but the last.
+            // squared leftover space on EVERY line, the last one included.
+            // Knuth-Plass frees the last line because a justified final line is
+            // set flush-left and its slack is not raggedness; freeing it here
+            // makes the whole thing degenerate to greedy for any two-line
+            // paragraph, since the cheapest answer becomes "pack line one as
+            // full as possible".
             //
             // This is Knuth-Plass with the stretch and shrink removed, and the
             // removal is forced rather than a simplification: DrawText walks
