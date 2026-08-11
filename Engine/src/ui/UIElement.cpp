@@ -667,7 +667,8 @@ ScrollBarRects ComputeScrollBars(const glm::vec2& boxPos, const glm::vec2& boxSi
                                  const glm::vec2& offset, const glm::vec2& minOffset,
                                  const glm::vec2& maxOffset,
                                  float barWidth, float minThumb, bool alwaysVisible,
-                                 float cornerInsetPx) {
+                                 float cornerInsetPx,
+                                 bool canScrollX, bool canScrollY) {
     ScrollBarRects out{};
     if (boxSize.x <= 0.0f || boxSize.y <= 0.0f) return out;
 
@@ -682,8 +683,8 @@ ScrollBarRects ComputeScrollBars(const glm::vec2& boxPos, const glm::vec2& boxSi
     const glm::vec2 span = maxOffset - minOffset;
     // `always` paints on an axis that COULD scroll even while its content fits;
     // the thumb then fills its track and simply does not move.
-    const bool paintY = span.y > 0.0f || (alwaysVisible && maxOffset.y >= minOffset.y);
-    const bool paintX = span.x > 0.0f || (alwaysVisible && maxOffset.x >= minOffset.x);
+    const bool paintY = span.y > 0.0f || (alwaysVisible && canScrollY);
+    const bool paintX = span.x > 0.0f || (alwaysVisible && canScrollX);
     if (!paintX && !paintY) return out;
 
     // Each track stops short of the other, or the two overlap in a bar-by-bar
@@ -740,7 +741,11 @@ void UIDocument::updateScrollBars_(UIElement& el) {
         st.scrollbarVisibility == ScrollbarVisibility::Always,
         // The corner inset IS the radius: that is exactly how far in the
         // silhouette has pulled away from the box at the ends of each track.
-        sx_(st.borderRadius));
+        sx_(st.borderRadius),
+        // Which axes can scroll at all. `always` must not conjure a bar on an
+        // axis the style says is hidden -- a zero range cannot tell the two
+        // apart on its own.
+        ScrollsOnX(st), ScrollsOnY(st));
     sc.trackX = r.trackX; sc.thumbX = r.thumbX;
     sc.trackY = r.trackY; sc.thumbY = r.thumbY;
 }
@@ -929,8 +934,15 @@ void UIDocument::draw_(const UIElement& el, Renderer2D& r2d, const Font* font,
         fillStyle.borderColor = glm::vec4(0.0f);
     }
     const bool shaped = fillStyle.radiusPx > 0.0f || fillStyle.borderPx > 0.0f;
+    // A GRADIENT IS ITS OWN REASON TO PAINT. `shaped` predates gradients and
+    // the emit test below only ever asked about the FROM stop, so an element
+    // fading transparent -> opaque dropped its quad entirely, while the same
+    // two stops in the other order painted fine. The TO stop's alpha is half
+    // the fill and has to count.
+    const bool gradientPaints = fillStyle.gradient != Renderer2D::BoxGradient::None &&
+                                fillStyle.fillTo.a > 0.0f;
 
-    if (s.backgroundColor.a > 0.0f || shaped) {
+    if (s.backgroundColor.a > 0.0f || shaped || gradientPaints) {
         // DrawBox degrades to a plain sprite when it needs neither a radius nor
         // a border, so an unstyled background costs exactly what it always did.
         r2d.DrawBox(L.position, L.size, s.backgroundColor, fillStyle, 0, TexRegion{}, layer);
@@ -1288,6 +1300,29 @@ bool UIDocument::bubble_(UIElement* target, UIEvent& e) {
         if (e.propagationStopped) return ran;
     }
     return ran;
+}
+
+// Like bubble_, but the FIRST element that answers ends the walk.
+//
+// Back means "back out of ONE level", so the element that handles it IS that
+// level. bubble_ deliberately visits every ancestor, and a bound `on-back`
+// never claims its event -- UIBinding attaches it through the ordinary listener
+// path, which does not stopPropagation. So one Escape inside a nested panel ran
+// the inner panel's on-back AND its parent's AND the root's, closing the whole
+// stack at once. The user saw a single keypress take them from a sub-page all
+// the way out to the main menu.
+//
+// stopPropagation is still honoured, and still means the same thing; this just
+// stops requiring every author to remember it on an event where continuing is
+// never what they wanted.
+bool UIDocument::bubbleUntilHandled_(UIElement* target, UIEvent& e) {
+    e.target = target;
+    for (UIElement* cur = target; cur; cur = cur->parent_) {
+        e.currentTarget = cur;
+        if (cur->dispatchLocal_(e)) return true;
+        if (e.propagationStopped) return false;
+    }
+    return false;
 }
 
 bool UIDocument::isInTree_(const UIElement* el) const {
@@ -2118,7 +2153,8 @@ bool UIDocument::Back() {
         // No blur here either -- inside a declared scope, an unwanted back
         // should leave you exactly where you were rather than stranding the
         // page with nothing focused and no pointer to recover it.
-        if (bubble_(scopeStack_.back(), e)) return true;
+        // ONE level per press: bubbleUntilHandled_, not bubble_.
+        if (bubbleUntilHandled_(scopeStack_.back(), e)) return true;
         backUnhandled_ = true;
         return false;
     }
@@ -2237,34 +2273,20 @@ void UIDocument::UpdateKeyboard(const UIKeyboardState& kb, const Font* font) {
             if (consumed) afterEdit(target, changed);
         }
 
-        // Scrolling is the next default action, after the focused element's own
-        // editing and before Tab navigation.
+        // A FOCUSED SLIDER takes its own keys AHEAD OF THE SCROLL DEFAULTS
+        // BELOW -- Left/Right so an arrow on a slider inside a scroller moves
+        // the value rather than paging the container, and Home/End so they mean
+        // "minimum" and "maximum" rather than "scroll to the top of whatever
+        // this happens to sit in". That gives a focused <Slider> the same
+        // precedence a focused <TextField> already had, and it is what the
+        // block's own comment always claimed: it used to sit AFTER the scroll
+        // defaults, so inside a scrollable settings panel -- the one place a
+        // slider is likely to be -- Home and End were swallowed by the
+        // container and the slider never saw them.
         //
-        // The precedence with a focused <TextField> is a deliberate asymmetry,
-        // and it matches a browser's <textarea>:
-        //   Home/End  never get here — UITextEdit consumes them unconditionally,
-        //             and inside a multi-line field they are already LINE-aware.
-        //             So "Home scrolls to the top" works only when focus is on
-        //             the scroller itself.
-        //   PageUp/Dn do get here — UITextEdit deliberately does not take them —
-        //             so a focused field pages its container while its own caret
-        //             stays put.
-        // Walked from `target` (the revalidated focused element), never from
-        // hovered_: UIWorld routes the keyboard and the pointer to different
-        // documents on purpose, so the hovered scroller may not be receiving
-        // keys at all.
-        if (!consumed && (k.key == UIKey::PageUp || k.key == UIKey::PageDown ||
-                          k.key == UIKey::Home || k.key == UIKey::End)) {
-            consumed = keyboardScroll_(target, k.key);
-        }
-
-        // A FOCUSED SLIDER takes the arrows along its own axis, ahead of the
-        // scroll defaults below -- otherwise Left/Right on a slider inside a
-        // scroller would page the container instead of moving the value, which
-        // is the one thing the user is looking at.
-        //
-        // The cross-axis arrows are deliberately left alone, so Up/Down still
-        // reach navigation on a horizontal slider.
+        // PageUp/PageDown still page the container: the slider declines them.
+        // The cross-axis arrows are deliberately left alone too, so Up/Down
+        // still reach navigation on a horizontal slider.
         if (!consumed && target && target->slider()) {
             UISliderState& sl = *target->slider();
             const UIKey lo = sl.vertical ? UIKey::Down : UIKey::Left;
@@ -2280,6 +2302,29 @@ void UIDocument::UpdateKeyboard(const UIKeyboardState& kb, const Font* font) {
                 scrollDirty_ = true;
                 consumed = true;
             }
+        }
+
+        // Scrolling is the next default action, after the focused element's own
+        // editing and its own keys, and before Tab navigation.
+        //
+        // The precedence with a focused <TextField> is a deliberate asymmetry,
+        // and it matches a browser's <textarea>:
+        //   Home/End  never get here — UITextEdit consumes them unconditionally,
+        //             and inside a multi-line field they are already LINE-aware.
+        //             So "Home scrolls to the top" works only when focus is on
+        //             the scroller itself.
+        //   PageUp/Dn do get here — UITextEdit deliberately does not take them —
+        //             so a focused field pages its container while its own caret
+        //             stays put.
+        // A focused <Slider> is the same shape: it takes Home/End above and
+        // declines PageUp/PageDown.
+        // Walked from `target` (the revalidated focused element), never from
+        // hovered_: UIWorld routes the keyboard and the pointer to different
+        // documents on purpose, so the hovered scroller may not be receiving
+        // keys at all.
+        if (!consumed && (k.key == UIKey::PageUp || k.key == UIKey::PageDown ||
+                          k.key == UIKey::Home || k.key == UIKey::End)) {
+            consumed = keyboardScroll_(target, k.key);
         }
 
         // ENTER ACTIVATES. Until this existed the key simply fell off the end

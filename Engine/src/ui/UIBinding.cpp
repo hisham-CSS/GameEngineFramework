@@ -732,6 +732,14 @@ bool UIBinder::apply_(Entry& e) {
     return false;
 }
 
+void UIBinder::RecascadeAfterClassChange(UIElement* el) {
+    if (!sheet_ || !el) return;
+    const bool wasIn = inRecascade_;
+    inRecascade_ = true;
+    recascadeFor_(el);
+    inRecascade_ = wasIn;
+}
+
 std::size_t UIBinder::ReapplyForSubtree(UIElement* root) {
     if (!root) return 0;
     std::size_t n = ReapplyFor(root);

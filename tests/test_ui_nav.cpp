@@ -1598,3 +1598,61 @@ TEST(UIKeyboardNav, EnterStillActivatesAButton) {
     doc.UpdateKeyboard(kb, nullptr);
     EXPECT_EQ(clicks, 1);
 }
+
+// ONE press, ONE level.
+//
+// Back used to dispatch through the general bubble_, which visits every
+// ancestor and stops only on stopPropagation -- and a bound `on-back` never
+// claims its event, because UIBinding attaches it through the ordinary listener
+// path. So in a NESTED panel a single Escape ran the inner panel's on-back, and
+// its parent's, and the root's: the user pressed back once inside a sub-page
+// and was thrown all the way out to the top of the menu.
+TEST(UIFocusScope, BackClosesExactlyOneLevelOfANestedStack) {
+    UIDocument doc;
+    UIDataSource src;
+    UIBindingContext ctx;
+    UIBinder binder;
+    std::vector<std::string> errors;
+
+    int outerBacks = 0, innerBacks = 0;
+    ctx.RegisterSource("s", &src);
+    src.SetBool("outer", true);
+    src.SetBool("inner", true);
+    src.AddAction("closeOuter", [&] { ++outerBacks; src.SetBool("outer", false); });
+    src.AddAction("closeInner", [&] { ++innerBacks; src.SetBool("inner", false); });
+
+    // An inner scope nested INSIDE an outer one, each with its own on-back.
+    const char* xml =
+        R"(<UI data-source="s">)"
+        R"(<Element name="outer" focus-scope="true" if="outer" on-back="closeOuter">)"
+        R"(  <Button name="o1" text="o"/>)"
+        R"(  <Element name="inner" focus-scope="true" if="inner" on-back="closeInner">)"
+        R"(    <Button name="i1" text="i"/>)"
+        R"(  </Element>)"
+        R"(</Element></UI>)";
+    ASSERT_TRUE(UIMarkup::LoadInto(doc, xml, errors, "t.cxml"))
+        << (errors.empty() ? std::string() : errors[0]);
+    binder.Rebuild(doc, ctx, "t.cxml");
+    binder.UpdateToTarget();
+    doc.Layout(400.f, 400.f);
+    binder.UpdateToTarget();
+    doc.UpdateNav(UINavState{});   // settle the scope stack
+
+    // One back press, with the inner panel open.
+    binder.UpdateToTarget();
+    doc.UpdateNav(navBack());
+    binder.UpdateToTarget();
+
+    EXPECT_EQ(innerBacks, 1) << "the innermost scope did not handle back";
+    EXPECT_EQ(outerBacks, 0)
+        << "back ran the OUTER panel's on-back as well -- one press closed two "
+           "levels, so a nested page throws the user out to the top";
+    EXPECT_FALSE(src.GetBool("inner")) << "the inner panel did not close";
+    EXPECT_TRUE(src.GetBool("outer")) << "the outer panel closed too";
+
+    // A second press then closes the outer one, which is the whole point.
+    doc.UpdateNav(navBack());
+    binder.UpdateToTarget();
+    EXPECT_EQ(outerBacks, 1) << "the second press did not reach the outer scope";
+    EXPECT_FALSE(src.GetBool("outer"));
+}

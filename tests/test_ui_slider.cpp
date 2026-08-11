@@ -291,3 +291,54 @@ TEST(UISliderMarkup, ClampsItsAuthoredStartingValue) {
         << (errs.empty() ? "" : errs[0]);
     EXPECT_FLOAT_EQ(doc.root().Find("s")->slider()->value, 1.0f);
 }
+
+// A slider inside a SCROLLER -- which is where sliders actually live, since a
+// settings panel is the canonical use for both.
+//
+// The keyboard default actions run in order, and the slider block used to sit
+// AFTER the scroll block. keyboardScroll_ walks up from the focused element and
+// takes Home/End on the first ancestor with real vertical range, so in a
+// scrollable panel the slider never saw them: Home jumped the panel to the top
+// instead of setting the value to its minimum. Left/Right were unaffected
+// (keyboardScroll_ is only called for the four paging keys), which is why the
+// bug survived -- the arrows worked, so the control felt alive.
+TEST(UISlider, HomeAndEndReachASliderInsideAScroller) {
+    Rig r;
+    ASSERT_TRUE(r.Load(
+        R"(<UI data-source="s"><Element name="panel">)"
+        R"(<Slider name="s" bind-value="vol" min="0" max="1"/>)"
+        R"(<Element name="filler"/>)"
+        R"(</Element></UI>)",
+        // The panel is a real vertical scroller: 100px tall, 900px of content.
+        "#panel { width: 200px; height: 100px; overflow-y: scroll; } "
+        "#s { width: 200px; height: 20px; } "
+        "#filler { width: 200px; height: 880px; }")) << r.firstError();
+
+    UIElement* panel = r.doc.root().Find("panel");
+    ASSERT_NE(panel, nullptr);
+    ASSERT_TRUE(panel->scrollState() != nullptr && panel->scrollState()->scrollsY())
+        << "the panel is not actually scrollable, so this test proves nothing";
+
+    r.doc.SetFocus(r.slider());
+    r.state().SetValue(0.5f);
+    const glm::vec2 scrollBefore = panel->scrollOffset();
+
+    r.Key(UIKey::Home);
+    EXPECT_FLOAT_EQ(r.state().value, 0.0f)
+        << "Home was swallowed by the scroll container instead of setting the "
+           "slider to its minimum";
+    r.Key(UIKey::End);
+    EXPECT_FLOAT_EQ(r.state().value, 1.0f)
+        << "End was swallowed by the scroll container";
+
+    EXPECT_FLOAT_EQ(panel->scrollOffset().y, scrollBefore.y)
+        << "the container scrolled as well -- the key was consumed twice";
+
+    // The other half of the contract: PageUp/PageDown still belong to the
+    // container, because the slider declines them.
+    r.Key(UIKey::PageDown);
+    EXPECT_GT(panel->scrollOffset().y, scrollBefore.y)
+        << "PageDown no longer pages the container -- the slider is now taking "
+           "keys it should leave alone";
+    EXPECT_FLOAT_EQ(r.state().value, 1.0f) << "PageDown moved the slider value";
+}

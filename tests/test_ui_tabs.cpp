@@ -633,3 +633,65 @@ TEST(UITabs, ABareBindSelectedPathUsesTheScopeSource) {
     r.Frame();
     EXPECT_EQ(r.hud.GetInt("activeTab"), 1);
 }
+
+// THE SELECTED HEADER MUST ACTUALLY RESTYLE.
+//
+// UITabView writes `.tab-selected` onto the chosen header with AddClass, and a
+// comment claimed AddClass/RemoveClass "re-cascade on their own". They do not:
+// both only record the class, and the cascade has no undo. So the class was on
+// the element, the rule was in the sheet, and the header never changed
+// appearance -- the one visual affordance a tab strip has.
+TEST(UITabView, SelectingAHeaderRestylesIt) {
+    UIDataSource tabSrc, hud;
+    UIBindingContext ctx;
+    UIDocument doc;
+    std::vector<UITabSpec> specs;
+    std::vector<std::string> errors;
+    std::vector<std::unique_ptr<UITabView>> views;
+    UIBinder binder;
+    UIStyleSheet sheet;
+
+    ctx.RegisterSource(kTabSourceName, &tabSrc);
+    ctx.RegisterSource("hud", &hud);
+
+    ASSERT_TRUE(sheet.ParseString(
+        ".selected { background-color: #ff0000; }", "t.cstyle"));
+
+    const char* xml =
+        R"(<UI><TabView name="tv"><Tab label="One"><Element name="p1"/></Tab>)"
+        R"(<Tab label="Two"><Element name="p2"/></Tab></TabView></UI>)";
+    ASSERT_TRUE(UIMarkup::LoadInto(doc, xml, errors, "t.cxml", nullptr, &specs))
+        << (errors.empty() ? std::string() : errors[0]);
+
+    for (const auto& sp : specs) {
+        views.push_back(std::make_unique<UITabView>());
+        views.back()->Build(sp, doc, tabSrc, ctx, errors, "t.cxml", &binder);
+    }
+    sheet.ApplyTo(doc.root());
+    binder.Rebuild(doc, ctx, "t.cxml", &sheet);
+    binder.UpdateToTarget();
+
+    UITabView* tv = views.empty() ? nullptr : views[0].get();
+    ASSERT_NE(tv, nullptr);
+    ASSERT_EQ(tv->count(), 2u);
+
+    UIElement* h0 = tv->header(0);
+    UIElement* h1 = tv->header(1);
+    ASSERT_NE(h0, nullptr); ASSERT_NE(h1, nullptr);
+    ASSERT_FLOAT_EQ(h0->style().backgroundColor.r, 1.0f)
+        << "header 0 starts selected, so the sheet should already have styled it";
+    ASSERT_FLOAT_EQ(h1->style().backgroundColor.r, 0.0f)
+        << "header 1 is unselected, so no rule should have touched it";
+
+    // Select the second tab.
+    tv->Select(1);
+    for (auto& v : views) v->Refresh();
+    binder.UpdateToTarget();
+
+    EXPECT_FLOAT_EQ(h1->style().backgroundColor.r, 1.0f)
+        << "the newly selected header did not pick up `.selected` -- the "
+           "class was added but nothing re-ran the cascade";
+    EXPECT_FLOAT_EQ(h0->style().backgroundColor.r, 0.0f)
+        << "the DESELECTED header kept its selected styling -- the cascade has "
+           "no undo, so dropping the class alone changes nothing";
+}

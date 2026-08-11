@@ -1,4 +1,5 @@
 #include "UITabView.h"
+#include "UIBinding.h"
 
 #include "UIElement.h"
 
@@ -35,9 +36,11 @@ namespace {
 
 void UITabView::Build(const UITabSpec& spec, UIDocument& doc, UIDataSource& src,
                       UIBindingContext& ctx,
-                      std::vector<std::string>& errors, const std::string& origin) {
+                      std::vector<std::string>& errors, const std::string& origin,
+                      UIBinder* binder) {
     spec_ = spec;
     doc_ = &doc;
+    binder_ = binder;
     src_ = &src;
     headers_.clear();
     panels_.clear();
@@ -201,11 +204,20 @@ void UITabView::publish_() {
         src_->WriteAt(flagIdx_[i], UIValue::Bool(int(i) == selected_));
     }
     // The header's look is a CLASS, and it is written here rather than through
-    // a binding so it cannot disagree with the flags by a frame. AddClass and
-    // RemoveClass re-cascade on their own and do not move the structure epoch.
+    // a binding so it cannot disagree with the flags by a frame.
+    //
+    // AddClass/RemoveClass do NOT re-cascade -- they only record the class, and
+    // the cascade has no undo -- so the sheet has to be re-run for the two
+    // headers whose class actually changed. Without it `.tab-selected` was
+    // inert: the class was on the element, the rule was in the sheet, and the
+    // header never changed appearance. Neither call moves the structure epoch,
+    // so no other document re-collects.
     for (std::size_t i = 0; i < headers_.size(); ++i) {
-        if (int(i) == selected_) headers_[i]->AddClass(kTabSelectedClass);
-        else                     headers_[i]->RemoveClass(kTabSelectedClass);
+        const bool want = (int(i) == selected_);
+        if (headers_[i]->HasClass(kTabSelectedClass) == want) continue; // no edge
+        if (want) headers_[i]->AddClass(kTabSelectedClass);
+        else      headers_[i]->RemoveClass(kTabSelectedClass);
+        if (binder_) binder_->RecascadeAfterClassChange(headers_[i]);
     }
 }
 

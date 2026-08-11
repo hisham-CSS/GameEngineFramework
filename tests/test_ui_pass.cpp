@@ -14,6 +14,8 @@
 #include "ui_shipped_hud.h"
 #include "../Engine/src/render/passes/UIPass.h"
 #include "../Engine/src/render2d/Renderer2D.h"
+#include "../Engine/src/ui/UIElement.h"
+#include "../Engine/src/ui/UIStyle.h"
 
 #include <vector>
 
@@ -219,4 +221,61 @@ TEST_F(UIPassTest, ShippedHudLaysOutAtAnyAspectAndWithoutAFont) {
     hud.data().SetNumber("health", 0.0f);
     hud.Frame();
     EXPECT_NEAR(fill->layout().size.x, 0.f, 0.51f) << "zero health should empty the bar";
+}
+
+// A GRADIENT IS ITS OWN REASON TO PAINT.
+//
+// UIElement's background emit was gated on `backgroundColor.a > 0 || shaped`,
+// where `shaped` means "has a radius or a border". `shaped` predates gradients
+// and the test only ever asked about the FROM stop -- so an element fading
+// transparent -> opaque, with no radius and no border, emitted no quad at all
+// and vanished, while the same two stops in the other order painted fine. No
+// diagnostic either way.
+TEST_F(UIPassTest, AGradientPaintsEvenWhenTheFromStopIsTransparent) {
+    using namespace MyCoreEngine::ui;
+
+    auto quadsFor = [this](const glm::vec4& from, const glm::vec4& to,
+                           BackgroundGradient dir) {
+        UIDocument doc;
+        UIElement& e = *doc.root().AddChild("box");
+        e.style().width = StyleLength::Px(40.f);
+        e.style().height = StyleLength::Px(20.f);
+        e.style().backgroundColor = from;
+        e.style().backgroundColorTo = to;
+        e.style().backgroundGradient = dir;
+        doc.Layout(float(kW), float(kH));
+
+        r2d.BeginScreen(kW, kH);
+        const int before = r2d.stats().quads;
+        doc.Draw(r2d);
+        const int after = r2d.stats().quads;
+        r2d.End();
+        return after - before;
+    };
+
+    const glm::vec4 clear{ 0.f, 0.f, 0.f, 0.f };
+    const glm::vec4 solid{ 0.2f, 0.6f, 0.9f, 1.f };
+
+    // The control: opaque -> transparent already worked, because the FROM stop
+    // is what the old gate looked at.
+    EXPECT_GT(quadsFor(solid, clear, BackgroundGradient::Vertical), 0)
+        << "an opaque->transparent gradient stopped painting -- this direction "
+           "always worked, so something else broke";
+
+    // The defect: the same two stops, the other way round.
+    EXPECT_GT(quadsFor(clear, solid, BackgroundGradient::Vertical), 0)
+        << "a transparent->opaque gradient emitted NO quad: the element is "
+           "invisible, and only the FROM stop was consulted";
+    EXPECT_GT(quadsFor(clear, solid, BackgroundGradient::Horizontal), 0)
+        << "same defect on the horizontal axis";
+
+    // And the thing that must NOT change: no gradient, no colour, no shape is
+    // still nothing to draw. A container that exists only to lay children out
+    // must not start costing a quad each.
+    EXPECT_EQ(quadsFor(clear, clear, BackgroundGradient::None), 0)
+        << "a fully transparent, unshaped element now emits a quad -- every "
+           "layout-only container in every document just got more expensive";
+    EXPECT_EQ(quadsFor(clear, clear, BackgroundGradient::Vertical), 0)
+        << "a gradient between two TRANSPARENT stops paints nothing visible, "
+           "so it must not cost a quad either";
 }

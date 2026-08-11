@@ -299,8 +299,12 @@ void Font::WrapLines(const std::string& utf8, const WrapOptions& opt,
             if (opps[j].mandatory || j == n - 1) { prev[j] = from; from = j; }
         }
     } else if (opt.fit == WrapFit::Balanced) {
-        // Minimum raggedness by dynamic programming over opportunities. The
-        // LAST line is free -- a paragraph is not ragged because it ended.
+        // Minimum raggedness by dynamic programming over opportunities.
+        // EVERY line is counted, the last one included: exempting it (as
+        // Knuth-Plass does, where a justified final line is set flush-left and
+        // its slack is not raggedness) makes this degenerate to greedy for any
+        // two-line paragraph -- the only free choice is where the first line
+        // ends, and greedy already puts as much as possible there.
         constexpr float kInf = 1e30f;
         std::vector<float> best(n, kInf);
         best[0] = 0.0f;

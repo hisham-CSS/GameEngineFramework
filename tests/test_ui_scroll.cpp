@@ -1683,3 +1683,42 @@ TEST(UIScrollBars, AZeroCornerInsetIsIdenticalToTheUnroundedBars) {
     EXPECT_EQ(a.thumbY.position, b.thumbY.position);
     EXPECT_EQ(a.thumbY.size, b.thumbY.size);
 }
+
+// `scrollbar-visibility: always` must not conjure a bar on an axis the style
+// says can never scroll.
+//
+// ComputeScrollBars decided "this axis could scroll" from `maxOffset >=
+// minOffset`, which is an INVARIANT rather than a test -- every production
+// caller guarantees it, and the non-scrolling axis is pinned to
+// min == max == 0, which satisfies it too. So on an `overflow-y: scroll;
+// overflow-x: hidden` panel, `always` painted a horizontal gutter across the
+// bottom of a box that cannot move sideways: it stole a scrollbar\'s worth of
+// height from the vertical track and drew a full-width thumb that did nothing.
+TEST(UIScroll, AlwaysVisibleDoesNotPaintABarOnAHiddenAxis) {
+    UIDocument doc;
+    std::vector<std::string> errors;
+    ASSERT_TRUE(UIMarkup::LoadInto(doc,
+        R"(<UI><Element name="panel"><Element name="tall"/></Element></UI>)",
+        errors, "t.cxml"));
+
+    UIStyleSheet sheet;
+    ASSERT_TRUE(sheet.ParseString(
+        "#panel { width: 200px; height: 100px; overflow-y: scroll; "
+        "         overflow-x: hidden; scrollbar-visibility: always; "
+        "         scrollbar-width: 10px; } "
+        "#tall  { width: 120px; height: 600px; }", "t.cstyle"));
+    sheet.ApplyTo(doc.root());
+    doc.Layout(400.f, 400.f);
+
+    UIElement* panel = doc.root().Find("panel");
+    ASSERT_NE(panel, nullptr);
+    const UIScrollState* sc = panel->scrollState();
+    ASSERT_NE(sc, nullptr);
+
+    EXPECT_GT(sc->trackY.size.x, 0.0f)
+        << "the VERTICAL bar is missing: the axis scrolls and visibility is always";
+    EXPECT_FLOAT_EQ(sc->trackX.size.y, 0.0f)
+        << "a horizontal bar was painted on an overflow-x: hidden panel -- "
+           "\'always\' cannot tell \'fits\' from \'cannot scroll\' by range alone";
+    EXPECT_FLOAT_EQ(sc->thumbX.size.y, 0.0f) << "and its thumb with it";
+}

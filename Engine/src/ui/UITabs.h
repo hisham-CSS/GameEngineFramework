@@ -49,8 +49,9 @@ namespace MyCoreEngine::ui {
     // a real :selected would need a fifth bool on every UIElement, a parser
     // entry, a compound-matcher case, and a fifth slot in the interaction
     // styler's watch struct — to buy only that an author cannot remove it by
-    // hand. AddClass/RemoveClass already re-cascade and already do not move the
-    // structure epoch.
+    // hand. AddClass/RemoveClass do not move the structure epoch, which is what
+    // matters here; they do NOT re-cascade on their own, so UITabView asks the
+    // binder to do it on the two headers whose class actually changed.
     constexpr const char* kTabSelectedClass = "selected";
 
     constexpr int kMaxTabs = 32;

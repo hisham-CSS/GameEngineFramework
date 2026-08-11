@@ -399,3 +399,54 @@ TEST(UIFocus, Utf8RoundTripsThroughTheEncoder) {
         EXPECT_EQ(back[0], 0xFFFDu) << std::hex << bad;
     }
 }
+
+// `focusable="false"` must win on a Slider and a TextField too.
+//
+// applyAttributes parsed the attribute early and applied it immediately, but
+// MakeSlider/MakeTextField ran AFTERWARDS in the same function and both stamp
+// focusable_ = true on first creation (a field you cannot focus is a label).
+// buildElement always hands them a FRESH element, so those guards never fired
+// and the authored value was silently overwritten -- a decorative read-only
+// slider still took a stop in the Tab ring and could still be driven with the
+// arrow keys.
+TEST(UIFocus, AuthoredFocusableFalseSurvivesSliderAndFieldConstruction) {
+    Form f(R"(<UI>
+                <Element name="a" focusable="true" style="width: 100px; height: 40px"/>
+                <Slider name="deco" focusable="false" min="0" max="1"
+                        style="width: 100px; height: 20px"/>
+                <TextField name="readonly" focusable="false"
+                           style="width: 100px; height: 20px"/>
+                <Element name="c" focusable="true" style="width: 100px; height: 40px"/>
+              </UI>)");
+
+    ASSERT_NE(f.el("deco"), nullptr);
+    ASSERT_NE(f.el("readonly"), nullptr);
+    EXPECT_FALSE(f.el("deco")->isFocusable())
+        << "focusable=\"false\" on a <Slider> was overwritten by MakeSlider";
+    EXPECT_FALSE(f.el("readonly")->isFocusable())
+        << "focusable=\"false\" on a <TextField> was overwritten by MakeTextField";
+
+    // ...and it really is out of the ring: Tab from a goes straight to c.
+    f.doc.SetFocus(f.el("a"));
+    f.PressKey(UIKey::Tab);
+    EXPECT_EQ(f.doc.focused(), f.el("c"))
+        << "Tab stopped on an element the author declared unfocusable";
+}
+
+// The other half: with no attribute at all, a Slider IS focusable, because that
+// is what the type word means. Seeding the default in applyAttributes rather
+// than leaning on MakeSlider\'s side effect must not have lost that.
+TEST(UIFocus, ASliderIsFocusableByDefault) {
+    Form f(R"(<UI>
+                <Element name="a" focusable="true" style="width: 100px; height: 40px"/>
+                <Slider name="vol" min="0" max="1" style="width: 100px; height: 20px"/>
+              </UI>)");
+
+    ASSERT_NE(f.el("vol"), nullptr);
+    EXPECT_TRUE(f.el("vol")->isFocusable())
+        << "a plain <Slider> is no longer reachable by keyboard at all";
+
+    f.doc.SetFocus(f.el("a"));
+    f.PressKey(UIKey::Tab);
+    EXPECT_EQ(f.doc.focused(), f.el("vol"));
+}

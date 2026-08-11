@@ -314,14 +314,6 @@ void InstallMenuUIContent(UIWorld& world, const MenuUIHooks& hooks) {
         log.rows.clear();
         publishSwapLog(src, log.rows);
         src.SetInt("swapLogCursor", 0);
-    // SEEDED, not merely published each frame. MenuUIPublishCounters only runs
-    // when a host with an Application is driving, and a document binds at LOAD
-    // -- so without these the menu reports three unresolved holes on any host
-    // that has not started one yet, which includes every test.
-    src.SetBool("menuLoading", false);
-    src.SetInt("menuLoadDone", 0);
-    src.SetInt("menuLoadTotal", 0);
-    src.SetInt("menuLoadPct", 100);
         setStatus(src, "Log cleared.", true);
     });
 

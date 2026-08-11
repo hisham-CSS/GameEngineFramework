@@ -21,6 +21,8 @@
 
 namespace MyCoreEngine::ui {
 
+    class UIBinder;   // for the selected-class re-cascade; see Build
+
     class UIElement;
     class UIDocument;
 
@@ -40,9 +42,15 @@ namespace MyCoreEngine::ui {
         // visible — otherwise every panel is up for frame one.
         // `ctx` is used only to resolve a `bind-selected` path; a spec
         // without one never touches it.
+        // `binder` may be null (a document with no stylesheet, or a test that
+        // builds tabs on their own): the selected class is still recorded, it
+        // simply restyles nothing. When present it is what makes the
+        // `.tab-selected` rule take effect on a selection change -- see
+        // syncHeaderClasses_.
         void Build(const UITabSpec& spec, UIDocument& doc, UIDataSource& src,
                    UIBindingContext& ctx,
-                   std::vector<std::string>& errors, const std::string& origin);
+                   std::vector<std::string>& errors, const std::string& origin,
+                   UIBinder* binder = nullptr);
 
         // Re-publishes the index and the N flags. Equality-gated by
         // UIDataSource, so an idle TabView costs N integer compares and wakes
@@ -92,6 +100,7 @@ namespace MyCoreEngine::ui {
         UIElement*    strip_ = nullptr;
         std::vector<UIElement*> headers_, panels_;
         int selected_ = 0;
+        UIBinder* binder_ = nullptr;   // for the selected-class re-cascade
         int indexIdx_ = -1;
         std::vector<int> flagIdx_;
 

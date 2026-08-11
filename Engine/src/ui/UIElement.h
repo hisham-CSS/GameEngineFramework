@@ -115,11 +115,21 @@ namespace MyCoreEngine::ui {
     // on a ROUNDED scroller cannot paint its square end outside the silhouette.
     // Clipping cannot save it: clipping is the axis-aligned scissor, and the
     // corner it needs to cut is not.
+    //
+    // `canScrollX`/`canScrollY` say whether the axis is scrollable AT ALL.
+    // `alwaysVisible` needs them because a range of ZERO is ambiguous: an axis
+    // that scrolls but whose content happens to fit, and an axis that is not
+    // scrollable at all, both arrive here as min == max == 0. Inferring it from
+    // the range meant `scrollbar-visibility: always` on a `overflow-y: scroll;
+    // overflow-x: hidden` panel painted a horizontal gutter across the bottom
+    // of a box that can never scroll sideways. They default to true so the
+    // arithmetic-only test call sites keep their current behaviour.
     ENGINE_API ScrollBarRects ComputeScrollBars(
         const glm::vec2& boxPos, const glm::vec2& boxSize,
         const glm::vec2& offset, const glm::vec2& minOffset, const glm::vec2& maxOffset,
         float barWidth, float minThumb, bool alwaysVisible,
-        float cornerInsetPx = 0.0f);
+        float cornerInsetPx = 0.0f,
+        bool canScrollX = true, bool canScrollY = true);
 
     class ENGINE_API UIElement {
     public:
@@ -664,6 +674,9 @@ namespace MyCoreEngine::ui {
         // StopPropagation.
         // Returns whether any listener ran ANYWHERE along the chain.
         static bool bubble_(UIElement* target, UIEvent& e);
+        // Back is the one event that must NOT reach every ancestor. See the
+        // definition for why.
+        static bool bubbleUntilHandled_(UIElement* target, UIEvent& e);
         // True if `el` is still reachable from the root. Cached hover/press
         // pointers must be validated this way because a handler (or gameplay)
         // may have removed the element between frames; comparing addresses

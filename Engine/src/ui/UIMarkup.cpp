@@ -136,10 +136,12 @@ namespace {
 
         // Both are reset unconditionally so a removed attribute takes effect on
         // a reload — the same reason text and inline style are cleared below.
-        // A `Button` or `TextField` is focusable by default because that is
-        // what those words mean; anything else has to ask.
+        // A `Button`, `TextField` or `Slider` is focusable by default because
+        // that is what those words mean; anything else has to ask. Seeded HERE
+        // rather than left to MakeSlider/MakeTextField's side effect, so the
+        // authored attribute below can still overrule it.
         const std::string type = el.type();
-        bool focusable = (type == "Button" || type == "TextField");
+        bool focusable = (type == "Button" || type == "TextField" || type == "Slider");
         bool disabled = false;
         // A FOCUS SCOPE confines navigation to its own subtree while it is
         // visible. Without it, opening a panel merely ADDS its controls to one
@@ -166,8 +168,9 @@ namespace {
                 return false;
             }
         }
-        el.setFocusable(focusable);
         el.setEnabled(!disabled);
+        // setFocusable is deliberately NOT here -- see the end of the field
+        // block below.
 
         const bool isField = (type == "TextField");
         const bool isSlider = (type == "Slider");
@@ -581,6 +584,15 @@ namespace {
             edit.MoveToEnd(false);
             el.SyncTextFromEdit();
         }
+
+        // LAST, after MakeSlider/MakeTextField: both stamp focusable_ = true on
+        // first creation (a field you cannot focus is a label), and buildElement
+        // always hands us a FRESH element, so their guards never fire and they
+        // always ran. Applied where it was parsed, `focusable="false"` on a
+        // <Slider> or <TextField> was therefore silently overwritten a few lines
+        // later -- a decorative read-only slider still ate a stop in the Tab
+        // ring and could still be driven with the arrows.
+        el.setFocusable(focusable);
 
         if (const char* s = node.attribute("style").value(); s && *s) {
             std::vector<UIDeclaration> decls;

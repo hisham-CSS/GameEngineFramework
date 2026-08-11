@@ -160,6 +160,17 @@ namespace MyCoreEngine::ui {
         // re-cascade reset has lost whatever its bindings had written.
         std::size_t ReapplyForSubtree(UIElement* root);
 
+    // A class was added or removed on `el` by something OTHER than a class
+    // binding -- a widget managing its own state, such as UITabView's selected
+    // header. AddClass/RemoveClass only record the class; they do NOT re-run
+    // the cascade, and the cascade has no undo, so without this the new rules
+    // never match and the old ones never stop matching.
+    //
+    // Same operation the Kind::Class branch performs, and re-entrant-safe for
+    // the same reason: the re-cascade re-applies this element's bindings, and a
+    // class binding among them must not re-enter itself.
+    void RecascadeAfterClassChange(UIElement* el);
+
         const std::vector<std::string>& errors() const { return errors_; }
         const std::vector<std::string>& notes()  const { return notes_;  }
 

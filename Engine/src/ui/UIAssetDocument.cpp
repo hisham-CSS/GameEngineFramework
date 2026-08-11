@@ -99,7 +99,9 @@ bool UIAssetDocument::Reload() {
     tabs_.clear();
     for (const auto& ts : tabSpecs) {
         tabs_.push_back(std::make_unique<UITabView>());
-        tabs_.back()->Build(ts, doc_, tabSrc_, ctx_, errors_, markupPath_);
+        // The binder is what re-cascades a header when its selected class
+        // flips: AddClass alone only records the class.
+        tabs_.back()->Build(ts, doc_, tabSrc_, ctx_, errors_, markupPath_, &binder_);
     }
 
     // Once, before the binder resolves, so Rebuild's force-apply sees real rows
