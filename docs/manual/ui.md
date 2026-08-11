@@ -211,7 +211,7 @@ engine does; left-to-right would need to backtrack over the whole subtree.
 | Box | `margin`, `padding` (1–4 value CSS shorthand) |
 | Position | `position: relative\|absolute`, `left`, `top`, `right`, `bottom` |
 | Paint | `background-color`, `background-color-to`, `background-gradient: none\|vertical\|horizontal`, `background-image`, `background-size: stretch\|cover`, `border-radius`, `border-width`, `border-color`, `color`, `font-scale` |
-| Behaviour | `overflow` / `overflow-x` / `overflow-y`: `visible\|hidden\|scroll`, `pointer-events: auto\|none`, `display: flex\|none`, `white-space: normal\|nowrap` |
+| Behaviour | `overflow` / `overflow-x` / `overflow-y`: `visible\|hidden\|scroll`, `pointer-events: auto\|none`, `display: flex\|none`, `white-space: normal\|nowrap`, `hyphens: none\|manual`, `text-wrap: greedy\|balance` |
 | Scrollbar | `scrollbar-width`, `scrollbar-min-thumb`, `scrollbar-color`, `scrollbar-thumb-color`, `scrollbar-visibility: auto\|always`, `scroll-behavior: instant\|smooth` |
 
 Lengths — `auto`, `Npx`, `N%`, or a bare number (treated as px) — are the
@@ -1780,8 +1780,56 @@ the width it settled on, so drawing against the final box is the only way the
 glyphs cannot disagree with the layout that placed them.
 
 `Font::WrapLines` is the whole implementation and is directly testable: it takes
-a string, a width and a scale, and returns byte ranges into the original with
-each line's measured width.
+a string and a `WrapOptions`, and returns byte ranges into the original with each
+line's measured width. It runs in three phases — collect every break
+opportunity, choose a subset, emit — so the greedy and balanced fits share every
+rule about spaces, hyphens and authored newlines and cannot drift on what a
+legal break is.
+
+### Hyphens
+
+```css
+.blurb { hyphens: manual; }     /* break at U+00AD, draw a real '-' there */
+```
+
+`manual` makes a **soft hyphen** (U+00AD, `&#173;` in markup) a break
+opportunity. It is invisible until used: the line ends before those bytes, the
+next line begins after them, and the `-` that appears is added at draw time and
+is not in your string. Off by default, so text that happens to carry one is
+inert until you ask.
+
+There is no `hyphens: auto`. Automatic hyphenation is Liang's algorithm plus a
+per-language pattern table — about 30KB for en-US alone — and shipping one
+language's data inside an engine that carries no other locale data is a decision
+to take deliberately rather than acquire by accident. Soft hyphens need no data,
+are exact, and work in every language.
+
+### Balanced paragraphs
+
+```css
+.headline { text-wrap: balance; }
+```
+
+`greedy` (the default) takes the furthest break that fits, line by line: a
+line's contents never depend on text further down, which is what a caret and a
+scroller want. `balance` minimises the total squared leftover space across the
+whole block, which is what stops a heading stranding one word on its last line.
+
+This is Knuth-Plass with the stretch and shrink removed, and the removal is
+forced rather than a simplification: `DrawText` walks fixed glyph advances, so
+there is no variable inter-word space to stretch and therefore no justification
+to optimise. Minimum raggedness IS the paragraph-fitting problem for
+ragged-right text.
+
+One deliberate departure from Knuth-Plass: **the last line counts**. TeX frees
+it because in justified text a final short line is set flush-left and its slack
+is not raggedness — but freeing it here makes the whole thing degenerate to
+greedy for any two-line paragraph, since the cheapest answer becomes "pack line
+one as full as possible", which is greedy exactly.
+
+Balancing never uses more lines than greedy would, and never moves text across
+an authored newline. It costs a dynamic program over break opportunities, so it
+belongs on headings and short blocks rather than on body text.
 
 
 ## UI as scene content
@@ -1917,9 +1965,11 @@ reset, so a leaked blend or depth state would corrupt the next pass.
 ## Not there yet
 
 IME composition (dead keys and layouts work, because text arrives already
-decoded, but there is no composition window). Wrapping is greedy and breaks at
-ASCII spaces only: no hyphenation, no Knuth-Plass paragraph fitting, and no
-line-breaking for scripts that do not use spaces. A checkbox, which is why `:checked` is still refused.
+decoded, but there is no composition window). Automatic hyphenation, which needs
+per-language pattern data — soft hyphens are supported and are exact. Justified
+text, which needs variable inter-word spacing the renderer does not have. And
+line-breaking for scripts that do not use spaces: break opportunities are ASCII
+spaces and soft hyphens only. A checkbox, which is why `:checked` is still refused.
 Transitions and animation. `position: fixed`, `position: sticky`, and portals.
 
 Gradients are two stops, corner to corner — no three-stop ramps, no radials, no

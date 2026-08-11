@@ -257,6 +257,16 @@ namespace {
         { "cover",   int(BackgroundSize::Cover)   },
     };
 
+    const std::vector<EnumTable> kHyphens = {
+        { "none",   int(Hyphens::None)   },
+        { "manual", int(Hyphens::Manual) },
+    };
+
+    const std::vector<EnumTable> kTextWrap = {
+        { "greedy",  int(TextWrap::Greedy)  },
+        { "balance", int(TextWrap::Balance) },
+    };
+
     const std::vector<EnumTable> kWhiteSpace = {
         { "normal", int(WhiteSpace::Normal) },
         { "nowrap", int(WhiteSpace::NoWrap) },
@@ -311,6 +321,8 @@ namespace {
         { "background-color-to", Prop::BackgroundColorTo, UIPropValueKind::Color, nullptr, nullptr, nullptr, P1(BackgroundColorTo), false },
         { "background-gradient", Prop::BackgroundGradient, UIPropValueKind::Enum, &kBackgroundGradient, nullptr, nullptr, P1(BackgroundGradient), false },
         { "white-space",      Prop::WhiteSpace,      UIPropValueKind::Enum,   &kWhiteSpace, nullptr, nullptr, P1(WhiteSpace), false },
+        { "hyphens",          Prop::Hyphens,         UIPropValueKind::Enum,   &kHyphens, nullptr, nullptr, P1(Hyphens), false },
+        { "text-wrap",        Prop::TextWrap,        UIPropValueKind::Enum,   &kTextWrap, nullptr, nullptr, P1(TextWrap), false },
         { "scrollbar-thumb-color",Prop::ScrollbarThumbColor, UIPropValueKind::Color,  nullptr, nullptr, nullptr, P1(ScrollbarThumbColor), false },
         { "scrollbar-visibility", Prop::ScrollbarVisibility, UIPropValueKind::Enum, &kScrollbarVis, nullptr, nullptr, P1(ScrollbarVisibility), false },
         { "scroll-behavior",      Prop::ScrollBehavior,      UIPropValueKind::Enum, &kScrollBehavior, nullptr, nullptr, P1(ScrollBehavior), false },
@@ -510,6 +522,8 @@ void UIDeclaration::ApplyTo(Style& s) const {
     case Prop::BackgroundColorTo: s.backgroundColorTo = color; break;
     case Prop::BackgroundGradient: s.backgroundGradient = (BackgroundGradient)enumValue; break;
     case Prop::WhiteSpace:     s.whiteSpace = (WhiteSpace)enumValue; break;
+    case Prop::Hyphens:        s.hyphens = (Hyphens)enumValue; break;
+    case Prop::TextWrap:       s.textWrap = (TextWrap)enumValue; break;
     case Prop::ScrollbarColor:      s.scrollbarColor = color; break;
     case Prop::ScrollbarThumbColor: s.scrollbarThumbColor = color; break;
     case Prop::ScrollbarVisibility: s.scrollbarVisibility = (ScrollbarVisibility)enumValue; break;

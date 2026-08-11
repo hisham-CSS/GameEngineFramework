@@ -86,6 +86,28 @@ namespace MyCoreEngine::ui {
     // clamped while DrawText kept walking the pen, so the text ran straight
     // out of the element and over whatever was beside it.
     enum class WhiteSpace : std::uint8_t { Normal, NoWrap };
+
+    // Whether a U+00AD SOFT HYPHEN in the text is a break opportunity.
+    //
+    // `None` ignores them, so a string that happens to carry one is inert.
+    // `Manual` breaks there and draws a real '-' in its place -- the author
+    // says where a word may split, which is exact and works in every language.
+    //
+    // There is no `Auto`. Automatic hyphenation is Liang's algorithm plus a
+    // per-language pattern table (~30KB for en-US alone), and shipping one
+    // language's data inside an engine that has no other locale data is a
+    // decision to take deliberately rather than acquire by accident.
+    enum class Hyphens : std::uint8_t { None, Manual };
+
+    // How the breaks are chosen once the opportunities are known.
+    //
+    // `Greedy` takes the furthest that fits, line by line -- a line's contents
+    // never depend on text further down, which is what a caret and a scroller
+    // want. `Balance` minimises the total squared leftover space across the
+    // whole block, which is what stops a heading stranding one word on its
+    // last line. Balance costs a dynamic program over break opportunities, so
+    // it belongs on headings and short blocks rather than on body text.
+    enum class TextWrap : std::uint8_t { Greedy, Balance };
     // A two-stop fill. `None` is the default everywhere, so every stylesheet
     // written before this existed renders byte-identical.
     enum class BackgroundGradient : std::uint8_t { None, Vertical, Horizontal };
@@ -163,6 +185,8 @@ namespace MyCoreEngine::ui {
         int            backgroundImage = 0;
         BackgroundSize backgroundSize = BackgroundSize::Stretch;
         WhiteSpace     whiteSpace = WhiteSpace::Normal;
+        Hyphens        hyphens = Hyphens::None;
+        TextWrap       textWrap = TextWrap::Greedy;
         // The second stop, and which way it runs. Only read when
         // backgroundGradient is not None.
         glm::vec4          backgroundColorTo{ 0.0f, 0.0f, 0.0f, 0.0f };

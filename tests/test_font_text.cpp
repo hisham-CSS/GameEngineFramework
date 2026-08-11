@@ -520,3 +520,234 @@ TEST_F(FontTest, ATextFieldDoesNotWrapEvenWhenAskedTo) {
     EXPECT_NEAR(field->layout().size.y, f.lineHeight(), 1.0f)
         << "a field wrapped, which would put its caret on the wrong row";
 }
+
+
+// ---- soft hyphens and paragraph fitting -----------------------------------
+
+namespace {
+
+// The wrapped lines as they would be DRAWN: the source slice plus the '-' a
+// hyphenated break adds, which is not in the string.
+std::vector<std::string> drawn(const Font& f, const std::string& s,
+                               const Font::WrapOptions& opt) {
+    std::vector<Font::Line> lines;
+    f.WrapLines(s, opt, lines);
+    std::vector<std::string> out;
+    for (const Font::Line& l : lines) {
+        std::string t = s.substr(l.begin, l.end - l.begin);
+        if (l.hyphen) t += '-';
+        out.push_back(t);
+    }
+    return out;
+}
+
+// U+00AD as UTF-8.
+const char* kShy = "\xC2\xAD";
+
+} // namespace
+
+// A soft hyphen is INVISIBLE until it is used. The atlas has no glyph for it,
+// so it never reaches the pen; what it costs is only paid on the line that
+// breaks there.
+TEST_F(FontTest, ASoftHyphenIsInvisibleUntilTheLineBreaksAtIt) {
+    REQUIRE_FONT(path);
+    Font f;
+    ASSERT_TRUE(f.LoadFromFile(path, 24.f));
+
+    const std::string plain = "extraordinary";
+    const std::string shy = std::string("extra") + kShy + "ordinary";
+
+    // Wide enough for the whole word: the soft hyphen changes nothing at all.
+    Font::WrapOptions wide;
+    wide.maxWidthPx = 10000.0f;
+    wide.softHyphens = true;
+    const auto whole = drawn(f, shy, wide);
+    ASSERT_EQ(whole.size(), 1u);
+    EXPECT_EQ(whole[0], shy) << "an unused soft hyphen changed the line";
+    EXPECT_NEAR(f.MeasureWrapped(shy, wide).x, f.Measure(plain).x, 0.01f)
+        << "an unused soft hyphen took up width";
+}
+
+TEST_F(FontTest, BreakingAtASoftHyphenDrawsARealHyphen) {
+    REQUIRE_FONT(path);
+    Font f;
+    ASSERT_TRUE(f.LoadFromFile(path, 24.f));
+
+    const std::string shy = std::string("extra") + kShy + "ordinary";
+    Font::WrapOptions opt;
+    // Wide enough for BOTH halves: a limit that fits "extra-" but not
+    // "ordinary" would hard-break the second line and produce three.
+    opt.maxWidthPx = std::max(f.Measure("extra-").x, f.Measure("ordinary").x) + 2.0f;
+    opt.softHyphens = true;
+
+    const auto lines = drawn(f, shy, opt);
+    ASSERT_EQ(lines.size(), 2u) << "it did not break at the soft hyphen";
+    EXPECT_EQ(lines[0], "extra-") << "the break did not draw its hyphen";
+    EXPECT_EQ(lines[1], "ordinary");
+
+    // ...and the reported width INCLUDES that hyphen, or a right-aligned line
+    // would hang off its box by one glyph.
+    std::vector<Font::Line> raw;
+    f.WrapLines(shy, opt, raw);
+    EXPECT_NEAR(raw[0].width, f.Measure("extra-").x, 0.5f);
+}
+
+// OFF BY DEFAULT: a string carrying soft hyphens is inert until the author
+// asks for them, so pasted text cannot start breaking in surprising places.
+TEST_F(FontTest, SoftHyphensAreIgnoredUnlessEnabled) {
+    REQUIRE_FONT(path);
+    Font f;
+    ASSERT_TRUE(f.LoadFromFile(path, 24.f));
+
+    const std::string shy = std::string("extra") + kShy + "ordinary";
+    Font::WrapOptions opt;
+    opt.maxWidthPx = std::max(f.Measure("extra-").x, f.Measure("ordinary").x) + 2.0f;
+    opt.softHyphens = false;
+
+    const auto lines = drawn(f, shy, opt);
+    for (const std::string& l : lines) {
+        EXPECT_EQ(l.find('-'), std::string::npos)
+            << "a hyphen appeared with soft hyphens disabled: '" << l << "'";
+    }
+}
+
+// ---- balanced fitting -----------------------------------------------------
+
+// The case the algorithm exists for: greedy leaves a single short word alone
+// on the last line, balanced spreads the paragraph instead.
+TEST_F(FontTest, BalancedFittingEvensOutALineGreedyLeavesNearlyEmpty) {
+    REQUIRE_FONT(path);
+    Font f;
+    ASSERT_TRUE(f.LoadFromFile(path, 24.f));
+
+    const std::string s = "the quick brown fox jumps over it";
+    // A width that makes greedy pack the first line and strand the tail.
+    const float w = f.Measure("the quick brown fox jumps").x;
+
+    Font::WrapOptions greedy;
+    greedy.maxWidthPx = w;
+    greedy.fit = Font::WrapFit::Greedy;
+    Font::WrapOptions balanced = greedy;
+    balanced.fit = Font::WrapFit::Balanced;
+
+    std::vector<Font::Line> g, b;
+    f.WrapLines(s, greedy, g);
+    f.WrapLines(s, balanced, b);
+
+    ASSERT_EQ(g.size(), 2u) << "the fixture no longer produces two greedy lines";
+    ASSERT_EQ(b.size(), 2u) << "balancing changed the LINE COUNT, which it must not";
+
+    // Raggedness: the spread between the longest and shortest line, last
+    // line included, is what balancing is for.
+    const float gSpread = std::abs(g[0].width - g[1].width);
+    const float bSpread = std::abs(b[0].width - b[1].width);
+    EXPECT_LT(bSpread, gSpread)
+        << "balanced was no more even than greedy (" << bSpread << " vs "
+        << gSpread << ")";
+}
+
+// BALANCING MUST NOT COST A LINE. Using more lines is always "more even" and
+// always wrong -- it is the degenerate solution the last-line-is-free rule
+// exists to forbid.
+TEST_F(FontTest, BalancedNeverUsesMoreLinesThanGreedy) {
+    REQUIRE_FONT(path);
+    Font f;
+    ASSERT_TRUE(f.LoadFromFile(path, 24.f));
+
+    const std::string s =
+        "wrapping exists so that a long sentence stops painting over whatever "
+        "happens to be sitting to the right of it";
+    for (float w : { 80.f, 140.f, 220.f, 380.f, 700.f }) {
+        Font::WrapOptions greedy;
+        greedy.maxWidthPx = w;
+        Font::WrapOptions balanced = greedy;
+        balanced.fit = Font::WrapFit::Balanced;
+
+        std::vector<Font::Line> g, b;
+        f.WrapLines(s, greedy, g);
+        f.WrapLines(s, balanced, b);
+        EXPECT_EQ(b.size(), g.size())
+            << "at " << w << "px balanced used " << b.size()
+            << " lines where greedy used " << g.size();
+        for (const Font::Line& l : b) {
+            EXPECT_LE(l.width, w + 0.5f)
+                << "a balanced line overflowed " << w << "px";
+        }
+    }
+}
+
+// Balancing preserves the text, exactly as greedy does.
+TEST_F(FontTest, BalancedFittingLosesNoText) {
+    REQUIRE_FONT(path);
+    Font f;
+    ASSERT_TRUE(f.LoadFromFile(path, 24.f));
+
+    const std::string s = "one two three four five six seven eight nine ten";
+    Font::WrapOptions opt;
+    opt.maxWidthPx = 150.0f;
+    opt.fit = Font::WrapFit::Balanced;
+
+    std::vector<Font::Line> lines;
+    f.WrapLines(s, opt, lines);
+    std::string joined;
+    for (const Font::Line& l : lines) {
+        if (!joined.empty()) joined += ' ';
+        joined += s.substr(l.begin, l.end - l.begin);
+    }
+    EXPECT_EQ(joined, s) << "balancing dropped or duplicated text";
+}
+
+// An authored newline still bounds a paragraph: balancing may not move text
+// across one, or a two-stanza label would reflow into one block.
+TEST_F(FontTest, BalancingNeverMovesTextAcrossAnAuthoredNewline) {
+    REQUIRE_FONT(path);
+    Font f;
+    ASSERT_TRUE(f.LoadFromFile(path, 24.f));
+
+    const std::string s = "alpha beta gamma\ndelta epsilon zeta";
+    Font::WrapOptions opt;
+    opt.maxWidthPx = 10000.0f;      // everything fits; only the \n may break
+    opt.fit = Font::WrapFit::Balanced;
+
+    const auto lines = drawn(f, s, opt);
+    ASSERT_EQ(lines.size(), 2u) << "the authored newline was lost or doubled";
+    EXPECT_EQ(lines[0], "alpha beta gamma");
+    EXPECT_EQ(lines[1], "delta epsilon zeta");
+}
+
+
+// The style properties reach the font. Without this the enums could be parsed,
+// stored and never consulted -- which is exactly what a stylesheet property
+// that does nothing looks like from the outside.
+TEST_F(FontTest, TheStyleFlagsForHyphensAndBalanceReachTheWrapper) {
+    REQUIRE_FONT(path);
+    Font f;
+    ASSERT_TRUE(f.LoadFromFile(path, 24.f));
+
+    const std::string shy = std::string("extra") + kShy + "ordinary";
+    const float w = std::max(f.Measure("extra-").x, f.Measure("ordinary").x) + 2.0f;
+
+    // hyphens: none (the default) -- one long line, no break to take.
+    {
+        UIDocument doc;
+        UIElement* box = doc.root().AddChild("box");
+        box->style().width = MyCoreEngine::ui::StyleLength::Px(w);
+        UIElement* l = box->AddChild("l");
+        l->setText(shy);
+        doc.Layout(800.f, 600.f, &f);
+        EXPECT_GT(l->layout().size.y, f.lineHeight() * 1.5f)
+            << "with hyphens off the word should hard-break, not fit";
+    }
+    // hyphens: manual -- it breaks at the soft hyphen instead, so exactly two.
+    {
+        UIDocument doc;
+        UIElement* box = doc.root().AddChild("box");
+        box->style().width = MyCoreEngine::ui::StyleLength::Px(w);
+        UIElement* l = box->AddChild("l");
+        l->setText(shy);
+        l->style().hyphens = MyCoreEngine::ui::Hyphens::Manual;
+        doc.Layout(800.f, 600.f, &f);
+        EXPECT_NEAR(l->layout().size.y, f.lineHeight() * 2.0f, 1.0f)
+            << "hyphens: manual did not reach the wrapper";
+    }
+}

@@ -176,92 +176,224 @@ std::vector<std::uint32_t> Font::DecodeUTF8(const std::string& s) {
     return out;
 }
 
+namespace {
+
+    constexpr std::uint32_t kSoftHyphen = 0x00ADu;
+
+    // Every place a line COULD end, found in one pass over the text.
+    //
+    // Separating "where may I break" from "where do I break" is what lets the
+    // greedy and balanced fits share every rule about spaces, hyphens and
+    // authored newlines -- the two differ only in which subset they choose, so
+    // they cannot drift on what a legal break is.
+    struct Opp {
+        std::size_t end = 0;      // byte where the line ends (exclusive)
+        std::size_t resume = 0;   // byte the NEXT line starts at
+        // Cumulative advance from the paragraph start, at each of those two
+        // points. A line's width is one line's cumEnd minus the previous
+        // opportunity's cumResume, which is what drops the spaces between them
+        // from both sides.
+        float cumEnd = 0.0f, cumResume = 0.0f;
+        bool  hyphen = false;     // ends at a soft hyphen: add the '-'
+        bool  mandatory = false;  // an authored '\n'
+    };
+
+} // namespace
+
 void Font::WrapLines(const std::string& utf8, float maxWidthPx, float scale,
                      std::vector<Line>& out) const {
+    WrapOptions opt;
+    opt.maxWidthPx = maxWidthPx;
+    opt.scale = scale;
+    WrapLines(utf8, opt, out);
+}
+
+void Font::WrapLines(const std::string& utf8, const WrapOptions& opt,
+                     std::vector<Line>& out) const {
     if (!IsValid()) return;
-    const bool bounded = maxWidthPx > 0.0f;
+    const bool bounded = opt.maxWidthPx > 0.0f;
+    const Glyph* hyphenGlyph = FindGlyph('-');
+    const float hyphenW = hyphenGlyph ? hyphenGlyph->advance * opt.scale : 0.0f;
 
-    std::size_t lineBegin = 0;      // first byte of the line being built
-    float lineW = 0.0f;             // its width so far
-    // The last place a break could go: end of the last word, and where to
-    // resume after it. Kept as a pair because they differ by the run of spaces
-    // that must belong to NEITHER line.
-    std::size_t breakEnd = 0, breakResume = 0;
-    bool haveBreak = false;
-    float breakW = 0.0f;
-
-    std::size_t i = 0;
-    while (i < utf8.size()) {
+    // ---- 1. every break opportunity, plus a sentinel for the start ---------
+    std::vector<Opp> opps;
+    opps.push_back(Opp{});                 // the paragraph start
+    float cum = 0.0f;
+    for (std::size_t i = 0; i < utf8.size();) {
         const std::size_t cpStart = i;
         const std::uint32_t cp = stepUTF8(utf8, i);
 
         if (cp == '\n') {
-            out.push_back(Line{ lineBegin, cpStart, lineW });
-            lineBegin = i;
-            lineW = 0.0f;
-            haveBreak = false;
+            Opp o;
+            o.end = cpStart;
+            o.cumEnd = cum;
+            o.resume = i;
+            o.cumResume = cum;             // the newline itself has no advance
+            o.mandatory = true;
+            opps.push_back(o);
             continue;
         }
 
-        const Glyph* g = FindGlyph(cp);
-        const float adv = g ? g->advance * scale : 0.0f;
-
         if (cp == ' ') {
-            // A break opportunity ENDS the word before it; the spaces
-            // themselves are dropped from both sides.
-            breakEnd = cpStart;
-            breakW = lineW;
-            // Swallow the whole run, so two spaces do not start the next line
-            // with one.
+            Opp o;
+            o.end = cpStart;
+            o.cumEnd = cum;
+            // Swallow the whole run, so two spaces do not indent the next line.
             std::size_t j = i;
+            cum += FindGlyph(' ') ? FindGlyph(' ')->advance * opt.scale : 0.0f;
             while (j < utf8.size()) {
                 const std::size_t k = j;
                 if (stepUTF8(utf8, j) != ' ') { j = k; break; }
+                cum += FindGlyph(' ') ? FindGlyph(' ')->advance * opt.scale : 0.0f;
             }
-            breakResume = j;
-            haveBreak = true;
-            lineW += adv;
+            i = j;
+            o.resume = j;
+            o.cumResume = cum;
+            opps.push_back(o);
             continue;
         }
 
-        // Would this glyph overflow? Compared BEFORE adding it, so the line
-        // that is emitted actually fits.
-        if (bounded && lineW + adv > maxWidthPx && cpStart > lineBegin) {
-            if (haveBreak && breakEnd > lineBegin) {
-                out.push_back(Line{ lineBegin, breakEnd, breakW });
-                lineBegin = breakResume;
-                // Re-measure the tail: the partial word already consumed since
-                // the break has to be carried onto the new line.
-                lineW = 0.0f;
-                for (std::size_t k = lineBegin; k < cpStart;) {
-                    const std::uint32_t c2 = stepUTF8(utf8, k);
-                    if (const Glyph* g2 = FindGlyph(c2)) lineW += g2->advance * scale;
-                }
-            } else {
-                // A word longer than the whole line: break inside it.
-                out.push_back(Line{ lineBegin, cpStart, lineW });
-                lineBegin = cpStart;
-                lineW = 0.0f;
+        if (cp == kSoftHyphen) {
+            // Invisible unless used: it has no glyph in the atlas, so it adds
+            // nothing to `cum` and DrawText skips it without stalling the pen.
+            // Breaking here costs the '-' that gets drawn in its place.
+            if (opt.softHyphens) {
+                Opp o;
+                // The line ends BEFORE the hyphen bytes and the next begins
+                // AFTER them, so a Line range is always exactly what gets
+                // drawn -- the invisible codepoint belongs to neither side.
+                // Leaving it inside the slice would work today only because
+                // the atlas is ASCII and has no glyph for it.
+                o.end = cpStart;
+                o.cumEnd = cum;
+                o.resume = i;
+                o.cumResume = cum;
+                o.hyphen = true;
+                opps.push_back(o);
             }
-            haveBreak = false;
+            continue;
         }
-        lineW += adv;
+
+        if (const Glyph* g = FindGlyph(cp)) cum += g->advance * opt.scale;
+    }
+    // The paragraph end is always a break, and never a hyphen.
+    Opp last;
+    last.end = utf8.size();
+    last.resume = utf8.size();
+    last.cumEnd = last.cumResume = cum;
+    opps.push_back(last);
+
+    const std::size_t n = opps.size();
+    const auto lineWidth = [&](std::size_t from, std::size_t to) {
+        return opps[to].cumEnd - opps[from].cumResume +
+               (opps[to].hyphen ? hyphenW : 0.0f);
+    };
+
+    // ---- 2. choose which opportunities become breaks -----------------------
+    // `prev[j]` is the opportunity a line ending at j starts from.
+    std::vector<std::size_t> prev(n, 0);
+    if (!bounded) {
+        // Nothing to fit: only the mandatory breaks survive.
+        std::size_t from = 0;
+        for (std::size_t j = 1; j < n; ++j) {
+            if (opps[j].mandatory || j == n - 1) { prev[j] = from; from = j; }
+        }
+    } else if (opt.fit == WrapFit::Balanced) {
+        // Minimum raggedness by dynamic programming over opportunities. The
+        // LAST line is free -- a paragraph is not ragged because it ended.
+        constexpr float kInf = 1e30f;
+        std::vector<float> best(n, kInf);
+        best[0] = 0.0f;
+        for (std::size_t j = 1; j < n; ++j) {
+            for (std::size_t i = j; i-- > 0;) {
+                if (best[i] >= kInf) continue;
+                const float w = lineWidth(i, j);
+                // Once a candidate start is too far back to fit, every earlier
+                // one is too, so the scan can stop.
+                if (w > opt.maxWidthPx && j - i > 1) break;
+                // THE LAST LINE COUNTS. Knuth-Plass frees it because in
+                // JUSTIFIED text a final short line is set flush-left and its
+                // slack is not raggedness -- but nothing here is justified, and
+                // freeing it makes the whole thing degenerate to greedy for any
+                // two-line paragraph: the cheapest answer becomes "pack line
+                // one as full as possible", which is greedy exactly. Counting
+                // it is what makes a heading split evenly instead of stranding
+                // one word underneath.
+                const float slack = opt.maxWidthPx - w;
+                float cost = slack * slack;
+                // A hyphenated break is legal but not free, or a balanced
+                // paragraph would hyphenate every line it could.
+                if (opps[j].hyphen) cost += 2500.0f;
+                const float total = best[i] + cost;
+                if (total < best[j]) { best[j] = total; prev[j] = i; }
+                // A mandatory break cannot be skipped over: a line may not
+                // contain an authored newline.
+                if (opps[i].mandatory && i != 0) break;
+            }
+            // Unreachable (one segment longer than the whole line): fall back
+            // to the nearest predecessor so emit_ can hard-break it.
+            if (best[j] >= kInf) { best[j] = best[j - 1]; prev[j] = j - 1; }
+        }
+    } else {
+        // Greedy: the furthest opportunity that still fits.
+        std::size_t from = 0;
+        for (std::size_t j = 1; j < n; ++j) {
+            const bool fits = lineWidth(from, j) <= opt.maxWidthPx;
+            const bool forced = opps[j].mandatory || j == n - 1;
+            if (fits && !forced) continue;
+            if (!fits && j - 1 > from) {
+                prev[j - 1] = from;         // the last one that DID fit
+                from = j - 1;
+                --j;                        // reconsider this one from the new start
+                continue;
+            }
+            prev[j] = from;
+            from = j;
+        }
     }
 
-    // The last line, always -- including the empty one after a trailing '\n',
-    // because a paragraph that ends in a break really does have a blank line.
-    out.push_back(Line{ lineBegin, utf8.size(), lineW });
-}
+    // ---- 3. emit, hard-breaking anything that still does not fit -----------
+    std::vector<std::size_t> chosen;
+    for (std::size_t j = n - 1; j > 0; j = prev[j]) chosen.push_back(j);
+    std::reverse(chosen.begin(), chosen.end());
 
-glm::vec2 Font::MeasureWrapped(const std::string& utf8, float maxWidthPx,
-                               float scale) const {
-    if (!IsValid()) return { 0.0f, 0.0f };
-    std::vector<Line> lines;
-    WrapLines(utf8, maxWidthPx, scale, lines);
-    float widest = 0.0f;
-    for (const Line& l : lines) widest = std::max(widest, l.width);
-    const int n = lines.empty() ? 1 : int(lines.size());
-    return { widest, lineHeight_ * scale * float(n) };
+    std::size_t from = 0;
+    for (const std::size_t j : chosen) {
+        std::size_t begin = opps[from].resume;
+        const std::size_t stop = opps[j].end;
+
+        // A single unbreakable run wider than the line. Walked forward a glyph
+        // at a time, because there is no opportunity inside it to use.
+        //
+        // The walk also RE-MEASURES the tail, and it has to: the segment width
+        // from the opportunity table describes the whole run, so reusing it for
+        // whatever survived the last hard break reported a line three times its
+        // real length -- and a width that disagrees with the glyphs is a
+        // right-aligned line that hangs off its box.
+        float tail = 0.0f;
+        if (bounded) {
+            std::size_t k = begin;
+            std::size_t lineStart = begin;
+            while (k < stop) {
+                const std::size_t cpStart = k;
+                const std::uint32_t cp = stepUTF8(utf8, k);
+                const Glyph* g = (cp == kSoftHyphen) ? nullptr : FindGlyph(cp);
+                const float adv = g ? g->advance * opt.scale : 0.0f;
+                if (tail + adv > opt.maxWidthPx && cpStart > lineStart) {
+                    out.push_back(Line{ lineStart, cpStart, tail, false });
+                    lineStart = cpStart;
+                    tail = 0.0f;
+                }
+                tail += adv;
+            }
+            begin = lineStart;
+        }
+        const float finalW = bounded ? tail + (opps[j].hyphen ? hyphenW : 0.0f)
+                                     : lineWidth(from, j);
+        out.push_back(Line{ begin, stop, finalW, opps[j].hyphen });
+        from = j;
+    }
+    if (out.empty()) out.push_back(Line{ 0, utf8.size(), cum, false });
 }
 
 void Font::AppendUTF8(std::string& out, std::uint32_t cp) {
@@ -286,12 +418,12 @@ void Font::AppendUTF8(std::string& out, std::uint32_t cp) {
 }
 
 glm::vec2 Font::Measure(const std::string& utf8, float scale) const {
-    // A stable row height even for "" — layout needs a line box regardless.
+    // A stable row height even for "" -- layout needs a line box regardless.
     if (!IsValid()) return { 0.0f, 0.0f };
-    const auto cps = DecodeUTF8(utf8);
     float widest = 0.0f, line = 0.0f;
     int lines = 1;
-    for (const std::uint32_t cp : cps) {
+    for (std::size_t i = 0; i < utf8.size();) {
+        const std::uint32_t cp = stepUTF8(utf8, i);
         if (cp == '\n') {
             widest = std::max(widest, line);
             line = 0.0f;
@@ -302,6 +434,24 @@ glm::vec2 Font::Measure(const std::string& utf8, float scale) const {
     }
     widest = std::max(widest, line);
     return { widest, lineHeight_ * scale * float(lines) };
+}
+
+glm::vec2 Font::MeasureWrapped(const std::string& utf8, float maxWidthPx,
+                               float scale) const {
+    WrapOptions opt;
+    opt.maxWidthPx = maxWidthPx;
+    opt.scale = scale;
+    return MeasureWrapped(utf8, opt);
+}
+
+glm::vec2 Font::MeasureWrapped(const std::string& utf8, const WrapOptions& opt) const {
+    if (!IsValid()) return { 0.0f, 0.0f };
+    std::vector<Line> lines;
+    WrapLines(utf8, opt, lines);
+    float widest = 0.0f;
+    for (const Line& l : lines) widest = std::max(widest, l.width);
+    const int n = lines.empty() ? 1 : int(lines.size());
+    return { widest, lineHeight_ * opt.scale * float(n) };
 }
 
 } // namespace MyCoreEngine

@@ -97,12 +97,45 @@ namespace MyCoreEngine {
         struct Line {
             std::size_t begin = 0, end = 0;   // [begin, end) bytes
             float       width = 0.0f;
+            // The break was taken AT a soft hyphen, so this line renders with a
+            // trailing '-' that is not in the source string. `width` already
+            // includes it.
+            bool        hyphen = false;
         };
 
-        // Greedy word wrap at `maxWidthPx`, appending to `out`.
+        // HOW the breaks are chosen once the opportunities are known.
+        enum class WrapFit : std::uint8_t {
+            // Take the furthest break that fits, line by line. What every
+            // browser did until recently, and what a caret or a scroller wants:
+            // a line's contents never change because of text further down.
+            Greedy,
+            // Minimise total RAGGEDNESS over the whole paragraph -- the sum of
+            // squared leftover space on every line but the last.
+            //
+            // This is Knuth-Plass with the stretch and shrink removed, and the
+            // removal is forced rather than a simplification: DrawText walks
+            // fixed glyph advances, so there is no variable inter-word space to
+            // stretch and therefore no justification to optimise. Minimum
+            // raggedness IS the paragraph-fitting problem for ragged-right
+            // text, and it is what stops a heading leaving one word alone on
+            // its second line.
+            Balanced,
+        };
+
+        struct WrapOptions {
+            float   maxWidthPx = 0.0f;   // <= 0 => no limit
+            float   scale = 1.0f;
+            // U+00AD SOFT HYPHEN becomes a break opportunity, and rendering a
+            // break taken there appends a real '-'. Off by default so a string
+            // carrying one is inert until the author asks.
+            bool    softHyphens = false;
+            WrapFit fit = WrapFit::Greedy;
+        };
+
+        // Word wrap, appending to `out`.
         //
         // BREAKS AT SPACES, and the trailing spaces stay OUT of the line: a
-        // line whose measured width includes the space that caused the break
+        // line whose measured width included the space that caused the break
         // would right-align and centre wrong, by exactly one space.
         //
         // A WORD LONGER THAN THE LINE is broken mid-word rather than allowed to
@@ -115,8 +148,12 @@ namespace MyCoreEngine {
         // offer gets the same answer Measure gives.
         //
         // Explicit '\n' always breaks, and always starts a new line even when
-        // the text would have fitted — an authored break is an instruction, not
-        // a hint.
+        // the text would have fitted -- an authored break is an instruction,
+        // not a hint.
+        void WrapLines(const std::string& utf8, const WrapOptions& opt,
+                       std::vector<Line>& out) const;
+        // The plain form, kept because most callers have nothing to say beyond
+        // a width and a scale.
         void WrapLines(const std::string& utf8, float maxWidthPx, float scale,
                        std::vector<Line>& out) const;
 
@@ -124,6 +161,7 @@ namespace MyCoreEngine {
         // Same stable-row-height rule for the empty string.
         glm::vec2 MeasureWrapped(const std::string& utf8, float maxWidthPx,
                                  float scale = 1.0f) const;
+        glm::vec2 MeasureWrapped(const std::string& utf8, const WrapOptions& opt) const;
 
         // Decodes UTF-8 into codepoints. Invalid bytes yield U+FFFD rather than
         // throwing or truncating, so hostile/mojibake text degrades visibly

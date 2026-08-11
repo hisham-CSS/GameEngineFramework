@@ -104,12 +104,25 @@ namespace {
         return el.layout().size.x - sx_(s.padding.left) - sx_(s.padding.right);
     }
 
+    // Everything the font needs to wrap THIS element, in one place, so the
+    // measure pass and the draw pass cannot disagree about the rules.
+    inline Font::WrapOptions wrapOptions_(const UIElement& el, float avail) {
+        const Style& s = el.style();
+        Font::WrapOptions opt;
+        opt.maxWidthPx = avail;
+        opt.scale = s.fontScale * g_uiScale;
+        opt.softHyphens = (s.hyphens == Hyphens::Manual);
+        opt.fit = (s.textWrap == TextWrap::Balance) ? Font::WrapFit::Balanced
+                                                    : Font::WrapFit::Greedy;
+        return opt;
+    }
+
     // Measure honouring `white-space`. `avail` is the width offered, already
     // in real pixels; <= 0 means unbounded.
     inline glm::vec2 measureWrap_(const Font* f, const UIElement& el, float avail) {
         const Style& s = el.style();
         if (!wraps_(el)) return f->Measure(s.text, s.fontScale * g_uiScale);
-        return f->MeasureWrapped(s.text, avail, s.fontScale * g_uiScale);
+        return f->MeasureWrapped(s.text, wrapOptions_(el, avail));
     }
 
     // Text leaves size themselves from the font, which is what makes a label
@@ -985,13 +998,16 @@ void UIDocument::draw_(const UIElement& el, Renderer2D& r2d, const Font* font,
             // final box is the only way the glyphs cannot disagree with the
             // layout that placed them.
             std::vector<Font::Line> lines;
-            font->WrapLines(s.text, wrapWidth_(el), fs, lines);
+            font->WrapLines(s.text, wrapOptions_(el, wrapWidth_(el)), lines);
             const float lineH = font->lineHeight() * fs;
             glm::vec2 p = tp;
             for (const Font::Line& l : lines) {
-                if (l.end > l.begin) {
-                    r2d.DrawText(*font, s.text.substr(l.begin, l.end - l.begin),
-                                 p, s.textColor, layer, fs);
+                if (l.end > l.begin || l.hyphen) {
+                    // The '-' a hyphenated break draws is NOT in the source
+                    // string, so the line is built rather than sliced.
+                    std::string run = s.text.substr(l.begin, l.end - l.begin);
+                    if (l.hyphen) run += '-';
+                    r2d.DrawText(*font, run, p, s.textColor, layer, fs);
                 }
                 p.y += lineH;
             }
