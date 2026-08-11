@@ -219,3 +219,44 @@ TEST(CameraDirector, ResetForgetsActiveOverrideAndBlend) {
     // blend duration is configuration, not state: it survives
     EXPECT_FLOAT_EQ(d.defaultBlendSeconds(), 2.f);
 }
+
+// What a SCENE SWAP does to the director, and why Application::Run resets it
+// on the swap frame.
+//
+// Scene::ResetToDefaults calls registry.clear(), so every handle the director
+// is holding dies -- including active_. The next Update therefore sees
+// want != active_ and starts a blend, while lastOutputValid_ still says "I
+// have a previous on-screen pose": the previous LEVEL's final pose. The new
+// scene's opening shot then slides in from wherever the old scene left the
+// camera, through geometry that no longer has anything to do with it.
+//
+// The reset above is checked field by field; this checks the consequence,
+// which is the thing a swap actually needs and the thing a future refactor of
+// reset() could silently break.
+TEST(CameraDirector, ResetMakesTheNextSceneOpenOnACutNotABlendFromTheOldPose) {
+    Scene scene;
+    auto a = makeCamera(scene, { 0.f, 0.f, 0.f }, 0, 60.f, "OldLevel");
+    scene.UpdateTransforms();
+    (void)a;
+
+    CameraDirector d;
+    d.setDefaultBlendSeconds(2.f);   // a game that tuned its blends
+    Camera cam;
+    ASSERT_TRUE(d.Update(scene.registry, 0.016f, cam));
+    expectVec3Near(cam.Position, { 0.f, 0.f, 0.f });
+
+    // THE SWAP. Everything the director knew is now a dangling handle.
+    scene.ResetToDefaults();
+    auto b = makeCamera(scene, { 100.f, 50.f, 0.f }, 0, 40.f, "NewLevel");
+    scene.UpdateTransforms();
+    (void)b;
+
+    d.reset();   // <- Application::Run does this on the swap frame
+
+    ASSERT_TRUE(d.Update(scene.registry, 0.016f, cam));
+    EXPECT_FALSE(d.blending())
+        << "the new scene opened on a BLEND from the previous level's camera";
+    expectVec3Near(cam.Position, { 100.f, 50.f, 0.f });
+    EXPECT_FLOAT_EQ(cam.Zoom, 40.f)
+        << "field of view was still interpolating out of the old scene";
+}

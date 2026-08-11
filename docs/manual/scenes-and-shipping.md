@@ -123,7 +123,14 @@ app.LoadScene("Exported/level2.json");
 
 **The file is validated at request time, not at swap time.** `LoadScene` returns `false` for a path that will not load, and in that case nothing at all has been touched. Validating late would mean tearing the old scene's subsystems down and only then discovering the destination was a typo.
 
-**A swap frame renders but does not simulate.** After a swap the fixed-timestep accumulator is reset, `paused_` is cleared and `timeScale_` returns to 1, and gameplay is skipped for that one frame. Otherwise the first step integrates a `dt` that accumulated while the old scene was still up — for a slow load, an arbitrarily large one — and physics resolving that with brand-new bodies is how things end up inside walls. The pause/time-scale reset is why "Quit to menu" from a pause menu does not deliver a frozen main menu.
+**A swap frame renders but does not simulate.** After a swap the fixed-timestep accumulator is reset, `paused_` is cleared and `timeScale_` returns to 1, the camera director is reset and the CSM cascades are forced to rebuild, and gameplay is skipped for that one frame. Otherwise the first step integrates a `dt` that accumulated while the old scene was still up — for a slow load, an arbitrarily large one — and physics resolving that with brand-new bodies is how things end up inside walls. The pause/time-scale reset is why "Quit to menu" from a pause menu does not deliver a frozen main menu.
+
+The other two are state that outlives the registry the swap replaced:
+
+* **The camera director.** `Scene::ResetToDefaults` calls `registry.clear()`, so every handle the director holds is dead — but it still has the last pose it put on screen. Without the reset the new scene sees a changed target with a valid previous output and blends the opening shot in from the *previous* level's final camera pose.
+* **The shadow cascades.** A swap replaces the whole caster set, which the dirty-caster flow cannot express: the departed casters have no `Transform` left to mark dirty, and the arrivals' dirty flags were already consumed by the loader's own `UpdateTransforms`. Without `forceCSMUpdate`, the new scene renders against the old scene's depth maps until the camera drifts far enough to invalidate a cascade on its own.
+
+Both live in `Application::Run`, the engine's single swap point, so every host gets them. Anything else a host caches per scene is its own to reset — the Player, for example, re-applies the quality tier through a `SceneLoader` observer, because the CSM half of a tier lives on the `Renderer` and is not serialized.
 
 ### Subscribing to a swap
 
@@ -287,7 +294,7 @@ Gameplay drives cameras by editing these fields; the director notices on its own
 - **Static assets** (every *subdirectory* of `Editor/src/Exported/` — today `Env/`, `Fonts/`, `Icon/`, `Layouts/`, `Model/`, `Scripts/`, `Shaders/`, `UI/`) are owned by the source tree and re-copied every build, so shader, model, script and UI edits show up. The script globs the subdirectories rather than naming them: the list used to be hardcoded, and adding `Scripts/` and then `Env/` each silently shipped a feature whose assets never reached the runtime directory.
 - **Authored files** (`*.json` — anything the editor writes at runtime into the same directory) are seeded **only when missing**.
 
-There is exactly one staging target, `runtime_assets`, defined in `Editor/CMakeLists.txt` and depended on by `Editor`, `PlayerDebug`, and `PlayerShipping`. Concurrent copies into the same directory race under Ninja, so one writer is the rule.
+There is exactly one staging target, `runtime_assets`, defined in `Editor/CMakeLists.txt` and depended on by `Editor`, `PlayerDebug`, `PlayerShipping`, and `AssetCooker` (`Cooker/CMakeLists.txt`). Every executable that shares the output directory takes a dependency on that one target rather than copying for itself: concurrent copies into the same directory race under Ninja, so one writer is the rule. A fifth consumer added later belongs on the same `add_dependencies(... runtime_assets)` line, never on a copy step of its own.
 
 > ### Gotcha 2 — authored `.json` files are staged only-if-missing
 >

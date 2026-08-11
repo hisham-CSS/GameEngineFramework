@@ -138,6 +138,18 @@ public:
         sceneLoader.SetJobSystem(&jobs());
         setSceneLoader(&sceneLoader);
 
+        // The RENDERER's per-scene state, subscribed where the loader is
+        // created for the same reason InstallPhysics/Scripting/Audio subscribe
+        // theirs: a host that has to remember is a host that drifts from the
+        // editor. The CSM half of a quality tier (cascade count, resolution)
+        // lives on the Renderer and is NOT serialized, so a swap from a Low
+        // menu into a High level kept running Low's cascades while
+        // scene.GetQualityLevel() reported High.
+        sceneLoader.AddObserver(nullptr, [this](Scene& s) {
+            if (s.GetQualityLevel() != Scene::QualityLevel::Custom)
+                renderer().ApplyQualityTier(s.GetQualityLevel(), s);
+        });
+
         SceneSerializer serializer(scene, assets);
         if (!serializer.Load(scenePath)) {
             fatal("failed to load scene '" + scenePath +

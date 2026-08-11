@@ -1353,3 +1353,63 @@ TEST(SceneSerializer, UnnamedEntitiesRoundTripUnnamed) {
 
     std::remove(path);
 }
+
+// ---- ProjectSettings::Load is all-or-nothing --------------------------------
+//
+// Load returned false while having already applied some of the file. The
+// failure is easy to reach without a malformed file at all: nlohmann's
+// value(key, default) only substitutes the default when the key is ABSENT, so
+// a key that is present but wrong-typed throws -- and the fields are read in
+// order, so everything before the bad one had already landed in *this*. The
+// caller sees false, reasonably concludes "defaults stand", and is wrong.
+
+namespace {
+    std::string writeTempJson(const char* name, const std::string& body) {
+        namespace fs = std::filesystem;
+        const fs::path p = fs::temp_directory_path() / name;
+        std::ofstream out(p);
+        out << body;
+        out.close();
+        return p.string();
+    }
+}
+
+TEST(ProjectSettingsLoad, AWrongTypedFieldLeavesEVERYDefaultIntact) {
+    // startupScene is read FIRST and is perfectly valid; masterVolume is read
+    // second and is a string. The old code committed the first before throwing
+    // on the second.
+    const std::string path = writeTempJson("cse_settings_badtype.json",
+        R"({"startupScene":"Exported/from_the_file.json","masterVolume":"loud"})");
+
+    ProjectSettings ps;
+    const std::string defaultScene = ps.startupScene;
+    const float defaultVolume = ps.masterVolume;
+
+    EXPECT_FALSE(ps.Load(path)) << "a wrong-typed field must be reported";
+    EXPECT_EQ(ps.startupScene, defaultScene)
+        << "Load returned false but had already applied startupScene = '"
+        << ps.startupScene << "' -- the object is half from the file and half "
+           "from the defaults, which is the one state no caller handles";
+    EXPECT_FLOAT_EQ(ps.masterVolume, defaultVolume);
+    std::remove(path.c_str());
+}
+
+TEST(ProjectSettingsLoad, AGoodFileStillApplies) {
+    // The other half of the contract: all-or-nothing must not become nothing.
+    const std::string path = writeTempJson("cse_settings_good.json",
+        R"({"startupScene":"Exported/level2.json","masterVolume":0.25})");
+
+    ProjectSettings ps;
+    EXPECT_TRUE(ps.Load(path));
+    EXPECT_EQ(ps.startupScene, "Exported/level2.json");
+    EXPECT_FLOAT_EQ(ps.masterVolume, 0.25f);
+    std::remove(path.c_str());
+}
+
+TEST(ProjectSettingsLoad, AMissingFileIsNotAnError) {
+    ProjectSettings ps;
+    const std::string before = ps.startupScene;
+    EXPECT_TRUE(ps.Load("Exported/definitely_not_here_9e3f.json"))
+        << "no settings file yet is the normal first-run case, not a failure";
+    EXPECT_EQ(ps.startupScene, before);
+}

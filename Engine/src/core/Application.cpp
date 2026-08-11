@@ -145,6 +145,26 @@ namespace MyCoreEngine
 				// must not open in slow motion.
 				paused_ = false;
 				timeScale_ = 1.0f;
+
+				// The director holds handles into the registry that was just
+				// replaced, plus the last OUTPUT pose it rendered.
+				// Scene::ResetToDefaults calls registry.clear(), so every one
+				// of those handles is dead -- the new scene's first frame
+				// would see want != active_ with lastOutputValid_ still true
+				// and blend the opening shot from the PREVIOUS level's final
+				// on-screen pose, sliding the camera through the new geometry.
+				director_.reset();
+
+				// A swap replaces the WHOLE caster set, which the dirty-caster
+				// flow cannot express: the departed casters have no Transform
+				// left to mark dirty, and the arrivals' dirty flags were
+				// already consumed by SceneLoader's own UpdateTransforms. So
+				// the UpdateTransforms below clears dirtyCasters_ and refills
+				// nothing, and the new scene renders against the departed
+				// scene's depth maps -- the menu's geometry casting shadows
+				// on the level's ground until the camera happens to drift a
+				// slice centre past its movement margin.
+				renderer_.forceCSMUpdate();
 			}
 
 			// Game update: fixed steps (simulation) then per-frame variable step.
