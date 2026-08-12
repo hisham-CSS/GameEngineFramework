@@ -237,6 +237,37 @@ departed casters have no `Transform` left to mark dirty -- so shadows need
 `forceCSMUpdate` outright. A host caching anything else per scene resets it
 through a `SceneLoader` observer, next to where the loader is created.
 
+### Never add a fast-math flag
+
+`/fp:fast`, `-ffast-math`, `-Ofast`, `-ffp-contract=fast` and their relatives
+license the compiler to reassociate arithmetic, to contract `a*b+c` into a single
+FMA (one rounding instead of two), and to assume no NaNs. Any of those makes the
+simulation stop being bit-identical between two machines, which is the property
+the whole fighting-game plan rests on — see
+[ARCHITECTURE.md](ARCHITECTURE.md) D3.
+
+Nothing fails loudly when one is added. The build succeeds, every test passes,
+and two players drift apart. So it is checked mechanically:
+
+```bash
+python scripts/check_determinism_flags.py
+```
+
+CI runs it twice — once in seconds over the build configuration we author, and
+again after configuring, over the GENERATED `build.ninja` and
+`compile_commands.json`. The second pass is the one that catches a flag arriving
+from a dependency's INTERFACE options, which is not hypothetical here: that is
+exactly how `Jolt::Jolt`'s `_HAS_EXCEPTIONS=0` once reached every engine TU.
+
+Two things worth knowing about it. It proves the **absence** of dangerous flags,
+not the presence of `/fp:precise` — MSVC defaults to precise and emits no flag,
+so there is nothing to assert positively. And `--self-test` exists because a gate
+nobody has watched fail is not a gate; CI runs that first.
+
+If a flag is genuinely wanted, put `det-ok` in a comment on that line with the
+reason. The exemption then shows up in review instead of in a desync six months
+later.
+
 ### Renderer
 
 - A change to the **caster set** must force a CSM rebuild; a cached cascade

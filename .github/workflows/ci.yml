@@ -4,8 +4,12 @@
 # pipeline that makes that untrue, structured so the REQUIRED check is the one
 # that can actually stay green:
 #
-#   windows  (required)   all four configurations build, then the 42 CTest
-#                         entries that need no GPU.
+#   determinism-flags (required)  seconds, no toolchain: proves no fast-math flag
+#                         has crept into the build. Runs first because it is the
+#                         property everything else rests on.
+#   windows  (required)   all four configurations build, the same flag gate runs
+#                         again over the GENERATED compile lines, then the 42
+#                         CTest entries that need no GPU.
 #   gl-tests (advisory)   the 11 tests that need an OpenGL context, run against
 #                         Mesa's llvmpipe software rasteriser.
 #   linux    (advisory)   the Linux port compiles. It has never been run on
@@ -39,6 +43,31 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 jobs:
+  # Runs in seconds and needs no toolchain, so it reports before the long jobs
+  # have finished restoring their caches. Determinism is the property the whole
+  # fighting-game plan rests on (docs/ARCHITECTURE.md D3), and a single
+  # /fp:fast silently voids it while every test stays green.
+  determinism-flags:
+    name: Determinism · FP flag gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Self-test the detector
+        # A gate nobody has watched fail is not a gate. This proves every
+        # pattern still matches before trusting a green result from it.
+        run: python scripts/check_determinism_flags.py --self-test
+      - name: Scan the authored build configuration
+        # Generated build files do not exist here (nothing has been configured),
+        # so this covers CMakeLists/presets/cmake only. The windows job below
+        # runs the same script again AFTER configuring, which adds the generated
+        # compile lines -- that is where a dependency's INTERFACE option would
+        # show up.
+        run: python scripts/check_determinism_flags.py
+
   windows:
     name: Windows · build + test
     runs-on: windows-2022
@@ -81,6 +110,15 @@ jobs:
           for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do call "%%i\VC\Auxiliary\Build\vcvars64.bat"
           cmake --preset x64-relwithdebinfo-tests || exit /b 1
           cmake --build --preset x64-relwithdebinfo-tests || exit /b 1
+
+      - name: Determinism — FP flags in the GENERATED build files
+        shell: cmd
+        # The half the standalone job cannot do: build.ninja and
+        # compile_commands.json now exist, so this sees the actual compile lines
+        # including anything a vcpkg dependency exported as an INTERFACE option.
+        # That propagation is not hypothetical here -- Jolt::Jolt's
+        # _HAS_EXCEPTIONS=0 reached every engine TU this way once.
+        run: python scripts/check_determinism_flags.py
 
       - name: Test — everything that does not need a GPU
         shell: cmd
@@ -208,7 +246,20 @@ jobs:
           key: vcpkg-linux-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
           restore-keys: vcpkg-linux-
 
+      - name: Toolchain versions
+        # Printed up front so a failure below can be read against them. The
+        # vcpkg baseline is pinned (vcpkg-configuration.json) while the runner's
+        # compiler is not, and an old baseline meeting a new GCC is the single
+        # most likely reason for this job to fail.
+        run: |
+          gcc --version | head -1
+          cmake --version | head -1
+          ninja --version
+          echo "vcpkg: $VCPKG_INSTALLATION_ROOT"
+          git -C "$VCPKG_INSTALLATION_ROOT" rev-parse --short HEAD 2>/dev/null || true
+
       - name: Build
+        id: linux_build
         # NOT a preset: CMakePresets.json is deliberately gated to Windows hosts
         # (see the windows-base condition). scripts/linux-build.sh is the
         # committed Linux equivalent, so exercising it here keeps the script and
@@ -219,3 +270,23 @@ jobs:
           export VCPKG_BINARY_SOURCES="clear;files,$GITHUB_WORKSPACE/vcpkg_cache,readwrite"
           chmod +x scripts/linux-build.sh
           scripts/linux-build.sh RelWithDebInfo
+
+      - name: Why it failed
+        if: failure()
+        # vcpkg prints "See logs for more information: <path>.log" and then the
+        # runner throws the file away with the container. Without this, the only
+        # artefact of a failed dependency build is "exit code 1", which is what
+        # the first run of this job actually produced.
+        run: |
+          echo "===== vcpkg buildtree logs ====="
+          find "$VCPKG_INSTALLATION_ROOT/buildtrees" -name '*-err.log' -o -name '*-out.log' 2>/dev/null |
+            head -20 | while read -r f; do
+              echo "----- $f -----"
+              tail -60 "$f"
+            done
+          echo "===== CMake logs ====="
+          find out/build -name 'CMakeError.log' -o -name 'CMakeOutput.log' 2>/dev/null |
+            while read -r f; do
+              echo "----- $f -----"
+              tail -60 "$f"
+            done
