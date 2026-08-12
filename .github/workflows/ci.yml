@@ -260,6 +260,15 @@ jobs:
       - name: System packages
         # GLFW needs the X11 development headers; see docs/BUILDING_LINUX.md.
         run: |
+          # The runner ships third-party apt sources (packages.microsoft.com,
+          # azure-cli) that this project never installs from, and `apt-get
+          # update` exits non-zero if ANY configured repository fails. One of
+          # them started returning 403 Forbidden and took the whole job down
+          # before a single line was compiled -- a failure with nothing to do
+          # with the code, on a job whose entire purpose is to report on the
+          # code. Dropping them removes that class of flake without weakening
+          # the check: an Ubuntu archive failure still fails the step loudly.
+          sudo rm -f /etc/apt/sources.list.d/*microsoft* /etc/apt/sources.list.d/*azure*
           sudo apt-get update
           sudo apt-get install -y ninja-build xorg-dev libgl1-mesa-dev \
             libxinerama-dev libxcursor-dev libxi-dev libxrandr-dev \
@@ -320,6 +329,16 @@ jobs:
         # only reach for the vcpkg logs when there are none.
         run: |
           echo "===== distinct compiler errors ====="
+          if [ ! -f build.log ]; then
+            # The build step never got as far as running the compiler -- it died
+            # in setup. Say that, instead of reporting "no compile errors", which
+            # is technically true and thoroughly misleading. This exact case
+            # happened: an apt mirror 403'd and the summary announced that this
+            # was not a compile failure, which read like the build had succeeded.
+            echo "build.log does not exist: the build never started."
+            echo "The failure is in a step ABOVE this one -- read that step's log."
+            exit 0
+          fi
           if grep -qE '^[^ ]+:[0-9]+:[0-9]+: (error|fatal error):' build.log; then
             grep -hoE '[^/ ]+:[0-9]+:[0-9]+: (error|fatal error):.*' build.log |
               sort -u | head -80
