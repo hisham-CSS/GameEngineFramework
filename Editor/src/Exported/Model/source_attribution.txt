@@ -1,3 +1,16 @@
+PLACEHOLDER TEST ASSET — NOT PART OF THE ENGINE, DO NOT SHIP AS-IS.
+
+This model exists only to exercise the importer, the material system and the
+renderer with real multi-texture geometry. It is scheduled for replacement by
+first-party materials that need no attribution.
+
+No licence has been recorded for it. Attribution alone does not establish a
+redistribution right, and Player/CMakeLists.txt:50 currently installs the whole
+of Exported/ into the package (excluding only *.import), so this ships by
+default. Before distributing a build: either delete it, or check the Sketchfab
+page below and record the licence here alongside every other bundled asset
+(see Env/CREDITS.md and Fonts/README.md for the pattern).
+
 Model by Berk Gedik, from: https://sketchfab.com/3d-models/survival-guitar-backpack-low-poly-799f8c4511f84fab8c3f12887f7e6b36
 
 Modified material assignment (Joey de Vries) for easier load in OpenGL model loading chapter, and renamed albedo to diffuse and metallic to specular to match non-PBR lighting setup.

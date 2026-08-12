@@ -20,9 +20,13 @@ weight is the way to get bold/light, not an axis setting.
 The OFL permits bundling and redistribution, including in a commercial game,
 provided the licence text travels with the font — which is why
 `LICENSE-Roboto.txt` sits next to it and is staged and packaged along with it.
-The OFL's one hard restriction is that the font must not be sold on its own, and
-that any *modified* version must be renamed (it may not use the "Roboto"
-reserved name). Neither applies to shipping it unmodified inside a game.
+The OFL's hard restrictions are that the font must not be sold on its own
+(clause 1) and that it must be distributed *entirely* under the OFL, never under
+another licence (clause 5) — so it is not covered by this repository's MIT
+`LICENSE.txt`. This copy declares **no Reserved Font Name**: the copyright line
+in `LICENSE-Roboto.txt` names none, and clause 3's rename-on-modification rule
+applies only to names specified as reserved. None of this restricts shipping the
+font unmodified inside a game.
 
 ## Adding your own
 

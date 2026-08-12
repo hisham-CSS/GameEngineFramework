@@ -71,9 +71,9 @@ Scene persistence lives in the **File** menu on the editor's title bar (`EditorA
 
 | Menu item | Effect |
 | --- | --- |
-| **New Scene** | Confirmation popup, then replaces the scene with a Main Camera plus a ground plane. |
+| **New Scene** | Confirmation popup, then replaces the scene with a Main Camera plus a ground plane, and leaves it **untitled** — it has never been saved anywhere, so it has no save target until you choose one. |
 | **Open Scene…** | Popup for the path, then a `SceneLoader` swap plus the editor-side invalidation described below. |
-| **Save Scene** (`Ctrl+S`) | `SceneSerializer::Save` to the current scene path. |
+| **Save Scene** (`Ctrl+S`) | `SceneSerializer::Save` to the current scene path — or, on an **untitled** scene (one made by **New Scene**), it opens **Save Scene As** instead of writing to whatever file happened to be open before. |
 | **Save Scene As…** | Popup for a new path, then saves — the new path becomes the current one. |
 | **Save All** (`Ctrl+Shift+S`) | The scene *and* the editor layout (ImGui otherwise only persists the layout on a clean shutdown). |
 | **Set Current Scene as Player Startup** | Writes the current path into `Exported/project.json`. |

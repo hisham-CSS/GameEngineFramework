@@ -46,13 +46,15 @@ A few decisions shape everything else, and knowing them makes the rest of the
 engine predictable:
 
 - **Content lives in the scene file, never in code.** The editor and the player
-  both open the same startup scene, so what you author is what ships. Two
+  both open the same startup scene, so what you author is what ships. Three
   deliberate exceptions: if the startup scene fails to load — or you pick
   **New Scene** — the editor's `createDefaultScene_` seeds a Main Camera (plus a
   ground plane, when `Exported/Model/plane.obj` is available) so a scene is never
-  camera-less; and `InstallDemoUIContent` registers the sample HUD's starting
-  values, its `addScore` action and its `healthTint` converter, because a named
-  C++ function is the one thing markup cannot carry.
+  camera-less; `InstallDemoUIContent` registers the sample HUD's starting
+  values, its `addScore` action and its `healthTint` converter; and
+  `InstallMenuUIContent` registers the main menu's `menu*` actions together with
+  the host verbs behind them (load a scene, quit, master volume, quality tier,
+  vsync) — because a named C++ function is the one thing markup cannot carry.
 - **The fixed tick is for simulation.** Physics and gameplay step at a fixed
   rate with a deterministic accumulator; rendering runs per frame. They are
   deliberately separate.

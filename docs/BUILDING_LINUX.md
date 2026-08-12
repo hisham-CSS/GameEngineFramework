@@ -89,8 +89,12 @@ The presets are `hostSystemName == Windows` only. On Linux use
   `windows`, because the vcpkg omniverse-physx-sdk port has fragile x64-linux
   support and CMake already treats the backend as optional. Linux physics runs
   on the **Jolt** and **Simple** backends.
-- **No custom title bar.** The editor's borderless Win32 title bar is
-  `#if _WIN32`-only; Linux keeps the native window-manager title bar.
+- **No borderless window.** `EditorTitleBar::Install` is a no-op outside
+  `_WIN32` (`Editor/src/EditorTitleBar.cpp:167`), so Linux keeps the native
+  window-manager title bar. The editor still *draws* its own title-bar strip
+  (engine mark, scene name, min/max/close) unconditionally
+  (`Editor/src/EditorApplication.cpp:1446`), so on Linux you get both — see
+  Phase 5 below.
 - **The editor's AssetCooker validation** runs through a portable subprocess
   seam (`Editor/src/Subprocess.cpp` — `posix_spawn` + `pipe` on Linux).
 - **The test harness stages no DLLs on Linux.** `tests/CMakeLists.txt` guards

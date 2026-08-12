@@ -286,7 +286,13 @@ Entities with no `RigidBody` at all are yours to move freely.
 `InputMap` (`Engine/src/core/InputMap.h`) is a named, rebindable mapping.
 Digital **actions** bind to keys, mouse buttons and gamepad buttons (multiple
 bindings are OR'd); analog **axes** bind to key pairs and/or gamepad axes
-(contributions summed, clamped to `[-1, 1]`, radial deadzone on stick input).
+(contributions summed, clamped to `[-1, 1]`, and a **per-axis scaled deadzone**
+on stick input: each gamepad axis is thresholded against its own magnitude and
+the remainder is rescaled back out to full range. Deliberately *not* the radial
+deadzone a stick usually gets — an axis here is a NAME, and the two halves of
+the left stick are two independent names (`MoveRight` is LEFT_X, `MoveForward`
+is LEFT_Y), each free to also carry key pairs, so there is no point at which the
+map knows which two names form a pair).
 
 ```c++
 void bindKey(const std::string& action, int glfwKey);

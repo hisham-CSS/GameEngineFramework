@@ -92,8 +92,9 @@ silently doing nothing forever.
 > keyboard** — click inside the rendered image, and a highlight border is drawn
 > around it. Clicking the panel's own widgets (the camera picker, the `Blend`
 > field) hands the keyboard back to the editor even though the panel stays
-> focused, and the toolbar's `Input: game` label tracks panel focus rather than
-> the surface — so trust the border, not the label. This is what lets you fly
+> focused, and the toolbar's `Input: game` label reports **surface** focus too —
+> the same flag the border and the gameplay gate read, so the label and the
+> border now agree. This is what lets you fly
 > the Scene view with the same keys while a scene is playing. The shipped
 > player always has input. See
 > [Who owns the keyboard](editor.md#who-owns-the-keyboard).

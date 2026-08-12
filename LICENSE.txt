@@ -19,3 +19,33 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+
+---
+
+THIRD-PARTY ASSETS
+
+The licence above covers the source code of this repository. It does NOT cover
+the bundled third-party assets under Editor/src/Exported/, which are shipped in
+the packaged game and keep their own licences:
+
+  Fonts/Roboto.ttf
+      SIL Open Font License 1.1 — full text in Fonts/LICENSE-Roboto.txt.
+      Copyright 2011 The Roboto Project Authors. The OFL requires that the font
+      be distributed entirely under the OFL and under no other licence, and
+      forbids selling it by itself. The MIT grant above does not extend to it.
+
+  Env/kloofendal_puresky_2k.hdr
+      CC0 1.0 (public domain), Poly Haven — see Env/CREDITS.md.
+
+  Model/backpack.obj, backpack.mtl, ao.jpg, diffuse.jpg, normal.png,
+  roughness.jpg, specular.jpg
+      PLACEHOLDER TEST ASSET, not part of the engine and scheduled for
+      replacement by first-party materials. Third-party model by Berk Gedik;
+      no licence has been recorded — see Model/source_attribution.txt.
+      It is currently swept into the package because Player/CMakeLists.txt:50
+      installs all of Exported/ and excludes only *.import. REMOVE IT, or
+      record its licence, before distributing a build.
+
+Everything else under Editor/src/Exported/ is first-party and covered by the
+licence above.

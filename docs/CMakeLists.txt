@@ -19,9 +19,14 @@ set(CSE_VERSION "0.1.0")
 set(DOXYGEN_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}")
 set(DOXYGEN_MAINPAGE  "${CMAKE_CURRENT_SOURCE_DIR}/api-index.md")
 
-# The public surface only. Engine/include is the façade header; Engine/src
-# holds the headers it includes. Editor/Player/Cooker are applications that
-# CONSUME the engine, so they are not part of the API reference.
+# Engine/include is the façade header; Engine/src holds the headers it pulls
+# in. Note this is the WHOLE engine header tree, not a curated public surface:
+# RECURSIVE=YES also documents the concrete backend headers under */backends/
+# (Doxyfile.in excludes only their .cpp files) and headers the façade
+# deliberately leaves out — Engine/src/core/Mesh.h is dead code whose include
+# is commented out at Engine/include/Engine.h:11 and still reaches the output.
+# Editor/Player/Cooker are applications that CONSUME the engine, so they are
+# not part of the API reference.
 set(DOXYGEN_INPUT_DIRS
     "\"${CMAKE_SOURCE_DIR}/Engine/include\" \
 \"${CMAKE_SOURCE_DIR}/Engine/src\" \

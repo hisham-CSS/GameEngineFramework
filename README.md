@@ -13,6 +13,14 @@ physics and scripting behind swappable backends, versioned scene serialization, 
 system, and full editor authoring (play-in-editor, undo/redo, asset browser, entity
 create/delete).
 
+Games get their own UI, not the editor's: a retained-mode toolkit with `.cxml` markup,
+`.cstyle` stylesheets, flexbox layout, two-way data binding and hot reload, drawn by a
+batched 2D renderer with `stb_truetype` text. At 12.5k lines it is the engine's largest
+single subsystem.
+
+**Scale:** 238 first-party C++ files / 62.3k lines · 26 GLSL shaders / 1.4k lines ·
+993 tests in 50 executables (53 CTest entries) · 265 commits since October 2024.
+
 ## Documentation
 
 | | |
@@ -35,7 +43,7 @@ Legend: ✅ working · 🟡 partial · 🔲 planned
 
 | Area | Status | Notes |
 |---|:---:|---|
-| **Render pipeline** | ✅ | Multi-pass `IRenderPass`/`RenderPipeline`: CSM → forward PBR → skybox → sorted transparent → bloom → tonemap → ink outline → colour grade → vignette → FXAA |
+| **Render pipeline** | ✅ | 11 passes over `IRenderPass`/`RenderPipeline`: CSM → forward PBR → skybox → sorted transparent → bloom → tonemap → ink outline → colour grade → vignette → FXAA → UI overlay |
 | **Shadows** | ✅ | Cascaded shadow maps (≤4), texel-snap stabilization, split blending, PCF, per-cascade update budgeting |
 | **Lighting** | ✅ | Directional sun (shadowed) + up to 16 point/spot lights (unshadowed); Cook-Torrance GGX PBR |
 | **IBL / Sky** | ✅ | Split-sum IBL (irradiance / prefiltered / BRDF LUT) baked from an `.hdr` **or** a procedural sky; drawn skybox |
@@ -57,27 +65,34 @@ Legend: ✅ working · 🟡 partial · 🔲 planned
 | **Packaging** | ✅ | `cpack -G ZIP` → self-contained Windows game bundle |
 | **Job system** | ✅ | Worker-pool `JobSystem` backing async asset loads |
 | **Platform** | 🟡 | Windows (primary) + **Linux** (port phases 0–1: compiles under gcc/clang; PhysX is Windows-only there) |
-| **Tests** | ✅ | GoogleTest: CSM math, shadow stability, render passes, serialization, physics, scripting, audio, IBL/FXAA, input |
+| **Tests** | ✅ | 993 GoogleTest cases in 50 executables: CSM math, shadow stability, render passes, post-process chain, serialization, physics conformance across all three backends, scripting, audio, IBL/FXAA, input, and 25 executables covering the UI toolkit. `ctest -LE perf` → 52/52 in ~12 s |
+| **CI** | 🔲 | None — the tests exist but nothing runs them automatically |
 | **Skeletal animation** | 🔲 | Static meshes only today |
-| **In-game / runtime UI** | 🔲 | ImGui is editor-only; no HUD/menu/text path yet |
+| **In-game / runtime UI** | ✅ | Retained-mode toolkit, separate from ImGui: `.cxml` markup + `.cstyle` stylesheets (selectors, cascade, pseudo-classes), yoga flexbox layout, two-way data binding, hot reload, focus/keyboard/gamepad navigation, scrolling and clipping, and widgets (Button, Label, Image, TextField, Slider, TabView, `repeat=` collections). Authored as a scene component |
+| **2D renderer & text** | ✅ | Batched `Renderer2D` (quads/sprites, screen + world camera modes, rounded rects, borders, gradients, 9-slice) with `stb_truetype` glyph-atlas text, word wrap, hyphenation and paragraph fitting |
 | **Networking** | 🔲 | Not started |
 
 ## Not Yet Built
 
 Honest gaps, roughly in impact order:
 
-- **Skeletal / skinned animation** — the renderer draws static meshes only.
-- **In-game / runtime UI + text** — ImGui is editor-only; shipped games have no menus/HUD/text.
+- **Skeletal / skinned animation** — the renderer draws static meshes only. The vertex format
+  carries no bone IDs or weights, and there is no animation system of any kind.
+- **Continuous integration** — none. 993 tests and nothing runs them on push.
 - **Networking** — none.
 - **Shadowed punctual lights** — the 16 point/spot lights are unshadowed and use a bounded uniform array (not a UBO).
 - **Binary cooked-asset pipeline** — the AssetCooker only *validates*; models are still Assimp-imported at load time.
-- **Scripting breadth** — Lua only, a thin API (transform / input / raycast / time), no hot-reload.
+- **Scripting breadth** — Lua only, a thin API (transform / input / raycast / time), and no hot
+  reload (`IScriptBackend::supportsHotReload()` returns `false` for every backend). The Lua
+  backend is a working proof of the `IScriptBackend` seam rather than a finished scripting
+  story, and is expected to be revisited.
 
 ## Project Structure
 
 ```
 GameEngineFramework/
-├── Engine/          # Core engine (DLL): core systems, render passes, physics + script backends
+├── Engine/          # Core engine (DLL): core systems, render passes, 2D renderer,
+│                   #   in-game UI toolkit, physics + script + audio backends
 ├── Editor/          # Editor application (ImGui) + Exported/ shaders & sample assets
 ├── Player/          # Standalone player (loads a scene.json, no editor UI)
 ├── Cooker/          # Headless AssetCooker (asset validation)
@@ -100,7 +115,11 @@ Resolved via the vcpkg manifest (`vcpkg.json`):
 - **Assimp** — model import · **meshoptimizer** — mesh optimization/LODs · **EnTT** — ECS
 - **nlohmann-json** — scene serialization · **ImGui** (docking) + **ImGuizmo** — editor UI / gizmos
 - **Jolt** and **PhysX** — physics backends (PhysX is Windows-only) · **Lua** + **sol2** — scripting
-- **GoogleTest** — tests
+- **miniaudio** — audio backend · **yoga** — flexbox layout for the in-game UI · **pugixml** — `.cxml` parsing
+
+**GoogleTest** is the exception: it is *not* in the vcpkg manifest. `tests/CMakeLists.txt`
+fetches googletest v1.14.0 from GitHub via `FetchContent`, so the first configure of a
+tests build needs network access.
 
 The physics and scripting backends are built as optional libraries; each disables gracefully
 if its package is absent, so a minimal build still runs (with the Simple/Null backends).
