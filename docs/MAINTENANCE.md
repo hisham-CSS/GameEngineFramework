@@ -155,6 +155,29 @@ stylesheet — goes through `PathIsContained` **before** the file is opened.
 Absolute paths and `..` are refused. These paths flow into parsers with a
 history of memory-safety bugs.
 
+**What "absolute" and `..` mean is platform-dependent, and the TESTS assume
+Windows.** `PathIsContained` delegates to `std::filesystem`, and libstdc++ treats
+backslash as an ordinary filename character and does not parse drive letters —
+both are inside `#ifdef _GLIBCXX_FILESYSTEM_IS_WINDOWS`. So on Linux
+`..\..\evil.obj` is a single legal filename containing no `..`, and
+`C:/Windows/System32/evil.obj` is a relative path with a first component named
+`C:`. Both are correctly *contained*, and both resolve harmlessly under the
+project root.
+
+The code is right on both platforms. The **tests** are not: they assert
+`EXPECT_FALSE` on Windows-shaped strings that a POSIX `std::filesystem` is
+correct to accept. They pass today only because the Linux CI job compiles and
+never runs `ctest`. Before that job is promoted to run tests, guard or
+platform-split these sites:
+
+- `tests/test_scene_serializer.cpp` — three groups: `:1069-1074`, `:947-951`, `:990-996`
+- `tests/test_ui_markup.cpp:240-244`
+- `tests/test_ibl.cpp:166-170` (also needs a GL context, so `-L gl` gates it too)
+
+Do not "fix" this by making `PathIsContained` reject backslashes on Linux. A
+backslash is a legal character in a POSIX filename, and refusing it would reject
+files a user can legitimately create.
+
 ### The staged asset trap
 
 `cmake/stage_runtime_assets.cmake` re-copies **subdirectories** every build, but
