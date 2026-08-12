@@ -50,12 +50,24 @@ add_custom_target(runtime_assets
   COMMENT "Staging runtime assets")
 add_dependencies(Editor runtime_assets)
 
-# Optionally add different compile options based on the build configuration
-if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(Engine PRIVATE -g)
-elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-    target_compile_options(Engine PRIVATE /Zi)
-endif()
+# NOTE: Player/ and Cooker/ each have a debug-info block here that adds -g//Zi to
+# their OWN target. This directory deliberately has none. It used to have one,
+# but it named `Engine` rather than `Editor` -- a copy-paste slip that made it
+# inert in both directions: Engine already sets /Zi itself
+# (Engine/CMakeLists.txt:342-347, where the /we4062 beside it is load-bearing),
+# and CMake drops the duplicate, while the Editor target received nothing at all.
+# Verified in the generated build.ninja before removing it: Engine's flags ended
+# `-MD /Zi /we4062` and Editor's ended `-MD`, and deleting the block changed
+# neither.
+#
+# There IS a real consequence, and it predates this removal rather than being
+# caused by it: in Release, where nothing supplies /Zi globally, Engine, Player
+# and Cooker all carry it from their own blocks and the Editor carries none. So
+# the Editor is the one host that ships without PDBs. If you want them, add the
+# block back naming `Editor` -- that is a one-line, deliberate decision about
+# shipping debug info, which is exactly what it was not while it read `Engine`.
+# RelWithDebInfo is unaffected either way: CMAKE_CXX_FLAGS_RELWITHDEBINFO gives
+# every target /Zi there.
 
 #target_compile_definitions(Editor PRIVATE MYCE_ENABLE_ENTRY=1)
 target_compile_definitions(Editor PRIVATE GLFW_INCLUDE_NONE)
