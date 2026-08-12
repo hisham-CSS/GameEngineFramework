@@ -266,3 +266,59 @@ TEST(Hierarchy, MovedParentInvalidatesChildCasterShadows) {
     EXPECT_TRUE(scene.HasDynamicCasterInViewRange(camPos, camFwd, 0.1f, 200.f, sun))
         << "child caster moved via parent but no dirty-caster sphere was recorded";
 }
+
+// ENTITY IDENTITY ACROSS A RELOAD.
+//
+// An entt handle packs an INDEX and a VERSION (20 + 12 bits at this
+// configuration). Destroying and recreating -- which is what a scene reload does
+// via registry.clear() -- recycles the index with the version bumped, so the RAW
+// handle of "the same" object changes every time the scene is opened. The editor
+// hierarchy printed the raw handle and so showed ids 1..N on a fresh load and
+// 1048577.. after one reload.
+//
+// entt::to_entity strips the version and is stable. This is the same rule the
+// engine already follows for ordering (sort keys use the index, never the raw
+// handle, or save/load reorders the scene), and the hierarchy display now
+// follows it too.
+TEST(EntityIdentity, IndexIsStableAcrossAReloadButTheRawHandleIsNot) {
+    Scene scene;
+
+    std::vector<entt::entity> before;
+    for (int i = 0; i < 8; ++i) before.push_back(scene.createEntity());
+
+    std::vector<std::uint32_t> rawBefore, idxBefore;
+    for (entt::entity e : before) {
+        rawBefore.push_back(static_cast<std::uint32_t>(e));
+        idxBefore.push_back(static_cast<std::uint32_t>(entt::to_entity(e)));
+    }
+    // A fresh registry hands out version 0, so raw == index to begin with. That
+    // is exactly why this bug survived: it looks correct until the first reload.
+    EXPECT_EQ(rawBefore, idxBefore) << "a fresh registry should hand out version 0";
+
+    // THE RELOAD.
+    scene.ResetToDefaults();
+    std::vector<entt::entity> after;
+    for (int i = 0; i < 8; ++i) after.push_back(scene.createEntity());
+
+    std::vector<std::uint32_t> rawAfter, idxAfter;
+    for (entt::entity e : after) {
+        rawAfter.push_back(static_cast<std::uint32_t>(e));
+        idxAfter.push_back(static_cast<std::uint32_t>(entt::to_entity(e)));
+    }
+
+    EXPECT_EQ(idxAfter, idxBefore)
+        << "entity INDICES changed across a reload -- ordering keys and the"
+           " hierarchy display both depend on them being stable";
+    EXPECT_NE(rawAfter, rawBefore)
+        << "raw handles did NOT change across a reload. If entt stopped bumping"
+           " the version on recycle, the comment above and the reason for using"
+           " to_entity everywhere are both out of date -- re-read them.";
+
+    // And the shape of the difference: same index, higher raw value.
+    for (std::size_t i = 0; i < rawAfter.size(); ++i) {
+        EXPECT_EQ(entt::to_entity(after[i]), entt::to_entity(before[i]));
+        EXPECT_GT(rawAfter[i], rawBefore[i])
+            << "slot " << i << ": the recycled handle should carry a higher version";
+    }
+}
+

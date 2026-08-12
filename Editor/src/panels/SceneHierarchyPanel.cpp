@@ -81,8 +81,17 @@ bool SceneHierarchyPanel::Draw(entt::registry& reg, entt::entity& selected, Undo
             const bool dim = IsUnnamed(reg, e) && e != selected;
             if (dim) ImGui::PushStyleColor(ImGuiCol_Text,
                                            ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+            // Show the entity INDEX, not the raw handle. An entt handle packs 20
+            // index bits and 12 version bits, and a scene reload recycles indices
+            // with the version bumped -- so the raw value jumped from 1..401 to
+            // 1048577.. after one reload and the same object appeared to have a
+            // different id every time the scene was opened.
+            //
+            // The ImGui id below stays the raw handle: it only has to be unique
+            // within the frame, and using the index there would collide with a
+            // recycled slot mid-session.
             const bool open = ImGui::TreeNodeEx((void*)(uint64_t)(uint32_t)e, flags, "%s [%u]",
-                GetEntityLabel(reg, e), (uint32_t)e);
+                GetEntityLabel(reg, e), (unsigned)entt::to_entity(e));
             if (dim) ImGui::PopStyleColor();
 
             if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
