@@ -37,15 +37,32 @@ namespace MyCoreEngine {
         bool valid() const { return irradiance && prefiltered && brdfLUT; }
     };
 
+    // Bake sizes. At NAMESPACE scope rather than nested inside IBLBaker, and
+    // that placement is load-bearing rather than stylistic: gcc will not use a
+    // nested class's default member initialisers (the `= 512` below) from inside
+    // a default argument of the ENCLOSING class. It defers parsing both until
+    // the enclosing class is complete, and then wants them in the wrong order,
+    // so `const Settings& s = {}` on BakeFromFile below fails with
+    //   error: could not convert '<brace-enclosed initializer list>()'
+    //          from '<brace-enclosed initializer list>' to 'const Settings&'
+    // Writing `= Settings{}` does not help — the initialisers are what is
+    // missing, not the braces. MSVC accepts the nested form, so this surfaced
+    // only when CI first put the code in front of gcc.
+    //
+    // SkyParams stays nested: it is never a default argument, so it is not
+    // affected. The alias inside the class keeps `IBLBaker::Settings` spelled
+    // exactly as before at every call site.
+    struct IBLSettings {
+        int envSize = 512;        // environment cube face
+        int irradianceSize = 32;  // diffuse is very low frequency
+        int prefilterSize = 128;  // mip 0 of the specular chain
+        int prefilterMips = 5;    // roughness steps
+        int brdfSize = 512;
+    };
+
     class ENGINE_API IBLBaker {
     public:
-        struct Settings {
-            int envSize = 512;        // environment cube face
-            int irradianceSize = 32;  // diffuse is very low frequency
-            int prefilterSize = 128;  // mip 0 of the specular chain
-            int prefilterMips = 5;    // roughness steps
-            int brdfSize = 512;
-        };
+        using Settings = IBLSettings;
 
         // A sky to bake when no HDRi is supplied. Driven by the scene's sun so
         // the environment and the direct light agree about where the sun is.
