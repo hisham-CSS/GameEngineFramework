@@ -35,6 +35,7 @@ if (WIN32)
   add_custom_target(test_runtime_deps
     COMMAND ${CMAKE_COMMAND}
       -DSRC=$<TARGET_FILE_DIR:Engine>
+      -DVCPKG_BIN=${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/$<$<CONFIG:Debug>:debug/>bin
       -DDST=${CMAKE_CURRENT_BINARY_DIR}
       -P ${CMAKE_CURRENT_SOURCE_DIR}/stage_runtime_dlls.cmake
     COMMAND ${CMAKE_COMMAND} -E copy_directory

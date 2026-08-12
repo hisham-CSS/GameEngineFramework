@@ -25,6 +25,19 @@
 # rule: "the tests need whatever the engine needs to run", stated once. It cannot
 # drift when a dependency is added, and it removes the standing invitation to
 # debug a loader error six months from now.
+# TWO SOURCES, because the engine's output directory turned out not to be enough.
+#
+# SRC is where the engine links and where vcpkg's applocal deployment puts the
+# DLLs it can find. Copying it fixed 18 of the 19 failing tests but not the last
+# one: PhysXCommon_64.dll reached that directory on a developer machine and did
+# not on a clean CI runner, with the same vcpkg baseline and the same
+# physx@5.3.0. Rather than keep bisecting a deployment heuristic across two
+# machines, VCPKG_BIN names vcpkg's own bin directory, which contains every DLL
+# of every package the manifest installs, unconditionally and by construction.
+#
+# The cost is a handful of DLLs the tests never load. That is the right trade for
+# a test directory: the alternative failure mode is a loader error that names no
+# file (see the 0xc06d007e note above) and costs a CI round trip to read.
 cmake_minimum_required(VERSION 3.21)
 
 if (NOT DEFINED SRC OR NOT DEFINED DST)
@@ -44,3 +57,13 @@ endif()
 # file(COPY) already skips files whose timestamp and size match, so this is cheap
 # on a rebuild and safe to run from a target that is always considered dirty.
 file(COPY ${dlls} DESTINATION "${DST}")
+
+# Second, anything vcpkg installed that applocal did not carry across. Copied
+# FIRST-LOSES order-wise -- the engine's own directory was copied above and these
+# are the same files by content, so overwrite order does not matter.
+if (DEFINED VCPKG_BIN AND IS_DIRECTORY "${VCPKG_BIN}")
+  file(GLOB vcpkg_dlls "${VCPKG_BIN}/*.dll")
+  if (vcpkg_dlls)
+    file(COPY ${vcpkg_dlls} DESTINATION "${DST}")
+  endif()
+endif()

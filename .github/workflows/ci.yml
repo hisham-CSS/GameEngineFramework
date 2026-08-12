@@ -135,6 +135,23 @@ jobs:
         # elsewhere: perf locally, gl in the job below.
         run: ctest --output-on-failure -LE "perf|gl" -j 4
 
+      - name: What was actually staged
+        if: failure()
+        shell: cmd
+        # A missing DLL surfaces as `SEH exception with code 0xc06d007e`
+        # (ERROR_MOD_NOT_FOUND) followed by a cascade of "resource deadlock would
+        # occur" from the std::call_once it poisoned -- and names no file. This
+        # runner and a developer machine disagreed once about which DLLs vcpkg's
+        # applocal deployment produces, and settling that cost a round trip
+        # because neither directory listing existed. Now it does.
+        run: |
+          echo === beside the test executables ===
+          dir /b out\build\x64-relwithdebinfo-tests\tests\*.dll
+          echo === beside Engine.dll ===
+          dir /b out\build\x64-relwithdebinfo-tests\build\bin\RelWithDebInfo\*.dll
+          echo === what vcpkg installed ===
+          dir /b out\build\x64-relwithdebinfo-tests\vcpkg_installed\x64-windows\bin\*.dll
+
       - name: Build the shipping configurations
         shell: cmd
         # Build-only, and not redundant: a missing symbol shows up when the
