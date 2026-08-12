@@ -98,8 +98,15 @@ jobs:
         shell: cmd
         # The presets read CSE_VCPKG_ROOT (see CMakePresets.json "base"); the
         # runner ships a vcpkg at VCPKG_INSTALLATION_ROOT.
+        #
+        # `if not exist` rather than `mkdir ... 2>nul`: cmd's mkdir sets
+        # ERRORLEVEL 1 when the directory is already there, `2>nul` hides the
+        # MESSAGE but not the exit code, and a later successful `echo` does not
+        # clear it -- so the step fails. That made this job pass on a cache MISS
+        # and fail on every cache HIT, which is exactly what happened between the
+        # first and second CI runs.
         run: |
-          mkdir vcpkg_cache 2>nul
+          if not exist vcpkg_cache mkdir vcpkg_cache
           echo CSE_VCPKG_ROOT=%VCPKG_INSTALLATION_ROOT%>> %GITHUB_ENV%
 
       # The tests configuration first: it is the one that fails informatively,
@@ -170,8 +177,10 @@ jobs:
 
       - name: Prepare environment
         shell: cmd
+        # See the windows job for why this is `if not exist` and not
+        # `mkdir ... 2>nul`.
         run: |
-          mkdir vcpkg_cache 2>nul
+          if not exist vcpkg_cache mkdir vcpkg_cache
           echo CSE_VCPKG_ROOT=%VCPKG_INSTALLATION_ROOT%>> %GITHUB_ENV%
 
       - name: Configure and build
@@ -268,25 +277,50 @@ jobs:
           mkdir -p vcpkg_cache
           export VCPKG_ROOT="$VCPKG_INSTALLATION_ROOT"
           export VCPKG_BINARY_SOURCES="clear;files,$GITHUB_WORKSPACE/vcpkg_cache,readwrite"
+          # Report every compile error, not just the first failing batch. There
+          # is no Linux machine behind this port -- this runner is the only
+          # compiler that ever sees the code -- so a truncated error list costs a
+          # full 10-minute round trip per error.
+          export CSE_KEEP_GOING=1
           chmod +x scripts/linux-build.sh
-          scripts/linux-build.sh RelWithDebInfo
+          scripts/linux-build.sh RelWithDebInfo 2>&1 | tee build.log
+          exit ${PIPESTATUS[0]}
 
       - name: Why it failed
         if: failure()
-        # vcpkg prints "See logs for more information: <path>.log" and then the
-        # runner throws the file away with the container. Without this, the only
-        # artefact of a failed dependency build is "exit code 1", which is what
-        # the first run of this job actually produced.
+        # Two different failures wear the same "exit code 1", and they want
+        # opposite diagnostics:
+        #
+        #   a dependency failed to build -> the answer is in vcpkg's buildtree
+        #     logs, which vcpkg names in its output and the runner then throws
+        #     away with the container. That is what the first run of this job
+        #     produced: nothing but the exit code.
+        #   OUR code failed to compile -> the answer is already above, but buried.
+        #     With -k 0 there may be a hundred lines of it, most of them the same
+        #     header reported once per translation unit.
+        #
+        # So: lead with a deduplicated list of the distinct compiler errors, and
+        # only reach for the vcpkg logs when there are none.
         run: |
-          echo "===== vcpkg buildtree logs ====="
-          find "$VCPKG_INSTALLATION_ROOT/buildtrees" -name '*-err.log' -o -name '*-out.log' 2>/dev/null |
-            head -20 | while read -r f; do
-              echo "----- $f -----"
-              tail -60 "$f"
-            done
-          echo "===== CMake logs ====="
-          find out/build -name 'CMakeError.log' -o -name 'CMakeOutput.log' 2>/dev/null |
-            while read -r f; do
-              echo "----- $f -----"
-              tail -60 "$f"
-            done
+          echo "===== distinct compiler errors ====="
+          if grep -qE '^[^ ]+:[0-9]+:[0-9]+: (error|fatal error):' build.log; then
+            grep -hoE '[^/ ]+:[0-9]+:[0-9]+: (error|fatal error):.*' build.log |
+              sort -u | head -80
+            echo
+            echo "(deduplicated by file:line — a header error repeats once per TU)"
+            echo "TOTAL distinct: $(grep -hoE '[^/ ]+:[0-9]+:[0-9]+: (error|fatal error):.*' build.log | sort -u | wc -l)"
+          else
+            echo "none — this was not a compile failure. Dependency logs follow."
+            echo "===== vcpkg buildtree logs ====="
+            find "$VCPKG_INSTALLATION_ROOT/buildtrees" -name '*-err.log' -o -name '*-out.log' 2>/dev/null |
+              head -20 | while read -r f; do
+                echo "----- $f -----"
+                tail -60 "$f"
+              done
+            echo "===== CMake logs ====="
+            find out/build -name 'CMakeError.log' -o -name 'CMakeOutput.log' 2>/dev/null |
+              while read -r f; do
+                echo "----- $f -----"
+                tail -60 "$f"
+              done
+          fi

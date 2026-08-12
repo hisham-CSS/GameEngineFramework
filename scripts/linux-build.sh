@@ -28,7 +28,16 @@ cmake -S "$ROOT" -B "$BUILD_DIR" -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
   -DVCPKG_TARGET_TRIPLET=x64-linux-dynamic
 
-cmake --build "$BUILD_DIR"
+# CSE_KEEP_GOING=1 makes ninja report EVERY compile error instead of stopping at
+# the first failing batch. That matters far more than it sounds: this port has no
+# Linux machine behind it, so the only compiler that ever sees this code is a CI
+# runner ~10 minutes away. Stopping early turns a list of errors into one error
+# per round trip. Off by default because locally you want the first error fast.
+if [[ "${CSE_KEEP_GOING:-0}" != "0" ]]; then
+  cmake --build "$BUILD_DIR" -- -k 0
+else
+  cmake --build "$BUILD_DIR"
+fi
 
 echo
 echo "Built into $BUILD_DIR/build/bin/$BUILD_TYPE"
