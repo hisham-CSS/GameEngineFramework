@@ -152,11 +152,30 @@ engine_test(test_perf_render)      # P4-8 perf budgets (real GPU work)
 # Timing test: never share the machine with other tests, and give the
 # model load + 4 scenarios room to breathe.
 set_tests_properties(test_perf_render PROPERTIES
-  LABELS "perf"
+  LABELS "perf;gl"
   RUN_SERIAL TRUE
   TIMEOUT 300)
 
 target_compile_definitions(test_render_passes PRIVATE UNIT_TEST=1)
+
+# Which tests need a real GL context. They create a hidden GLFW window and load
+# GLAD, so they cannot run on a machine with no OpenGL driver at all -- which is
+# every default CI runner. Labelling them lets CI choose: run everything under a
+# software rasteriser (what .github/workflows/ci.yml does, via Mesa llvmpipe),
+# or fall back to `ctest -LE "perf|gl"` and lose that coverage knowingly rather
+# than by accident. Keep this list in step with the greps in the workflow.
+set_tests_properties(
+    test_font_text
+    test_fxaa
+    test_ibl
+    test_mesh_material
+    test_post_chain
+    test_render_passes
+    test_renderer2d
+    test_scene_details
+    test_ui_layout
+    test_ui_pass
+  PROPERTIES LABELS "gl")
 
 # The instruction-limit test proves a runaway script gets aborted. If that
 # guard ever regresses the test HANGS instead of failing, so cap it: a red

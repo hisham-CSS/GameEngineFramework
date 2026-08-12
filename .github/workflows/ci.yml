@@ -1,0 +1,221 @@
+# Continuous integration for Cat Splat Engine.
+#
+# The repository had 993 tests and nothing that ran them. This is the smallest
+# pipeline that makes that untrue, structured so the REQUIRED check is the one
+# that can actually stay green:
+#
+#   windows  (required)   all four configurations build, then the 42 CTest
+#                         entries that need no GPU.
+#   gl-tests (advisory)   the 11 tests that need an OpenGL context, run against
+#                         Mesa's llvmpipe software rasteriser.
+#   linux    (advisory)   the Linux port compiles. It has never been run on
+#                         Linux hardware, so this is the first real check of a
+#                         claim README.md makes cautiously.
+#
+# Promote an advisory job by deleting its `continue-on-error` once it has been
+# green for a while. If one starts failing, the finding is the point: record it,
+# do not quietly delete the job.
+#
+# Only first-party actions (checkout, cache) are used. The MSVC environment
+# comes from vswhere + vcvars64 rather than a third-party action, because a
+# build pipeline is a supply-chain surface and this one is cheap to own.
+#
+# vcpkg builds Assimp, Jolt, PhysX, Lua and friends from source: slow once, fast
+# forever after. The binary cache is what makes this viable -- check cache hit
+# rates before blaming the compiler.
+
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  # A new push supersedes an in-flight run on the same ref. Never cancel master:
+  # its runs populate the vcpkg cache every other run restores from.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+jobs:
+  windows:
+    name: Windows · build + test
+    runs-on: windows-2022
+    timeout-minutes: 150
+    env:
+      VCPKG_BINARY_SOURCES: 'clear;files,${{ github.workspace }}\vcpkg_cache,readwrite'
+    steps:
+      - name: Enable long paths
+        # vcpkg buildtrees nest deeply enough to trip MAX_PATH; draco has bitten
+        # this repository before.
+        shell: cmd
+        run: |
+          git config --system core.longpaths true
+          reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f
+
+      - uses: actions/checkout@v4
+
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v4
+        with:
+          path: vcpkg_cache
+          # vcpkg.json pins WHAT is built; vcpkg-configuration.json pins the
+          # baseline it is built from. Either changing invalidates the cache.
+          key: vcpkg-windows-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
+          restore-keys: vcpkg-windows-
+
+      - name: Prepare environment
+        shell: cmd
+        # The presets read CSE_VCPKG_ROOT (see CMakePresets.json "base"); the
+        # runner ships a vcpkg at VCPKG_INSTALLATION_ROOT.
+        run: |
+          mkdir vcpkg_cache 2>nul
+          echo CSE_VCPKG_ROOT=%VCPKG_INSTALLATION_ROOT%>> %GITHUB_ENV%
+
+      # The tests configuration first: it is the one that fails informatively,
+      # and it warms the vcpkg cache for the three that follow.
+      - name: Configure and build (tests)
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do call "%%i\VC\Auxiliary\Build\vcvars64.bat"
+          cmake --preset x64-relwithdebinfo-tests || exit /b 1
+          cmake --build --preset x64-relwithdebinfo-tests || exit /b 1
+
+      - name: Test — everything that does not need a GPU
+        shell: cmd
+        working-directory: out/build/x64-relwithdebinfo-tests
+        # `perf` is a timing budget that means nothing on a shared CI vCPU;
+        # `gl` needs an OpenGL context this runner does not have. Both run
+        # elsewhere: perf locally, gl in the job below.
+        run: ctest --output-on-failure -LE "perf|gl" -j 4
+
+      - name: Build the shipping configurations
+        shell: cmd
+        # Build-only, and not redundant: a missing symbol shows up when the
+        # Player links, not when the Engine does, and the tests configuration
+        # does not build the Player.
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do call "%%i\VC\Auxiliary\Build\vcvars64.bat"
+          cmake --preset x64-debug              || exit /b 1
+          cmake --build --preset x64-debug      || exit /b 1
+          cmake --preset x64-release            || exit /b 1
+          cmake --build --preset x64-release    || exit /b 1
+          cmake --preset x64-relwithdebinfo     || exit /b 1
+          cmake --build --preset x64-relwithdebinfo || exit /b 1
+
+  gl-tests:
+    name: Windows · GL tests (llvmpipe)
+    runs-on: windows-2022
+    timeout-minutes: 150
+    # ADVISORY: software-rasterising an 11-pass pipeline is the part of this file
+    # most likely to be slow or flaky. Reporting without blocking beats not
+    # running these 11 tests at all.
+    continue-on-error: true
+    env:
+      VCPKG_BINARY_SOURCES: 'clear;files,${{ github.workspace }}\vcpkg_cache,readwrite'
+    steps:
+      - name: Enable long paths
+        shell: cmd
+        run: |
+          git config --system core.longpaths true
+          reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f
+
+      - uses: actions/checkout@v4
+
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v4
+        with:
+          path: vcpkg_cache
+          key: vcpkg-windows-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
+          restore-keys: vcpkg-windows-
+
+      - name: Prepare environment
+        shell: cmd
+        run: |
+          mkdir vcpkg_cache 2>nul
+          echo CSE_VCPKG_ROOT=%VCPKG_INSTALLATION_ROOT%>> %GITHUB_ENV%
+
+      - name: Configure and build
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do call "%%i\VC\Auxiliary\Build\vcvars64.bat"
+          cmake --preset x64-relwithdebinfo-tests || exit /b 1
+          cmake --build --preset x64-relwithdebinfo-tests || exit /b 1
+
+      - name: Install Mesa llvmpipe beside the test binaries
+        shell: pwsh
+        # A GitHub runner has no GPU and no OpenGL ICD, so glfwCreateWindow with
+        # a 3.3 core profile fails outright. Mesa's llvmpipe is a complete
+        # software GL implementation; putting its opengl32.dll next to the
+        # executables makes the loader prefer it over the system stub.
+        #
+        # Pinned by tag. The hash is PRINTED, not asserted, because this is an
+        # advisory job -- if you promote it to required, capture the hash here
+        # and fail on a mismatch first.
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ver = '24.3.4'
+          $url = "https://github.com/pal1000/mesa-dist-win/releases/download/$ver/mesa3d-$ver-release-msvc.7z"
+          Invoke-WebRequest -Uri $url -OutFile mesa.7z
+          Write-Host "mesa3d $ver sha256=$((Get-FileHash mesa.7z -Algorithm SHA256).Hash)"
+          7z x mesa.7z -omesa | Out-Null
+          $dest = 'out/build/x64-relwithdebinfo-tests/tests'
+          Get-ChildItem -Path mesa -Recurse -Filter 'opengl32.dll' |
+            Where-Object { $_.FullName -match 'x64' } |
+            Select-Object -First 1 |
+            ForEach-Object { Copy-Item $_.FullName $dest -Force; Write-Host "installed $($_.FullName)" }
+          foreach ($dll in 'libgallium_wgl.dll', 'libglapi.dll', 'dxil.dll') {
+            Get-ChildItem -Path mesa -Recurse -Filter $dll -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -match 'x64' } |
+              Select-Object -First 1 |
+              ForEach-Object { Copy-Item $_.FullName $dest -Force }
+          }
+
+      - name: Test — the GL suites
+        shell: cmd
+        working-directory: out/build/x64-relwithdebinfo-tests
+        env:
+          GALLIUM_DRIVER: llvmpipe
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        # `perf` stays excluded: llvmpipe would blow every budget in the file and
+        # tell us nothing about the shipping target.
+        run: ctest --output-on-failure -L gl -LE perf
+
+  linux:
+    name: Linux · compiles
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    # ADVISORY: README.md describes Linux as "port phases 0-1: compiles under
+    # gcc/clang", and the port has never been run on Linux hardware. This is the
+    # first real test of that claim.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: System packages
+        # GLFW needs the X11 development headers; see docs/BUILDING_LINUX.md.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build xorg-dev libgl1-mesa-dev \
+            libxinerama-dev libxcursor-dev libxi-dev libxrandr-dev \
+            autoconf automake libtool pkg-config
+
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v4
+        with:
+          path: vcpkg_cache
+          key: vcpkg-linux-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
+          restore-keys: vcpkg-linux-
+
+      - name: Build
+        # NOT a preset: CMakePresets.json is deliberately gated to Windows hosts
+        # (see the windows-base condition). scripts/linux-build.sh is the
+        # committed Linux equivalent, so exercising it here keeps the script and
+        # CI from drifting apart.
+        run: |
+          mkdir -p vcpkg_cache
+          export VCPKG_ROOT="$VCPKG_INSTALLATION_ROOT"
+          export VCPKG_BINARY_SOURCES="clear;files,$GITHUB_WORKSPACE/vcpkg_cache,readwrite"
+          chmod +x scripts/linux-build.sh
+          scripts/linux-build.sh RelWithDebInfo

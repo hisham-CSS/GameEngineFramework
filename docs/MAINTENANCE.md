@@ -36,6 +36,25 @@ before you commit — a stray marker left in is worse than no proof.
 
 **4. Build all four configurations and run the whole suite.**
 
+CI (`.github/workflows/ci.yml`) does the first part of this for you on every push
+and PR, but it is deliberately NOT a substitute for running the suite locally:
+the required job excludes the 11 tests labelled `gl` (a GitHub runner has no
+OpenGL context) and the `perf` budget test (a shared vCPU cannot measure it).
+Those eleven cover the render passes, the post-process chain, IBL and the UI
+pass -- which is to say, the places where failures are silent. Run them.
+
+```bash
+ctest --preset x64-relwithdebinfo-tests            # everything, locally
+```
+
+```bash
+ctest --preset x64-relwithdebinfo-tests -LE "perf|gl"   # what CI gates on
+```
+
+If you add a test that creates a GL context, add it to the `gl` label list in
+`tests/CMakeLists.txt` -- otherwise CI will try to run it headless and fail for
+a reason that has nothing to do with your change.
+
 ```bash
 cmake --build --preset x64-relwithdebinfo-tests
 ```

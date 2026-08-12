@@ -66,7 +66,7 @@ Legend: ✅ working · 🟡 partial · 🔲 planned
 | **Job system** | ✅ | Worker-pool `JobSystem` backing async asset loads |
 | **Platform** | 🟡 | Windows (primary) + **Linux** (port phases 0–1: compiles under gcc/clang; PhysX is Windows-only there) |
 | **Tests** | ✅ | 993 GoogleTest cases in 50 executables: CSM math, shadow stability, render passes, post-process chain, serialization, physics conformance across all three backends, scripting, audio, IBL/FXAA, input, and 25 executables covering the UI toolkit. `ctest -LE perf` → 52/52 in ~12 s |
-| **CI** | 🔲 | None — the tests exist but nothing runs them automatically |
+| **CI** | 🟡 | GitHub Actions (`.github/workflows/ci.yml`): four configurations build and the 42 GPU-free CTest entries run on every push and PR. Two advisory jobs alongside — the 11 GL tests under Mesa llvmpipe, and the Linux port — non-blocking until proven green |
 | **Skeletal animation** | 🔲 | Static meshes only today |
 | **In-game / runtime UI** | ✅ | Retained-mode toolkit, separate from ImGui: `.cxml` markup + `.cstyle` stylesheets (selectors, cascade, pseudo-classes), yoga flexbox layout, two-way data binding, hot reload, focus/keyboard/gamepad navigation, scrolling and clipping, and widgets (Button, Label, Image, TextField, Slider, TabView, `repeat=` collections). Authored as a scene component |
 | **2D renderer & text** | ✅ | Batched `Renderer2D` (quads/sprites, screen + world camera modes, rounded rects, borders, gradients, 9-slice) with `stb_truetype` glyph-atlas text, word wrap, hyphenation and paragraph fitting |
@@ -78,7 +78,7 @@ Honest gaps, roughly in impact order:
 
 - **Skeletal / skinned animation** — the renderer draws static meshes only. The vertex format
   carries no bone IDs or weights, and there is no animation system of any kind.
-- **Continuous integration** — none. 993 tests and nothing runs them on push.
+- **Continuous integration** — partial. The GPU-free tests gate every push; the 11 GL tests and the Linux build report without blocking until they have proven stable.
 - **Networking** — none.
 - **Shadowed punctual lights** — the 16 point/spot lights are unshadowed and use a bounded uniform array (not a UBO).
 - **Binary cooked-asset pipeline** — the AssetCooker only *validates*; models are still Assimp-imported at load time.
