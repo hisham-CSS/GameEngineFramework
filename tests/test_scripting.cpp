@@ -823,3 +823,53 @@ TEST(LuaScripting, LogLinesNameTheCallingEntity) {
     EXPECT_EQ(turret, 3) << "Turret's three log calls were not all attributed to it";
     EXPECT_EQ(door, 3)   << "Door's three log calls were not all attributed to it";
 }
+
+// SCRIPT EXECUTION ORDER IS GAMEPLAY ORDER, so it must not depend on EnTT's
+// internal pool layout.
+//
+// Build() walked reg.view<ScriptComponent>(), which yields POOL order. A pool is
+// permuted by swap_and_pop whenever a component is removed, so deleting one
+// scripted entity silently reorders the rest -- and two scripts that touch the
+// same state resolve differently under a different order, with nothing in the
+// scene file to explain it. Under rollback the same divergence appears between
+// two peers who removed entities in a different sequence.
+//
+// The fix is to sort by ENTITY INDEX. Not the raw handle: version bits sit above
+// the index and reset on load.
+TEST(LuaScripting, ExecutionOrderIsByEntityIndexNotPoolOrder) {
+    if (!luaAvailable()) GTEST_SKIP() << "Lua backend not built";
+    ScriptFixture f;
+    ASSERT_TRUE(f.world.SetBackend("Lua"));
+    f.sources["noop.lua"] = "function OnUpdate(dt) end";
+
+    std::vector<entt::entity> made;
+    for (int i = 0; i < 6; ++i)
+        made.push_back(f.makeEntity(("e" + std::to_string(i)).c_str(), "noop.lua"));
+
+    // PERMUTE THE POOL. Removing a component from the middle makes EnTT
+    // swap_and_pop the LAST element into the hole, so pool order stops matching
+    // creation order. This is the ordinary consequence of deleting an entity.
+    f.reg.remove<ScriptComponent>(made[1]);
+    f.reg.remove<ScriptComponent>(made[3]);
+
+    // Prove the premise: the view really does not yield ascending index now.
+    std::vector<std::uint32_t> viewOrder;
+    for (auto [e, sc] : f.reg.view<ScriptComponent>().each())
+        viewOrder.push_back(static_cast<std::uint32_t>(entt::to_entity(e)));
+    std::vector<std::uint32_t> ascending = viewOrder;
+    std::sort(ascending.begin(), ascending.end());
+    ASSERT_NE(viewOrder, ascending)
+        << "EnTT no longer permutes pool order on removal, so this test cannot"
+           " distinguish pool order from index order -- re-read the comment above";
+
+    f.world.Build(f.reg);
+
+    std::vector<std::uint32_t> ran;
+    for (const auto& st : f.world.Statuses())
+        ran.push_back(static_cast<std::uint32_t>(entt::to_entity(st.entity)));
+
+    EXPECT_EQ(ran, ascending)
+        << "scripts run in EnTT pool order, so removing an unrelated entity"
+           " reorders gameplay";
+}
+

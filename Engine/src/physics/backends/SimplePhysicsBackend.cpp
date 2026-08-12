@@ -66,6 +66,12 @@ namespace MyCoreEngine {
             bool  infinite;      // plane: no horizontal bounds
             glm::vec3 min, max;  // box XZ bounds (world), when !infinite
         };
+        // DETERMINISM. bodies_ is an unordered_map, so this loop visits in hash
+        // order -- which depends on insertion history and on the standard
+        // library build. Everything derived from the ORDER of `supports` below
+        // would inherit that, so the list is sorted by id before it is used.
+        // This backend exists to be the reference the conformance suite checks
+        // Jolt and PhysX against; a reference that varies is worth nothing.
         std::vector<Support> supports;
         for (const auto& [id, b] : bodies_) {
             if (b.desc.type != BodyType::Static) continue;
@@ -78,9 +84,21 @@ namespace MyCoreEngine {
                 supports.push_back({ id, b.desc.userData, c.y + h.y, false, c - h, c + h });
             }
         }
+        std::sort(supports.begin(), supports.end(),
+                  [](const Support& a, const Support& b) { return a.id < b.id; });
 
-        for (auto& [id, b] : bodies_) {
-            if (b.desc.type != BodyType::Dynamic) continue;
+        // Same reason, for the bodies themselves: each dynamic body integrates
+        // independently, so their POSES do not depend on visit order -- but
+        // events_ is appended here, and an event STREAM in hash order is a
+        // stream two machines can disagree about.
+        std::vector<uint64_t> dynamicIds;
+        dynamicIds.reserve(bodies_.size());
+        for (const auto& [id, b] : bodies_)
+            if (b.desc.type == BodyType::Dynamic) dynamicIds.push_back(id);
+        std::sort(dynamicIds.begin(), dynamicIds.end());
+
+        for (uint64_t id : dynamicIds) {
+            Body& b = bodies_.find(id)->second;
 
             // semi-implicit Euler: velocity first, then position (stable at a
             // fixed dt, unlike explicit Euler)
@@ -100,6 +118,12 @@ namespace MyCoreEngine {
                         continue; // outside this box's horizontal extent
                     }
                 }
+                // Strict > means the FIRST support at a given height wins, and
+                // ties are ordinary: two ground boxes meeting, or a plane and a
+                // box both at y=0. `supports` is sorted by id above, so the tie
+                // now resolves to the LOWEST id rather than to whichever the
+                // hash happened to visit first -- and restingOn feeds the
+                // Begin/End contact events, so the tie was observable.
                 if (s.topY > restY) { restY = s.topY; restOn = &s; }
             }
             uint64_t nowRestingOn = 0;

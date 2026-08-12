@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "ScriptWorld.h"
 
 #include "../core/Components.h"
@@ -304,6 +305,24 @@ namespace MyCoreEngine {
             instances_[e] = std::move(inst);
             order_.push_back(e);
         }
+
+        // DETERMINISTIC EXECUTION ORDER. The loop above walks
+        // reg.view<ScriptComponent>(), which yields EnTT POOL order -- and a
+        // pool is permuted by swap_and_pop on every component removal, so the
+        // same scene can execute its scripts in a different order depending on
+        // what was deleted since it loaded. Script order IS gameplay order: two
+        // scripts writing the same Transform, or one reading what another just
+        // wrote, resolve differently under a different order, and nothing about
+        // it is visible in the scene file.
+        //
+        // Sort by ENTITY INDEX, never the raw handle: the version bits sit above
+        // the index and reset on load, so raw-handle ordering flips across a
+        // save/reload. This is the same rule the renderer's sort keys and the
+        // hierarchy display follow.
+        std::sort(order_.begin(), order_.end(),
+                  [](entt::entity a, entt::entity b) {
+                      return entt::to_entity(a) < entt::to_entity(b);
+                  });
         built_ = true;
     }
 

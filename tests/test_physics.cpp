@@ -417,6 +417,94 @@ TEST(PhysicsConformance, TriggerExitIsAlsoFlaggedAsATrigger) {
     }
 }
 
+// The Simple backend is the REFERENCE the conformance suite checks Jolt and
+// PhysX against, so its own output must not depend on hash order.
+//
+// It built its support list by iterating an unordered_map, so the list arrived
+// in hash order, and the resting test "if (s.topY > restY)" gave the tie to
+// whichever support the hash visited first. Ties are ordinary rather than
+// exotic: two ground boxes meeting, or a plane and a box both at y=0. Since
+// restingOn feeds the Begin/End contact events, the coin flip was observable.
+//
+// The fix sorts the support list by body id, which makes the tie-break a stated
+// RULE -- lowest id wins -- instead of an emergent property of std::hash. That
+// rule is what this test locks down.
+//
+// WHAT THIS TEST CANNOT DO, stated plainly because it was MEASURED: deleting
+// the sort and re-running leaves this test GREEN on MSVC. Its std::hash for
+// integers is the identity, so a fresh map of small contiguous ids already
+// iterates in ascending order and the sort changes nothing observable here.
+//
+// So this is NOT proof that the sort is load-bearing. What it does lock is the
+// RULE -- lowest id wins. Change the comparison to >= (last wins) and it fails
+// immediately, because that flips the winner to the highest id on any iteration
+// order. The sort's real justification is cross-implementation: libstdc++ and
+// libc++ do not iterate like MSVC, and nothing in the standard says they should.
+// That can only be settled by the cross-platform trace comparison in
+// ARCHITECTURE.md Phase 1, which is where this belongs and where it will be
+// checked for real.
+TEST(PhysicsConformance, SimpleBackendBreaksRestingTiesByLowestBodyId) {
+    RegisterBuiltinPhysicsBackends();
+    auto be = PhysicsBackendRegistry::Create("Simple");
+    ASSERT_NE(be, nullptr);
+    PhysicsSettings s{};
+    s.gravity = { 0.f, -9.81f, 0.f };
+    ASSERT_TRUE(be->initialize(s));
+
+    // EIGHT supports, all the same height, all overlapping the drop point, so
+    // every one of them is a candidate and the tie is eight-way. Enough bodies
+    // that hash order is very unlikely to coincide with id order.
+    std::vector<BodyId> supports;
+    for (int i = 0; i < 8; ++i) {
+        BodyDesc d{};
+        d.type = BodyType::Static;
+        d.shape.type = ShapeType::Box;
+        d.shape.halfExtents = { 4.f, 0.5f, 4.f };
+        d.position = { 0.f, 0.f, 0.f };          // identical top Y
+        d.userData = 100ull + static_cast<uint64_t>(i);
+        supports.push_back(be->createBody(d));
+        ASSERT_TRUE(supports.back().valid());
+    }
+
+    // Destroy a couple so the surviving ids are NOT contiguous and the lowest
+    // survivor is not simply "the one created first overall".
+    be->destroyBody(supports[0]);
+    be->destroyBody(supports[1]);
+
+    uint64_t lowestSurviving = ~0ull;
+    for (std::size_t i = 2; i < supports.size(); ++i)
+        lowestSurviving = std::min(lowestSurviving, supports[i].value);
+
+    BodyDesc b{};
+    b.type = BodyType::Dynamic;
+    b.shape.type = ShapeType::Sphere;
+    b.shape.radius = 0.25f;
+    b.position = { 0.f, 4.f, 0.f };
+    b.mass = 1.f;
+    b.userData = 999;
+    ASSERT_TRUE(be->createBody(b).valid());
+
+    uint64_t landedOnBody = 0;
+    for (int i = 0; i < 300 && landedOnBody == 0; ++i) {
+        be->step(1.f / 60.f);
+        for (const auto& e : be->contactEvents()) {
+            if (e.phase != ContactPhase::Begin) continue;
+            // a is always the dynamic body here; b is the support it landed on.
+            landedOnBody = e.b.value;
+            break;
+        }
+    }
+
+    ASSERT_NE(landedOnBody, 0u)
+        << "the body never landed, so the tie was never exercised";
+    EXPECT_EQ(landedOnBody, lowestSurviving)
+        << "an eight-way tie at the same height resolved to body " << landedOnBody
+        << " rather than the lowest surviving id " << lowestSurviving
+        << " -- the support list is not sorted, so the winner is whatever"
+           " std::unordered_map happened to yield first";
+    be->shutdown();
+}
+
 // ---- PhysicsWorld <-> ECS integration -------------------------------------
 
 namespace {

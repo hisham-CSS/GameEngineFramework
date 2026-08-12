@@ -138,7 +138,10 @@ namespace MyCoreEngine {
         bool           built_ = false;
 
         std::unordered_map<entt::entity, Instance> instances_;
-        std::vector<entt::entity>  order_;   // stable Build() order for the UI
+        // Execution order, sorted by ENTITY INDEX in Build(). Not merely "stable
+        // for the UI": this is the order gameplay runs in, and EnTT view order
+        // (which it used to be) is permuted by swap_and_pop on any removal.
+        std::vector<entt::entity>  order_;
         std::vector<std::string>   messages_;
         SourceResolver             resolver_;
         float                      time_ = 0.f;

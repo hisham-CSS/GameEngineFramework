@@ -125,8 +125,36 @@ There is no per-tick input record, no input serialization, and no way to hand th
 
 **Cost: weeks.**
 
-### BLOCKER 3 — Jolt and PhysX cannot be part of a rollback simulation. Measured, not inferred. (weeks — mostly to *remove* them from the path)
+### BLOCKER 3 — The physics SEAM cannot restore state, so nothing reachable through it round-trips. (weeks — mostly to *remove* physics from the gameplay path)
 *rollback #1 — verified, with a benchmark harness.*
+
+> **Correction (2026-08-12).** This section was originally headed *"Jolt and
+> PhysX cannot be part of a rollback simulation. Measured, not inferred."* That
+> heading claimed more than the measurement supports and has been changed.
+>
+> What was measured is what is reachable **through `IPhysicsBackend`**, which
+> exposes no save or restore at all. The engine's only restore is
+> `PhysicsWorld::Rebuild()` = `Clear()` + `Build()`, which rebuilds bodies from
+> AUTHORING components — and `RigidBody` (`PhysicsComponents.h:21-31`) carries
+> only `initialLinearVelocity`, an authored starting value, with no live velocity
+> field anywhere. So `Rebuild` could not round-trip a moving body under ANY
+> physics engine; its 1.62–2.39 figure measures the seam discarding state, not a
+> solver diverging.
+>
+> **Jolt's own `PhysicsSystem::SaveState` / `RestoreState` has never been run in
+> this repository.** The 0.0074–0.0318 row is labelled "best case reachable
+> through today's seam" and that label is exact: pose and velocity poked back in
+> by hand, with warm-start impulses, contact manifolds, sleep state and island
+> assignment all unreachable. That is a fact about the abstraction, not about
+> Jolt.
+>
+> The recommendation below — take the rigid-body solver off the fighting game's
+> gameplay path — is unchanged, because it never rested on this measurement. It
+> rests on the arguments in [ARCHITECTURE.md](ARCHITECTURE.md) D2: a fighter
+> needs authored per-frame motion and AABB overlap rather than a constraint
+> solver, and integer arithmetic is bit-identical across platforms by the
+> language rather than by a vendor flag. Do not re-derive D2 from the numbers
+> in this table.
 
 `IPhysicsBackend` (`IPhysicsBackend.h:21-82`) has no save/restore/serialize of any kind. The only restore the engine owns is `PhysicsWorld::Rebuild() { Clear(); Build(reg); }` (`PhysicsWorld.h:47`) — destroy and recreate every native body from authoring components.
 
