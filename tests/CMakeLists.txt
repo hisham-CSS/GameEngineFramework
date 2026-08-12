@@ -15,27 +15,28 @@ FetchContent_MakeAvailable(googletest)
 # deploys them), and the Exported/ shaders+assets. A single target avoids the
 # parallel-copy races that per-test POST_BUILD copies caused under Ninja
 # (several tests copying the same file into tests/ at the same time).
-# vcpkg's Debug DLLs carry a 'd' suffix (assimp-vc143-mtd.dll, zlibd1.dll);
-# the generator expressions keep this working in both configs.
 #
-# The third-party DLL list is WINDOWS-ONLY. Those names (assimp-vc143-mt.dll,
-# zlib1.dll, ...) do not exist next to libEngine.so, and `cmake -E
-# copy_if_different` fails on a missing source — so on Linux this target aborted
-# the build with "Error copying file" naming an MSVC-suffixed DLL, taking the
-# Editor and Player down with it because every test target depends on it. Linux
-# needs no such staging: the loader resolves libEngine.so through the build
+# The DLLs are copied by GLOBBING the engine's output directory at build time
+# (stage_runtime_dlls.cmake) rather than by naming them here. This was a list of
+# seven names, and it was missing four; the one that mattered was
+# PhysXCommon_64.dll, which no dependency analysis can find because Engine.dll
+# does not import it -- PhysX_64 loads it itself at runtime. On a clean tree the
+# physics tests died with an SEH 0xc06d007e and eighteen "resource deadlock would
+# occur" cascades, while a developer machine with an older build lying around
+# passed. See stage_runtime_dlls.cmake for the full story. Globbing also drops
+# the $<CONFIG:Debug> 'd'-suffix genexes, which existed only to spell the names.
+#
+# WINDOWS-ONLY, still: `copy` fails on a missing source, those names do not exist
+# next to libEngine.so, and this target once aborted the whole Linux build --
+# taking the Editor and Player with it, because every test depends on it. Linux
+# needs no staging at all: the loader resolves libEngine.so through the build
 # RPATH. Only the Exported/ assets are shared by both platforms.
 if (WIN32)
   add_custom_target(test_runtime_deps
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      $<TARGET_FILE:Engine>
-      "$<TARGET_FILE_DIR:Engine>/assimp-vc143-mt$<$<CONFIG:Debug>:d>.dll"
-      "$<TARGET_FILE_DIR:Engine>/poly2tri.dll"
-      "$<TARGET_FILE_DIR:Engine>/zlib$<$<CONFIG:Debug>:d>1.dll"
-      "$<TARGET_FILE_DIR:Engine>/minizip.dll"
-      "$<TARGET_FILE_DIR:Engine>/pugixml.dll"
-      "$<TARGET_FILE_DIR:Engine>/glfw3.dll"
-      ${CMAKE_CURRENT_BINARY_DIR}
+    COMMAND ${CMAKE_COMMAND}
+      -DSRC=$<TARGET_FILE_DIR:Engine>
+      -DDST=${CMAKE_CURRENT_BINARY_DIR}
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/stage_runtime_dlls.cmake
     COMMAND ${CMAKE_COMMAND} -E copy_directory
       ${CMAKE_SOURCE_DIR}/Editor/src/Exported
       ${CMAKE_CURRENT_BINARY_DIR}/Exported
@@ -51,16 +52,12 @@ else()
 endif()
 add_dependencies(test_runtime_deps Engine)
 
-# Staged separately because the Lua backend is optional: listing lua-c++.dll
-# in the copy above would break every test in a -DCSE_ENABLE_LUA=OFF build.
-# Uses the path Engine published rather than `TARGET lua-cpp`, which is not
-# visible here -- imported targets do not cross directory scopes.
-if (CSE_WITH_LUA_RUNTIME AND WIN32)
-  add_custom_command(TARGET test_runtime_deps POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      "$<TARGET_FILE_DIR:Engine>/lua-c++.dll" ${CMAKE_CURRENT_BINARY_DIR}
-    VERBATIM)
-endif()
+# lua-c++.dll needed its own conditional block here, because naming it in a fixed
+# copy list broke every test in a -DCSE_ENABLE_LUA=OFF build where the file does
+# not exist. The glob subsumes that: Engine/CMakeLists.txt already deploys
+# lua-c++.dll into the engine's output directory (vcpkg's applocal misses it, for
+# the same import-table reason as PhysXCommon_64.dll), so it is copied when it is
+# there and simply absent when it is not. No condition required.
 
 macro(engine_test name)
   add_executable(${name} ${name}.cpp)
