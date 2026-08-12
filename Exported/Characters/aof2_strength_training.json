@@ -1,0 +1,834 @@
+{
+  "name": "AOF2 Strength Training (Thug)",
+  "notes": [
+    "Transcribed from C:/rw/corpus/aof2 (MUGEN 1.0, 'Strength Training' by Phantom.of.the.Server), a bonus-stage character based on the Art of Fighting 2 bonus round.",
+    "WHAT THIS FILE IS. The root player (States.st:5-44, [Statedef 0]) has NO attacks: it is movetype=I, is made unhittable by [Statedef -2] (States.st:1382-1387), and its only job is to spawn Helper id 1000 named 'Thug' (States.st:17-27). Every hitbox in this character belongs to that helper. This file therefore transcribes the THUG, which is the only thing in the package that can hit anyone.",
+    "FOUR VARIANTS, ONE HELPER. On spawn the thug rolls var(0) = random % 4 (States.st:71-73) and never changes it. var(0) 0-1 are the 'punk' (Statedefs 1020/1021/1022), var(0) 2-3 are the 'fat' (Statedefs 1220/1221). The animation used is base + 100*var(0), so the same Statedef drives four different animation sets. Anim 1020/1120 have identical timings, as do 1220/1320 and 1221/1321 (Anim.air:146-162 vs :297-313; :434-449 vs :544-559; :452-472 vs :562-582). The 10 moves below are the (variant x attack) product the game actually instantiates; there are only 5 distinct frame-data shapes and the file says so on every move.",
+    "THIS CHARACTER HAS NO CANCELS AT ALL. Grepped: MoveHit, MoveContact and MoveGuarded appear nowhere in corpus/aof2. Every attack state ends with a single 'changestate value = 1010' on !animtime (States.st:312-315, :373-376, :434-437, :495-498, :556-559), i.e. the animation is always played out in full and control returns to standing. Attacks are then re-selected from standing (States.st:186-198) by 'random < 50' per tick, gated on 'p2bodydist x <= 30 && p2movetype != H'. That p2movetype != H clause is an explicit refusal to attack an opponent who is currently in hitstun: this character is authored to never combo. The 26 cancels below are the real behavioural edges, authored honestly with the delay the state machine actually costs; the prover should and does report all 26 as dead.",
+    "HITSTUN IS 7 ON EVERY MOVE (ground.hittime = 7 at States.st:284, :345, :406, :467, :528) and the cheapest edge costs 6 frames of delay before a 4-frame startup, so advantage 7-6 = 1 < 4. Every edge is dead before hitstun decay is applied, so the verdict does not depend on the decay house rule.",
+    "METER AND JUGGLE ARE BOTH INERT HERE. Every HitDef sets getpower = 0, 0 (States.st:275, :336, :397, :458, :519), so the thug never builds meter; there is no PowerAdd or SuperPause anywhere in States.st; and no Statedef carries a 'juggle' parameter, which mugen_cns.py treats as cost 0. Both resources are declared for schema uniformity and cross-character comparability, and both are declared with the ceilings the character's own Constants.cns gives them, but nothing in this file moves either one. Termination here is decided purely by frame arithmetic.",
+    "DAMAGE IS ZERO IN THE SHIPPED CONFIGURATION. Every damage value is written 'ceil(N * (root, fvar(2)))' and CONFIG.txt:25 sets fvar(2) = 0.0 by default, with a comment saying 1.0 is 'normal damage' (CONFIG.txt:28). The damage numbers below are the fvar(2) = 1.0 case, i.e. N itself, and the raw N is recorded per move under engine.quantized_sources.damage_base. This is a load-time constant read from a second file, not a runtime condition, so it is folded at authoring time and is NOT counted as an escape hatch; damage only feeds Result.maxDamage and never the verdict.",
+    "AIR HITSTUN IS ZERO AND THE SCHEMA HAS ONE HITSTUN FIELD. Every HitDef sets air.hittime = 0 (States.st:287, :348, :409, :470, :531) against ground.hittime = 7. mugen_cns.py's rule is min(ground, air) when air > 0 else ground, which gives 7; but the truth is that hitstun is 7 on a grounded defender and 0 on an airborne one. The prover's Move carries a single hitstun, so the state-dependence is lost. It is recorded per move under engine.reaction.air_hitstun_ticks and counted in engine.fit.known_losses.",
+    "PUSHBACK IS ESTIMATED, using this project's uniform rule pushback_px = round(|ground.velocity| * ground.slidetime / 2), applied to every move so the three Phase-0 characters stay comparable. MUGEN records a velocity, not a displacement.",
+    "HITSTOP IS SYMMETRIC on every move (pausetime = 9,9 or 14,14: States.st:277, :338, :399, :460, :521), so it shifts no frame advantage and is engine-only.",
+    "localcoord is 320,240 (AOF2.def:12), the same as the KFM/KFG family, so pixel values in this file are directly comparable with the other two Phase-0 characters."
+  ],
+
+  "stage": "midscreen",
+
+  "starters": [
+    "punk_a_weak_punch", "punk_a_strong_punch", "punk_a_kick",
+    "punk_b_weak_punch", "punk_b_strong_punch", "punk_b_kick",
+    "fat_a_weak_punch", "fat_a_strong_punch",
+    "fat_b_weak_punch", "fat_b_strong_punch"
+  ],
+
+  "walk_speed": 0.03,
+
+  "scaling": [1.0, 0.9, 0.8, 0.7, 0.6, 0.5],
+
+  "decay": {
+    "kind": "linear",
+    "step": 2,
+    "floor": 5,
+    "ratio": 1.0,
+    "table": [],
+    "engine": {
+      "derivation": "ESTIMATED. MUGEN has no global hitstun decay. The project house rule is 2 frames per hit landed with a 10-frame floor, but a 10-frame FLOOR IS UNSOUND FOR THIS CHARACTER: every base hitstun here is 7, and both implementations compute linear decay as max(floor, base - step*n) (model.py:260, comboprover.hpp:81), so a floor of 10 would RAISE hitstun from 7 to 10 on hit 1 and invent frame advantage the game does not have. The floor is lowered to 5 (<= the minimum base hitstun of 7) so the sequence 7, 5, 5, ... is non-increasing as the theory requires. This is a real defect in the house rule found by transcribing a third character, not a property of this file.",
+      "house_rule_floor": 10,
+      "floor_used_here": 5,
+      "verdict_independence": "Checked: every cancel in this file is dead even with kind = none (advantage 7 - 6 = 1 < startup 4 on the cheapest edge), so the verdict does not depend on this choice."
+    }
+  },
+
+  "resources": [
+    {
+      "name": "meter",
+      "initial": 300,
+      "floor": 0,
+      "ceiling": 300,
+      "engine": {
+        "units_per_bar": 100,
+        "mugen_power_per_unit": 10,
+        "display": "bars",
+        "hud_bar_count": 3,
+        "derivation": "power = 3000 (Constants.cns:8) = 3 bars = 300 units at 1/100 bar.",
+        "inert": true,
+        "inert_reason": "No move in this character changes meter. getpower = 0,0 on all five HitDefs (States.st:275, :336, :397, :458, :519); there is no PowerAdd and no SuperPause in States.st. givepower = 50,50 gives meter to the OPPONENT, which the prover's single-character model has no place for."
+      }
+    },
+    {
+      "name": "juggle",
+      "initial": 15,
+      "floor": 0,
+      "ceiling": 15,
+      "engine": {
+        "applies_when": "defender_airborne",
+        "display": "integer",
+        "derivation": "airjuggle = 15 (Constants.cns:13), which is also MUGEN's default (mugen_cns.py:94 DEFAULT_JUGGLE).",
+        "inert": true,
+        "inert_reason": "No Statedef in States.st carries a 'juggle' parameter, and mugen_cns.py reads a missing one as cost 0, so no move spends juggle."
+      }
+    }
+  ],
+
+  "gap_actions": [
+    {
+      "id": "run_close",
+      "frames": 20,
+      "effect": { "__space": 170 },
+      "max_uses": 1,
+      "label": "run at the player",
+      "engine": {
+        "enabled": true,
+        "state_id": 1016,
+        "source": "corpus/aof2/States.st:232-253",
+        "derivation": "DERIVED for the punk: [Statedef 1016] sets velset x = 8.5 for var(0) = 0 or 1 (States.st:239-242) and ends at time >= 20 (States.st:252), so one run is a fixed 20-tick commitment worth 8.5 * 20 = 170 px = 170 space units (model.py:466 makes one space unit exactly one pixel). max_uses = 1 because the state runs to a fixed 20-tick timeout and must return to standing before it can be re-entered.",
+        "known_over_approximation": "The FAT variants run at 5.5 px/frame (States.st:244-247), i.e. 110 units, not 170. Gap actions in this schema are character-global, but this file is four DISJOINT sub-characters (var(0) is rolled once at spawn and never changes), so a per-variant gap action cannot be expressed. The faster value is authored deliberately: over-crediting the fat variants can only invent an infinite, never hide one, which makes the reported Terminating verdict sound for all four. gap.py:29-33 warns against exactly the opposite mistake. See engine.fit.schema_limits.",
+        "escape_hatch": { "needed": true, "reason": "per-variant gap action: gap_actions is a character-global list, but this character is four disjoint sub-automata with different run speeds (8.5 vs 5.5 px/frame). Not a move, so it is reported separately from the per-move gate." }
+      }
+    }
+  ],
+
+  "moves": [
+    {
+      "id": "punk_a_weak_punch",
+      "startup": 4,
+      "active": 4,
+      "recovery": 2,
+      "hitstun": 7,
+      "damage": 40,
+      "effect": {},
+      "guard": {},
+      "stance": "ground",
+      "reach": 0.67,
+      "pushback": 0.28,
+      "label": "Punk (var 0) Weak Punch",
+      "engine": {
+        "state_id": 1020,
+        "variant": 0,
+        "source": "corpus/aof2/States.st:258-315",
+        "distinct_shape": "punk_weak_punch",
+        "shared_with": ["punk_b_weak_punch"],
+        "derivation": {
+          "startup":  "derived: HitDef fires on animelem = 3 (States.st:269); anim 1020 elements 1 and 2 last 1 and 2 ticks (Anim.air:149,153), so element 3 begins on tick 4",
+          "active":   "derived: element 3 is the only Clsn1 frame and lasts 4 ticks (Anim.air:154-159)",
+          "recovery": "derived: mugen_cns.py:560-561 formula recovery = total - startup - active + 1 over a 9-tick animation (1+2+4+2, Anim.air:149-162) = 9 - 4 - 4 + 1 = 2",
+          "hitstun":  "derived: ground.hittime = 7 (States.st:284). air.hittime = 0 (States.st:287), so hitstun against an airborne defender is really 0; see notes.",
+          "damage":   "derived at fvar(2) = 1.0: damage = ceil(40 * (root, fvar(2))) (States.st:274). The shipped CONFIG.txt:25 default is fvar(2) = 0.0, i.e. zero damage.",
+          "reach":    "derived: Clsn1 x2 = 67 px (Anim.air:155)",
+          "pushback": "ESTIMATED: |ground.velocity| * ground.slidetime / 2 = 8 * 7 / 2 = 28 px (States.st:285,289)",
+          "meter":    "derived: getpower = 0, 0 (States.st:275) and no PowerAdd/SuperPause in the state, so the attacker gains nothing",
+          "juggle":   "derived: [Statedef 1020] carries no 'juggle' parameter, so cost 0 (mugen_cns.py reads a missing one as 0)",
+          "stance":   "derived: [Statedef 1020] type = S (States.st:259) -> ground. Note attr = S, NA (States.st:270)."
+        },
+        "escape_hatch": { "needed": false, "reason": "" },
+        "input": {
+          "command": null,
+          "motion": [],
+          "buttons": [],
+          "buffer_ticks": 0,
+          "requires_ctrl": false,
+          "note": "AI-ONLY. This move has no command: it is selected by the helper's own state machine from standing (States.st:186-191). Command.cmd contains only the seven single buttons, the hold/release directions and a 'recovery' combination (Command.cmd:24-185); none of them reaches any attack state. The engine's input model has no home for 'the AI rolls random < 50 per tick', which is recorded on the cancels instead."
+        },
+        "anim": {
+          "id": 1020,
+          "atlas": "aof2/sprites.atlas",
+          "loop": false,
+          "frames": [
+            {
+              "ticks": 1,
+              "sprite": { "group": 1010, "index": 0 },
+              "offset_sub": { "x": 0, "y": 0 },
+              "hurt": [[-5120, -23552, 5120, 0]],
+              "hit": [],
+              "push": [-5120, -15360, 5120, 0],
+              "events": []
+            },
+            {
+              "ticks": 2,
+              "sprite": { "group": 1020, "index": 0 },
+              "offset_sub": { "x": 0, "y": 0 },
+              "hurt": [[512, -26368, 9472, -15360], [-5120, -23552, 5120, 0]],
+              "hit": [],
+              "push": [-5120, -15360, 5120, 0],
+              "events": []
+            },
+            {
+              "ticks": 4,
+              "sprite": { "group": 1020, "index": 1 },
+              "offset_sub": { "x": 0, "y": 0 },
+              "hurt": [[512, -26368, 12288, -18688], [-5120, -23552, 5120, 0]],
+              "hit": [[512, -22784, 17152, -18688]],
+              "push": [-5120, -15360, 5120, 0],
+              "events": [
+                { "tick": 0, "kind": "hitdef", "note": "States.st:267-305, HitDef fires on animelem = 3" }
+              ]
+            },
+            {
+              "ticks": 2,
+              "sprite": { "group": 1020, "index": 0 },
+              "offset_sub": { "x": 0, "y": 0 },
+              "hurt": [[-5120, -23552, 5120, 0]],
+              "hit": [],
+              "push": [-5120, -15360, 5120, 0],
+              "events": [
+                { "tick": 0, "kind": "movetype", "value": "idle", "note": "States.st:307-311, statetypeset movetype = I once animelemtime(4) >= 0" }
+              ]
+            }
+          ]
+        },
+        "reaction": {
+          "attack_type": "high",
+          "guard_flag": "mid_air",
+          "hit_flag": ["mid", "air", "fall"],
+          "priority": 2,
+          "attr": ["stand", "normal_attack"],
+          "hitstop_attacker_ticks": 9,
+          "hitstop_defender_ticks": 9,
+          "guard_hitstop_ticks": 9,
+          "blockstun_ticks": 9,
+          "slide_ticks": 7,
+          "pushback_vel_sub": -2048,
+          "guard_pushback_vel_sub": -3072,
+          "air_pushback_vel_sub": { "x": -1065, "y": -2483 },
+          "air_guard_pushback_vel_sub": { "x": -1920, "y": -384 },
+          "corner_push_vel_sub": -3072,
+          "guard_corner_push_vel_sub": -4403,
+          "airguard_ctrl_ticks": 16,
+          "air_hitstun_ticks": 0,
+          "gravity_sub": 128,
+          "causes_knockdown": false,
+          "fall_recover": true,
+          "fall_recover_ticks": 0,
+          "defender_anim": "light",
+          "defender_anim_air": "back",
+          "defender_anim_fall": "back",
+          "meter_to_defender": 50,
+          "guard_kills": true
+        },
+        "fx": {
+          "hit_spark": 0,
+          "guard_spark": 40,
+          "spark_offset_sub": { "x": -2560, "y": -20480 },
+          "hit_sound": { "bank": 5, "index": 0 },
+          "guard_sound": { "bank": 6, "index": 0 }
+        },
+        "tags": ["ai", "normal", "punk", "no-cancel"],
+        "cancel_window_ticks": []
+      }
+    },
+
+    {
+      "id": "punk_a_strong_punch",
+      "startup": 5,
+      "active": 5,
+      "recovery": 3,
+      "hitstun": 7,
+      "damage": 40,
+      "effect": {},
+      "guard": {},
+      "stance": "ground",
+      "reach": 0.64,
+      "pushback": 0.28,
+      "label": "Punk (var 0) Strong Punch",
+      "engine": {
+        "state_id": 1021,
+        "variant": 0,
+        "source": "corpus/aof2/States.st:319-376",
+        "distinct_shape": "punk_strong_punch",
+        "shared_with": ["punk_b_strong_punch"],
+        "derivation": {
+          "startup":  "derived: HitDef fires on animelem = 3 (States.st:330); anim 1021 elements 1 and 2 last 2 and 2 ticks (Anim.air:168,171), so element 3 begins on tick 5",
+          "active":   "derived: element 3 is the only Clsn1 frame and lasts 5 ticks (Anim.air:172-176)",
+          "recovery": "derived: total 12 ticks (2+2+5+3, Anim.air:168-179); 12 - 5 - 5 + 1 = 3",
+          "hitstun":  "derived: ground.hittime = 7 (States.st:345); air.hittime = 0 (States.st:348)",
+          "damage":   "derived at fvar(2) = 1.0: ceil(40 * fvar(2)) (States.st:335)",
+          "reach":    "derived: Clsn1 x2 = 64 px (Anim.air:173)",
+          "pushback": "ESTIMATED: 8 * 7 / 2 = 28 px (States.st:346,350)",
+          "meter":    "derived: getpower = 0, 0 (States.st:336)",
+          "stance":   "derived: [Statedef 1021] type = S (States.st:320)"
+        },
+        "escape_hatch": { "needed": false, "reason": "" },
+        "input": { "command": null, "buttons": [], "note": "AI-only; selected from standing at States.st:191" },
+        "anim": {
+          "id": 1021,
+          "atlas": "aof2/sprites.atlas",
+          "loop": false,
+          "frames": [
+            { "ticks": 2, "sprite": { "group": 1021, "index": 0 }, "offset_sub": { "x": 0, "y": 0 },
+              "hurt": [[-5120, -23552, 5120, 0]], "hit": [], "push": [-5120, -15360, 5120, 0], "events": [] },
+            { "ticks": 2, "sprite": { "group": 1021, "index": 1 }, "offset_sub": { "x": 0, "y": 0 },
+              "hurt": [[-2048, -23552, 8192, 0]], "hit": [], "push": [-5120, -15360, 5120, 0], "events": [] },
+            { "ticks": 5, "sprite": { "group": 1021, "index": 2 }, "offset_sub": { "x": 0, "y": 0 },
+              "hurt": [[1280, -23552, 11520, 0]], "hit": [[4096, -16640, 16384, -11264]],
+              "push": [-5120, -15360, 5120, 0],
+              "events": [{ "tick": 0, "kind": "hitdef", "note": "States.st:328-366" }] },
+            { "ticks": 3, "sprite": { "group": 1021, "index": 1 }, "offset_sub": { "x": 0, "y": 0 },
+              "hurt": [[-2048, -23552, 8192, 0]], "hit": [], "push": [-5120, -15360, 5120, 0],
+              "events": [{ "tick": 0, "kind": "movetype", "value": "idle", "note": "States.st:368-371" }] }
+          ]
+        },
+        "reaction": {
+          "attack_type": "high", "guard_flag": "mid_air", "hit_flag": ["mid", "air", "fall"],
+          "priority": 2, "attr": ["stand", "normal_attack"],
+          "hitstop_attacker_ticks": 14, "hitstop_defender_ticks": 14, "guard_hitstop_ticks": 14,
+          "blockstun_ticks": 9, "slide_ticks": 7,
+          "pushback_vel_sub": -2048, "guard_pushback_vel_sub": -3072,
+          "air_pushback_vel_sub": { "x": -1065, "y": -2483 },
+          "air_guard_pushback_vel_sub": { "x": -1920, "y": -384 },
+          "corner_push_vel_sub": -3072, "guard_corner_push_vel_sub": -4403,
+          "airguard_ctrl_ticks": 16, "air_hitstun_ticks": 0, "gravity_sub": 128,
+          "causes_knockdown": false, "fall_recover": true, "fall_recover_ticks": 0,
+          "defender_anim": "hard", "defender_anim_air": "back", "defender_anim_fall": "back",
+          "meter_to_defender": 50, "guard_kills": true
+        },
+        "fx": {
+          "hit_spark": 0, "guard_spark": 40,
+          "spark_offset_sub": { "x": -2560, "y": -14080 },
+          "hit_sound": { "bank": 5, "index": 1 }, "guard_sound": { "bank": 6, "index": 0 }
+        },
+        "tags": ["ai", "normal", "punk", "no-cancel"]
+      }
+    },
+
+    {
+      "id": "punk_a_kick",
+      "startup": 9,
+      "active": 5,
+      "recovery": 7,
+      "hitstun": 7,
+      "damage": 30,
+      "effect": {},
+      "guard": {},
+      "stance": "ground",
+      "reach": 0.62,
+      "pushback": 0.12,
+      "label": "Punk (var 0) Sweep Kick",
+      "engine": {
+        "state_id": 1022,
+        "variant": 0,
+        "source": "corpus/aof2/States.st:380-437",
+        "distinct_shape": "punk_kick",
+        "shared_with": ["punk_b_kick"],
+        "derivation": {
+          "startup":  "derived: HitDef fires on animelem = 5 (States.st:391); anim 1022 elements 1-4 last 2+2+2+2 = 8 ticks (Anim.air:185,188,191,195), so element 5 begins on tick 9",
+          "active":   "derived: element 5 is the only Clsn1 frame and lasts 5 ticks (Anim.air:196-201)",
+          "recovery": "derived: total 20 ticks (2+2+2+2+5+2+2+3, Anim.air:185-211); 20 - 9 - 5 + 1 = 7",
+          "hitstun":  "derived: ground.hittime = 7 (States.st:406); air.hittime = 0 (States.st:409)",
+          "damage":   "derived at fvar(2) = 1.0: ceil(30 * fvar(2)) (States.st:396)",
+          "reach":    "derived: Clsn1 x2 = 62 px (Anim.air:197)",
+          "pushback": "ESTIMATED: |-3.33| * 7 / 2 = 11.655 -> 12 px (States.st:406,411). This is the one move whose ground.velocity has a vertical component (-6), i.e. it launches; the horizontal estimate is correspondingly the weakest number in the file.",
+          "meter":    "derived: getpower = 0, 0 (States.st:397)",
+          "stance":   "derived: [Statedef 1022] type = S (States.st:381), so ground, even though attr = C, NA (States.st:392) and ground.type = Low (States.st:404)"
+        },
+        "escape_hatch": { "needed": false, "reason": "" },
+        "input": { "command": null, "buttons": [], "note": "AI-only; selected from standing at States.st:191, and only when p2statetype != C" },
+        "anim": {
+          "id": 1022,
+          "atlas": "aof2/sprites.atlas",
+          "loop": false,
+          "frames": [
+            { "ticks": 2, "sprite": { "group": 1022, "index": 0 }, "offset_sub": { "x": 0, "y": 0 },
+              "hurt": [[-5120, -20736, 5120, 0]], "hit": [], "push": [-5120, -15360, 5120, 0], "events": [] },
+            { "ticks": 2, "sprite": { "group": 1022, "index": 1 }, "offset_sub": { "x": 0, "y": 0 },
+              "hurt": [[-5120, -14336, 5120, 0]], "hit": [], "push": [-5120, -15360, 5120, 0], "events": [] },
+            { "ticks": 2, "sprite": { "group": 1022, "index": 2 }, "offset_sub": { "x": 0, "y": 0 },
+              "hurt": [[-5120, -14336, 5120, 0]], "hit": [], "push": [-5120, -15360, 5120, 0], "events": [] },
+            { "ticks": 2, "sprite": { "group": 1022, "index": 3 }, "offset_sub": { "x": 0, "y": 0 },
+              "hurt": [[4864, -8192, 13056, 0], [-5120, -14336, 5120, 0]], "hit": [],
+              "push": [-5120, -15360, 5120, 0], "events": [] },
+            { "ticks": 5, "sprite": { "group": 1022, "index": 4 }, "offset_sub": { "x": 0, "y": 0 },
+              "hurt": [[-5120, -14336, 5120, 0], [4864, -8192, 13056, 0]], "hit": [[0, -4352, 15872, 0]],
+              "push": [-5120, -15360, 5120, 0],
+              "events": [{ "tick": 0, "kind": "hitdef", "note": "States.st:389-427; fall = 1, so this move knocks down" }] },
+            { "ticks": 2, "sprite": { "group": 1022, "index": 2 }, "offset_sub": { "x": 0, "y": 0 },
+              "hurt": [[4864, -8192, 13056, 0], [-5120, -14336, 5120, 0]], "hit": [],
+              "push": [-5120, -15360, 5120, 0],
+              "events": [{ "tick": 0, "kind": "movetype", "value": "idle", "note": "States.st:429-432" }] },
+            { "ticks": 2, "sprite": { "group": 1022, "index": 1 }, "offset_sub": { "x": 0, "y": 0 },
+              "hurt": [[-5120, -14336, 5120, 0]], "hit": [], "push": [-5120, -15360, 5120, 0], "events": [] },
+            { "ticks": 3, "sprite": { "group": 1022, "index": 0 }, "offset_sub": { "x": 0, "y": 0 },
+              "hurt": [[-5120, -20736, 5120, 0]], "hit": [], "push": [-5120, -15360, 5120, 0], "events": [] }
+          ]
+        },
+        "reaction": {
+          "attack_type": "low", "guard_flag": "low", "hit_flag": ["mid", "air", "fall"],
+          "priority": 2, "attr": ["crouch", "normal_attack"],
+          "hitstop_attacker_ticks": 14, "hitstop_defender_ticks": 14, "guard_hitstop_ticks": 14,
+          "blockstun_ticks": 9, "slide_ticks": 7,
+          "pushback_vel_sub": -852, "pushback_vel_y_sub": -1536,
+          "guard_pushback_vel_sub": -3072,
+          "air_pushback_vel_sub": { "x": -852, "y": -1536 },
+          "air_guard_pushback_vel_sub": { "x": -1920, "y": -384 },
+          "corner_push_vel_sub": -3072, "guard_corner_push_vel_sub": -4403,
+          "airguard_ctrl_ticks": 16, "air_hitstun_ticks": 0, "gravity_sub": 128,
+          "causes_knockdown": true, "fall_recover": true, "fall_recover_ticks": 12,
+          "defender_anim": "hard", "defender_anim_air": "back", "defender_anim_fall": "back",
+          "meter_to_defender": 50, "guard_kills": true
+        },
+        "fx": {
+          "hit_spark": 0, "guard_spark": 40,
+          "spark_offset_sub": { "x": -2560, "y": -2048 },
+          "hit_sound": { "bank": 5, "index": 1 }, "guard_sound": { "bank": 6, "index": 0 }
+        },
+        "tags": ["ai", "normal", "punk", "low", "knockdown", "no-cancel"]
+      }
+    },
+
+    {
+      "id": "punk_b_weak_punch",
+      "startup": 4, "active": 4, "recovery": 2, "hitstun": 7, "damage": 40,
+      "effect": {}, "guard": {}, "stance": "ground", "reach": 0.67, "pushback": 0.28,
+      "label": "Punk (var 1) Weak Punch",
+      "engine": {
+        "state_id": 1020, "variant": 1,
+        "source": "corpus/aof2/States.st:258-315 with anim 1120 (Anim.air:297-313)",
+        "distinct_shape": "punk_weak_punch",
+        "identical_to": "punk_a_weak_punch",
+        "derivation": {
+          "all": "Same Statedef as punk_a_weak_punch. The animation is 1020 + 100*var(0) = 1120 (States.st:262), whose element timings 1,2,4,2 and Clsn boxes are byte-identical to anim 1020 (compare Anim.air:146-162 with :297-313), so every derived number is identical. Authored as a separate move because var(0) is rolled once at spawn (States.st:73) and never changes: the four variants are four disjoint sub-automata that can never cancel into one another."
+        },
+        "escape_hatch": { "needed": false, "reason": "" },
+        "input": { "command": null, "buttons": [], "note": "AI-only" },
+        "anim": { "id": 1120, "atlas": "aof2/sprites.atlas", "loop": false, "same_timings_as": 1020, "frames": [] },
+        "reaction": { "same_as": "punk_a_weak_punch", "air_hitstun_ticks": 0, "meter_to_defender": 50 },
+        "fx": { "same_as": "punk_a_weak_punch" },
+        "tags": ["ai", "normal", "punk", "no-cancel"]
+      }
+    },
+
+    {
+      "id": "punk_b_strong_punch",
+      "startup": 5, "active": 5, "recovery": 3, "hitstun": 7, "damage": 40,
+      "effect": {}, "guard": {}, "stance": "ground", "reach": 0.64, "pushback": 0.28,
+      "label": "Punk (var 1) Strong Punch",
+      "engine": {
+        "state_id": 1021, "variant": 1,
+        "source": "corpus/aof2/States.st:319-376 with anim 1121 (Anim.air:316-330)",
+        "distinct_shape": "punk_strong_punch",
+        "identical_to": "punk_a_strong_punch",
+        "derivation": { "all": "Same Statedef; anim 1121 timings 2,2,5,3 and Clsn boxes are identical to anim 1021 (Anim.air:316-330 vs :165-179)." },
+        "escape_hatch": { "needed": false, "reason": "" },
+        "input": { "command": null, "buttons": [], "note": "AI-only" },
+        "anim": { "id": 1121, "atlas": "aof2/sprites.atlas", "loop": false, "same_timings_as": 1021, "frames": [] },
+        "reaction": { "same_as": "punk_a_strong_punch", "air_hitstun_ticks": 0, "meter_to_defender": 50 },
+        "fx": { "same_as": "punk_a_strong_punch" },
+        "tags": ["ai", "normal", "punk", "no-cancel"]
+      }
+    },
+
+    {
+      "id": "punk_b_kick",
+      "startup": 9, "active": 5, "recovery": 7, "hitstun": 7, "damage": 30,
+      "effect": {}, "guard": {}, "stance": "ground", "reach": 0.62, "pushback": 0.12,
+      "label": "Punk (var 1) Sweep Kick",
+      "engine": {
+        "state_id": 1022, "variant": 1,
+        "source": "corpus/aof2/States.st:380-437 with anim 1122 (Anim.air:333-362)",
+        "distinct_shape": "punk_kick",
+        "identical_to": "punk_a_kick",
+        "derivation": { "all": "Same Statedef; anim 1122 timings 2,2,2,2,5,2,2,3 and Clsn boxes are identical to anim 1022 (Anim.air:333-362 vs :182-211)." },
+        "escape_hatch": { "needed": false, "reason": "" },
+        "input": { "command": null, "buttons": [], "note": "AI-only" },
+        "anim": { "id": 1122, "atlas": "aof2/sprites.atlas", "loop": false, "same_timings_as": 1022, "frames": [] },
+        "reaction": { "same_as": "punk_a_kick", "air_hitstun_ticks": 0, "causes_knockdown": true, "meter_to_defender": 50 },
+        "fx": { "same_as": "punk_a_kick" },
+        "tags": ["ai", "normal", "punk", "low", "knockdown", "no-cancel"]
+      }
+    },
+
+    {
+      "id": "fat_a_weak_punch",
+      "startup": 5,
+      "active": 4,
+      "recovery": 4,
+      "hitstun": 7,
+      "damage": 60,
+      "effect": {},
+      "guard": {},
+      "stance": "ground",
+      "reach": 0.85,
+      "pushback": 0.28,
+      "label": "Fat Thug (var 2) Weak Punch",
+      "engine": {
+        "state_id": 1220,
+        "variant": 2,
+        "source": "corpus/aof2/States.st:441-498",
+        "distinct_shape": "fat_weak_punch",
+        "shared_with": ["fat_b_weak_punch"],
+        "derivation": {
+          "startup":  "derived: HitDef fires on animelem = 3 (States.st:453); anim 1220 elements 1 and 2 last 1 and 3 ticks (Anim.air:437,440), so element 3 begins on tick 5",
+          "active":   "derived: element 3 is the only Clsn1 frame and lasts 4 ticks (Anim.air:441-446)",
+          "recovery": "derived: total 12 ticks (1+3+4+4, Anim.air:437-449); 12 - 5 - 4 + 1 = 4",
+          "hitstun":  "derived: ground.hittime = 7 (States.st:467); air.hittime = 0 (States.st:470)",
+          "damage":   "derived at fvar(2) = 1.0: ceil(60 * fvar(2)) (States.st:457)",
+          "reach":    "derived: Clsn1 x2 = 85 px (Anim.air:442). This is the longest reach in the file and therefore sets max_reach, which model.py:463-464 uses as the origin of the __space guard on every other move.",
+          "pushback": "ESTIMATED: 8 * 7 / 2 = 28 px (States.st:467,472)",
+          "meter":    "derived: getpower = 0, 0 (States.st:458)",
+          "stance":   "derived: [Statedef 1220] type = S (States.st:442)"
+        },
+        "escape_hatch": { "needed": false, "reason": "" },
+        "input": { "command": null, "buttons": [], "note": "AI-only; selected from standing at States.st:193-198" },
+        "anim": {
+          "id": 1220,
+          "atlas": "aof2/sprites.atlas",
+          "loop": false,
+          "frames": [
+            { "ticks": 1, "sprite": { "group": 1210, "index": 0 }, "offset_sub": { "x": 0, "y": 0 },
+              "hurt": [[-6656, -29696, 6656, 0]], "hit": [], "push": [-5120, -15360, 5120, 0], "events": [] },
+            { "ticks": 3, "sprite": { "group": 1220, "index": 0 }, "offset_sub": { "x": 0, "y": 0 },
+              "hurt": [[-6656, -24320, 6656, 0]], "hit": [], "push": [-5120, -15360, 5120, 0], "events": [] },
+            { "ticks": 4, "sprite": { "group": 1220, "index": 1 }, "offset_sub": { "x": 0, "y": 0 },
+              "hurt": [[3584, -27136, 15360, -12032], [-6656, -24320, 6656, 0]],
+              "hit": [[3584, -20480, 21760, -12032]],
+              "push": [-5120, -15360, 5120, 0],
+              "events": [{ "tick": 0, "kind": "hitdef", "note": "States.st:450-488" }] },
+            { "ticks": 4, "sprite": { "group": 1220, "index": 2 }, "offset_sub": { "x": 0, "y": 0 },
+              "hurt": [[-6656, -29696, 6656, 0]], "hit": [], "push": [-5120, -15360, 5120, 0],
+              "events": [{ "tick": 0, "kind": "movetype", "value": "idle", "note": "States.st:490-493" }] }
+          ]
+        },
+        "reaction": {
+          "attack_type": "high", "guard_flag": "mid_air", "hit_flag": ["mid", "air", "fall"],
+          "priority": 2, "attr": ["stand", "normal_attack"],
+          "hitstop_attacker_ticks": 9, "hitstop_defender_ticks": 9, "guard_hitstop_ticks": 9,
+          "blockstun_ticks": 9, "slide_ticks": 7,
+          "pushback_vel_sub": -2048, "guard_pushback_vel_sub": -3072,
+          "air_pushback_vel_sub": { "x": -1065, "y": -2483 },
+          "air_guard_pushback_vel_sub": { "x": -1920, "y": -384 },
+          "corner_push_vel_sub": -3072, "guard_corner_push_vel_sub": -4403,
+          "airguard_ctrl_ticks": 16, "air_hitstun_ticks": 0, "gravity_sub": 128,
+          "causes_knockdown": false, "fall_recover": true, "fall_recover_ticks": 0,
+          "defender_anim": "light", "defender_anim_air": "back", "defender_anim_fall": "back",
+          "meter_to_defender": 50, "guard_kills": true
+        },
+        "fx": {
+          "hit_spark": 0, "guard_spark": 40,
+          "spark_offset_sub": { "x": -2560, "y": -15872 },
+          "hit_sound": { "bank": 5, "index": 0 }, "guard_sound": { "bank": 6, "index": 0 }
+        },
+        "tags": ["ai", "normal", "fat", "no-cancel"]
+      }
+    },
+
+    {
+      "id": "fat_a_strong_punch",
+      "startup": 4,
+      "active": 8,
+      "recovery": 7,
+      "hitstun": 7,
+      "damage": 60,
+      "effect": {},
+      "guard": {},
+      "stance": "ground",
+      "reach": 0.66,
+      "pushback": 0.28,
+      "label": "Fat Thug (var 2) Strong Punch",
+      "engine": {
+        "state_id": 1221,
+        "variant": 2,
+        "source": "corpus/aof2/States.st:502-559",
+        "distinct_shape": "fat_strong_punch",
+        "shared_with": ["fat_b_strong_punch"],
+        "derivation": {
+          "startup":  "derived: HitDef fires on animelem = 2 (States.st:513); anim 1221 element 1 lasts 3 ticks (Anim.air:455), so element 2 begins on tick 4",
+          "active":   "derived: TWO CONTIGUOUS Clsn1 elements, 2 and 3, lasting 3 and 5 ticks (Anim.air:456-466) = 8 ticks of hitbox. The single HitDef still connects only once, so this is one 8-frame active window rather than two hits.",
+          "recovery": "derived: total 18 ticks (3+3+5+3+4, Anim.air:455-472); 18 - 4 - 8 + 1 = 7",
+          "hitstun":  "derived: ground.hittime = 7 (States.st:528); air.hittime = 0 (States.st:531)",
+          "damage":   "derived at fvar(2) = 1.0: ceil(60 * fvar(2)) (States.st:518)",
+          "reach":    "derived: MAX Clsn1 x2 over the active window = 66 px (Anim.air:462); the earlier active element reaches only 43 px (Anim.air:457). The schema has one reach per move, so the larger is authored; see engine.fit.schema_limits.",
+          "pushback": "ESTIMATED: 8 * 7 / 2 = 28 px (States.st:528,533)",
+          "meter":    "derived: getpower = 0, 0 (States.st:519)",
+          "stance":   "derived: [Statedef 1221] type = S (States.st:503)"
+        },
+        "escape_hatch": { "needed": false, "reason": "" },
+        "input": { "command": null, "buttons": [], "note": "AI-only; selected from standing at States.st:193-198" },
+        "anim": {
+          "id": 1221,
+          "atlas": "aof2/sprites.atlas",
+          "loop": false,
+          "frames": [
+            { "ticks": 3, "sprite": { "group": 1221, "index": 0 }, "offset_sub": { "x": 0, "y": 0 },
+              "hurt": [[-6656, -29696, 6656, 0]], "hit": [], "push": [-5120, -15360, 5120, 0], "events": [] },
+            { "ticks": 3, "sprite": { "group": 1221, "index": 1 }, "offset_sub": { "x": 0, "y": 0 },
+              "hurt": [[-6656, -29696, 6656, 0]], "hit": [[2560, -23808, 11008, -15360]],
+              "push": [-5120, -15360, 5120, 0],
+              "events": [{ "tick": 0, "kind": "hitdef", "note": "States.st:511-549; fires on animelem = 2" }] },
+            { "ticks": 5, "sprite": { "group": 1221, "index": 2 }, "offset_sub": { "x": 0, "y": 0 },
+              "hurt": [[2560, -27648, 14848, -15360], [-6656, -29696, 6656, 0]],
+              "hit": [[6400, -19200, 16896, -10752]],
+              "push": [-5120, -15360, 5120, 0], "events": [] },
+            { "ticks": 3, "sprite": { "group": 1221, "index": 1 }, "offset_sub": { "x": 0, "y": 0 },
+              "hurt": [[-6656, -29696, 6656, 0]], "hit": [], "push": [-5120, -15360, 5120, 0],
+              "events": [{ "tick": 0, "kind": "movetype", "value": "idle", "note": "States.st:551-554" }] },
+            { "ticks": 4, "sprite": { "group": 1221, "index": 0 }, "offset_sub": { "x": 0, "y": 0 },
+              "hurt": [[-6656, -29696, 6656, 0]], "hit": [], "push": [-5120, -15360, 5120, 0], "events": [] }
+          ]
+        },
+        "reaction": {
+          "attack_type": "high", "guard_flag": "mid_air", "hit_flag": ["mid", "air", "fall"],
+          "priority": 2, "attr": ["stand", "normal_attack"],
+          "hitstop_attacker_ticks": 14, "hitstop_defender_ticks": 14, "guard_hitstop_ticks": 14,
+          "blockstun_ticks": 9, "slide_ticks": 7,
+          "pushback_vel_sub": -2048, "guard_pushback_vel_sub": -3072,
+          "air_pushback_vel_sub": { "x": -1065, "y": -2483 },
+          "air_guard_pushback_vel_sub": { "x": -1920, "y": -384 },
+          "corner_push_vel_sub": -3072, "guard_corner_push_vel_sub": -4403,
+          "airguard_ctrl_ticks": 16, "air_hitstun_ticks": 0, "gravity_sub": 128,
+          "causes_knockdown": false, "fall_recover": true, "fall_recover_ticks": 0,
+          "defender_anim": "hard", "defender_anim_air": "back", "defender_anim_fall": "back",
+          "meter_to_defender": 50, "guard_kills": true
+        },
+        "fx": {
+          "hit_spark": 0, "guard_spark": 40,
+          "spark_offset_sub": { "x": -2560, "y": -17408 },
+          "hit_sound": { "bank": 5, "index": 1 }, "guard_sound": { "bank": 6, "index": 0 }
+        },
+        "tags": ["ai", "normal", "fat", "no-cancel"]
+      }
+    },
+
+    {
+      "id": "fat_b_weak_punch",
+      "startup": 5, "active": 4, "recovery": 4, "hitstun": 7, "damage": 60,
+      "effect": {}, "guard": {}, "stance": "ground", "reach": 0.85, "pushback": 0.28,
+      "label": "Fat Thug (var 3) Weak Punch",
+      "engine": {
+        "state_id": 1220, "variant": 3,
+        "source": "corpus/aof2/States.st:441-498 with anim 1320 (Anim.air:544-559)",
+        "distinct_shape": "fat_weak_punch",
+        "identical_to": "fat_a_weak_punch",
+        "derivation": {
+          "all": "Same Statedef; anim 1320 timings 1,3,4,4 are identical to anim 1220. The only difference in the whole animation is the Clsn1 LEFT edge, x1 = 0 instead of 14 (Anim.air:552 vs :442); x2 = 85 is the same, so reach is unchanged and only the hitbox origin under engine.anim differs."
+        },
+        "escape_hatch": { "needed": false, "reason": "" },
+        "input": { "command": null, "buttons": [], "note": "AI-only" },
+        "anim": { "id": 1320, "atlas": "aof2/sprites.atlas", "loop": false, "same_timings_as": 1220,
+                  "delta_from": { "anim": 1220, "frame": 2, "hit": [[0, -20480, 21760, -12032]] }, "frames": [] },
+        "reaction": { "same_as": "fat_a_weak_punch", "air_hitstun_ticks": 0, "meter_to_defender": 50 },
+        "fx": { "same_as": "fat_a_weak_punch" },
+        "tags": ["ai", "normal", "fat", "no-cancel"]
+      }
+    },
+
+    {
+      "id": "fat_b_strong_punch",
+      "startup": 4, "active": 8, "recovery": 7, "hitstun": 7, "damage": 60,
+      "effect": {}, "guard": {}, "stance": "ground", "reach": 0.66, "pushback": 0.28,
+      "label": "Fat Thug (var 3) Strong Punch",
+      "engine": {
+        "state_id": 1221, "variant": 3,
+        "source": "corpus/aof2/States.st:502-559 with anim 1321 (Anim.air:562-582)",
+        "distinct_shape": "fat_strong_punch",
+        "identical_to": "fat_a_strong_punch",
+        "derivation": { "all": "Same Statedef; anim 1321 timings 3,3,5,3,4 and all Clsn boxes are identical to anim 1221 (Anim.air:562-582 vs :452-472)." },
+        "escape_hatch": { "needed": false, "reason": "" },
+        "input": { "command": null, "buttons": [], "note": "AI-only" },
+        "anim": { "id": 1321, "atlas": "aof2/sprites.atlas", "loop": false, "same_timings_as": 1221, "frames": [] },
+        "reaction": { "same_as": "fat_a_strong_punch", "air_hitstun_ticks": 0, "meter_to_defender": 50 },
+        "fx": { "same_as": "fat_a_strong_punch" },
+        "tags": ["ai", "normal", "fat", "no-cancel"]
+      }
+    }
+  ],
+
+  "cancels": [
+    { "from": "punk_a_weak_punch", "to": "punk_a_weak_punch", "delay": 6, "on": "hit",
+      "label": "weak punch -> stand -> weak punch",
+      "certain": false,
+      "caveat": "gated on 'p2movetype != H' (States.st:190), which is exactly 'the previous hit's hitstun has already ended', and on a per-tick 'random < 50' roll (States.st:189). Neither is expressible; the delay authored is the state machine's MINIMUM, so this edge is the most permissive honest reading.",
+      "engine": {
+        "condition": "opponent.movetype != hitstun && opponent.body_distance_x <= 30 && rng() < 0.05 && round_state == 2",
+        "source": "corpus/aof2/States.st:312-315 (exit to 1010) + :186-191 (re-entry)",
+        "delay_derivation": "DERIVED: json_spec 'link' would give active + recovery - 1 = 4 + 2 - 1 = 5, which waits out the attack state only. This character must additionally pass through [Statedef 1010] for at least one tick before its ChangeState controllers can fire (States.st:165-198), so the real minimum is 6. Authored as an explicit delay rather than kind:link because link cannot express the hub state.",
+        "input": null,
+        "escape_hatch": { "needed": true, "reason": "the transition is a per-tick random roll conditioned on the OPPONENT's movetype and body distance; no delay, guard or effect in the schema can say 'only when the defender is not in hitstun', which is precisely the anti-combo rule this character is built on" }
+      }
+    },
+    { "from": "punk_a_weak_punch", "to": "punk_a_strong_punch", "delay": 6, "on": "hit", "label": "weak punch -> stand -> strong punch",
+      "certain": false, "caveat": "same random + p2movetype != H gate as every other edge",
+      "engine": { "source": "corpus/aof2/States.st:312-315, :186-191", "escape_hatch": { "needed": true, "reason": "opponent-state-conditioned random transition" } } },
+    { "from": "punk_a_weak_punch", "to": "punk_a_kick", "delay": 6, "on": "hit", "label": "weak punch -> stand -> sweep kick",
+      "certain": false, "caveat": "additionally gated on p2statetype != C (States.st:191)",
+      "engine": { "source": "corpus/aof2/States.st:312-315, :186-191", "escape_hatch": { "needed": true, "reason": "opponent-state-conditioned random transition" } } },
+
+    { "from": "punk_a_strong_punch", "to": "punk_a_weak_punch", "delay": 8, "on": "hit", "label": "strong punch -> stand -> weak punch",
+      "certain": false, "caveat": "same gate",
+      "engine": { "delay_derivation": "DERIVED: active + recovery = 5 + 3 = 8 (link 7, plus one tick in [Statedef 1010])", "source": "corpus/aof2/States.st:373-376, :186-191", "escape_hatch": { "needed": true, "reason": "opponent-state-conditioned random transition" } } },
+    { "from": "punk_a_strong_punch", "to": "punk_a_strong_punch", "delay": 8, "on": "hit", "label": "strong punch -> stand -> strong punch",
+      "certain": false, "caveat": "same gate", "engine": { "escape_hatch": { "needed": true, "reason": "opponent-state-conditioned random transition" } } },
+    { "from": "punk_a_strong_punch", "to": "punk_a_kick", "delay": 8, "on": "hit", "label": "strong punch -> stand -> sweep kick",
+      "certain": false, "caveat": "same gate", "engine": { "escape_hatch": { "needed": true, "reason": "opponent-state-conditioned random transition" } } },
+
+    { "from": "punk_a_kick", "to": "punk_a_weak_punch", "delay": 12, "on": "hit", "label": "sweep kick -> stand -> weak punch",
+      "certain": false,
+      "caveat": "doubly impossible: the kick sets fall = 1 (States.st:419) so the defender is knocked down and leaves hitstun entirely, which the prover has no vocabulary for; the frame arithmetic already kills the edge without it",
+      "engine": { "delay_derivation": "DERIVED: active + recovery = 5 + 7 = 12", "source": "corpus/aof2/States.st:434-437, :186-191", "escape_hatch": { "needed": true, "reason": "knockdown: the source move ends the combo by state, not by frame advantage, and 'the defender is now in a knockdown state' has no representation in the prover's model" } } },
+    { "from": "punk_a_kick", "to": "punk_a_strong_punch", "delay": 12, "on": "hit", "label": "sweep kick -> stand -> strong punch",
+      "certain": false, "caveat": "knockdown; see punk_a_kick -> punk_a_weak_punch", "engine": { "escape_hatch": { "needed": true, "reason": "knockdown not representable" } } },
+    { "from": "punk_a_kick", "to": "punk_a_kick", "delay": 12, "on": "hit", "label": "sweep kick -> stand -> sweep kick",
+      "certain": false, "caveat": "knockdown; see punk_a_kick -> punk_a_weak_punch", "engine": { "escape_hatch": { "needed": true, "reason": "knockdown not representable" } } },
+
+    { "from": "punk_b_weak_punch", "to": "punk_b_weak_punch", "delay": 6, "on": "hit", "label": "var 1: weak punch -> stand -> weak punch",
+      "certain": false, "caveat": "same gate", "engine": { "escape_hatch": { "needed": true, "reason": "opponent-state-conditioned random transition" } } },
+    { "from": "punk_b_weak_punch", "to": "punk_b_strong_punch", "delay": 6, "on": "hit", "label": "var 1: weak punch -> stand -> strong punch",
+      "certain": false, "caveat": "same gate", "engine": { "escape_hatch": { "needed": true, "reason": "opponent-state-conditioned random transition" } } },
+    { "from": "punk_b_weak_punch", "to": "punk_b_kick", "delay": 6, "on": "hit", "label": "var 1: weak punch -> stand -> sweep kick",
+      "certain": false, "caveat": "same gate", "engine": { "escape_hatch": { "needed": true, "reason": "opponent-state-conditioned random transition" } } },
+    { "from": "punk_b_strong_punch", "to": "punk_b_weak_punch", "delay": 8, "on": "hit", "label": "var 1: strong punch -> stand -> weak punch",
+      "certain": false, "caveat": "same gate", "engine": { "escape_hatch": { "needed": true, "reason": "opponent-state-conditioned random transition" } } },
+    { "from": "punk_b_strong_punch", "to": "punk_b_strong_punch", "delay": 8, "on": "hit", "label": "var 1: strong punch -> stand -> strong punch",
+      "certain": false, "caveat": "same gate", "engine": { "escape_hatch": { "needed": true, "reason": "opponent-state-conditioned random transition" } } },
+    { "from": "punk_b_strong_punch", "to": "punk_b_kick", "delay": 8, "on": "hit", "label": "var 1: strong punch -> stand -> sweep kick",
+      "certain": false, "caveat": "same gate", "engine": { "escape_hatch": { "needed": true, "reason": "opponent-state-conditioned random transition" } } },
+    { "from": "punk_b_kick", "to": "punk_b_weak_punch", "delay": 12, "on": "hit", "label": "var 1: sweep kick -> stand -> weak punch",
+      "certain": false, "caveat": "knockdown", "engine": { "escape_hatch": { "needed": true, "reason": "knockdown not representable" } } },
+    { "from": "punk_b_kick", "to": "punk_b_strong_punch", "delay": 12, "on": "hit", "label": "var 1: sweep kick -> stand -> strong punch",
+      "certain": false, "caveat": "knockdown", "engine": { "escape_hatch": { "needed": true, "reason": "knockdown not representable" } } },
+    { "from": "punk_b_kick", "to": "punk_b_kick", "delay": 12, "on": "hit", "label": "var 1: sweep kick -> stand -> sweep kick",
+      "certain": false, "caveat": "knockdown", "engine": { "escape_hatch": { "needed": true, "reason": "knockdown not representable" } } },
+
+    { "from": "fat_a_weak_punch", "to": "fat_a_weak_punch", "delay": 8, "on": "hit", "label": "fat: weak punch -> stand -> weak punch",
+      "certain": false, "caveat": "same gate",
+      "engine": { "delay_derivation": "DERIVED: active + recovery = 4 + 4 = 8", "source": "corpus/aof2/States.st:495-498, :193-198", "escape_hatch": { "needed": true, "reason": "opponent-state-conditioned random transition" } } },
+    { "from": "fat_a_weak_punch", "to": "fat_a_strong_punch", "delay": 8, "on": "hit", "label": "fat: weak punch -> stand -> strong punch",
+      "certain": false, "caveat": "same gate", "engine": { "escape_hatch": { "needed": true, "reason": "opponent-state-conditioned random transition" } } },
+    { "from": "fat_a_strong_punch", "to": "fat_a_weak_punch", "delay": 15, "on": "hit", "label": "fat: strong punch -> stand -> weak punch",
+      "certain": false, "caveat": "same gate",
+      "engine": { "delay_derivation": "DERIVED: active + recovery = 8 + 7 = 15", "source": "corpus/aof2/States.st:556-559, :193-198", "escape_hatch": { "needed": true, "reason": "opponent-state-conditioned random transition" } } },
+    { "from": "fat_a_strong_punch", "to": "fat_a_strong_punch", "delay": 15, "on": "hit", "label": "fat: strong punch -> stand -> strong punch",
+      "certain": false, "caveat": "same gate", "engine": { "escape_hatch": { "needed": true, "reason": "opponent-state-conditioned random transition" } } },
+
+    { "from": "fat_b_weak_punch", "to": "fat_b_weak_punch", "delay": 8, "on": "hit", "label": "var 3: weak punch -> stand -> weak punch",
+      "certain": false, "caveat": "same gate", "engine": { "escape_hatch": { "needed": true, "reason": "opponent-state-conditioned random transition" } } },
+    { "from": "fat_b_weak_punch", "to": "fat_b_strong_punch", "delay": 8, "on": "hit", "label": "var 3: weak punch -> stand -> strong punch",
+      "certain": false, "caveat": "same gate", "engine": { "escape_hatch": { "needed": true, "reason": "opponent-state-conditioned random transition" } } },
+    { "from": "fat_b_strong_punch", "to": "fat_b_weak_punch", "delay": 15, "on": "hit", "label": "var 3: strong punch -> stand -> weak punch",
+      "certain": false, "caveat": "same gate", "engine": { "escape_hatch": { "needed": true, "reason": "opponent-state-conditioned random transition" } } },
+    { "from": "fat_b_strong_punch", "to": "fat_b_strong_punch", "delay": 15, "on": "hit", "label": "var 3: strong punch -> stand -> strong punch",
+      "certain": false, "caveat": "same gate", "engine": { "escape_hatch": { "needed": true, "reason": "opponent-state-conditioned random transition" } } }
+  ],
+
+  "engine": {
+    "schema_version": 1,
+
+    "units": {
+      "ticks_per_second": 60,
+      "sub_units_per_pixel": 256,
+      "pixels_per_reach_unit": 100,
+      "meter_units_per_bar": 100,
+      "damage_points_per_unit": 1,
+      "permille_denominator": 1000
+    },
+
+    "quantized_sources": {
+      "walk_speed_px_per_tick": 3,
+      "reach_px": {
+        "punk_a_weak_punch": 67, "punk_a_strong_punch": 64, "punk_a_kick": 62,
+        "punk_b_weak_punch": 67, "punk_b_strong_punch": 64, "punk_b_kick": 62,
+        "fat_a_weak_punch": 85, "fat_a_strong_punch": 66,
+        "fat_b_weak_punch": 85, "fat_b_strong_punch": 66
+      },
+      "pushback_px": {
+        "punk_a_weak_punch": 28, "punk_a_strong_punch": 28, "punk_a_kick": 12,
+        "punk_b_weak_punch": 28, "punk_b_strong_punch": 28, "punk_b_kick": 12,
+        "fat_a_weak_punch": 28, "fat_a_strong_punch": 28,
+        "fat_b_weak_punch": 28, "fat_b_strong_punch": 28
+      },
+      "scaling_permille": [1000, 900, 800, 700, 600, 500],
+      "decay_table_permille": [],
+      "damage_hundredths": {},
+      "damage_base": {
+        "punk_a_weak_punch": 40, "punk_a_strong_punch": 40, "punk_a_kick": 30,
+        "punk_b_weak_punch": 40, "punk_b_strong_punch": 40, "punk_b_kick": 30,
+        "fat_a_weak_punch": 60, "fat_a_strong_punch": 60,
+        "fat_b_weak_punch": 60, "fat_b_strong_punch": 60
+      },
+      "damage_multiplier_permille_default": 0,
+      "damage_multiplier_note": "Every damage value in States.st is ceil(base * (root, fvar(2))). CONFIG.txt:25 sets fvar(2) = 0.0 as shipped; CONFIG.txt:28 documents 1.0 as 'normal damage'. The [P] damage floats above are the fvar(2) = 1.0 folding. This is an authoring-time constant read from a second file, not a runtime condition."
+    },
+
+    "constants": {
+      "health": 1000,
+      "health_effective": 80,
+      "health_note": "Constants.cns:7 says life = 1000, but the thug never uses MUGEN life: [Statedef 1070/1071/1080/1091/1092] all run 'lifeset value = lifemax' every tick (States.st:570-573, :616-619, :646-649, :737-740, :785-788) and track damage in var(1), initialised from root var(4) = 80 (CONFIG.txt:17, States.st:75-78). The thug dies when var(1) <= 0 (States.st:597-601).",
+      "meter_max": 300,
+      "walk_fwd_sub": 768,
+      "walk_back_sub": -768,
+      "run_fwd_sub_punk": 2176,
+      "run_fwd_sub_fat": 1408,
+      "run_fwd_sub_constants": 1792,
+      "run_note": "Constants.cns:47 declares run.fwd = 7, but [Statedef 1016] overrides it with velset x = 8.5 for the punk (States.st:239-242) and 5.5 for the fat (States.st:244-247). The state controller wins; the constant is unused.",
+      "jump_vel_sub": { "x": 0, "y": 0 },
+      "jump_note": "Constants.cns:49-53 zeroes every jump velocity and airjump.num = 0 (Constants.cns:56): the thug cannot jump. The only airborne move is the scripted entrance [Statedef 1005], velset 4.3125, -11.16 (States.st:136-137) = 1104, -2857 sub-units, with its own veladd y = 0.465 (States.st:131) = 119 sub-units per tick rather than the global 128.",
+      "entrance_vel_sub": { "x": 1104, "y": -2857 },
+      "entrance_gravity_sub": 119,
+      "gravity_sub": 128,
+      "ground_friction_permille": 850,
+      "crouch_friction_permille": 850,
+      "air_actions": 0,
+      "default_pushbox_sub": [-5120, -15360, 5120, 0],
+      "pushbox_note": "DERIVED from [Size] ground.back = 20, ground.front = 20, height = 60 (Constants.cns:24-28). The Size block is character-global, so all four variants share it even though the fat variants' Clsn2 hurtbox is 26 wide and 116 tall (Anim.air:405).",
+      "head_pos_sub": { "x": 0, "y": -22528 },
+      "mid_pos_sub": { "x": 0, "y": -15360 },
+      "juggle_budget": 15,
+      "liedown_ticks": 60,
+      "fall_defence_up_permille": 500,
+      "attack_permille": 1000,
+      "defence_permille": 1000
+    },
+
+    "assets": {
+      "atlas": "aof2/sprites.atlas",
+      "sound_banks": { "0": "aof2/voice.bank", "5": "aof2/hit.bank", "6": "aof2/guard.bank", "7": "aof2/fall.bank" },
+      "palette": "aof2/Palettes/Default.act"
+    },
+
+    "integrity": { "content_hash": null, "schema_hash": null },
+
+    "fit": {
+      "moves_total": 10,
+      "distinct_move_shapes": 5,
+      "moves_needing_escape_hatch": 0,
+      "gate": "< 20%",
+      "cancels_total": 26,
+      "cancels_needing_escape_hatch": 26,
+      "cancels_usable_by_the_prover": 0,
+
+      "headline": "Every MOVE in this character fits the declarative model exactly: 0 of 10 need an escape hatch, and every frame number is derived from the .cns/.air with a cited line. Every CANCEL needs one: all 26 transitions are per-tick random rolls conditioned on the OPPONENT's state. That split is the measurement this character exists to take, and it is the opposite of the split the KFG file shows.",
+
+      "schema_limits": [
+        "OPPONENT STATE. The re-entry condition on every attack is 'p2bodydist x <= 30 && p2movetype != H' (States.st:190, :197). The second clause is literally 'the defender is NOT in hitstun', i.e. an explicit refusal to combo. The schema has delay, guard and effect, none of which can express a predicate over the defender. Phase 5's trigger language needs an opponent namespace, not just a self one.",
+        "NON-DETERMINISTIC TRANSITIONS. Attack selection is 'random < 50' per tick plus a nested ifelse over further random rolls (States.st:189, :191, :196, :198). A deterministic rollback sim cannot use MUGEN's random at all. The honest declarative reading is 'this edge exists with a minimum delay', which is what is authored; the probability is lost.",
+        "AI, NOT INPUT. No attack in this character is reachable from Command.cmd. Command.cmd:24-185 defines only the seven buttons, hold/release directions, FF/BB and a 'recovery' combination, and [Statedef -1] (Command.cmd:190-198) contains exactly one ChangeState, to the game-over state. The engine's move vocabulary assumes an input produces a move; an AI-driven character needs a selection policy the schema does not have.",
+        "HELPERS. The attacking entity is a Helper (States.st:17-27), not the player. One .def file here is one SPAWNER plus four AI sub-characters. The schema's unit is a character; it has no notion of a character that spawns other characters with their own move lists.",
+        "PER-VARIANT DIVERGENCE. var(0) = random % 4 (States.st:73) fixes the variant at spawn. Moves and cancels can be duplicated per variant (done here), but gap_actions, walk_speed, decay, scaling and resources are character-global and cannot be. The run gap action is authored at the punk's 8.5 px/frame rather than the fat's 5.5 (see gap_actions[0].engine).",
+        "MULTI-ELEMENT ACTIVE WINDOWS WITH DIFFERENT REACH. fat_*_strong_punch has two contiguous Clsn1 elements reaching 43 px and 66 px (Anim.air:457, :462). Move.reach is one number; the larger is authored, which over-approximates range on the first three active frames.",
+        "STATE-DEPENDENT HITSTUN. ground.hittime = 7 and air.hittime = 0 on every move. Move.hitstun is one number.",
+        "KNOCKDOWN. punk_*_kick sets fall = 1 with fall.recovertime = 12 (States.st:419-421). A combo ends because the defender enters a knockdown state, not because frame advantage ran out. The prover has no state for the defender at all, so this reason for termination is invisible to it (harmless here, because the frame arithmetic already ends the combo).",
+        "DAMAGE AS A CONFIGURED EXPRESSION. ceil(base * root fvar(2)) with fvar(2) supplied by a second file at load. Folded at authoring time; listed here because a real authoring pipeline has to know it exists."
+      ],
+
+      "known_losses": [
+        "Damage in the shipped configuration is ZERO (CONFIG.txt:25). The file authors the fvar(2) = 1.0 case, so Result.maxDamage is a hypothetical.",
+        "Hitstun against an airborne defender is 0, not 7; the schema stores one hitstun.",
+        "givepower = 50 (the DEFENDER's meter gain) has no home in the prover's single-character model and lives only under engine.reaction.meter_to_defender.",
+        "Pushback is estimated from |ground.velocity| * ground.slidetime / 2; MUGEN records no displacement. punk_*_kick's ground.velocity has a -6 vertical component, so its horizontal estimate is the weakest number in the file.",
+        "The hitstun-decay house rule's 10-frame floor is unsound for this character (every base hitstun is 7) and was lowered to 5. See decay.engine.",
+        "MUGEN checks juggle only against an airborne defender; the prover applies resource guards unconditionally. Moot here: no move spends juggle.",
+        "Cornerpush velocities (ground.cornerpush.veloff = -12, guard = -17.2) are recorded per move but the prover's distance model has no corner-specific pushback term.",
+        "The thug's effective health is var(4) = 80 from CONFIG.txt, not Constants.cns's life = 1000; the character re-implements damage in an integer variable and lifesets to lifemax every tick."
+      ],
+
+      "measured": {
+        "note": "Filled by the Phase-0 run; see the report emitted by 'python -m comboprover analyse'.",
+        "verdict_midscreen": "TERMINATING, 10 moves, 0 usable cancels, 3 resources (meter, juggle, __space), 26 dead cancels, worst case 1 hit / 9 frames / 60 damage",
+        "verdict_corner": "TERMINATING, 10 moves, 0 usable cancels, 2 resources (meter, juggle) - identical verdict",
+        "wall_clock_ms": 0.42,
+        "status_unknown": false,
+        "expected_verdict_reason": "Cheapest edge: hitstun 7, delay 6, target startup 4. advantage = 7 - 6 = 1 < 4 (comboprover.hpp dead-cancel test: startup <= settledStun - delay; with linear decay settled at hit 1 the advantage is -1). Every other edge is worse. True with decay kind = none as well, so the verdict is independent of the decay house rule."
+      }
+    }
+  }
+}
