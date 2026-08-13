@@ -13,6 +13,12 @@
 
 add_library(CseData STATIC
     src/CharacterData.cpp
+    # The projection from loaded character data to comboprover::Character. Lives
+    # here rather than in its own target because it has exactly one input type
+    # and the seam that matters is already drawn: ProverAdapter.h names no
+    # comboprover type, so the prover is an implementation detail of this
+    # library exactly as GekkoNet is of CseNet.
+    src/ProverAdapter.cpp
     # Compiled in rather than linked. Character files are authored content and
     # docs/MAINTENANCE.md admits no exceptions: an authored path goes through
     # PathIsContained before anything opens it. The alternative to compiling this
@@ -45,7 +51,7 @@ set_target_properties(CseData PROPERTIES POSITION_INDEPENDENT_CODE ON)
 # the JSON library on its include path, and none should acquire a dependency on
 # the file format just by reading a character.
 find_package(nlohmann_json CONFIG REQUIRED)
-target_link_libraries(CseData PRIVATE nlohmann_json::nlohmann_json)
+target_link_libraries(CseData PRIVATE nlohmann_json::nlohmann_json ComboProver)
 
 # --- The same guarantee the kernel has, for the same reason -----------------
 #

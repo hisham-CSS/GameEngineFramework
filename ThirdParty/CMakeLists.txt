@@ -29,6 +29,29 @@
 # The submodule stays pristine. `git diff` in ThirdParty/GekkoNet is always empty,
 # so "have we modified upstream?" has an obvious answer.
 
+# --- comboprover ------------------------------------------------------------
+#
+# The combo-termination decision procedure, as a single C++17 header. Vendored
+# rather than submoduled because it is one file with no build system, and because
+# it comes from the author's own research repository rather than a foreign
+# project — "ThirdParty" here means "vendored from another repository", not
+# "someone else's".
+#
+# It is the reason the fighting game is a case study rather than only a game:
+# docs/ADR-001 calls the engine-side integration research contribution #9,
+# because the artifact the prover analyses is then the artifact that ships, with
+# no export step in between.
+#
+# SCOPE, and it decides which numbers are correct to assert against it: this
+# header analyses a defender pinned in the CORNER (its own note, :15-24). It does
+# not model the distance between fighters. So it answers ADR-001 section 2's
+# `verdict, corner` row — INFINITE / INFINITE / TERMINATING — and NOT the
+# midscreen row. The Python reference implementation handles midscreen.
+add_library(ComboProver INTERFACE)
+target_include_directories(ComboProver INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/comboprover)
+
+# --- GekkoNet ---------------------------------------------------------------
+
 set(GEKKO_DIR ${CMAKE_CURRENT_SOURCE_DIR}/GekkoNet/GekkoLib)
 
 if (NOT EXISTS ${GEKKO_DIR}/src/gekkonet.cpp)

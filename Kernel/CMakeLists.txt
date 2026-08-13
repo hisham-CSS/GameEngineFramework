@@ -16,6 +16,7 @@
 
 add_library(CseKernel STATIC
     src/Simulate.cpp
+    src/Combat.cpp
 )
 
 target_include_directories(CseKernel PUBLIC

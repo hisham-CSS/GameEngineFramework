@@ -53,8 +53,14 @@ struct Fighter {
     std::int32_t health;
     std::int32_t meter;     // 1 unit = 10 MUGEN power (ADR-001 section 3, gate 2)
 
-    std::uint16_t moveId;   // index into the character's move table; 0 = idle
-    std::uint16_t moveFrame;// ticks since this move started
+    std::uint16_t moveId;   // index into the character's move table; 0 = idle.
+                            // The table is Combat.h's FighterData::moves, which
+                            // is passed to Simulate rather than stored here --
+                            // no tick writes it, and D4's snapshot is for what
+                            // ticks write. See the long note at the top of
+                            // Combat.h for why that split is exactly there.
+    std::uint16_t moveFrame;// ticks since this move started; the tick it starts
+                            // on is frame 0
     std::uint16_t hitstun;  // ticks remaining; 0 = actionable
     std::uint16_t blockstun;
 
@@ -63,10 +69,29 @@ struct Fighter {
                             // mirror-asymmetry bug D2 warns about.
     std::uint8_t airborne;
     std::uint8_t comboHits; // drives hitstun decay; see ADR-001 on decay.floor
-    std::uint8_t pad_;      // explicit, so the padding byte is a DEFINED value.
-                            // memcmp and the checksum both read it, and
-                            // indeterminate padding would make two identical
-                            // simulations compare unequal.
+
+    // Which fighters the CURRENT active window has already hit: bit i is set
+    // once this attack has connected on slot i. Cleared whenever a move starts
+    // or ends, so it describes one active window and never a whole match.
+    //
+    // This is D4's `alreadyHitBits`, narrowed to the two fighter slots that
+    // exist today. It is the guard against the oldest bug in the genre: a hitbox
+    // that stays live for three frames deals its damage on all three, and every
+    // string in the game becomes an infinite for a reason that has nothing to do
+    // with the character. A bitmask rather than a bool because the defender is
+    // already not the only possible target -- D4's 32 projectile slots each need
+    // their own bit, and widening a bool later would be a state-layout change on
+    // the wire.
+    //
+    // It occupies the byte that used to be Fighter::pad_. That byte existed so
+    // the struct had no INDETERMINATE padding, which is what makes hashing the
+    // object representation sound -- and the property is unchanged, because
+    // these four uint8s still fill a whole 4-byte group and the struct is still
+    // a multiple of its 4-byte alignment. Note the standing obligation: a FIFTH
+    // uint8 added here must come with three more explicit bytes, or the compiler
+    // inserts tail padding nobody initialises and the desync checksum starts
+    // comparing two machines' uninitialised memory.
+    std::uint8_t alreadyHitBits;
 };
 
 // The complete authoritative state. Everything the simulation may read.

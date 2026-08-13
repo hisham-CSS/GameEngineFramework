@@ -105,6 +105,24 @@ target_link_libraries(test_character_data
     PRIVATE CseData nlohmann_json::nlohmann_json GTest::gtest_main)
 add_test(NAME test_character_data COMMAND $<TARGET_FILE:test_character_data>)
 
+# Hitboxes and hit resolution. Links CseKernel only — combat is simulation, and
+# the simulation links nothing.
+add_executable(test_combat test_combat.cpp)
+target_link_libraries(test_combat PRIVATE CseKernel GTest::gtest_main)
+add_test(NAME test_combat COMMAND $<TARGET_FILE:test_combat>)
+
+# The projection to the combo prover, run over the three real transcribed
+# characters. This is the test behind research contribution #9: the artifact
+# analysed is the artifact that ships.
+#
+# It links ComboProver directly as well as CseData, because the test asserts
+# against comboprover's own Status enum — the SEAM is that ProverAdapter.h names
+# no comboprover type, not that nothing may ever include the header.
+add_executable(test_prover_adapter test_prover_adapter.cpp)
+target_link_libraries(test_prover_adapter
+    PRIVATE CseData ComboProver nlohmann_json::nlohmann_json GTest::gtest_main)
+add_test(NAME test_prover_adapter COMMAND $<TARGET_FILE:test_prover_adapter>)
+
 engine_test(test_event_bus)        # EventBus publish/subscribe
 engine_test(test_input_map)        # actions/axes/deadzone via scripted-input fake
 engine_test(test_render_passes)    # GL-headless CSM/forward/tonemap wiring

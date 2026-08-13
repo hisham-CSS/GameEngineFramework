@@ -42,12 +42,14 @@ std::uint32_t nextRandom(std::uint32_t& s) {
     return s;
 }
 
-void stepFighter(Fighter& f, Input in) {
+void stepFighter(Fighter& f, Input in, const FighterData& data) {
     // Stun burns down first, and while it does the player has no agency.
     if (f.hitstun   > 0) --f.hitstun;
     if (f.blockstun > 0) --f.blockstun;
 
-    if (actionable(f)) {
+    const bool canAct = actionable(f);
+
+    if (canAct) {
         std::int32_t wish = 0;
         if (in.bits & kInputLeft)  wish -= kWalkSpeed;
         if (in.bits & kInputRight) wish += kWalkSpeed;
@@ -74,20 +76,27 @@ void stepFighter(Fighter& f, Input in) {
         f.airborne = 0;
     }
 
-    if (f.moveId != 0) {
-        ++f.moveFrame;
-    }
+    // The attack lifecycle: end a move that has run out, start one the fighter is
+    // asking for. It replaces the bare `if (moveId != 0) ++moveFrame;` this file
+    // used to end on, and for a moveId this character's table does not describe
+    // it does exactly that and nothing more -- which is what keeps a state driven
+    // by a harness behaving as it did before boxes existed.
+    //
+    // It runs AFTER movement so that a move started this tick sees the position
+    // the fighter actually reached, and BEFORE hit resolution, which happens once
+    // for both fighters below.
+    StepAttack(f, data, in, canAct);
 }
 
 } // namespace
 
-void Simulate(GameState& state, const InputPair& inputs) {
+void Simulate(GameState& state, const InputPair& inputs, const MatchData& data) {
     // Fixed order, always. Iterating a container whose order can vary -- the
     // hash-ordering hazard that bit SimplePhysicsBackend and ScriptWorld in this
     // repository -- is how a simulation stops being deterministic without
     // anybody changing the arithmetic.
-    stepFighter(state.p[0], inputs.p[0]);
-    stepFighter(state.p[1], inputs.p[1]);
+    stepFighter(state.p[0], inputs.p[0], data.p[0]);
+    stepFighter(state.p[1], inputs.p[1], data.p[1]);
 
     // Facing is derived from relative position, evaluated AFTER both have moved
     // so it cannot depend on which player was stepped first.
@@ -99,6 +108,12 @@ void Simulate(GameState& state, const InputPair& inputs) {
         state.p[1].facing = 0;
     }
 
+    // Hits are resolved after facing, because every box is authored facing +X
+    // and mirrored by facing when it is placed -- so a box built before facing
+    // settled would be the box the fighter had LAST tick. One tick of a stale
+    // mirror is a hit that lands behind a character who just turned around.
+    ResolveHits(state, data);
+
     // Advance the stream every tick whether or not anything consumed it, so the
     // RNG position is a function of the tick count alone. A stream that advances
     // only on some ticks makes the sequence depend on gameplay history, which is
@@ -106,6 +121,16 @@ void Simulate(GameState& state, const InputPair& inputs) {
     nextRandom(state.rng);
 
     ++state.tick;
+}
+
+void Simulate(GameState& state, const InputPair& inputs) {
+    // kNoMoves has moveCount 0 and a degenerate hurtbox, so StepAttack can start
+    // nothing, ActiveHitbox can return nothing, and ResolveHits can find no
+    // overlap. This overload is therefore the pre-hitbox kernel exactly, not
+    // approximately -- which is the point, because the cross-toolchain golden
+    // hashes were recorded against it and re-recording a golden is how the
+    // evidence that two platforms agree gets destroyed.
+    Simulate(state, inputs, kNoMoves);
 }
 
 void ResetMatch(GameState& state, std::uint32_t seed) {

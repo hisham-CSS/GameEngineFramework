@@ -564,7 +564,19 @@ void assertLayoutMatchesTheGolden() {
     ASSERT_EQ(std::size_t{32}, offsetof(Fighter, facing));
     ASSERT_EQ(std::size_t{33}, offsetof(Fighter, airborne));
     ASSERT_EQ(std::size_t{34}, offsetof(Fighter, comboHits));
-    ASSERT_EQ(std::size_t{35}, offsetof(Fighter, pad_));
+    // Byte 35 was Fighter::pad_ until hitboxes landed; it is now
+    // alreadyHitBits, the multi-hit guard. Same offset, same size, so the hashed
+    // byte string is unchanged and the goldens below still hold — which is the
+    // point of asserting offsets rather than only sizeof: this substitution is
+    // exactly the kind of change that could have silently altered the layout,
+    // and this line is where we would have found out.
+    //
+    // pad_ existed so the struct had no INDETERMINATE padding, which is what
+    // makes hashing the object representation sound. Replacing it with a real
+    // field that ResetMatch zeroes preserves that property rather than removing
+    // it. A FIFTH uint8 here would not: it would need three more explicit bytes
+    // or the compiler inserts tail padding nobody initialises.
+    ASSERT_EQ(std::size_t{35}, offsetof(Fighter, alreadyHitBits));
 
     ASSERT_EQ(std::size_t{0}, offsetof(GameState, tick));
     ASSERT_EQ(std::size_t{4}, offsetof(GameState, rng));

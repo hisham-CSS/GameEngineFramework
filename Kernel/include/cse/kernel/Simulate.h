@@ -7,16 +7,32 @@
 // inputs must produce byte-identical output, on both machines, on every replay.
 #pragma once
 
+#include "Combat.h"
 #include "GameState.h"
 
 namespace cse::kernel {
 
 // Advance the simulation by exactly one tick.
 //
-// Deterministic by construction: same (state, inputs) in, same bytes out, on
-// every platform this compiles for. test_kernel.cpp proves it by running a
+// Deterministic by construction: same (state, inputs, data) in, same bytes out,
+// on every platform this compiles for. test_kernel.cpp proves it by running a
 // sequence twice and memcmp'ing, and by the rollback round-trip that
 // re-simulates a resumed prefix and compares against the straight-through run.
+//
+// `data` is the read-only character data both fighters are fought with. It is a
+// PARAMETER rather than part of GameState because no tick writes it -- see the
+// note at the top of Combat.h, which is where that decision is argued. Purity is
+// unaffected: the data cannot change during a match, so a re-simulated tick
+// reads the same bytes it read the first time. What it does mean is that a
+// GameState alone no longer describes a match, and the connect handshake
+// (ARCHITECTURE.md 4.8) is what proves both peers hold the same MatchData.
+void Simulate(GameState& state, const InputPair& inputs, const MatchData& data);
+
+// The same tick with no characters loaded: nothing can start a move, no box can
+// be live, and nothing can hit. Provided so that a caller with no character data
+// yet gets EXACTLY the pre-hitbox kernel rather than a subtly different one --
+// which is also what keeps the cross-toolchain golden hashes in
+// test_determinism_crossplat.cpp meaningful across this change.
 void Simulate(GameState& state, const InputPair& inputs);
 
 // Put a match at its opening position. Separate from a constructor because
