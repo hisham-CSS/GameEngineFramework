@@ -26,6 +26,23 @@ engineering answer, but a resourcing or business fact could override it and I ca
 
 **ANSWER: Adopt. Vendor GekkoNet. But the two-day spike is now a hard gate, not a formality.**
 
+> **The read-only half of that spike has RUN. See [ADR-003](ADR-003-gekkonet-spike.md).**
+> Two of the three gates below pass on real evidence — the API takes bytes not
+> types, and its C++20 is quarantined behind a C header so our C++17 is untouched.
+> **The float gate is NOT established**: the spike proved no float crosses the
+> wire, which is not the question asked, and its negative-existence checks
+> probably queried `float` when the house style is `f32`. Do not vendor yet.
+>
+> **Three factual errors in this section, corrected by ADR-003:** the licence is
+> **BSD-2-Clause, not MIT**; it is **C++20, not C** (only the API is C); and
+> "small" understates the vendoring surface by 3× — it bundles **asio 1.38.1**
+> and **zpp_bits** (a 270 KB header), so adopting means three libraries and three
+> licences. None of these reverses the answer; all three change what it costs.
+>
+> Also corrected: `enet` is **not in this project's manifest** (it is in the
+> registry, a one-line addition), and the fallback prices at **6-9 weeks** rather
+> than 6-12 — with the bulk being connection lifecycle, not rollback.
+
 The plan's reasoning stands — input delay, prediction, confirm frames, rift adjustment, packet loss
 and desync detection are 6–12 weeks of the riskiest code in the project and **none of it is the
 contribution**. The contribution is the combo-termination proof. Burning a quarter of the budget on
