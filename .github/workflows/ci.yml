@@ -10,15 +10,30 @@
 #   windows  (required)   all four configurations build, the same flag gate runs
 #                         again over the GENERATED compile lines, then the 42
 #                         CTest entries that need no GPU.
-#   gl-tests (advisory)   the 11 tests that need an OpenGL context, run against
+#   gl-tests (required)   the 11 tests that need an OpenGL context, run against
 #                         Mesa's llvmpipe software rasteriser.
-#   linux    (advisory)   the Linux port compiles. It has never been run on
-#                         Linux hardware, so this is the first real check of a
-#                         claim README.md makes cautiously.
+#   linux    (required)   the Linux port compiles under gcc 13.
 #
-# Promote an advisory job by deleting its `continue-on-error` once it has been
-# green for a while. If one starts failing, the finding is the point: record it,
-# do not quietly delete the job.
+# ALL FOUR ARE REQUIRED as of 2026-08-12. gl-tests and linux started advisory —
+# the idea being to promote each once it had been green for a while — and both
+# have earned it: linux ran 10 consecutive green including a run where gcc built
+# the vendored GekkoNet, and gl-tests 11 of 12.
+#
+# The one gl-tests failure is why this note exists rather than a shorter one. It
+# was not a GL problem and not a code problem: `vcpkg z-applocal` hit "Access is
+# denied." while linking test_ui_binding.exe, because vcpkg deploys DLLs
+# per-executable and ~45 parallel links were copying the same files into the same
+# directory. Promoting a job with a live race in it would have converted a rare
+# annoyance into a rare hard stop, so the race was fixed first —
+# VCPKG_APPLOCAL_DEPS is now OFF for tests, since test_runtime_deps already
+# stages a superset from a single target (see tests/CMakeLists.txt).
+#
+# Worth keeping in mind that nobody noticed that failure for five runs, because
+# advisory failures do not announce themselves. That is the cost of the advisory
+# state and the reason to leave it promptly.
+#
+# If a required job starts failing, the finding is the point: record it and fix
+# the cause. Do not reach for continue-on-error to make the red go away.
 #
 # Only first-party actions (checkout, cache) are used. The MSVC environment
 # comes from vswhere + vcvars64 rather than a third-party action, because a
@@ -175,10 +190,13 @@ jobs:
     name: Windows · GL tests (llvmpipe)
     runs-on: windows-2022
     timeout-minutes: 150
-    # ADVISORY: software-rasterising an 11-pass pipeline is the part of this file
-    # most likely to be slow or flaky. Reporting without blocking beats not
-    # running these 11 tests at all.
-    continue-on-error: true
+    # REQUIRED since 2026-08-12. Software-rasterising an 11-pass pipeline is
+    # still the slowest thing here (~9 minutes, consistently), and it was the
+    # likeliest flake candidate — but the one failure it had was a vcpkg
+    # applocal copy race that is now fixed at the source, not a GL problem. If
+    # llvmpipe itself ever turns flaky, pin the Mesa hash (the download is
+    # version-pinned but its hash is only printed, see the install step below)
+    # before considering demotion.
     env:
       VCPKG_BINARY_SOURCES: 'clear;files,${{ github.workspace }}\vcpkg_cache,readwrite'
     steps:
@@ -260,10 +278,16 @@ jobs:
     name: Linux · compiles
     runs-on: ubuntu-24.04
     timeout-minutes: 150
-    # ADVISORY: README.md describes Linux as "port phases 0-1: compiles under
-    # gcc/clang", and the port has never been run on Linux hardware. This is the
-    # first real test of that claim.
-    continue-on-error: true
+    # REQUIRED since 2026-08-12. README.md described Linux as "compiles under
+    # gcc/clang" and nothing checked it; the first run of this job found that it
+    # did not (a nested struct's default member initialisers used from a default
+    # argument — see docs/ARCHITECTURE.md). It does now, and this job is what
+    # keeps that true: there is no gcc on the primary development machine, so
+    # this runner is the ONLY compiler that ever sees the code that is not MSVC.
+    #
+    # NOTE it builds but does not TEST. The Linux job runs no ctest, and
+    # docs/MAINTENANCE.md records the Windows-shaped test assertions that must be
+    # guarded before it can.
     steps:
       - uses: actions/checkout@v4
         with:
