@@ -131,6 +131,12 @@ add_executable(test_match_bridge test_match_bridge.cpp)
 target_link_libraries(test_match_bridge PRIVATE CseData CseKernel GTest::gtest_main)
 add_test(NAME test_match_bridge COMMAND $<TARGET_FILE:test_match_bridge>)
 
+# Cancels: the rule that lets a connected move be interrupted into another, which
+# is what makes the combos the prover reasons about performable at all.
+add_executable(test_cancels test_cancels.cpp)
+target_link_libraries(test_cancels PRIVATE CseData CseKernel GTest::gtest_main)
+add_test(NAME test_cancels COMMAND $<TARGET_FILE:test_cancels>)
+
 engine_test(test_event_bus)        # EventBus publish/subscribe
 engine_test(test_input_map)        # actions/axes/deadzone via scripted-input fake
 engine_test(test_render_passes)    # GL-headless CSM/forward/tonemap wiring

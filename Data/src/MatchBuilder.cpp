@@ -15,6 +15,7 @@ namespace cse::data {
 // hidden in an unnamed namespace that happens to be visible anyway is the kind
 // of thing that works until someone moves a function.
 using cse::kernel::Box;
+using cse::kernel::CancelEdge;
 using cse::kernel::FighterData;
 using cse::kernel::MoveDef;
 
@@ -60,16 +61,48 @@ void addLoss(BuildReport& report, const char* field, BuildLossDirection directio
     report.losses.push_back(std::move(loss));
 }
 
+// --- What the cancel projection actually did ---------------------------------
+//
+// Filled in by buildCancels below and read by recordLosses. It exists as a
+// struct rather than as a pile of out-parameters because every one of these
+// numbers ends up in the loss table, and a projection that reports "134 cancels
+// were lost" when it in fact carried all 134 with four separate approximations
+// is worse than one that reports nothing: it is wrong in a way a reader will
+// believe.
+struct CancelStats {
+    std::int32_t authored = 0;   // CharacterData::cancels.size()
+    std::int32_t built    = 0;   // edges that reached FighterData::cancels
+    std::int32_t dropped  = 0;   // endpoint did not map to a kernel move slot
+
+    // Edges whose resolved window is empty because the authored delay outlives
+    // the source move. These are LINKS, not cancels -- see the note on the loss
+    // entry below.
+    std::int32_t inertLink = 0;
+
+    std::int32_t contactFrame  = 0;   // contact-gated, from a source with active > 1
+    std::int32_t onBlockOrWhiff = 0;  // Contact values the kernel cannot observe
+    std::int32_t uncertain     = 0;   // Cancel::certain == false
+    std::int32_t withGuard     = 0;
+    std::int32_t withEffect    = 0;
+
+    // Moves that are the SOURCE of at least one edge and author no cancel
+    // window. Counted per MOVE, not per edge: the invented window is a property
+    // of the move, and counting it once per outgoing edge would make a move with
+    // eleven follow-ups look eleven times worse than one with a single one.
+    std::int32_t sourcesWithoutWindow = 0;
+};
+
 // --- The loss table ----------------------------------------------------------
 //
 // Every field of CharacterData that MatchData cannot carry, with the count of
 // objects in THIS character that it touches and the direction the difference
 // runs. Entries with count 0 stay in the list: "this character has no decay" and
 // "nobody checked decay" must not look the same.
-void recordLosses(const CharacterData& c, BuildReport& report) {
+void recordLosses(const CharacterData& c, const CancelStats& cancels,
+                  BuildReport& report) {
     std::int32_t stanced = 0, withEffect = 0, withGuard = 0, withPushback = 0;
     std::int32_t withHitCondition = 0, noReach = 0, withReach = 0;
-    std::int32_t withHits = 0, withMotion = 0, withCancelWindow = 0, withEscapeHatch = 0;
+    std::int32_t withHits = 0, withMotion = 0, withEscapeHatch = 0;
 
     for (const Move& m : c.moves) {
         if (m.stance != Stance::Any)        ++stanced;
@@ -80,27 +113,87 @@ void recordLosses(const CharacterData& c, BuildReport& report) {
         if (m.reachSub == kNoReach)         ++noReach; else ++withReach;
         if (!m.hits.empty())                ++withHits;
         if (!m.motion.empty())              ++withMotion;
-        if (m.hasCancelWindow)              ++withCancelWindow;
         if (m.escapeHatchNeeded)            ++withEscapeHatch;
     }
 
-    // THE BIG ONE, and it is first on purpose. The kernel starts a move from a
-    // held button and from nothing else; there is no cancel system, so not one
-    // of these edges can be taken. Everything the combo prover reasons about is
-    // a path through this list, which is why
-    // kernelPlaysTheAnalysedCharacter is false for every character that has any.
-    addLoss(report, "cancels", BuildLossDirection::KernelOmits,
-            static_cast<std::int32_t>(c.cancels.size()),
-            "The kernel has no cancel system: a move can only be started from an "
-            "idle fighter holding its buttons (Combat.h StepAttack). Every "
-            "authored chain is unreachable, so the combos ProverAdapter's verdict "
-            "is about cannot be performed. This is the single reason a shipped "
-            "character does not yet play as analysed.");
+    // --- Cancels ------------------------------------------------------------
+    //
+    // These come first because they used to be one line reading "the kernel has
+    // no cancel system" with the whole edge count against it. It does now, so
+    // the entry that replaces it is a projection report: what crossed, what did
+    // not, and the four separate ways an edge that DID cross can still behave
+    // differently from what the file says. Splitting them is the point. A single
+    // "cancels: 134" line after the kernel grew cancels would be a lie in the
+    // other direction, and a single "cancels: 0" would be a worse one.
 
-    addLoss(report, "move.cancel_window", BuildLossDirection::KernelOmits, withCancelWindow,
-            "The [open, close] tick window a cancel may be buffered in. Inert "
-            "while `cancels` is, and listed separately so it does not silently "
-            "become the next thing forgotten when cancels land.");
+    addLoss(report, "cancels (dropped)", BuildLossDirection::KernelOmits,
+            cancels.dropped,
+            "Edges whose `from` or `to` did not resolve to a kernel move slot. "
+            "A dangling edge is worse than a missing one -- it would put a "
+            "fighter into a moveId nothing describes -- so it is dropped and "
+            "counted here rather than carried. Authored " + num(cancels.authored) +
+            ", built " + num(cancels.built) + ", dropped " + num(cancels.dropped) +
+            ".");
+
+    addLoss(report, "cancels (link, not cancel)", BuildLossDirection::KernelPermits,
+            cancels.inertLink,
+            "Edges whose authored delay outlives the source move, so the resolved "
+            "window is empty and the kernel can never take them. These are LINKS "
+            "rather than cancels: the file is saying the follow-up becomes legal "
+            "only after the source has fully recovered, which the ordinary button "
+            "start already permits -- but it permits it whether or not the source "
+            "connected, and the file requires contact. Every edge of the AOF2 "
+            "character is one of these.");
+
+    addLoss(report, "cancel.contact_frame", BuildLossDirection::KernelPermits,
+            cancels.contactFrame,
+            "Contact-gated edges out of a move with more than one active frame. "
+            "Cancel::delay is measured from the tick the source CONNECTED, and "
+            "GameState does not record that tick -- deliberately, because its "
+            "layout is a wire contract with a cross-toolchain golden hash against "
+            "it (Combat.h argues the trade). The window is resolved against the "
+            "source's FIRST active frame instead, which is the earliest a hit "
+            "could have landed, so the follow-up becomes available up to "
+            "`active - 1` ticks before the file allows it.");
+
+    addLoss(report, "cancel.on", BuildLossDirection::KernelPermits,
+            cancels.onBlockOrWhiff,
+            "Edges authored `on: block` or `on: whiff`. The kernel has no "
+            "blocking at all -- Fighter::blockstun exists and nothing writes it "
+            "-- so the only contact fact it can observe is whether the attack "
+            "landed. A block-only edge is therefore taken after a HIT, and a "
+            "whiff-only edge is taken after a hit as well as after a whiff. "
+            "`on: hit` and `on: always` cross exactly and are not counted here.");
+
+    addLoss(report, "cancel.certain", BuildLossDirection::KernelPermits,
+            cancels.uncertain,
+            "Edges the file marks `certain: false`: the transcription found the "
+            "edge but could not establish the runtime condition gating it "
+            "(CharacterData.h Cancel::certain). The kernel takes them "
+            "unconditionally, so the character can chain in situations the "
+            "original could not.");
+
+    addLoss(report, "cancel.guard", BuildLossDirection::KernelPermits,
+            cancels.withGuard,
+            "The resource minimum an edge requires -- meter, for the shipped "
+            "characters. Fighter::meter exists but nothing reads it, so a cancel "
+            "into an EX move is free. This is the same hole as `move.guard`, "
+            "listed separately because a metered CANCEL is the thing a combo "
+            "route is usually built out of.");
+
+    addLoss(report, "cancel.effect", BuildLossDirection::KernelOmits,
+            cancels.withEffect,
+            "The resource delta an edge applies. Nothing writes Fighter::meter, "
+            "so the cost is never paid and the gain is never banked.");
+
+    addLoss(report, "move.cancel_window (absent)", BuildLossDirection::KernelPermits,
+            cancels.sourcesWithoutWindow,
+            "Moves that are the source of at least one cancel and author no "
+            "[open, close] window. The schema's window is what closes a cancel "
+            "opportunity; with none, this bridge lets the window run to the last "
+            "frame of the move, so a follow-up stays available for the whole of "
+            "recovery. Moves that DO author one get exactly it, intersected with "
+            "the per-edge delay.");
 
     addLoss(report, "character.walk_speed", BuildLossDirection::KernelOmits,
             c.walkSpeedSub != 0 ? 1 : 0,
@@ -227,6 +320,172 @@ void recordLosses(const CharacterData& c, BuildReport& report) {
     for (const BuildLoss& loss : report.losses)
         if (loss.count != 0) ++report.lossesThatBite;
     report.playsAsAnalysed = (report.lossesThatBite == 0);
+}
+
+// --- The cancel projection ---------------------------------------------------
+//
+// THE ONE THING THIS FUNCTION DECIDES, AND IT IS WORTH SPELLING OUT.
+//
+// The file authors a DELAY: "ticks between the source CONNECTING and the
+// follow-up being allowed to start" (CharacterData.h). The kernel wants a
+// WINDOW in the source move's own frame numbering, because Fighter::moveFrame is
+// the only clock a tick has and GameState records that the current attack has
+// connected without recording when (Combat.h says why that stays true). The
+// conversion needs a contact frame, so this function picks one:
+//
+//     contact = startup,  the FIRST frame the move's hitbox is live
+//
+// and every consequence of that choice is counted in CancelStats::contactFrame.
+// It is the earliest contact possible, so the resolved window opens at the
+// earliest tick the file could permit and never later -- the error is uniformly
+// permissive, bounded by `active - 1` ticks, and pointing in a direction a
+// reader can reason about. The other two candidates were considered:
+//
+//   * LAST active frame. Uniformly conservative instead, bounded the same way.
+//     Rejected because it makes tight authored chains impossible to perform,
+//     and a combo the file says exists but the game cannot do is the failure
+//     this whole bridge is here to stop being invisible.
+//   * The midpoint. Rejected on sight: it is wrong in BOTH directions, needs a
+//     division, and no sentence describes what it means.
+//
+// The move's own [open, close] window, when it authors one, is intersected on
+// top -- so an edge is available from the later of "the delay has elapsed" and
+// "the move's cancel window has opened", through the earlier of "the window
+// closes" and "the move ends". Both bounds inclusive, matching CancelEdge.
+bool buildCancels(const CharacterData& c, const std::string& who,
+                  FighterData& out, MoveIndexMap& moves,
+                  CancelStats& stats, BuildReport& report) {
+    const std::size_t moveCount = c.moves.size();
+    stats.authored = static_cast<std::int32_t>(c.cancels.size());
+
+    // THE CAPACITY DECISION AGAIN, and the same answer as for moves: refuse,
+    // never truncate. A character missing its last cancels is not a simpler
+    // character, it is one whose combo graph has had edges deleted -- and the
+    // verdict ProverAdapter computed was computed over the whole graph, so a
+    // truncating bridge would certify a character and ship a different one.
+    if (stats.authored > kMaxBuildableCancels) {
+        report.error =
+            who + ": authors " + num(stats.authored) + " cancel edges and the "
+            "kernel holds " + num(kMaxBuildableCancels) +
+            ". REFUSED rather than truncated: dropping the tail would delete "
+            "edges from the combo graph the prover's verdict was computed over, "
+            "which is exactly the engine/analysis disagreement this bridge "
+            "exists to make visible. Raise kMaxCancelsPerFighter in "
+            "cse/kernel/Combat.h -- a wire layout change both peers must agree "
+            "on -- or cut edges in the file.";
+        return false;
+    }
+
+    moves.fileCancelByEdge.reserve(c.cancels.size());
+
+    // Per MOVE, so a source with eleven follow-ups is counted once. See the
+    // comment on CancelStats::sourcesWithoutWindow.
+    std::vector<bool> windowlessSourceCounted(moveCount, false);
+
+    for (std::size_t i = 0; i < c.cancels.size(); ++i) {
+        const Cancel& e = c.cancels[i];
+        const std::string where =
+            who + ".cancels[" + num(static_cast<std::int64_t>(i)) + "]";
+
+        // An endpoint that does not name a move this build produced. The loader
+        // calls a dangling id a load error, so this is defence against a
+        // character assembled by hand -- and it is a DROP rather than a refusal
+        // because the rest of the graph is still worth playing, provided somebody
+        // is told. Silently keeping the edge is the one option that is worse than
+        // both: it would hand the kernel a moveId nothing describes.
+        const bool fromOk = e.from != kInvalidMove &&
+                            static_cast<std::size_t>(e.from) < moveCount;
+        const bool toOk   = e.to   != kInvalidMove &&
+                            static_cast<std::size_t>(e.to)   < moveCount;
+        if (!fromOk || !toOk) {
+            ++stats.dropped;
+            report.warnings.push_back(
+                where + ": dropped. Its " +
+                std::string(!fromOk ? "`from`" : "`to`") +
+                " endpoint does not name a move this character has, so carrying "
+                "it would put a fighter into a move slot nothing describes.");
+            continue;
+        }
+
+        const Move& src = c.moves[e.from];
+
+        if (e.delay < 0) {
+            report.error = where + ": negative delay (" + num(e.delay) +
+                           " ticks). A cancel that becomes legal before the move "
+                           "it cancels has connected is not a thing the file "
+                           "means to say.";
+            return false;
+        }
+
+        // Non-negative by the move loop's own check, which ran before this
+        // function was called. Recomputed rather than read off MoveDef so that
+        // this file's two duration expressions cannot drift apart.
+        const std::int64_t duration = static_cast<std::int64_t>(src.startup) +
+                                      static_cast<std::int64_t>(src.active) +
+                                      static_cast<std::int64_t>(src.recovery);
+
+        std::int64_t earliest = static_cast<std::int64_t>(src.startup) +
+                                static_cast<std::int64_t>(e.delay);
+        std::int64_t latest   = duration - 1;
+
+        if (src.hasCancelWindow) {
+            if (static_cast<std::int64_t>(src.cancelWindowOpen) > earliest)
+                earliest = src.cancelWindowOpen;
+            if (static_cast<std::int64_t>(src.cancelWindowClose) < latest)
+                latest = src.cancelWindowClose;
+        } else if (!windowlessSourceCounted[e.from]) {
+            windowlessSourceCounted[e.from] = true;
+            ++stats.sourcesWithoutWindow;
+        }
+
+        if (earliest < 0) earliest = 0;   // moveFrame is never negative
+
+        // int32 is the kernel's frame type. A move long enough to overflow it is
+        // a file that needs fixing rather than a number to silently wrap.
+        if (earliest > 0x7FFFFFFF || latest > 0x7FFFFFFF || latest < -0x7FFFFFFF) {
+            report.error = where + ": resolved cancel window [" + num(earliest) +
+                           ", " + num(latest) + "] does not fit the kernel's "
+                           "32-bit frame counter.";
+            return false;
+        }
+
+        // An empty window. Kept and counted rather than dropped: the edge is a
+        // faithful record of what the file says, the kernel's two comparisons
+        // make it inert with no special case, and `cancels (link, not cancel)`
+        // is a more useful thing for a designer to read than a shorter table.
+        if (earliest > latest) ++stats.inertLink;
+
+        const bool requiresContact =
+            e.on == Contact::Hit || e.on == Contact::Block;
+
+        // Only edges that ACTUALLY depend on a contact tick are affected by the
+        // first-active-frame reading, and only when there is more than one active
+        // frame for the contact to have landed on. A one-frame active window has
+        // exactly one possible contact frame, so the reading is exact there.
+        if (requiresContact && src.active > 1) ++stats.contactFrame;
+        if (e.on == Contact::Block || e.on == Contact::Whiff) ++stats.onBlockOrWhiff;
+        if (!e.certain)      ++stats.uncertain;
+        if (!e.guard.empty()) ++stats.withGuard;
+        if (!e.effect.empty()) ++stats.withEffect;
+
+        CancelEdge edge{};
+        edge.from          = MoveIndexMap::KernelMoveIdOf(e.from);
+        edge.to            = MoveIndexMap::KernelMoveIdOf(e.to);
+        edge.earliestFrame = static_cast<std::int32_t>(earliest);
+        edge.latestFrame   = static_cast<std::int32_t>(latest);
+        edge.onHit         = requiresContact ? std::uint8_t{1} : std::uint8_t{0};
+        edge.pad_[0] = 0;   // explicit: these bytes are hashed by the handshake
+        edge.pad_[1] = 0;
+        edge.pad_[2] = 0;
+
+        out.cancels[stats.built] = edge;
+        moves.fileCancelByEdge.push_back(static_cast<CancelIndex>(i));
+        ++stats.built;
+    }
+
+    out.cancelCount   = stats.built;
+    moves.cancelCount = stats.built;
+    return true;
 }
 
 } // namespace
@@ -510,7 +769,43 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
         }
     }
 
-    recordLosses(character, report);
+    // --- The cancel graph ----------------------------------------------------
+    CancelStats cancels{};
+    if (!buildCancels(character, who, out, moves, cancels, report)) {
+        // Same shape as every other refusal in this file: leave nothing that
+        // looks like a fighter behind. A FighterData with a move table and no
+        // cancel graph is precisely the character this task existed to stop
+        // shipping.
+        out    = FighterData{};
+        moves  = MoveIndexMap{};
+        return false;
+    }
+
+    // --- Cancels nobody can press --------------------------------------------
+    //
+    // A cancel is taken by holding the TARGET move's buttons (Combat.cpp
+    // FindCancel), so an edge into a move with no binding is unreachable however
+    // correct its window is. That is a property of the caller's binding table
+    // rather than of the character, which is why it is a warning and not a loss
+    // -- but it is the difference between "the cancel system does not work" and
+    // "you did not bind the follow-up", and those cost very different afternoons.
+    //
+    // Counted and reported ONCE. One warning per edge would be 134 lines for
+    // Kung Fu Girl and would bury the fourteen that matter.
+    std::int32_t unreachable = 0;
+    for (std::int32_t i = 0; i < out.cancelCount; ++i) {
+        const std::uint16_t to = out.cancels[i].to;
+        if (to < out.moveCount && out.moves[to].button == 0) ++unreachable;
+    }
+    if (unreachable > 0) {
+        report.warnings.push_back(
+            who + ": " + num(unreachable) + " of " + num(cancels.built) +
+            " cancel edges point at a move with no button bound, so they can "
+            "never be taken. Bind the follow-up in BuildOptions::bindings; the "
+            "edge itself is built and correct.");
+    }
+
+    recordLosses(character, cancels, report);
     return true;
 }
 

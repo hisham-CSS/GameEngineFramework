@@ -87,16 +87,42 @@
 //    the file's, not this bridge's; it is reported as the `move.reach` loss
 //    rather than silently split the difference.
 //
-// 3. WHAT HAS NO KERNEL COUNTERPART AT ALL. Cancels, gap actions, damage
-//    scaling, hitstun decay, resources and their guards, pushback, stance, per
-//    hit records, motion keys, hit conditions and walk speed. Every one of them
-//    is listed in BuildReport::losses with a count and a direction, in the same
+// 3. WHAT HAS NO KERNEL COUNTERPART AT ALL. Gap actions, damage scaling,
+//    hitstun decay, resources and their guards, pushback, stance, per hit
+//    records, motion keys, hit conditions and walk speed. Every one of them is
+//    listed in BuildReport::losses with a count and a direction, in the same
 //    spirit as ProverAdapter's projection loss table, and the summary flag
-//    BuildReport::playsAsAnalysed is false whenever any of them bites. It is
-//    false for every shipped character today and the dominant reason is
-//    `cancels`: the kernel has no cancel system, so the chains the prover
-//    reasons about cannot be performed. A green build must not be allowed to
-//    imply that the verdict describes the running game.
+//    BuildReport::playsAsAnalysed is false whenever any of them bites. A green
+//    build must not be allowed to imply that the verdict describes the running
+//    game.
+//
+//    CANCELS USED TO HEAD THAT LIST AND NO LONGER DO. The kernel has a cancel
+//    system now (cse::kernel::CancelEdge, and the rule in Combat.cpp's
+//    StepAttack), so this file's job for `cancels` changed from counting a total
+//    loss to performing a projection -- and a projection has its own, smaller,
+//    losses, which are listed individually rather than rolled back up into one
+//    line. The four that bite a shipped character:
+//
+//      cancel.contact_frame  the delay is authored from the moment the source
+//                            CONNECTED and the kernel does not record that tick
+//                            (Combat.h says why, and says what the alternative
+//                            would have cost). Resolved against the source's
+//                            FIRST possible contact frame, so an edge opens up
+//                            to `active - 1` ticks early.
+//      cancel.certain        the file marks an edge as gated on a runtime
+//                            condition no importer can evaluate. The kernel
+//                            takes it unconditionally.
+//      cancel.guard          the resource minimum an edge requires. Nothing
+//                            reads Fighter::meter, so a metered cancel is free.
+//      cancel.on             Contact::Block and Contact::Whiff have no kernel
+//                            counterpart, because the kernel has no blocking.
+//
+//    Every one of those errs in the SAME direction -- KernelPermits, the game
+//    allows chains the file does not -- which is worth saying plainly, because a
+//    combo system that is uniformly more permissive than the analysed one can
+//    turn a Terminating verdict into a game with an infinite in it. That is the
+//    exact failure D8 names, and it is now a number in a table rather than a
+//    sentence in a comment.
 #pragma once
 
 #include "cse/data/CharacterData.h"
@@ -119,6 +145,12 @@ namespace cse::data {
 // number must move with it.
 inline constexpr std::int32_t kMaxBuildableMoves =
     cse::kernel::kMaxMovesPerFighter - 1;
+
+// Cancels have no reserved slot, so this one is the kernel's cap unchanged. It
+// is still named here rather than used inline, so that an error message and a
+// test can quote the same symbol.
+inline constexpr std::int32_t kMaxBuildableCancels =
+    cse::kernel::kMaxCancelsPerFighter;
 
 // --- The body ---------------------------------------------------------------
 
@@ -226,16 +258,16 @@ struct BuildReport {
     // True only when lossesThatBite is 0 -- when the kernel plays the character
     // the file describes, and therefore the character ProverAdapter analysed.
     //
-    // IT IS FALSE FOR EVERY CHARACTER THE SCHEMA CAN CURRENTLY EXPRESS, and
-    // saying so here is more useful than pretending otherwise. The dominant
-    // reason is `cancels`: the kernel has no cancel system, so the chains the
-    // verdict is about cannot be performed. Two further entries are nonzero for
-    // structural reasons that no file can avoid -- the schema authors no
-    // vertical extent for an attack (`move.hitbox.y`) and no body at all
-    // (`hurtbox`). So this is a goal-post rather than a discriminator today. It
-    // is COMPUTED rather than hardcoded false, so the day the kernel grows
-    // cancels and the schema grows boxes it flips on its own instead of being
-    // remembered.
+    // IT IS STILL FALSE FOR EVERY CHARACTER THE SCHEMA CAN CURRENTLY EXPRESS,
+    // and saying so here is more useful than pretending otherwise. It is COMPUTED
+    // from the table above rather than remembered, which is the property that
+    // made growing the cancel system visible here without anybody editing this
+    // comment first: the `cancels` line that used to dominate this flag is gone,
+    // its count of 134 replaced by four smaller and more specific ones, and the
+    // flag did not move because plenty else still bites. Some of what remains is
+    // structural and no file can avoid it -- the schema authors no vertical
+    // extent for an attack (`move.hitbox.y`) and no body at all (`hurtbox`) --
+    // so this is a goal-post rather than a discriminator today.
     bool playsAsAnalysed = false;
 };
 
@@ -279,6 +311,21 @@ struct MoveIndexMap {
     // range. Exists for error messages and for tests, which is why it is here
     // and not in a panel.
     std::string_view IdOf(std::uint16_t kernelMoveId) const;
+
+    // --- Cancels ------------------------------------------------------------
+
+    // How many edges were built into FighterData::cancels. NOT the same as
+    // CharacterData::cancels.size(): an edge whose endpoints did not survive the
+    // move projection is dropped, and BuildReport counts the drops. This is the
+    // number a caller should believe about what the kernel can actually take.
+    std::int32_t cancelCount = 0;
+
+    // Kernel cancel index -> index into CharacterData::cancels. The inverse of
+    // the drop, so a panel that wants an edge's label, caveat, family or
+    // condition prose -- none of which cross into the kernel -- can go and get
+    // it, and so a test can assert WHICH edges survived rather than only how
+    // many. Its size is always cancelCount.
+    std::vector<CancelIndex> fileCancelByEdge;
 
     // The mapping, both ways, as functions rather than as a rule people
     // remember. CharacterMoveOf(0) is kInvalidMove: idle is not a move.

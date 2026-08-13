@@ -76,15 +76,24 @@ void stepFighter(Fighter& f, Input in, const FighterData& data) {
         f.airborne = 0;
     }
 
-    // The attack lifecycle: end a move that has run out, start one the fighter is
-    // asking for. It replaces the bare `if (moveId != 0) ++moveFrame;` this file
-    // used to end on, and for a moveId this character's table does not describe
-    // it does exactly that and nothing more -- which is what keeps a state driven
-    // by a harness behaving as it did before boxes existed.
+    // The attack lifecycle: end a move that has run out, CANCEL one that is still
+    // running into the follow-up the fighter is asking for, or start one from
+    // idle. It replaces the bare `if (moveId != 0) ++moveFrame;` this file used to
+    // end on, and for a moveId this character's table does not describe it does
+    // exactly that and nothing more -- which is what keeps a state driven by a
+    // harness behaving as it did before boxes existed.
     //
     // It runs AFTER movement so that a move started this tick sees the position
     // the fighter actually reached, and BEFORE hit resolution, which happens once
     // for both fighters below.
+    //
+    // THAT SECOND ORDERING IS WHAT SETS THE FASTEST CANCEL. A cancel is gated on
+    // the source having connected, and connecting is decided by ResolveHits at
+    // the bottom of this tick -- so a hit landing on tick N is first visible to a
+    // cancel test on tick N+1, and an edge with an authored delay of zero fires
+    // one tick after contact rather than on it. Moving the cancel test below
+    // ResolveHits would buy that tick back and cost something much worse: a
+    // fighter could then cancel a move on the very tick it started.
     StepAttack(f, data, in, canAct);
 }
 

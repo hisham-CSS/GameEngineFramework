@@ -125,6 +125,56 @@ Box Hurtbox(const FighterData& data, const Fighter& f) {
     return PlaceBox(data.hurtbox, f.posX, f.posY, f.facing);
 }
 
+// --- Cancels ----------------------------------------------------------------
+
+bool CancelIsOpen(const Fighter& f, const CancelEdge& edge) {
+    if (f.moveId == 0) return false;
+    if (edge.from != f.moveId) return false;
+
+    // The contact gate. `onHit` collapses the schema's four Contact values into
+    // the one distinction the kernel can actually observe -- see CancelEdge in
+    // Combat.h -- and alreadyHitBits is the observation.
+    if (edge.onHit != 0 && f.alreadyHitBits == 0) return false;
+
+    // Both bounds inclusive. An edge whose earliest is past its latest matches
+    // nothing for any frame, which is how an authored delay longer than the
+    // source move ends up inert instead of ending up wrong.
+    const std::int32_t frame = static_cast<std::int32_t>(f.moveFrame);
+    return frame >= edge.earliestFrame && frame <= edge.latestFrame;
+}
+
+const CancelEdge* FindCancel(const FighterData& data, const Fighter& f, Input in) {
+    // A fighter with no move in progress has nothing to cancel, and a moveId this
+    // character's table does not describe is INERT here for the same reason it is
+    // inert in StepAttack: a harness that drives moveId by hand must keep getting
+    // the behaviour it got before this file grew a cancel system.
+    if (MoveAt(data, f.moveId) == nullptr) return nullptr;
+
+    for (std::int32_t i = 0; i < data.cancelCount && i < kMaxCancelsPerFighter; ++i) {
+        const CancelEdge& e = data.cancels[i];
+        if (!CancelIsOpen(f, e)) continue;
+
+        // The target has to be a move this character actually has. An edge whose
+        // `to` fell outside the table would otherwise put the fighter into a
+        // moveId nothing can describe, which is exactly the state MatchBuilder
+        // refuses to build and the kernel should not be able to reach either.
+        const MoveDef* target = MoveAt(data, e.to);
+        if (target == nullptr) continue;
+
+        // HELD, not pressed -- the same limitation StepAttack's button scan has
+        // and for the same missing field. It bites slightly differently here: a
+        // player holding the follow-up button through the whole source move takes
+        // the cancel on the first frame of its window rather than on the frame
+        // they chose. That is a real difference from the genre and it is the
+        // second thing prevButtons would fix.
+        if (target->button == 0) continue;
+        if ((in.bits & target->button) != target->button) continue;
+
+        return &e;
+    }
+    return nullptr;
+}
+
 // --- The move lifecycle -----------------------------------------------------
 
 void StepAttack(Fighter& f, const FighterData& data, Input in, bool actionable) {
@@ -152,7 +202,39 @@ void StepAttack(Fighter& f, const FighterData& data, Input in, bool actionable) 
         }
     }
 
-    if (f.moveId != 0 || !actionable) return;
+    // Hitstun and blockstun gate EVERYTHING a fighter chooses to do, cancels
+    // included. A fighter who was hit has already had their move interrupted by
+    // ResolveHits, so this is belt and braces -- but it is the belt that keeps
+    // "cancel" from quietly becoming "act out of hitstun", which is a different
+    // and much larger feature.
+    if (!actionable) return;
+
+    // --- The cancel ---------------------------------------------------------
+    //
+    // A move that is still running may be interrupted into a follow-up. This is
+    // the whole difference between a kernel that can perform the chains the combo
+    // prover reasons about and one that can only throw single buttons from
+    // neutral, and it is placed HERE, between the lifecycle above and the button
+    // scan below, on purpose: the fighter is mid-move, so the scan below cannot
+    // reach them, and the move has already been given its chance to end normally,
+    // so a cancel never resurrects a move that expired on this very tick.
+    if (f.moveId != 0) {
+        const CancelEdge* edge = FindCancel(data, f, in);
+        if (edge != nullptr) {
+            f.moveId    = edge->to;
+            f.moveFrame = 0;
+            // A NEW ACTIVE WINDOW, so the record of who the old one hit goes with
+            // it. Without this line the follow-up inherits the source's hit bit
+            // and can never connect on the same defender -- the whole combo would
+            // consist of one hit and a lot of animation. It is the same clear
+            // that a normal move start does, and it is deliberately the same
+            // three assignments, because a cancel that started a move by a
+            // slightly different route than StepAttack's other start is a bug
+            // waiting for the fourth field.
+            f.alreadyHitBits = 0;
+        }
+        return;
+    }
 
     // Fixed iteration order over a dense array, lowest slot first, so two moves
     // sharing a button resolve to the same one on every machine. Slot 0 is the

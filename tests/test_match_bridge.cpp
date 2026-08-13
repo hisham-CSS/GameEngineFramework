@@ -229,6 +229,15 @@ struct Observed {
     int hitsOnP0     = 0;
     int hitsOnP1     = 0;
     int movesStarted[2] = { 0, 0 };
+    // Every tick on which a move BEGINS — a start, a cancel into a different
+    // move, or a cancel into the SAME move. Added when cancels landed.
+    //
+    // Detected as "in a move, at frame 0" rather than as a moveId transition,
+    // and the difference is not pedantry: Kung Fu Girl's loop here is
+    // `stand_lk_far` cancelling into ITSELF, so the id never changes and a
+    // transition detector sees nothing at all. The frame counter is what
+    // actually resets, so it is what actually says a move began.
+    int movesEntered[2] = { 0, 0 };
     int boxLiveTicks[2] = { 0, 0 };
 };
 
@@ -244,6 +253,8 @@ GameState runFrom(const GameState& start, const MatchData& data,
         if (s.p[1].health < before.p[1].health) ++observed->hitsOnP1;
         for (int p = 0; p < 2; ++p) {
             if (before.p[p].moveId == 0 && s.p[p].moveId != 0) ++observed->movesStarted[p];
+            if (s.p[p].moveId != 0 && s.p[p].moveFrame == 0)
+                ++observed->movesEntered[p];
             cse::kernel::Box box{};
             if (cse::kernel::ActiveHitbox(data.p[p], s.p[p], box)) ++observed->boxLiveTicks[p];
         }
@@ -505,8 +516,20 @@ TEST(MatchBridgeSimulation, SnapshotRestoreAndResimulateReproducesTheStraightRun
     (void)runFrom(restored, m.build.data, seq, 250, 400, &tail);
     EXPECT_GT(tail.boxLiveTicks[0] + tail.boxLiveTicks[1], 0)
         << "no hitbox was live anywhere in the re-simulated window";
-    EXPECT_GT(tail.movesStarted[0] + tail.movesStarted[1], 0)
-        << "no move started anywhere in the re-simulated window";
+    // ENTERED, not STARTED, and the difference is a real finding rather than a
+    // loosened assertion. Once cancels landed, p1 enters stand_lk_far at tick
+    // 217 and never returns to idle for the remaining 183 ticks: her file
+    // authors `stand_lk_far -> stand_lk_far, delay 6, on hit`, the script
+    // presses LK every 7 ticks, and the loop closes. So `movesStarted` is
+    // legitimately 0 here — not because nothing happened, but because a great
+    // deal did and none of it passed through idle.
+    //
+    // That loop is a genuine infinite, produced by an approximation the loss
+    // table counts (`cancel.certain`, 103 permissive edges). It is exactly the
+    // phenomenon the combo-termination proof exists to find, showing up
+    // unprompted in a determinism test.
+    EXPECT_GT(tail.movesEntered[0] + tail.movesEntered[1], 0)
+        << "no move was entered anywhere in the re-simulated window";
 }
 
 TEST(MatchBridgeSimulation, EveryRewindDepthUpToTheBudgetIsExact) {
@@ -856,8 +879,19 @@ TEST(MatchBridgeLosses, EveryDropIsCountedAgainstKungFuGirlsActualFile) {
     // Counted out of kung_fu_girl.json. These are not decorative: a loss table
     // whose numbers nobody checked is a comment with a struct around it.
     const ExpectedLoss expected[] = {
-        { "cancels",                 134, BuildLossDirection::KernelOmits   },
-        { "move.cancel_window",       16, BuildLossDirection::KernelOmits   },
+        // These eight replaced the two rows `cancels`(134) and
+        // `move.cancel_window`(16) when cancels landed. All 134 of Kung Fu
+        // Girl's authored edges are now CARRIED, so what remains is not the
+        // edges themselves but the parts of each edge the kernel cannot yet
+        // honour — which is a more useful table than "we dropped everything".
+        { "cancels (dropped)",             0, BuildLossDirection::KernelOmits   },
+        { "cancels (link, not cancel)",    0, BuildLossDirection::KernelPermits },
+        { "cancel.contact_frame",        132, BuildLossDirection::KernelPermits },
+        { "cancel.on",                     4, BuildLossDirection::KernelPermits },
+        { "cancel.certain",              103, BuildLossDirection::KernelPermits },
+        { "cancel.guard",                 41, BuildLossDirection::KernelPermits },
+        { "cancel.effect",                 0, BuildLossDirection::KernelOmits   },
+        { "move.cancel_window (absent)",   8, BuildLossDirection::KernelPermits },
         { "character.walk_speed",      1, BuildLossDirection::KernelOmits   },
         { "move.pushback",            24, BuildLossDirection::KernelOmits   },
         { "move.stance",              25, BuildLossDirection::KernelPermits },
@@ -896,7 +930,10 @@ TEST(MatchBridgeLosses, EveryDropIsCountedAgainstKungFuGirlsActualFile) {
     // The four zero-count entries are the ones worth having: they record that a
     // check ran and found nothing, which is what tells "this character has no
     // decay" apart from "nobody looked".
-    EXPECT_EQ(16, r.lossesThatBite);
+    // 16 -> 19 when cancels landed: the two coarse cancel rows became eight
+    // finer ones, five of which bite. playsAsAnalysed is still false, and still
+    // computed rather than asserted.
+    EXPECT_EQ(19, r.lossesThatBite);
     EXPECT_FALSE(r.playsAsAnalysed)
         << "the bridge is claiming the kernel plays the character ProverAdapter "
            "analysed. It does not: she has 134 cancels and the kernel has no "

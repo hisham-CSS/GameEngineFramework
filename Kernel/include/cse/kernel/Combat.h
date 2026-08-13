@@ -55,6 +55,35 @@
 // blockstun, pushback, juggle and proration, per-frame (rather than per-move)
 // boxes, throw boxes, push boxes, priority and trade resolution beyond the
 // symmetric rule below, and hitstun decay.
+//
+// ---------------------------------------------------------------------------
+// CANCELS, AND THE ONE THING THEY ARE NOT ALLOWED TO COST
+// ---------------------------------------------------------------------------
+// A cancel edge is the sentence "move A, having connected, may be interrupted
+// into move B after a delay". It arrived after the hit resolution above, and it
+// arrived under a hard constraint: GameState's LAYOUT IS A WIRE CONTRACT. Its
+// size, its per-field offsets and a golden checksum computed over it are
+// asserted by tests/test_kernel.cpp and tests/test_determinism_crossplat.cpp,
+// and the second of those is the evidence that gcc and MSVC agree byte for byte.
+// Re-recording that golden is how the evidence gets destroyed, so the cancel
+// rule below is built to need NO NEW FIELD IN GameState. It reads three things
+// the state already carries -- moveId, moveFrame and alreadyHitBits -- and one
+// table that lives here, next to the move table and for the same reason: no tick
+// writes it.
+//
+// The consequence, stated rather than hidden. The state records THAT the current
+// attack has connected (alreadyHitBits) and not WHEN. So "a delay of d ticks
+// after contact" cannot be evaluated against the actual contact tick, and
+// CancelEdge instead carries an absolute [earliestFrame, latestFrame] window in
+// the SOURCE MOVE's own frame numbering, resolved once at load by the bridge
+// that knows both the delay and the move's startup. The bridge measures from the
+// first frame the move could possibly have connected on, which is the earliest
+// contact and therefore the permissive end; MatchBuilder.cpp counts every edge
+// that reading affects in its loss table, under `cancel.contact_frame`. The
+// alternative -- a contactFrame byte in Fighter -- costs four bytes of state, a
+// new golden hash and the crossplay proof that came with the old one, to buy
+// back at most `active - 1` ticks of precision. That trade is refused here and
+// the refusal is what this paragraph exists to record.
 #pragma once
 
 #include "GameState.h"
@@ -203,6 +232,65 @@ struct MoveDef {
 // error, while a cap that is not is a buffer overrun.
 inline constexpr std::int32_t kMaxMovesPerFighter = 32;
 
+// --- Cancels ----------------------------------------------------------------
+
+// One directed cancel edge: "while performing `from`, start `to` instead".
+//
+// WHY THE WINDOW IS ABSOLUTE AND NOT A DELAY. The authored datum is a delay in
+// ticks measured from the moment the source move CONNECTED (see
+// Data/include/cse/data/CharacterData.h, Cancel::delay). Evaluating that at tick
+// time needs the contact tick, which GameState does not carry and -- per the
+// long note at the top of this file -- is not going to start carrying. So the
+// bridge resolves the delay against the source move's frame numbering ONCE, at
+// load, and hands the kernel two frame numbers it can compare against
+// Fighter::moveFrame with no arithmetic at all. Both bounds are INCLUSIVE:
+// unlike a box edge, a frame number is a count of ticks rather than a position
+// on a line, there is no half-open convention to preserve, and "the last frame
+// the cancel works on" is the sentence a designer writes.
+//
+// An edge with earliestFrame > latestFrame is INERT rather than malformed. It is
+// what an authored delay longer than the whole source move resolves to, and that
+// is a real thing in the shipped data: every one of the AOF2 character's 26
+// edges is a LINK (press the next button after the move has fully recovered)
+// wearing the schema's cancel shape. The kernel simply never takes it, which is
+// the correct behaviour, and MatchBuilder counts it rather than pretending the
+// character has 26 cancels it can perform.
+struct CancelEdge {
+    // Kernel move ids, i.e. direct indices into FighterData::moves. An edge
+    // naming slot 0 on either end can never fire: slot 0 is idle, a fighter with
+    // moveId 0 has no move to cancel out of, and MoveAt refuses to describe it.
+    std::uint16_t from;
+    std::uint16_t to;
+
+    // Fighter::moveFrame bounds on the SOURCE move, inclusive both ends.
+    std::int32_t earliestFrame;
+    std::int32_t latestFrame;
+
+    // 1 when the source must have CONNECTED for this edge to be available; 0
+    // when it may be taken on a whiff.
+    //
+    // This is one bit where the schema has four values (Contact: Hit, Block,
+    // Whiff, Always), and the collapse is forced rather than chosen: the kernel
+    // has no blocking at all -- Fighter::blockstun exists and nothing ever writes
+    // it -- so "connected as a hit" and "connected as a block" are the same
+    // observation here. Hit and Block both become 1, Whiff and Always both become
+    // 0, and MatchBuilder counts the edges that reading moves.
+    std::uint8_t onHit;
+
+    // Explicit, for MoveDef::pad_'s reason: the connect handshake hashes these
+    // bytes, and an indeterminate byte is a byte two peers can disagree about.
+    std::uint8_t pad_[3];
+};
+
+// 256 cancel edges per fighter. Chosen against the shipped data rather than
+// picked round: Kung Fu Girl authors 134, Kung Fu Man 87, the AOF2 character 26,
+// so this is comfortable headroom over the largest real character and still a
+// fixed bound, which is what D4 asks of anything the simulation reads. Over the
+// cap is a REFUSAL in the bridge, never a truncation, for the reason
+// MatchBuilder.h gives about moves: a character missing its last cancels is a
+// different character from the one the prover analysed.
+inline constexpr std::int32_t kMaxCancelsPerFighter = 256;
+
 // Everything one fighter's simulation reads and never writes.
 struct FighterData {
     // The body, authored facing +X. One box for the whole character today;
@@ -221,6 +309,18 @@ struct FighterData {
     std::int32_t moveCount;
 
     MoveDef moves[kMaxMovesPerFighter];
+
+    // Number of USED entries in cancels[]. There is no reserved slot here and no
+    // off-by-one to remember: entry 0 is a real edge, because nothing indexes
+    // this array out of GameState. Fighter::moveId indexes moves[]; nothing
+    // indexes cancels[] except the scan below.
+    std::int32_t cancelCount;
+
+    // File order, preserved. The scan takes the FIRST edge it can, so the order
+    // is a tie-break rule that two peers must agree on -- and preserving the
+    // authored order makes that rule one a designer can see in their own file,
+    // rather than one that emerged from a sort nobody wrote down.
+    CancelEdge cancels[kMaxCancelsPerFighter];
 };
 
 // The read-only data for both sides of a match, indexed by the same slot as
@@ -244,6 +344,10 @@ static_assert(sizeof(MoveDef) == 40,
               "MoveDef grew, shrank, or acquired implicit padding. The connect "
               "handshake hashes these bytes (ARCHITECTURE.md 4.8), so a padding "
               "hole would make two peers with identical characters disagree.");
+static_assert(std::is_trivially_copyable_v<CancelEdge>, "MatchData is hashed and compared as bytes");
+static_assert(sizeof(CancelEdge) == 16,
+              "CancelEdge grew, shrank, or acquired implicit padding. Same "
+              "handshake, same hazard as MoveDef above.");
 
 // --- Reading the state through the data -------------------------------------
 
@@ -275,11 +379,54 @@ bool ActiveHitbox(const FighterData& data, const Fighter& f, Box& out);
 // hurtbox is degenerate simply cannot be hit, which is what kNoMoves relies on.
 Box Hurtbox(const FighterData& data, const Fighter& f);
 
+// --- Cancels, read out of the state -----------------------------------------
+
+// Whether the fighter's CURRENT move satisfies this edge's window and contact
+// requirement, ignoring buttons entirely.
+//
+// Separated from the button test so that the two halves of "can I cancel" can be
+// asserted apart. A test that only ever asks the combined question cannot tell a
+// window that is off by one from a binding that is missing, and those are the
+// two ways this feature fails silently.
+//
+// "Has connected" is Fighter::alreadyHitBits being nonzero. That field is
+// cleared whenever a move starts or ends (StepAttack) and set by ResolveHits on
+// the ATTACKER when its box overlapped a body, so a nonzero value means exactly
+// "the attack currently in progress has landed on somebody". It is the multi-hit
+// guard doing a second job, and the two uses do not conflict: both want the same
+// sentence to be true.
+bool CancelIsOpen(const Fighter& f, const CancelEdge& edge);
+
+// The edge this fighter may take THIS TICK given these inputs, or null.
+//
+// Scans FighterData::cancels in index order and returns the first edge that
+// matches. First-wins over a fixed dense array is the same tie-break rule
+// StepAttack already uses for buttons, and it is chosen for the same reason: two
+// peers holding the same bytes must pick the same edge, and "the first one in
+// the file" is a rule that survives being written down.
+//
+// Returns null when the fighter is idle, when its moveId names no move, when no
+// edge's window is open, or when the target of every open edge is a move whose
+// buttons are not held. A target with no button at all (MoveDef::button == 0) is
+// unreachable by definition and is skipped rather than taken for free.
+const CancelEdge* FindCancel(const FighterData& data, const Fighter& f, Input in);
+
 // --- The tick's two combat steps --------------------------------------------
 
-// Advance one fighter's attack: end a move that has run out, then start one if
+// Advance one fighter's attack: end a move that has run out, CANCEL a move that
+// is still running into a follow-up the fighter is asking for, or start one if
 // the fighter is idle and holding a move's buttons. Called from stepFighter,
 // once per fighter, in slot order.
+//
+// THE ORDERING FACT A CANCEL RULE HAS TO LIVE WITH. This runs inside the
+// per-fighter step, which is BEFORE ResolveHits -- so a hit landing on tick N is
+// not visible to a cancel test until tick N+1. The fastest cancel the kernel can
+// express is therefore one tick after contact, never zero, and an edge whose
+// authored delay is 0 fires on the tick after the hit. That is a property of the
+// tick's shape, not a fudge: on the tick the hit resolves, the hit has not
+// happened yet as far as the first half of the tick is concerned, and moving the
+// cancel test after ResolveHits would instead let a fighter cancel a move on the
+// same tick it started, which is worse.
 void StepAttack(Fighter& f, const FighterData& data, Input in, bool actionable);
 
 // Test both fighters' live hitboxes against the other's body and apply at most
