@@ -17,10 +17,11 @@ This page explains how to use them. It is not the design rationale — that live
 
 This is a young subsystem and the manual would be doing you harm if it read like a finished feature. What exists today:
 
-- The kernel simulates two fighters: movement, jumping, stage clamps, stun countdown, hitboxes, hurtboxes, one hit each way per tick, and a multi-hit guard.
+- The kernel simulates two fighters: movement, jumping, stage clamps, stun countdown, hitboxes, hurtboxes, one hit each way per tick, a multi-hit guard, and **cancels**.
 - Cross-toolchain bit-identity is **proven**, not argued: a golden state hash recorded on MSVC/Windows is reproduced exactly by GCC/Linux over 3000 ticks (`tests/test_determinism_crossplat.cpp:667`).
-- Three real characters transcribed from MUGEN load out of `Editor/src/Exported/Characters/` (staged as `Exported/Characters` beside the executables), and one of them drives 400 deterministic ticks with snapshot/restore round-trips (`MatchBridgeSimulation.ARealCharacterDrivesTheKernelDeterministically` and `MatchBridgeSimulation.SnapshotRestoreAndResimulateReproducesTheStraightRun`, in `tests/test_match_bridge.cpp`).
-- The combo prover reads the shipped files and reproduces the ADR-001 corner verdicts.
+- Two of this project's own characters ship in `Editor/src/Exported/Characters/` (staged as `Exported/Characters` beside the executables). The three transcribed MUGEN characters are evidence rather than content and live in `tests/fixtures/characters/`, deliberately unstaged; one of them drives 400 deterministic ticks with snapshot/restore round-trips (`MatchBridgeSimulation.ARealCharacterDrivesTheKernelDeterministically` and `MatchBridgeSimulation.SnapshotRestoreAndResimulateReproducesTheStraightRun`, in `tests/test_match_bridge.cpp`).
+- The combo prover reads those files and reproduces the ADR-001 corner verdicts.
+- **A printed loop has been executed.** The prover's witness for `fighter_a_infinite`, turned into an input trace by walking `ProverResult::loop` rather than by hand, performs 26 hits in 160 ticks in the kernel with the defender out of hitstun on 0 of them (`tests/test_ground_truth.cpp`). That is ARCHITECTURE.md section 5.5 item 4, and it returned **both** of the outcomes that section predicts — see [What a verdict promises](#what-a-verdict-promises-and-what-it-does-not).
 
 ### Not there yet
 
@@ -29,9 +30,9 @@ Stated plainly, because a manual that oversells is worse than no manual. This ta
 | Not built | Where it is planned |
 |---|---|
 | **Any transport. No packet has ever been sent.** Both session factories add only local actors (`Net/src/GekkoSession.cpp:133`), so what runs today is a local session and a stress session. | ARCHITECTURE.md Phase 4 |
-| Cancels. The kernel has no cancel system, which is why `playsAsAnalysed` is false for every character. | Phase 3 |
+| Cancels: the **per-edge** parts. The system itself landed — `cse::kernel::CancelEdge`, the rule in `StepAttack`, and all 134 of Kung Fu Girl's edges carried — but an edge crosses as a plain window, so the authored contact frame, `on: block` / `on: whiff`, `certain: false` and an edge's resource guard are approximated, every one of them `KernelPermits`. The single `cancels ×134` loss became the eight rows [in the table below](#reading-buildreport--the-part-that-matters-most). | Phase 3/5 |
 | Blocking. `Fighter::blockstun` exists and counts down (`Kernel/src/Simulate.cpp:48`); **nothing ever sets it**. | Phase 3 |
-| Super meter spending. `Fighter::meter` exists; no rule in the kernel reads or writes it. Same for `comboHits`. | Phase 3 |
+| **Resources.** `Fighter::meter` is declared (`GameState.h:54`) and appears nowhere in `Kernel/src/`; there is no juggle field at all and no ceiling logic. Same for `comboHits`. **This is the gap that has been measured rather than argued** — [What a verdict promises](#what-a-verdict-promises-and-what-it-does-not). | Phase 3 |
 | Throws, push boxes, per-frame boxes, hitstop/freeze, pushback, juggle, proration, priority and trade resolution beyond the symmetric rule. | the "what is deliberately not here" note at the top of `Kernel/include/cse/kernel/Combat.h` names each one and why it is absent |
 | Projectiles. D4 designs 32 projectile slots; `GameState` today is `{tick, rng, Fighter p[2]}` and nothing else. | Phase 3 |
 | A trigger expression language. | Phase 5 |
@@ -223,11 +224,13 @@ next to every executable — holds:
 
 | File | What it is |
 |---|---|
-| `kung_fu_girl.json`, `kung_fu_man.json`, `aof2_strength_training.json` | The three Phase-0 characters, transcribed from real MUGEN characters |
+| `fighter_a.json` | **This project's own character**, authored against schema v2 with the engine's own numbers in front of the author. 18 moves, 73 cancels, TERMINATING in the corner, and the first character here to carry a ranking certificate |
+| `fighter_a_infinite.json` | A second character of the same family carrying **one deliberate bug**: `cancels[0]` is `stand_lp` cancelling into itself after 2 ticks. INFINITE, and the printed loop executes. (It is not `fighter_a` plus an edge — the move lists differ — so read it as its own character) |
 | `schema.v2.json` | The current schema, including its `x-load-assertions` block |
-| `schema.v1.json` | The first draft, kept for provenance |
 
-> **Gotcha — these files are not staged next to the executable.** `Editor/CMakeLists.txt` stages `Editor/src/Exported`, and that tree has no `Characters` folder. Anything resolving a character path relative to the executable's directory will not find them; run from the repository root, or pass a base directory that reaches the source tree. This bites the Combo Prover panel in particular — see below.
+`cmake/stage_runtime_assets.cmake` copies every subdirectory of `Editor/src/Exported` next to each executable, so a path like `Characters/fighter_a.json` resolves against `Exported` with no configuration.
+
+> **Gotcha — the three MUGEN characters are not here and are not staged.** `kung_fu_girl.json`, `kung_fu_man.json`, `aof2_strength_training.json` and `schema.v1.json` live in `tests/fixtures/characters/`: they are Phase-0 *evidence*, they are somebody else's characters, and staging them would put them in front of a designer as though they were content. Tests reach them by fixture path. Anything else — the Combo Prover panel included — will not find them, and that is the intent.
 
 ### What is in a character
 
@@ -246,7 +249,7 @@ next to every executable — holds:
 
 **Every field is an integer.** The authored files carry damage, reach, pushback, walk speed and the scaling table as JSON floats; the loader converts once, at load. Distances are sub-units (1 px = 256), durations are ticks, damage is **hundredths** of a point, meter is in units of 10 MUGEN power, and scaling/decay tables are permille (`CharacterData.h:35-41`). Where a file ships a pre-quantized integer beside the float — `engine.quantized_sources` — the **integer wins**, because it is the number the author actually derived.
 
-Two things are deliberately **not** loaded (`CharacterData.h:301-316`): the structured predicate form of `hit_condition` / `engine.condition` (all three shipped files author prose instead, and evaluating one needs the opponent namespace Phase 5 owns), and nine `engine.*` sub-objects with no data behind them yet — including `engine.constants`, which is why you have to supply a body to the bridge yourself.
+Two things are deliberately **not** loaded (`CharacterData.h:301-316`): the structured predicate form of `hit_condition` / `engine.condition` (every file in the tree authors prose instead, and evaluating one needs the opponent namespace Phase 5 owns), and nine `engine.*` sub-objects with no data behind them yet — including `engine.constants`, which is why you have to supply a body to the bridge yourself.
 
 ### Loading one
 
@@ -262,7 +265,7 @@ options.expectedResources = { "meter", "juggle" };      // the BUILD's order
 CharacterData character;
 LoadReport    report;                                   // CharacterData.h:338
 
-if (!LoadCharacterFile("Exported/Characters", "kung_fu_girl.json",  // as staged, next to the exe
+if (!LoadCharacterFile("Exported/Characters", "fighter_a.json",  // as staged, next to the exe
                        options, character, report)) {   // CharacterData.h:349
     // report.error is non-empty; report.rule is "A01".."A08" when a load
     // assertion is what refused it.
@@ -291,7 +294,7 @@ These are ADR-001's assertions, and they run at load because load time is where 
 | **A01** | `CharacterData.cpp:812` | `decay.floor` greater than the smallest **nonzero** hitstun in the file | Both implementations compute `max(floor, base − step·n)`, so a floor *above* a move's authored hitstun **raises** it and invents frame advantage. This is not hypothetical: the project's own draft house rule (linear, step 2, floor 10) exceeded Kung Fu Girl's `stand_lp` hitstun of 9 and **fabricated an infinite combo**. Minimised over moves that actually deal hitstun, because a dash or a taunt would otherwise drag the minimum to zero and fail every file with a nonzero floor. |
 | **A02** | `CharacterData.cpp:600` | `decay.kind: "multiplicative"` | Both reference implementations compute it as a chain of float multiplies then a truncating cast, and an integer kernel reproduces neither. For a decision that turns on `hitstun >= startup − advantage`, a one-frame disagreement is the whole difference between TERMINATING and INFINITE. Banning the kind removes a divergence class instead of bounding it. Use `linear`, or `table` with integer permille multipliers. |
 | **A03** | `CharacterData.cpp:576` | A resource order that disagrees with `LoadOptions::expectedResources` | The prover keys its resource vector **positionally**, so a character whose index 0 is `juggle` compares juggle against meter and says nothing about it. This is a cross-file rule no single file can check, so the caller supplies the build's order. Leaving `expectedResources` empty **skips** the check and records a warning — it never passes silently. |
-| **A04** | `CharacterData.cpp:267` | `__space` in a move's or a cancel's effect/guard map | `__space` is the prover's spatial resource. On a gap action it is the only way to express displacement and every shipped character authors it, so gap actions are exempt. |
+| **A04** | `CharacterData.cpp:267` | `__space` in a move's or a cancel's effect/guard map | `__space` is the prover's spatial resource. On a gap action it is the only way to express displacement and every character in the tree authors it, so gap actions are exempt. |
 | **A05** | `CharacterData.cpp:372` | `hits[0]` disagreeing with the move's own `startup` / `hitstun` scalars | A cancel delay is measured from first contact, and `startup` is what that arithmetic subtracts. The scalars must **be** the first hit, not an average of the hits. |
 | **A06** | `CharacterData.cpp:393` | A multi-hit move whose last *unconditional* hit changes the hitstun, with no `engine.hits_projection_caveat` naming the direction of the error | Only unconditional records count as sequels. Kung Fu Girl's chop registers its second HitDef only when the first **whiffed**, so the two can never both land — a draft of this check without the exclusion fired on it. |
 | **A07** | `CharacterData.cpp:351` | `engine.hits[]` ticks that do not strictly increase | Out-of-order hits make "the first hit" ambiguous. |
@@ -349,7 +352,7 @@ cse::kernel::Simulate(state, inputs, build.data);
 
 ### Two things you must supply, because the schema has neither
 
-**The body.** `CharacterData` carries no hurtbox at all — the shipped files put it in `engine.constants`, which the loader deliberately does not read. So `BodySpec` (`MatchBuilder.h`) is the caller's. Leave it at zero and you get `kDefaultBodyHalfWidthSub` / `kDefaultBodyHeightSub` (13 px and 60 px, `MatchBuilder.h`) **plus a warning naming them** — so a mystery number never looks like the character's own. The box is symmetric about the origin and stands on the floor: `x ∈ [-halfWidth, +halfWidth)`, `y ∈ [0, height)`.
+**The body.** `CharacterData` carries no hurtbox at all — the files put it in `engine.constants`, which the loader deliberately does not read. So `BodySpec` (`MatchBuilder.h`) is the caller's. Leave it at zero and you get `kDefaultBodyHalfWidthSub` / `kDefaultBodyHeightSub` (13 px and 60 px, `MatchBuilder.h`) **plus a warning naming them** — so a mystery number never looks like the character's own. The box is symmetric about the origin and stands on the floor: `x ∈ [-halfWidth, +halfWidth)`, `y ∈ [0, height)`.
 
 **The button bindings.** The schema has no input notation — not a command list, not a motion, not a button name. Move ids like `stand_lp` carry it only in the English of their spelling, and reading a button out of a string suffix is exactly the heuristic import D7 rejects. So bindings come from the caller, where they are visible. A move nobody binds gets `button = 0`, which the kernel reads as "not startable from a button".
 
@@ -409,42 +412,50 @@ Neither direction is "the safe one". The prover's verdict was computed over the 
 
 **A loss with count 0 is still listed.** That is deliberate: knowing a check ran and found nothing is what tells "this character has no decay" apart from "nobody looked". Kung Fu Girl's `decay` entry has count 0 with a note containing the word `inert`, and `MatchBridgeLosses.TheDecayEntryRecordsThatItCheckedRatherThanThatItSkipped` asserts exactly that.
 
-Here is the full table for Kung Fu Girl, `MatchBridgeLosses.EveryDropIsCountedAgainstKungFuGirlsActualFile` counts it out of her actual file:
+Here is the full table for Kung Fu Girl; `MatchBridgeLosses.EveryDropIsCountedAgainstKungFuGirlsActualFile` (`tests/test_match_bridge.cpp:872`) counts every row of it out of her actual file, and asserts the row *count* as well, so an entry that appears or disappears has to be recorded here:
 
 | Field | Count | Direction |
 |---|---:|---|
-| `cancels` | 134 | KernelOmits |
-| `move.stance` | 25 | KernelPermits |
-| `move.reach (provenance)` | 25 | KernelPermits |
-| `move.hitbox.y` | 25 | KernelPermits |
+| `cancels (dropped)` | 0 | KernelOmits |
+| `cancels (link, not cancel)` | 0 | KernelPermits |
+| `cancel.contact_frame` | 132 | KernelPermits |
+| `cancel.on` | 4 | KernelPermits |
+| `cancel.certain` | 103 | KernelPermits |
+| `cancel.guard` | 41 | KernelPermits |
+| `cancel.effect` | 0 | KernelOmits |
+| `move.cancel_window (absent)` | 8 | KernelPermits |
+| `character.walk_speed` | 1 | KernelOmits |
 | `move.pushback` | 24 | KernelOmits |
+| `move.stance` | 25 | KernelPermits |
+| `move.guard` | 2 | KernelPermits |
 | `move.effect` | 24 | KernelOmits |
-| `starters` | 21 | KernelOmits |
+| `resources` | 2 | KernelOmits |
 | `move.hit_condition` | 17 | KernelPermits |
-| `move.cancel_window` | 16 | KernelOmits |
 | `move.escape_hatch` | 15 | KernelPermits |
 | `scaling` | 6 | KernelOmits |
-| `resources` | 2 | KernelOmits |
-| `move.guard` | 2 | KernelPermits |
-| `character.walk_speed` | 1 | KernelOmits |
-| `gap_actions` | 1 | KernelOmits |
-| `hurtbox` | 1 | KernelPermits |
 | `decay` | 0 | KernelOmits |
+| `gap_actions` | 1 | KernelOmits |
+| `starters` | 21 | KernelOmits |
 | `move.engine.hits` | 0 | KernelOmits |
 | `move.engine.motion` | 0 | KernelOmits |
 | `move.reach (absent)` | 0 | KernelOmits |
+| `move.reach (provenance)` | 25 | KernelPermits |
+| `move.hitbox.y` | 25 | KernelPermits |
+| `hurtbox` | 1 | KernelPermits |
 
-Sixteen entries bite, so `lossesThatBite == 16`.
+Nineteen entries bite, so `lossesThatBite == 19`.
+
+The first eight rows replaced what used to be a single `cancels` entry with a count of 134. **All 134 of her edges are now carried**; what is listed instead is the part of each edge the kernel cannot yet honour, and every one of those errs `KernelPermits` — the game chains in situations the file does not allow. A combo system uniformly more permissive than the analysed one is exactly how a `TERMINATING` verdict becomes a game with an infinite in it, which is the next section.
 
 ### `playsAsAnalysed`
 
 > **This is the field to read, and today it is `false` for every character the schema can express.**
 
-`playsAsAnalysed` is true only when `lossesThatBite == 0` — when the kernel plays the character the file describes, and therefore the character the prover analysed. It is **computed, not hardcoded**, so the day the kernel grows cancels and the schema grows boxes it flips on its own rather than being remembered.
+`playsAsAnalysed` is true only when `lossesThatBite == 0` — when the kernel plays the character the file describes, and therefore the character the prover analysed. It is **computed, not hardcoded**, and it has already been through the event it was written for: the kernel grew cancels, the `cancels` row with 134 against it disappeared, and the flag did not move, because plenty else still bites. A remembered flag would have flipped and been wrong.
 
-The dominant reason it is false is `cancels`: the kernel has no cancel system, so the chains the verdict is *about* cannot be performed. Two further entries are nonzero for structural reasons no file can avoid — the schema authors no vertical extent for an attack (`move.hitbox.y`) and no body at all (`hurtbox`).
+Two entries are nonzero for structural reasons no file can avoid — the schema authors no vertical extent for an attack (`move.hitbox.y`) and no body at all (`hurtbox`) — so this is a goal-post rather than a discriminator today. What it buys you right now is that **a green build cannot be mistaken for a faithful one**. If you are building tooling on top of this, surface `lossesThatBite` next to any successful build, and never let a UI imply that a verdict describes the running game while this flag is false.
 
-So it is a goal-post rather than a discriminator today. What it buys you right now is that **a green build cannot be mistaken for a faithful one**. If you are building tooling on top of this, surface `lossesThatBite` next to any successful build, and never let a UI imply that a verdict describes the running game while this flag is false.
+The next section is what happens when somebody does.
 
 ### What the bridge converts, and what it does not
 
@@ -454,7 +465,7 @@ Exactly one conversion happens here, because D8 says a quantization happens once
 |---|---|
 | Frame data (startup / active / recovery / hitstun) | **Identity.** Schema v2 authors ticks at 60 Hz already. |
 | Distances | **Identity.** The loader already produced sub-units. |
-| Damage | **hundredths → points**, rounded half away from zero, matching D2's `scaleBy`. Exact for all three shipped characters. |
+| Damage | **hundredths → points**, rounded half away from zero, matching D2's `scaleBy`. Exact for every character in the tree. |
 
 The hitbox is built so that `Move::reachSub` — documented as "maximum gap at which the move connects" — is literally true: the box starts at the front of the body and extends the authored reach, plus one sub-unit converting the file's inclusive maximum into the kernel's half-open bound. `MatchBridgeReach.TheAuthoredReachIsTheExactMaximumGap` tests that boundary to the sub-unit, and `MatchBridgeReach.ReachIsExactlyMirroredForALeftFacingFighter` tests it again mirrored.
 
@@ -554,6 +565,86 @@ When that handshake is built it must hash the **loaded POD arrays** — the `Mat
 
 ---
 
+## What a verdict promises, and what it does not
+
+**A `TERMINATING` verdict is a statement about the file.** The decision procedure reads the moves, cancels and resources of a `CharacterData` and decides a question about that graph. It is right about that graph by construction, and the [projection-loss table](#the-projection-loss-table-and-the-soundness-alarm) tells you where the *graph* might not describe your character.
+
+Neither of those is the question a designer is actually asking. That question is **"is the game I am shipping free of infinites"**, and between the file and the game sits `BuildMatchData`. The kernel does not play the file; it plays the projection. **Wherever the file's termination argument uses a mechanism the projection drops, the verdict is about a character nobody is playing.**
+
+| The build reports | In the running game | A `TERMINATING` verdict |
+|---|---|---|
+| `KernelOmits` | **less** is possible than the file describes | is **not** safe: if the file terminates *because of* the omitted mechanism, nothing in the game reproduces that |
+| `KernelPermits` | **more** is possible than the file describes | is **not** safe: a chain the file forbids is available at a real controller |
+| `Exact` | the two agree on this field | is unaffected by this field |
+
+`BuildReport::losses` is that list per character with a count; `playsAsAnalysed` is the one-bit summary, and it is **false for every character the schema can currently express**. So the honest reading of any verdict on this page today is: *proved about the file, unproved about the game except where somebody has executed it.*
+
+### The gap that has been measured rather than suspected: resources
+
+> **The kernel has no resources.** `Fighter::meter` is declared at `Kernel/include/cse/kernel/GameState.h:54` and appears nowhere in `Kernel/src/` — no rule reads it, no rule writes it. There is no juggle field at all, and no ceiling logic. **So a character whose termination depends on a resource running down has no such limit in the game: the bound the verdict rests on does not exist there.**
+
+That is not a prediction. It was executed on 2026-08-13, on this project's own character, and it is the second half of what ARCHITECTURE.md section 5.5 item 4 asked for (ADR-001 section 6.1 records both halves).
+
+#### The worked example: `fighter_a`
+
+**What the file says**, all of it checkable in `Editor/src/Exported/Characters/fighter_a.json`:
+
+| | |
+|---|---|
+| `air_mp` | 6 startup / 4 active / 12 recovery, 22 hitstun, `stance: air`, and `effect: { "juggle": -1 }` |
+| its cancel into **itself** | `delay: 5`, `on: hit`, `certain: true` |
+| so the edge is comfortably live on frames | advantage `22 − 5 = 17` against a startup of `6`. Frame data is **not** what stops it |
+| `juggle` | `initial: 4`, `floor: 0` — and nothing anywhere in the file returns a point |
+| therefore | the model permits that self-cancel exactly **4 times**, and `nonNegative` refuses the fifth |
+
+The verdict is `TERMINATING` over 68 usable cancels of 73 (5 are printed dead), with a worst case of 21 hits, and it carries a **ranking certificate** — the first in this repository. The certificate is the whole termination argument: a resource strictly runs down.
+
+It names both resources, in order, `meter, juggle`. Only juggle can actually run down inside a cycle: the other two spenders are `air_hk` (2 juggle) and `super_beam` (100 meter behind a `guard` of 100), and **neither has a single outgoing cancel**, so no cycle passes through either. Juggle is what ends them.
+
+> `fighter_a`'s verdict is *already* qualified once before any of this: `soundnessAlarm` is true, raised by one `Conservative` loss — `projectile contact frame, outgoing ×1`. That alarm is about the **model** possibly being wrong about the file. What follows is a different axis entirely: the model being right about the file, and the **game** being a different character. Two qualifications, neither implying the other.
+
+**What the game does with it.** `air_mp` → `air_mp` crosses into the kernel with a window it can match, and then:
+
+| Mechanism | Where it went |
+|---|---|
+| `resources` ×2 | `KernelOmits` — "the kernel has one integer called meter and no ceiling logic at all" |
+| `move.effect` ×3 | `KernelOmits` — the delta is never applied, so juggle is never spent |
+| `move.guard` ×1 | `KernelPermits` — the minimum is never checked, so `super_beam` is startable on an empty bar |
+| `move.stance` ×18 | `KernelPermits` — every move in the file restricts its stance and the kernel gates on nothing but stun, so an *air* move is startable standing. A second and independent reason this loop runs |
+
+`tests/test_ground_truth.cpp` then handed the kernel a trace derived from the prover's own witness — nothing hardcodes a button; the trace is built by walking `ProverResult`, so the claim is that *the engine* can read the verdict, not that a human can. **The kernel performed `air_mp` into itself 18 times in 200 ticks — a cancel the model permits four of — at a fixed period, with a mashing defender out of hitstun on 0 ticks and starting a move on 0 ticks.** `BuildReport::playsAsAnalysed` is `false` for this character, and that test is what the flag costs.
+
+The model agrees, once you ask it the right question. Hand the *same* character to `AnalyseCharacter` with every move and cancel `effect` and `guard` emptied — the resource declarations left in place, because the pool existing and nothing moving it is exactly the kernel's state — and the verdict is **`INFINITE COMBO`, with the loop `air_mp`**. That is the panel's third question, and it is the same `air_mp` the kernel then performed 18 times.
+
+The same test file also carries the *positive* result, which is why the pair is worth reading together: `fighter_a_infinite` carries **one deliberate bug** — `cancels[0]` is `stand_lp` cancelling into itself after 2 ticks — the prover calls it `INFINITE`, and its printed loop executes as written: 26 hits in 160 ticks, one every 6, first on tick 4, 30 damage a turn from 1000 down to 220, defender out of hitstun on **0** ticks, bit-identical on replay. Run the *same* derived trace against `fighter_a` and the defender gets out: 12 hits, one every 14, free on 22 ticks and starting a move on 11 of them. The analysis is validated end to end **and** the gap is a number, from one test file.
+
+#### What this does not say
+
+The claim is precise, and overstating it would cost the page its usefulness:
+
+- **The prover is not wrong.** It is sound about the file it was given. What fails is the projection from that file to the running game — the *conservative* direction in `ProverAdapter.h`'s vocabulary, moved one layer down.
+- **It does not mean every model cycle is performable in the game.** The kernel differs in both directions at once, and the model's loop is one question while the kernel performing it is another. What is settled is that the *bound* is gone.
+- **A loop being inert in the kernel is not a safety property.** An edge whose authored delay outlives its source resolves to an empty window, so the kernel can never take it *as a cancel* — but the file's requirement was **contact**, and the ordinary button start permits the follow-up whether or not the source connected. `MatchBuilder` records that case as `cancels (link, not cancel)`, direction **`KernelPermits`**. Remember also that [moves start on buttons **held**, not pressed](#hit-resolution): holding a button repeats a move the tick it recovers, which is a chain the cancel table never had to contain.
+- **Frame arithmetic survives the projection far better than resources do**, and for a structural reason: the kernel counts `hitstun` down every tick, so a follow-up that arrives after the defender is free meets a defender who can act. Nothing in the kernel counts a resource down. Termination that rests on frames is carried by the simulation; termination that rests on a resource is carried by nothing.
+
+#### What to do about it today
+
+1. **Read the block the Combo Prover panel draws under the verdict.** It computes this check for the character on screen — see [The resource warning under the verdict](#the-resource-warning-under-the-verdict).
+2. **Read `lossesThatBite` and `playsAsAnalysed` on any build you make yourself**, and never let a UI you write imply that a verdict describes the running game while that flag is false.
+3. **Prefer a termination argument the kernel can carry.** If the only thing standing between your character and a loop is a resource, you have a design that is proved safe and ships unsafe. Make the frame arithmetic do the work, or accept the loop knowingly and write it in the file's `notes`.
+4. **Re-run the day resources land.** The panel's warning and the bridge's loss table are both computed rather than remembered, so they turn themselves off when the kernel grows the mechanism — nobody has to remember to delete this paragraph.
+
+#### Where this is measured
+
+| Test | What it establishes |
+|---|---|
+| `tests/test_ground_truth.cpp` | The printed loop executes; and the safe character's certified bound does not exist in the kernel. Both numbers above come from here |
+| `tests/test_gap_extent.cpp` | How **wide** the gap is: how many of `fighter_a`'s cycles are ended by a resource the kernel does not implement, and how many of those the kernel will execute forever |
+| `tests/test_one_frame.cpp` | How **close** an authoring mistake is to the edge of it: one integer moved on one cancel delay, and what the prover and the kernel each do across the sweep |
+| `tests/test_match_bridge.cpp` | The loss table itself, counted out of a real file, row by row |
+
+---
+
 ## The Combo Prover panel
 
 **Window → Combo Prover** in the editor. It is **off by default** (`Editor/src/EditorApplication.h:341`): it is a fighting-game authoring tool, and an editor session that is not authoring a character should not have it in the way. The menu item is at `Editor/src/EditorApplication.cpp:1634`.
@@ -566,18 +657,18 @@ The banner at the top of the panel is not collapsible, and this is why:
 
 **The corner and midscreen are two different questions, and the same character gets two different answers.** The in-engine decision procedure scopes itself to a defender pinned against the wall: no distance between the players, therefore no walking forward to stay in range. Phase 0 ran Kung Fu Man both ways and measured **TERMINATING midscreen and INFINITE in the corner** — both correct.
 
-All three shipped characters declare `"stage": "midscreen"` in their files while the in-engine answer is the corner one, so `ProverResult` carries **both** the stage it answered (`stage`, `ProverAdapter.h:124`) and the stage the file claims (`fileStage`, `:125`). A panel that prints "the" verdict without saying which question it answered is showing a coin flip.
+The three MUGEN fixtures declare `"stage": "midscreen"` in their files while the in-engine answer is the corner one (`fighter_a` declares `corner` and agrees), so `ProverResult` carries **both** the stage it answered (`stage`, `ProverAdapter.h:124`) and the stage the file claims (`fileStage`, `:125`). A panel that prints "the" verdict without saying which question it answered is showing a coin flip.
 
 How to read the corner answer: it is the attacker's best case. **A combo that dies here dies everywhere, and one that loops here need not loop midscreen.** Away from the wall the verdict is an under-approximation. Midscreen is not available in-engine — that model lives in Python, and its pushback constant is *estimated* rather than derived (MUGEN records a velocity and a friction and never a displacement), so a 20% error in the estimate flips one of the three Phase-0 verdicts.
 
 ### The three verdicts
 
-`ProverStatus` (`ProverAdapter.h:48`) has three members, and the panel gives them equal weight (`Editor/src/panels/ComboProverPanel.cpp:374`):
+`ProverStatus` (`ProverAdapter.h:48`) has three members, and the panel gives them equal weight (`Editor/src/panels/ComboProverPanel.cpp:629`):
 
 | Verdict | What it means | What to do |
 |---|---|---|
 | **INFINITE COMBO** | A loop exists in the corner. `result.prefix` then `result.loop` is the sequence, and `loop` ends on the move it returns to. Every move is a clickable button. | Break one link in the loop. |
-| **TERMINATING** | No loop. `maxHits`, `maxFrames` and `maxDamageHundredths` bound the worst case. | Nothing — unless the soundness alarm is up, in which case the colour changes with it. |
+| **TERMINATING** | No loop **in the file**. `maxHits`, `maxFrames` and `maxDamageHundredths` bound the worst case. | Read the two qualifications drawn with it: the soundness alarm, which changes the verdict's colour rather than adding small print, and [the resource warning](#the-resource-warning-under-the-verdict) directly beneath it. Absent both, nothing. |
 | **UNRESOLVED** | The search hit `ProverOptions::limit` (`ProverAdapter.h:211`, default 200 000). | Raise the budget with the control the panel provides. An unfinished search dressed up as a clean bill of health is worse than no answer at all. |
 
 Two caveats the panel surfaces for INFINITE:
@@ -585,19 +676,19 @@ Two caveats the panel surfaces for INFINITE:
 - **`loopEntryKnown`** (`ProverAdapter.h:139`). When the loop is not entered on the very first move, the prover omits the opening move from both lists.
 - **`loopHoldsUnderCeilings`** / **`ceilingReplayRan`** (`ProverAdapter.h:155-156`). The prover carries no resource ceilings, so it searches a state space in which meter grows past three bars forever. That over-approximates the attacker — the *safe* direction — but an INFINITE verdict may rest on meter the game would never have handed out. The adapter replays the reported loop through its own clamped loop; if the replay fails, the verdict stands (you cannot conclude TERMINATING from a failed replay) but the loop was not reproducible under the character's declared ceilings.
 
-For reference, the corner verdicts on the shipped characters: `kung_fu_girl` INFINITE (the loop is `stand_lp` into itself), `kung_fu_man` INFINITE, `aof2_strength_training` TERMINATING with a worst case of exactly one hit — `tests/test_prover_adapter.cpp:230`, `:245`, `:265`.
+For reference, the corner verdicts: `fighter_a` TERMINATING **with a ranking certificate over `meter, juggle`** and the soundness alarm up, `fighter_a_infinite` INFINITE (the loop is `stand_lp` into itself) — `tests/test_ground_truth.cpp`. On the three MUGEN fixtures: `kung_fu_girl` INFINITE (again `stand_lp` into itself), `kung_fu_man` INFINITE, `aof2_strength_training` TERMINATING with a worst case of exactly one hit — `tests/test_prover_adapter.cpp:230`, `:245`, `:265`.
 
 ### The part designers use daily
 
-Drawn directly under the verdict with no collapsing header in front of it (`ComboProverPanel.cpp:554`), because these land before anyone cares about the theorem.
+Drawn directly under the verdict with no collapsing header in front of it (`ComboProverPanel.cpp:967`), because these land before anyone cares about the theorem.
 
 **Dead cancels** (`ProverAdapter.h:174`). A cancel you authored that can never connect: by the time the follow-up becomes dangerous, the defender is already free. Each row reads `from -> to  leaves N, needs M, short by K`, where `shortfall() == startup - advantage` (`ProverAdapter.h:115`). That number tells you exactly how many frames you need to find.
 
-> **Important — the panel shows the PRE-DECAY list by default, and you need to know why.** Both implementations evaluate every edge at the **settled** hitstun, so a decay rule reports real cancels as dead. Under this project's own draft house rule, **128 of Kung Fu Girl's 134 cancels** collapsed to dead. `deadCancelsPreDecay` (`ProverAdapter.h:180`) is the list that blames you only for what you actually authored; `deadCancels` is the model's own. The checkbox switches between them (`ComboProverPanel.h:216`). If the two lists differ wildly, that is a statement about your decay curve, not about your character.
+> **Important — the panel shows the PRE-DECAY list by default, and you need to know why.** Both implementations evaluate every edge at the **settled** hitstun, so a decay rule reports real cancels as dead. Under this project's own draft house rule, **128 of Kung Fu Girl's 134 cancels** collapsed to dead. `deadCancelsPreDecay` (`ProverAdapter.h:180`) is the list that blames you only for what you actually authored; `deadCancels` is the model's own. The checkbox switches between them (`ComboProverPanel.h:388`). If the two lists differ wildly, that is a statement about your decay curve, not about your character.
 
 **Unreachable moves** (`ProverAdapter.h:181`). No combo can produce these.
 
-> **Gotcha — an empty unreachable list is usually meaningless.** The prover reads an empty `starters` list as "any move may open a combo", under which almost nothing can be unreachable. All three shipped characters declare no starters, so the panel prints a warning instead of a green "none" (`ComboProverPanel.cpp:597`). Author starters to make this question mean something.
+> **Gotcha — an empty unreachable list means nothing unless the file declares starters.** The prover reads an empty `starters` list as "any move may open a combo", under which almost nothing can be unreachable. **`fighter_a` declares none** — so on the panel's own default character the list is empty for a reason that says nothing about the character, and the panel prints a warning rather than a green "none" (`ComboProverPanel.cpp:1011`). The other files do declare them (`fighter_a_infinite` 17, `kung_fu_girl` 21, `kung_fu_man` 23, `aof2_strength_training` 10), and there the answer means something. Author starters.
 
 **Usable cancels** and the **settling index** sit above both lists. Every cancel is judged at the hitstun the decay curve has settled to by that hit, which is how the prover judges them too — so the two lists cannot drift apart.
 
@@ -615,9 +706,32 @@ Drawn directly under the verdict with no collapsing header in front of it (`Comb
 
 `tests/test_prover_adapter.cpp:323` pins the distinction: `aof2_strength_training` is `NothingLoops` with 0 usable cancels, `kung_fu_man` is `CharacterGainsAResource` because `stand_lp` carries `effect.meter = +5`.
 
+### The resource warning under the verdict
+
+Drawn **inside** the verdict block, under the certificate, with nothing collapsible between them — because a green TERMINATING carrying a certificate is the most trustworthy-looking thing the page can print and today it is the least trustworthy thing the page can print, and those two sentences have to arrive together. It appears only for TERMINATING: an INFINITE verdict is not made worse by an engine more permissive than the model, and UNRESOLVED never proved a bound for a resource to be holding up.
+
+It is **not** the soundness alarm, and the difference is worth holding on to. The alarm is about the *model* being wrong about the file (a `Conservative` projection loss). This is about the model being right about the file and the *game* being a different character. Both can qualify the same verdict, and neither implies the other.
+
+Three questions, each answered from a different thing the panel can honestly reach — none of them from a memory of what the kernel implements:
+
+| Question | Source |
+|---|---|
+| **What does this verdict rest on?** | `ProverResult::rankingOrder` — the certificate names resource indices, so the panel spells them with the character's own names and lists the moves that spend them as clickable buttons. With no certificate it falls back to the weaker true statement: *these resources were in play while the search decided, and how much of the bound they were carrying is not something this panel can tell you.* |
+| **Does the running game carry it?** | `BuildFighterData`'s loss table, read for five entries by name: `resources`, `move.effect`, `move.guard`, `cancel.effect`, `cancel.guard`. That is `MatchBuilder`'s own account of its own projection, so **the day the kernel grows resources the warning turns itself off** rather than waiting for somebody to delete it. |
+| **Does it reach *this* character?** | `AnalyseCharacter`, run a **second** time over a copy of the character with every move and cancel `effect` and `guard` emptied and the resource declarations left alone — which is exactly "the pool exists and nothing moves it", the kernel's actual state. Still TERMINATING and the panel says so quietly. INFINITE and it prints the loop the certificate was paying for. |
+
+What it says instead of guessing:
+
+- The second run is **the same decision procedure asked a second question, not a simulation of the kernel.** Whether the game can perform that particular loop is a separate question, and the game differs in both directions at once.
+- The loss table counts **objects, not resources**, so the panel cannot claim "juggle specifically did not cross" — only that no resource delta crosses and juggle is one of them. It says the weaker sentence.
+- If the bridge **refuses** the character (over 31 moves), that is reported in its own right: a verdict about a character that can never reach a tick is worth less than the refusal.
+- If **none** of the five loss entries is found by name, the panel says the check is *broken*, not clear. Reading a renamed field as "nothing was dropped" would put a green light on the most dangerous claim on the page.
+
+The cost is a second `AnalyseCharacter` plus a bridge build, and it runs only when the fingerprint moves. The footer reports it **beside** the run figures rather than inside them (`+ 0.0xx ms resource check`), because those four numbers are the `analyse` latency ARCHITECTURE.md section 5.5 item 2 asks for and have to stay comparable with every other measurement of that call.
+
 ### The projection-loss table and the soundness alarm
 
-The panel's one collapsible section (`ComboProverPanel.cpp:624`) is about the **tool** rather than about the character. Each `ProjectionLoss` (`ProverAdapter.h:100`) carries a direction (`ProverAdapter.h:70`):
+The panel's one collapsible section (`ComboProverPanel.cpp:1025`) is about the **tool** rather than about the character. Each `ProjectionLoss` (`ProverAdapter.h:100`) carries a direction (`ProverAdapter.h:70`):
 
 | Direction | What it costs you |
 |---|---|
@@ -633,18 +747,18 @@ Losses with count 0 are hidden behind a checkbox but kept, because a check that 
 
 ### It re-runs on data changes, not on frames
 
-The panel takes no change notification from the editor and does not want one. Every draw it folds the character into a 64-bit fingerprint — one pass over moves, cancels, resources and gap actions, integer mixing, no allocation — and re-runs only when the fingerprint moves (`ComboProverPanel.cpp:241`). The options are folded in too, which is what makes "raise the budget" work through the ordinary path with no second code path to rot.
+The panel takes no change notification from the editor and does not want one. Every draw it folds the character into a 64-bit fingerprint — one pass over moves, cancels, resources and gap actions, integer mixing, no allocation — and re-runs only when the fingerprint moves (`ComboProverPanel.cpp:302`). The options are folded in too, which is what makes "raise the budget" work through the ordinary path with no second code path to rot.
 
 The road not taken is a dirty flag set by whoever edits the character. It is cheaper per frame and it is wrong the first time somebody adds a second edit path and forgets to set it — and the failure is *silent*, a stale verdict that looks live.
 
-The footer (`ComboProverPanel.cpp:677`) shows run count, last / worst / mean milliseconds, and a **Copy verdict** button that produces `DescribeVerdict` text (`ProverAdapter.h:253`) — the same text the tests assert on, so a bug report and a test can never describe the character differently.
+The footer (`ComboProverPanel.cpp:1078`) shows run count, last / worst / mean milliseconds, and a **Copy verdict** button that produces `DescribeVerdict` text (`ProverAdapter.h:253`) — the same text the tests assert on, so a bug report and a test can never describe the character differently.
 
 ### Two wiring caveats
 
 The editor calls `comboProver_.Draw(nullptr, &panels_.comboProver)` (`Editor/src/EditorApplication.cpp:281`) and does not call `SetContentRoot` or `SetExpectedResources`. Two consequences today:
 
-- **The default content root is `"Exported"`** (`ComboProverPanel.h:173`), resolved relative to the process working directory, and the default path is `Characters/kung_fu_man.json` (`:178`). The characters live in `Editor/src/Exported/Characters`, which the asset staging copies next to the executable, so the default finds them with no configuration. A `..` in the path field is refused lexically before anything opens a file, so you cannot climb out. A wrong root is visible rather than silent — the panel prints the loader's own error, which names the file.
-- **A03 is skipped**, not passed. With no expected resource order supplied, the loader records a warning and the panel shows it in the same colour as everything else that could make the verdict meaningless. Call `SetExpectedResources({"meter", "juggle"})` (`ComboProverPanel.h:128`) if you wire this up yourself.
+- **The default content root is `"Exported"`** (`ComboProverPanel.h:269`), resolved relative to the process working directory, and the default path is `Characters/fighter_a.json` (`:282`) — this project's own character, chosen because a default path is a promise that something is there and the MUGEN corpus stopped being staged. The characters live in `Editor/src/Exported/Characters`, which the asset staging copies next to the executable, so the default finds them with no configuration. A `..` in the path field is refused lexically before anything opens a file, so you cannot climb out. A wrong root is visible rather than silent — the panel prints the loader's own error, which names the file.
+- **A03 is skipped**, not passed. With no expected resource order supplied, the loader records a warning and the panel shows it in the same colour as everything else that could make the verdict meaningless. Call `SetExpectedResources({"meter", "juggle"})` (`ComboProverPanel.h:211`) if you wire this up yourself.
 
 ### Running the analysis outside the editor
 

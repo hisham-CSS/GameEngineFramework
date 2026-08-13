@@ -171,13 +171,26 @@ target_link_libraries(test_gap_extent PRIVATE CseData CseKernel GTest::gtest_mai
 add_dependencies(test_gap_extent test_runtime_deps)
 add_test(NAME test_gap_extent COMMAND $<TARGET_FILE:test_gap_extent>)
 
-# ONE INTEGER. fighter_a's `crouch_lp` self-cancel resolves to an EMPTY kernel
-# window, so the character is safe on that edge by one frame of window rather
-# than by frame advantage. This mutates that single delay IN MEMORY — the shape
-# test_character_data.cpp uses to make each load assertion fail on purpose — and
-# sweeps it, which is stronger than shipping a variant file: it holds everything
-# else identical by construction, and keeps a deliberately-broken character out
-# of the game's asset directory.
+# ONE INTEGER, AND TWO BOUNDARIES THAT ARE NOT THE SAME BOUNDARY.
+#
+# fighter_a's `crouch_lp` self-cancel is authored at delay 10 and resolves to the
+# kernel window [13, 9] — empty. The upper bound is the move's own authored
+# `engine.cancel_window_ticks` close of 9 (MatchBuilder.cpp:427-435 clamps
+# `duration - 1` by it); HITSTUN IS NOT IN THAT ARITHMETIC AT ALL, which is the
+# thing to know before reasoning about this edge by hand.
+#
+# So the two boundaries sit three frames apart, and the test sweeps the delay to
+# show it: the PROVER flips TERMINATING -> INFINITE at 10 -> 9 (it compares
+# `startup <= hitstun - delay`, i.e. 3 <= 12 - delay, and prints a shortfall of
+# exactly 1), while the KERNEL cannot perform the loop until delay 6 opens the
+# window. The analysis is three frames ahead of the game — the conservative
+# direction, which is the safe way round.
+#
+# The delay is mutated IN MEMORY — the shape test_character_data.cpp uses to make
+# each load assertion fail on purpose — rather than by shipping a variant file.
+# That holds everything else identical by construction, so the claim really is
+# that one integer does it, and it keeps a deliberately-broken character out of
+# the game's asset directory.
 add_executable(test_one_frame test_one_frame.cpp)
 target_link_libraries(test_one_frame
     PRIVATE CseData CseKernel nlohmann_json::nlohmann_json GTest::gtest_main)

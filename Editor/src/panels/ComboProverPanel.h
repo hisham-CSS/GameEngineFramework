@@ -75,6 +75,85 @@
 //    because an async path with nothing slow behind it is a race condition with
 //    no benefit.
 //
+// 7. THE VERDICT IS ABOUT THE FILE. THE DESIGNER IS SHIPPING THE GAME.
+//    Note 1 says a verdict without the question it answers is a coin flip, and
+//    treats "which stage" as that question. It is not the only one. WHICH
+//    ENGINE is the other, and it was measured on 2026-08-13:
+//    `tests/test_ground_truth.cpp` took `fighter_a` -- TERMINATING, with the
+//    first ranking certificate in this repository, reading "meter, juggle" --
+//    and executed the cycle that certificate is about. THE KERNEL HAS NO
+//    JUGGLE. It has no resources at all: `Fighter::meter` exists and nothing
+//    writes it. So the `air_mp` self-cancel the model permits FOUR times ran
+//    EIGHTEEN times in 200 ticks, defender unable to act on any tick in
+//    between. The analysis is sound about the file; the projection from the
+//    file to the running game is what loses the thing termination rested on.
+//    ARCHITECTURE.md section 5.5 item 4 and ADR-001 section 6.1 record it.
+//
+//    A TERMINATING verdict carrying a certificate is the single result on this
+//    page a designer would trust most, and today it is the one they should
+//    trust least. So the panel says so, next to the verdict, and COMPUTES it
+//    the way it computes everything else here -- in three parts, each from a
+//    different thing it can honestly reach:
+//
+//      WHAT THE VERDICT RESTS ON   `ProverResult::rankingOrder`: the
+//                                  certificate names resource indices into the
+//                                  character's own table, so the panel can name
+//                                  them without knowing what a resource means.
+//                                  With no certificate it falls back to the
+//                                  weaker but still honest statement -- these
+//                                  are the resources the character moves, and
+//                                  the search decided TERMINATING with them in
+//                                  play. Note 3 warns against building the page
+//                                  around the certificate, and this obeys it:
+//                                  the certificate raises the volume, it does
+//                                  not gate the check.
+//      WHAT THE GAME CARRIES       `BuildFighterData`'s loss table. That is
+//                                  CseData's own account of what the projection
+//                                  into `MatchData` drops, written by the file
+//                                  that performs the projection, so the day the
+//                                  kernel grows resources this warning turns
+//                                  ITSELF off. A hardcoded "the kernel has no
+//                                  juggle" would still be on screen a year
+//                                  after it stopped being true, which is the
+//                                  same failure mode as the dirty flag in note
+//                                  5 and is rejected for the same reason.
+//      WHETHER IT ACTUALLY BITES   `AnalyseCharacter`, run a SECOND time over a
+//                                  copy of the character with every move and
+//                                  cancel `effect` and `guard` emptied and the
+//                                  resource declarations left alone -- which is
+//                                  precisely "the pool exists and nothing moves
+//                                  it", the kernel's actual state. If that run
+//                                  still says TERMINATING, the omission cannot
+//                                  reach this character and the panel says so
+//                                  quietly. If it says INFINITE, the loop it
+//                                  prints is what the verdict above was buying
+//                                  with a resource the game does not have. On
+//                                  `fighter_a` it answers INFINITE with the loop
+//                                  `air_mp` -- the same self-cancel the kernel
+//                                  went on to perform 18 times.
+//
+//    WHAT IT CANNOT SEE, and says instead of guessing:
+//      - It does not simulate anything. The second run is the same decision
+//        procedure asked a second question, NOT the kernel; the kernel differs
+//        in other ways and in both directions (it takes contact-gated edges
+//        early, it ignores stance, and an edge whose resolved window is empty
+//        is inert in the game and live in the model). The projection-loss
+//        section below is where those live, and the text says so.
+//      - The loss table counts OBJECTS, not resources, so the panel cannot say
+//        "juggle specifically did not cross" -- only that the kernel carries no
+//        resource deltas at all and juggle is one of them. It says the weaker
+//        sentence.
+//      - It reads only the loss entries whose inputs the note-5 fingerprint
+//        covers (`resources`, `move.effect`, `move.guard`, `cancel.effect`,
+//        `cancel.guard`). `move.pushback` is deliberately not fingerprinted, so
+//        drawing the whole table here would put a count on screen that the
+//        cache is allowed to let go stale. That is also why this panel does not
+//        simply become a view of `BuildReport`.
+//      - It finds those entries BY NAME, which is a string contract with
+//        `MatchBuilder.cpp` and the one part of this that can rot silently. So
+//        it counts how many of the five it found, and finding none is reported
+//        as a broken check rather than as good news.
+//
 // It does not parse JSON. `CseData` owns the file format and the path sandbox;
 // this panel calls `LoadCharacterFile` or is handed a `CharacterData` the editor
 // already has.
@@ -156,10 +235,18 @@ public:
 private:
     void loadFromPath_();
     void runIfStale_(const cse::data::CharacterData& character);
+    // Note 7. Runs from inside runIfStale_, so it is cached against the same
+    // fingerprint as the verdict and cannot outlive an edit to the character.
+    void checkResourceGap_(const cse::data::CharacterData& character);
 
     void drawSource_(const cse::data::CharacterData* external);
     void drawStageBanner_(const cse::data::CharacterData& character);
     void drawVerdict_(const cse::data::CharacterData& character, ComboProverActions& actions);
+    // Drawn from inside drawVerdict_ rather than as a section of its own: the
+    // whole point of note 7 is that this sits NEXT TO the verdict, in the same
+    // block of text, where nobody can read one without the other.
+    void drawResourceGap_(const cse::data::CharacterData& character,
+                          ComboProverActions& actions);
     void drawDaily_(const cse::data::CharacterData& character, ComboProverActions& actions);
     void drawProjection_();
     void drawFooter_(const cse::data::CharacterData& character);
@@ -170,6 +257,11 @@ private:
     void drawSequence_(const cse::data::CharacterData& character,
                        const std::vector<cse::data::MoveIndex>& sequence,
                        ComboProverActions& actions);
+    // A SET of moves, wrapped to the panel width -- no arrows, because these
+    // have no order. Shared by the unreachable list and by note 7's spenders.
+    void drawMoveButtons_(const cse::data::CharacterData& character,
+                          const std::vector<cse::data::MoveIndex>& moves,
+                          ComboProverActions& actions);
     // One clickable move id. Every one of these needs its own ImGui id: a loop
     // that revisits a move draws the same button label twice, and two widgets
     // with the same id are ONE widget as far as ImGui is concerned -- the second
@@ -209,6 +301,66 @@ private:
     bool                     resultOk_    = false;   // AnalyseCharacter returned true
     std::uint64_t            fingerprint_ = 0;
 
+    // --- note 7: does this verdict survive the engine? ----------------------
+    //
+    // Filled in by checkResourceGap_ from the same inputs the fingerprint
+    // covers, and therefore invalidated by exactly the edits that invalidate the
+    // verdict it qualifies. A separate cache with its own staleness rule would
+    // be a second thing to forget.
+    //
+    // PLAIN DATA, deliberately. The kernel-side half of this comes from
+    // MatchBuilder, whose header pulls in cse/kernel/Combat.h; keeping a
+    // BuildReport as a member would put the kernel's structs into every
+    // translation unit that includes this panel. This header has stayed free of
+    // comboprover.hpp for the same reason, so the direction of each loss is
+    // copied out as the string BuildLossDirectionName already produces.
+    struct ResourceGap {
+        // Whether the check applied at all. False unless the verdict is
+        // TERMINATING: an INFINITE verdict is not made worse by an engine more
+        // permissive than the model, and an UNRESOLVED one never proved a bound
+        // for a resource to be holding up. TERMINATING is the direction that
+        // costs the shipped game, so it is the only one worth qualifying.
+        bool ran = false;
+
+        // What the verdict rests on. `certified` is the strong case -- these are
+        // the resources ProverResult::rankingOrder names -- and the weak case is
+        // "these are the resources the character moves, and the search decided
+        // with them in play", which is all the panel can honestly say without a
+        // certificate. Both are worth printing; only one is a proof.
+        bool certified = false;
+        std::vector<cse::data::ResourceIndex> restsOn;
+
+        // The moves whose effect SPENDS one of `restsOn`, and how many cancels
+        // carry resource data of their own. "Which move is doing this" is the
+        // first thing a designer asks, and moveButton_ can answer it.
+        std::vector<cse::data::MoveIndex> spenders;
+        std::int32_t edgesWithResourceData = 0;
+
+        // What the bridge to the kernel reports. `resourceLossesFound` is how
+        // many of the five loss entries this check looks for by name were
+        // present at all: finding none means MatchBuilder renamed them and this
+        // check is broken, which must not read as good news.
+        bool        bridgeRan       = false;
+        std::string bridgeError;
+        bool        playsAsAnalysed = false;
+        int         resourceLossesFound = 0;
+        struct Drop {
+            std::string  field;
+            std::string  direction;
+            std::int32_t count = 0;
+        };
+        std::vector<Drop> drops;   // only the entries with a nonzero count
+
+        // And whether removing the mechanism changes the answer. Status is the
+        // second run's verdict over the same character with every move and
+        // cancel effect and guard emptied.
+        bool                    counterfactualRan    = false;
+        cse::data::ProverStatus counterfactualStatus = cse::data::ProverStatus::Unknown;
+        std::vector<cse::data::MoveIndex> counterfactualLoop;
+        std::string             counterfactualError;
+    };
+    ResourceGap gap_;
+
     // Bumped by the Re-run button and folded into the fingerprint, so a forced
     // run goes down the same path as a data change instead of needing its own.
     std::uint32_t forceNonce_ = 0;
@@ -221,6 +373,14 @@ private:
     double lastRunMs_  = 0.0;
     double worstRunMs_ = 0.0;
     double totalRunMs_ = 0.0;
+    // Note 7's cost, kept OUT of the four numbers above rather than folded into
+    // them. Those four are the measurement section 5.5 item 2 asks for -- the
+    // latency of `analyse` over a real authoring session -- and quietly adding a
+    // second analysis plus a bridge build to them would make this panel's
+    // published figure incomparable with every other measurement of the same
+    // call. It is shown beside them instead, so the page still tells the truth
+    // about what it costs per edit.
+    double lastGapMs_  = 0.0;
 
     // Which dead-cancel list is on screen. PRE-DECAY by default, and ADR-001's
     // amendment to 5.3 is the reason: both implementations evaluate every edge

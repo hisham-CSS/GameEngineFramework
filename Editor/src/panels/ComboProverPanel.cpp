@@ -1,10 +1,27 @@
 #include "ComboProverPanel.h"
 #include "imgui.h"
 
+// Note 7. The kernel-side half of the resource check comes from the bridge that
+// performs the projection, and it is included HERE rather than in the panel's
+// header on purpose: MatchBuilder.h includes cse/kernel/Combat.h for the struct
+// definitions, and a panel header that drags the kernel's types into every
+// translation unit including it would be the same widening this file has spent
+// two headers avoiding. CseData already links into the Editor for the prover, so
+// this costs no new library -- and it cannot make the Editor link CseKernel,
+// because MatchBuilder calls no kernel function (Data/CMakeLists.txt asserts it).
+#include "cse/data/MatchBuilder.h"
+
 #include <chrono>
 #include <cstdio>
+#include <string>
 #include <utility>
+#include <vector>
 
+using cse::data::BuildLoss;
+using cse::data::BuildLossDirection;
+using cse::data::BuildOptions;
+using cse::data::BuildReport;
+using cse::data::Cancel;
 using cse::data::CharacterData;
 using cse::data::GapAction;
 using cse::data::LoadOptions;
@@ -214,6 +231,50 @@ const char* rankingGloss(RankingAbsence absence) {
     return "";
 }
 
+// --- note 7: the loss entries that are about resources -----------------------
+//
+// MatchBuilder's table is keyed by string, so this list is a contract with
+// `recordLosses` in Data/src/MatchBuilder.cpp and it is the one part of this
+// check that could rot without saying anything. checkResourceGap_ counts how
+// many of the five it actually found, and finding none is reported as a broken
+// check rather than as an absence of losses -- a silent "nothing dropped" here
+// would be the most expensive wrong sentence on the page.
+//
+// Why these five and not the whole table: they are exactly the entries whose
+// inputs the note-5 fingerprint covers -- effect and guard amounts on moves and
+// cancels, and the resource declarations. `move.pushback` is deliberately not
+// fingerprinted, because the corner search cannot observe it, so a panel that
+// printed its count would be printing a number the cache is allowed to let go
+// stale.
+const char* const kResourceLossFields[] = {
+    "resources",      // the pools themselves, their floors and their ceilings
+    "move.effect",    // what spends them and what banks them
+    "move.guard",     // what they gate
+    "cancel.effect",
+    "cancel.guard",
+};
+
+const BuildLoss* findLoss(const BuildReport& report, const char* field) {
+    for (const BuildLoss& loss : report.losses)
+        if (loss.field == field) return &loss;
+    return nullptr;
+}
+
+// "meter, juggle" -- resource indices spelled with the character's own names,
+// carrying the same out-of-range guard the ranking order uses above. An index
+// that does not fit the character must reach the screen as visibly wrong text
+// rather than as a plausible name.
+std::string resourceNames(const CharacterData& c,
+                          const std::vector<ResourceIndex>& list) {
+    std::string out;
+    for (std::size_t i = 0; i < list.size(); ++i) {
+        if (i) out += ", ";
+        out += list[i] < c.resources.size() ? c.resources[list[i]].name
+                                            : std::string("<bad resource index>");
+    }
+    return out;
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -253,8 +314,167 @@ void ComboProverPanel::runIfStale_(const CharacterData& character) {
     totalRunMs_ += ms;
     if (ms > worstRunMs_) worstRunMs_ = ms;
 
+    // Note 7, timed separately. It runs HERE rather than in the draw path for
+    // the reason note 5 gives about the search itself: it is work proportional
+    // to the character, and a docked panel draws far more often than a designer
+    // types. Inside runIfStale_ it is cached against the same fingerprint as the
+    // verdict it qualifies, so the two can never be on screen describing
+    // different characters.
+    const auto g0 = std::chrono::steady_clock::now();
+    checkResourceGap_(character);
+    const auto g1 = std::chrono::steady_clock::now();
+    lastGapMs_ = std::chrono::duration<double, std::milli>(g1 - g0).count();
+
     fingerprint_ = now;
     haveResult_  = true;
+}
+
+// The three questions note 7 sets out, in order, each answered from a different
+// thing this panel can honestly reach. Nothing here remembers what the kernel
+// does or does not implement: the day it grows resources, the bridge stops
+// reporting the drops and this whole section turns itself off.
+void ComboProverPanel::checkResourceGap_(const CharacterData& c) {
+    gap_ = ResourceGap{};
+
+    // Only TERMINATING is worth qualifying. INFINITE is not made worse by an
+    // engine more permissive than the model -- the designer is already being
+    // told to go and break a link -- and UNRESOLVED never proved a bound for a
+    // resource to have been holding up.
+    if (!resultOk_ || result_.status != ProverStatus::Terminating) return;
+    gap_.ran = true;
+
+    // --- 1. WHAT THE VERDICT RESTS ON ---------------------------------------
+    //
+    // Which resources this character actually moves. A zero delta and a zero
+    // minimum are both no-ops, so they do not count: a file that authors
+    // `{ "meter": 0 }` for tidiness must not read as a file that depends on
+    // meter.
+    std::vector<bool> touched(c.resources.size(), false);
+    auto note = [&touched](const std::vector<ResourceAmount>& amounts) {
+        bool any = false;
+        for (const ResourceAmount& a : amounts) {
+            if (a.value == 0 || a.resource >= touched.size()) continue;
+            touched[a.resource] = true;
+            any = true;
+        }
+        return any;
+    };
+    for (const Move& m : c.moves) { note(m.effect); note(m.guard); }
+    for (const Cancel& e : c.cancels) {
+        const bool effect = note(e.effect);
+        const bool guard  = note(e.guard);
+        if (effect || guard) ++gap_.edgesWithResourceData;
+    }
+
+    // The certificate is the strong statement and is taken VERBATIM: it is what
+    // the tool proved, and filtering it against the scan above would let this
+    // panel quietly disagree with the verdict it is standing next to. Without a
+    // certificate the honest statement is weaker -- these are the resources that
+    // were in play while the search decided -- and note 3 is why that case is
+    // handled at all rather than the page being built around the certificate.
+    if (result_.hasRanking && !result_.rankingOrder.empty()) {
+        gap_.certified = true;
+        gap_.restsOn   = result_.rankingOrder;
+    } else {
+        for (std::size_t r = 0; r < touched.size(); ++r)
+            if (touched[r]) gap_.restsOn.push_back(static_cast<ResourceIndex>(r));
+    }
+    if (gap_.restsOn.empty()) return;   // nothing rests on a resource; say so and stop
+
+    // The moves that spend one of them. Reported as move indices so they can be
+    // drawn with moveButton_ like every other move on this page -- "which move
+    // is doing this" is the first question, and a name you cannot click is an
+    // answer you have to go and look up.
+    for (std::size_t m = 0; m < c.moves.size(); ++m) {
+        bool spends = false;
+        for (const ResourceAmount& a : c.moves[m].effect) {
+            if (a.value >= 0) continue;
+            for (ResourceIndex r : gap_.restsOn)
+                if (a.resource == r) { spends = true; break; }
+            if (spends) break;
+        }
+        if (spends) gap_.spenders.push_back(static_cast<MoveIndex>(m));
+    }
+
+    // --- 2. WHAT THE RUNNING GAME CARRIES -----------------------------------
+    //
+    // Asked of the bridge that performs the projection, so that the answer is
+    // MatchBuilder's rather than this panel's. The build is thrown away
+    // immediately: the only thing wanted from it is the loss table.
+    //
+    // BODY AND BINDINGS ARE LEFT EMPTY DELIBERATELY, and their warnings are not
+    // shown. A panel has neither -- the schema authors no body and no input
+    // notation, which is exactly why BuildOptions exists -- and neither can
+    // change a resource loss: the body decides a hurtbox and the bindings decide
+    // which buttons start what. Surfacing "no body supplied, defaulting to 13 x
+    // 60 px" here would be a warning about a match nobody is going to fight.
+    {
+        BuildOptions options;
+        cse::kernel::FighterData fighter{};
+        cse::data::MoveIndexMap  map;
+        BuildReport              report;
+        gap_.bridgeRan = cse::data::BuildFighterData(c, options, fighter, map, report);
+        if (!gap_.bridgeRan) {
+            // A character the prover analysed and the bridge REFUSES is worth
+            // seeing in its own right: over 31 moves it cannot be built at all,
+            // so the verdict describes a character that could never reach a
+            // tick. Reported rather than swallowed.
+            gap_.bridgeError = report.error;
+        } else {
+            gap_.playsAsAnalysed = report.playsAsAnalysed;
+            for (const char* field : kResourceLossFields) {
+                const BuildLoss* loss = findLoss(report, field);
+                if (!loss) continue;              // the name moved -- counted by absence
+                ++gap_.resourceLossesFound;
+                if (loss->count == 0) continue;
+                if (loss->direction == BuildLossDirection::Exact) continue;
+                ResourceGap::Drop drop;
+                drop.field     = loss->field;
+                drop.direction = cse::data::BuildLossDirectionName(loss->direction);
+                drop.count     = loss->count;
+                gap_.drops.push_back(std::move(drop));
+            }
+        }
+    }
+
+    // --- 3. WHETHER IT ACTUALLY BITES ---------------------------------------
+    //
+    // The same decision procedure, over the same character, with every move and
+    // cancel effect and guard emptied. THE RESOURCE DECLARATIONS ARE LEFT IN
+    // PLACE, and that is the whole fidelity of the experiment: "the pool exists
+    // and nothing moves it" is not an approximation of the kernel, it is a
+    // description of it -- `Fighter::meter` is a field of GameState that no rule
+    // reads or writes. Clearing the declarations too would additionally trip
+    // A03, and would be answering a different question.
+    //
+    // No RebuildIndices() call: emptying an effect vector cannot move a move id
+    // or an edge endpoint, so moveIndexById and cancelsFrom are still correct.
+    // The copy is the price -- one character's worth of strings and vectors, on
+    // a path that already runs a search, and only when a resource is in play.
+    //
+    // ITS COST DOES NOT SIMPLY DOUBLE THE FOOTER'S NUMBER, in either direction.
+    // Two things move at once: the resource vector is part of the search state,
+    // so emptying every effect collapses it to a single value (much smaller),
+    // while removing guards stops edges being refused (larger). On `fighter_a`
+    // the primary search explores 552 configurations and this one 124. Either
+    // way it is bounded by the same ProverOptions::limit, and a run that reaches
+    // the cap comes back Unknown -- drawn as "cannot tell you" rather than
+    // quietly downgraded to good news.
+    {
+        CharacterData stripped = c;
+        for (Move& m : stripped.moves)      { m.effect.clear(); m.guard.clear(); }
+        for (Cancel& e : stripped.cancels)  { e.effect.clear(); e.guard.clear(); }
+
+        cse::data::ProverResult counterfactual;
+        cse::data::ProverReport report;
+        if (cse::data::AnalyseCharacter(stripped, options_, counterfactual, report)) {
+            gap_.counterfactualRan    = true;
+            gap_.counterfactualStatus = counterfactual.status;
+            gap_.counterfactualLoop   = counterfactual.loop;
+        } else {
+            gap_.counterfactualError = report.error;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -285,6 +505,29 @@ void ComboProverPanel::moveButton_(const CharacterData& c, MoveIndex m,
                           dmg);
     }
     ImGui::PopID();
+}
+
+// A bare list of moves, wrapped to the panel width. Factored out of the
+// unreachable-move list when note 7's "spent by" list wanted exactly the same
+// thing: two copies of a measuring loop drift, and the one that drifts is
+// always the one nobody is looking at. It is NOT drawSequence_ -- these moves
+// are a set, and the arrows drawSequence_ puts between them would claim an
+// order that does not exist.
+void ComboProverPanel::drawMoveButtons_(const CharacterData& c,
+                                        const std::vector<MoveIndex>& moves,
+                                        ComboProverActions& actions) {
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float visibleX = contentRightEdge();
+    for (std::size_t i = 0; i < moves.size(); ++i) {
+        moveButton_(c, moves[i], actions);
+        if (i + 1 >= moves.size()) break;
+        const MoveIndex nx = moves[i + 1];
+        const char* nextId = nx < c.moves.size() ? c.moves[nx].id.c_str()
+                                                 : "<bad move index>";
+        const float nextW = ImGui::CalcTextSize(nextId).x +
+                            style.FramePadding.x * 2.f + style.ItemSpacing.x;
+        if (ImGui::GetItemRectMax().x + nextW < visibleX) ImGui::SameLine(0.f, 4.f);
+    }
 }
 
 void ComboProverPanel::drawSequence_(const CharacterData& c,
@@ -478,6 +721,19 @@ void ComboProverPanel::drawVerdict_(const CharacterData& character,
         // ranking certificate needs to be told what HAVING one means every bit
         // as much as what missing one means.
         textDim(rankingGloss(result_.rankingAbsence));
+
+        // Note 7, drawn HERE: inside the verdict block, under the certificate it
+        // qualifies, with nothing collapsible between them. TERMINATING over a
+        // certificate reading "meter, juggle" is the most trustworthy-looking
+        // thing this page can print and today it is the least trustworthy thing
+        // this page can print, and those two sentences have to arrive together.
+        //
+        // It is a SECOND axis, not a louder soundness alarm. The alarm above is
+        // the model possibly being wrong about the file; this is the model being
+        // right about the file and the game being a different character. Both
+        // can be up at once and neither implies the other -- on `fighter_a` they
+        // are: its alarm is raised by `projectile contact frame, outgoing`.
+        drawResourceGap_(character, actions);
     }
 
     if (result_.status == ProverStatus::Unknown) {
@@ -509,6 +765,178 @@ void ComboProverPanel::drawVerdict_(const CharacterData& character,
                       "still returned %s. Do not trust this verdict; this is a bug.",
                       cse::data::ProverStatusName(result_.status));
         textLoud(kBad, msg);
+    }
+}
+
+// Note 7 on the page. Three paragraphs in the order the check computes them:
+// what the verdict rests on, what the running game carries, and whether the
+// difference reaches this character. Each one is drawn from the corresponding
+// field of gap_ and none of them is drawn from a memory of what the kernel does.
+void ComboProverPanel::drawResourceGap_(const CharacterData& c,
+                                        ComboProverActions& actions) {
+    if (!gap_.ran) return;
+
+    ImGui::Spacing();
+
+    // A check that ran and found nothing is not the same as a check that does
+    // not exist -- the argument the projection table already makes for keeping
+    // its count-0 rows -- so the empty case costs one dim line rather than
+    // silence. It is also the good news: this character cannot be exposed to the
+    // one gap that is measured rather than suspected.
+    if (gap_.restsOn.empty()) {
+        textDim("Resources: checked. No move or cancel in this character spends "
+                "one or requires one, so nothing in this verdict can be resting "
+                "on a resource.");
+        return;
+    }
+
+    const std::string names = resourceNames(c, gap_.restsOn);
+    const bool kernelDrops  = gap_.bridgeRan && gap_.resourceLossesFound > 0 &&
+                              !gap_.drops.empty();
+    const bool flips        = gap_.counterfactualRan &&
+                              gap_.counterfactualStatus == ProverStatus::Infinite;
+
+    char line[640];
+
+    // --- what the verdict rests on ------------------------------------------
+    if (gap_.certified) {
+        std::snprintf(line, sizeof(line),
+            "WHAT THIS VERDICT RESTS ON: the certificate above IS the "
+            "termination argument, and it is arithmetic about %s. It is a "
+            "statement about the file.", names.c_str());
+        textLoud(kernelDrops && flips ? kBad : kWarn, line);
+    } else {
+        std::snprintf(line, sizeof(line),
+            "WHAT THIS VERDICT RESTS ON: no certificate, so this is the weaker "
+            "statement -- %s %s in play while the search decided, and how much "
+            "of the bound %s carrying is not something this panel can tell you.",
+            names.c_str(),
+            gap_.restsOn.size() == 1 ? "was" : "were",
+            gap_.restsOn.size() == 1 ? "it was" : "they were");
+        textLoud(kWarn, line);
+    }
+
+    if (!gap_.spenders.empty()) {
+        ImGui::TextDisabled("Spent by:");
+        ImGui::SameLine(0.f, 6.f);
+        drawMoveButtons_(c, gap_.spenders, actions);
+    }
+    if (gap_.edgesWithResourceData > 0) {
+        ImGui::TextDisabled("%d cancel(s) carry resource data of their own.",
+                            static_cast<int>(gap_.edgesWithResourceData));
+    }
+
+    // --- what the running game carries --------------------------------------
+    if (!gap_.bridgeRan) {
+        std::snprintf(line, sizeof(line),
+            "THE KERNEL CANNOT BE HANDED THIS CHARACTER AT ALL. The bridge "
+            "refused it, so what the projection drops is unknown -- and a "
+            "verdict about a character that can never reach a tick is worth less "
+            "than the refusal: %s",
+            gap_.bridgeError.empty() ? "(the build reported no message)"
+                                     : gap_.bridgeError.c_str());
+        textLoud(kBad, line);
+    } else if (gap_.resourceLossesFound == 0) {
+        // Rot, reported as rot. The alternative -- an empty drop list read as
+        // "nothing was dropped" -- would turn a renamed field in MatchBuilder
+        // into a green light on the most dangerous claim this page makes.
+        textLoud(kBad,
+            "THIS CHECK IS BROKEN, NOT CLEAR. None of the loss entries it reads "
+            "by name (resources, move.effect, move.guard, cancel.effect, "
+            "cancel.guard) is in the bridge's table any more, so it has nothing "
+            "to read. Treat everything below as unknown and re-read "
+            "Data/src/MatchBuilder.cpp.");
+    } else if (gap_.drops.empty()) {
+        std::snprintf(line, sizeof(line),
+            "The bridge reports the kernel carries this character's resource "
+            "data: none of the %d resource entries in its loss table reports a "
+            "difference. The argument above survives the projection into the game.",
+            gap_.resourceLossesFound);
+        textLoud(kGood, line);
+    } else {
+        textLoud(kBad, "THE RUNNING GAME DOES NOT CARRY IT. The bridge into the "
+                       "kernel reports these drops:");
+        ImGui::Indent();
+        for (const ResourceGap::Drop& d : gap_.drops)
+            ImGui::TextDisabled("%s x%d -- %s", d.field.c_str(),
+                                static_cast<int>(d.count), d.direction.c_str());
+        ImGui::Unindent();
+        // Spelled from the DIRECTION rather than from any claim about the
+        // kernel's internals, so this sentence cannot go stale behind the table
+        // it is explaining.
+        textDim("KernelOmits means the game does LESS than the file: a delta "
+                "that is never applied. KernelPermits means it does MORE: a "
+                "minimum that is never checked. Either way the resource "
+                "arithmetic this verdict was computed from is not arithmetic the "
+                "running game performs.");
+    }
+    if (gap_.bridgeRan && !gap_.playsAsAnalysed) {
+        textDim("BuildReport::playsAsAnalysed is false for this character: the "
+                "game differs from the file in other ways as well, and the "
+                "projection table below is where they are counted.");
+    }
+
+    // --- and whether the difference reaches THIS character ------------------
+    if (!gap_.counterfactualRan) {
+        std::snprintf(line, sizeof(line),
+            "Whether that reaches this character could not be measured: the same "
+            "character with its resource effects emptied could not be projected "
+            "(%s).",
+            gap_.counterfactualError.empty() ? "the run reported no message"
+                                             : gap_.counterfactualError.c_str());
+        textLoud(kWarn, line);
+        return;
+    }
+
+    switch (gap_.counterfactualStatus) {
+    case ProverStatus::Terminating:
+        textLoud(kGood,
+            "Checked, and it does NOT reach this character: with every resource "
+            "effect and guard emptied the verdict is still TERMINATING, so this "
+            "character does not need the arithmetic the game is missing.");
+        break;
+
+    case ProverStatus::Unknown:
+        textLoud(kWarn,
+            "Whether it reaches this character is UNRESOLVED: the second search "
+            "hit the same budget the verdict above uses. Raise the budget and "
+            "this answers too -- it is the same search on the same options.");
+        break;
+
+    case ProverStatus::Infinite:
+        if (kernelDrops) {
+            std::snprintf(line, sizeof(line),
+                "AND IT REACHES THIS CHARACTER. Asked the same question with "
+                "every resource effect and guard emptied -- the pools still "
+                "declared and nothing moving them, which is what the drops above "
+                "amount to -- the decision procedure answers INFINITE COMBO. "
+                "This is the loop the arithmetic about %s was holding back, and "
+                "the game is not doing that arithmetic:", names.c_str());
+            textLoud(kBad, line);
+        } else {
+            std::snprintf(line, sizeof(line),
+                "For scale: with every resource effect and guard emptied this "
+                "character is INFINITE, so %s really is load-bearing here. The "
+                "bridge says the game carries it, so this is a measure of how "
+                "much rests on that continuing to be true:", names.c_str());
+            textLoud(kWarn, line);
+        }
+        drawSequence_(c, gap_.counterfactualLoop, actions);
+        // WHAT THIS IS NOT, in the same breath. The second run is the decision
+        // procedure asked a second question; it is not a simulation, and the
+        // kernel differs in both directions at once -- it takes contact-gated
+        // edges early and ignores stance, while an edge whose resolved window
+        // came out empty is inert in the game and live here. Claiming the game
+        // can perform THIS loop would be the same overreach in the opposite
+        // direction from the one this whole section exists to catch.
+        textDim("That is the same decision procedure asked a second question, "
+                "not a simulation of the kernel: whether the game can perform "
+                "this particular loop is a separate question, and the game "
+                "differs in both directions at once (it ignores stance and takes "
+                "contact-gated edges early; an edge whose window resolved empty "
+                "is inert there and live here). What is settled is that the "
+                "bound above is not a bound the game enforces.");
+        break;
     }
 }
 
@@ -605,19 +1033,7 @@ void ComboProverPanel::drawDaily_(const CharacterData& c, ComboProverActions& ac
         }
     } else {
         textDim("No combo can produce these:");
-        const std::vector<MoveIndex>& un = result_.unreachableMoves;
-        const ImGuiStyle& style = ImGui::GetStyle();
-        const float visibleX = contentRightEdge();
-        for (std::size_t i = 0; i < un.size(); ++i) {
-            moveButton_(c, un[i], actions);
-            if (i + 1 >= un.size()) break;
-            const MoveIndex nx = un[i + 1];
-            const char* nextId = nx < c.moves.size() ? c.moves[nx].id.c_str()
-                                                     : "<bad move index>";
-            const float nextW = ImGui::CalcTextSize(nextId).x +
-                                style.FramePadding.x * 2.f + style.ItemSpacing.x;
-            if (ImGui::GetItemRectMax().x + nextW < visibleX) ImGui::SameLine(0.f, 4.f);
-        }
+        drawMoveButtons_(c, result_.unreachableMoves, actions);
     }
 }
 
@@ -696,6 +1112,16 @@ void ComboProverPanel::drawFooter_(const CharacterData& c) {
         ImGui::TextDisabled("%d run%s: last %.3f ms, worst %.3f ms, mean %.3f ms",
                             runs_, runs_ == 1 ? "" : "s", lastRunMs_, worstRunMs_,
                             totalRunMs_ / static_cast<double>(runs_));
+        // Note 7's cost, beside those four rather than inside them: they are the
+        // `analyse` latency section 5.5 item 2 asks for and must stay comparable
+        // with every other measurement of that call. This one is a second
+        // analysis plus a bridge build, and it runs only for a TERMINATING
+        // character with a resource in play -- so a designer who sees it is also
+        // being told which of the two paths their character took.
+        if (gap_.ran) {
+            ImGui::SameLine(0.f, 8.f);
+            ImGui::TextDisabled("(+ %.3f ms resource check)", lastGapMs_);
+        }
     }
 }
 

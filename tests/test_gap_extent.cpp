@@ -32,7 +32,7 @@
 //      cse/kernel/Combat.h, from the window MatchBuilder actually resolved --
 //      not from the authored delay. Section 3.
 //   4. HOW MANY DOES IT ACTUALLY EXECUTE? Driven, tick by tick, one scripted
-//      trace per cycle. Section 4.
+//      trace per cycle, with the defender mashing. Section 4.
 //
 // ---------------------------------------------------------------------------
 // WHAT IT MEASURED. THE HEADLINE IS THE LAST LINE
@@ -46,7 +46,7 @@
 //   performable as the   1 of 41. The other 40 each contain exactly one edge the
 //   model describes it   kernel cannot take.
 //   EXECUTED ANYWAY      33 of 41, as loops the defender never gets one tick out
-//                        of, for as long as the trace runs.
+//                        of, returning to their own opening state every turn.
 //
 // So the D8 gap on this character is 33 cycles wide, not 1 and not 41.
 //
@@ -78,12 +78,27 @@
 // end of the move, against the delay's frame 21.
 //
 // That one lost tick is the entire difference between the 33 and the 8. `air_mp`
-// is +7 on hit; a light (3f, 4f) still connects with ticks to spare and a medium
-// (6f, 7f) does not. So the eight cycles that leak a defender turn are EXACTLY
-// the eight of length 3 -- the ones that land from `air_mp` straight into a
-// medium -- and all 32 of length 4, which land into a light first, do not. The
+// is +7 on hit; a light (3f, 4f startup) still connects with ticks to spare and a
+// medium (6f, 7f) does not. So the eight cycles that leak a defender turn are
+// EXACTLY the eight of length 3 -- the ones that land from `air_mp` straight into
+// a medium -- and all 32 of length 4, which land into a light first, do not. The
 // kernel is CONSERVATIVE there, in ProverAdapter.h's vocabulary: stricter than
 // the file, on eight cycles, by one tick.
+//
+// Both halves of that are asserted rather than told. Section 3 counts the blocked
+// edges and names the arithmetic; section 4 requires the static two-route account
+// to predict the executed outcome for all 41 AND the frame each of the 500-odd
+// observed transitions happened on, because an explanation that cannot predict the
+// run is a story.
+//
+// THE BUTTON-START ROUTE IS ALREADY IN AN EXISTING GREEN MEASUREMENT, unremarked.
+// test_ground_truth.cpp's control replays the infinite character's `stand_lp`
+// witness against fighter_a and records "12 hits, one every 14". fighter_a's
+// `stand_lp` is 3 + 2 + 9 = 14 ticks long, and it has no edge back into itself:
+// that period of 14 IS the move ending and the held button starting it again, at
+// exactly MoveDuration. The mechanism 32 of the cycles below depend on has been
+// sitting in a passing test the whole time, as a number nobody had a reason to
+// read that way.
 //
 // ---------------------------------------------------------------------------
 // A NOTE ON MEASUREMENT, BECAUSE IT CHANGED THE ANSWER BY FOUR
@@ -106,7 +121,8 @@
 // decrements it before anything else and `actionable()` is `hitstun == 0`. It
 // needs nothing the harness does not already record and it cannot be erased by a
 // later step of the same tick. On this character it finds four escapes the other
-// two detectors do not, and 37 becomes 33.
+// two detectors do not, and 37 becomes 33. Section 6 measures that difference
+// rather than asserting it in a comment.
 //
 // ---------------------------------------------------------------------------
 // WHAT WOULD FALSIFY WHAT, AND WHAT IS COPIED
@@ -119,12 +135,12 @@
 // finding is about a different engine.
 //
 // The harness -- the units, the two positions, the button pool, the Driver, the
-// per-tick sampling, the table and summary printers -- is COPIED from
-// test_ground_truth.cpp rather than shared with it. That file is a test, not a
-// library, and a header extracted from it so two tests could agree would be a
-// third thing to keep true. The copies are marked, and where this file needed
-// something different (the actionable detector above, the state-repetition check
-// in section 5) the difference is stated where it appears.
+// per-tick sampling and the table printer -- is COPIED from test_ground_truth.cpp
+// rather than shared with it. That file is a test, not a library, and a header
+// extracted from it so two tests could agree would be a third thing to keep true.
+// The copies are marked, and where this file needed something different (the
+// actionable detector above, the state-repetition check in section 5) the
+// difference is stated where it appears.
 #include <gtest/gtest.h>
 
 #include "cse/data/CharacterData.h"
@@ -133,6 +149,7 @@
 #include "cse/kernel/Simulate.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <iomanip>
@@ -140,6 +157,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 using namespace cse::data;
@@ -159,23 +177,28 @@ constexpr std::int32_t px(std::int32_t pixels) {
 
 // The body is the caller's number, supplied deliberately: CharacterData carries
 // none, so leaving it out would make MatchBuilder's documented default look like
-// the character's own measurement. 3328 and 15360 are fighter_a's own
-// `engine.constants.default_pushbox_sub` restated in pixels.
+// the character's own measurement. 13 px and 60 px are fighter_a's own
+// `engine.constants.default_pushbox_sub`, restated in the unit this file reads in.
 constexpr std::int32_t kHalfWidth = px(13);
 constexpr std::int32_t kHeight    = px(60);
 
 // Origins 34 px apart, so the BODIES are 8 px apart. Every move any cycle below
 // uses reaches at least 40 px, so no verdict in this file can turn on distance --
 // which matters more here than in the file this is copied from, because 41 cycles
-// use fourteen different moves and a marginal gap would silently reclassify one.
+// use fourteen different moves and one marginal gap would silently reclassify a
+// cycle as unperformable for a reason that is really about the stage.
+//
+// Nobody moves during any trace: the attacker holds attack buttons and no
+// direction, the defender is in hitstun, and the kernel applies no pushback on
+// hit at all. The gap is 8 px on every tick of every run below.
 constexpr std::int32_t kP0X = -px(17);
 constexpr std::int32_t kP1X =  px(17);
 
 // The build-wide positional resource order (ADR-001 section 8 item 7).
 const std::vector<std::string> kBuildResources = { "meter", "juggle" };
 
-// A03's positional contract, used by section 2. Named rather than written as 1
-// at each use, because "resource 1" is meaningless and "juggle" is the claim.
+// A03's positional contract, named rather than written as 0 and 1 at each use --
+// "resource 1" is meaningless and "juggle" is the claim.
 constexpr ResourceIndex kMeter  = 0;
 constexpr ResourceIndex kJuggle = 1;
 
@@ -225,9 +248,9 @@ const char* kSafe = "fighter_a.json";
 // Six single bits, and single on purpose: StepAttack takes the first move in slot
 // order all of whose bits are held, so a mask that is a superset of an earlier
 // one's can never start. No mask below is a subset of any other, so nothing in
-// this file can stall for that reason -- which matters here because a cycle is
-// handed a fresh binding table and a wrong one would look like an unperformable
-// cycle rather than like a harness bug.
+// this file can stall for that reason -- which matters here because every cycle
+// is handed a fresh binding table, and a shadowed mask would look like an
+// unperformable cycle rather than like a harness bug.
 const std::uint16_t kButtonPool[] = {
     cse::kernel::kInputLP, cse::kernel::kInputMP, cse::kernel::kInputHP,
     cse::kernel::kInputLK, cse::kernel::kInputMK, cse::kernel::kInputHK,
@@ -311,8 +334,8 @@ void bringUp(const char* file, Subject& out) {
 // One simple cycle: a closed walk that repeats no move. Carried as MOVE INDICES
 // plus the CANCEL INDICES that join them, because both halves are needed later --
 // section 2 reads the moves' resource effects and section 3 reads the edges'
-// resolved windows, and a cycle that carried only one of them would have to look
-// the other up by a rule this file would then have to keep true.
+// resolved windows, and a cycle carrying only one of them would have to look the
+// other up by a rule this file would then have to keep true.
 //
 // `moves[0]` is the lowest move index in the cycle, which is the rotation the
 // enumerator produces. A cycle has as many rotations as it has moves and they are
@@ -337,7 +360,7 @@ struct Cycle {
 // inside a unit test over authored content. A cap that is checked turns a
 // pathological character into a named failure; a cap that is not turns it into a
 // test run that never ends. Combat.h makes the same argument about move tables.
-// 4096 is two orders of magnitude over what this character produces.
+// 4096 is over an order of magnitude past what this character produces.
 constexpr std::size_t kMaxCycles = 4096;
 
 // Simple-cycle enumeration, the textbook DFS: a cycle is reported exactly once,
@@ -358,7 +381,8 @@ public:
     bool Enumerate(std::vector<Cycle>& out) {
         for (std::size_t s = 0; s < c_.moves.size(); ++s) {
             start_ = static_cast<MoveIndex>(s);
-            path_.assign(1, start_);
+            path_.clear();
+            path_.push_back(start_);
             pathEdges_.clear();
             onPath_[s] = true;
             const bool ok = Walk(start_, out);
@@ -407,14 +431,29 @@ private:
 
 // Which edges the DECISION PROCEDURE kept. Taken from the verdict's own dead list
 // rather than re-derived from the link condition: the prover's opinion is the
-// thing section 1 is enumerating over, and a second implementation of
+// thing section 1 enumerates over, and a second implementation of
 // `startup <= hitstun - delay` in this file could drift from the one that
 // produced the verdict. test_prover_adapter.cpp is where that condition is
 // tested; here it is consumed.
+//
+// TWO WAYS AN EDGE LEAVES THE GRAPH, and only one of them produces a dead-cancel
+// entry. comboprover.hpp:337 SKIPS an edge that is not contact-gated before it
+// ever asks the link condition -- `if (!edge.onHit) continue;` -- so such an edge
+// is neither usable nor dead, it is absent, and reading only `deadCancels` would
+// silently put it back. The mapping is CharacterData.h's: {Hit, Always} -> true,
+// {Block, Whiff} -> false. fighter_a authors no block or whiff edge, and section
+// 1's `dead + usable == authored` is what says so, but reproducing the skip is
+// what keeps this an enumeration over the prover's graph rather than over one
+// that happens to coincide with it.
 std::vector<bool> usableEdges(const Subject& s) {
     std::vector<bool> out(s.character.cancels.size(), true);
+    for (std::size_t i = 0; i < s.character.cancels.size(); ++i) {
+        const Contact on = s.character.cancels[i].on;
+        if (on == Contact::Block || on == Contact::Whiff) out[i] = false;
+    }
     for (const ProverDeadCancel& dead : s.verdict.deadCancels)
-        if (dead.cancel < out.size()) out[dead.cancel] = false;
+        if (static_cast<std::size_t>(dead.cancel) < out.size())
+            out[dead.cancel] = false;
     return out;
 }
 
@@ -440,18 +479,19 @@ std::vector<std::size_t> lengthHistogram(const std::vector<Cycle>& cycles) {
 // The net change in one resource over one full turn of a cycle.
 //
 // SUMMED OVER THE MOVES AND THE EDGES, which is comboprover's own `totalEffect`
-// (:282-290) and is the reason no edge in this file needs to carry a juggle cost:
-// entering `air_mp` spends the point, so every edge whose TARGET is `air_mp` pays
-// it. Summing only the edges would find zero and conclude that nothing stops any
-// cycle at all -- which is the mistake this function exists to not make.
+// (:282-290), and it is the reason no edge in this file needs to carry a juggle
+// cost: entering `air_mp` spends the point, so every edge whose TARGET is
+// `air_mp` pays it. Summing only the edges would find zero and conclude that
+// nothing stops any cycle at all -- which is the mistake this function exists to
+// not make.
 std::int32_t cycleResource(const CharacterData& c, const Cycle& cycle,
                            ResourceIndex resource) {
     std::int32_t total = 0;
     for (std::size_t i = 0; i < cycle.moves.size(); ++i) {
-        // The TARGET of hop i, i.e. the move the cycle enters on that hop. Summing
-        // over targets rather than over `cycle.moves` is the same set of moves --
-        // a cycle enters each of its moves exactly once per turn -- but it is the
-        // sentence the edge semantics justify.
+        // The TARGET of hop i, i.e. the move the cycle enters on that hop. Over a
+        // full turn this is the same set as `cycle.moves` -- a cycle enters each
+        // of its moves exactly once -- but it is the sentence the edge semantics
+        // justify, and it stays correct if a cycle ever repeats a move.
         const Move& target = c.moves[cycle.moves[(i + 1) % cycle.moves.size()]];
         for (const ResourceAmount& a : target.effect)
             if (a.resource == resource) total += a.value;
@@ -467,27 +507,29 @@ std::int32_t cycleResource(const CharacterData& c, const Cycle& cycle,
 
 // Why the kernel cannot take a cancel edge. One value per rule in Combat.h, so a
 // failure can be reported as a REASON rather than as a count -- the difference
-// between "32 cycles do not work" and "32 cycles do not work because of one
+// between "40 cycles do not work" and "40 cycles do not work because of one
 // window", which is the whole of this file's honesty requirement.
 enum class Block : std::uint8_t {
     None,          // the kernel takes it
+    NoButton,      // nothing can ask for the target: more distinct moves in the
+                   // cycle than there are single-bit buttons to hand out. A limit
+                   // of the HARNESS, so it is checked first -- a cycle nothing can
+                   // ask for was not measured, whatever else is true of it
     EmptyWindow,   // MatchBuilder resolved earliestFrame > latestFrame: inert
     ContactGate,   // window non-empty, but it has closed by the time the source's
                    // contact is visible. StepAttack runs BEFORE ResolveHits, so a
                    // hit on tick N is first readable on N+1 and the fastest cancel
-                   // is one tick after contact, never zero (Combat.h).
-    NoButton,      // nothing can ask for the target: more distinct moves in the
-                   // cycle than there are single-bit buttons to hand out
-    TooSlow        // takeable, but the follow-up's first active frame lands after
-                   // the defender's hitstun has run out
+                   // is one tick after contact, never zero (Combat.h)
+    TooSlow        // takeable, but the follow-up's first active frame lands at or
+                   // after the tick the defender's hitstun runs out
 };
 
 const char* blockName(Block b) {
     switch (b) {
         case Block::None:        return "takeable";
+        case Block::NoButton:    return "no button";
         case Block::EmptyWindow: return "empty window";
         case Block::ContactGate: return "contact gate";
-        case Block::NoButton:    return "no button";
         case Block::TooSlow:     return "too slow";
     }
     return "?";
@@ -501,18 +543,22 @@ struct Hop {
     CancelIndex  edge = 0;
     MoveIndex    from = 0;
     MoveIndex    to   = 0;
+    // The same two moves as kernel slots, so the trace can be read back against
+    // this hop without a lookup per tick. MoveIndexMap::KernelMoveIdOf is the
+    // mapping as a function rather than as the "+1" everybody remembers.
+    std::uint16_t fromSlot = 0;
+    std::uint16_t toSlot   = 0;
     std::int32_t earliest = 0;
     std::int32_t latest   = 0;
 
     Block        block = Block::None;   // why the CANCEL cannot be taken, if it cannot
-    std::int32_t cancelFrame = -1;      // first source frame the cancel can fire on
 
     // THE SECOND ROUTE, and section 4 is why it is modelled at all. When the
     // cancel is inert the fighter can still reach the follow-up by letting the
     // source run out: StepAttack ends the move and runs the button scan in the
     // same call, so a held button starts the target on frame `MoveDuration`. That
-    // is one tick later than an edge whose delay resolves to the last frame, and
-    // on this character that tick is decisive.
+    // is one tick later than a delay resolving to the source's last frame, and on
+    // this character that tick decides eight cycles.
     std::int32_t startFrame = 0;        // the frame the follow-up actually begins
     bool         viaCancel  = false;    // ... by cancel (true) or by button (false)
     bool         connects   = false;    // ... and it lands before the defender is free
@@ -540,40 +586,42 @@ Hop classify(const CharacterData& c, const cse::kernel::CancelEdge& ke,
     hop.edge     = file;
     hop.from     = e.from;
     hop.to       = e.to;
+    hop.fromSlot = MoveIndexMap::KernelMoveIdOf(e.from);
+    hop.toSlot   = MoveIndexMap::KernelMoveIdOf(e.to);
     hop.earliest = ke.earliestFrame;
     hop.latest   = ke.latestFrame;
 
-    // The tick the source's hit lands on, in the source's own frame numbering, and
-    // the tick the defender is free again. Both are the kernel's arithmetic:
-    // ResolveHits SETS hitstun on the frame the box overlaps -- which is `startup`,
-    // the first active frame -- and stepFighter decrements it at the top of every
-    // tick after, so it reaches zero at startup + hitstun.
+    // The frame the source's hit lands on, in the source's own numbering, and the
+    // frame the defender is free again. Both are the kernel's own arithmetic:
+    // ResolveHits SETS hitstun on the frame the boxes overlap -- which is
+    // `startup`, the first active frame -- and stepFighter decrements it at the
+    // top of every tick after, so it reaches zero at startup + hitstun.
     const std::int32_t contactFrame = src.startup;
     const std::int32_t defenderFree = contactFrame + src.hitstun;
 
-    // The first frame the cancel could fire on. `onHit` edges must wait one tick
-    // past contact for alreadyHitBits to be visible; a whiff edge need not, and
-    // this character authors none, but the distinction is written out rather than
-    // assumed away because a file that grew one would otherwise be misclassified.
+    // The first frame the cancel could fire on. An `onHit` edge must wait one tick
+    // past contact for alreadyHitBits to be visible; a whiff edge need not. This
+    // character authors none of the latter, but the distinction is written out
+    // rather than assumed away, because a file that grew one would otherwise be
+    // classified against a rule it does not obey.
     const std::int32_t firstCancel =
-        ke.onHit != 0 ? std::max(ke.earliestFrame, contactFrame + 1) : ke.earliestFrame;
+        ke.onHit != 0 ? std::max<std::int32_t>(ke.earliestFrame, contactFrame + 1)
+                      : ke.earliestFrame;
 
-    if (ke.earliestFrame > ke.latestFrame) {
+    if (!bound) {
+        hop.block = Block::NoButton;
+    } else if (ke.earliestFrame > ke.latestFrame) {
         hop.block = Block::EmptyWindow;
     } else if (firstCancel > ke.latestFrame) {
         hop.block = Block::ContactGate;
-    } else if (!bound) {
-        hop.block = Block::NoButton;
-    } else {
-        hop.cancelFrame = firstCancel;
     }
 
     if (hop.block == Block::None) {
         hop.viaCancel  = true;
         hop.startFrame = firstCancel;
     } else if (hop.block == Block::NoButton) {
-        // Nothing can ask for the target by either route, so there is no fallback
-        // to model: the button scan needs the same button the cancel does.
+        // No fallback to model: the button scan needs the same button the cancel
+        // does, so an unbound target is unreachable by BOTH routes.
         hop.viaCancel  = false;
         hop.startFrame = -1;
     } else {
@@ -582,11 +630,10 @@ Hop classify(const CharacterData& c, const cse::kernel::CancelEdge& ke,
     }
 
     // "Connects before the defender leaves hitstun". STRICTLY before: a follow-up
-    // whose first active frame is the frame the stun expires arrives on a tick the
+    // whose first active frame IS the frame the stun expires arrives on a tick the
     // defender was already actionable on, and section 4's detector counts that as
-    // an escape -- so the two halves of this file must agree on it here.
-    hop.connects = hop.startFrame >= 0 &&
-                   hop.startFrame + tgt.startup < defenderFree;
+    // an escape -- so the two halves of this file must agree on the boundary here.
+    hop.connects = hop.startFrame >= 0 && hop.startFrame + tgt.startup < defenderFree;
     if (hop.block == Block::None && !hop.connects) hop.block = Block::TooSlow;
     return hop;
 }
@@ -623,7 +670,7 @@ std::vector<MoveBinding> bindingsFor(const CharacterData& c, const Cycle& cycle)
 // It does not care HOW the attacker got into the move. That is not laziness: it
 // is the property section 4 turns on, because 40 of these 41 cycles are entered
 // by a route the cancel table does not contain, and a driver that watched for a
-// cancel specifically would have reported them as stalls.
+// cancel specifically would have reported every one of them as a stall.
 class Driver {
 public:
     Driver(const CharacterData& c, const Cycle& cycle, const MoveIndexMap& map,
@@ -661,9 +708,6 @@ public:
         cursor_ = (cursor_ + 1 < slots_.size()) ? cursor_ + 1 : 0;
     }
 
-    const std::vector<std::uint16_t>& Slots() const { return slots_; }
-    std::size_t Length() const { return slots_.size(); }
-
 private:
     std::vector<std::uint16_t> slots_;
     std::vector<std::uint16_t> buttons_;
@@ -674,8 +718,9 @@ private:
 // Silent is the recipe the character files prescribe. MashesOnceHit starts LATE
 // on purpose: at tick 0 both fighters are idle and hold the same bindings, so
 // both would start the same move and ResolveHits -- deliberately symmetric --
-// would land both. That is a correct simulation of two people mashing and it is
-// not the question. Starting after the combo opens asks the player's question.
+// would land both. That is a correct simulation of two people mashing at each
+// other and it is not the question. Starting after the combo has opened asks the
+// question a player asks: "I have been hit; can I get out?"
 enum class DefenderPolicy { Silent, MashesOnceHit };
 
 struct Sample {
@@ -704,9 +749,9 @@ struct TickLog {
 
     std::size_t Hits() const { return hitTicks.size(); }
 
-    // COPIED, and kept even though this file does not decide anything on it, so
-    // that section 6 can quote what the ground-truth file's detector would have
-    // said about the same run.
+    // COPIED, and kept even though nothing here decides on it, so that section 6
+    // can quote what the ground-truth file's detector would have said about these
+    // same 41 traces.
     std::vector<std::int32_t> FreeTicks() const {
         std::vector<std::int32_t> out;
         if (firstHitTick < 0) return out;
@@ -743,6 +788,8 @@ TickLog drive(const MatchData& data, Driver& driver, int ticks,
               DefenderPolicy policy, std::uint16_t defenderBits) {
     TickLog log{};
     GameState s{};
+    // The seed only feeds GameState::rng, which nothing in a combat tick reads.
+    // Fixed here so a failing run is reproducible verbatim.
     cse::kernel::ResetMatch(s, 0xC0FFEEu);
     s.p[0].posX = kP0X;
     s.p[1].posX = kP1X;
@@ -792,8 +839,10 @@ std::string moveName(const MoveIndexMap& map, std::uint16_t slot) {
     return id.empty() ? ("slot" + std::to_string(slot)) : std::string(id);
 }
 
-// COPIED. The per-tick table a reader needs when a cycle stops behaving, so that
-// WHICH TICK and WHAT THE DEFENDER WAS DOING are readable without re-running.
+// COPIED. The per-tick table a reader needs when a cycle stops behaving: WHICH
+// TICK, and WHAT THE DEFENDER WAS DOING, without re-running anything. With 41
+// cycles under measurement, a bare count in a failure message would name a
+// disagreement and give nobody a way to find it.
 std::string Table(const TickLog& log, const MoveIndexMap& map,
                   std::int32_t from, std::int32_t count) {
     std::ostringstream s;
@@ -826,12 +875,12 @@ std::string Table(const TickLog& log, const MoveIndexMap& map,
 // How long each cycle is driven, and why it is this number rather than a bigger
 // one. A four-move turn of this character deals up to 223 damage against 1000
 // health, so five turns knocks the defender out -- and Fighter::health clamps at
-// zero, which would make `health fell this tick` stop reporting hits and silently
-// truncate every count below. 160 ticks gives every one of the 41 cycles at least
-// three full turns with the defender still standing, and the sweep ASSERTS both
-// halves of that so a damage change is a named failure rather than a quiet
-// undercount. It is also, by coincidence worth noting, the same budget
-// test_ground_truth.cpp chose for a loop 40 ticks shorter.
+// zero, which would make "the defender's health fell this tick" stop reporting
+// hits and silently truncate every count below. 160 ticks gives every one of the
+// 41 cycles at least three full turns with the defender still standing, and the
+// sweep ASSERTS both halves of that, so a damage change becomes a named failure
+// rather than a quiet undercount. Section 5 is what turns three turns into
+// "forever"; the budget does not have to.
 constexpr int kSweepTicks = 160;
 constexpr int kMinTurns   = 3;
 
@@ -854,16 +903,29 @@ struct CycleResult {
     bool         predictedLoop     = false;   // every hop connects, by either route
 
     // What it DID (section 4)
+    bool         driven  = false;
     std::size_t  hits    = 0;
     std::size_t  turns   = 0;
     std::int32_t period  = -1;
-    bool         periodic = false;
+    bool         periodic     = false;
     bool         stateRepeats = false;
-    std::size_t  freeTicks       = 0;   // the copied detector
+    bool         mashChangedNothing = false;
+    std::size_t  freeTicks       = 0;   // the copied detector, silent run
     std::size_t  actedTicks      = 0;   // the other copied detector, defender mashing
     std::size_t  actionableTicks = 0;   // THE ONE THIS FILE DECIDES ON
     std::int32_t defenderHealth  = 0;
-    std::int32_t attackerHealth  = 0;
+    std::int32_t attackerHealth  = 0;   // under the MASH, so it is a real claim
+
+    // Section 3's account, checked against the trace one transition at a time:
+    // how many move-to-move intervals were compared with the frame the hop says
+    // the follow-up begins on, and how many disagreed.
+    std::size_t  timingChecks     = 0;
+    std::size_t  timingMismatches = 0;
+
+    // Kept for failure messages only: a count nobody can look into is a count
+    // nobody can argue with.
+    TickLog      silent;
+    MoveIndexMap map;
 
     bool Unescapable() const { return actionableTicks == 0; }
 };
@@ -873,11 +935,11 @@ struct CycleResult {
 //
 // THIS IS WHAT LETS THE FILE SAY "FOREVER" RATHER THAN "FOR 160 TICKS". Counting
 // turns can only ever report a number; if the tick-by-tick state over one period
-// is identical to the next period's, the trace is eventually periodic and the
-// induction is immediate -- the same inputs meet the same state and produce the
-// same tick, without end. Health is excluded ON PURPOSE and is the only field
-// excluded: it is the one thing that legitimately changes, and it is what makes
-// the loop a combo rather than a stalemate.
+// is identical to the next period's -- same move, same frame, same hit record,
+// same stun, and the same input arriving -- then the same inputs meet the same
+// state and the trace continues without end by induction. Health is excluded ON
+// PURPOSE and is the only field excluded: it is the one thing that must change,
+// and it is what makes the loop a combo rather than a stalemate.
 bool oneTurnRepeats(const TickLog& log, std::size_t cycleLength) {
     if (log.hitTicks.size() < 2 * cycleLength + 1) return false;
     const std::int32_t first  = log.hitTicks[0];
@@ -889,26 +951,23 @@ bool oneTurnRepeats(const TickLog& log, std::size_t cycleLength) {
     for (std::int32_t k = 0; k < period; ++k) {
         const Sample& a = log.samples[static_cast<std::size_t>(first + k)];
         const Sample& b = log.samples[static_cast<std::size_t>(second + k)];
-        if (a.atkMove != b.atkMove || a.atkFrame != b.atkFrame ||
-            a.atkHitBits != b.atkHitBits || a.defStun != b.defStun ||
-            a.defMove != b.defMove || a.hit != b.hit || a.inputBits != b.inputBits)
+        if (a.inputBits != b.inputBits || a.atkMove != b.atkMove ||
+            a.atkFrame != b.atkFrame || a.atkHitBits != b.atkHitBits ||
+            a.defStun != b.defStun || a.defMove != b.defMove || a.hit != b.hit)
             return false;
     }
     return true;
 }
 
-// Everything section 1 through 5 needs, computed once.
+// Everything sections 1 to 6 need, computed once per test. Built fresh rather
+// than shared as a global: a MatchData mutated by accident in one test and read
+// in another is the coupling that makes a failure impossible to localise, and 41
+// builds with 82 traces cost milliseconds.
 struct Sweep {
     std::vector<Cycle>       authored;
     std::vector<Cycle>       usable;
     std::vector<CycleResult> results;
     bool                     capHit = false;
-
-    std::size_t Count(bool (*predicate)(const CycleResult&)) const {
-        std::size_t n = 0;
-        for (const CycleResult& r : results) if (predicate(r)) ++n;
-        return n;
-    }
 };
 
 std::string describe(const CharacterData& c, const CycleResult& r) {
@@ -919,26 +978,28 @@ std::string describe(const CharacterData& c, const CycleResult& r) {
     for (const Hop& h : r.hops) {
         s << "\n    " << std::setw(18) << std::left << c.moves[h.from].id
           << " -> " << std::setw(18) << std::left << c.moves[h.to].id << std::right
-          << " window [" << h.earliest << ", " << h.latest << "]"
-          << "  " << blockName(h.block)
-          << "  starts on frame " << h.startFrame
+          << " window [" << h.earliest << ", " << h.latest << "]  "
+          << std::setw(13) << std::left << blockName(h.block) << std::right
+          << " starts on frame " << h.startFrame
           << " by " << (h.viaCancel ? "cancel" : "button")
           << (h.connects ? ", connects" : ", DOES NOT CONNECT");
     }
-    s << "\n  executed        " << r.hits << " hits, " << r.turns
+    s << "\n  predicted       " << (r.predictedLoop ? "a loop" : "an escape")
+      << ", and " << r.timingChecks << " observed transition(s) were compared "
+         "with those frames: " << r.timingMismatches << " disagreed"
+      << "\n  executed        " << r.hits << " hits, " << r.turns
       << " turns, period " << r.period
       << (r.periodic ? " (periodic)" : " (NOT periodic)")
       << (r.stateRepeats ? ", state repeats" : ", state does NOT repeat")
       << "\n  defender        actionable on " << r.actionableTicks
       << " tick(s); free on " << r.freeTicks << "; started a move on "
-      << r.actedTicks << "\n  health          attacker " << r.attackerHealth
+      << r.actedTicks
+      << "\n  health          attacker " << r.attackerHealth
       << ", defender " << r.defenderHealth << "\n";
+    if (r.driven) s << Table(r.silent, r.map, r.silent.firstHitTick, 44);
     return s.str();
 }
 
-// Run the whole measurement. Built fresh rather than shared as a global: a
-// MatchData mutated by accident in one test and read in another is the coupling
-// that makes a failure impossible to localise, and 41 builds cost microseconds.
 void runSweep(const Subject& s, Sweep& out) {
     const CharacterData& c = s.character;
 
@@ -962,14 +1023,15 @@ void runSweep(const Subject& s, Sweep& out) {
         if (!buildMirror(c, bindings, build)) {
             ADD_FAILURE() << "the build failed for " << r.label << ": "
                           << build.report[0].error;
+            out.results.push_back(r);
             continue;
         }
+        r.map = build.moves[0];
 
         // --- section 3: can the kernel take each hop? ------------------------
         r.everyEdgeTakeable = true;
         r.predictedLoop     = true;
-        for (std::size_t i = 0; i < cycle.edges.size(); ++i) {
-            const CancelIndex file = cycle.edges[i];
+        for (const CancelIndex file : cycle.edges) {
             const cse::kernel::CancelEdge* ke = kernelEdgeFor(build, file);
             if (ke == nullptr) {
                 ADD_FAILURE() << "cancel " << file << " of " << r.label
@@ -986,8 +1048,8 @@ void runSweep(const Subject& s, Sweep& out) {
 
             const Hop hop = classify(c, *ke, file, bound);
             if (hop.block != Block::None) {
-                ++r.blockedEdges;
                 if (r.everyEdgeTakeable) r.firstBlock = hop.block;
+                ++r.blockedEdges;
                 r.everyEdgeTakeable = false;
             }
             if (!hop.connects) r.predictedLoop = false;
@@ -1005,31 +1067,60 @@ void runSweep(const Subject& s, Sweep& out) {
         }
         Driver mashDriver(c, cycle, build.moves[0], bindings);
 
-        const TickLog silent =
-            drive(build.data, silentDriver, kSweepTicks, DefenderPolicy::Silent, 0);
+        r.silent = drive(build.data, silentDriver, kSweepTicks,
+                         DefenderPolicy::Silent, 0);
         // The defender mashes the FIRST move of the cycle, which is bound by
         // construction. Handing them an unbound button would make "the defender
-        // never acted" a fact about the binding table.
+        // never acted" a fact about the binding table rather than about the combo.
         const TickLog mashed = drive(build.data, mashDriver, kSweepTicks,
                                      DefenderPolicy::MashesOnceHit, bindings[0].button);
 
         const std::size_t length = cycle.moves.size();
-        r.hits            = silent.Hits();
-        r.turns           = r.hits / length;
-        r.freeTicks       = silent.FreeTicks().size();
-        r.actedTicks      = mashed.defenderActedTicks.size();
-        r.actionableTicks = silent.ActionableTicks().size();
-        r.defenderHealth  = silent.finalState.p[1].health;
-        r.attackerHealth  = silent.finalState.p[0].health;
-        r.stateRepeats    = oneTurnRepeats(silent, length);
+        r.driven             = true;
+        r.hits               = r.silent.Hits();
+        r.turns              = r.hits / length;
+        r.freeTicks          = r.silent.FreeTicks().size();
+        r.actedTicks         = mashed.defenderActedTicks.size();
+        r.actionableTicks    = r.silent.ActionableTicks().size();
+        r.defenderHealth     = r.silent.finalState.p[1].health;
+        r.attackerHealth     = mashed.finalState.p[0].health;
+        r.stateRepeats       = oneTurnRepeats(r.silent, length);
+        r.mashChangedNothing = (mashed.hitTicks == r.silent.hitTicks);
 
-        if (silent.hitTicks.size() > length) {
-            r.period   = silent.hitTicks[length] - silent.hitTicks[0];
+        if (r.silent.hitTicks.size() > length) {
+            r.period   = r.silent.hitTicks[length] - r.silent.hitTicks[0];
             r.periodic = true;
-            for (std::size_t i = 0; i + length < silent.hitTicks.size(); ++i)
-                if (silent.hitTicks[i + length] - silent.hitTicks[i] != r.period)
+            for (std::size_t i = 0; i + length < r.silent.hitTicks.size(); ++i)
+                if (r.silent.hitTicks[i + length] - r.silent.hitTicks[i] != r.period)
                     r.periodic = false;
         }
+
+        // --- section 3's account, read back off the trace one hop at a time ---
+        //
+        // The outcome matching is not enough on its own: a cycle could loop for a
+        // reason other than the one this file gives and the counts would still
+        // agree. So every move-to-move transition the trace performed is compared
+        // with the frame the hop SAYS the follow-up begins on -- `firstCancel` for
+        // a takeable edge, `MoveDuration` for the button-start route. A trace that
+        // reached the same follow-up by some third path would disagree here.
+        //
+        // A move ENTRY is `moveFrame == 0` with a move in progress, the same
+        // signal the Driver advances its cursor on.
+        std::vector<std::pair<std::int32_t, std::uint16_t>> entries;
+        for (const Sample& sample : r.silent.samples)
+            if (sample.atkMove != 0 && sample.atkFrame == 0)
+                entries.emplace_back(sample.tick, sample.atkMove);
+        for (std::size_t i = 0; i + 1 < entries.size(); ++i) {
+            for (const Hop& h : r.hops) {
+                if (h.fromSlot != entries[i].second) continue;
+                if (h.toSlot   != entries[i + 1].second) continue;
+                ++r.timingChecks;
+                if (entries[i + 1].first - entries[i].first != h.startFrame)
+                    ++r.timingMismatches;
+                break;
+            }
+        }
+
         out.results.push_back(r);
     }
 }
@@ -1038,7 +1129,7 @@ void runSweep(const Subject& s, Sweep& out) {
 //
 // Every one of these is DERIVED by the sweep and asserted against, never used to
 // compute anything. A character edit that changes the gap fails a test that
-// prints both numbers.
+// prints both the old number and the new one.
 constexpr std::size_t kAuthoredCycles = 143;  // over all 73 authored edges
 constexpr std::size_t kUsableCycles   = 41;   // over the 68 the prover keeps
 constexpr std::size_t kSelfLoops      = 1;    // ... of length 1
@@ -1057,14 +1148,38 @@ constexpr std::size_t kEscapable      = 8;
 constexpr std::size_t kByCancelAlone  = 1;    // of the 33
 constexpr std::size_t kByHeldButton   = 32;
 
-// What the copied detectors would have said, kept so the difference is pinned.
+// What the copied detectors would have said, kept so the difference is pinned
+// rather than described.
 constexpr std::size_t kUnescapableByFreeTicks = 37;
 
 // air_mp's landing links: startup 6 + delay 15 = 21, against a cancel window that
-// closes at 14. Named so a failure can quote the arithmetic rather than the
-// numbers alone.
+// closes at 14. Named so a failure can quote the arithmetic and not just the
+// numbers it produced.
 constexpr std::int32_t kLandingLinkEarliest = 21;
 constexpr std::int32_t kLandingLinkLatest   = 14;
+
+// How `air_mp` leaves: nine links back to the ground (eight normals and the
+// uppercut) and two that stay in the air (itself and `air_hk`, both delay 5 and
+// both takeable). Counted separately because the second pair is the reason the
+// self-loop is the one cycle the cancel system can perform end to end.
+constexpr std::size_t kLandingLinks     = 9;
+constexpr std::size_t kAirToAirCancels  = 2;
+
+// The relations between the numbers above, checked at compile time rather than
+// asserted at runtime -- a runtime EXPECT comparing two constants in this file
+// would test nothing but the arithmetic on this page. Both are load-bearing: the
+// blocked-hop count must be one per cycle that is not the self-loop, and the
+// escapable count must leave the self-loop and the length-4 cycles alone.
+static_assert(kEmptyWindowed == kLengthThree + kLengthFour,
+              "every cycle but the self-loop is blocked at exactly one edge");
+static_assert(kUsableCycles == kSelfLoops + kLengthThree + kLengthFour,
+              "the length histogram must account for every cycle");
+static_assert(kUnescapable + kEscapable == kUsableCycles,
+              "every cycle is either escapable or not");
+static_assert(kUnescapable == kByCancelAlone + kByHeldButton,
+              "every loop runs by one of the two routes");
+static_assert(kEscapable == kLengthThree,
+              "the cycles that leak are exactly the ones of length 3");
 
 }  // namespace
 
@@ -1085,12 +1200,18 @@ TEST(GapExtentGraph, TheCycleCountIsDerivedAndMatchesTheAuthoringReport) {
     runSweep(safe, sweep);
     ASSERT_FALSE(sweep.capHit)
         << "the cycle enumeration hit its cap of " << kMaxCycles
-        << ". The character's graph grew a combinatorial explosion, and the number "
-           "below is a floor rather than a count.";
+        << ". The character's graph grew a combinatorial explosion, and every "
+           "count in this file is a floor rather than a measurement.";
 
     // The prover's own split, checked here because everything downstream is an
-    // enumeration over the graph it defines. 68/5 is what the file's
+    // enumeration over the graph it defines. 68/5 is what the file's own
     // `meter_is_not_load_bearing.the_counterfactual_that_checks_it` requires.
+    //
+    // The third line is not arithmetic for its own sake: usable and dead account
+    // for every authored edge only when NONE was skipped for not being
+    // contact-gated (comboprover.hpp:337, and see usableEdges above). A file that
+    // grew a `on: block` edge would break this equality first, before it silently
+    // changed a cycle count.
     EXPECT_EQ(safe.verdict.deadCancels.size(), kDeadCancels);
     EXPECT_EQ(static_cast<std::size_t>(safe.verdict.usableCancels), kUsableCancels);
     EXPECT_EQ(safe.character.cancels.size(), kDeadCancels + kUsableCancels);
@@ -1099,7 +1220,7 @@ TEST(GapExtentGraph, TheCycleCountIsDerivedAndMatchesTheAuthoringReport) {
     // cancel graph contains exactly 41 simple cycles: one of length 1 (air_mp into
     // itself), eight of length 3 ... and thirty-two of length 4". Nothing here
     // reads that claim; this is an enumeration of the loaded data, and the
-    // agreement is the result.
+    // agreement is the result rather than the input.
     ASSERT_EQ(sweep.usable.size(), kUsableCycles)
         << "fighter_a's authoring report claims " << kUsableCycles
         << " simple cycles in its usable cancel graph and enumeration finds "
@@ -1110,9 +1231,9 @@ TEST(GapExtentGraph, TheCycleCountIsDerivedAndMatchesTheAuthoringReport) {
 
     const std::vector<std::size_t> byLength = lengthHistogram(sweep.usable);
     ASSERT_GT(byLength.size(), 4u);
-    EXPECT_EQ(byLength[1], kSelfLoops)     << "self-loops";
-    EXPECT_EQ(byLength[3], kLengthThree)   << "cycles of length 3";
-    EXPECT_EQ(byLength[4], kLengthFour)    << "cycles of length 4";
+    EXPECT_EQ(byLength[1], kSelfLoops)   << "self-loops";
+    EXPECT_EQ(byLength[3], kLengthThree) << "cycles of length 3";
+    EXPECT_EQ(byLength[4], kLengthFour)  << "cycles of length 4";
     for (std::size_t n = 0; n < byLength.size(); ++n)
         if (n != 1 && n != 3 && n != 4)
             EXPECT_EQ(byLength[n], 0u)
@@ -1124,13 +1245,14 @@ TEST(GapExtentGraph, TheCycleCountIsDerivedAndMatchesTheAuthoringReport) {
 }
 
 // The qualifier in "the USABLE cancel graph" is load-bearing, and this is what it
-// is worth. The five edges the prover discards are not decoration: three of them
-// close cycles of their own, and dropping them takes the count from 143 to 41.
+// is worth. The five edges the prover discards are not decoration -- three of them
+// close cycles of their own -- and putting them back takes the count from 41 to
+// 143.
 //
-// This is not a criticism of the report -- the report says "usable" and means it.
-// It is the reason a reader must not quote 41 as "the number of cycles in
-// fighter_a", and the reason section 3 below enumerates over the same graph the
-// verdict was computed on rather than over the file.
+// This is not a criticism of the report, which says "usable" and means it. It is
+// the reason nobody may quote 41 as "the number of cycles in fighter_a", and the
+// reason every count in this file is taken over the graph the VERDICT was
+// computed on rather than over the file.
 TEST(GapExtentGraph, TheAuthoredGraphHoldsFarMoreCyclesThanTheUsableOne) {
     Subject safe{};
     bringUp(kSafe, safe);
@@ -1145,17 +1267,17 @@ TEST(GapExtentGraph, TheAuthoredGraphHoldsFarMoreCyclesThanTheUsableOne) {
            "one of the five dead ones came back to life.";
     EXPECT_GT(sweep.authored.size(), sweep.usable.size());
 
-    // And the dead edges really are dead for the reason the prover reports --
-    // the follow-up needs more startup than the source leaves. Re-derived from
-    // ProverDeadCancel's own two numbers rather than recomputed from the file, so
-    // this checks the report is internally consistent rather than re-implementing
-    // the link condition.
+    // And the dead edges are dead for the reason the prover reports: the follow-up
+    // needs more startup than the source leaves. Re-derived from ProverDeadCancel's
+    // own two numbers, so this checks the report is internally consistent rather
+    // than re-implementing the link condition a second time in this repository.
     for (const ProverDeadCancel& dead : safe.verdict.deadCancels) {
         EXPECT_GT(dead.shortfall(), 0)
             << "cancel " << dead.cancel << " is listed dead with a shortfall of "
             << dead.shortfall() << ", which is not short of anything";
-        ASSERT_LT(dead.from, safe.character.moves.size());
-        ASSERT_LT(dead.to, safe.character.moves.size());
+        EXPECT_EQ(dead.shortfall(), dead.startup - dead.advantage);
+        ASSERT_LT(static_cast<std::size_t>(dead.from), safe.character.moves.size());
+        ASSERT_LT(static_cast<std::size_t>(dead.to), safe.character.moves.size());
     }
 }
 
@@ -1164,8 +1286,9 @@ TEST(GapExtentGraph, TheAuthoredGraphHoldsFarMoreCyclesThanTheUsableOne) {
 // ============================================================================
 
 // The premise of the whole file: every one of these cycles is stopped by juggle
-// and by nothing else. If some cycle terminated for a structural reason instead,
-// the kernel having no juggle would say nothing about it.
+// and by nothing else. If one of them terminated for a structural reason instead,
+// the kernel having no juggle would say nothing about it, and it would have to
+// come out of the headline count.
 TEST(GapExtentModel, EveryCycleIsEndedByJuggleAndNoCycleTouchesMeter) {
     Subject safe{};
     bringUp(kSafe, safe);
@@ -1176,13 +1299,13 @@ TEST(GapExtentModel, EveryCycleIsEndedByJuggleAndNoCycleTouchesMeter) {
     ASSERT_FALSE(sweep.capHit);
     ASSERT_EQ(sweep.results.size(), kUsableCycles);
 
-    // A03: the positional resource contract these two indices depend on.
+    // A03: the positional resource contract the two indices above depend on.
     ASSERT_EQ(safe.character.resources.size(), kBuildResources.size());
     ASSERT_EQ(safe.character.resources[kMeter].name,  "meter");
     ASSERT_EQ(safe.character.resources[kJuggle].name, "juggle");
     EXPECT_GT(safe.character.resources[kJuggle].initial, 0);
     EXPECT_EQ(safe.character.resources[kJuggle].floor, 0)
-        << "juggle's floor is what `nonNegative` refuses to cross, and the "
+        << "juggle's floor is what `nonNegative` refuses to cross, and the whole "
            "termination argument is that the budget runs INTO it";
 
     std::size_t endedByJuggle = 0;
@@ -1191,8 +1314,8 @@ TEST(GapExtentModel, EveryCycleIsEndedByJuggleAndNoCycleTouchesMeter) {
         if (r.juggle < 0) ++endedByJuggle;
         if (r.meter != 0) ++touchMeter;
         EXPECT_LT(r.juggle, 0)
-            << "this cycle does not spend juggle, so nothing in the model stops "
-               "it and the verdict should not have been TERMINATING."
+            << "this cycle does not spend juggle, so nothing in the model stops it "
+               "and the verdict should not have been TERMINATING."
             << describe(safe.character, r);
     }
 
@@ -1202,22 +1325,22 @@ TEST(GapExtentModel, EveryCycleIsEndedByJuggleAndNoCycleTouchesMeter) {
            "ALL of them do, because every cycle contains an edge into an air move.";
 
     // Meter appears on no cycle at all, which is the file's own
-    // `meter_is_not_load_bearing` argument -- super_beam is the only move that
+    // `meter_is_not_load_bearing` argument: super_beam is the only move that
     // spends it and it has zero outgoing cancels. It matters here because the
-    // ranking certificate's order is [meter, juggle]: if meter DID gate a cycle,
-    // "the kernel has no resources" would have two consequences to measure and
-    // this file measures one.
+    // certificate's order is [meter, juggle] -- if meter DID gate a cycle, "the
+    // kernel has no resources" would have two consequences and this file measures
+    // one of them.
     EXPECT_EQ(touchMeter, 0u)
         << touchMeter << " cycle(s) change meter, so the certificate's first "
-           "resource is load-bearing after all and section 4 is measuring only "
+           "resource is load-bearing after all and the sections below measure only "
            "half of the gap.";
 
     // The certificate names juggle. Not the argument -- the argument is the sum
     // above -- but if it did not, the character would be terminating for a reason
     // its own describe() does not print.
     ASSERT_TRUE(safe.verdict.hasRanking)
-        << "fighter_a is the first character in this repository to carry a "
-           "ranking certificate and it no longer does: "
+        << "fighter_a is the first character in this repository to carry a ranking "
+           "certificate, and it no longer does: "
         << RankingAbsenceName(safe.verdict.rankingAbsence);
     bool namesJuggle = false;
     for (const ResourceIndex r : safe.verdict.rankingOrder)
@@ -1263,7 +1386,10 @@ TEST(GapExtentKernel, ExactlyOneCycleIsPerformableThroughTheCancelSystem) {
            "test was written against " << kFullyTakeable
         << ". If this GREW, the bridge changed and the gap changed with it.";
 
-    // GROUPED BY REASON, which is the point. One reason accounts for all 40.
+    // GROUPED BY REASON, which is the point of the section. One reason accounts
+    // for all 40, and the other three are checked and found inert -- knowing a
+    // check ran and found nothing is worth more than its absence, which is
+    // MatchBuilder's own argument for listing a loss with a count of 0.
     EXPECT_EQ(byEmptyWindow, kEmptyWindowed);
     EXPECT_EQ(byContactGate, 0u)
         << byContactGate << " cycle(s) are blocked because the cancel window has "
@@ -1273,8 +1399,8 @@ TEST(GapExtentKernel, ExactlyOneCycleIsPerformableThroughTheCancelSystem) {
     EXPECT_EQ(byNoButton, 0u)
         << byNoButton << " cycle(s) name more distinct moves than there are "
            "single-bit buttons (" << kButtonPoolSize << "). That is a limit of the "
-           "HARNESS, not of the character, and it means those cycles were never "
-           "measured at all.";
+           "HARNESS rather than of the character, and it means those cycles were "
+           "not measured at all.";
     EXPECT_EQ(byTooSlow, 0u)
         << byTooSlow << " cycle(s) have a takeable edge whose follow-up cannot "
            "reach the defender before hitstun runs out.";
@@ -1283,12 +1409,12 @@ TEST(GapExtentKernel, ExactlyOneCycleIsPerformableThroughTheCancelSystem) {
     // landing link out of an AIR move, resolved to a window that closes before it
     // opens. Asserting the arithmetic rather than the count is what makes this a
     // finding a reader can check against Combat.h and MatchBuilder.cpp.
-    std::size_t landingLinks = 0;
+    std::size_t blockedHops = 0;
     for (const CycleResult& r : sweep.results) {
         if (r.everyEdgeTakeable) continue;
         EXPECT_EQ(r.blockedEdges, 1u)
             << "a cycle is blocked at " << r.blockedEdges << " edges, so the "
-               "single-cause story below is wrong for it."
+               "single-cause account below is wrong for it."
             << describe(safe.character, r);
         for (const Hop& h : r.hops) {
             if (h.block == Block::None) continue;
@@ -1296,17 +1422,25 @@ TEST(GapExtentKernel, ExactlyOneCycleIsPerformableThroughTheCancelSystem) {
             EXPECT_EQ(safe.character.moves[h.from].stance, Stance::Air)
                 << "the blocked edge leaves `" << safe.character.moves[h.from].id
                 << "`, which is not an air move, so the shared explanation does "
-                   "not hold";
+                   "not hold for it";
             EXPECT_EQ(h.earliest, kLandingLinkEarliest);
             EXPECT_EQ(h.latest, kLandingLinkLatest);
-            ++landingLinks;
+            ++blockedHops;
         }
     }
-    EXPECT_EQ(landingLinks, kEmptyWindowed);
+    EXPECT_EQ(blockedHops, kEmptyWindowed);
 
     // The window is empty because the two halves of MatchBuilder's resolution
-    // disagree, and this is that arithmetic spelled out against the loaded file
-    // rather than against the built edge -- so the two derivations have to agree.
+    // disagree, and this is that arithmetic spelled out against the LOADED file
+    // rather than against the built edge -- so the two derivations have to meet.
+    //
+    // THE SPLIT IS BY THE TARGET'S STANCE, not by the delay, and the difference
+    // matters: `air_mp` leaves by ELEVEN edges and only nine of them are landing
+    // links. Two are air-to-air (into itself and into `air_hk`) with a delay of 5,
+    // and those resolve inside the window and are perfectly takeable -- the
+    // self-cancel is the one cycle section 4 counts as performable through the
+    // cancel system. Splitting on "the delay is 15" instead would have been the
+    // same partition today and a circular argument for it.
     const MoveIndex airMp = safe.character.FindMove("air_mp");
     ASSERT_NE(airMp, kInvalidMove);
     const Move& air = safe.character.moves[airMp];
@@ -1314,34 +1448,38 @@ TEST(GapExtentKernel, ExactlyOneCycleIsPerformableThroughTheCancelSystem) {
         << "air_mp authors no cancel window, so nothing would have closed the "
            "landing links and this whole section is about something else";
     EXPECT_EQ(air.cancelWindowClose, kLandingLinkLatest);
-    // A LANDING LINK IS AN EDGE FROM AN AIR MOVE TO A GROUND ONE. That is what
-    // the name means -- the attacker comes down and continues on the floor -- and
-    // it is the predicate this loop has to use.
-    //
-    // It was written as `if (edge.to == airMp) continue;  // the self-cancel,
-    // delay 5`, which excluded ONE of air_mp's two delay-5 edges. `air_mp` has
-    // eleven outgoing edges: two at delay 5 into AIR moves (itself and `air_hk`
-    // -- the juggle edges, which resolve to [11, 14] and are perfectly takeable)
-    // and nine at delay 15 into GROUND moves (the landing links, which resolve to
-    // [21, 14] and are inert). Skipping by identity caught the self-cancel and
-    // let `air_hk` through, and the assertion below correctly refused it.
-    //
-    // The count is unaffected: `air_hk` is terminal, so no cycle can contain that
-    // edge, and every edge this file found blocking a cycle really is a delay-15
-    // landing link. The defect was in the explanation, not the measurement -- but
-    // an explanation that does not hold is exactly what this section exists to
-    // rule out, so it is tightened rather than excused.
+
+    std::size_t landingLinks = 0, airToAir = 0;
     for (const CancelIndex e : safe.character.cancelsFrom[airMp]) {
-        const Cancel& edge = safe.character.cancels[e];
-        if (safe.character.moves[edge.to].stance == Stance::Air) continue;
+        const Cancel& edge   = safe.character.cancels[e];
+        const Move&   target = safe.character.moves[edge.to];
+        if (target.stance == Stance::Air) {
+            ++airToAir;
+            EXPECT_LE(air.startup + edge.delay, air.cancelWindowClose)
+                << "`air_mp` -> `" << target.id << "` stays in the air and its "
+                   "window is closed too, so the split this section draws between "
+                   "air-to-air cancels and landing links has stopped holding";
+            continue;
+        }
+        ++landingLinks;
         EXPECT_EQ(air.startup + edge.delay, kLandingLinkEarliest)
-            << "`air_mp` -> `" << safe.character.moves[edge.to].id
-            << "` resolves its delay of " << edge.delay << " against a startup of "
-            << air.startup << ", and the window this file reasons about assumed "
-            << kLandingLinkEarliest;
+            << "`air_mp` -> `" << target.id << "` resolves its delay of "
+            << edge.delay << " against a startup of " << air.startup
+            << ", and this file's account assumed " << kLandingLinkEarliest;
         EXPECT_GT(air.startup + edge.delay, air.cancelWindowClose)
-            << "this landing link would be takeable, so it is not one of the 40";
+            << "this landing link is takeable after all, so it is not one of the "
+               "40 and the count above is measuring something else";
     }
+    EXPECT_EQ(landingLinks, kLandingLinks)
+        << "`air_mp` has " << landingLinks << " links back to the ground and the "
+           "file's derivation names nine: eight ground normals and the uppercut.";
+    EXPECT_EQ(airToAir, kAirToAirCancels);
+    // NINE links are inert and only EIGHT of them appear in a cycle: the ninth
+    // lands in `special_uppercut`, whose only outgoing edge is into `super_beam`,
+    // which has none at all, so it is on no cycle to block. That is why the
+    // blocked-hop count above is 40 -- one per cycle of length 3 or 4 -- and not a
+    // count of inert edges. The two numbers measure different things and only one
+    // of them is the gap.
 
     RecordProperty("cycles_fully_takeable", static_cast<int>(fullyTakeable));
     RecordProperty("cycles_blocked_by_empty_window", static_cast<int>(byEmptyWindow));
@@ -1365,10 +1503,14 @@ TEST(GapExtentKernel, ThirtyThreeOfTheFortyOneRunForever) {
 
     // --- every cycle got a fair run -----------------------------------------
     //
-    // Before any of the counts below mean anything: each cycle must have had
-    // enough ticks to repeat, and the defender must still be alive, because
-    // Fighter::health clamps at zero and a KO would stop `hit` being reported.
+    // Before any count below means anything: each cycle must have had enough ticks
+    // to repeat, and the defender must still be standing, because Fighter::health
+    // clamps at zero and a KO would stop `hit` being reported at all.
     for (const CycleResult& r : sweep.results) {
+        ASSERT_TRUE(r.driven)
+            << "this cycle was never driven, so it is absent from every count "
+               "below rather than counted as unperformable."
+            << describe(safe.character, r);
         EXPECT_GE(r.turns, static_cast<std::size_t>(kMinTurns))
             << "this cycle managed " << r.turns << " turns in " << kSweepTicks
             << " ticks, which is too few to call it periodic."
@@ -1381,10 +1523,57 @@ TEST(GapExtentKernel, ThirtyThreeOfTheFortyOneRunForever) {
                "hit counter stopped at the health clamp and every count in this "
                "test is an undercount. LOWER kSweepTicks."
             << describe(safe.character, r);
+        // The defender held a button from the tick after the combo opened and it
+        // changed nothing: not the attacker's health, and not one of the ticks the
+        // attacker's hits landed on. That is the difference between "the defender
+        // lost the exchange" and "the defender never had an exchange to lose".
         EXPECT_EQ(r.attackerHealth, kStartingHealth)
-            << "the attacker took damage, so this run is a trade being read as a "
-               "combo." << describe(safe.character, r);
+            << "the attacker took damage from a mashing defender, so this run is a "
+               "trade being read as a combo." << describe(safe.character, r);
+        EXPECT_TRUE(r.mashChangedNothing)
+            << "holding a button moved the attacker's hits, so the defender did "
+               "get a turn somewhere." << describe(safe.character, r);
     }
+
+    // --- the static account predicts the run, cycle for cycle ----------------
+    //
+    // Section 3 says which route the kernel takes for each hop and whether it
+    // arrives in time. If that account is right it must predict the executed
+    // outcome for all 41 -- and if it does not, the explanation in this file's
+    // header is a story rather than the mechanism.
+    for (const CycleResult& r : sweep.results)
+        EXPECT_EQ(r.predictedLoop, r.Unescapable())
+            << "the two-route account predicted "
+            << (r.predictedLoop ? "a loop" : "an escape") << " and the kernel "
+            << (r.Unescapable() ? "looped" : "let the defender out") << "."
+            << describe(safe.character, r);
+
+    // ... and it predicts the TICKS, not only the outcome. A cycle could loop for
+    // a reason other than the one this file gives and the counts above would still
+    // agree; this compares every move-to-move transition the trace performed with
+    // the frame the hop says the follow-up begins on. It is what turns "the kernel
+    // performs the link by the button-start route" from an inference into a
+    // reading -- the 32 button-route cycles enter their follow-up on `air_mp`'s
+    // frame 22, its full duration, and never inside the [21, 14] window that does
+    // not exist.
+    std::size_t totalChecks = 0, totalMismatches = 0;
+    for (const CycleResult& r : sweep.results) {
+        totalChecks     += r.timingChecks;
+        totalMismatches += r.timingMismatches;
+        EXPECT_GE(r.timingChecks, r.cycle.moves.size())
+            << "fewer transitions were checked than the cycle has hops, so at "
+               "least one hop of this cycle was never observed happening."
+            << describe(safe.character, r);
+        EXPECT_EQ(r.timingMismatches, 0u)
+            << r.timingMismatches << " of this cycle's " << r.timingChecks
+            << " observed transitions happened on a different frame than section "
+               "3 says. The account is wrong about the mechanism even if it "
+               "happens to be right about the outcome."
+            << describe(safe.character, r);
+    }
+    EXPECT_GT(totalChecks, 0u);
+    EXPECT_EQ(totalMismatches, 0u);
+    RecordProperty("route_timings_checked", static_cast<int>(totalChecks));
 
     // --- the count ----------------------------------------------------------
     std::size_t unescapable = 0, escapable = 0;
@@ -1405,27 +1594,28 @@ TEST(GapExtentKernel, ThirtyThreeOfTheFortyOneRunForever) {
     EXPECT_EQ(escapable, kEscapable);
     EXPECT_EQ(unescapable + escapable, sweep.results.size());
 
-    // Of the 33, one is performable the way the model describes it and 32 are
+    // Of the 33, ONE is performable the way the model describes it and 32 are
     // performed by the held-button route instead. Both are the same gap and they
-    // are not the same defect, so they are counted apart.
+    // are not the same defect, so they are counted apart: closing the cancel
+    // projection tomorrow would leave 32 of these standing.
     EXPECT_EQ(viaCancel, kByCancelAlone);
     EXPECT_EQ(viaButton, kByHeldButton);
 
     // --- WHY the eight that leak, leak ---------------------------------------
     //
     // They are exactly the cycles of length 3, and that is not a coincidence: a
-    // length-3 cycle lands from `air_mp` into a MEDIUM, and the button-start route
-    // arrives one tick later than the link the file authored. A medium's startup
-    // does not fit in what is left of +7; a light's does.
+    // length-3 cycle lands from `air_mp` straight into a MEDIUM, and the
+    // button-start route arrives one tick later than the link the file authored.
+    // A medium's startup does not fit in what is left of +7; a light's does.
     for (const CycleResult& r : sweep.results) {
         if (r.Unescapable()) continue;
         EXPECT_EQ(r.cycle.moves.size(), 3u)
             << "a cycle of length " << r.cycle.moves.size()
-            << " leaks a defender turn, and the one-tick explanation this file "
-               "gives covers only the eight of length 3."
+            << " leaks a defender turn, and the one-tick account this file gives "
+               "covers only the eight of length 3."
             << describe(safe.character, r);
-        // And it is a marginal miss rather than a broken chain: the loop still
-        // lands every hit, it simply gives the defender a tick back each turn.
+        // A marginal miss rather than a broken chain: the loop still lands every
+        // hit on schedule, it simply hands one or two ticks back per turn.
         EXPECT_GE(r.turns, static_cast<std::size_t>(kMinTurns));
         EXPECT_LE(r.actionableTicks, r.turns * 2)
             << "the defender is getting more than two ticks per turn back, which "
@@ -1445,25 +1635,32 @@ TEST(GapExtentKernel, ThirtyThreeOfTheFortyOneRunForever) {
     RecordProperty("unescapable_via_cancel", static_cast<int>(viaCancel));
     RecordProperty("unescapable_via_held_button", static_cast<int>(viaButton));
 
-    // --- the record, printed on success, because this is the number ----------
-    const BuildLoss* effects = nullptr;
-    const BuildLoss* stance  = nullptr;
-    {
-        MatchBuild probe{};
-        ASSERT_TRUE(buildMirror(safe.character, {}, probe));
-        effects = findLoss(probe.report[0], "move.effect");
-        stance  = findLoss(probe.report[0], "move.stance");
-        ASSERT_NE(effects, nullptr);
-        ASSERT_NE(stance, nullptr);
-        EXPECT_EQ(effects->direction, BuildLossDirection::KernelOmits);
-        EXPECT_GT(effects->count, 0)
-            << "the kernel is supposed to be dropping this character's resource "
-               "effects and the loss table says it drops none";
-        EXPECT_FALSE(probe.report[0].playsAsAnalysed)
-            << "the bridge claims the kernel plays the character ProverAdapter "
-               "analysed, and this test just performed " << kUnescapable
-            << " combos that character cannot do.";
+    // --- the record, printed on success, because this IS the number ----------
+    std::size_t endedByJuggle = 0, fullyTakeable = 0;
+    for (const CycleResult& r : sweep.results) {
+        if (r.juggle < 0)        ++endedByJuggle;
+        if (r.everyEdgeTakeable) ++fullyTakeable;
     }
+
+    MatchBuild probe{};
+    ASSERT_TRUE(buildMirror(safe.character, {}, probe)) << probe.report[0].error;
+    const BuildLoss* effects = findLoss(probe.report[0], "move.effect");
+    const BuildLoss* stance  = findLoss(probe.report[0], "move.stance");
+    ASSERT_NE(effects, nullptr);
+    ASSERT_NE(stance, nullptr);
+    EXPECT_EQ(effects->direction, BuildLossDirection::KernelOmits);
+    EXPECT_GT(effects->count, 0)
+        << "the kernel is supposed to be dropping this character's resource "
+           "effects, and the loss table says it drops none";
+    EXPECT_EQ(stance->direction, BuildLossDirection::KernelPermits);
+    EXPECT_GT(stance->count, 0)
+        << "`air_mp` is an AIR move and the kernel is supposed to have no stance "
+           "rule, which is the second, independent reason every one of these loops "
+           "is performable from the ground";
+    EXPECT_FALSE(probe.report[0].playsAsAnalysed)
+        << "the bridge claims the kernel plays the character ProverAdapter "
+           "analysed, and this test just performed " << unescapable
+        << " combos that character cannot do.";
 
     std::cout
         << "\n[ GAP EXTENT ] every cycle of `" << safe.character.id << "`, measured\n"
@@ -1472,36 +1669,44 @@ TEST(GapExtentKernel, ThirtyThreeOfTheFortyOneRunForever) {
         << " dead in the model, " << safe.verdict.usableCancels << " usable\n"
         << "  simple cycles   " << sweep.authored.size()
         << " over the AUTHORED graph, " << sweep.usable.size()
-        << " over the USABLE one\n"
-        << "                  (1 self-loop, 8 of length 3, 32 of length 4 -- the "
-           "authoring report's\n"
-        << "                  number, derived here rather than believed)\n"
-        << "  ended by juggle " << kEndedByJuggle << " of " << sweep.usable.size()
-        << ". Every cycle spends juggle strictly, no cycle touches meter,\n"
-        << "                  and `move.effect` is a "
+        << " over the USABLE one:\n"
+        << "                  " << kSelfLoops << " self-loop, " << kLengthThree
+        << " of length 3, " << kLengthFour << " of length 4 -- the authoring\n"
+        << "                  report's number, derived here rather than believed.\n"
+        << "  ended by juggle " << endedByJuggle << " of " << sweep.usable.size()
+        << ". Every cycle spends juggle strictly and none touches\n"
+        << "                  meter, and `move.effect` is a "
         << BuildLossDirectionName(effects->direction) << " loss over "
         << effects->count << " move(s):\n"
-        << "                  the kernel has no juggle to spend.\n"
-        << "  performable as  " << kFullyTakeable << " of " << sweep.usable.size()
-        << ". The other " << kEmptyWindowed << " each contain ONE edge the kernel\n"
-        << "  the model says  cannot take -- a landing link out of `air_mp`, "
+        << "                  the kernel has no juggle to spend. `move.stance` is a "
+        << BuildLossDirectionName(stance->direction) << "\n"
+        << "                  loss over " << stance->count
+        << " move(s), so the air moves are startable standing.\n"
+        << "  performable as  " << fullyTakeable << " of " << sweep.usable.size()
+        << ". The other " << (sweep.usable.size() - fullyTakeable)
+        << " each contain ONE edge the\n"
+        << "  the model says  kernel cannot take: a landing link out of `air_mp`, "
            "resolved to the\n"
         << "                  empty window [" << kLandingLinkEarliest << ", "
         << kLandingLinkLatest << "] because the authored delay lands past the\n"
         << "                  cancel window's close.\n"
         << "  EXECUTED        " << unescapable << " of " << sweep.usable.size()
-        << " run with the defender never once actionable, for as\n"
-        << "                  long as the trace runs. " << viaCancel
-        << " through the cancel system and " << viaButton << " through\n"
-        << "                  the held-button restart that performs the inert link "
-           "anyway.\n"
-        << "                  The other " << escapable
-        << " give one tick back per turn and are exactly the\n"
-        << "                  eight that land from `air_mp` into a medium.\n"
-        << "  so the gap is   " << unescapable
+        << " run with the defender never once actionable, and\n"
+        << "                  every one of them returns to its own opening state "
+           "each turn.\n"
+        << "                  " << viaCancel << " through the cancel system, "
+        << viaButton << " through the held-button restart\n"
+        << "                  that performs the inert link anyway. The other "
+        << escapable << " hand one tick\n"
+        << "                  back per turn and are exactly the eight that land "
+           "from `air_mp`\n"
+        << "                  into a medium.\n"
+        << "  SO THE GAP IS   " << unescapable
         << " cycles wide on a character the tool certifies as\n"
-        << "                  TERMINATING. ARCHITECTURE.md D8, "
-           "BuildReport::playsAsAnalysed false.\n\n";
+        << "                  TERMINATING, and the ground-truth file measured 1 of "
+           "them.\n"
+        << "                  ARCHITECTURE.md D8; BuildReport::playsAsAnalysed is "
+        << (probe.report[0].playsAsAnalysed ? "true" : "false") << ".\n\n";
 }
 
 // ============================================================================
@@ -1514,7 +1719,7 @@ TEST(GapExtentKernel, ThirtyThreeOfTheFortyOneRunForever) {
 // state and the trace continues without end by induction. The defender's health
 // is the one field excluded, and it is excluded because it is the one thing that
 // must change for this to be a combo rather than a stalemate.
-TEST(GapExtentKernel, EveryLoopReturnsToItsOwnStartingStateExactly) {
+TEST(GapExtentKernel, EveryLoopReturnsToItsOwnOpeningStateExactly) {
     Subject safe{};
     bringUp(kSafe, safe);
     ASSERT_FALSE(::testing::Test::HasFatalFailure());
@@ -1539,8 +1744,9 @@ TEST(GapExtentKernel, EveryLoopReturnsToItsOwnStartingStateExactly) {
 
     // The escapable eight repeat too, and that is worth saying rather than
     // glossing: they are eternal loops WITH a defender turn inside each period,
-    // not combos that peter out. The kernel gives the defender one tick per turn
-    // and the attacker takes the turn back every time.
+    // not combos that peter out. The kernel hands the defender a tick per turn and
+    // the attacker takes it straight back, every turn, for as long as the trace
+    // runs.
     for (const CycleResult& r : sweep.results) {
         if (r.Unescapable()) continue;
         EXPECT_TRUE(r.stateRepeats);
@@ -1555,7 +1761,7 @@ TEST(GapExtentKernel, EveryLoopReturnsToItsOwnStartingStateExactly) {
 // ============================================================================
 
 // Kept as a test rather than as a paragraph, because "our detector is stricter"
-// is a claim about four specific cycles and either it is measurable or it is an
+// is a claim about four specific cycles, and either it is measurable or it is an
 // excuse. Both detectors are run over the same 41 traces and the difference is
 // asserted.
 //
@@ -1568,7 +1774,7 @@ TEST(GapExtentKernel, EveryLoopReturnsToItsOwnStartingStateExactly) {
 //                 ResolveHits sets their moveId back to 0 later in the same tick.
 //
 // Both then report a clean loop. The defender was actionable and got hit for it,
-// which is a one-frame gap rather than no gap -- and against a kernel that had
+// which is a one-frame gap rather than no gap -- and in a kernel that had
 // blocking, it is the frame the combo would end on.
 TEST(GapExtentMethod, TheGroundTruthDetectorsMissFourEscapesThisOneFinds) {
     Subject safe{};
@@ -1583,17 +1789,17 @@ TEST(GapExtentMethod, TheGroundTruthDetectorsMissFourEscapesThisOneFinds) {
     std::size_t byFreeTicks = 0, byActionable = 0, disagreements = 0;
     for (const CycleResult& r : sweep.results) {
         const bool freeSaysLoop = (r.freeTicks == 0 && r.actedTicks == 0);
-        if (freeSaysLoop)  ++byFreeTicks;
+        if (freeSaysLoop)    ++byFreeTicks;
         if (r.Unescapable()) ++byActionable;
         if (freeSaysLoop != r.Unescapable()) {
             ++disagreements;
             // The disagreement only ever runs one way. A tick this file calls an
             // escape and the copied detectors call a loop is a real escape; the
-            // reverse would mean the actionable rule was inventing them.
+            // reverse would mean the actionable rule was inventing them, and the
+            // argument in the header would be backwards.
             EXPECT_TRUE(freeSaysLoop)
                 << "the copied detectors found an escape the actionable rule did "
-                   "not, which means the actionable rule is the loose one and the "
-                   "argument in this file's header is backwards."
+                   "not, so the actionable rule is the LOOSE one."
                 << describe(safe.character, r);
             EXPECT_GT(r.actionableTicks, 0u);
         }

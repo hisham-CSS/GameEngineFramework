@@ -9,10 +9,12 @@
 // a tool.
 //
 // `fighter_a` authors, deliberately, a probe: `crouch_lp` cancelling into ITSELF
-// at delay 10, marked `kind: "link"` and captioned "AUTHORED TO BE REPORTED
-// DEAD ... the probe is dead by exactly one frame and that margin IS the
-// character's finiteness". This file moves that one integer and measures what
-// happens, in both systems that read it.
+// at delay 10, marked `kind: "link"`, whose own `caveat` reads "AUTHORED TO BE
+// REPORTED DEAD ... written down so the prover PRINTS its own margin instead of
+// the file asserting one" -- and whose target move's `engine.derivation` names
+// what that margin is worth: "the probe is dead by exactly one frame and that
+// margin IS the character's finiteness". This file moves that one integer and
+// measures what happens, in both systems that read it.
 //
 // ---------------------------------------------------------------------------
 // THE ARITHMETIC WAS CHECKED RATHER THAN INHERITED, AND IT DID NOT SURVIVE
@@ -71,16 +73,17 @@
 //
 // The sweep, measured (120 ticks, silent defender, bodies 8 px apart):
 //
-//   delay  window   prover       kernel
-//   0..2   [ 5, 9]  INFINITE     connects every 5 ticks, defender never free
-//   3      [ 6, 9]  INFINITE     connects every 6
-//   4      [ 7, 9]  INFINITE     connects every 7
-//   5      [ 8, 9]  INFINITE     connects every 8
-//   6      [ 9, 9]  INFINITE     connects every 9, defender never free   <-- game
-//   7..9   [10..12, 9]  INFINITE INERT: the move runs out, restarts every 14,
-//                                and the defender is free between every pair
-//   10     [13, 9]  TERMINATING  INERT                                   <-- SHIPPED
-//   11..16 empty    TERMINATING  INERT
+//   delay   window    prover        kernel
+//   0..2    [ 5,  9]  INFINITE      connects every 5 ticks, defender never free
+//   3       [ 6,  9]  INFINITE      connects every 6
+//   4       [ 7,  9]  INFINITE      connects every 7
+//   5       [ 8,  9]  INFINITE      connects every 8
+//   6       [ 9,  9]  INFINITE      connects every 9, defender never free  <-- GAME
+//   7       [10,  9]  INFINITE      INERT: the move runs out and the held button
+//   8       [11,  9]  INFINITE      restarts it every 14 ticks, and the defender
+//   9       [12,  9]  INFINITE      is free between every pair of hits  <-- ANALYSIS
+//   10      [13,  9]  TERMINATING   INERT                              <-- SHIPPED
+//   11..16  [14..19, 9]  TERMINATING  INERT
 //
 // Two things in that table are worth a designer's attention beyond the
 // boundaries themselves. Delays 0, 1 and 2 are INDISTINGUISHABLE in the kernel,
