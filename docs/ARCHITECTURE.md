@@ -379,6 +379,45 @@ Total to a networked, cross-platform-verified, moddable fighting-game framework:
 
 **Effort note.** There is no `.github/` today **[V]**, therefore no vcpkg binary cache. A cold leg builds assimp (+draco, the known long-path offender), glfw, imgui, sol2, lua, yoga, pugixml, meshoptimizer and Jolt from source: 30-60 min. Wiring the binary cache is its own day and is part of this phase. Two legs, not five — the ARM legs only matter under a design we rejected.
 
+> ### ✅ PHASE 1'S CORE CLAIM IS PROVEN. 2026-08-13.
+>
+> **A golden state hash recorded from MSVC 19.44 / Windows was reproduced exactly
+> by gcc 13 / Linux, over 3000 ticks.** `CrossPlatformDeterminism.TheScriptedMatchHashesToTheRecordedValue`
+> passes on both CI legs, and both legs are required. Cross-platform bit-identity
+> is now a checked property rather than an argument, which is what `NORTHSTAR` Q1
+> (crossplay in scope) needs and what D2 predicted would come free from integer
+> arithmetic. It did.
+>
+> **What was built** (`tests/test_determinism_crossplat.cpp`): 3000 scripted ticks
+> exercising walking, jumps and their whole arc, stun, the stage clamps and the
+> RNG stream, hashed at **every** tick — a final-state-only hash can be
+> accidentally equal after a divergence that cancels, and localises nothing.
+> Checkpoints every 1000 ticks name the first diverging one. `sizeof`, `alignof`
+> and trivially-copyable are asserted **before** the hash, so a padding change
+> reports itself as a padding change rather than as an arithmetic divergence.
+>
+> **Where the design above differs from what shipped, and why.**
+> - No `tools/det_trace` and no checked-in trace files. A recorded constant in the
+>   test source achieves the same comparison with no binary artifacts to keep in
+>   sync, because the test binary is compiled by both toolchains and the constant
+>   is the meeting point. Trace files become worth their weight when there are
+>   many scenarios; there is one.
+> - The hash IS over raw struct memory, which this section forbids. That
+>   prohibition exists to defend against `-0.0f`, NaN and padding — and the kernel
+>   has no float at all, with `Fighter::pad_` an explicit named byte. The
+>   structural asserts are what keep that true. If a float ever enters the kernel
+>   the determinism gate rejects it at the source (`scripts/check_determinism_flags.py`
+>   scans `Kernel/` for `float`, `double`, `<cmath>`, `<random>`, `<chrono>`).
+> - **The grep gate did not turn red and needs no Jolt allowlist.** Jolt compiles
+>   its own TUs inside vcpkg's buildtrees, which never reach our compile lines.
+>   Measured, not assumed — see the note in `check_determinism_flags.py`.
+> - The vcpkg binary cache is wired and CI is four required jobs, so the effort
+>   note above is settled.
+>
+> **Still owed from this phase:** the mirror-symmetry property (D2's
+> `scaleBy` rounding asymmetry) has a sub-unit arithmetic test but not a full
+> mirrored-input trace — there is not yet enough simulation to mirror.
+
 ---
 
 ### Phase 2 — The kernel skeleton and the rollback contract (3 weeks)
