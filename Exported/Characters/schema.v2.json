@@ -1,0 +1,1066 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://catsplatstudios.com/schemas/character.v2.json",
+  "title": "CSE fighting-game character, schema v2 (closes ADR-001's blocking item)",
+  "type": "object",
+
+  "$comment": "PROVENANCE. v2 exists for exactly one reason: ADR-001 section 8 item 1 says 'Do not freeze schema v1. Add the nine fields in section 4 before Phase 3 begins. (Blocking.)' This file is that. Everything else about v1 is preserved unchanged. v2 remains a strict SUPERSET of the prover's native JSON format, defined by the reference loader C:/rw/comboprover/importers/json_spec.py:44-207. That loader reads every field through raw.get(...) or a named subscript and NEVER enumerates keys, so every field v2 adds is invisible to it and no export step appears. MEASURED, not asserted: all three Phase-0 character files validate against THIS schema unchanged, and the three verdicts (Kung Fu Girl INFINITE, Kung Fu Man TERMINATING, AOF2 TERMINATING) are byte-identical before and after v2. See x-v2-verification.",
+
+  "x-field-classes": {
+    "P": "PROVER-VISIBLE. Read by json_spec.py into comboprover.model, and by the ~200-line C++ adapter into comboprover::Character (engine/comboprover.hpp:121-174). Changing one of these can change the verdict. v2 ADDS NO [P] FIELDS AND RENAMES NONE.",
+    "E": "ENGINE-ONLY. Lives under an `engine` key. Ignored by the loader (verified: json_spec.py never enumerates keys). This is where everything the prover's fragment cannot see goes -- per-frame boxes, animation, FX, inputs, provenance, and the escape-hatch ledger.",
+    "E5": "NEW IN v2. ENGINE-ONLY TODAY, PROVER-VISIBLE IN PHASE 5. A declarative predicate that json_spec.py ignores exactly as it ignores [E], but that ADR-001 section 4 group G and ADR-002 CHOICE B say the Phase 5 trigger language WILL read. The class exists to keep the two apart: [E] is data the declarative fragment provably cannot ever see (a hit spark, a sprite offset); [E5] is data it cannot see YET. An [E5] field sits at move/cancel level rather than under `engine` where ADR-001 spelled it that way, because that is where a future reader would look for it. Both are equally invisible to today's loader, and x-v2-verification proves it rather than assuming it.",
+    "rule": "Every [P] field must be DERIVABLE from the source character, and every [P] field must carry a sibling `engine.derivation` string saying which file and line it came from, or saying plainly that it was ESTIMATED and by what rule. Phase 0 found three quantities that are only ever estimates from MUGEN: pushback, hitstun decay, and (for AI characters) transition probability.",
+    "rule_v2_integers": "NEW IN v2, from ARCHITECTURE.md:47 (D2): 'plain int32 in fixed sub-units (1 pixel = 256 sub-units) ... no general fixed-point multiply. Every genuine scaling operation goes through one helper with one documented rounding rule.' EVERY quantity v2 adds that the simulation integrates over time is an integer in sub-units. No v2 field is a float. The floats that remain are all inherited from v1 and are enumerated, with the reason each one is allowed to stay, in x-v2-where-floats-remain."
+  },
+
+  "required": ["name", "moves"],
+  "additionalProperties": false,
+
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "[P] json_spec.py:187. If absent the loader substitutes the file stem (json_spec.py:205-207)."
+    },
+
+    "notes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "[P] json_spec.py:197. Free prose, echoed verbatim by `analyse` under 'Notes:'. Phase 0 uses it for the character-level caveats a designer must read before trusting the verdict."
+    },
+
+    "stage": {
+      "enum": ["midscreen", "corner"],
+      "default": "corner",
+      "description": "[P] json_spec.py:193 (model.CORNER is the default). MEASURED, and this is the single most consequential field in the file: `corner` drops horizontal position entirely (model.py:453-456), so a character can be TERMINATING midscreen and INFINITE in the corner. Both Kung Fu Girl and Kung Fu Man do exactly that. NOTE that the C++ header engine/comboprover.hpp is corner-only by construction (its header comment, :15-24), so the in-editor panel and the offline Python run are answering DIFFERENT QUESTIONS unless the stage is corner."
+    },
+
+    "walk_speed": {
+      "type": "number",
+      "minimum": 0,
+      "description": "[P] json_spec.py:195. Reach units per frame. Midscreen only. It becomes a one-frame gap action that gives __space back (model.py:443-448), which is how a combo out-walks its own pushback. Quantized by model.py:468 as int(round(v*100)) against model.py:465's scale = 100, so authored precision beyond 1/100 reach unit is discarded -- a real loss, and it under-states the attacker, which can hide an infinite but never invent one. MEASURED: dropping Kung Fu Girl's 0.03 to 0.025 flips midscreen INFINITE to TERMINATING. v2 note: the exact integer this float approximates belongs in engine.constants; Kung Fu Man's 2.4 px/tick is 614 sub-units exactly and 0.024 reach units inexactly (ADR-001:499-504)."
+    },
+
+    "scaling": {
+      "type": "array",
+      "items": { "type": "number" },
+      "description": "[P] json_spec.py:196. Damage multiplier by hit index; the last entry repeats. Affects reported max damage only, never the verdict. D8 stores these as int32 permille in the engine; see engine.quantized_sources.scaling_permille."
+    },
+
+    "starters": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "[P] json_spec.py:192. Move ids a combo may open with. Empty means any move."
+    },
+
+    "decay": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "[P] json_spec.py:111-123. How hitstun shrinks as the combo runs. THE MOST DANGEROUS OBJECT IN THIS SCHEMA -- see the two rules below, both found by measurement in Phase 0 and both now hard decisions in ADR-001 section 8 item 3.",
+      "properties": {
+        "kind": {
+          "enum": ["none", "linear", "table"],
+          "default": "none",
+          "description": "CHANGED IN v2, AND THIS IS THE ONLY NARROWING v2 MAKES. `multiplicative` IS REMOVED FROM THE ENUM. ADR-001 section 8 item 3 decides: 'Forbid decay.kind: multiplicative in the schema.' The reason is measurement, not taste: comboprover.hpp:82-88 computes it by repeated float multiply then static_cast<int>, model.py:261-263 by base*ratio**n then int(), and an integer kernel on scaleBy reproduces NEITHER (ADR-001:328-336). `none` and `linear` are pure integer arithmetic in both implementations (model.py:257-260, comboprover.hpp:81) and are the only two Phase 0 shipped. `table` with integer permille multipliers is the D8-preferred escape if a real decay curve is ever needed. SUPERSET NOTE: this narrowing costs nothing in practice -- no file in Exported/Characters/ uses `multiplicative` (Kung Fu Girl is `none`, Kung Fu Man and AOF2 are `linear`), the `ratio` property below is RETAINED so a file carrying a stale ratio still validates, and json_spec.py would load a `multiplicative` file regardless because it does not validate against this schema at all. The ban is therefore enforced at VALIDATION and at ADAPTER LOAD (assertion A02), never by the loader. See x-v2-changes.narrowings."
+        },
+        "step": { "type": "integer", "minimum": 0, "description": "linear: frames removed per hit already landed." },
+        "floor": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Never decay below this. HARD RULE, measured, and now assertion A01: floor must be <= the SMALLEST hitstun in the file. Both implementations compute max(floor, base - step*n) (model.py:260, comboprover.hpp:81), so a floor ABOVE a move's base hitstun RAISES it and invents frame advantage the game does not have. Measured on Kung Fu Girl: the draft house rule linear(step 2, floor 10) raises stand_lp's authored 9 frames (corpus/kfg/Normal.cns:48) to 10 and the analyser then reports an INFINITE that the character does not have (ADR-001:338-349). Measured on the AOF2 thug: every base hitstun is 7, so the same floor of 10 would fabricate three frames of advantage on every move in the file. VERIFIED IN v2 against all three shipped files: KFG floor 0 vs min hitstun 9, KFM floor 10 vs min hitstun 11, AOF2 floor 5 vs min hitstun 7. All three pass, KFM by one frame."
+        },
+        "ratio": { "type": "number", "description": "multiplicative only. DEAD FIELD in v2: `multiplicative` is no longer a legal `kind`, so nothing reads this. Retained solely so that a v1 file which authored a ratio still validates against v2. Do not author it in a new file." },
+        "table": { "type": "array", "items": { "type": "number" }, "description": "table only: multiplier by hit index, last entry repeats. Author the integer permille originals in engine.quantized_sources.decay_table_permille." },
+        "engine": { "type": "object", "description": "[E] Provenance. MUST say whether the decay was DERIVED from the source or ESTIMATED as a house rule. MUGEN 1.0/1.1 has no global hitstun decay, so for any MUGEN import the truthful transcription is kind:none." }
+      }
+    },
+
+    "resources": {
+      "type": "array",
+      "description": "[P] json_spec.py:154-166. Positional: comboprover::Character keys a ResourceVec by INDEX (comboprover.hpp:56, :128-129, :152), so every character in a build must declare the same resources in the same order or the C++ adapter silently compares meter against juggle. Phase 0 declares meter then juggle in all three files for exactly this reason, even where one of them is inert. ADR-001 section 8 item 7 promotes this to a BUILD-WIDE CONTRACT; v2 records it as assertion A03, which is a cross-FILE check and therefore cannot live in JSON Schema.",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "initial": { "type": "integer", "default": 0 },
+          "floor": { "type": "integer", "default": 0 },
+          "ceiling": {
+            "type": ["integer", "null"],
+            "description": "[P] in Python (json_spec.py:158-164, clamped at model.py:192 and termination.py:200,245,252) but ABSENT FROM THE C++ MODEL ENTIRELY -- comboprover.hpp:148-174 has no ceiling field and nonNegative() at :264-269 hardcodes floor 0. The ~200-line adapter MUST clamp in its own search loop or the editor panel and the offline run search different state spaces. This is a known unsoundness, not a rounding difference. ADR-001 section 8 item 4 settles HOW: the adapter clamps in its own loop; the `meter_room` mirror-resource alternative is REJECTED on the record because it forbids the gain instead of saturating it, under-approximating the attacker, so it can MISS an infinite (ADR-001:369-374)."
+          },
+          "engine": { "type": "object", "description": "[E] Unit definition and provenance. For a MUGEN import: units_per_bar, mugen_power_per_unit, and a statement of whether the quantization is EXACT (i.e. the GCD of every power value in the character divides the unit) or rounds. THE BUILD-WIDE METER UNIT IS 1 unit = 10 MUGEN power = 1/100 bar, ceiling 300 (ADR-001 section 3 gate 2, :135-140). It is the GCD of every power value across all three Phase-0 characters (10/20/30/40/50/60/80/100/120/1000), so it is exact with no rounding anywhere. ADR-001 section 8 item 2 strikes 'quantize meter to bars' from the plan: bars FABRICATE an infinite when gains round up and delete every super when they round down." }
+        }
+      }
+    },
+
+    "gap_actions": {
+      "type": "array",
+      "description": "[P] json_spec.py:168-184. Something the attacker can do in the gap between two hits -- a dash, a jump cancel -- costing frames and paying a resource effect. gap.py:29-33 warns that crediting movement the attacker cannot actually perform INVENTS infinites, so an action the source character does not have must be authored with a zero effect rather than guessed. Both Kung Fu characters do this: neither has a fixed-distance dash, so their `microdash` is authored disabled with effect 0 and walk_speed carries the movement instead. NEW IN v2: `engine.variant` closes ADR-001 section 4 group I -- see $defs.gapAction and x-worked-examples.per_variant_gap_actions.",
+      "items": { "$ref": "#/$defs/gapAction" }
+    },
+
+    "moves": {
+      "type": "array",
+      "minItems": 1,
+      "description": "[P] json_spec.py:135-146. Must be non-empty or the loader raises SpecError.",
+      "items": { "$ref": "#/$defs/move" }
+    },
+
+    "cancels": {
+      "type": "array",
+      "description": "[P] json_spec.py:148-152.",
+      "items": { "$ref": "#/$defs/cancel" }
+    },
+
+    "engine": { "$ref": "#/$defs/characterEngine" }
+  },
+
+  "$defs": {
+
+    "resourceMap": {
+      "type": "object",
+      "additionalProperties": { "type": "integer" },
+      "description": "[P] json_spec.py:44-49, coerced with int(). Resource name -> integer delta (in `effect`) or minimum required (in `guard`). `__space` is RESERVED ON MOVES AND CANCELS: model.py:476/:479 merges an authored value with the one it derives from reach and pushback, so an authored number there silently combines rather than applies. On GAP ACTIONS it is the opposite -- authoring it is the documented way to express displacement (gap.py:54-56) and every shipped character does. Assertion A04."
+    },
+
+    "gapAction": {
+      "type": "object",
+      "required": ["id", "frames"],
+      "properties": {
+        "id": { "type": "string" },
+        "frames": { "type": "integer", "minimum": 0 },
+        "effect": { "$ref": "#/$defs/resourceMap" },
+        "guard": { "$ref": "#/$defs/resourceMap" },
+        "max_uses": { "type": "integer", "minimum": 0, "default": 0, "description": "0 means unlimited." },
+        "label": { "type": "string" },
+        "engine": {
+          "type": "object",
+          "description": "[E] Provenance, plus v2's per-variant marker.",
+          "properties": {
+            "enabled": { "type": "boolean", "description": "false records an action the character does NOT have, authored with a zero effect so that gap.py:29-33's warning is satisfied explicitly rather than by omission." },
+            "state_id": { "type": "integer" },
+            "source": { "type": "string" },
+            "derivation": { "type": "string" },
+            "variant": {
+              "type": ["integer", "null"],
+              "default": null,
+              "description": "NEW IN v2 -- FIELD 9 of 9. [E] The sub-character this action belongs to, keyed to engine.variants.list[].id. null means 'every variant', which is what a normal single-character file authors and is the v1 behaviour. THE PROBLEM IT SOLVES (ADR-001:288-294): the AOF2 thug is a spawner plus four disjoint sub-characters selected by var(0) = random % 4, rolled once at spawn and never changed (corpus/aof2/States.st:71-73). Moves and cancels can be duplicated per variant and are -- punk_a_*, punk_b_*, fat_a_*, fat_b_* -- but 'gap_actions, walk_speed, decay, scaling and resources are character-global' (ADR-001:293-294), so the punk's 8.5 px/frame run (States.st:239-242) and the fat variant's 5.5 px/frame run (States.st:244-247) had no way to coexist. THE PROVER SEMANTICS, and why the union is the safe reading: json_spec.py:168-184 reads every gap action regardless of this tag, so the modelled character may use ALL of them. Each authored action keeps its own frames, effect, guard and max_uses, so no variant's restriction is ever dropped, and the union is therefore at least as permissive as any single variant. A TERMINATING verdict over the union implies TERMINATING for every variant, which is the direction that matters. THE COST, stated because it is real: an INFINITE verdict over a multi-variant file may name a route no single sub-character can perform, because the search may combine one variant's move with another variant's gap action. That is the permissive direction ADR-001:224-225 calls safe -- it can invent an infinite, it cannot hide one -- but a reader must be told, so assertion A11 requires notes[] to carry the warning whenever any gap action declares a non-null variant. THE ALTERNATIVE, rejected: authoring only the FASTEST variant's action, which is what aof2_strength_training.json does today (170 units, the punk speed, over-crediting the two fat variants deliberately). That is also sound and it is strictly LESS informative, because the fat variants' real numbers are then absent from the file entirely."
+            },
+            "known_over_approximation": { "type": "string" },
+            "escape_hatch": { "$ref": "#/$defs/escapeHatch" }
+          }
+        }
+      }
+    },
+
+    "predicate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["property", "op"],
+      "description": "[E5] NEW IN v2. THE FIXED-SHAPE PREDICATE. This is ADR-002 CHOICE B implemented literally: 'They have a FIXED SHAPE: an opponent property, a comparison, a constant. Encode them as data -- an enum selector plus a threshold -- and the parser stays deferred' (ADR-002:76-78). A predicate is exactly one (property, op, constant) triple drawn from closed enums. IT IS NOT AN EXPRESSION. There is no arithmetic, no function call, no nesting, no variable on the right-hand side. Evaluating one is a switch and a compare; there is nothing to parse. The grammar is Phase 5's job (ARCHITECTURE.md:344 scopes it at ~10 atom kinds and 6 comparison operators ported from triggers.py:407-519, and ADR-001:270-272 grows that scope by an OPPONENT namespace it was not budgeted for).",
+      "properties": {
+        "property": {
+          "enum": [
+            "opponent.state_type",
+            "opponent.move_type",
+            "opponent.body_distance_x",
+            "opponent.body_distance_x_abs",
+            "opponent.juggle_count",
+            "opponent.hit_fall",
+            "opponent.in_hitstun",
+            "self.juggle_count",
+            "self.hit_fall",
+            "self.move_contact",
+            "self.move_reversed",
+            "self.state_no",
+            "self.variant"
+          ],
+          "description": "THE NAMESPACE. ADR-001:270-272 names the three that Phase 5 must have and that Phase 0 measured a need for: p2statetype, p2movetype, p2bodydist. All three are here as opponent.state_type, opponent.move_type and opponent.body_distance_x. The rest are the properties the Phase-0 corpus actually uses and nothing more: opponent.juggle_count and opponent.hit_fall are Kung Fu Girl's var(15) and var(16) (corpus/kfg/System.cns:2611-2666); self.move_contact and self.move_reversed are Kung Fu Girl's chop gate (corpus/kfg/Normal.cns:224); opponent.in_hitstun is the named sugar for opponent.move_type != hitstun, which is the single most important predicate the corpus contains (corpus/aof2/States.st:190, :197). DO NOT ADD TO THIS ENUM WITHOUT A CITATION. The enum being short is the evidence that a grammar is not needed yet."
+        },
+        "op": {
+          "enum": ["eq", "ne", "lt", "le", "gt", "ge"],
+          "description": "Six comparison operators, matching what ARCHITECTURE.md:344 already budgets for Phase 5."
+        },
+        "value": {
+          "type": ["integer", "string", "boolean"],
+          "description": "The CONSTANT. A string only for the two enumerated properties: opponent.state_type takes one of stand|crouch|air|lying, opponent.move_type takes one of attack|idle|hitstun. Never an expression, never another property."
+        },
+        "value_sub": {
+          "type": "integer",
+          "description": "The constant, in SUB-UNITS (1 px = 256, ARCHITECTURE.md:47), for the two distance properties. Use this instead of `value` for opponent.body_distance_x and opponent.body_distance_x_abs so that the comparison the simulation performs is integer and identical on every platform. Author the pixel original alongside in `value_px` for readability; nothing reads it."
+        },
+        "value_px": { "type": "integer", "description": "[E] Provenance only. The source's pixel constant, so value_sub can be checked by eye as value_px * 256." },
+        "source": { "type": "string", "description": "file:line the predicate was read from. MANDATORY IN SPIRIT, exactly as engine.derivation is." }
+      }
+    },
+
+    "predicateList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["all"],
+      "description": "[E5] NEW IN v2. A CONJUNCTION OF PREDICATES, AND DELIBERATELY NOTHING ELSE. `all` is an AND-list: every entry must hold. THERE IS NO `any`, NO `not`, AND NO NESTING, and their absence is the design. ADR-002:79-80 sets the trigger for changing that: 'Reach for a grammar when authors need to combine them in ways an enum cannot express, which is a Phase 5 question. Reversed if: authors need arbitrary boolean composition over opponent state before Phase 5.' A flat AND-list is not arbitrary boolean composition -- it is a loop over an array with an early exit. MEASURED SUFFICIENCY: every predicate in the Phase-0 corpus is a pure conjunction of at most two clauses. Kung Fu Girl's hit gate is `!var(16) && var(15) < 1` (corpus/kfg/Normal.cns:27, byte-identical on all 17 normals). AOF2's transition gate is `p2bodydist x <= 30 && p2movetype != H` (corpus/aof2/States.st:190, :197). Two clauses, both ANDs, in 2 of 3 characters. The day a character needs an OR is the day this becomes a grammar, and that day is Phase 5's to handle -- not this schema's to anticipate.",
+      "properties": {
+        "all": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/predicate" }
+        },
+        "source": { "type": "string" },
+        "prose": { "type": "string", "description": "[E] The original trigger text, verbatim from the .cns, so the structured form can be audited against what it claims to encode." },
+        "unmodelled": {
+          "type": "string",
+          "description": "[E] MANDATORY WHEN THE SOURCE TRIGGER HAS A CLAUSE THIS LIST DROPS. State the clause and the direction of the resulting error. The corpus needs this immediately: AOF2's real trigger is `roundstate = 2 && random < 50 && p2bodydist x <= 30 && p2movetype != H` (corpus/aof2/States.st:189-190), and `random < 50` is not encodable in a deterministic rollback simulation OR in the prover's model, which has no probability (ADR-001:275-279). Dropping a probability gate makes a sometimes-edge into an always-edge, which is the permissive direction."
+        }
+      }
+    },
+
+    "escapeHatch": {
+      "type": "object",
+      "required": ["needed"],
+      "description": "MANDATORY on every move. The Phase 0 gate is computed from this field and nothing else.",
+      "properties": {
+        "needed": { "type": "boolean" },
+        "kind": {
+          "enum": ["", "missing_schema_field", "schema_v2_field", "runtime_condition", "expression_language", "irreducible_cpp"],
+          "description": "WHAT THE GATE ACTUALLY MEASURES, and the distinction Phase 0 found to be the whole finding. `missing_schema_field` / `schema_v2_field` = one more named DECLARATIVE field closes it, no code. `runtime_condition` = one declarative predicate closes it. `expression_language` = the value is arithmetic over live state and needs Phase 5. `irreducible_cpp` = nothing declarative can express it. ARCHITECTURE's < 20% gate is about the last two; measured across all three Phase-0 characters they are 1 of 59 moves. THE ENUM IS UNCHANGED IN v2 -- all six values stay legal so that v1 files validate -- but the first three are now CLOSED BY CONSTRUCTION: v2 supplies the field each of them was waiting for. Phase 3 re-measures, and ADR-001:522-524 states the prediction to hold it to: 'the 22 vocabulary hatches drop to 0 by schema v2, and group G's opponent predicates drop to 0 by the trigger language,' against ARCHITECTURE.md:346's >= 80% bar."
+        },
+        "reason": { "type": "string" },
+        "what_it_needs": { "type": "string", "description": "The exact field or capability that would close it. This list IS the Phase 3 and Phase 5 backlog." },
+        "closed_by": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "NEW IN v2. [E] The v2 field that closes this hatch, e.g. 'move.engine.motion[]'. Set it when re-transcribing in Phase 3 and leave `needed` true until the data is actually written; a hatch is closed by DATA, not by a schema that could hold the data. This field is what makes ADR-001:524's re-measurement a query instead of a re-read."
+        }
+      }
+    },
+
+    "move": {
+      "type": "object",
+      "required": ["id", "startup"],
+      "description": "One move. The loader raises SpecError if `id` or `startup` is missing (json_spec.py:53-57) and if any id repeats (json_spec.py:144-145). TICK CONVENTION, unchanged from v1 and now stated because v2's new arrays depend on it: tick 1 is the first tick of the state, and `startup` is the tick number on which the move can first connect. VERIFIED against the corpus: Kung Fu Girl's palm has startup 9 and its HitDef fires on AnimElem 4, whose first tick is 9 (corpus/kfg/Kung Fu Girl.air:1711 and the three elements before it, 2+3+3 ticks). Every v2 array that carries a `tick` uses this same base, which is what makes assertion A05 (hits[0].tick == startup) checkable.",
+      "properties": {
+        "id": { "type": "string", "description": "[P] Unique within the file." },
+        "startup": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "[P] Frames before the move can first connect. DEFINITION USED IN PHASE 0, and it matters: startup is the first tick on which a Clsn1 attack box EXISTS and a HitDef HAS BEEN REGISTERED. Those two disagree in real data -- a HitDef with no box cannot connect, and a box with no HitDef cannot either -- and the later tick is always the correct one. Two of Kung Fu Girl's 25 moves disagree (stand_hp_far, super_palm) and both take the later tick. FOR A PROJECTILE MOVE this means something weaker and the difference is a documented over-approximation: see $defs.projectile and x-known-over-approximations.projectile_contact_frame."
+        },
+        "active": { "type": "integer", "minimum": 1, "default": 1, "description": "[P] Frames the hitbox exists. From the contiguous run of Clsn1 elements (mugen_cns.py:304-330). An animation using Clsn1Default cannot answer this question and the number is then a fallback, not data; say so in engine.derivation. ADR-001:512-515 flags Kung Fu Man's reikyaku as the one to re-derive first for exactly this reason." },
+        "recovery": { "type": "integer", "minimum": 0, "default": 0, "description": "[P] mugen_cns.py:560-561 rule: total animation ticks - startup - active + 1. FOR AN on_land MOVE this number is not a property of the animation at all -- the state ends on a physics predicate and its real length depends on the trajectory. See $defs.transition.duration_bound, which requires the direction of the approximation to be declared per move." },
+        "hitstun": { "type": "integer", "minimum": 0, "default": 0, "description": "[P] Frames the defender is frozen, BEFORE decay. MUGEN's ground.hittime. Where air.hittime differs (the AOF2 thug: 7 on the ground, 0 in the air) the schema has only one field and the state-dependence is lost; record the loss in engine.reaction.air_hitstun_ticks. FOR A MULTI-HIT MOVE this is hits[0]'s hitstun, because that is the contact every cancel delay is measured from; see $defs.moveEngine.hits_projection." },
+        "damage": { "type": "number", "default": 0.0, "description": "[P] float in both implementations (json_spec.py:69). Feeds Result.maxDamage only, never the verdict -- which is why summing a multi-hit move's damage into it is safe. D8 stores this as int32 hundredths in the engine; see engine.quantized_sources.damage_hundredths and, for a multi-hit move, engine.hits[].damage_hundredths." },
+        "effect": { "$ref": "#/$defs/resourceMap", "description": "[P] What performing the move does to each resource. A POSITIVE entry here is what clears comboprover.hpp's spendOnly flag (:376-386) and therefore destroys the ranking certificate (:563). Measured in Phase 0: every character that builds meter on hit gets hasRanking == false. ADR-001 section 3 gate 3 adds the second cause the editor must not conflate -- AOF2 has spendOnly true and still no certificate, because it has zero usable cancels and comboprover.hpp:578-583's `if (!anyEdge) break` fires immediately." },
+        "guard": { "$ref": "#/$defs/resourceMap", "description": "[P] Minimum each resource must be for the move to be allowed. Componentwise >= only; there is no other comparison in the fragment. THIS IS THE SENTENCE THAT MAKES min_reach UNCLOSABLE -- see $defs.moveEngine.min_reach_sub." },
+        "stance": { "enum": ["any", "ground", "air"], "default": "any", "description": "[P] json_spec.py:72." },
+        "reach": { "type": ["number", "null"], "default": null, "description": "[P] Attack range in reach units (Phase 0 uses 100 px = 1.0). Midscreen only: model.py:473-476 turns it into a `__space >= max_reach - reach` guard, and since __space is max_reach - gap (model.py:495-497), `reach` is exactly an UPPER BOUND ON THE GAP. null means no limit, which is the closest the schema gets to a projectile and is NOT the same thing -- a fireball's contact frame is a function of distance while Move.startup is a constant." },
+        "pushback": { "type": "number", "default": 0.0, "description": "[P] How far the hit pushes the defender, in reach units. Midscreen only. ALWAYS AN ESTIMATE FROM MUGEN, which records a velocity and a friction and never a displacement; Phase 0 used |ground.velocity| * ground.slidetime / 2 uniformly on all three characters. MEASURED: this is the number the midscreen verdict turns on. Scaling Kung Fu Girl's pushback by 1.2 flips INFINITE to TERMINATING, and 1.05 keeps INFINITE but changes which loop is found (ADR-001:390-396). Treat any midscreen verdict as conditional on this rule. ADR-001:508-510 names deriving it from an instrumented Ikemen GO build as 'the single most valuable measurement not taken', a day of work rather than a phase." },
+        "label": { "type": "string", "description": "[P] Human name, printed in the witness combo." },
+
+        "hit_condition": {
+          "$ref": "#/$defs/predicateList",
+          "description": "NEW IN v2 -- FIELD 7 of 9. [E5] A PREDICATE OVER THE DEFENDER GATING WHETHER THE MOVE CONNECTS AT ALL. ADR-001:299 and :304 name this field at move level and v2 keeps that spelling, because Phase 5's trigger language is what will read it (field class E5). Today json_spec.py ignores it: _move() at json_spec.py:52-76 reads thirteen named keys and `hit_condition` is not among them -- VERIFIED, not assumed, in x-v2-verification. THE NEED (ADR-001:255-260): every one of Kung Fu Girl's 17 normals gates its HitDef on `trigger1 = !var(16) && var(15) < 1`, byte-identical on all seventeen (corpus/kfg/Normal.cns:27). var(15) counts hits since the defender was last grounded and var(16) flags a hit-fall state (corpus/kfg/System.cns:2611-2666), and the character DISABLES MUGEN's own juggle system to run these instead (AssertSpecial nojugglecheck at System.cns:2590-2593, and [Data] airjuggle = 0 at System.cns:7). The rule it encodes is 'a normal does not connect against an already-juggled defender' -- an authored anti-combo rule, and by move count the largest single gap the transcription found. WHICH DIRECTION THE PROVER ERRS, and it is the safe one: the prover cannot read this, so it lets every normal connect against a juggled defender that the real character would whiff on. That grants the attacker hits the character does not have, which can invent an infinite and cannot hide one (ADR-001:224-225). RELATIONSHIP TO v1: engine.hit_condition survives as a free-prose string because Kung Fu Girl's shipped file uses it and v2 may not invalidate that. Where both are present the structured form here is authoritative and the string is provenance."
+        },
+
+        "engine": { "$ref": "#/$defs/moveEngine" }
+      }
+    },
+
+    "cancel": {
+      "type": "object",
+      "required": ["from", "to"],
+      "description": "[P] json_spec.py:79-108. `source`/`target` are accepted as aliases for `from`/`to` (json_spec.py:80-81).",
+      "properties": {
+        "from": { "type": "string" },
+        "to": { "type": "string" },
+        "delay": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "[P] Frames between the source CONNECTING and the attacker being allowed to start the follow-up. 0 is a true cancel; active + recovery - 1 is a link. If omitted and `kind` is not \"link\", the loader assumes 0 (json_spec.py:96-98) -- which silently authors the most permissive edge in the file, so ALWAYS state it. Phase 0 derived every delay: Kung Fu Girl's chain and special cancels open at a per-source-state AnimElemTime gate (corpus/kfg/System.cns:3007-3027), giving delays of 2 to 20 rather than the 0 an unthinking transcription would write, and ADR-001:434-442 calls this the hardest single finding of the phase because authoring them as 0 'would have handed the character 2-20 free frames on EVERY edge.' model.py:167-170 rejects delay < 0, which is why a kara-cancel (a cancel available BEFORE the move connects) cannot be authored at all."
+        },
+        "kind": { "const": "link", "description": "[P] json_spec.py:88-95. Shorthand: delay = source.active + source.recovery - 1. Cannot express a hub state -- the AOF2 thug must pass through [Statedef 1010] for one extra tick, so its edges author the delay explicitly instead." },
+        "on": {
+          "enum": ["hit", "block", "whiff", "always"],
+          "default": "hit",
+          "description": "[P] json_spec.py:104, validated at model.py:164. Only `hit` and `always` continue a combo (model.py:81 COMBO_CONTACT). The C++ Cancel has a BOOL onHit (comboprover.hpp:143), so the adapter must map {hit, always} -> true and {block, whiff} -> false. KNOWN GAP: MUGEN's Movecontact means hit OR block, and this vocabulary has no such value; Phase 0 authors the on-hit half, which is the verdict-relevant one."
+        },
+        "effect": { "$ref": "#/$defs/resourceMap" },
+        "guard": { "$ref": "#/$defs/resourceMap" },
+        "label": { "type": "string" },
+        "certain": { "type": "boolean", "description": "[E] NOT READ BY THE LOADER (json_spec.py:100-108 does not mention it). Records that the authored edge is gated on a runtime condition no importer can evaluate -- a character variable, an AI level, an opponent-state test. Kept because ARCHITECTURE section 5.2 wants a three-valued DOUBTFUL rendering in the editor panel, which must be computed from this field on the engine side. IN v2, `certain: false` should be accompanied by engine.condition saying WHAT the condition is; the boolean records that a doubt exists, the predicate list records its content." },
+        "caveat": { "type": "string", "description": "[E] Not read by the loader. Prose stating what the delay or the `on` value approximates." },
+        "engine": { "$ref": "#/$defs/cancelEngine" }
+      }
+    },
+
+    "cancelEngine": {
+      "type": "object",
+      "description": "[E] Real trigger condition, source file:line, and the cancel family it belongs to.",
+      "properties": {
+        "source": { "type": "string" },
+        "family": { "type": "string", "description": "Inherits condition, delay rule, certainty and caveat from engine.cancel_families." },
+        "rule": { "type": "string", "description": "Alternative spelling of `family`, keyed to engine.cancel_rules. Both v1 spellings are retained; a new file should pick `family`." },
+        "delay_derivation": { "type": "string" },
+        "input": { "type": ["object", "null"] },
+        "escape_hatch": { "$ref": "#/$defs/escapeHatch" },
+        "condition": {
+          "oneOf": [
+            { "$ref": "#/$defs/predicateList" },
+            { "type": "string" }
+          ],
+          "description": "NEW IN v2 -- FIELD 8 of 9. [E5] THE TRANSITION'S REAL GATE, OVER AN OPPONENT NAMESPACE. ADR-001:304 spells this field `cancel.engine.condition` and v2 keeps that spelling. THE NEED, and ADR-001:250-253 calls it 'the finding': all 26 AOF2 cancels re-enter from [Statedef 1010] under `p2bodydist x <= 30 && p2movetype != H` (corpus/aof2/States.st:190, and byte-identical at :197 for the fat variants). The second clause 'literally reads only attack when the defender is not in hitstun -- an explicit, authored anti-combo rule' (ADR-001:263-264). No field in ADR-001 groups A-F touches it, and it appears independently in two of the three characters, which is why ADR-001 section 8 item 5 grows Phase 5's scope to an opponent namespace it was not budgeted for. SHAPE, per ADR-002 CHOICE B: a $defs/predicateList -- a flat AND-list of (property, op, constant) triples over closed enums. NOT A PARSED EXPRESSION. ADR-002:73-78 is explicit that these 'look like a trigger language, and they are not, yet,' and that encoding them as an enum selector plus a threshold is what keeps the parser deferred. The string form is retained ONLY so that aof2_strength_training.json's existing prose conditions still validate; a new file authors the object. WHICH DIRECTION THE PROVER ERRS: json_spec.py:100-108 does not read this, so every edge is taken unconditionally. An edge that reality gates on 'the defender is not in hitstun' becomes always-available, which hands the attacker a combo the character is explicitly authored to refuse -- permissive, so it can invent an infinite and cannot hide one. That is the safe direction and it is why AOF2's TERMINATING verdict is trustworthy: the model gave the character every edge it asks for and still could not find a loop."
+        }
+      }
+    },
+
+    "motionEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tick", "vel_x_sub", "vel_y_sub"],
+      "description": "[E] One keyframe of the attacker's own movement. A keyframe is a COMPLETE velocity state, not a delta: at `tick` the attacker's velocity BECOMES (vel_x_sub, vel_y_sub) and holds until the next entry. Restating an unchanged velocity is correct and expected. This shape is chosen for rollback: a keyframe table can be resumed from any tick, whereas an accumulate-from-the-start encoding cannot.",
+      "properties": {
+        "tick": { "type": "integer", "minimum": 1, "description": "State tick, same base as move.startup. Strictly increasing across the array (assertion A08)." },
+        "vel_x_sub": { "type": "integer", "description": "Forward-positive velocity in sub-units per tick. 1 px = 256 (ARCHITECTURE.md:47)." },
+        "vel_y_sub": { "type": "integer", "description": "Down-positive velocity in sub-units per tick, matching MUGEN's sign convention." },
+        "pos_add_x_sub": { "type": "integer", "description": "An INSTANTANEOUS displacement applied at this tick, in addition to the velocity above. This is MUGEN's PosAdd, which is a teleport and not a velocity, so it needs its own slot." },
+        "pos_add_y_sub": { "type": "integer" },
+        "source": { "type": "string", "description": "file:line of the controller this keyframe resolves." }
+      }
+    },
+
+    "hitRecord": {
+      "type": "object",
+      "required": ["tick", "hitstun_ticks"],
+      "description": "[E] One HitDef of a multi-hit move. `hitstun_ticks` IS REQUIRED, and the requirement was added because omitting it broke assertion A06: A06 compares the last hit's hitstun to the first's, and a record with no hitstun makes that comparison silently unevaluable rather than loudly wrong. A hit record without a hitstun is not a hit record. This costs nothing in compatibility because no v1 file has a hits[] array to be invalidated.",
+      "properties": {
+        "tick": { "type": "integer", "minimum": 0, "description": "State tick on which this hit becomes active. Same base as move.startup. Strictly increasing across the array (assertion A07)." },
+        "anim_elem": { "type": "integer", "description": "[E] Provenance: the AnimElem the source HitDef triggered on. The tick above is what the simulation uses." },
+        "damage_hundredths": { "type": "integer", "description": "Integer damage, hundredths, matching engine.quantized_sources.damage_hundredths." },
+        "hitstun_ticks": { "type": "integer", "minimum": 0 },
+        "blockstun_ticks": { "type": ["integer", "null"] },
+        "slide_ticks": { "type": "integer" },
+        "pushback_vel_sub": { "type": "integer" },
+        "meter_gain": { "type": "integer", "description": "Meter units, 1 unit = 10 MUGEN power (ADR-001:135)." },
+        "reach_sub": { "type": "integer", "description": "This hit's own Clsn1 extent, which need not equal the move's [P] reach -- chop's second profile has a longer box than its first." },
+        "condition": { "$ref": "#/$defs/predicateList", "description": "[E5] Present when this HitDef is an ALTERNATIVE rather than a sequel -- registered only if a predicate holds. Kung Fu Girl's chop is the case: its second profile is gated on `triggerall = !movecontact && !movereversed` (corpus/kfg/Normal.cns:224), i.e. selected only when the first whiffed." },
+        "reaction": { "type": "object", "description": "[E] Everything else the HitDef says, same shape as move.engine.reaction." },
+        "source": { "type": "string" }
+      }
+    },
+
+    "projectile": {
+      "type": "object",
+      "required": ["spawn_tick"],
+      "description": "[E] An attack delivered by a Projectile controller rather than a HitDef.",
+      "properties": {
+        "spawn_tick": { "type": "integer", "minimum": 0, "description": "State tick the projectile is RELEASED. Assertion A09 requires this to equal move.startup, because for a projectile move `startup` means release and nothing else." },
+        "proj_id": { "type": "integer" },
+        "anim_id": { "type": "integer" },
+        "hit_anim_id": { "type": "integer" },
+        "offset_sub": { "type": "object", "properties": { "x": { "type": "integer" }, "y": { "type": "integer" } }, "description": "Spawn offset from the attacker, sub-units." },
+        "velocity_sub": { "type": "object", "properties": { "x": { "type": "integer" }, "y": { "type": "integer" } }, "description": "Sub-units per tick. INTEGER, and where the source's pixel velocity is not a whole number of sub-units this rounds; state the loss and its direction in `quantization_note`." },
+        "accel_sub": { "type": "object", "properties": { "x": { "type": "integer" }, "y": { "type": "integer" } } },
+        "lifetime_ticks": { "type": "integer", "description": "MUGEN's projremove countdown." },
+        "remove_on_hit": { "type": "boolean" },
+        "hit_count": { "type": "integer", "default": 1, "description": "MUGEN's projhits." },
+        "priority": { "type": "integer" },
+        "hitdef": { "$ref": "#/$defs/hitRecord", "description": "The projectile's own hit profile. `tick` here is relative to the projectile's own life, not the attacker's state." },
+        "quantization_note": { "type": "string" },
+        "source": { "type": "string" }
+      }
+    },
+
+    "transition": {
+      "type": "object",
+      "required": ["kind"],
+      "description": "[E] How the state ends. v1 could only say 'after N frames'; v2 adds the physics predicate.",
+      "properties": {
+        "kind": {
+          "enum": ["frame", "anim_end", "on_land", "on_hit", "on_whiff"],
+          "description": "NEW IN v2 -- FIELD 5 of 9 is the `on_land` value. ADR-001:227-232: 'The state ends on a physics predicate, not a frame count.' Kung Fu Girl's state 1100 leaves the ground mid-move (StateTypeSet at corpus/kfg/Specials.cns:692-696) and both it and state 1105 end on `pos y > -vel y` (Specials.cns:774-777 and :893-896). Kung Fu Man's kyuki exits on `time>18 && (pos y+vel y>=0) && (vel y>0)`. v1 transitions are frame-indexed only, so 'this state ends when you land' could not be written, and the move's real duration depends on the trajectory."
+        },
+        "tick": { "type": ["integer", "null"], "description": "kind=frame only." },
+        "predicate": {
+          "enum": ["landing"],
+          "description": "kind=on_land only. ONE value, and one is enough: `landing` means `pos_y + vel_y >= 0`, i.e. the attacker will be at or below the ground on the next tick. Both Kung Fu Girl spellings (`pos y > -vel y`) and Kung Fu Man's (`pos y+vel y>=0`) reduce to it. A CLOSED ENUM, not an expression -- same discipline as $defs.predicate."
+        },
+        "min_tick": { "type": ["integer", "null"], "description": "kind=on_land: the predicate is not tested before this tick. Kung Fu Man's kyuki needs it (`time>18`); Kung Fu Girl's two do not." },
+        "require_descending": { "type": "boolean", "default": false, "description": "kind=on_land: additionally require vel_y > 0 (falling). Kung Fu Man's kyuki authors it explicitly." },
+        "to_state": { "type": ["integer", "null"], "description": "Source Statedef the transition goes to, for round-tripping." },
+        "to_move_id": { "type": ["string", "null"] },
+        "duration_bound": {
+          "enum": ["exact", "lower", "upper"],
+          "description": "MANDATORY WHEN kind IS on_land, AND IT IS THE SOUNDNESS FIELD. move.recovery is a constant, but an on_land state's real length is a function of the trajectory, so the constant is an approximation and THE DIRECTION IS NOT FIXED BY THE SCHEMA -- it is fixed by how the author derived the number. `lower` means the authored duration is no longer than the real one, so the attacker acts no later than reality allows: PERMISSIVE, can invent an infinite, cannot hide one, and it is the direction ADR-001:224-225 calls safe. `upper` means the authored duration is no shorter than the real one: CONSERVATIVE, and it can HIDE an infinite, which is a soundness bug in the dangerous direction and must be justified move by move. `exact` requires that the trajectory be fully determined by the motion track and the gravity constant, with no defender-dependent term, which is true of Kung Fu Girl's two and is the case Phase 3 should aim for. Assertion A10 requires this field whenever kind is on_land; there is no default, because a default here would let the dangerous direction ship silently."
+        },
+        "duration_derivation": { "type": "string", "description": "MANDATORY WHEN kind IS on_land. Which trajectory the number was measured on, and why the bound above is the right one." },
+        "source": { "type": "string" }
+      }
+    },
+
+    "invulnWindow": {
+      "type": "object",
+      "required": ["from_tick", "ticks", "kind"],
+      "description": "[E] NEW IN v2 -- FIELD 6 of 9. Per-frame invulnerability by attack attribute. ADR-001:234-240: Kung Fu Girl's super_palm has NotHitBy with `value = ,NA,SA,AT` for 11 ticks from AnimElem 2, and `value2 = C,NA` thereafter (corpus/kfg/Supers.cns:35-45); v1 has hurt boxes but no invulnerability track. ADR-001:298 spells the field `move.engine.anim.frames[].invuln`. v2 provides BOTH: this compact window list on the move, which is authorable today, and the per-frame `invuln` slot inside anim.frames[] for when Phase 3's hitbox editor fills that array. The window list is normative; the per-frame slot is a projection of it. WHY THIS IS PURELY [E] AND NEVER [P]: invulnerability is a property of the character while DEFENDING, and the prover models one attacker's combo against an abstract defender that has no state at all (ADR-001:268). Nothing in the fragment can consume it, and nothing about it can move a verdict.",
+      "properties": {
+        "from_tick": { "type": "integer", "minimum": 1, "description": "State tick the window opens. Same base as move.startup." },
+        "ticks": { "type": "integer", "minimum": 1, "description": "How long it lasts. A MUGEN NotHitBy re-triggered every tick with time=1 is authored here as one window of the total length, not as N windows of 1." },
+        "kind": {
+          "enum": ["not_hit_by", "hit_by"],
+          "description": "MUGEN's two controllers, and they are opposites: `not_hit_by` lists the attributes that CANNOT hit; `hit_by` lists the only attributes that CAN. Keeping both avoids an inversion bug at transcription time."
+        },
+        "state_types": { "type": "array", "items": { "enum": ["S", "C", "A"] }, "description": "The SCA prefix of a MUGEN attribute string. EMPTY MEANS ALL, which is what super_palm's first window authors (`value = , NA, SA, AT` -- the leading comma is an empty state-type field, corpus/kfg/Supers.cns:38)." },
+        "attrs": { "type": "array", "items": { "enum": ["NA", "NP", "NT", "SA", "SP", "ST", "HA", "HP", "HT", "AA", "AP", "AT"] }, "description": "MUGEN attack classes, plus its three shorthands: AA = NA+SA+HA, AP = NP+SP+HP, AT = NT+ST+HT. Stored verbatim so the transcription can be audited against the .cns; Phase 3 may expand the shorthands at load." },
+        "source": { "type": "string" }
+      }
+    },
+
+    "freezeWindow": {
+      "type": "object",
+      "required": ["from_tick", "ticks", "kind"],
+      "description": "[E] NEW IN v2, the second half of ADR-001 group E. A span during which nothing advances. ADR-001:238-240: super_palm needs 'SuperPause time 30 with poweradd -1000 -- simultaneously the meter charge and 30 ticks during which nothing advances.' WHY IT CANNOT MOVE A VERDICT, which is the reason it is [E]: a freeze stops the attacker and the defender alike, so every frame difference the prover reasons about is unchanged across it. It changes wall-clock, not frame advantage. It is in the schema because the ENGINE must reproduce it exactly or the rollback simulation desyncs, not because the prover wants it.",
+      "properties": {
+        "from_tick": { "type": "integer", "minimum": 1 },
+        "ticks": { "type": "integer", "minimum": 1 },
+        "kind": { "enum": ["super_pause", "pause", "hitstop"] },
+        "meter_delta": { "type": "integer", "description": "Meter units charged or spent at the freeze, 1 unit = 10 MUGEN power." },
+        "ticks_authored": { "type": "boolean", "default": true, "description": "false when the source omitted the parameter and the number above is the MUGEN default. Kung Fu Girl's super_palm is exactly this case: corpus/kfg/Supers.cns:17-23 authors pos, anim, sound and poweradd but NO `time`, so the 30 ticks are MUGEN's SuperPause default rather than a number the character states. ADR-001:239 cites it as 'SuperPause time 30' without noting that the 30 is inherited; recording it here keeps the derivation honest." },
+        "source": { "type": "string" }
+      }
+    },
+
+    "proximityVariant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["other_move_id", "selects", "threshold_sub"],
+      "description": "[E] NEW IN v2 -- FIELD 3 of 9 (engine half). ADR-001:213-219: 'One button, two states, chosen by range: `value = 250 + (Abs(P2BodyDist X) <= 15) * 1` (corpus/kfg/Kung Fu Girl.cmd:802, re-verified in ADR-001 section 7 after the working notes cited :804), same idiom at :774 and the :756 family, and Kung Fu Man's .cmd picking state 210 under `p2bodydist x < 26` and 220 otherwise.' 8 moves. This object goes on BOTH members of the pair, each naming the other.",
+      "properties": {
+        "other_move_id": { "type": "string" },
+        "selects": {
+          "enum": ["this_when_closer", "this_when_farther"],
+          "description": "Which side of the threshold selects THIS move. Kung Fu Girl's stand_hk_close is `this_when_closer` and stand_hk_far is `this_when_farther`, from `250 + (Abs(P2BodyDist X) <= 15) * 1` where state 251 is the close one."
+        },
+        "threshold_sub": { "type": "integer", "minimum": 0, "description": "The comparison constant in sub-units (1 px = 256)." },
+        "threshold_px": { "type": "integer", "description": "[E] Provenance. The source's pixel constant." },
+        "inclusive": { "type": "boolean", "default": true, "description": "true when the source comparison is <= rather than <. Kung Fu Girl's is `<= 15`, so the closer branch includes exactly 15 px and the farther branch starts at 16." },
+        "property": { "enum": ["opponent.body_distance_x", "opponent.body_distance_x_abs"], "default": "opponent.body_distance_x_abs", "description": "Kung Fu Girl wraps the distance in Abs(); Kung Fu Man does not." },
+        "source": { "type": "string" }
+      }
+    },
+
+    "variantDecl": {
+      "type": "object",
+      "required": ["id"],
+      "description": "[E] NEW IN v2, the character-level half of ADR-001 group I.",
+      "properties": {
+        "id": { "type": "integer" },
+        "label": { "type": "string" },
+        "move_ids": { "type": "array", "items": { "type": "string" } },
+        "gap_action_ids": { "type": "array", "items": { "type": "string" } },
+        "anim_offset": { "type": "integer", "description": "AOF2 computes anim = base + 100*var(0) (ADR-001:291)." },
+        "source": { "type": "string" }
+      }
+    },
+
+    "moveEngine": {
+      "type": "object",
+      "description": "[E] Everything the prover cannot see. Ignored by json_spec.py. v2 freezes the shape of the nine fields ADR-001 section 8 item 1 requires and leaves the rest of the sub-objects to Phase 3, exactly as v1 did.",
+      "required": ["derivation", "escape_hatch"],
+      "properties": {
+        "state_id": { "type": "integer", "description": "Source Statedef number, for round-tripping to the corpus." },
+        "anim_id": { "type": "integer" },
+        "source": { "type": "string", "description": "file:line-range the move was read from." },
+        "derivation": {
+          "type": ["string", "object"],
+          "description": "MANDATORY. Per-field provenance, or the string 'see engine.derivation_defaults' if the move was read by the character's stated default rules with no exception. Every ESTIMATED number must say so in capitals and name the rule."
+        },
+        "escape_hatch": { "$ref": "#/$defs/escapeHatch" },
+        "input": {
+          "type": "object",
+          "description": "Command, motion, buttons, buffer, and any range-based variant selector. An AI-driven character has no input; say so.",
+          "properties": {
+            "command": { "type": ["string", "null"] },
+            "motion": { "type": "array", "items": { "type": "string" } },
+            "buttons": { "type": "array", "items": { "type": "string" } },
+            "hold": { "type": "array", "items": { "type": "string" } },
+            "forbid": { "type": "array", "items": { "type": "string" } },
+            "buffer_ticks": { "type": "integer" },
+            "requires_ctrl": { "type": "boolean" },
+            "note": { "type": "string" },
+            "source": { "type": "string" },
+            "proximity_variant": { "$ref": "#/$defs/proximityVariant" }
+          }
+        },
+        "anim": {
+          "type": "object",
+          "description": "Per-frame sprite refs, 4 x int16 sub-unit hit/hurt/push boxes, and frame events. Phase 3 owns this; Phase 0 validated the shape on three moves only, and ADR-001:463-466 records that per-frame boxes are transcribed for none of the 59 moves.",
+          "properties": {
+            "id": { "type": "integer" },
+            "atlas": { "type": "string" },
+            "loop": { "type": "boolean" },
+            "frames": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "ticks": { "type": "integer" },
+                  "sprite": { "type": "object" },
+                  "offset_sub": { "type": "object" },
+                  "hurt": { "type": "array" },
+                  "hit": { "type": "array" },
+                  "push": { "type": "array" },
+                  "events": { "type": "array" },
+                  "invuln": {
+                    "type": "array",
+                    "items": { "$ref": "#/$defs/invulnWindow" },
+                    "description": "NEW IN v2. The per-frame projection of move.engine.invuln, at the exact path ADR-001:298 names. Redundant by construction and therefore optional; the move-level window list is the normative one because it is authorable before the hitbox editor exists."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "reaction": { "type": "object", "description": "Everything the HitDef says that the prover's single `hitstun` cannot hold: hitstop, blockstun, slide, pushback velocities, corner push, air variants, knockdown and recovery, defender animation, meter given to the defender." },
+        "fx": { "type": "object" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+
+        "motion": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/motionEntry" },
+          "description": "NEW IN v2 -- FIELD 1 of 9. [E] THE ATTACKER'S OWN DISPLACEMENT. ADR-001:204-213: 'Every Kung Fu Girl special and the super drives itself with VelSet / VelMul / PosAdd inside its statedef -- e.g. palm at corpus/kfg/Specials.cns:29-46. Schema v1 has `pushback` for the defender and NOTHING AT ALL for the attacker's own displacement, so the forward travel that decides whether a special connects at range exists nowhere in the file. One array of {tick, vel_x_sub, vel_y_sub} closes it.' 8 moves. THE ARRAY IS RESOLVED, NOT SYMBOLIC, and that is a deliberate D2 decision. MUGEN's VelMul is a float multiply applied every tick; ARCHITECTURE.md:47 forbids a general fixed-point multiply in the authoritative core and D8's whole quarrel with decay.kind `multiplicative` is that repeated float multiplication cannot be reproduced by an integer kernel (ADR-001:328-336). So friction is PRE-EVALUATED AT AUTHORING TIME into concrete per-tick integers and the kernel only ever assigns and adds. The unresolved controllers are kept beside it in motion_source[] as provenance and are never executed. IF A CHARACTER EVER NEEDS RUNTIME FRICTION, the field to add is a `vel_mul_permille` entry evaluated as (v * permille) / 1000 with one stated rounding rule -- named here so that it arrives as a schema edit rather than as a late discovery, which is the failure mode ADR-001:98-100 warns Phase 3 against. WHY IT CANNOT MOVE A VERDICT: the prover has no attacker position; it has `reach` (an upper bound on the gap) and `pushback` (a spend against __space). motion[] is where the engine's real trajectory and that abstraction meet, and Phase 3's job is to make the abstraction true of the trajectory rather than the other way round."
+        },
+        "motion_source": {
+          "type": "array",
+          "description": "[E] Provenance for motion[]: the source controllers in file order, unresolved, with their triggers as prose. Never executed. Exists so that a resolved velocity table can be audited against the .cns it came from.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "controller": { "enum": ["VelSet", "VelAdd", "VelMul", "PosAdd", "PosSet"] },
+              "trigger": { "type": "string" },
+              "x": { "type": ["number", "string"] },
+              "y": { "type": ["number", "string"] },
+              "source": { "type": "string" }
+            }
+          }
+        },
+        "motion_physics": {
+          "type": "object",
+          "description": "[E] The integer physics that runs BETWEEN motion[] keyframes. Needed because an on_land move's airborne tail has no fixed length -- gravity integrates until the landing predicate fires -- so a keyframe table alone cannot describe it.",
+          "properties": {
+            "gravity_sub": { "type": "integer", "description": "Added to vel_y_sub every tick while airborne. Integer addition only; no multiply, no float. MUGEN's yaccel = 0.5 px/tick^2 is 128 sub-units, which is exact." },
+            "applies_from_tick": { "type": "integer" },
+            "friction_permille": { "type": ["integer", "null"], "default": null, "description": "RESERVED AND EXPECTED TO STAY NULL. See motion[]: friction is pre-evaluated. If a future character forces this on, the evaluation rule is (v * permille) / 1000 truncated toward zero, applied once per tick after the keyframe assignment, and it must be added to ARCHITECTURE.md:47's list of scaling operations that go through the one helper with the one documented rounding rule." },
+            "source": { "type": "string" }
+          }
+        },
+
+        "hits": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/hitRecord" },
+          "description": "NEW IN v2 -- FIELD 2 of 9. [E] A MOVE IS MORE THAN ONE HIT. ADR-001:186-204: 'The schema's Move is a single (startup, active, hitstun, damage) tuple; real states register several HitDefs at different animelems.' 4 moves. Kung Fu Man's f_lk_cancel (state 275) has two HitDefs at animelem=4 and animelem=10 (corpus/kfm/kfma4a_cns.txt:779-808 and :810-839), transcribed with the first only, 'which is what mugen_cns.py:530-535 does'. kyuki has two; kungfu_zanko has two spanning four chained states, 1710 and 1720, and its 80-damage second hit is dropped. Kung Fu Girl's super_palm has three (corpus/kfg/Supers.cns:81-102 firing at AnimElem 5 and 13, and :104-112 at AnimElem 21) collapsed into one record whose damage is their sum, 219. THE REJECTED ALTERNATIVE, and it is the important part (ADR-001:202-204): 'splitting into two prover Moves joined by an optional cancel. A FORCED follow-up modelled as an OPTIONAL edge gives the attacker a choice they do not have, which is the direction that invents infinites.' So a multi-hit state stays exactly one prover Move and the extra hits live here, invisible to the fragment."
+        },
+        "hits_projection": {
+          "enum": ["single", "first", "first_damage_summed"],
+          "default": "single",
+          "description": "NEW IN v2. [E] HOW THE [P] SCALARS RELATE TO hits[]. Without this the relationship is a convention, and a convention is what a Phase 3 re-transcription silently breaks. `single`: hits[] is absent or has one entry and the [P] fields are it. `first`: [P] startup, hitstun and damage all come from hits[0]; later hits are engine-only. Kung Fu Man's f_lk_cancel is this case. `first_damage_summed`: [P] startup and hitstun come from hits[0], but [P] damage is the SUM over hits[]. Kung Fu Girl's super_palm is this case (72 + 72 + 75 = 219). Summing damage is safe because json_spec.py:69 feeds it to Result.maxDamage only and it never reaches the verdict; summing hitstun would NOT be safe and is not offered. WHY hitstun COMES FROM hits[0]: every cancel delay in the file is measured from the moment the source move CONNECTS, and for a multi-hit state that is the first hit. THE HAZARD, and assertion A06 exists for it: if the last UNCONDITIONAL hit's hitstun differs from the first's, this projection is an approximation whose direction depends on the numbers -- a larger final hitstun means the model under-states the attacker's advantage (conservative, can HIDE an infinite, the dangerous direction), a smaller one means it over-states it (permissive, safe). A06 therefore requires an explicit engine.hits_projection_caveat naming the direction whenever the two differ, and it ignores records carrying a `condition` because an alternative profile is not a sequel. Neither Phase-0 multi-hit move trips it: Kung Fu Man's f_lk_cancel authors ground.hittime = 23 on both HitDefs (corpus/kfm/kfma4a_cns.txt:798 and :829) and Kung Fu Girl's super_palm authors 32 on all three (corpus/kfg/Supers.cns:97 and :119), so `first` is exact for both."
+        },
+        "hits_projection_caveat": { "type": "string", "description": "[E] Required by assertion A06 when hits[0].hitstun_ticks differs from the last UNCONDITIONAL hit's. Must name the direction of the resulting error in the words ADR-001:224-225 uses: whether it can invent an infinite (safe) or hide one (a soundness bug)." },
+
+        "projectile": {
+          "$ref": "#/$defs/projectile",
+          "description": "NEW IN v2 -- FIELD 4 of 9. [E] ADR-001:242-248: 'Kung Fu Man's hasyo and suiten_hasyo attack via a Projectile controller, not a HitDef (corpus/kfm/kfma4a_cns.txt:2338-2477). The engine half is a schema field; THE PROVER HALF IS NOT CLOSABLE.' 2 moves. See x-known-over-approximations.projectile_contact_frame for the prover half, which is the one over-approximation in this schema that errs in the DANGEROUS direction and is called out as such. A related gap ADR-001:247-248 names and this field does NOT close: suiten_hasyo charges its -1000 power at animelem=5 and releases at animelem=10, while [P] move.effect is applied once at move start. The split charge is authorable as a freeze[] entry with a meter_delta, but the prover still sees one lump at t=0."
+        },
+
+        "transitions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/transition" },
+          "description": "NEW IN v2 -- FIELD 5 of 9 (the `on_land` kind). [E] How the state ends. ADR-001:298 spells it `move.engine.transitions[].on_land`; v2 makes `on_land` one value of a `kind` enum so that the frame-indexed transitions v1 implied can sit in the same array rather than in a second one."
+        },
+
+        "invuln": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/invulnWindow" },
+          "description": "NEW IN v2 -- FIELD 6 of 9. [E] Per-frame invulnerability by attack attribute. See $defs.invulnWindow."
+        },
+        "freeze": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/freezeWindow" },
+          "description": "NEW IN v2, second half of ADR-001 group E. [E] SuperPause and friends. See $defs.freezeWindow."
+        },
+
+        "min_reach_sub": {
+          "type": ["integer", "null"],
+          "default": null,
+          "description": "NEW IN v2 -- FIELD 3 of 9 (the mirror half). [E] THE MINIMUM GAP AT WHICH THIS MOVE IS SELECTED, in sub-units. Set it on the FARTHER member of a proximity pair; the closer member does not need it. Kung Fu Girl's stand_hk_far is selected when Abs(P2BodyDist X) > 15 (corpus/kfg/Kung Fu Girl.cmd:802), so its min_reach_sub is 4096 = 16 px * 256. PLACEMENT, AND WHY IT DIFFERS FROM ADR-001's SPELLING: ADR-001:303 writes this as `move.min_reach`, at move level beside `reach`. v2 puts it under `engine` instead, and the reason is the field class table above. A bare move-level key in this schema is class [P] or class [E5] -- either the prover reads it or Phase 5's trigger language will. This one is NEITHER, and provably so: model.py:473-476 turns `reach` into a `__space >= max_reach - reach` guard, __space is max_reach - gap (model.py:495-497), and the fragment's only comparison is componentwise >= (comboprover.hpp:256-262, and move.guard's own description). So `reach` is an upper bound on the gap and a MINIMUM gap is an upper bound on a RESOURCE, which the guard vocabulary cannot state at all -- exactly what ADR-001:221-224 says. Writing it at move level would advertise a prover semantics that does not exist and cannot be added without changing the fragment. The name is kept recognisable and this note records the deviation. THE DIRECTION THE PROVER ERRS, from ADR-001:224-225: 'the model lets the attacker use a far normal point-blank -- the permissive direction, which can invent an infinite but cannot hide one.' A REFINEMENT ADR-001 DOES NOT STATE, offered to Phase 3 rather than taken here: the CLOSER member's half of this pair IS expressible. stand_hk_close is selected only when the gap is <= 15 px, `reach` is exactly an upper bound on the gap, and stand_hk_close currently authors reach 0.52 from its 52 px Clsn1 box -- a bound three times looser than the real selector. Authoring reach 0.15 would encode the selector exactly and stay sound. It is not done here because `reach` is [P] and changing it changes the model, which is a re-transcription decision requiring its own measurement, not a schema edit. HALF OF GROUP C IS THEREFORE CLOSABLE; the far member's minimum is the half that is not."
+        },
+
+        "hit_condition": { "type": "string", "description": "[E] v1's free-prose form, RETAINED because kung_fu_girl.json ships it on 17 moves and v2 may not invalidate a v1 file. The structured replacement is move.hit_condition at move level; where both exist the structured one is authoritative and this is provenance." },
+        "cancel_window_ticks": {
+          "type": "array",
+          "items": { "type": "integer" },
+          "maxItems": 2,
+          "description": "[open, close] tick pair, or the EMPTY ARRAY for a move that has no cancel window at all. The empty case is load-bearing and was caught by validating this schema against its own three characters: the AOF2 thug's moves have no cancel window, and a draft of this schema with minItems:2 rejected the truthful authoring (ADR-001:541-545). A schema that cannot say 'none' forces an author to invent a window."
+        },
+        "transcription_note": { "type": "string" },
+        "variant": { "type": "integer", "description": "[E] The sub-character this move belongs to, keyed to engine.variants.list[].id. Present in v1 files already (AOF2 uses it on all 10 moves); v2 gives it a character-level index to point at." },
+        "distinct_shape": { "type": "string" },
+        "identical_to": { "type": "string" },
+        "shared_with": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+
+    "characterEngine": {
+      "type": "object",
+      "description": "[E] Character-level engine data. Ignored by json_spec.py.",
+      "required": ["schema_version", "units", "fit"],
+      "properties": {
+        "schema_version": { "enum": [1, 2], "description": "CHANGED IN v2 from const 1 to enum [1, 2], which is what lets an untouched v1 file validate against this schema. A file declaring 1 is a v1 file being read by a v2 reader and is legal; a file declaring 2 asserts that its authors knew about the nine fields. Nothing else keys off it." },
+        "units": {
+          "type": "object",
+          "description": "The D8 quantization contract, stated once per file so both peers agree at load.",
+          "properties": {
+            "ticks_per_second": { "type": "integer" },
+            "sub_units_per_pixel": { "type": "integer", "description": "256, from ARCHITECTURE.md:47. Every v2 field named *_sub is in these units." },
+            "pixels_per_reach_unit": { "type": "integer", "description": "100." },
+            "meter_units_per_bar": { "type": "integer", "description": "100. 1 unit = 10 MUGEN power (ADR-001:135), the GCD of every power value in the Phase-0 corpus, so the quantization is exact." },
+            "damage_points_per_unit": { "type": "integer" },
+            "permille_denominator": { "type": "integer" }
+          }
+        },
+        "quantized_sources": { "type": "object", "description": "The integer originals of every float in the [P] section: reach_px, pushback_px, scaling_permille, decay_table_permille, damage_hundredths. This is what makes ARCHITECTURE D8 checkable -- the engine loads these and the float [P] fields exist only for the prover." },
+        "constants": { "type": "object", "description": "Movement, gravity, friction, pushbox, health, meter ceiling. All integer sub-units. Must cite its source lines." },
+        "assets": { "type": "object" },
+        "integrity": {
+          "type": "object",
+          "description": "content_hash and schema_hash, both null until Phase 4 fills them. ARCHITECTURE Phase 4 requires the handshake hash the LOADED POD ARRAYS, not this text, so these are advisory identifiers and never the desync check.",
+          "properties": { "content_hash": { "type": ["string", "null"] }, "schema_hash": { "type": ["string", "null"] } }
+        },
+        "cancel_families": { "type": "object", "description": "Named groups so that N homogeneous edges do not repeat the same condition, delay rule, certainty and caveat N times. An edge carrying engine.family inherits all four. Kung Fu Girl's 134 edges reduce to 4 families plus 4 one-offs this way. IN v2 a family may carry a `condition` predicateList, which is how AOF2's 26 identical opponent gates are authored once." },
+        "cancel_rules": { "type": "object", "description": "Alternative spelling of cancel_families, keyed engine.rule. Both are accepted; v1 said 'v2 should pick one' and v2 declines to, because kung_fu_man.json ships cancel_rules and kung_fu_girl.json ships cancel_families, and renaming either would break a v1 file for no gain. New files use cancel_families." },
+        "derivation_legend": { "type": ["string", "object"], "description": "[E] The per-field reading order a character's engine.derivation strings follow. STRING OR OBJECT: kung_fu_girl.json ships it as one prose line, and a draft of this schema that required an object rejected that file. Same defect class as the minItems:2 bug ADR-001:541-545 records -- a schema tightened past what its own characters author." },
+        "cancel_note": { "type": ["string", "object"] },
+        "anim_note": { "type": ["string", "object"] },
+        "hit_rules": { "type": "object", "description": "Character-level rules gating whether attacks connect at all. IN v2 this is no longer homeless: the per-move structured form is move.hit_condition, and this object stays as the place to say 'the same rule is on all 17 normals' once instead of 17 times, plus the character-level facts behind it -- Kung Fu Girl disables MUGEN's juggle system (corpus/kfg/System.cns:2590-2593 and :7) in order to run its own." },
+        "derivation_defaults": { "type": "object", "description": "The per-field reading rules a move claims when its engine.derivation is the string 'see engine.derivation_defaults'." },
+        "moves_with_no_outgoing_cancel": { "type": "object", "description": "Assert that a move being a combo ENDER is a fact about the character rather than an omission in the transcription, and cite the line that proves it." },
+        "variants": {
+          "type": "object",
+          "description": "NEW IN v2 -- FIELD 9 of 9 (character-level half). [E] ONE .def IS NOT ONE CHARACTER. ADR-001:286-298 is the finding: AOF2 is 'a spawner plus four disjoint sub-characters. The root player has no attacks, is movetype=I, and is made unhittable (corpus/aof2/States.st:1382-1387); its only job is `type = helper, stateno = 1000, ID = 1000, name = Thug` (States.st:5-44). var(0) = random % 4 is rolled once at spawn (States.st:71-73) and never changes, and anim = base + 100*var(0), so the file is four disjoint sub-automata.' The same section names two more shapes this object must eventually carry and which the AOF2 case does not exercise: Kung Fu Man's var(3) 'adds and removes whole MOVES' (nishi and meikyo require var(3)=2 and are absent from the transcription), and its var(5) 'doubles every special into light/strong with different damage and poweradd' with only the light set transcribed (ADR-001:295-298). A mode variable that changes the move LIST is not a per-move field, which is why the index lives here.",
+          "properties": {
+            "selector": {
+              "type": "object",
+              "description": "How the variant is chosen. AOF2's is rolled once at spawn from random % 4 and never changes, which is what makes the sub-automata DISJOINT and the union reading sound.",
+              "properties": {
+                "kind": { "enum": ["spawn_random", "mode_variable", "input"] },
+                "rolled_once": { "type": "boolean" },
+                "source": { "type": "string" }
+              }
+            },
+            "list": { "type": "array", "items": { "$ref": "#/$defs/variantDecl" } },
+            "prover_reading": { "type": "string", "description": "MANDATORY when list has more than one entry. State that the prover sees the UNION of all variants and what that means for the verdict, in the direction language of ADR-001:224-225. Assertion A11." }
+          }
+        },
+        "fit": {
+          "type": "object",
+          "description": "THE PHASE 0 MEASUREMENT. Mandatory.",
+          "required": ["moves_total", "moves_needing_escape_hatch"],
+          "properties": {
+            "moves_total": { "type": "integer" },
+            "moves_needing_escape_hatch": { "type": "integer" },
+            "cancels_total": { "type": "integer" },
+            "cancels_needing_escape_hatch": { "type": "integer" },
+            "gate": { "type": "string" },
+            "breakdown": { "type": "object", "description": "Counts by escape_hatch.kind. The gate reading depends entirely on this split: 1 of 59 under D7's own definition, 23 of 59 under 'needed something schema v1 cannot say' (ADR-001:82-93)." },
+            "schema_limits": { "type": "array", "items": { "type": "string" } },
+            "schema_fields_that_would_close_it": { "type": "array", "items": { "type": "string" } },
+            "known_losses": { "type": "array", "items": { "type": "string" }, "description": "MANDATORY IN SPIRIT. Every projection from source to schema that loses information, with a soundness note saying whether the loss can HIDE an infinite (acceptable, conservative in the wrong direction but honest) or INVENT one (never acceptable)." },
+            "measured": { "type": "object", "description": "Verdict, timing and configuration counts from an actual `python -m comboprover analyse` run. Must be re-measured, never predicted." }
+          }
+        }
+      }
+    }
+  },
+
+  "x-v2-changes": {
+    "summary": "Nine fields, one narrowing, one relaxation, zero renames. ADR-001 section 8 item 1 is the whole mandate: 'Do not freeze schema v1. Add the nine fields in section 4 before Phase 3 begins. (Blocking.)'",
+    "the_nine": [
+      { "n": 1, "adr_001": "section 4 group B, :206-213", "field": "move.engine.motion[]", "class": "E", "moves": 8, "closes": "the attacker's own displacement, which existed nowhere in a v1 file" },
+      { "n": 2, "adr_001": "section 4 group A, :186-204", "field": "move.engine.hits[] + hits_projection", "class": "E", "moves": 4, "closes": "more than one HitDef per state" },
+      { "n": 3, "adr_001": "section 4 group C, :215-225", "field": "move.engine.input.proximity_variant + move.engine.min_reach_sub", "class": "E", "moves": 8, "closes": "one button, two states, chosen by range. ENGINE HALF ONLY -- see x-known-over-approximations.min_reach" },
+      { "n": 4, "adr_001": "section 4 group F, :242-248", "field": "move.engine.projectile", "class": "E", "moves": 2, "closes": "attacks delivered by a Projectile controller. ENGINE HALF ONLY -- see x-known-over-approximations.projectile_contact_frame" },
+      { "n": 5, "adr_001": "section 4 group D, :227-232", "field": "move.engine.transitions[].kind = on_land", "class": "E", "moves": 3, "closes": "the state ends on a physics predicate rather than a frame count" },
+      { "n": 6, "adr_001": "section 4 group E, :234-240", "field": "move.engine.invuln[] and move.engine.freeze[]", "class": "E", "moves": 1, "closes": "per-frame invulnerability by attack attribute, and SuperPause" },
+      { "n": 7, "adr_001": "section 4 group G, :255-260", "field": "move.hit_condition", "class": "E5", "moves": "17, counted once", "closes": "a predicate over the DEFENDER gating whether the move connects" },
+      { "n": 8, "adr_001": "section 4 group G, :262-264", "field": "cancel.engine.condition", "class": "E5", "cancels": 26, "closes": "a predicate over the OPPONENT gating whether the transition is available" },
+      { "n": 9, "adr_001": "section 4 group I, :286-294", "field": "gap_actions[].engine.variant + engine.variants", "class": "E", "closes": "per-variant gap actions, when one .def is four disjoint sub-characters" }
+    ],
+    "narrowings": [
+      "decay.kind loses the value `multiplicative`. Mandated by ADR-001 section 8 item 3 on measured grounds (ADR-001:328-336). Costs nothing: no file in Exported/Characters/ uses it, `decay.ratio` is retained so a stale ratio still validates, and json_spec.py does not consult this schema, so the ban is enforced by validation and by the adapter's load assertion A02 rather than by the loader. THIS IS THE ONLY THING v2 CAN EXPRESS LESS OF THAN v1."
+    ],
+    "relaxations": [
+      "engine.schema_version goes from `const: 1` to `enum: [1, 2]`. Without this no v1 file could validate against v2 and the superset claim would be false on its most trivial field."
+    ],
+    "renames": "None. No [P] field is renamed, retyped, or given a new default. v1's `certain`, `caveat`, `engine.hit_condition` (string), `cancel_rules` and `cancel_families` all survive verbatim, including the two redundant spellings v1 said should be reduced to one -- reducing them would break a shipped file for no gain."
+  },
+
+  "x-migration": {
+    "what_a_v1_file_must_change_to_become_a_v2_file": "NOTHING. A v1 file IS a v2 file. This is the intended answer and it is measured, not argued: all three files in Exported/Characters/ validate against schema.v2.json unmodified, and their three verdicts are byte-identical before and after. See x-v2-verification.",
+    "the_one_thing_worth_checking": "If a file authored `decay.kind: \"multiplicative\"` it now fails VALIDATION (though it would still LOAD, because json_spec.py never validates). No file in this repository does. Convert it to `table` with integer permille multipliers, which is D8's preferred escape, and re-measure -- do not convert it to `linear` by eye, because ADR-001:338-355 shows what inventing a decay rule does to a character that has none.",
+    "optional_uplift_when_a_file_is_next_touched": [
+      "Set engine.schema_version to 2 to assert the author knew about the nine fields. Nothing keys off it.",
+      "Move engine.hit_condition's prose into the structured move.hit_condition, leaving the prose as provenance. Kung Fu Girl has 17 of these.",
+      "Move cancel.engine.condition's prose into the structured predicateList. AOF2 has 26, all identical, so authoring it once on a cancel_families entry is the intended shape.",
+      "Set escape_hatch.closed_by on every hatch the new data actually closes. This is what turns ADR-001:522-524's re-measurement into a query instead of a re-read.",
+      "Author engine.variants on aof2_strength_training.json, whose 10 moves already carry engine.variant integers with nothing to point at."
+    ],
+    "what_migration_does_NOT_mean": "Adding the nine fields' DATA to the three characters is Phase 3, not migration. A schema that can hold the data and a file that holds it are different deliverables, and ADR-001:98-100 is explicit that the second one is Phase 3's. escape_hatch.needed stays true until the data is written."
+  },
+
+  "x-known-over-approximations": {
+    "$comment": "ADR-001 names three halves that a schema field cannot close, and rule 3 of this work item requires each to be documented as a bounded over-approximation with its DIRECTION stated. ADR-001:224-225 fixes the vocabulary: the permissive direction 'can invent an infinite but cannot hide one' and is safe; the other direction hides infinites and is a soundness bug. TWO OF THE THREE ERR SAFE. ONE DOES NOT, and it is named as a soundness bug below rather than softened.",
+
+    "min_reach": {
+      "adr_001": "section 4 group C, :221-225",
+      "closable_half": "The ENGINE half is closed by move.engine.min_reach_sub + input.proximity_variant. The engine knows the threshold and picks the right state.",
+      "unclosable_half": "The PROVER half. move.reach expresses a MAXIMUM gap because model.py:473-476 emits a `__space >= max_reach - reach` guard and __space is max_reach - gap (model.py:495-497). A MINIMUM gap is an upper bound on a resource, and the fragment's only comparison is componentwise >= (comboprover.hpp:256-262). There is no encoding.",
+      "direction": "PERMISSIVE -- SAFE. The model lets the attacker use a far normal point-blank, granting a move the real character would replace with its close variant. It can invent an infinite; it cannot hide one.",
+      "bound": "Confined to the 8 moves in 2 characters that carry a proximity_variant. On Kung Fu Girl the pair is stand_hk_far/stand_hk_close (corpus/kfg/Kung Fu Girl.cmd:802) and the over-credit is at most the difference between the two moves' frame data.",
+      "partially_closable_after_all": "The CLOSER member's constraint IS expressible today and ADR-001 does not say so. stand_hk_close is selected only at gap <= 15 px and `reach` is exactly an upper bound on the gap, so authoring reach 0.15 instead of the 0.52 taken from its Clsn1 box would encode the selector exactly and remain sound. Not done here because reach is [P] and the change must be re-measured; offered to Phase 3."
+    },
+
+    "projectile_contact_frame": {
+      "adr_001": "section 4 group F, :242-248",
+      "closable_half": "The ENGINE half is closed by move.engine.projectile: spawn tick, velocity, lifetime and the projectile's own hit profile are all now expressible.",
+      "unclosable_half": "The PROVER half. Move.startup is a constant; a fireball's frame of contact is a function of distance. 'Startup 15' means only 'released on frame 15'. VERIFIED against the corpus: Kung Fu Man's hasyo has startup 15, and the Projectile controller fires on animelem=10 of anim 1100 (corpus/kfm/kfma4a_cns.txt:2429), whose first tick is 15 (corpus/kfm/kfma4a.air:1448 and the nine elements before it). The two coincide exactly, which is the point -- startup measures release, not contact.",
+      "direction": "CONSERVATIVE -- THIS IS THE DANGEROUS ONE, AND IT IS A SOUNDNESS BUG, NOT A SAFE APPROXIMATION. Reasoning: the prover measures hitstun from the moment the move connects and measures every cancel delay from that same moment. A projectile's authored delay is derived from the attacker's own animation and is therefore measured from RELEASE, while in reality the defender's hitstun begins at CONTACT, which is f ticks later. The model therefore starts and ends the defender's hitstun f ticks too early while the attacker's follow-up availability is unchanged, so the model credits the attacker with LESS frame advantage than reality gives. Less advantage means a loop the real character can perform may be reported dead. That HIDES an infinite, which ADR-001:224-225 and :369-374 both classify as the unacceptable direction -- it is the same failure the rejected `meter_room` design was rejected for.",
+      "bound_and_why_the_phase_0_verdicts_are_unaffected": "MEASURED, not argued: hasyo and suiten_hasyo have ZERO outgoing cancels in kung_fu_man.json (8 and 5 incoming, 0 outgoing each). The under-credited advantage is the advantage AFTER a projectile connects, and no edge in any of the three files consumes it. The unsoundness is therefore real, latent, and inert across the entire Phase-0 corpus, and Kung Fu Man's TERMINATING verdict does not rest on it.",
+      "what_would_close_it": "Not a schema field. Either a distance-dependent startup in the fragment -- which is a new Move shape, not a new key -- or, cheaply and soundly, authoring a projectile move's outgoing cancel delays as if contact were at the minimum plausible range, which over-credits the attacker and flips the direction to the safe one. Phase 3 must do the second before authoring the first such edge, and this note exists so that it is a decision rather than an accident."
+    },
+
+    "defender_has_no_state": {
+      "adr_001": "section 4 group G, :266-268 -- the part of G that no field closes",
+      "closable_half": "The two predicate halves are closed as DATA by move.hit_condition and cancel.engine.condition, and ADR-001 section 8 item 5 makes Phase 5's trigger language responsible for making them prover-visible.",
+      "unclosable_half": "'Defender state as an outcome.' AOF2's sweep sets fall = 1 with fall.recovertime = 12 (corpus/aof2/States.st:419-421): the combo ends because the defender enters knockdown, not because frame advantage ran out. 'comboprover has no state for the defender at all.' A predicate language over the defender does not help, because there is no defender for it to be about; this is a property of the fragment, and no v2 field and no Phase 5 grammar closes it.",
+      "direction": "PERMISSIVE -- SAFE. The prover ignores knockdown, so it lets a combo continue past a hit that really ends it. It can invent an infinite; it cannot hide one.",
+      "bound": "Every move whose reaction sets causes_knockdown. Recorded per move in engine.reaction.causes_knockdown / fall_recover_ticks, which v1 already carries."
+    },
+
+    "and_the_ones_that_are_not_over_approximations_but_estimates": "Distinct from the three above and not fixed by any schema. ADR-001:486-497 names two quantities that are estimates rather than approximations: PUSHBACK, which MUGEN never records as a displacement and which a +-20% error flips the midscreen verdict on (ADR-001:390-404), and HITSTUN DECAY, which MUGEN does not have at all. Both are authored numbers with a stated rule, not schema limits, and ADR-001:508-510 names deriving pushback from an instrumented Ikemen GO build as the single most valuable measurement not yet taken."
+  },
+
+  "x-load-assertions": {
+    "$comment": "Rules that JSON Schema draft 2020-12 cannot express, because each compares one part of the document to another or one file to another. They are listed here with ids so the adapter can implement them and cite them, exactly as v1 made the v2 backlog queryable rather than prose. ADR-001 section 8 item 3 explicitly asks for the decay pair to be 'asserted at load'. STATUS: A01-A04 are verified against all three shipped files in x-v2-verification.",
+    "A01": { "rule": "decay.floor <= min(moves[].hitstun)", "why": "max(floor, base - step*n) means a floor above a base RAISES it and invents frame advantage (model.py:260, comboprover.hpp:81)", "severity": "error", "adr_001": "section 8 item 3, :338-349" },
+    "A02": { "rule": "decay.kind != \"multiplicative\"", "why": "repeated float multiply then truncate, reproducible by neither integer kernel", "severity": "error", "adr_001": "section 8 item 3, :328-336" },
+    "A03": { "rule": "every character in a build declares the same resources in the same order", "why": "comboprover::Character keys a ResourceVec by INDEX (comboprover.hpp:56, :128-129, :152), so a mismatch silently compares meter against juggle", "severity": "error", "scope": "cross-file", "adr_001": "section 8 item 7, :376-380" },
+    "A04": { "rule": "no MOVE effect/guard map and no CANCEL effect/guard map authors the key `__space`. Gap actions are exempt and MUST be able to author it", "why": "On a move the prover MERGES rather than honours an authored value -- model.py:476 does guard[SPACE] = max(authored, need) and :479 does effect[SPACE] = authored - units(pushback) -- so an authored number silently combines with a derived one and the file no longer says what it appears to say. On a GAP ACTION the opposite is true: authoring `__space` is the only way to express displacement, and it is the documented mechanism ('walking forward is simply a positive effect on the distance resource', gap.py:54-56). model.py:510 APPENDS a synthesized `walk` action alongside the authored list rather than colliding with it.", "severity": "error", "scope_correction": "An earlier draft of this assertion said 'no effect or guard map' unqualified, and its `why` claimed a collision with model.py:495-497. Both were wrong. Executed as written it rejects all three Phase-0 characters -- kung_fu_girl and kung_fu_man author {__space: 0} on gap_action `microdash`, aof2 authors {__space: 170} on `run_close` -- and two of this schema's own worked examples. It was authored from reasoning and never run against the corpus, which is the same defect class as the `derivation_legend` type error and the A06 over-fire recorded below. Verified before and after: 3 of 3 characters violate the old wording, 0 of 3 violate this one." },
+    "A05": { "rule": "hits[0].tick == move.startup, and hits[0].hitstun_ticks == move.hitstun", "why": "the [P] scalars must be the first hit, because every cancel delay is measured from first contact", "severity": "error", "applies_when": "engine.hits is present" },
+    "A06": { "rule": "consider only the UNCONDITIONAL hit records, i.e. those with no `condition`. If the last of those has a hitstun_ticks differing from hits[0]'s, then engine.hits_projection_caveat must be present and must name the direction", "why": "the projection is then an approximation whose direction depends on the numbers, and the conservative direction hides infinites", "severity": "error", "applies_when": "engine.hits has more than one unconditional entry", "why_conditional_records_are_excluded": "A record carrying a `condition` is an ALTERNATIVE profile, not a sequel -- Kung Fu Girl's chop registers its second HitDef only when the first WHIFFED (corpus/kfg/Normal.cns:224), so the two are mutually exclusive and the second is never 'the last hit of the combo'. An earlier draft of this assertion omitted the exclusion and fired on chop, which is how the distinction was found: it flagged a 30-vs-33 hitstun difference between two hits that can never both land. Counting an alternative as a sequel would also credit the attacker with 198 damage from one button." },
+    "A07": { "rule": "hits[].tick strictly increasing", "severity": "error" },
+    "A08": { "rule": "motion[].tick strictly increasing, and every velocity an integer", "why": "ARCHITECTURE.md:47 -- the authoritative core is int32 sub-units", "severity": "error" },
+    "A09": { "rule": "projectile.spawn_tick == move.startup", "why": "for a projectile move, startup means release and nothing else (ADR-001:246-247)", "severity": "error", "applies_when": "engine.projectile is present" },
+    "A10": { "rule": "a transition with kind on_land must carry duration_bound and duration_derivation", "why": "move.recovery is then an approximation and only the author knows its direction; a default would let the infinite-hiding direction ship silently", "severity": "error" },
+    "A11": { "rule": "if any gap action declares a non-null engine.variant, then engine.variants.prover_reading must be present and notes[] must carry the union warning", "why": "the prover sees the union of all variants, so an INFINITE verdict may name a route no single sub-character can perform", "severity": "error" },
+    "A12": { "rule": "every [P] field has a sibling engine.derivation entry naming a file:line or saying ESTIMATED in capitals", "severity": "warning", "note": "v1's stated rule, unchanged; warning rather than error because derivation_defaults legitimately covers most moves" },
+    "A13": { "rule": "move.engine.min_reach_sub is set only on a move whose engine.input.proximity_variant.selects is this_when_farther", "why": "they are the same fact written twice; the closer member has a maximum, not a minimum", "severity": "warning" }
+  },
+
+  "x-worked-examples": {
+    "$comment": "One complete worked example per new field, every one drawn from a citation ADR-001 section 4 actually makes, and every corpus line re-read at the cited line for this schema rather than carried over. Tick numbers are computed from the .air element durations and agree with the [P] startup already shipped in each character file. THESE ARE EXAMPLES, NOT TRANSCRIPTIONS -- writing them into the three characters is Phase 3 (ADR-001:98-100).",
+
+    "motion": {
+      "field": "move.engine.motion[]",
+      "adr_001": "section 4 group B, :206-213 -- 'e.g. palm at Specials.cns:29-46 (PosAdd x=3 at AnimElem 2, VelSet x=5.5 across elements 3-5, VelMul x=.8 as friction, VelSet x=0 at element 6)'",
+      "move": "kung_fu_girl.json / palm (Statedef 1000)",
+      "corpus": "corpus/kfg/Specials.cns:29-32 (PosAdd), :34-37 (VelSet), :39-42 (VelMul), :44-47 (VelSet 0); ticks from corpus/kfg/Kung Fu Girl.air:1693-1725",
+      "derivation": "AnimElem 2 begins tick 3, AnimElem 3 begins tick 6, AnimElem 6 begins tick 14 (element durations 2,3,3,2,3,4 from .air:1693 onward). MUGEN runs controllers in file order each tick, so from tick 6 to tick 13 VelSet x=5.5 at :34-37 runs and then VelMul x=.8 at :39-42 runs, giving a CONSTANT 4.4 px/tick, not a decaying one. At tick 14 the VelSet x=5.5 trigger has expired, VelMul takes 4.4 to 3.52, and VelSet x=0 at :44-47 then zeroes it. Resolved: 3 px teleport at tick 3, 4.4 px/tick for ticks 6-13, 0 from tick 14. Total forward travel 3 + 8*4.4 = 38.2 px.",
+      "quantization": "4.4 px/tick * 256 = 1126.4, authored as 1126 sub-units (4.3984 px). The loss is 0.0016 px/tick over 8 ticks = 0.0125 px total. DIRECTION: the attacker travels very slightly LESS far, which under-states attacker mobility -- it can hide an infinite, not invent one, the same safe direction as the walk_speed hole ADR-001:499-504 documents. This is exactly the class of loss ADR-001 means by 'no loader ever rounds is not fully achievable'.",
+      "example": {
+        "motion": [
+          { "tick": 3, "vel_x_sub": 0, "vel_y_sub": 0, "pos_add_x_sub": 768, "source": "corpus/kfg/Specials.cns:29-32" },
+          { "tick": 6, "vel_x_sub": 1126, "vel_y_sub": 0, "source": "corpus/kfg/Specials.cns:34-42, VelSet 5.5 then VelMul .8 = 4.4 px/tick" },
+          { "tick": 14, "vel_x_sub": 0, "vel_y_sub": 0, "source": "corpus/kfg/Specials.cns:44-47" }
+        ],
+        "motion_source": [
+          { "controller": "PosAdd", "trigger": "AnimElem = 2", "x": 3, "source": "corpus/kfg/Specials.cns:29-32" },
+          { "controller": "VelSet", "trigger": "AnimElemTime(3) >= 0 && AnimElemTime(6) < 0", "x": 5.5, "source": "corpus/kfg/Specials.cns:34-37" },
+          { "controller": "VelMul", "trigger": "AnimElemTime(3) >= 0", "x": 0.8, "source": "corpus/kfg/Specials.cns:39-42" },
+          { "controller": "VelSet", "trigger": "AnimElem = 6", "x": 0, "source": "corpus/kfg/Specials.cns:44-47" }
+        ],
+        "motion_physics": { "gravity_sub": 0, "friction_permille": null, "source": "grounded move; no gravity term" }
+      }
+    },
+
+    "hits": {
+      "field": "move.engine.hits[] + hits_projection",
+      "adr_001": "section 4 group A, :191-192 -- 'KFM f_lk_cancel, state 275: two HitDefs at animelem=4 and animelem=10 (kfma4a_cns.txt:767-884). Transcribed with the first only, which is what mugen_cns.py:530-535 does.'",
+      "move": "kung_fu_man.json / f_lk_cancel (Statedef 275)",
+      "corpus": "corpus/kfm/kfma4a_cns.txt:779-808 (HitDef 1) and :810-839 (HitDef 2); ticks from corpus/kfm/kfma4a.air:985-1009",
+      "derivation": "anim 275's first eight elements last 1 tick each, so AnimElem 4 begins tick 4 -- which is the [P] startup already shipped -- and element 9 lasts 12 ticks, so AnimElem 10 begins tick 21. HitDef 1: damage 20 (:788), ground.hittime 23 (:798), ground.slidetime 12 (:797), ground.velocity -3 (:799). HitDef 2: damage 30 (:819), ground.hittime 23 (:829), ground.slidetime 16 (:828), ground.velocity -3 (:830). Meter: statedef poweradd 20 (:774) plus getpower 20 (:803) = 40 MUGEN power = 4 units, which is the [P] effect.meter already shipped.",
+      "note": "BOTH HitDefs author ground.hittime = 23, so hits_projection `first` is EXACT for this move and assertion A06 does not fire. That is worth stating because it is luck, not design: the file's own transcription_note says the second hit is dropped, and it happens to be dropped without cost to the frame data.",
+      "example": {
+        "hits_projection": "first",
+        "hits": [
+          { "tick": 4, "anim_elem": 4, "damage_hundredths": 2000, "hitstun_ticks": 23, "slide_ticks": 12, "pushback_vel_sub": -768, "source": "corpus/kfm/kfma4a_cns.txt:779-808" },
+          { "tick": 21, "anim_elem": 10, "damage_hundredths": 3000, "hitstun_ticks": 23, "slide_ticks": 16, "pushback_vel_sub": -768, "source": "corpus/kfm/kfma4a_cns.txt:810-839" }
+        ]
+      }
+    },
+
+    "hits_alternative_profile": {
+      "field": "move.engine.hits[].condition (a hitRecord that is an ALTERNATIVE, not a sequel)",
+      "adr_001": "section 4 group A, :198-200 -- 'KFG chop: a SECOND HIT PROFILE selected by whether the first whiffed -- near at AnimElem 4 (Normal.cns:185-220), far at AnimElem 5 gated on triggerall = !movecontact && !movereversed (Normal.cns:223-225), with different damage, hitstun and reach.'",
+      "move": "kung_fu_girl.json / chop (Statedef 211)",
+      "corpus": "corpus/kfg/Normal.cns:184-220 (Hit 1) and :222-258 (Hit 2); ticks from corpus/kfg/Kung Fu Girl.air:800-820",
+      "derivation": "anim 211 elements last 4,4,5,3,4..., so AnimElem 4 begins tick 14 (the [P] startup) and AnimElem 5 begins tick 17. Hit 1: damage 102 (:192), ground.hittime 30 (:208), ground.velocity 0 (:211). Hit 2: damage 96 (:231), ground.hittime 33 (:246), ground.velocity -9 (:249), and its box is longer (.air:816 per the character file's own escape-hatch note).",
+      "note": "This is the one hitRecord in the corpus that needs a `condition`. It is NOT a second hit of a combo -- the two are mutually exclusive, and the second exists only because the first whiffed. Modelling it as a sequel would credit the attacker with 198 damage from one button. The prover still sees exactly one Move; the alternative profile is engine-only.",
+      "note_on_assertion_A06": "A06 deliberately does NOT fire here even though the two records differ in hitstun (30 vs 33), because the second carries a `condition` and A06 considers only unconditional records. This example is how that exclusion was found: a draft of A06 without it flagged chop, and the flag was wrong -- the two hits can never both land, so the second is not 'the hitstun the combo leaves'.",
+      "example": {
+        "hits_projection": "first",
+        "hits": [
+          { "tick": 14, "anim_elem": 4, "damage_hundredths": 10200, "hitstun_ticks": 30, "slide_ticks": 10, "pushback_vel_sub": 0, "reach_sub": 14848, "source": "corpus/kfg/Normal.cns:184-220" },
+          {
+            "tick": 17, "anim_elem": 5, "damage_hundredths": 9600, "hitstun_ticks": 33, "slide_ticks": 10, "pushback_vel_sub": -2304,
+            "condition": {
+              "all": [
+                { "property": "self.move_contact", "op": "eq", "value": false, "source": "corpus/kfg/Normal.cns:224" },
+                { "property": "self.move_reversed", "op": "eq", "value": false, "source": "corpus/kfg/Normal.cns:224" }
+              ],
+              "prose": "triggerall = !movecontact && !movereversed",
+              "source": "corpus/kfg/Normal.cns:224"
+            },
+            "source": "corpus/kfg/Normal.cns:222-258"
+          }
+        ]
+      }
+    },
+
+    "hits_summed_damage": {
+      "field": "hits_projection = first_damage_summed",
+      "adr_001": "section 4 group A, :196-197 -- 'KFG super_palm: three HitDefs (Supers.cns:82 firing at AnimElem 5 and 13, :105 at AnimElem 21) collapsed into one record whose damage is their sum, 219.'",
+      "move": "kung_fu_girl.json / super_palm (Statedef 3000)",
+      "corpus": "corpus/kfg/Supers.cns:81-102 (one HitDef with trigger1 = AnimElem 5 at :83 and trigger2 = AnimElem 13 at :84) and :104-112 (AnimElem 21 at :106); ticks from corpus/kfg/Kung Fu Girl.air:2465-2557",
+      "derivation": "anim 3000: AnimElem 5 begins tick 11 (the [P] startup), AnimElem 13 begins tick 37, AnimElem 21 begins tick 62. Damage 72 (:87) fires twice and 75 (:109) once: 72+72+75 = 219, which is the [P] damage already shipped. ground.hittime is 32 on all three (:97 for the first two, :119 for the third), so assertion A06 does not fire and the `first` half of this projection is exact.",
+      "note": "The first two hits are ONE HitDef with two triggers, which is why hits[] is keyed on tick rather than on source controller. Summing into [P] damage is safe because json_spec.py:69 sends damage to Result.maxDamage only and never to the verdict; nothing else is summed.",
+      "note_on_the_third_hit": "The third HitDef also carries `fall = 1` (corpus/kfg/Supers.cns:125): the super ends in a knockdown. That is an instance of x-known-over-approximations.defender_has_no_state -- the prover has no defender state, so it does not know the combo has ended, and it will happily continue past this hit. Permissive, therefore safe, but it is why this move's outgoing edges deserve a second look in Phase 3.",
+      "example": {
+        "hits_projection": "first_damage_summed",
+        "hits": [
+          { "tick": 11, "anim_elem": 5, "damage_hundredths": 7200, "hitstun_ticks": 32, "slide_ticks": 30, "pushback_vel_sub": -1536, "source": "corpus/kfg/Supers.cns:81-102, trigger1" },
+          { "tick": 37, "anim_elem": 13, "damage_hundredths": 7200, "hitstun_ticks": 32, "slide_ticks": 30, "pushback_vel_sub": -1536, "source": "corpus/kfg/Supers.cns:81-102, trigger2 at :84" },
+          { "tick": 62, "anim_elem": 21, "damage_hundredths": 7500, "hitstun_ticks": 32, "slide_ticks": 30, "pushback_vel_sub": -1280, "source": "corpus/kfg/Supers.cns:104-126" }
+        ]
+      }
+    },
+
+    "proximity_variant_and_min_reach": {
+      "field": "move.engine.input.proximity_variant + move.engine.min_reach_sub",
+      "adr_001": "section 4 group C, :216-217 -- 'value = 250 + (Abs(P2BodyDist X) <= 15) * 1 (Kung Fu Girl.cmd:802 [V], same idiom at :774 and :756-family)'",
+      "move": "kung_fu_girl.json / stand_hk_far (Statedef 250) and stand_hk_close (Statedef 251)",
+      "corpus": "corpus/kfg/Kung Fu Girl.cmd:800-807",
+      "derivation": "The ChangeState value is 250 plus 1 when Abs(P2BodyDist X) <= 15, so state 251 (close) is selected at a gap of 0-15 px and state 250 (far) at 16 px and beyond. min_reach_sub for the far member is 16 * 256 = 4096. Note ADR-001 section 7 records that the working notes cited :804 for this line and the verified line is :802; :802 is what was re-read here.",
+      "note": "Both members carry the object, each naming the other. Only the FAR member carries min_reach_sub (assertion A13) -- the close member's constraint is a MAXIMUM, and a maximum on the gap is the one thing `reach` already expresses. See x-known-over-approximations.min_reach.partially_closable_after_all.",
+      "example": {
+        "stand_hk_far": {
+          "engine": {
+            "min_reach_sub": 4096,
+            "input": {
+              "proximity_variant": {
+                "other_move_id": "stand_hk_close", "selects": "this_when_farther",
+                "threshold_sub": 3840, "threshold_px": 15, "inclusive": true,
+                "property": "opponent.body_distance_x_abs",
+                "source": "corpus/kfg/Kung Fu Girl.cmd:802"
+              }
+            }
+          }
+        },
+        "stand_hk_close": {
+          "engine": {
+            "min_reach_sub": null,
+            "input": {
+              "proximity_variant": {
+                "other_move_id": "stand_hk_far", "selects": "this_when_closer",
+                "threshold_sub": 3840, "threshold_px": 15, "inclusive": true,
+                "property": "opponent.body_distance_x_abs",
+                "source": "corpus/kfg/Kung Fu Girl.cmd:802"
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "projectile": {
+      "field": "move.engine.projectile",
+      "adr_001": "section 4 group F, :244-245 -- 'KFM hasyo and suiten_hasyo attack via a Projectile controller, not a HitDef (kfma4a_cns.txt:2338-2477)'",
+      "move": "kung_fu_man.json / hasyo (Statedef 1100)",
+      "corpus": "corpus/kfm/kfma4a_cns.txt:2427-2462; ticks from corpus/kfm/kfma4a.air:1439-1448",
+      "derivation": "The Projectile controller triggers on animelem=10 (:2429). anim 1100's element 5 lasts 6 ticks and the rest 1 each, so AnimElem 10 begins tick 15 -- exactly the [P] startup already shipped, which is the measured form of ADR-001:246's 'startup 15 means only released on frame 15'. All the ifelse(var(5),...) parameters take the LIGHT branch, because ADR-001:298 records that only the light set is transcribed: velocity 3.2 (:2438), projremove 98 (:2436), damage 80 (:2440). Offset 26,-70 (:2437). ground.hittime 21 (:2451), ground.velocity -9 (:2453).",
+      "quantization": "3.2 px/tick * 256 = 819.2, authored as 819 sub-units (3.1992 px/tick). NOT EXACT: 3.2 = 16/5 and 5 does not divide 256. Over the 98-tick lifetime the fireball falls 0.78 px short of its float trajectory. This is engine-only -- the prover models no projectile at all -- so it cannot move a verdict, but it is a real divergence between the engine and MUGEN and belongs in engine.fit.known_losses when this move is re-transcribed.",
+      "example": {
+        "projectile": {
+          "spawn_tick": 15, "proj_id": 91000, "anim_id": 1110, "hit_anim_id": 1111,
+          "offset_sub": { "x": 6656, "y": -17920 },
+          "velocity_sub": { "x": 819, "y": 0 },
+          "accel_sub": { "x": 0, "y": 0 },
+          "lifetime_ticks": 98, "remove_on_hit": true, "hit_count": 1, "priority": 1,
+          "hitdef": { "tick": 0, "damage_hundredths": 8000, "hitstun_ticks": 21, "slide_ticks": 21, "pushback_vel_sub": -2304, "meter_gain": 4, "source": "corpus/kfm/kfma4a_cns.txt:2439-2462" },
+          "quantization_note": "velocity 3.2 px/tick is 819.2 sub-units and is authored as 819; see x-worked-examples.projectile.quantization",
+          "source": "corpus/kfm/kfma4a_cns.txt:2427-2462"
+        }
+      }
+    },
+
+    "on_land": {
+      "field": "move.engine.transitions[].kind = on_land",
+      "adr_001": "section 4 group D, :229-230 -- 'KFG state 1100 leaves the ground mid-move (StateTypeSet, Specials.cns:693) and both it and 1105 end on pos y > -vel y (Specials.cns:776, :895)'",
+      "move": "kung_fu_girl.json / knee (Statedef 1100), and knee_followup (Statedef 1105) identically",
+      "corpus": "corpus/kfg/Specials.cns:692-696 (StateTypeSet at AnimElem 4), :774-777 (the ChangeState to 1101), :893-896 (state 1105's, to state 52)",
+      "derivation": "`pos y > -vel y` is `pos_y + vel_y > 0`, i.e. the attacker will be at or below the ground on the next tick, which is the `landing` predicate. The move goes airborne at AnimElem 4 via StateTypeSet stateType = A, physics = N (:692-696), so the motion track and gravity own everything after that tick.",
+      "note": "duration_bound is the field that matters here. The shipped [P] recovery of 18 came from the animation length, and the state's REAL length is whatever the trajectory takes. Declaring `lower` asserts the authored number is no longer than reality, which keeps the error permissive. An author who cannot show that must declare `upper` and justify it, because `upper` hides infinites.",
+      "example": {
+        "transitions": [
+          {
+            "kind": "on_land", "predicate": "landing", "min_tick": null, "require_descending": false,
+            "to_state": 1101, "to_move_id": null,
+            "duration_bound": "lower",
+            "duration_derivation": "The [P] recovery of 18 is the animation-length reading (mugen_cns.py:560-561) and the state actually ends on the landing predicate at corpus/kfg/Specials.cns:776. On the authored motion track plus gravity 128 sub/tick the landing tick is at or after the animation end, so the authored duration is a LOWER bound on the real one: the model frees the attacker no later than the game does. PERMISSIVE, therefore safe in ADR-001:224-225's sense. Re-derive when the motion track is transcribed in Phase 3.",
+            "source": "corpus/kfg/Specials.cns:774-777"
+          }
+        ],
+        "motion_physics": { "gravity_sub": 128, "applies_from_tick": 9, "source": "corpus/kfg/Specials.cns:692-696 goes airborne at AnimElem 4" }
+      }
+    },
+
+    "invuln_and_freeze": {
+      "field": "move.engine.invuln[] and move.engine.freeze[]",
+      "adr_001": "section 4 group E, :236-240 -- 'KFG super_palm has per-frame invulnerability by attack attribute: NotHitBy with value = ,NA,SA,AT for 11 ticks from AnimElem 2, value2 = C,NA thereafter (Supers.cns:34-43). Same move needs SuperPause time 30 with poweradd -1000 (Supers.cns:17-23).'",
+      "move": "kung_fu_girl.json / super_palm (Statedef 3000)",
+      "corpus": "corpus/kfg/Supers.cns:35-39 (NotHitBy A), :41-45 (NotHitBy B), :17-23 (SuperPause)",
+      "derivation": "AnimElem 2 begins tick 3 and AnimElem 14 begins tick 40 (corpus/kfg/Kung Fu Girl.air:2470 onward). Window A: trigger AnimElem = 2, time = 11, so ticks 3-13, attributes NA/SA/AT with an EMPTY state-type field (the leading comma at :38) meaning all. Window B: trigger AnimElemTime(2) >= 0 && AnimElemTime(14) < 0 with time = 1, i.e. re-armed every tick from 3 until element 14 begins, so ticks 3-39, attribute C,NA. The two OVERLAP rather than abut -- ADR-001:237-238's 'thereafter' is right about which one outlasts the other but the second starts at the same tick as the first.",
+      "note_on_the_superpause": "Supers.cns:17-23 authors pos, anim, sound and poweradd and NO `time` parameter, so the 30 ticks ADR-001:239 cites are MUGEN's SuperPause DEFAULT, not a number this character states. ticks_authored: false records that. poweradd -1000 is -100 meter units at 10 power per unit, which is the [P] effect.meter already shipped.",
+      "example": {
+        "invuln": [
+          { "from_tick": 3, "ticks": 11, "kind": "not_hit_by", "state_types": [], "attrs": ["NA", "SA", "AT"], "source": "corpus/kfg/Supers.cns:35-39" },
+          { "from_tick": 3, "ticks": 37, "kind": "not_hit_by", "state_types": ["C"], "attrs": ["NA"], "source": "corpus/kfg/Supers.cns:41-45, re-armed every tick with time = 1 until AnimElem 14 at tick 40" }
+        ],
+        "freeze": [
+          { "from_tick": 3, "ticks": 30, "kind": "super_pause", "meter_delta": -100, "ticks_authored": false, "source": "corpus/kfg/Supers.cns:17-23" }
+        ]
+      }
+    },
+
+    "hit_condition": {
+      "field": "move.hit_condition",
+      "adr_001": "section 4 group G, :256-260 -- 'Every one of Kung Fu Girl's 17 normals gates its HitDef on trigger1 = !var(16) && var(15) < 1 (Normal.cns:27, byte-identical on the other 16). var(15) counts hits since the defender was last grounded, var(16) flags a hit-fall state (System.cns:2611-2666).'",
+      "move": "kung_fu_girl.json / stand_lp, and the other 16 normals identically",
+      "corpus": "corpus/kfg/Normal.cns:27; the same trigger appears at :186 on chop and :776 on stand_hk_far, which is what 'byte-identical' means here",
+      "derivation": "var(16) is the defender's hit-fall flag and var(15) the count of hits since the defender was last grounded, both authored in corpus/kfg/System.cns:2611-2666. The character disables MUGEN's own juggle system to run them: AssertSpecial nojugglecheck (System.cns:2590-2593) and [Data] airjuggle = 0 (System.cns:7). The rule is 'a normal does not connect against an already-juggled defender'.",
+      "note": "TWO CLAUSES, BOTH ANDs -- which is why $defs.predicateList is a flat `all` list and not a grammar. This is the shape ADR-002:76-78 says to encode as data so the parser stays deferred. Placed at move level rather than under `engine` because ADR-001:299 and :304 spell it that way and because Phase 5's trigger language is what will read it (field class E5). VERIFIED to be invisible to today's loader in x-v2-verification.",
+      "example": {
+        "hit_condition": {
+          "all": [
+            { "property": "opponent.hit_fall", "op": "eq", "value": false, "source": "corpus/kfg/Normal.cns:27, var(16)" },
+            { "property": "opponent.juggle_count", "op": "lt", "value": 1, "source": "corpus/kfg/Normal.cns:27, var(15)" }
+          ],
+          "prose": "trigger1 = !var(16) && var(15) < 1",
+          "source": "corpus/kfg/Normal.cns:27"
+        }
+      }
+    },
+
+    "cancel_condition": {
+      "field": "cancel.engine.condition",
+      "adr_001": "section 4 group G, :262-264 -- 'All 26 AOF2 cancels re-enter from [Statedef 1010] under p2bodydist x <= 30 && p2movetype != H (States.st:190, :197). The second clause literally reads only attack when the defender is not in hitstun -- an explicit, authored anti-combo rule.'",
+      "cancel": "aof2_strength_training.json / every edge, e.g. punk_a_weak_punch -> punk_a_weak_punch",
+      "corpus": "corpus/aof2/States.st:186-191 (punk branch) and :193-198 (fat branch), re-read at both",
+      "derivation": "The full trigger set on the punk branch is var(0) = 0 || var(0) = 1 (:188), roundstate = 2 && random < 50 (:189), and p2bodydist x <= 30 && p2movetype != H (:190). The first is the variant selector and belongs in engine.variants; the random roll is not encodable in a deterministic simulation and goes in `unmodelled`; the third is the predicate. 30 px * 256 = 7680 sub-units.",
+      "note": "ADR-001:191 also carries a THIRD opponent property inside the target selector: value = ifelse((p2statetype != C && random < 333), 1020, ...). All three of the properties ADR-001:270 names for Phase 5 -- p2statetype, p2movetype, p2bodydist -- therefore appear in fourteen lines of one character. Authoring this once on a cancel_families entry rather than 26 times is the intended shape.",
+      "example": {
+        "condition": {
+          "all": [
+            { "property": "opponent.body_distance_x", "op": "le", "value_sub": 7680, "value_px": 30, "source": "corpus/aof2/States.st:190" },
+            { "property": "opponent.move_type", "op": "ne", "value": "hitstun", "source": "corpus/aof2/States.st:190" }
+          ],
+          "prose": "trigger1 = p2bodydist x <= 30 && p2movetype != H",
+          "unmodelled": "The same trigger block carries `roundstate = 2 && random < 50` (States.st:189), evaluated EVERY TICK. A deterministic rollback simulation cannot use MUGEN's random at all and the prover's model has no probability (ADR-001:275-279), so the probability gate is dropped and a sometimes-edge becomes an always-edge. PERMISSIVE: it can invent an infinite, it cannot hide one. ADR-001 section 4 group H is explicit that this is not a trigger-language problem at all -- 'the transition itself is a policy', and ADR-001 section 8 item 5 puts AI selection in a SEPARATE authored artifact rather than in this file.",
+          "source": "corpus/aof2/States.st:190"
+        }
+      }
+    },
+
+    "per_variant_gap_actions": {
+      "field": "gap_actions[].engine.variant + engine.variants",
+      "adr_001": "section 4 group I, :288-294 -- 'AOF2 is a spawner plus four disjoint sub-characters... Moves and cancels can be duplicated per variant; A gap_action CANNOT -- gap_actions, walk_speed, decay, scaling and resources are character-global.'",
+      "gap_action": "aof2_strength_training.json / run_close (Statedef 1016)",
+      "corpus": "corpus/aof2/States.st:232-253 (the run state), :239-242 (punk velset x = 8.5), :244-247 (fat velset x = 5.5), :252 (ends at time >= 20); :71-73 (var(0) = random % 4, rolled once); :5-44 (the root spawns the helper); :1382-1387 (the root is made unhittable)",
+      "derivation": "One run is a fixed 20-tick commitment. Punk: 8.5 * 20 = 170 px = 170 space units (model.py:465-468 makes one space unit exactly one pixel at scale 100 against reach units of 100 px). Fat: 5.5 * 20 = 110. The file today authors ONE action at 170 and documents the over-credit; v2 lets both be written.",
+      "note": "THE UNION IS THE SAFE READING AND IT MUST BE STATED IN notes[] (assertion A11). json_spec.py:168-184 gives the modelled character every gap action, so it may use either run. Each keeps its own frames, effect, guard and max_uses, so no variant's restriction is dropped and the union is at least as permissive as any single variant -- a TERMINATING verdict over the union implies TERMINATING for all four sub-characters, which is the direction AOF2's verdict needs. The cost is that an INFINITE verdict over a multi-variant file may name a route mixing one variant's move with another's gap action, which no single sub-character can perform. Permissive, so safe, but a reader must be told.",
+      "example": {
+        "gap_actions": [
+          { "id": "run_close_punk", "frames": 20, "effect": { "__space": 170 }, "max_uses": 1, "label": "run at the player (punk)",
+            "engine": { "enabled": true, "variant": 0, "state_id": 1016, "source": "corpus/aof2/States.st:239-242, velset x = 8.5 for 20 ticks" } },
+          { "id": "run_close_fat", "frames": 20, "effect": { "__space": 110 }, "max_uses": 1, "label": "run at the player (fat)",
+            "engine": { "enabled": true, "variant": 2, "state_id": 1016, "source": "corpus/aof2/States.st:244-247, velset x = 5.5 for 20 ticks" } }
+        ],
+        "engine": {
+          "variants": {
+            "selector": { "kind": "spawn_random", "rolled_once": true, "source": "corpus/aof2/States.st:71-73, var(0) = random % 4" },
+            "list": [
+              { "id": 0, "label": "Punk A", "gap_action_ids": ["run_close_punk"], "anim_offset": 0, "source": "corpus/aof2/States.st:186-191" },
+              { "id": 1, "label": "Punk B", "gap_action_ids": ["run_close_punk"], "anim_offset": 100 },
+              { "id": 2, "label": "Fat A", "gap_action_ids": ["run_close_fat"], "anim_offset": 200, "source": "corpus/aof2/States.st:193-198" },
+              { "id": 3, "label": "Fat B", "gap_action_ids": ["run_close_fat"], "anim_offset": 300 }
+            ],
+            "prover_reading": "The prover sees the UNION of all four variants: json_spec.py:168-184 reads every gap action regardless of its variant tag. Each action keeps its own frames, effect, guard and max_uses, so the union is at least as permissive as any single variant and a TERMINATING verdict over it implies TERMINATING for every sub-character. An INFINITE verdict over it would NOT imply an infinite for any single sub-character, because the search may mix one variant's move with another variant's gap action. Permissive in ADR-001:224-225's sense -- it can invent an infinite, it cannot hide one."
+          }
+        }
+      }
+    }
+  },
+
+  "x-v2-where-floats-remain": {
+    "$comment": "ARCHITECTURE.md:47 (D2) requires integers for everything the simulation integrates over time, and ADR-001:311-315 records that D2 'survives, strengthened' because no move needed a float to say what it does. v2 ADDS NO FLOATS. Every field v2 introduces is an integer, in sub-units where it is a distance or a velocity, in hundredths where it is damage, in permille where it is a ratio. The floats below are all inherited from v1 and each has a reason to stay.",
+    "damage": "float in both implementations (json_spec.py:69, and Move.damage in model.py). Feeds Result.maxDamage only and never the verdict. The engine's integer original is engine.quantized_sources.damage_hundredths and, per hit, engine.hits[].damage_hundredths.",
+    "reach": "float reach units, quantized by the prover itself at model.py:465-468 to hundredths. The engine's integer original is quantized_sources.reach_px; the simulation never reads the float.",
+    "pushback": "same as reach, and it is an ESTIMATE regardless of its type (ADR-001:486-494) -- making it an integer would not make it derived.",
+    "walk_speed": "float reach units per frame, quantized at model.py:468. ADR-001:499-504 documents the one place this rounds: Kung Fu Man's 2.4 px/tick is 614 sub-units exactly for the engine but lands on 2 px/tick for the prover, losing 0.4. UNDER-states attacker mobility, so it can hide an infinite but not invent one.",
+    "scaling_and_decay_table": "float multiplier arrays. Integer permille originals live in quantized_sources.scaling_permille and decay_table_permille. decay.ratio is now dead (see x-v2-changes.narrowings).",
+    "why_they_are_not_converted": "Every one of them is a [P] field. Retyping a [P] field would break json_spec.py's float() coercions or change a verdict, and v2's contract is that it changes neither. The integer originals sit beside them in engine.quantized_sources, which is what makes D8 checkable -- ADR-001 section 8 leaves the [P] surface alone deliberately."
+  },
+
+  "x-v2-verification": {
+    "$comment": "ADR-001's loader-compatibility result is a MEASUREMENT (ADR-001:65-70), and v2 is only allowed to claim it by re-running it. Everything here was run against this file, not predicted from it.",
+    "loader_compatibility": "VERIFIED. All three shipped characters load through the unmodified C:/rw/comboprover/importers/json_spec.py, and a v2 file carrying all nine new fields loads identically. json_spec.py never enumerates keys: _move() at :52-76 reads thirteen named keys, _cancel() at :79-108 reads eight, loads() at :126-198 reads eleven top-level keys, all through raw.get(...) or a guarded subscript. `hit_condition` at move level, `condition` under cancel.engine, and every field under any `engine` key are therefore invisible to it.",
+    "superset": "VERIFIED. All three v1 files validate against this schema unmodified under draft 2020-12.",
+    "verdicts_unchanged": "VERIFIED by re-running `python -m comboprover analyse` on all three shipped files after v2 was written: Kung Fu Girl INFINITE COMBO (25 moves, 123 usable cancels), Kung Fu Man TERMINATING (24 moves, 39 usable cancels), AOF2 TERMINATING (10 moves, 0 usable cancels). Verdicts and cancel counts match ADR-001 section 2 (:50, :54) exactly.",
+    "verdicts_unchanged_on_a_real_v2_file": "STRONGER THAN THE ABOVE, and this is the test that matters. Demonstration files were built carrying every worked example above as real data on the real moves -- motion[] on palm, hits[] on chop, f_lk_cancel and super_palm, invuln[] and freeze[] on super_palm, proximity_variant and min_reach_sub on the stand_hk pair, on_land on knee and knee_followup, projectile on hasyo, structured hit_condition on all 17 Kung Fu Girl normals, structured cancel.engine.condition on all 26 AOF2 cancels, and engine.variants with a per-variant gap action split. `analyse` output was compared BYTE FOR BYTE, exit code included, against the v1 original: IDENTICAL on 4 of 4 pairs. The counts 17 and 26 are worth noting -- they were produced by matching on the source data, and they reproduce ADR-001:256 ('all 17 of its normals') and ADR-001:262 ('All 26 AOF2 cancels') independently.",
+    "engine_keys_are_inert": "ADR-001:68-70's measurement re-run for v2. Deleting every key named `engine`, `certain`, `caveat` or `hit_condition` recursively from the v2 demonstration files and re-analysing gives byte-identical output on 3 of 3. The prover subset is 28% / 33% / 16% of each file by bytes. This is what makes the class table above a measurement rather than a claim: nothing v2 adds is visible to the fragment.",
+    "load_assertions": "A01-A13 VERIFIED against all three shipped files and all four demonstration files. A01 (decay.floor <= min hitstun): Kung Fu Girl floor 0 vs 9, Kung Fu Man floor 10 vs 11, AOF2 floor 5 vs 7 -- all pass, Kung Fu Man by one frame. A02: no file uses multiplicative. A03: all seven files declare [meter, juggle] in that order. A04: no file authors __space in a move or cancel map. A05/A07/A09: every hits[0].tick equals its move's startup and every projectile spawn_tick equals its move's startup, on real data.",
+    "two_defects_this_verification_found_in_this_schema": "Recorded because a verification that finds nothing usually means it was not run. (1) `derivation_legend` was drafted as type object, and kung_fu_girl.json ships it as a prose string, so the first superset run FAILED on that file -- the same defect class as the minItems:2 bug ADR-001:541-545 records, a schema tightened past what its own characters author. Now string-or-object. (2) Assertion A06 was drafted without the unconditional-records exclusion and fired on chop, whose two hit profiles are mutually exclusive and can never both land; hitRecord.hitstun_ticks was also optional, which made A06 silently unevaluable on a record that omitted it. Both fixed, and the second is why hitstun_ticks is now required. A third, procedural: `analyse` EXITS 1 WHEN THE VERDICT IS INFINITE, which is the verdict and not a failure -- a first draft of the comparison harness discarded stdout on a non-zero exit and made the Kung Fu Girl comparison pass vacuously. Any CI job that gates on this tool must compare output, not exit status.",
+    "a_correction_to_ADR_001": "ADR-001:496-497 states that hitstun decay is 'Shipped as none for KFG and AOF2... KFM ships the house rule with the floor lowered.' The files say otherwise, and the files are right: kung_fu_girl.json ships kind none, kung_fu_man.json ships linear step 2 floor 10 (the UNMODIFIED house rule), and aof2_strength_training.json ships linear step 2 floor 5 (the LOWERED one, and its own decay.engine.derivation explains at length why 10 would be unsound for it). The two characters are transposed in that sentence. No file is wrong and no verdict is affected -- assertion A01 passes on all three -- but ADR-001 section 6.3's prose should be corrected when it is next touched."
+  },
+
+  "x-phase-0-findings": {
+    "loader_compatibility": "3 of 3 files loaded by the unmodified json_spec.load() on the first attempt. No file was reshaped. The superset strategy is confirmed working, and v2 re-confirms it.",
+    "reserved_names": ["__space is synthesized by model.py:495-497 midscreen and must never be authored."],
+    "positional_resources": "comboprover::Character keys resources by index, so resource ORDER is part of the schema contract across a whole build, not a per-file choice. Assertion A03.",
+    "the_three_estimates": "pushback, hitstun decay, and AI transition probability are the only quantities Phase 0 could not derive from MUGEN. The first two can each flip a verdict on their own; the third cannot exist in a deterministic sim at all.",
+    "v2_backlog": [
+      { "item": "move.engine.motion[] -- the attacker's own per-frame velocity/position track (8 Kung Fu Girl moves)", "status": "CLOSED in v2 as move.engine.motion[] + motion_source[] + motion_physics" },
+      { "item": "move.engine.hits[] -- more than one HitDef per state, possibly spanning chained states (3 Kung Fu Man moves, 1 Kung Fu Girl move)", "status": "CLOSED in v2 as move.engine.hits[] + hits_projection" },
+      { "item": "move.engine.input.proximity_variant {other_move_id, threshold_px} and its mirror move.min_reach (6 Kung Fu Girl moves, 2 Kung Fu Man moves)", "status": "ENGINE HALF CLOSED as input.proximity_variant + engine.min_reach_sub. PROVER HALF NOT CLOSABLE -- a minimum gap is an upper bound on a resource and the guard vocabulary is >= only. Permissive, therefore safe. See x-known-over-approximations.min_reach." },
+      { "item": "move.engine.projectile {spawn_tick, velocity_sub, lifetime_ticks, hitdef} (2 Kung Fu Man moves)", "status": "ENGINE HALF CLOSED as move.engine.projectile. PROVER HALF NOT CLOSABLE, and it is the one over-approximation in this schema that errs CONSERVATIVELY -- it can hide an infinite. Measured to be inert across all three files (both projectile moves have zero outgoing cancels). See x-known-over-approximations.projectile_contact_frame." },
+      { "item": "move.engine.transitions[].on_land -- a physics-state transition kind beside the frame-indexed ones (2 Kung Fu Girl moves)", "status": "CLOSED in v2 as transitions[].kind = on_land, with a mandatory duration_bound so the direction of the recovery approximation is declared rather than assumed" },
+      { "item": "move.engine.anim.frames[].invuln -- per-frame invulnerability by attack attribute (1 Kung Fu Girl move)", "status": "CLOSED in v2 as move.engine.invuln[] (normative) with the per-frame slot retained at the spelled path, plus move.engine.freeze[] for the SuperPause half of the same finding" },
+      { "item": "move.hit_condition -- a predicate over the DEFENDER's state (all 17 Kung Fu Girl normals, counted once)", "status": "CLOSED AS DATA in v2 as move.hit_condition, a flat AND-list of (property, op, constant) triples over closed enums. Prover-visible in Phase 5, per ADR-001 section 8 item 5." },
+      { "item": "cancel.engine.condition over an OPPONENT namespace -- 'only when the defender is NOT in hitstun' (all 26 AOF2 edges). Phase 5's trigger language needs an opponent namespace, not just a self one; this is the finding the AOF2 character exists to produce.", "status": "CLOSED AS DATA in v2 as cancel.engine.condition, same shape, with the opponent namespace ADR-001:270 names. ADR-002 CHOICE B: an enum selector plus a threshold, NOT a parsed expression. The grammar remains Phase 5's." },
+      { "item": "per-variant gap_actions -- gap_actions, walk_speed, decay, scaling and resources are character-global and cannot vary by sub-character (the AOF2 thug is four disjoint sub-automata)", "status": "CLOSED FOR gap_actions in v2 as gap_actions[].engine.variant + engine.variants, with the union reading and its cost stated. NOT CLOSED for walk_speed, decay, scaling or resources, which remain character-global [P] fields -- no v2 field can vary them per variant without changing the prover's own model, and no Phase-0 character needs it." }
+    ],
+    "what_v2_does_not_close": [
+      "ADR-001 section 4 group H -- 'the transition is a policy, not a rule'. AOF2 selects its attack with random < 50 evaluated every tick (corpus/aof2/States.st:189, :196). ADR-001:281-284 says D7's escape hatch does not cover this and recommends that AI selection be a SEPARATE AUTHORED ARTIFACT, not a field in this file. v2 agrees: the probability appears only as predicateList.unmodelled prose, and the artifact is ADR-001 section 8 item 5's to design.",
+      "ADR-001 section 4 group I's other two shapes. Kung Fu Man's var(3) adds and removes whole MOVES and its var(5) doubles every special into light/strong (ADR-001:295-298). engine.variants can index them, but a mode variable that changes the move LIST is a Phase 3 runtime question about which automaton is loaded, not a schema field.",
+      "The one irreducible C++ effect. Kung Fu Man's fuyo_reikyaku sets air.velocity = -vel x, vel y-1.35-pos y/686.68 (corpus/kfm/kfma4a_cns.txt:4060-4070) -- arithmetic over the defender's live position and velocity at the instant of contact. ADR-001:84-89 confirms the prover's verdict is untouched by it because startup, active, recovery, hitstun, damage, effect and guard are all ordinary; it is the engine's hit resolver that cannot be data here. This is the 1 of 59 that D7's escape hatch exists for.",
+      "The pushback estimate, which is not a schema problem and is the number every midscreen verdict turns on (ADR-001:386-404, :508-510)."
+    ]
+  }
+}
