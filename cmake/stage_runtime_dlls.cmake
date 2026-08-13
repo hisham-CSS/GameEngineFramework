@@ -61,10 +61,36 @@ if (NOT dlls AND NOT DEFINED VCPKG_BIN)
   return()
 endif()
 
-# file(COPY) already skips files whose timestamp and size match, so this is cheap
-# on a rebuild and safe to run from a target that is always considered dirty.
+# NOT file(COPY), and the reason is a CI failure rather than taste.
+#
+# file(COPY) preserves timestamps, which means that after writing the bytes it
+# SETS THE MODIFICATION TIME on the destination — a second open of a file it has
+# just created. On a busy machine something else can hold that handle for the
+# instant in between (a virus scanner on a freshly written 40 MB DLL is the usual
+# suspect), and the copy fails with
+#
+#   file COPY cannot set modification time on ".../PhysXGpu_64.dll":
+#   The process cannot access the file because it is being used by another process
+#
+# which is what took the Windows job down on run 31677229284. configure_file with
+# COPYONLY writes content and stops. It also skips a destination whose content is
+# already identical, so it stays cheap on a rebuild — the same property file(COPY)
+# was chosen for, obtained without the extra open.
+#
+# This is the third time this repository has met the same shape of bug: parallel
+# applocal in tests/, parallel applocal in build/bin/, and now a redundant file
+# handle inside the fix for both. The pattern is worth naming — on Windows, every
+# additional touch of a file you just wrote is a chance for someone else to be
+# holding it.
+function(stage_dlls files)
+  foreach (f IN LISTS files)
+    get_filename_component(name "${f}" NAME)
+    configure_file("${f}" "${DST}/${name}" COPYONLY)
+  endforeach()
+endfunction()
+
 if (dlls)
-  file(COPY ${dlls} DESTINATION "${DST}")
+  stage_dlls("${dlls}")
 endif()
 
 # Second, anything vcpkg installed that applocal did not carry across. Copied
@@ -73,6 +99,6 @@ endif()
 if (DEFINED VCPKG_BIN AND IS_DIRECTORY "${VCPKG_BIN}")
   file(GLOB vcpkg_dlls "${VCPKG_BIN}/*.dll")
   if (vcpkg_dlls)
-    file(COPY ${vcpkg_dlls} DESTINATION "${DST}")
+    stage_dlls("${vcpkg_dlls}")
   endif()
 endif()
