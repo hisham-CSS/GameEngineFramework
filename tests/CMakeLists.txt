@@ -67,6 +67,14 @@ macro(engine_test name)
   add_dependencies(${name} test_runtime_deps)
 endmacro()
 
+# The kernel test links CseKernel and NOT Engine, which is the point: if it ever
+# needs the Engine to build, the kernel has stopped being independent and
+# ADR-002 CHOICE D has quietly failed. It also needs none of the staged runtime
+# DLLs, because the kernel has no dependencies to stage.
+add_executable(test_kernel test_kernel.cpp)
+target_link_libraries(test_kernel PRIVATE CseKernel GTest::gtest_main)
+add_test(NAME test_kernel COMMAND $<TARGET_FILE:test_kernel>)
+
 engine_test(test_event_bus)        # EventBus publish/subscribe
 engine_test(test_input_map)        # actions/axes/deadzone via scripted-input fake
 engine_test(test_render_passes)    # GL-headless CSM/forward/tonemap wiring

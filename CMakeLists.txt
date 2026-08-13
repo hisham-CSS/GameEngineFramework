@@ -31,6 +31,13 @@ function(cse_add_app_icon tgt)
     endif()
 endfunction()
 
+# The authoritative fighting-game simulation. FIRST, and deliberately not inside
+# Engine/: it links nothing at all (see Kernel/CMakeLists.txt, which asserts
+# that), and inside Engine it would inherit Engine's whole link interface and the
+# guarantee would be worth nothing. docs/ARCHITECTURE.md D2, made structural by
+# docs/ADR-002-open-decisions.md CHOICE D.
+add_subdirectory(Kernel)
+
 # Add subdirectories for Engine, Editor, the standalone Player, and the
 # headless AssetCooker (batch asset work, spawned by the editor)
 add_subdirectory(Engine)
