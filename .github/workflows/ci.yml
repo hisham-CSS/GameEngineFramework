@@ -84,6 +84,11 @@ jobs:
           reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f
 
       - uses: actions/checkout@v4
+        with:
+          # ThirdParty/GekkoNet is a pinned submodule (docs/ADR-003).
+          # Without this the build fails at configure with the
+          # "is empty" message in ThirdParty/CMakeLists.txt.
+          submodules: recursive
 
       - name: Cache vcpkg binaries
         uses: actions/cache@v4
@@ -184,6 +189,11 @@ jobs:
           reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f
 
       - uses: actions/checkout@v4
+        with:
+          # ThirdParty/GekkoNet is a pinned submodule (docs/ADR-003).
+          # Without this the build fails at configure with the
+          # "is empty" message in ThirdParty/CMakeLists.txt.
+          submodules: recursive
 
       - name: Cache vcpkg binaries
         uses: actions/cache@v4
@@ -256,6 +266,11 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
+        with:
+          # ThirdParty/GekkoNet is a pinned submodule (docs/ADR-003).
+          # Without this the build fails at configure with the
+          # "is empty" message in ThirdParty/CMakeLists.txt.
+          submodules: recursive
 
       - name: System packages
         # GLFW needs the X11 development headers; see docs/BUILDING_LINUX.md.

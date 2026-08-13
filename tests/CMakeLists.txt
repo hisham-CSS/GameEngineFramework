@@ -75,6 +75,14 @@ add_executable(test_kernel test_kernel.cpp)
 target_link_libraries(test_kernel PRIVATE CseKernel GTest::gtest_main)
 add_test(NAME test_kernel COMMAND $<TARGET_FILE:test_kernel>)
 
+# The kernel driven through the rollback session seam. Links CseKernel and
+# CseNet and NOT Engine — and note it gets no access to gekkonet.h, because
+# CseNet links GekkoNet PRIVATE. If this ever fails to compile for want of a
+# GekkoNet header, the seam has leaked.
+add_executable(test_session test_session.cpp)
+target_link_libraries(test_session PRIVATE CseKernel CseNet GTest::gtest_main)
+add_test(NAME test_session COMMAND $<TARGET_FILE:test_session>)
+
 engine_test(test_event_bus)        # EventBus publish/subscribe
 engine_test(test_input_map)        # actions/axes/deadzone via scripted-input fake
 engine_test(test_render_passes)    # GL-headless CSM/forward/tonemap wiring

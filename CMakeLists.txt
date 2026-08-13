@@ -38,6 +38,16 @@ endfunction()
 # docs/ADR-002-open-decisions.md CHOICE D.
 add_subdirectory(Kernel)
 
+# Vendored third-party built with OUR flags: GekkoNet, the rollback session
+# layer. Compiled here rather than via its own CMakeLists because that file
+# forces /MT on a static build while this engine is /MD — see the long note in
+# ThirdParty/CMakeLists.txt.
+add_subdirectory(ThirdParty)
+
+# The rollback session seam. Links GekkoNet PRIVATE so gekkonet.h reaches exactly
+# one translation unit, which is what keeps ADR-002 CHOICE A reversible.
+add_subdirectory(Net)
+
 # Add subdirectories for Engine, Editor, the standalone Player, and the
 # headless AssetCooker (batch asset work, spawned by the editor)
 add_subdirectory(Engine)
