@@ -16,12 +16,78 @@
 #   missing. A blind copy here silently reverted editor-saved scenes to the
 #   checked-in copy on every build, which also meant the packaged game shipped
 #   a stale scene.
+# SRC and DST ARE MADE ABSOLUTE BEFORE ANYTHING LOOKS AT THEM. `if(EXISTS)` and
+# `if(IS_DIRECTORY)` are documented as well-defined only for full paths, and with
+# a relative one they simply answer false -- so the mirror below quietly did
+# nothing at all when this script was invoked by hand with repo-relative
+# arguments. It removed no stale file and printed no message, which is the worst
+# available failure for a step whose whole job is removing things. The build
+# always passes absolute paths and was never affected; this makes the script
+# behave the same way regardless of who calls it.
+if(NOT DEFINED SRC OR NOT DEFINED DST)
+    message(FATAL_ERROR "stage_runtime_assets.cmake needs -DSRC=<source Exported> -DDST=<runtime Exported>")
+endif()
+get_filename_component(SRC "${SRC}" ABSOLUTE)
+get_filename_component(DST "${DST}" ABSOLUTE)
+if(NOT IS_DIRECTORY "${SRC}")
+    message(FATAL_ERROR "stage_runtime_assets.cmake: SRC is not a directory: ${SRC}")
+endif()
+
 file(GLOB children RELATIVE "${SRC}" "${SRC}/*")
+set(sourceDirs "")
 foreach(child ${children})
     if(IS_DIRECTORY "${SRC}/${child}")
         file(COPY "${SRC}/${child}" DESTINATION "${DST}")
+        list(APPEND sourceDirs "${child}")
     endif()
 endforeach()
+
+# COPYING IS ONLY HALF OF "OWNED BY THE SOURCE TREE". A copy adds and overwrites;
+# it never REMOVES, so a file deleted from the source tree lived on in every
+# build directory that had ever seen it -- invisible, because the source tree
+# looks correct and nobody greps a build output.
+#
+# That is not a tidiness problem. `Player/CMakeLists.txt:63-81` packages the game by
+# walking this staged directory and copying whatever it finds, so a stale file
+# here is a file that SHIPS. The case that found this: three characters
+# transcribed from third-party MUGEN sources were moved out of the asset root
+# precisely because they may not be distributed, and every existing build
+# directory went on holding them, ready to be bundled by the next `install`.
+#
+# So the static half now MIRRORS rather than merely copies: a staged file whose
+# source counterpart is gone is deleted, and so is a whole staged subdirectory
+# whose source counterpart is gone. Every removal is announced, because a build
+# that silently deletes files is its own kind of trap.
+#
+# ONE EXCEPTION, and it is the same exception the .json rule below is made of:
+# `*.import` sidecars are written by the EDITOR into this tree (ImportSettings.h
+# -- "foo.png" -> "foo.png.import"), so they legitimately exist here with no
+# source counterpart. Deleting them would throw away a designer's import
+# settings on every build. They are also excluded from packaging by both install
+# rules, so keeping them costs the bundle nothing.
+if(EXISTS "${DST}")
+    file(GLOB stagedChildren RELATIVE "${DST}" "${DST}/*")
+    foreach(child ${stagedChildren})
+        if(IS_DIRECTORY "${DST}/${child}")
+            list(FIND sourceDirs "${child}" foundAt)
+            if(foundAt EQUAL -1)
+                message(STATUS
+                    "[stage] REMOVING staged ${child}/: the source tree no longer has it.")
+                file(REMOVE_RECURSE "${DST}/${child}")
+            else()
+                file(GLOB_RECURSE stagedFiles RELATIVE "${DST}/${child}" "${DST}/${child}/*")
+                foreach(rel ${stagedFiles})
+                    if(NOT rel MATCHES "\\.import$" AND NOT EXISTS "${SRC}/${child}/${rel}")
+                        message(STATUS
+                            "[stage] REMOVING staged ${child}/${rel}: the source tree no "
+                            "longer has it.")
+                        file(REMOVE "${DST}/${child}/${rel}")
+                    endif()
+                endforeach()
+            endif()
+        endif()
+    endforeach()
+endif()
 
 file(GLOB seedFiles "${SRC}/*.json")
 foreach(f ${seedFiles})

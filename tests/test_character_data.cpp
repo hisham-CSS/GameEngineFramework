@@ -2,17 +2,21 @@
 //
 // Two halves, and the second is the one that matters.
 //
-// The first half loads Exported/Characters/kung_fu_girl.json, kung_fu_man.json
-// and aof2_strength_training.json -- 59 moves and 247 cancel edges transcribed
-// from a real corpus -- and checks the numbers against ADR-001's own table. That
-// is a regression test on the loader.
+// The first half loads tests/fixtures/characters/kung_fu_girl.json,
+// kung_fu_man.json and aof2_strength_training.json -- 59 moves and 247 cancel
+// edges transcribed from a real corpus -- and checks the numbers against
+// ADR-001's own table. That is a regression test on the loader.
+//
+// Those three are FIXTURES, not game content: they are derived from third-party
+// MUGEN characters and were moved out of the staged asset root once the project
+// had an original character of its own. See the README beside them.
 //
 // The second half makes every ADR-001 load assertion FAIL, on purpose, from a
 // real character mutated one field at a time. A rule nobody has watched reject
 // anything is not a rule, and this repository has the receipts: assertion A01
 // exists because the project's own draft decay rule (linear, step 2, floor 10)
 // FABRICATED AN INFINITE COMBO on Kung Fu Girl, and assertion A04 had to be
-// corrected because its first wording rejected all three shipped characters.
+// corrected because its first wording rejected all three corpus characters.
 // Both of those are reproduced below as tests, from the real files, so that
 // neither mistake can come back quietly.
 //
@@ -56,22 +60,17 @@ std::string charactersDir() {
     namespace fs = std::filesystem;
     fs::path here = fs::current_path();
     for (int i = 0; i < 8; ++i) {
-        // Two spellings, and both are load-bearing. The first is where the
-        // characters are STAGED -- next to the executable, because they live in
-        // Editor/src/Exported/Characters and stage_runtime_assets.cmake copies
-        // every subdirectory of that asset root. Tests run with their own build
-        // directory as the working directory, so this hits on the first
-        // iteration. The second is the SOURCE tree, which keeps the binary
-        // runnable from a shell anywhere above it.
-        for (const fs::path candidate : {
-                 here / "Exported" / "Characters",
-                 here / "Editor" / "src" / "Exported" / "Characters" }) {
-            if (fs::exists(candidate / "kung_fu_girl.json")) return candidate.string();
-        }
+        // The PHASE 0 CORPUS, which is test evidence rather than game content.
+        // It lives in tests/fixtures/characters and is deliberately NOT staged
+        // next to any executable -- see the README there for why transcriptions
+        // of third-party MUGEN characters cannot ship. Walking up from the
+        // current directory keeps this runnable from a build tree or a shell.
+        const fs::path candidate = here / "tests" / "fixtures" / "characters";
+        if (fs::exists(candidate / "kung_fu_girl.json")) return candidate.string();
         if (!here.has_parent_path() || here.parent_path() == here) break;
         here = here.parent_path();
     }
-    return "Exported/Characters";
+    return "tests/fixtures/characters";
 #endif
 }
 

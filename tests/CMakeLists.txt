@@ -31,6 +31,12 @@ FetchContent_MakeAvailable(googletest)
 # taking the Editor and Player with it, because every test depends on it. Linux
 # needs no staging at all: the loader resolves libEngine.so through the build
 # RPATH. Only the Exported/ assets are shared by both platforms.
+#
+# The assets go through the SAME cmake/stage_runtime_assets.cmake the Editor and
+# the players use. This was `cmake -E copy_directory`, which is a pure add-and-
+# overwrite: a file deleted from the source tree stayed staged here forever. Two
+# staging rules for one directory layout is the divergence that has already bitten
+# this build twice, so there is now one script and the tests exercise it too.
 if (WIN32)
   add_custom_target(test_runtime_deps
     COMMAND ${CMAKE_COMMAND}
@@ -38,16 +44,18 @@ if (WIN32)
       -DVCPKG_BIN=${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/$<$<CONFIG:Debug>:debug/>bin
       -DDST=${CMAKE_CURRENT_BINARY_DIR}
       -P ${CMAKE_SOURCE_DIR}/cmake/stage_runtime_dlls.cmake
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-      ${CMAKE_SOURCE_DIR}/Editor/src/Exported
-      ${CMAKE_CURRENT_BINARY_DIR}/Exported
+    COMMAND ${CMAKE_COMMAND}
+      -DSRC=${CMAKE_SOURCE_DIR}/Editor/src/Exported
+      -DDST=${CMAKE_CURRENT_BINARY_DIR}/Exported
+      -P ${CMAKE_SOURCE_DIR}/cmake/stage_runtime_assets.cmake
     COMMENT "Staging test runtime dependencies"
     VERBATIM)
 else()
   add_custom_target(test_runtime_deps
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-      ${CMAKE_SOURCE_DIR}/Editor/src/Exported
-      ${CMAKE_CURRENT_BINARY_DIR}/Exported
+    COMMAND ${CMAKE_COMMAND}
+      -DSRC=${CMAKE_SOURCE_DIR}/Editor/src/Exported
+      -DDST=${CMAKE_CURRENT_BINARY_DIR}/Exported
+      -P ${CMAKE_SOURCE_DIR}/cmake/stage_runtime_assets.cmake
     COMMENT "Staging test runtime assets"
     VERBATIM)
 endif()

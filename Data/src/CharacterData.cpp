@@ -231,9 +231,10 @@ bool readQuantized(Ctx& ctx, const json& o, const char* key, const std::string& 
 
 // A04. The rule is NOT "no map may author __space" -- that wording was in an
 // earlier draft of the schema, it was authored from reasoning and never run, and
-// executed as written it REJECTS ALL THREE SHIPPED CHARACTERS: kung_fu_girl and
-// kung_fu_man author {__space: 0} on the microdash gap action and aof2 authors
-// {__space: 170} on run_close. See schema.v2.json x-load-assertions.A04
+// executed as written it REJECTS ALL THREE PHASE-0 CORPUS CHARACTERS (now in
+// tests/fixtures/characters): kung_fu_girl and kung_fu_man author {__space: 0}
+// on the microdash gap action and aof2 authors {__space: 170} on run_close.
+// See schema.v2.json x-load-assertions.A04
 // .scope_correction, which records the correction and the verification both ways.
 //
 // The real rule has two halves and they point in opposite directions:

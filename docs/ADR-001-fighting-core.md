@@ -59,8 +59,13 @@ Escape-hatch tally by kind, counted directly out of the shipped files rather tha
 **[V]**: `missing_schema_field` 9, `schema_v2_field` 7, `runtime_condition` 6, `expression_language`
 1, `irreducible_cpp` **0**.
 
-**Deliverables.** `Editor/src/Exported/Characters/schema.v1.json`, `kung_fu_girl.json`, `kung_fu_man.json`,
-`aof2_strength_training.json`.
+**Deliverables.** `schema.v1.json`, `kung_fu_girl.json`, `kung_fu_man.json`, `aof2_strength_training.json`.
+
+> **Amendment (2026-08-13).** These four were authored into `Editor/src/Exported/Characters/` and now live
+> in **`tests/fixtures/characters/`**. Nothing about the measurements changed; what changed is that they are
+> transcriptions of third-party MUGEN characters, so they are *evidence, not content*, and a shipping build
+> must not stage them. The shipping directory holds `schema.v2.json` and the project's own characters. The
+> README beside the fixtures records the rule and what depends on them.
 
 **Loader compatibility: 3 of 3 loaded by the unmodified `json_spec.load()` on the first attempt.**
 No file was reshaped, no loader error, no fix. `raw.get(...)` ignores every unknown key
