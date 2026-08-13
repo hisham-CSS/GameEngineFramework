@@ -1,9 +1,17 @@
 # ARCHITECTURE DECISION DOCUMENT
 ## A deterministic, rollback-capable, cross-platform, data-driven fighting-game framework
 
-**Status:** Accepted. **Date:** 2026-08-12. **Supersedes:** nothing. **Baseline:** commit `8c5ad20`, branch `audit-fixes-2026-08`.
+**Status:** Accepted, **amended by [ADR-001](ADR-001-fighting-core.md)**. **Date:** 2026-08-12. **Supersedes:** nothing. **Baseline:** commit `8c5ad20`, branch `audit-fixes-2026-08`.
 
 Four specialists investigated and a principal engineer attacked each recommendation. Where they disagreed I adjudicated, and I re-verified every disputed fact against the sources myself. Verifications I ran this session are marked **[V]**.
+
+> **Phase 0 has since been RUN, and it amended five sections of this document.**
+> D2, D7 and D8 survive; one prescribed fix in Phase 0 and one in §5.2 were
+> **refuted by measurement and struck**; D8 gains a new hard rule; Phase 5's scope
+> grew. Amendments are marked inline in the affected sections and are quoted like
+> this. Read [ADR-001](ADR-001-fighting-core.md) before acting on Phase 0, D8,
+> Phase 5, §5.2 or §5.3 — **two of the instructions this document originally gave
+> would have fabricated an infinite combo.**
 
 ---
 
@@ -229,6 +237,28 @@ The input ring is 256 ticks × 8 B = 2 KB, indexed by tick, **separate from `Gam
 
 **Adjudication.** Neither specialist raised the float→fixed load-time quantization rule at all, and it is a start-of-match divergence source that no amount of rollback correctness repairs.
 
+> **AMENDED by [ADR-001](ADR-001-fighting-core.md). The hitstun gap above is closed outright rather than mitigated, and one new hard rule is added.**
+>
+> MUGEN 1.0 has **no global hitstun decay** — every `HitDef` states an absolute
+> `ground.hittime` and nothing reduces it as a combo runs. So `decay.kind: "none"`
+> is the truthful transcription, and like `"linear"` it is pure integer arithmetic
+> in both implementations (`model.py:257-259`, `comboprover.hpp:74-75`). There is
+> then no float multiplication to disagree about. **Forbid
+> `Decay::Kind::Multiplicative` in the schema** rather than working around it.
+>
+> **NEW RULE: `decay.floor` must never exceed the smallest hitstun in the file,
+> asserted at load.** Both implementations compute `max(floor, base − step·n)`, so
+> a floor *above* a move's base hitstun **raises** it. This is not hypothetical:
+> the draft house rule (linear, step 2, floor 10) exceeded `stand_lp`'s authored
+> `ground.hittime` of 9 and **fabricated an infinite** in our own first draft.
+> Found by measurement, not review.
+>
+> Also measured: a decay rule invented for a character that has none *deletes the
+> character*. Both implementations evaluate cancel edges at the **settled**
+> hitstun (`comboprover.hpp:336-339`), so a 2-frames-per-hit rule collapsed 128 of
+> 134 real cancels to dead. Authoring decay you did not derive from source is the
+> single most dangerous mistake this schema permits.
+
 ---
 
 ## D9 — Named choices where I am genuinely torn
@@ -287,11 +317,44 @@ Total to a networked, cross-platform-verified, moddable fighting-game framework:
 
 **Proves it works.**
 1. **Fit:** count moves needing a C++ escape hatch. **Gate: < 20%.** Above that, the vocabulary is wrong (fix it now, for free) or the approach is (find out now, for a week).
-2. **Verdict usefulness:** how many of the three return `Status::Unknown`? Verified **[V]**: `analyse` defaults to `limit = 200000` (`comboprover.hpp:314`), sets `capped` at `:485`, returns `Unknown` at `:553`, and `Config` keys on an unbounded `ResourceVec` with **no ceiling anywhere in the C++ model**. MUGEN authors meter in units of 1 with `power >= 1000` thresholds. **Gate: quantize meter to bars in the schema until all three resolve.** This is a *schema* decision and it must be made here.
+2. **Verdict usefulness:** how many of the three return `Status::Unknown`? Verified **[V]**: `analyse` defaults to `limit = 200000` (`comboprover.hpp:314`), sets `capped` at `:485`, returns `Unknown` at `:553`, and `Config` keys on an unbounded `ResourceVec` with **no ceiling anywhere in the C++ model**. MUGEN authors meter in units of 1 with `power >= 1000` thresholds. ~~**Gate: quantize meter to bars in the schema until all three resolve.**~~ **STRUCK — see the amendment below.** This is a *schema* decision and it must be made here.
 3. **Certificate availability:** verified **[V]** that `spendOnly` is cleared (`:376-386`) if any reachable cancel has a positive resource effect, and the ranking certificate is gated on `spendOnly && resCount > 0` (`:563`). Every real character builds meter on hit. **Expect `Terminating` with `hasRanking == false` as the common case** and design the editor panel for it.
 4. **Timing:** wall-clock `analyse` per character. Header claims "well under a millisecond" (`:9-13`); confirm on real data.
 
-**Deliverable.** A frozen v1 schema, three `.json` characters in `Tests/data/`, and a measured answer to "does the declarative fragment fit."
+**Deliverable.** ~~A frozen v1 schema~~, three `.json` characters, and a measured answer to "does the declarative fragment fit."
+
+---
+
+> ### ✅ PHASE 0 IS DONE. Read [`ADR-001-fighting-core.md`](ADR-001-fighting-core.md).
+>
+> Ran 2026-08-12 on three MUGEN characters (59 moves, 247 cancels). Deliverables
+> are in `Exported/Characters/`. Four amendments to what this section says:
+>
+> **1. The answer, against gate 1.** Moves needing a C++ effect or an expression
+> language: **1 of 59 (1.7%)**. D7 and D2 stand. But **23 of 59 (39%)** needed a
+> schema field v1 lacks — all of them *missing nouns, not missing verbs*, closable
+> by nine named fields. **The v1 schema must NOT be frozen until those exist.**
+> That is a blocking item on Phase 3, and it is why "a frozen v1 schema" is struck
+> from the deliverable above.
+>
+> **2. Gate 2's prescribed fix is refuted and struck.** "Quantize meter to bars"
+> is not merely unnecessary — it is *harmful*. Rounding up fabricates an infinite;
+> rounding down deletes meter. Its stated mechanism is also wrong on its own
+> terms: coarsening every resource by a common factor is a bijection on reachable
+> states and does not shrink the search at all. **`Unknown` never occurred**, in 6
+> runs, at any granularity including 100× finer than authored. Use **1 unit = 10
+> MUGEN power**, exact by GCD.
+>
+> **3. Gate 3 confirmed, gate 4 confirmed.** `hasRanking` false in both
+> terminating cases, as predicted. `analyse` in C++: **0.033 / 0.041 / 0.009 ms**
+> — the header's claim holds on real characters.
+>
+> **4. A finding this section did not anticipate.** 26 of 247 cancels gate on the
+> **defender** (`p2bodydist`, `p2movetype`, a juggle counter). Phase 5 below is
+> scoped for a *self* namespace only. And one character selects its attack by a
+> random roll evaluated every tick — a **policy, not a rule**, which D7's escape
+> hatch does not cover and which does not belong in move data at all. See the
+> Phase 5 note.
 
 ---
 
@@ -344,6 +407,23 @@ Total to a networked, cross-platform-verified, moddable fighting-game framework:
 Port `triggers.py`'s grammar (`:407-519`): ~10 atom kinds, 6 comparison operators, `&&`/`||`/`!`, inclusive/exclusive ranges, an integer variable bank. Keep the three-valued evaluation **and the reason tracking** (`triggers.py:56-64`). Must express `[Statedef -1]`-style global transitions — real characters put nearly all transitions there (`mugen_cns.py:11-31`), so "from any attack that has already connected" must be one authored row.
 
 **Proves it works.** The escape hatches counted in Phase 0 drop by ≥80%. Trigger evaluation stays under the Phase-2 gate.
+
+> **SCOPE GROWN by [ADR-001](ADR-001-fighting-core.md). The grammar above is half of what real characters use.**
+>
+> `triggers.py:407-519` is the **self** namespace. Phase 0 found 26 of 247 cancels
+> gating on the **defender**, in two of three characters independently:
+> `p2bodydist x <= 30 && p2movetype != H` on every AOF2 cancel, and Kung Fu Girl's
+> own juggle counter — which it runs *after disabling MUGEN's* (`AssertSpecial
+> nojugglecheck`). **Phase 5 needs an opponent namespace: `p2statetype`,
+> `p2movetype`, `p2bodydist`.** Budget accordingly; 4 weeks assumed the self half.
+>
+> **And one thing that is not a trigger-language problem at all.** AOF2 chooses
+> its attack with `random < 50` evaluated every tick. That is a *policy*, not a
+> rule: a deterministic rollback sim cannot use MUGEN's random, and the prover's
+> model has no probability. D7's escape hatch is "a named C++ effect" and does not
+> cover "the transition itself is a policy". **AI selection belongs in a separate
+> authored artifact**, not inside the move/cancel data, where it would put a
+> distribution somewhere the prover expects an edge.
 
 ---
 
@@ -449,7 +529,8 @@ The projection is **lossy and one-directional**, and every loss needs a written 
 |---|---|---|
 | `startup, active, recovery, hitstun, damage, effect, guard` | `Move` (`:121-132`) | Direct |
 | `from, to, delay, onHit, effect, guard` | `Cancel` (`:139-146`) | Direct; `on` is a *string* in `json_spec.py:104` and a `bool` in the header — collapse `ON_BLOCK`/`ON_WHIFF` to `onHit=false`, **document that this over-approximates** |
-| resource `ceiling` (`json_spec.py:158-164`) | **absent** — no ceiling exists anywhere in the C++ model | Must be enforced by quantizing meter to bars so the ceiling is unreachable within the search bound, **or** by pre-clamping `effect` rows. Otherwise the in-engine verdict is unsound. |
+| resource `ceiling` (`json_spec.py:158-164`) | **absent** — no ceiling exists anywhere in the C++ model | ~~Must be enforced by quantizing meter to bars so the ceiling is unreachable within the search bound,~~ **or** by pre-clamping `effect` rows. Otherwise the in-engine verdict is unsound. **AMENDED by [ADR-001](ADR-001-fighting-core.md): take the second option. The adapter clamps ceilings in its own loop. The quantize-until-unreachable alternative is unsound in the DANGEROUS direction — it can make a reachable meter state look unreachable and turn an infinite into a `Terminating`, which is the one error a soundness argument may not permit.** |
+| resource **order** | positional — `ResourceVec` is indexed, not keyed | **NEW, from [ADR-001](ADR-001-fighting-core.md): the order of the resource list is a build-wide contract.** Nothing in either implementation names a resource; index 0 in the engine must be index 0 in every character file and in the prover. Reordering one file silently compares meter against juggle points. Assert it at load. |
 | `stance, reach, pushback, walk_speed, gap_actions, stage` | absent | Dropped. `walk_speed` absence is the corner-only scope (`:15-24`); the panel must say so. |
 | trigger expressions | not representable (`meetsGuard` is componentwise ≥; `applyEffect` is componentwise +) | Three-valued: any edge whose trigger is not a resource comparison is marked `DOUBTFUL` with a reason, exactly as `triggers.py:56-64` does. |
 
@@ -462,6 +543,28 @@ A dockable panel, re-running `analyse` **asynchronously with a budget** on every
 3. **UNRESOLVED** — `capped` (`:485`, `:553`), with the config count and a "raise the budget" action. Not an error; a budget statement.
 
 Always shown, whatever the verdict, and free: `deadCancels` (cancels the designer authored that can never connect), `unreachableMoves`, `settlingIndex`, `usableCancels`. **These are the features a designer will actually use daily**, and they land before anyone cares about the theorem.
+
+> **AMENDED by [ADR-001](ADR-001-fighting-core.md). The panel must name its stage position, and one verdict must be marked conditional.**
+>
+> Phase 0 ran every character twice, corner and midscreen, and **the verdict
+> differs between them** — Kung Fu Man is `TERMINATING` midscreen and `INFINITE`
+> in the corner. A panel that shows "the" verdict without saying where the
+> characters are standing is showing a coin flip.
+>
+> Worse for the midscreen half: **pushback is not derivable from MUGEN at all.**
+> No source file contains it, so every midscreen run rests on an estimated
+> constant, and a ±20% error in that estimate flips one of the three verdicts. The
+> winning loop's space budget closes by a single unit. **Mark midscreen verdicts
+> as conditional on the estimate; corner verdicts do not depend on it and are the
+> ones to trust.** The single highest-value follow-up measurement is deriving
+> pushback from an instrumented Ikemen GO build — about a day's work, and it
+> converts every midscreen verdict from conditional to derived.
+>
+> Also: distinguish the **two different reasons** a ranking certificate can be
+> missing (`spendOnly` cleared vs `resCount == 0`), and show the **pre-decay**
+> dead-cancel list — post-decay it can report real cancels as dead. Corner runs
+> are fast enough for C++ synchronously (0.033-0.041 ms); midscreen is 147-226 ms
+> in Python and needs the async budget and a cancel-and-supersede path.
 
 Always shown as a caveat: *"Corner-pinned defender. Distance and walk-forward are not modelled. Away from the wall this verdict is an under-approximation."* (`comboprover.hpp:15-24`.) `README.md:120-128` shows that distinction flipping `corner_only.json` (safe) to `microwalk.json` (infinite) on the same jab — the panel must not show a green tick it cannot back.
 
