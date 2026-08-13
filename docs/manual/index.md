@@ -28,6 +28,7 @@ generated [API Reference](../api-index.md).
 | [Lua Scripting](lua-scripting.md) | Attaching scripts to entities, the script API, and adding another language |
 | [Physics](physics.md) | Rigid bodies, colliders, triggers, collision events, and swapping backends |
 | [Scenes and Shipping a Build](scenes-and-shipping.md) | Saving scenes, changing scene at runtime, the startup scene, and packaging a standalone game |
+| [The Fighting-Game Core](fighting-core.md) | The integer gameplay kernel, character files and their load assertions, `MatchBuilder` and its loss table, the rollback session seam, and the combo prover panel |
 
 ## Systems reference
 
