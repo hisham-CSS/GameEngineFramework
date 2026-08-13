@@ -18,8 +18,30 @@ Games get their own UI, not the editor's: a retained-mode toolkit with `.cxml` m
 batched 2D renderer with `stb_truetype` text. At 12.5k lines it is the engine's largest
 single subsystem.
 
-**Scale:** 238 first-party C++ files / 62.3k lines · 26 GLSL shaders / 1.4k lines ·
-993 tests in 50 executables (53 CTest entries) · 265 commits since October 2024.
+## Where this is going
+
+The engine's showcase is a **deterministic, rollback-netcode fighting game** — SF6-like,
+data-driven, cross-platform — which doubles as the case study for a combo-termination proof.
+That target is what now drives the architecture, and it has already changed the shape of
+the engine:
+
+- A **gameplay kernel** (`Kernel/`) that is a fixed-size POD of integers, simulated by a pure
+  function, snapshotted by `memcpy`. It links **nothing** — not Jolt, not EnTT, not Lua — and
+  that is enforced by a configure-time assertion rather than by a convention, because
+  bit-identical cross-platform arithmetic is a property of what the kernel *cannot reach*.
+- A **rollback session seam** (`Net/`) over a vendored GekkoNet. Under a stress session it
+  rolls the kernel back 231 times and re-simulates 1617 ticks, byte-identical to a
+  straight run.
+- **Character behaviour as data**, in a schema the combo prover reads *unmodified* — so the
+  thing analysed is the thing shipped, with no export step.
+
+The plan and the decisions behind it are in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+and the ADRs. They are unusually candid: ADR-001 leads with a result that is half negative,
+and records two instructions the plan originally gave that would have fabricated an infinite
+combo.
+
+**Scale:** 249 first-party C++ files / 66.8k lines · 26 GLSL shaders ·
+1,039 tests in 52 executables (55 CTest entries) · 289 commits since October 2024.
 
 ## Documentation
 
@@ -29,6 +51,9 @@ single subsystem.
 | **[Getting Started](docs/manual/getting-started.md)** | Prerequisites, build configurations, running the editor and player |
 | **[Building on Linux](docs/BUILDING_LINUX.md)** | The Linux build path (the engine targets Windows **and** Linux) |
 | **[API Reference](docs/api-index.md)** | Generated per-class reference. Build it with the `docs` CMake target (requires Doxygen) |
+| **[Architecture Decisions](docs/ARCHITECTURE.md)** | The fighting-game direction: D1–D9, the build order, the determinism contract, and a table of rejected ideas with the condition each comes back under |
+| **[North Star](docs/NORTHSTAR.md)** | What the engine is today, made testable, and what blocks the target |
+| **ADRs** | [001 — does the declarative model fit?](docs/ADR-001-fighting-core.md) (measured, on three real characters) · [002 — the eleven open decisions](docs/ADR-002-open-decisions.md) · [003 — the GekkoNet spike](docs/ADR-003-gekkonet-spike.md) · [004 — Choronos considered](docs/ADR-004-choronos-considered.md) |
 | **[Engine Audit & Roadmap](docs/ENGINE_AUDIT_2026-07.md)** | The phased roadmap ledger and its status |
 | **[Maintenance Guide](docs/MAINTENANCE.md)** | Working on the engine itself: the change loop, the documentation audit, and the invariants that keep biting |
 | **[Style Guide](docs/STYLE.md)** | How code is written here — comments, tests, diagnostics and API shape |
@@ -64,13 +89,15 @@ Legend: ✅ working · 🟡 partial · 🔲 planned
 | **Player** | ✅ | `Player.exe [scene.json]` runs a saved scene with no editor deps |
 | **Packaging** | ✅ | `cpack -G ZIP` → self-contained Windows game bundle |
 | **Job system** | ✅ | Worker-pool `JobSystem` backing async asset loads |
-| **Platform** | 🟡 | Windows (primary) + **Linux** (port phases 0–1: compiles under gcc/clang; PhysX is Windows-only there) |
-| **Tests** | ✅ | 993 GoogleTest cases in 50 executables: CSM math, shadow stability, render passes, post-process chain, serialization, physics conformance across all three backends, scripting, audio, IBL/FXAA, input, and 25 executables covering the UI toolkit. `ctest -LE perf` → 52/52 in ~12 s |
-| **CI** | 🟡 | GitHub Actions (`.github/workflows/ci.yml`): four configurations build and the 42 GPU-free CTest entries run on every push and PR. Two advisory jobs alongside — the 11 GL tests under Mesa llvmpipe, and the Linux port — non-blocking until proven green |
+| **Platform** | 🟡 | Windows (primary) + **Linux** — compiles under gcc 13, *checked by CI on every push*, not asserted. PhysX is Windows-only there. Still 🟡 because the Linux job builds but does not yet run the test suite |
+| **Tests** | ✅ | GoogleTest cases in 52 executables (55 CTest entries): CSM math, shadow stability, render passes, post-process chain, serialization, physics conformance across all three backends, scripting, audio, IBL/FXAA, input, 25 executables covering the UI toolkit, and the kernel + rollback-session suites. `ctest -LE "perf\|gl"` → 44/44 in ~3 s |
+| **CI** | ✅ | GitHub Actions: **four required jobs** — a determinism flag gate that fails the build on any fast-math flag (10 s, runs first), all four Windows configurations + the GPU-free tests, the 11 GL tests under Mesa llvmpipe, and the Linux build. Nothing is advisory |
+| **Gameplay kernel** | 🟡 | `Kernel/` — integer-only POD state, pure `Simulate`, `memcpy` snapshot, FNV-1a checksum. Links nothing, enforced at configure time. Combat systems not built yet |
+| **Rollback netcode** | 🟡 | `Net/` — `ISession` over a vendored GekkoNet (pinned commit, built with our flags). Save/load/re-simulate proven byte-identical under a stress session. No socket has been opened yet |
 | **Skeletal animation** | 🔲 | Static meshes only today |
 | **In-game / runtime UI** | ✅ | Retained-mode toolkit, separate from ImGui: `.cxml` markup + `.cstyle` stylesheets (selectors, cascade, pseudo-classes), yoga flexbox layout, two-way data binding, hot reload, focus/keyboard/gamepad navigation, scrolling and clipping, and widgets (Button, Label, Image, TextField, Slider, TabView, `repeat=` collections). Authored as a scene component |
 | **2D renderer & text** | ✅ | Batched `Renderer2D` (quads/sprites, screen + world camera modes, rounded rects, borders, gradients, 9-slice) with `stb_truetype` glyph-atlas text, word wrap, hyphenation and paragraph fitting |
-| **Networking** | 🔲 | Not started |
+| **Networking (transport)** | 🔲 | The rollback *session* exists (above); the transport under it does not. GekkoNet is built with `GEKKONET_NO_ASIO`, so nothing has sent a packet |
 
 ## Not Yet Built
 
@@ -78,8 +105,12 @@ Honest gaps, roughly in impact order:
 
 - **Skeletal / skinned animation** — the renderer draws static meshes only. The vertex format
   carries no bone IDs or weights, and there is no animation system of any kind.
-- **Continuous integration** — partial. The GPU-free tests gate every push; the 11 GL tests and the Linux build report without blocking until they have proven stable.
-- **Networking** — none.
+- **Networked play** — the rollback session layer is in and proven against the kernel, but no
+  transport is built and no two machines have ever exchanged a frame. Everything verified so
+  far is one process with two local players.
+- **Combat systems** — the kernel simulates walking, jumping and stun. Hitboxes, hit
+  detection, cancels and character data driving any of it are not built. The character
+  *schema* and three transcribed characters exist; nothing reads them into the kernel yet.
 - **Shadowed punctual lights** — the 16 point/spot lights are unshadowed and use a bounded uniform array (not a UBO).
 - **Binary cooked-asset pipeline** — the AssetCooker only *validates*; models are still Assimp-imported at load time.
 - **Scripting breadth** — Lua only, a thin API (transform / input / raycast / time), and no hot
@@ -91,12 +122,19 @@ Honest gaps, roughly in impact order:
 
 ```
 GameEngineFramework/
+├── Kernel/          # The authoritative fighting-game simulation. Integer POD state,
+│                   #   pure Simulate(), memcpy snapshot. Links NOTHING, on purpose.
+├── Net/             # ISession: the rollback session seam. GekkoNet is PRIVATE to it,
+│                   #   so exactly one .cpp includes gekkonet.h
+├── Data/            # Character data loading (schema v2 -> memory)
+├── ThirdParty/      # Vendored: GekkoNet as a pinned submodule, built with our flags
+├── Exported/        # Authored character data (schema + three transcribed characters)
 ├── Engine/          # Core engine (DLL): core systems, render passes, 2D renderer,
 │                   #   in-game UI toolkit, physics + script + audio backends
 ├── Editor/          # Editor application (ImGui) + Exported/ shaders & sample assets
 ├── Player/          # Standalone player (loads a scene.json, no editor UI)
 ├── Cooker/          # Headless AssetCooker (asset validation)
-├── docs/            # Manual (docs/manual/), API index, maintenance + style guides, Linux build, audit
+├── docs/            # Manual (docs/manual/), architecture + ADRs, maintenance + style guides
 ├── tests/           # GoogleTest unit tests
 ├── cmake/           # Build helpers (runtime-asset staging, etc.)
 ├── resources/       # App icon (.ico + shared .rc; regenerate via scripts/make_icon.py)
@@ -145,11 +183,15 @@ setx CSE_VCPKG_ROOT C:\path\to\vcpkg
 Then build with the committed presets:
 
 ```bash
-git clone https://github.com/hisham-CSS/GameEngineFramework
+git clone --recursive https://github.com/hisham-CSS/GameEngineFramework
 cd GameEngineFramework
 cmake --preset x64-relwithdebinfo
 cmake --build --preset x64-relwithdebinfo
 ```
+
+**`--recursive` matters.** `ThirdParty/GekkoNet` is a submodule pinned to a specific commit.
+Without it, configure stops with a message telling you to run
+`git submodule update --init --recursive` — which is the fix if you already cloned.
 
 Visual Studio users can open the folder directly and pick a preset from the configuration
 dropdown — `CMakePresets.json` provides `x64-debug` / `x64-release` / `x64-relwithdebinfo`
