@@ -79,12 +79,30 @@ TEST(UIComponent, RoundTripsThroughTheSceneFile) {
 // would be a bigger surprise than a UI that does not appear.
 TEST(UIComponent, RejectsPathsOutsideTheProject) {
     const char* path = "test_ui_component_evil.json";
-    writeFile(path, R"({
+
+    // The `stylesheet` case has to be spelled per-platform, and the reason is
+    // not "Windows is different" but that the two platforms disagree about what
+    // the STRING MEANS. libstdc++ does not parse drive letters (the code is
+    // inside #ifdef _GLIBCXX_FILESYSTEM_IS_WINDOWS), so "C:/Windows/evil.cstyle"
+    // is a perfectly ordinary RELATIVE path there whose first component happens
+    // to be named "C:" — correctly contained, correctly kept, and this
+    // assertion would fail for a reason that says nothing about the sandbox.
+    //
+    // So each platform gets a string that is genuinely hostile ON THAT PLATFORM,
+    // and the assertion keeps its meaning on both. `markup` needs no such split:
+    // "../../evil.cxml" climbs on every filesystem there is.
+#ifdef _WIN32
+    const char* evilStylesheet = "C:/Windows/evil.cstyle";
+#else
+    const char* evilStylesheet = "/etc/passwd";
+#endif
+
+    writeFile(path, std::string(R"({
         "version": 1,
         "entities": [
           { "name": "e",
             "uiDocument": { "markup": "../../evil.cxml",
-                            "stylesheet": "C:/Windows/evil.cstyle" } }
+                            "stylesheet": ")") + evilStylesheet + R"(" } }
         ]
       })");
 

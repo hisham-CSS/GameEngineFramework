@@ -80,6 +80,10 @@ add_subdirectory(ThirdParty)
 # one translation unit, which is what keeps ADR-002 CHOICE A reversible.
 add_subdirectory(Net)
 
+# Character data (schema v2 -> memory). Before Engine and tests because both may
+# come to depend on it; it depends on neither.
+add_subdirectory(Data)
+
 # Add subdirectories for Engine, Editor, the standalone Player, and the
 # headless AssetCooker (batch asset work, spawned by the editor)
 add_subdirectory(Engine)

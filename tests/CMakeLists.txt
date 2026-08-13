@@ -83,6 +83,28 @@ add_executable(test_session test_session.cpp)
 target_link_libraries(test_session PRIVATE CseKernel CseNet GTest::gtest_main)
 add_test(NAME test_session COMMAND $<TARGET_FILE:test_session>)
 
+# The cross-toolchain golden hash. This is the test that turns "bit-identity is a
+# property of integer arithmetic, not of a build flag" (ARCHITECTURE.md D2/D3)
+# from an argument into a fact: the same simulation, compiled by MSVC and by gcc,
+# must agree with one recorded constant. CI running it on both legs IS the
+# cross-toolchain comparison — no test binary can compare itself to another
+# platform, so the golden constant is the meeting point.
+add_executable(test_determinism_crossplat test_determinism_crossplat.cpp)
+target_link_libraries(test_determinism_crossplat PRIVATE CseKernel GTest::gtest_main)
+add_test(NAME test_determinism_crossplat COMMAND $<TARGET_FILE:test_determinism_crossplat>)
+
+# Character data loading. nlohmann is found HERE rather than inherited: it is an
+# IMPORTED target created by find_package in Engine/'s scope, and tests/ is a
+# sibling scope that never sees it. The other test targets get away with
+# including <nlohmann/json.hpp> only because engine_test links Engine, whose
+# PUBLIC vcpkg dependencies drag the include root along. This target links no
+# such thing, on purpose.
+find_package(nlohmann_json CONFIG REQUIRED)
+add_executable(test_character_data test_character_data.cpp)
+target_link_libraries(test_character_data
+    PRIVATE CseData nlohmann_json::nlohmann_json GTest::gtest_main)
+add_test(NAME test_character_data COMMAND $<TARGET_FILE:test_character_data>)
+
 engine_test(test_event_bus)        # EventBus publish/subscribe
 engine_test(test_input_map)        # actions/axes/deadzone via scripted-input fake
 engine_test(test_render_passes)    # GL-headless CSM/forward/tonemap wiring

@@ -92,11 +92,24 @@ constexpr std::uint32_t kMatchSeed = 0xA5EED17Eu;
 // unrecorded forever, and the fix is to change kMatchSeed, not to weaken this.
 constexpr std::uint32_t kGoldenUnrecorded = 0u;
 
-constexpr std::uint32_t kGoldenRollingHash = kGoldenUnrecorded;
+// RECORDED 2026-08-13 from MSVC 19.44 / x64 / RelWithDebInfo.
+//
+// Three independent derivations agree on these, which is worth recording because
+// a golden constant is only as good as its provenance: the run that produced
+// them, a from-scratch Python reimplementation of the kernel written against
+// GameState.h's field list without reference to the C++ output, and a second
+// clean run here. If those had disagreed the right response would have been to
+// find out why, not to pick one.
+//
+// gcc has NOT yet checked them. Until the Linux CI leg runs this test, these
+// numbers prove that this toolchain is self-consistent and nothing more — the
+// crossplay claim needs the second toolchain to agree, and that is the whole
+// point of the file.
+constexpr std::uint32_t kGoldenRollingHash = 0x7A43C47Bu;
 constexpr std::uint32_t kGoldenCheckpoint[kCheckpointCount] = {
-    kGoldenUnrecorded,  // tick 1000
-    kGoldenUnrecorded,  // tick 2000
-    kGoldenUnrecorded,  // tick 3000
+    0x63914DE3u,  // tick 1000
+    0x93C12275u,  // tick 2000
+    0x612A335Fu,  // tick 3000
 };
 
 // ============================================================================
