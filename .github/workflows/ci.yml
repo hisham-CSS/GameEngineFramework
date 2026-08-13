@@ -12,7 +12,11 @@
 #                         CTest entries that need no GPU.
 #   gl-tests (required)   the 11 tests that need an OpenGL context, run against
 #                         Mesa's llvmpipe software rasteriser.
-#   linux    (required)   the Linux port compiles under gcc 13.
+#   linux    (required)   the Linux port compiles under gcc 13 AND runs the same
+#                         test suite. That second half is what makes the
+#                         cross-toolchain determinism gate real: a golden state
+#                         hash checked by one compiler proves only that the
+#                         compiler agrees with itself.
 #
 # ALL FOUR ARE REQUIRED as of 2026-08-12. gl-tests and linux started advisory —
 # the idea being to promote each once it had been green for a while — and both
@@ -285,9 +289,15 @@ jobs:
     # keeps that true: there is no gcc on the primary development machine, so
     # this runner is the ONLY compiler that ever sees the code that is not MSVC.
     #
-    # NOTE it builds but does not TEST. The Linux job runs no ctest, and
-    # docs/MAINTENANCE.md records the Windows-shaped test assertions that must be
-    # guarded before it can.
+    # It now also RUNS the tests, which is what makes the cross-toolchain
+    # determinism gate mean anything: test_determinism_crossplat asserts a golden
+    # state hash, and a golden hash checked by one compiler proves only that the
+    # compiler agrees with itself. gcc checking the SAME constant is the
+    # comparison — no test binary can compare itself to another platform.
+    #
+    # The Windows-shaped path assertions that blocked this are guarded as of
+    # 367ba5d (see docs/MAINTENANCE.md and the #ifdef _WIN32 blocks in
+    # test_scene_serializer / test_ui_markup / test_ibl / test_ui_component).
     steps:
       - uses: actions/checkout@v4
         with:
@@ -350,6 +360,31 @@ jobs:
           chmod +x scripts/linux-build.sh
           scripts/linux-build.sh RelWithDebInfo 2>&1 | tee build.log
           exit ${PIPESTATUS[0]}
+
+      - name: Test — the same suite Windows runs
+        working-directory: out/build/linux-RelWithDebInfo
+        # THE POINT OF THIS STEP is test_determinism_crossplat. Everything else
+        # here is a bonus: this is the first time the suite has ever run on
+        # anything but MSVC, so treat new failures as findings about the port
+        # rather than as flakes.
+        #
+        # `gl` is excluded because this runner has no OpenGL context (the Windows
+        # gl-tests job covers those under Mesa). `perf` is a timing budget that
+        # means nothing on a shared vCPU.
+        run: ctest --output-on-failure -LE "perf|gl" -j 4
+
+      - name: Do the two toolchains agree?
+        if: always()
+        # Printed unconditionally, pass or fail, because this is the claim the
+        # whole fighting-game plan rests on and it should be readable without
+        # digging through a test log. The hash below is recorded in
+        # tests/test_determinism_crossplat.cpp from an MSVC run; if gcc computed
+        # a different one the test above has already failed and named the first
+        # diverging checkpoint.
+        working-directory: out/build/linux-RelWithDebInfo
+        run: |
+          echo "=== cross-toolchain determinism ==="
+          ./tests/test_determinism_crossplat --gtest_filter='*RecordedValue*' 2>&1 | tail -20 || true
 
       - name: Why it failed
         if: failure()
