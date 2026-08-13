@@ -1,8 +1,77 @@
-# ADR-003 — GekkoNet: the read-only spike, and why it does not settle the question
+# ADR-003 — GekkoNet: the spike
 
-**Status:** **INCONCLUSIVE — the building spike is still required.** Amends `ADR-002` CHOICE A.
-**Date:** 2026-08-12. **Method:** public source and API read over HTTP. Nothing cloned, downloaded,
-built, or vendored.
+**Status:** **BUILDING SPIKE COMPLETE. All three gates PASS.** Amends `ADR-002` CHOICE A.
+**Date:** 2026-08-12. **Pinned commit:** `5924b5c7abb5b1156c3c5609c9c36e9bede58c1c` (2026-08-04).
+
+> ## The building spike ran. Here is what it did and what it found.
+>
+> The read-only half of this document (below) reached "inconclusive" and named
+> three things a real spike had to establish. All three were done, against a
+> pinned SHA rather than a moving branch.
+>
+> **1. The grep, not the summary.** `float|double|f32|f64` across `GekkoLib`
+> excluding `thirdparty`: **30 hits, all accounted for.** `sync.cpp`, `input.cpp`,
+> `event.cpp` and `storage.cpp` have **zero** — the read-only spike's suspect
+> claim turns out to be true, and the adversarial pass's suspicion that it had
+> queried the wrong token was reasonable but wrong.
+>
+> **2. The float is provably terminal.** `GetAverageAdvantage()` (`backend.cpp:1273`)
+> is called by exactly one thing, `FramesAhead()` (`game_session.cpp:210`), which
+> is called by exactly one thing, the public `gekko_frames_ahead()`
+> (`gekkonet.cpp:101`). **There is no internal consumer.** It leaves the library
+> and never returns. The examples use it to compute a `delay_ns` sleep — local
+> wall-clock pacing, outside the simulation entirely.
+>
+> **3. `running_ahead` is integer.** `_runahead_frames` is a `u8` the host sets
+> explicitly via `gekko_set_runahead()`, and `game_session.cpp:690` is
+> `for (u8 i = 0; i < _runahead_frames; i++)`. `running_ahead` is just
+> `_runahead_frames > 0` (`:179`). The other timing predicate,
+> `ShouldStallAdvance()` (`:651`), compares `Frame` against `INT32_MAX`. **No
+> float decides how many ticks run.** The disqualifying condition does not hold.
+>
+> **4. It builds, first try.** MSVC, Ninja, RelWithDebInfo: 28/28, no errors, no
+> warnings surfaced. Flags are `/EHsc /O2 /Ob1 /DNDEBUG -std:c++20 -MT -Zi`. **No
+> fast-math of any kind** — our determinism gate passes over its tree.
+>
+> **5. THE TEST THAT MATTERS — it drives our kernel, and rollback is exact.**
+> A harness linked `CseKernel` and `GekkoNet_STATIC.lib` and ran our real
+> `GameState` (80 bytes) through GekkoNet's real event loop, with
+> `memcpy(event->data.save.state, &live, sizeof(GameState))` on save and the
+> reverse on load — `ARCHITECTURE.md` D4 verbatim, no adapter, no translation.
+> Under `GekkoStressSession`, which rolls back continuously to hunt desyncs:
+>
+> | | |
+> |---|---|
+> | advances | 1857 |
+> | saves | 1857 |
+> | **loads (real rollbacks)** | **231** |
+> | **re-simulated advances** | **1617** |
+> | final state vs kernel-alone reference | **byte-identical** |
+> | checksum both paths | `A8148EF4` |
+>
+> That is the whole design validated end to end: GekkoNet's API took our bytes,
+> rolled us back 231 times, re-simulated 1617 ticks, and produced exactly what the
+> kernel produces on its own. It also independently proves the kernel is
+> deterministic under real rollback pressure rather than only under the synthetic
+> rewind in `test_kernel.cpp`.
+>
+> **The one real friction, confirmed and priced.** `GekkoLib/CMakeLists.txt:10-15`
+> sets `CMAKE_MSVC_RUNTIME_LIBRARY` from `BUILD_SHARED_LIBS` — static build gets
+> `/MT`, and our Engine is `/MD`. That is a category error on their side (the CRT
+> choice is independent of static-vs-shared) and it **overrides an external
+> `-DCMAKE_MSVC_RUNTIME_LIBRARY`**, so it is a one-line patch to the vendored
+> copy, not a configure flag. Also: consumers must define `GEKKONET_STATIC` or
+> the header defaults to `__declspec(dllimport)` and the link fails with `__imp_`
+> symbols (`gekkonet.h:35-38`).
+>
+> **Not established:** anything about gcc/Linux. There is no gcc on this machine;
+> CI is the first place that gets tested.
+>
+> ---
+>
+> **Everything below is the earlier read-only pass, kept because its reasoning
+> about what a spike could not settle was correct, and because the three
+> corrections to ADR-002 still stand.**
 
 ---
 
