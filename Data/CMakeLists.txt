@@ -19,6 +19,9 @@ add_library(CseData STATIC
     # comboprover type, so the prover is an implementation detail of this
     # library exactly as GekkoNet is of CseNet.
     src/ProverAdapter.cpp
+    # CharacterData -> the kernel's MatchData. See the include-directory note
+    # below for why this does not make CseData link the kernel.
+    src/MatchBuilder.cpp
     # Compiled in rather than linked. Character files are authored content and
     # docs/MAINTENANCE.md admits no exceptions: an authored path goes through
     # PathIsContained before anything opens it. The alternative to compiling this
@@ -41,6 +44,21 @@ add_library(CseData STATIC
 target_include_directories(CseData
     PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include
     PRIVATE ${CMAKE_SOURCE_DIR}/Engine/src/core   # PathSandbox.h + Core.h only
+
+    # The kernel's HEADERS, deliberately without linking the kernel.
+    #
+    # MatchBuilder.h hands back a cse::kernel::MatchData, so the type has to be
+    # visible to consumers -- hence PUBLIC. But MatchBuilder.cpp calls no
+    # function declared in Combat.h: it uses only the structs and the constexpr
+    # constants, and re-derives Combat.h's own range check rather than calling
+    # BoxIsValid, precisely so that no symbol is needed at link time.
+    #
+    # That is not pedantry. Linking CseKernel here would trip the FATAL_ERROR at
+    # the bottom of this file, and it should: the dependency runs data -> a
+    # kernel-shaped POD, never the reverse. A library that both READS character
+    # files and LINKS the simulation is one refactor away from putting a
+    # std::string inside GameState.
+    PUBLIC  ${CMAKE_SOURCE_DIR}/Kernel/include
 )
 
 target_compile_features(CseData PUBLIC cxx_std_17)

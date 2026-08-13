@@ -123,6 +123,14 @@ target_link_libraries(test_prover_adapter
     PRIVATE CseData ComboProver nlohmann_json::nlohmann_json GTest::gtest_main)
 add_test(NAME test_prover_adapter COMMAND $<TARGET_FILE:test_prover_adapter>)
 
+# A real transcribed character driving the real simulation. The first test to
+# link BOTH CseData and CseKernel, which is the shape the note at the top of
+# Combat.h predicts: the data layer builds a POD, the kernel consumes it, and
+# the two never link to each other — only a caller links both.
+add_executable(test_match_bridge test_match_bridge.cpp)
+target_link_libraries(test_match_bridge PRIVATE CseData CseKernel GTest::gtest_main)
+add_test(NAME test_match_bridge COMMAND $<TARGET_FILE:test_match_bridge>)
+
 engine_test(test_event_bus)        # EventBus publish/subscribe
 engine_test(test_input_map)        # actions/axes/deadzone via scripted-input fake
 engine_test(test_render_passes)    # GL-headless CSM/forward/tonemap wiring
