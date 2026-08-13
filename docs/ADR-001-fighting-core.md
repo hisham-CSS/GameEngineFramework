@@ -470,8 +470,30 @@ our tools.
   sub-unit shape was validated against `.air:746-764` for one move while drafting the schema.
   `ARCHITECTURE.md:328` already budgets the editor in Phase 3; nothing here changes that estimate,
   but nothing here validates it either.
-- **Ground-truth validation (`§5.5` item 4) is impossible until Phase 3.** Nobody has executed a
-  printed loop. That is the contribution no offline tool can produce and it remains entirely unearned.
+- ~~**Ground-truth validation (`§5.5` item 4) is impossible until Phase 3.** Nobody has executed a
+  printed loop. That is the contribution no offline tool can produce and it remains entirely unearned.~~
+
+  > **EARNED, 2026-08-13.** `tests/test_ground_truth.cpp`, 11 tests. Two things had to change first,
+  > and both did: the kernel grew a cancel system, so a chain can be *performed*; and the project
+  > authored its own characters, so a loop executed against one is a statement about **our** game
+  > rather than about a MUGEN author's.
+  >
+  > **The loop executes.** The prover printed `stand_lp > … > [loop] stand_lp` for `fighter_a_infinite`;
+  > the trace is *derived from the witness*, not written by hand, and the kernel performed **26 hits in
+  > 160 ticks, one every 6, with the defender out of hitstun on 0 ticks**. Bit-identical on replay. A
+  > mashing defender changes nothing. The control — the same derived trace against `fighter_a` — lets
+  > the defender out, so the experiment is not measuring "pressing buttons does damage".
+  >
+  > **And the other outcome ARCHITECTURE.md predicted happened at the same time, on the SAFE character.**
+  > `fighter_a` is TERMINATING *with a ranking certificate*, and the certificate is that **juggle runs
+  > down**: `air_mp` cancels into itself and the model permits 4 repetitions before the counter floors.
+  > **The kernel has no juggle** — it has no resources at all. So the kernel performed **18 repetitions
+  > in 200 ticks**, defender unable to act in between. The analysis is sound about the file; the
+  > *projection* from file to running game is what loses the thing termination rested on. This is D8
+  > (§5) measured rather than argued, and it is why `BuildReport::playsAsAnalysed` is false.
+  >
+  > Both halves of §5.5 item 4 are therefore delivered together: the analysis is validated end to end,
+  > **and** the gap between the model and the game is a number.
 
 ### 6.2 Not transcribed
 

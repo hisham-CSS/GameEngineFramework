@@ -1,0 +1,1983 @@
+{
+ "name": "Fighter A (placeholder, INFINITE variant)",
+ "notes": [
+  "DELIBERATELY BROKEN. This file is fighter_a with ONE cancel edge added: cancels[0], stand_lp -> stand_lp, delay 2, on hit. It exists to be called INFINITE by the prover and then EXECUTED by the kernel, which is the validation ARCHITECTURE.md:632 names as the one no offline analysis can produce. Do not ship it, do not balance against it, and do not copy frame data out of it without reading engine.the_bug first.",
+  "THE LOOP, in one line: stand_lp is startup 4, hitstun 14, and cancels into itself 2 frames after contact, so it repeats every 6 ticks while freezing the defender for 14. The closing inequality is startup + delay < hitstun, i.e. 6 < 14, with 8 frames to spare. The second hit lands on tick 10 and the defender could not have acted before tick 18.",
+  "THE LOOP IS PERFORMABLE WITH ONE BUTTON HELD. Bind stand_lp to kInputLP and hold it. There is no motion input, no release, no timing window and no second binding, because the cancel's target is the source. engine.ground_truth carries the tick-by-tick timeline, the positions, and the assertions the test should make.",
+  "NOTHING ELSE IN THIS FILE IS BROKEN. All 60 edges are usable in the prover -- zero dead cancels -- and all 60 are true combos in the kernel, the tightest with 3 frames of hitstun remaining. Every move carries engine.tier and all 59 sane edges strictly increase it, so the base graph is acyclic by construction and cancels[0] is the only cycle in the file. It is also the only edge that targets stand_lp at all.",
+  "Frame data is DESIGNED, not derived: this is an original character with no source file, and every engine.derivation says so in those words. The two quantities ADR-001 section 6.3 names as unavoidable estimates in the corpus -- pushback and hitstun decay -- are not estimates here. Decay is `none` because the engine implements none (ResolveHits sets hitstun to the authored value regardless of combo depth), and pushback is a designed number that NOTHING IN THE LOOP DEPENDS ON: the stage is corner, where the prover drops position entirely, and the kernel moves nobody on hit.",
+  "This character needs ZERO escape hatches, 0 of 18 moves, against ARCHITECTURE.md:346's >= 80% bar and ADR-001's measured 23 of 59 for the three imported characters. That number is not a fair comparison and must not be quoted as one: it measures whether a character authored AGAINST schema v2 fits schema v2, not whether the vocabulary is rich enough for characters that already exist. See engine.fit.the_measurement_phase_0_could_not_take.",
+  "Resource order is [meter, juggle], which is a BUILD-WIDE contract and not a per-file choice: comboprover::Character keys its ResourceVec positionally (comboprover.hpp:56, :128-129, :152), so a file that swapped them would compare meter against juggle and never say a word. Juggle is declared and INERT -- no move in this file spends or requires it -- exactly as it is in all three Phase-0 characters, and for the same reason.",
+  "The loop is resource-POSITIVE, not resource-neutral: stand_lp gains 5 meter per repetition. That is at least as fatal as neutral and the prover says so in its own words -- 'coming back to the same move having spent nothing is an infinite combo; coming back having gained is just as fatal, because each repeat then starts from a better position than the last' (comboprover.hpp, `covers`). The meter ceiling of 300 is reached after 60 repetitions and the loop is unaffected either way; the adapter is required to clamp it in its own search loop (ADR-001 section 8 item 4)."
+ ],
+ "stage": "corner",
+ "starters": [
+  "stand_lp",
+  "crouch_lp",
+  "crouch_mp",
+  "crouch_hp",
+  "crouch_lk",
+  "crouch_mk",
+  "crouch_hk",
+  "special_fireball_l",
+  "special_fireball_h",
+  "special_uppercut_l",
+  "special_uppercut_h",
+  "special_dash_punch",
+  "stand_mp",
+  "stand_hp",
+  "stand_lk",
+  "stand_mk",
+  "stand_hk"
+ ],
+ "walk_speed": 0.02,
+ "scaling": [
+  1.0,
+  0.9,
+  0.8,
+  0.7,
+  0.6,
+  0.5
+ ],
+ "decay": {
+  "kind": "none",
+  "step": 0,
+  "floor": 0,
+  "engine": {
+   "derivation": "DERIVED FROM THE ENGINE, which is a thing only an original character can do. `none` is not a transcription default here -- it is what Kernel/src/Combat.cpp actually implements: ResolveHits SETS the defender's hitstun to the move's authored value on every hit regardless of how many have landed, so there is no decay to describe. MatchBuilder.cpp:252-263 confirms it from the other side, recording a character with kind `none` as 'checked and inert' with a loss count of zero.",
+   "why_the_floor_is_zero": "A01 requires decay.floor <= the smallest hitstun in the file, which is 13 (crouch_lp and crouch_lk). Zero satisfies it with room, and the rule is not a formality: both implementations compute max(floor, base - step*n), so a floor ABOVE a move's authored hitstun RAISES it and invents frame advantage. This project's own draft house rule -- linear, step 2, floor 10 -- did exactly that and FABRICATED AN INFINITE COMBO on Kung Fu Girl (ADR-001:338-349). A file whose whole purpose is one deliberate infinite must not contain a second one by accident, and this is the field that would have produced it.",
+   "multiplicative": "Forbidden by A02 and by the schema enum. Not used, not needed, and not authored as a stale ratio either."
+  }
+ },
+ "resources": [
+  {
+   "name": "meter",
+   "initial": 0,
+   "floor": 0,
+   "ceiling": 300,
+   "engine": {
+    "units_per_bar": 100,
+    "display": "bars",
+    "hud_bar_count": 3,
+    "derivation": "1 unit = 10 MUGEN power = 1/100 bar, the build-wide unit ADR-001 section 3 gate 2 fixes and the GCD of every power value in the Phase-0 corpus. This character's gains are 5 / 10 / 15 / 20 per move and its one cost is 100, all whole units, so the quantization is exact and no loader rounds. ADR-001 measured what coarsening does instead: rounding to whole bars FABRICATES an infinite when gains round up and deletes every super when they round down.",
+    "initial_zero": "A round starts with no meter, so the super is unreachable at combo start and becomes reachable as the combo builds it. That exercises both halves of the guard/effect vocabulary rather than leaving one inert.",
+    "ceiling_warning": "comboprover.hpp carries no ceilings at all (Character :148-174, nonNegative :264-269 hardcodes floor 0) while model.py:192 clamps, so the adapter MUST clamp in its own search loop or the editor panel and the offline run search different state spaces. ADR-001 section 8 item 4 settles it that way and rejects the `meter_room` mirror-resource alternative on the record, because a hard wall forbids the gain instead of saturating it, under-approximates the attacker, and can therefore MISS an infinite."
+   }
+  },
+  {
+   "name": "juggle",
+   "initial": 0,
+   "floor": 0,
+   "ceiling": null,
+   "engine": {
+    "display": "integer",
+    "spent_by_this_character": false,
+    "derivation": "DECLARED BUT INERT. No move in this file spends or requires juggle, and the kernel has no juggle system to implement one against (Combat.h scopes juggle and proration out by name). It is declared so that index 0 means `meter` in this file exactly as it does in every other character in the build -- comboprover::Character keys its ResourceVec POSITIONALLY, so a file that declared only meter would still be legal JSON and would still silently misalign against a file that declared both. ADR-001 section 8 item 7 makes the order a build-wide contract and assertion A03 is where it is enforced, at load, against LoadOptions::expectedResources.",
+    "note": "ADR-001:519-521 records that juggle is dead data in all three Phase-0 characters too, so the juggle half of the resource vocabulary remains entirely untested by anything in this repository. This file does not change that and does not pretend to."
+   }
+  }
+ ],
+ "gap_actions": [
+  {
+   "id": "microdash",
+   "frames": 12,
+   "effect": {
+    "__space": 0
+   },
+   "guard": {},
+   "max_uses": 1,
+   "label": "forward dash",
+   "engine": {
+    "enabled": false,
+    "variant": null,
+    "derivation": "AUTHORED DISABLED, WITH A ZERO EFFECT, ON PURPOSE. This character has no dash state and the kernel has none either -- Simulate.cpp walks every fighter at a hardcoded 2 px/tick and that is the only ground movement it has. gap.py:29-33 warns that crediting movement the attacker cannot actually perform INVENTS INFINITES, so the action is recorded as absent rather than omitted, which is what both Kung Fu characters do with theirs. `__space` is authored here and ONLY here: assertion A04 forbids it on a move or a cancel, where the prover merges an authored value with the one it derives from reach and pushback instead of honouring it, and REQUIRES it to be authorable on a gap action, where it is the documented way to express displacement.",
+    "note": "Moot for this file's verdict either way. comboprover.hpp has no gap actions at all -- they are a midscreen concept and the header is corner-only -- and this file authors stage `corner`."
+   }
+  }
+ ],
+ "moves": [
+  {
+   "id": "crouch_lp",
+   "label": "Crouching Light Punch",
+   "startup": 4,
+   "active": 2,
+   "recovery": 9,
+   "hitstun": 13,
+   "damage": 25.0,
+   "effect": {
+    "meter": 5
+   },
+   "guard": {},
+   "stance": "ground",
+   "reach": 0.28,
+   "pushback": 0.06,
+   "engine": {
+    "derivation": "DESIGNED, not measured -- this character has no source file. startup 4 / active 2 / recovery 9 is the light-tier template (the brief's 3-5 startup band); hitstun 13 is the light-tier value minus one because a crouching light trades one frame of stun for hitting low. Advantage on hit = hitstun - (active + recovery) = 13 - 11 = +2. reach 28 px is the light-tier gap minus 2 px for the crouched posture.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "None needed. This character was authored AGAINST schema v2 rather than transcribed into it, so every fact about every move already has a slot: the projectiles use engine.projectile, the dash punch uses engine.motion, the reversals and the super use engine.invuln, the super uses engine.hits and engine.freeze, and nothing in the file needs a value computed at runtime. See engine.fit.the_measurement_phase_0_could_not_take."
+    },
+    "cancel_window_ticks": [
+     4,
+     11
+    ],
+    "tags": [],
+    "cancel_window_derivation": "DESIGNED, and it BITES rather than defaulting: [startup, startup + active + 5]. The chain window opens on the first active frame and closes 5 ticks into recovery; after that the move is committed. It closes at tick 11 against a move duration of 15, so MatchBuilder.cpp intersects a real bound rather than running the window to the last frame of the move, and the `move.cancel_window (absent)` loss counts 0 for this character.",
+    "tier": 0,
+    "frame_advantage_on_hit": 2,
+    "duration": 15,
+    "binding_recommended": "kInputDown|kInputLP",
+    "binding_note": "BuildOptions::bindings, not a field of this character -- nothing in the schema can set MoveDef::button. The whole table and the reason for the move order are in engine.ground_truth.bindings."
+   }
+  },
+  {
+   "id": "crouch_mp",
+   "label": "Crouching Medium Punch",
+   "startup": 6,
+   "active": 3,
+   "recovery": 14,
+   "hitstun": 18,
+   "damage": 55.0,
+   "effect": {
+    "meter": 10
+   },
+   "guard": {},
+   "stance": "ground",
+   "reach": 0.32,
+   "pushback": 0.1,
+   "engine": {
+    "derivation": "DESIGNED. Medium-tier template: startup 6, hitstun 18. recovery 14 (one more than standing) gives +1 on hit, so the crouching medium is the safer confirm and the standing one the better button. 18 frames of stun is what every special-cancel target in this file is sized against: 2 (window) + 13 (light fireball) = 15 <= 17.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "None needed. This character was authored AGAINST schema v2 rather than transcribed into it, so every fact about every move already has a slot: the projectiles use engine.projectile, the dash punch uses engine.motion, the reversals and the super use engine.invuln, the super uses engine.hits and engine.freeze, and nothing in the file needs a value computed at runtime. See engine.fit.the_measurement_phase_0_could_not_take."
+    },
+    "cancel_window_ticks": [
+     6,
+     14
+    ],
+    "tags": [],
+    "cancel_window_derivation": "DESIGNED, and it BITES rather than defaulting: [startup, startup + active + 5]. The chain window opens on the first active frame and closes 5 ticks into recovery; after that the move is committed. It closes at tick 14 against a move duration of 23, so MatchBuilder.cpp intersects a real bound rather than running the window to the last frame of the move, and the `move.cancel_window (absent)` loss counts 0 for this character.",
+    "tier": 1,
+    "frame_advantage_on_hit": 1,
+    "duration": 23,
+    "binding_recommended": "kInputDown|kInputMP",
+    "binding_note": "BuildOptions::bindings, not a field of this character -- nothing in the schema can set MoveDef::button. The whole table and the reason for the move order are in engine.ground_truth.bindings."
+   }
+  },
+  {
+   "id": "crouch_hp",
+   "label": "Crouching Heavy Punch",
+   "startup": 8,
+   "active": 4,
+   "recovery": 21,
+   "hitstun": 21,
+   "damage": 85.0,
+   "effect": {
+    "meter": 15
+   },
+   "guard": {},
+   "stance": "ground",
+   "reach": 0.38,
+   "pushback": 0.2,
+   "engine": {
+    "derivation": "DESIGNED. Heavy tier, punch: startup 8 is the fastest heavy in the file (the anti-air-ish one), paid for with 4 active frames and 21 recovery, so it is -4 on hit. hitstun 21 is one below the standing heavies because the extra active frame already bought it a wider confirm.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "None needed. This character was authored AGAINST schema v2 rather than transcribed into it, so every fact about every move already has a slot: the projectiles use engine.projectile, the dash punch uses engine.motion, the reversals and the super use engine.invuln, the super uses engine.hits and engine.freeze, and nothing in the file needs a value computed at runtime. See engine.fit.the_measurement_phase_0_could_not_take."
+    },
+    "cancel_window_ticks": [
+     8,
+     17
+    ],
+    "tags": [],
+    "cancel_window_derivation": "DESIGNED, and it BITES rather than defaulting: [startup, startup + active + 5]. The chain window opens on the first active frame and closes 5 ticks into recovery; after that the move is committed. It closes at tick 17 against a move duration of 33, so MatchBuilder.cpp intersects a real bound rather than running the window to the last frame of the move, and the `move.cancel_window (absent)` loss counts 0 for this character.",
+    "tier": 2,
+    "frame_advantage_on_hit": -4,
+    "duration": 33,
+    "binding_recommended": "kInputDown|kInputHP",
+    "binding_note": "BuildOptions::bindings, not a field of this character -- nothing in the schema can set MoveDef::button. The whole table and the reason for the move order are in engine.ground_truth.bindings."
+   }
+  },
+  {
+   "id": "crouch_lk",
+   "label": "Crouching Light Kick",
+   "startup": 5,
+   "active": 2,
+   "recovery": 10,
+   "hitstun": 13,
+   "damage": 20.0,
+   "effect": {
+    "meter": 5
+   },
+   "guard": {},
+   "stance": "ground",
+   "reach": 0.3,
+   "pushback": 0.06,
+   "engine": {
+    "derivation": "DESIGNED. The low light: startup 5 rather than 4 because it hits low, hitstun 13, recovery 10 -> +1 on hit. It is the worst chain source in the file and the file is sized so that even it connects: 2 + 7 (slowest medium) = 9 <= 12.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "None needed. This character was authored AGAINST schema v2 rather than transcribed into it, so every fact about every move already has a slot: the projectiles use engine.projectile, the dash punch uses engine.motion, the reversals and the super use engine.invuln, the super uses engine.hits and engine.freeze, and nothing in the file needs a value computed at runtime. See engine.fit.the_measurement_phase_0_could_not_take."
+    },
+    "cancel_window_ticks": [
+     5,
+     12
+    ],
+    "tags": [],
+    "cancel_window_derivation": "DESIGNED, and it BITES rather than defaulting: [startup, startup + active + 5]. The chain window opens on the first active frame and closes 5 ticks into recovery; after that the move is committed. It closes at tick 12 against a move duration of 17, so MatchBuilder.cpp intersects a real bound rather than running the window to the last frame of the move, and the `move.cancel_window (absent)` loss counts 0 for this character.",
+    "tier": 0,
+    "frame_advantage_on_hit": 1,
+    "duration": 17,
+    "binding_recommended": "kInputDown|kInputLK",
+    "binding_note": "BuildOptions::bindings, not a field of this character -- nothing in the schema can set MoveDef::button. The whole table and the reason for the move order are in engine.ground_truth.bindings."
+   }
+  },
+  {
+   "id": "crouch_mk",
+   "label": "Crouching Medium Kick",
+   "startup": 7,
+   "active": 3,
+   "recovery": 16,
+   "hitstun": 18,
+   "damage": 60.0,
+   "effect": {
+    "meter": 10
+   },
+   "guard": {},
+   "stance": "ground",
+   "reach": 0.46,
+   "pushback": 0.12,
+   "engine": {
+    "derivation": "DESIGNED. The long low medium: reach 46 px, the second-longest normal, paid for with startup 7 and recovery 16 -> -2 on hit. Still chains and special-cancels, because hitstun 18 covers 2 + 13.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "None needed. This character was authored AGAINST schema v2 rather than transcribed into it, so every fact about every move already has a slot: the projectiles use engine.projectile, the dash punch uses engine.motion, the reversals and the super use engine.invuln, the super uses engine.hits and engine.freeze, and nothing in the file needs a value computed at runtime. See engine.fit.the_measurement_phase_0_could_not_take."
+    },
+    "cancel_window_ticks": [
+     7,
+     15
+    ],
+    "tags": [],
+    "cancel_window_derivation": "DESIGNED, and it BITES rather than defaulting: [startup, startup + active + 5]. The chain window opens on the first active frame and closes 5 ticks into recovery; after that the move is committed. It closes at tick 15 against a move duration of 26, so MatchBuilder.cpp intersects a real bound rather than running the window to the last frame of the move, and the `move.cancel_window (absent)` loss counts 0 for this character.",
+    "tier": 1,
+    "frame_advantage_on_hit": -1,
+    "duration": 26,
+    "binding_recommended": "kInputDown|kInputMK",
+    "binding_note": "BuildOptions::bindings, not a field of this character -- nothing in the schema can set MoveDef::button. The whole table and the reason for the move order are in engine.ground_truth.bindings."
+   }
+  },
+  {
+   "id": "crouch_hk",
+   "label": "Crouching Heavy Kick (sweep)",
+   "startup": 9,
+   "active": 3,
+   "recovery": 26,
+   "hitstun": 18,
+   "damage": 90.0,
+   "effect": {
+    "meter": 15
+   },
+   "guard": {},
+   "stance": "ground",
+   "reach": 0.5,
+   "pushback": 0.3,
+   "engine": {
+    "derivation": "DESIGNED. The sweep, and a deliberate combo ENDER: recovery 26 makes it -11 on hit and it authors NO cancel window and no outgoing edge. hitstun 18 rather than 21 because the reaction is a knockdown, which the kernel cannot represent (Combat.h scopes knockdown out) -- so the number is the ground-hitstun reading and engine.reaction carries the intent.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "None needed. This character was authored AGAINST schema v2 rather than transcribed into it, so every fact about every move already has a slot: the projectiles use engine.projectile, the dash punch uses engine.motion, the reversals and the super use engine.invuln, the super uses engine.hits and engine.freeze, and nothing in the file needs a value computed at runtime. See engine.fit.the_measurement_phase_0_could_not_take."
+    },
+    "cancel_window_ticks": [],
+    "tags": [],
+    "cancel_window_derivation": "AUTHORED EMPTY, and the empty array is the load-bearing case ADR-001:541-545 records: this move is a combo ENDER with no outgoing cancel at all, and a schema that cannot say 'none' forces an author to invent a window. See engine.moves_with_no_outgoing_cancel.",
+    "reaction": {
+     "causes_knockdown": true,
+     "fall_recover_ticks": 20,
+     "note": "DESIGNED knockdown. The kernel has no knockdown -- Combat.h scopes it out with blocking, pushback and juggle -- so ResolveHits applies the 18 ticks of hitstun and nothing else. That is the PERMISSIVE direction (schema.v2.json x-known-over-approximations.defender_has_no_state): the model lets a combo continue past a hit that really ends it. It cannot hide an infinite. It is inert in this file anyway, because the sweep has no outgoing cancel."
+    },
+    "tier": 2,
+    "frame_advantage_on_hit": -11,
+    "duration": 38,
+    "binding_recommended": "kInputDown|kInputHK",
+    "binding_note": "BuildOptions::bindings, not a field of this character -- nothing in the schema can set MoveDef::button. The whole table and the reason for the move order are in engine.ground_truth.bindings."
+   }
+  },
+  {
+   "id": "special_fireball_l",
+   "label": "Fireball (light)",
+   "startup": 13,
+   "active": 1,
+   "recovery": 29,
+   "hitstun": 16,
+   "damage": 60.0,
+   "effect": {
+    "meter": 20
+   },
+   "guard": {},
+   "stance": "ground",
+   "reach": null,
+   "pushback": 0.14,
+   "engine": {
+    "derivation": "DESIGNED. startup 13 is the low end of the brief's 13-15 fireball band and is chosen so a medium can cancel into it: 2 (window) + 13 = 15 <= 18 - 1. recovery 29 makes it -14 point blank and positive at range, which is the whole point of a fireball. [P] active 1 is the RELEASE tick, not a Clsn1 run: the attacker registers no attack box at all and the projectile carries the hit. reach is null for the same reason Kung Fu Man's two projectiles author null (ADR-001 section 4 group F): a fireball's contact frame is a function of distance and no constant is that function.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "None needed. This character was authored AGAINST schema v2 rather than transcribed into it, so every fact about every move already has a slot: the projectiles use engine.projectile, the dash punch uses engine.motion, the reversals and the super use engine.invuln, the super uses engine.hits and engine.freeze, and nothing in the file needs a value computed at runtime. See engine.fit.the_measurement_phase_0_could_not_take."
+    },
+    "cancel_window_ticks": [
+     13,
+     19
+    ],
+    "tags": [],
+    "cancel_window_derivation": "DESIGNED, and it BITES rather than defaulting: [startup, startup + active + 5]. The chain window opens on the first active frame and closes 5 ticks into recovery; after that the move is committed. It closes at tick 19 against a move duration of 43, so MatchBuilder.cpp intersects a real bound rather than running the window to the last frame of the move, and the `move.cancel_window (absent)` loss counts 0 for this character.",
+    "projectile": {
+     "spawn_tick": 13,
+     "proj_id": 1000,
+     "anim_id": 1000,
+     "offset_sub": {
+      "x": 5632,
+      "y": 8704
+     },
+     "velocity_sub": {
+      "x": 1536,
+      "y": 0
+     },
+     "accel_sub": {
+      "x": 0,
+      "y": 0
+     },
+     "lifetime_ticks": 120,
+     "remove_on_hit": true,
+     "hit_count": 1,
+     "priority": 1,
+     "hitdef": {
+      "tick": 0,
+      "hitstun_ticks": 16,
+      "damage_hundredths": 6000,
+      "blockstun_ticks": 12,
+      "pushback_vel_sub": -1024,
+      "source": "The projectile's own hit profile. `tick` is relative to the projectile's own life, not the attacker's state. pushback_vel_sub is a VELOCITY in sub-units per tick (4 px/tick away from the attacker), not the displacement move.pushback carries -- CharacterData.h HitRecord::pushbackVelSub keeps the two apart on purpose."
+     },
+     "quantization_note": "EXACT, by construction. The velocity is authored in sub-units and is a whole number of pixels per tick (6 px/tick), so nothing rounds. This is the advantage an original character has over a transcription: ADR-001 section 6.3's one honest hole -- Kung Fu Man's 2.4 px/tick walk, which is not (integer px)/100 -- cannot arise in a file whose integers were chosen first and whose floats were derived from them.",
+     "source": "DESIGNED. A09 pins spawn_tick == move.startup: for a projectile move, startup means RELEASE and nothing else (ADR-001:246-247)."
+    },
+    "tier": 3,
+    "frame_advantage_on_hit": -14,
+    "duration": 43,
+    "binding_recommended": "kInputLP|kInputLK",
+    "binding_note": "BuildOptions::bindings, not a field of this character -- nothing in the schema can set MoveDef::button. The whole table and the reason for the move order are in engine.ground_truth.bindings."
+   }
+  },
+  {
+   "id": "special_fireball_h",
+   "label": "Fireball (heavy)",
+   "startup": 15,
+   "active": 1,
+   "recovery": 32,
+   "hitstun": 16,
+   "damage": 70.0,
+   "effect": {
+    "meter": 20
+   },
+   "guard": {},
+   "stance": "ground",
+   "reach": null,
+   "pushback": 0.14,
+   "engine": {
+    "derivation": "DESIGNED. startup 15, the top of the band. It is deliberately NOT a medium's special-cancel target: 2 + 15 = 17 would leave a medium's 18 frames of stun exactly 1 frame, which is a link dressed as a cancel. The heavies (hitstun 21/22) carry it with 4-5 frames of slack, so the edge is authored only there.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "None needed. This character was authored AGAINST schema v2 rather than transcribed into it, so every fact about every move already has a slot: the projectiles use engine.projectile, the dash punch uses engine.motion, the reversals and the super use engine.invuln, the super uses engine.hits and engine.freeze, and nothing in the file needs a value computed at runtime. See engine.fit.the_measurement_phase_0_could_not_take."
+    },
+    "cancel_window_ticks": [
+     15,
+     21
+    ],
+    "tags": [],
+    "cancel_window_derivation": "DESIGNED, and it BITES rather than defaulting: [startup, startup + active + 5]. The chain window opens on the first active frame and closes 5 ticks into recovery; after that the move is committed. It closes at tick 21 against a move duration of 48, so MatchBuilder.cpp intersects a real bound rather than running the window to the last frame of the move, and the `move.cancel_window (absent)` loss counts 0 for this character.",
+    "projectile": {
+     "spawn_tick": 15,
+     "proj_id": 1001,
+     "anim_id": 1001,
+     "offset_sub": {
+      "x": 5632,
+      "y": 8704
+     },
+     "velocity_sub": {
+      "x": 2048,
+      "y": 0
+     },
+     "accel_sub": {
+      "x": 0,
+      "y": 0
+     },
+     "lifetime_ticks": 120,
+     "remove_on_hit": true,
+     "hit_count": 1,
+     "priority": 1,
+     "hitdef": {
+      "tick": 0,
+      "hitstun_ticks": 16,
+      "damage_hundredths": 7000,
+      "blockstun_ticks": 12,
+      "pushback_vel_sub": -1024,
+      "source": "The projectile's own hit profile. `tick` is relative to the projectile's own life, not the attacker's state. pushback_vel_sub is a VELOCITY in sub-units per tick (4 px/tick away from the attacker), not the displacement move.pushback carries -- CharacterData.h HitRecord::pushbackVelSub keeps the two apart on purpose."
+     },
+     "quantization_note": "EXACT, by construction. The velocity is authored in sub-units and is a whole number of pixels per tick (8 px/tick), so nothing rounds. This is the advantage an original character has over a transcription: ADR-001 section 6.3's one honest hole -- Kung Fu Man's 2.4 px/tick walk, which is not (integer px)/100 -- cannot arise in a file whose integers were chosen first and whose floats were derived from them.",
+     "source": "DESIGNED. A09 pins spawn_tick == move.startup: for a projectile move, startup means RELEASE and nothing else (ADR-001:246-247)."
+    },
+    "tier": 3,
+    "frame_advantage_on_hit": -17,
+    "duration": 48,
+    "binding_recommended": "kInputHP|kInputHK",
+    "binding_note": "BuildOptions::bindings, not a field of this character -- nothing in the schema can set MoveDef::button. The whole table and the reason for the move order are in engine.ground_truth.bindings."
+   }
+  },
+  {
+   "id": "special_uppercut_l",
+   "label": "Uppercut (light)",
+   "startup": 3,
+   "active": 8,
+   "recovery": 30,
+   "hitstun": 20,
+   "damage": 90.0,
+   "effect": {
+    "meter": 20
+   },
+   "guard": {},
+   "stance": "ground",
+   "reach": 0.24,
+   "pushback": 0.35,
+   "engine": {
+    "derivation": "DESIGNED. The reversal, and every number pays for the 3-frame startup: 8 active frames, 30 recovery, -18 on hit and far worse on whiff, plus 8 ticks of full invulnerability from tick 1 (engine.invuln). It has NO incoming cancel and NO outgoing cancel: a reversal is an option out of neutral, not a combo tool. That is also why a 3-frame launcher is safe here -- ADR-001:512-515 names a 4-frame launcher as 'exactly the shape that fabricates an infinite', and the shape only fabricates one if something can cancel into it or out of it.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "None needed. This character was authored AGAINST schema v2 rather than transcribed into it, so every fact about every move already has a slot: the projectiles use engine.projectile, the dash punch uses engine.motion, the reversals and the super use engine.invuln, the super uses engine.hits and engine.freeze, and nothing in the file needs a value computed at runtime. See engine.fit.the_measurement_phase_0_could_not_take."
+    },
+    "cancel_window_ticks": [],
+    "tags": [],
+    "cancel_window_derivation": "AUTHORED EMPTY, and the empty array is the load-bearing case ADR-001:541-545 records: this move is a combo ENDER with no outgoing cancel at all, and a schema that cannot say 'none' forces an author to invent a window. See engine.moves_with_no_outgoing_cancel.",
+    "reaction": {
+     "causes_knockdown": true,
+     "fall_recover_ticks": 24,
+     "note": "DESIGNED launcher/knockdown. Same permissive loss as the sweep, and inert for the same reason: no outgoing cancel."
+    },
+    "invuln": [
+     {
+      "from_tick": 1,
+      "ticks": 8,
+      "kind": "not_hit_by",
+      "state_types": [],
+      "attrs": [
+       "NA",
+       "NP",
+       "SA",
+       "SP",
+       "HA",
+       "HP"
+      ],
+      "source": "DESIGNED: the reversal is invulnerable to strikes for its 3 startup frames and its whole 8-frame active window, and vulnerable for all 30 frames of recovery."
+     }
+    ],
+    "tier": 3,
+    "frame_advantage_on_hit": -18,
+    "duration": 41,
+    "binding_recommended": "kInputLP|kInputMP",
+    "binding_note": "BuildOptions::bindings, not a field of this character -- nothing in the schema can set MoveDef::button. The whole table and the reason for the move order are in engine.ground_truth.bindings."
+   }
+  },
+  {
+   "id": "special_uppercut_h",
+   "label": "Uppercut (heavy)",
+   "startup": 4,
+   "active": 10,
+   "recovery": 34,
+   "hitstun": 22,
+   "damage": 110.0,
+   "effect": {
+    "meter": 20
+   },
+   "guard": {},
+   "stance": "ground",
+   "reach": 0.26,
+   "pushback": 0.45,
+   "engine": {
+    "derivation": "DESIGNED. The heavy reversal: one more frame of startup, two more active, four more recovery and 10 ticks of invulnerability. -22 on hit. Same isolation as the light version: no incoming, no outgoing.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "None needed. This character was authored AGAINST schema v2 rather than transcribed into it, so every fact about every move already has a slot: the projectiles use engine.projectile, the dash punch uses engine.motion, the reversals and the super use engine.invuln, the super uses engine.hits and engine.freeze, and nothing in the file needs a value computed at runtime. See engine.fit.the_measurement_phase_0_could_not_take."
+    },
+    "cancel_window_ticks": [],
+    "tags": [],
+    "cancel_window_derivation": "AUTHORED EMPTY, and the empty array is the load-bearing case ADR-001:541-545 records: this move is a combo ENDER with no outgoing cancel at all, and a schema that cannot say 'none' forces an author to invent a window. See engine.moves_with_no_outgoing_cancel.",
+    "reaction": {
+     "causes_knockdown": true,
+     "fall_recover_ticks": 28,
+     "note": "As special_uppercut_l."
+    },
+    "invuln": [
+     {
+      "from_tick": 1,
+      "ticks": 10,
+      "kind": "not_hit_by",
+      "state_types": [],
+      "attrs": [
+       "NA",
+       "NP",
+       "SA",
+       "SP",
+       "HA",
+       "HP"
+      ],
+      "source": "DESIGNED: as the light version, two ticks longer."
+     }
+    ],
+    "tier": 3,
+    "frame_advantage_on_hit": -22,
+    "duration": 48,
+    "binding_recommended": "kInputMP|kInputHP",
+    "binding_note": "BuildOptions::bindings, not a field of this character -- nothing in the schema can set MoveDef::button. The whole table and the reason for the move order are in engine.ground_truth.bindings."
+   }
+  },
+  {
+   "id": "special_dash_punch",
+   "label": "Dash Punch",
+   "startup": 12,
+   "active": 4,
+   "recovery": 22,
+   "hitstun": 20,
+   "damage": 80.0,
+   "effect": {
+    "meter": 20
+   },
+   "guard": {},
+   "stance": "ground",
+   "reach": 1.09,
+   "pushback": 0.4,
+   "engine": {
+    "derivation": "DESIGNED. The mobility special. startup 12, 4 active, 22 recovery, -6 on hit. engine.motion carries the travel as resolved integer sub-units (54 px forward by the tick the box goes live, 62 px by the time it stops). READ reach 109 px WITH THAT: reach is defined as the maximum gap at which the move connects (CharacterData.h Move::reachSub), and the travel is part of how it connects, so 109 = 55 px of box measured at the moment of contact plus the 54 px the attacker covered getting there. The engine's static box therefore reproduces the real total reach exactly; what it does not reproduce is where the two fighters END UP, which is a positional loss and is recorded in engine.fit.known_losses.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "None needed. This character was authored AGAINST schema v2 rather than transcribed into it, so every fact about every move already has a slot: the projectiles use engine.projectile, the dash punch uses engine.motion, the reversals and the super use engine.invuln, the super uses engine.hits and engine.freeze, and nothing in the file needs a value computed at runtime. See engine.fit.the_measurement_phase_0_could_not_take."
+    },
+    "cancel_window_ticks": [
+     12,
+     21
+    ],
+    "tags": [],
+    "cancel_window_derivation": "DESIGNED, and it BITES rather than defaulting: [startup, startup + active + 5]. The chain window opens on the first active frame and closes 5 ticks into recovery; after that the move is committed. It closes at tick 21 against a move duration of 38, so MatchBuilder.cpp intersects a real bound rather than running the window to the last frame of the move, and the `move.cancel_window (absent)` loss counts 0 for this character.",
+    "motion": [
+     {
+      "tick": 1,
+      "vel_x_sub": 0,
+      "vel_y_sub": 0,
+      "pos_add_x_sub": 512,
+      "source": "DESIGNED: a 2 px step on the first tick, MUGEN's PosAdd shape -- a teleport, not a velocity, which is why it has its own slot."
+     },
+     {
+      "tick": 2,
+      "vel_x_sub": 1536,
+      "vel_y_sub": 0,
+      "source": "DESIGNED: 6 px/tick for ticks 2-7."
+     },
+     {
+      "tick": 8,
+      "vel_x_sub": 1024,
+      "vel_y_sub": 0,
+      "source": "DESIGNED: 4 px/tick for ticks 8-11. THIS IS FRICTION, PRE-EVALUATED. schema.v2.json moveEngine.motion is explicit that the array is RESOLVED and not symbolic: MUGEN's VelMul is a float multiply applied every tick, ARCHITECTURE.md:47 forbids a general fixed-point multiply in the authoritative core, and D8's whole quarrel with decay.kind multiplicative is that repeated float multiplication cannot be reproduced by an integer kernel. So the deceleration is authored as concrete per-tick integers and the kernel only ever assigns and adds. engine.motion_physics.friction_permille stays null, as the schema expects it to."
+     },
+     {
+      "tick": 12,
+      "vel_x_sub": 512,
+      "vel_y_sub": 0,
+      "source": "DESIGNED: 2 px/tick for ticks 12-15, the four active frames."
+     },
+     {
+      "tick": 16,
+      "vel_x_sub": 0,
+      "vel_y_sub": 0,
+      "source": "DESIGNED: stopped. Total travel 62 px, of which 54 px is covered before the hitbox goes live on tick 12."
+     }
+    ],
+    "motion_physics": {
+     "gravity_sub": 0,
+     "applies_from_tick": 1,
+     "friction_permille": null,
+     "source": "The move never leaves the ground, so gravity is 0 and there is no on_land transition to bound. friction_permille stays null: see the tick-8 keyframe."
+    },
+    "tier": 3,
+    "frame_advantage_on_hit": -6,
+    "duration": 38,
+    "binding_recommended": "kInputLK|kInputMK",
+    "binding_note": "BuildOptions::bindings, not a field of this character -- nothing in the schema can set MoveDef::button. The whole table and the reason for the move order are in engine.ground_truth.bindings."
+   }
+  },
+  {
+   "id": "super_beam",
+   "label": "Super Beam",
+   "startup": 9,
+   "active": 8,
+   "recovery": 40,
+   "hitstun": 24,
+   "damage": 250.0,
+   "effect": {
+    "meter": -100
+   },
+   "guard": {
+    "meter": 100
+   },
+   "stance": "ground",
+   "reach": 0.7,
+   "pushback": 0.6,
+   "engine": {
+    "derivation": "DESIGNED. Three hits at ticks 9, 12 and 15 inside an 8-tick active window (engine.hits), 80 + 80 + 90 = 250 damage summed into the [P] scalar under hits_projection 'first_damage_summed' -- safe because json_spec.py:69 feeds damage to Result.maxDamage only. [P] hitstun is hits[0]'s 24 and all three hits author 24, so the projection is EXACT and assertion A06 has nothing to say. Costs meter 100 (one bar) and guards on 100. 40 recovery makes it -22 on hit; a super is an ender.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "None needed. This character was authored AGAINST schema v2 rather than transcribed into it, so every fact about every move already has a slot: the projectiles use engine.projectile, the dash punch uses engine.motion, the reversals and the super use engine.invuln, the super uses engine.hits and engine.freeze, and nothing in the file needs a value computed at runtime. See engine.fit.the_measurement_phase_0_could_not_take."
+    },
+    "cancel_window_ticks": [],
+    "tags": [],
+    "cancel_window_derivation": "AUTHORED EMPTY, and the empty array is the load-bearing case ADR-001:541-545 records: this move is a combo ENDER with no outgoing cancel at all, and a schema that cannot say 'none' forces an author to invent a window. See engine.moves_with_no_outgoing_cancel.",
+    "invuln": [
+     {
+      "from_tick": 1,
+      "ticks": 9,
+      "kind": "not_hit_by",
+      "state_types": [],
+      "attrs": [
+       "NA",
+       "NP",
+       "NT",
+       "SA",
+       "SP",
+       "ST",
+       "HA",
+       "HP",
+       "HT"
+      ],
+      "source": "DESIGNED: full invulnerability through the 9 startup frames, ending on the tick the first hit becomes active."
+     }
+    ],
+    "hits": [
+     {
+      "tick": 9,
+      "hitstun_ticks": 24,
+      "damage_hundredths": 8000,
+      "blockstun_ticks": 18,
+      "meter_gain": 0,
+      "reach_sub": 17920,
+      "source": "DESIGNED hit 1 of 3. A05 pins it: tick 9 IS move.startup and hitstun 24 IS move.hitstun, because every cancel delay in this file is measured from FIRST contact."
+     },
+     {
+      "tick": 12,
+      "hitstun_ticks": 24,
+      "damage_hundredths": 8000,
+      "blockstun_ticks": 18,
+      "meter_gain": 0,
+      "reach_sub": 17920,
+      "source": "DESIGNED hit 2 of 3."
+     },
+     {
+      "tick": 15,
+      "hitstun_ticks": 24,
+      "damage_hundredths": 9000,
+      "blockstun_ticks": 18,
+      "meter_gain": 0,
+      "reach_sub": 17920,
+      "source": "DESIGNED hit 3 of 3, the last tick of the 8-frame active window (9..16)."
+     }
+    ],
+    "hits_projection": "first_damage_summed",
+    "hits_projection_note": "All three hits author hitstun 24, so the projection onto move.hitstun is EXACT and assertion A06 does not fire -- there is no direction to name because there is no error. Damage is the sum, 250, which is safe because json_spec.py:69 feeds move.damage to Result.maxDamage only and it never reaches the verdict. Summing hitstun would not be safe and the schema does not offer it. NOT split into three prover Moves joined by optional cancels: ADR-001:202-204 rejects that outright, because a FORCED follow-up modelled as an OPTIONAL edge gives the attacker a choice they do not have, which is the direction that invents infinites -- and inventing an infinite is precisely the thing this file must do ONCE, on purpose, in a place a reader can see.",
+    "freeze": [
+     {
+      "from_tick": 1,
+      "ticks": 30,
+      "kind": "super_pause",
+      "meter_delta": -100,
+      "ticks_authored": true,
+      "source": "DESIGNED, and authored explicitly rather than inherited: schema.v2.json $defs.freezeWindow.ticks_authored records that Kung Fu Girl's 30 ticks are MUGEN's SuperPause DEFAULT and not a number the character states. This file states it. INERT IN THE KERNEL: Combat.h puts hitstop/freeze out of scope by name ('it is not a box question at all'), so the engine runs the super with no pause. A freeze cannot move a verdict either -- it stops attacker and defender alike, so every frame difference the prover reasons about is unchanged across it."
+     }
+    ],
+    "tier": 4,
+    "frame_advantage_on_hit": -24,
+    "duration": 57,
+    "binding_recommended": "kInputMK|kInputHK",
+    "binding_note": "BuildOptions::bindings, not a field of this character -- nothing in the schema can set MoveDef::button. The whole table and the reason for the move order are in engine.ground_truth.bindings."
+   }
+  },
+  {
+   "id": "stand_lp",
+   "label": "Standing Light Punch",
+   "startup": 4,
+   "active": 2,
+   "recovery": 9,
+   "hitstun": 14,
+   "damage": 30.0,
+   "effect": {
+    "meter": 5
+   },
+   "guard": {},
+   "stance": "ground",
+   "reach": 0.3,
+   "pushback": 0.06,
+   "engine": {
+    "derivation": "DESIGNED, AND THIS IS THE MOVE THE FILE EXISTS FOR. startup 4 / active 2 / recovery 9 / hitstun 14 is the light-tier template: advantage on hit = 14 - (2 + 9) = +3, which is an ordinary, unremarkable jab. Nothing about these four numbers is broken. What is broken is the single cancel edge stand_lp -> stand_lp; see engine.the_bug.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "None needed. This character was authored AGAINST schema v2 rather than transcribed into it, so every fact about every move already has a slot: the projectiles use engine.projectile, the dash punch uses engine.motion, the reversals and the super use engine.invuln, the super uses engine.hits and engine.freeze, and nothing in the file needs a value computed at runtime. See engine.fit.the_measurement_phase_0_could_not_take."
+    },
+    "cancel_window_ticks": [
+     4,
+     11
+    ],
+    "tags": [],
+    "cancel_window_derivation": "DESIGNED, and it BITES rather than defaulting: [startup, startup + active + 5]. The chain window opens on the first active frame and closes 5 ticks into recovery; after that the move is committed. It closes at tick 11 against a move duration of 15, so MatchBuilder.cpp intersects a real bound rather than running the window to the last frame of the move, and the `move.cancel_window (absent)` loss counts 0 for this character.",
+    "tier": 0,
+    "frame_advantage_on_hit": 3,
+    "duration": 15,
+    "binding_recommended": "kInputLP",
+    "binding_note": "BuildOptions::bindings, not a field of this character -- nothing in the schema can set MoveDef::button. The whole table and the reason for the move order are in engine.ground_truth.bindings."
+   }
+  },
+  {
+   "id": "stand_mp",
+   "label": "Standing Medium Punch",
+   "startup": 6,
+   "active": 3,
+   "recovery": 13,
+   "hitstun": 18,
+   "damage": 60.0,
+   "effect": {
+    "meter": 10
+   },
+   "guard": {},
+   "stance": "ground",
+   "reach": 0.34,
+   "pushback": 0.1,
+   "engine": {
+    "derivation": "DESIGNED. The medium-tier template: startup 6, hitstun 18, recovery 13 -> +2 on hit, the best medium in the file and the standard confirm into a special.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "None needed. This character was authored AGAINST schema v2 rather than transcribed into it, so every fact about every move already has a slot: the projectiles use engine.projectile, the dash punch uses engine.motion, the reversals and the super use engine.invuln, the super uses engine.hits and engine.freeze, and nothing in the file needs a value computed at runtime. See engine.fit.the_measurement_phase_0_could_not_take."
+    },
+    "cancel_window_ticks": [
+     6,
+     14
+    ],
+    "tags": [],
+    "cancel_window_derivation": "DESIGNED, and it BITES rather than defaulting: [startup, startup + active + 5]. The chain window opens on the first active frame and closes 5 ticks into recovery; after that the move is committed. It closes at tick 14 against a move duration of 22, so MatchBuilder.cpp intersects a real bound rather than running the window to the last frame of the move, and the `move.cancel_window (absent)` loss counts 0 for this character.",
+    "tier": 1,
+    "frame_advantage_on_hit": 2,
+    "duration": 22,
+    "binding_recommended": "kInputMP",
+    "binding_note": "BuildOptions::bindings, not a field of this character -- nothing in the schema can set MoveDef::button. The whole table and the reason for the move order are in engine.ground_truth.bindings."
+   }
+  },
+  {
+   "id": "stand_hp",
+   "label": "Standing Heavy Punch",
+   "startup": 9,
+   "active": 3,
+   "recovery": 20,
+   "hitstun": 22,
+   "damage": 90.0,
+   "effect": {
+    "meter": 15
+   },
+   "guard": {},
+   "stance": "ground",
+   "reach": 0.4,
+   "pushback": 0.25,
+   "engine": {
+    "derivation": "DESIGNED. Heavy punch: startup 9, hitstun 22, recovery 20 -> -1 on hit. 22 frames of stun is what makes the heavy fireball (startup 15) a real cancel target: 2 + 15 = 17 <= 21.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "None needed. This character was authored AGAINST schema v2 rather than transcribed into it, so every fact about every move already has a slot: the projectiles use engine.projectile, the dash punch uses engine.motion, the reversals and the super use engine.invuln, the super uses engine.hits and engine.freeze, and nothing in the file needs a value computed at runtime. See engine.fit.the_measurement_phase_0_could_not_take."
+    },
+    "cancel_window_ticks": [
+     9,
+     17
+    ],
+    "tags": [],
+    "cancel_window_derivation": "DESIGNED, and it BITES rather than defaulting: [startup, startup + active + 5]. The chain window opens on the first active frame and closes 5 ticks into recovery; after that the move is committed. It closes at tick 17 against a move duration of 32, so MatchBuilder.cpp intersects a real bound rather than running the window to the last frame of the move, and the `move.cancel_window (absent)` loss counts 0 for this character.",
+    "tier": 2,
+    "frame_advantage_on_hit": -1,
+    "duration": 32,
+    "binding_recommended": "kInputHP",
+    "binding_note": "BuildOptions::bindings, not a field of this character -- nothing in the schema can set MoveDef::button. The whole table and the reason for the move order are in engine.ground_truth.bindings."
+   }
+  },
+  {
+   "id": "stand_lk",
+   "label": "Standing Light Kick",
+   "startup": 5,
+   "active": 2,
+   "recovery": 10,
+   "hitstun": 14,
+   "damage": 25.0,
+   "effect": {
+    "meter": 5
+   },
+   "guard": {},
+   "stance": "ground",
+   "reach": 0.34,
+   "pushback": 0.06,
+   "engine": {
+    "derivation": "DESIGNED. Light kick: one frame slower than the light punch and one pixel-band longer, hitstun 14, recovery 10 -> +2 on hit.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "None needed. This character was authored AGAINST schema v2 rather than transcribed into it, so every fact about every move already has a slot: the projectiles use engine.projectile, the dash punch uses engine.motion, the reversals and the super use engine.invuln, the super uses engine.hits and engine.freeze, and nothing in the file needs a value computed at runtime. See engine.fit.the_measurement_phase_0_could_not_take."
+    },
+    "cancel_window_ticks": [
+     5,
+     12
+    ],
+    "tags": [],
+    "cancel_window_derivation": "DESIGNED, and it BITES rather than defaulting: [startup, startup + active + 5]. The chain window opens on the first active frame and closes 5 ticks into recovery; after that the move is committed. It closes at tick 12 against a move duration of 17, so MatchBuilder.cpp intersects a real bound rather than running the window to the last frame of the move, and the `move.cancel_window (absent)` loss counts 0 for this character.",
+    "tier": 0,
+    "frame_advantage_on_hit": 2,
+    "duration": 17,
+    "binding_recommended": "kInputLK",
+    "binding_note": "BuildOptions::bindings, not a field of this character -- nothing in the schema can set MoveDef::button. The whole table and the reason for the move order are in engine.ground_truth.bindings."
+   }
+  },
+  {
+   "id": "stand_mk",
+   "label": "Standing Medium Kick",
+   "startup": 7,
+   "active": 3,
+   "recovery": 15,
+   "hitstun": 18,
+   "damage": 65.0,
+   "effect": {
+    "meter": 10
+   },
+   "guard": {},
+   "stance": "ground",
+   "reach": 0.48,
+   "pushback": 0.12,
+   "engine": {
+    "derivation": "DESIGNED. The long medium: reach 48 px, startup 7, recovery 15 -> 0 on hit. Exactly break-even is deliberate; it is the button that keeps a turn without stealing one.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "None needed. This character was authored AGAINST schema v2 rather than transcribed into it, so every fact about every move already has a slot: the projectiles use engine.projectile, the dash punch uses engine.motion, the reversals and the super use engine.invuln, the super uses engine.hits and engine.freeze, and nothing in the file needs a value computed at runtime. See engine.fit.the_measurement_phase_0_could_not_take."
+    },
+    "cancel_window_ticks": [
+     7,
+     15
+    ],
+    "tags": [],
+    "cancel_window_derivation": "DESIGNED, and it BITES rather than defaulting: [startup, startup + active + 5]. The chain window opens on the first active frame and closes 5 ticks into recovery; after that the move is committed. It closes at tick 15 against a move duration of 25, so MatchBuilder.cpp intersects a real bound rather than running the window to the last frame of the move, and the `move.cancel_window (absent)` loss counts 0 for this character.",
+    "tier": 1,
+    "frame_advantage_on_hit": 0,
+    "duration": 25,
+    "binding_recommended": "kInputMK",
+    "binding_note": "BuildOptions::bindings, not a field of this character -- nothing in the schema can set MoveDef::button. The whole table and the reason for the move order are in engine.ground_truth.bindings."
+   }
+  },
+  {
+   "id": "stand_hk",
+   "label": "Standing Heavy Kick",
+   "startup": 11,
+   "active": 3,
+   "recovery": 22,
+   "hitstun": 22,
+   "damage": 100.0,
+   "effect": {
+    "meter": 15
+   },
+   "guard": {},
+   "stance": "ground",
+   "reach": 0.56,
+   "pushback": 0.3,
+   "engine": {
+    "derivation": "DESIGNED. The slowest normal: startup 11, hitstun 22, recovery 22 -> -3 on hit. It is the heaviest chain target in the file and the file is sized so a medium still connects it: 2 + 11 = 13 <= 17.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "None needed. This character was authored AGAINST schema v2 rather than transcribed into it, so every fact about every move already has a slot: the projectiles use engine.projectile, the dash punch uses engine.motion, the reversals and the super use engine.invuln, the super uses engine.hits and engine.freeze, and nothing in the file needs a value computed at runtime. See engine.fit.the_measurement_phase_0_could_not_take."
+    },
+    "cancel_window_ticks": [
+     11,
+     19
+    ],
+    "tags": [],
+    "cancel_window_derivation": "DESIGNED, and it BITES rather than defaulting: [startup, startup + active + 5]. The chain window opens on the first active frame and closes 5 ticks into recovery; after that the move is committed. It closes at tick 19 against a move duration of 36, so MatchBuilder.cpp intersects a real bound rather than running the window to the last frame of the move, and the `move.cancel_window (absent)` loss counts 0 for this character.",
+    "tier": 2,
+    "frame_advantage_on_hit": -3,
+    "duration": 36,
+    "binding_recommended": "kInputHK",
+    "binding_note": "BuildOptions::bindings, not a field of this character -- nothing in the schema can set MoveDef::button. The whole table and the reason for the move order are in engine.ground_truth.bindings."
+   }
+  }
+ ],
+ "cancels": [
+  {
+   "from": "stand_lp",
+   "to": "stand_lp",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "BROKEN_self_chain",
+    "delay_derivation": "see engine.cancel_families.BROKEN_self_chain",
+    "kernel_window": "[6, 11] in stand_lp's own frame numbering, from MatchBuilder.cpp:427-439: earliest = max(startup + delay, window_open) = max(6, 4) = 6, latest = min(duration - 1, window_close) = min(14, 11) = 11."
+   },
+   "label": "*** THE DELIBERATE DEFECT: stand_lp cancels into itself ***",
+   "caveat": "THIS IS THE ONE BROKEN EDGE IN THE FILE. It is the only cancel whose target's tier does not exceed its source's (0 -> 0), the only cancel that targets stand_lp at all, and therefore the only cycle in the graph. It closes because startup + delay = 4 + 2 = 6 is less than hitstun 14: the loop repeats every 6 ticks and freezes the defender for 14, so the defender never gets an actionable tick. Delete this object and the character is sane. See engine.the_bug and engine.ground_truth."
+  },
+  {
+   "from": "stand_lp",
+   "to": "stand_mp",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "delay_derivation": "see engine.cancel_families.chain"
+   }
+  },
+  {
+   "from": "stand_lp",
+   "to": "crouch_mp",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "delay_derivation": "see engine.cancel_families.chain"
+   }
+  },
+  {
+   "from": "stand_lp",
+   "to": "stand_mk",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "delay_derivation": "see engine.cancel_families.chain"
+   }
+  },
+  {
+   "from": "stand_lp",
+   "to": "crouch_mk",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "delay_derivation": "see engine.cancel_families.chain"
+   }
+  },
+  {
+   "from": "crouch_lp",
+   "to": "stand_mp",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "delay_derivation": "see engine.cancel_families.chain"
+   }
+  },
+  {
+   "from": "crouch_lp",
+   "to": "crouch_mp",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "delay_derivation": "see engine.cancel_families.chain"
+   }
+  },
+  {
+   "from": "crouch_lp",
+   "to": "stand_mk",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "delay_derivation": "see engine.cancel_families.chain"
+   }
+  },
+  {
+   "from": "crouch_lp",
+   "to": "crouch_mk",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "delay_derivation": "see engine.cancel_families.chain"
+   }
+  },
+  {
+   "from": "stand_lk",
+   "to": "stand_mp",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "delay_derivation": "see engine.cancel_families.chain"
+   }
+  },
+  {
+   "from": "stand_lk",
+   "to": "crouch_mp",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "delay_derivation": "see engine.cancel_families.chain"
+   }
+  },
+  {
+   "from": "stand_lk",
+   "to": "stand_mk",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "delay_derivation": "see engine.cancel_families.chain"
+   }
+  },
+  {
+   "from": "stand_lk",
+   "to": "crouch_mk",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "delay_derivation": "see engine.cancel_families.chain"
+   }
+  },
+  {
+   "from": "crouch_lk",
+   "to": "stand_mp",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "delay_derivation": "see engine.cancel_families.chain"
+   }
+  },
+  {
+   "from": "crouch_lk",
+   "to": "crouch_mp",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "delay_derivation": "see engine.cancel_families.chain"
+   }
+  },
+  {
+   "from": "crouch_lk",
+   "to": "stand_mk",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "delay_derivation": "see engine.cancel_families.chain"
+   }
+  },
+  {
+   "from": "crouch_lk",
+   "to": "crouch_mk",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "delay_derivation": "see engine.cancel_families.chain"
+   }
+  },
+  {
+   "from": "stand_mp",
+   "to": "stand_hp",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "delay_derivation": "see engine.cancel_families.chain"
+   }
+  },
+  {
+   "from": "stand_mp",
+   "to": "crouch_hp",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "delay_derivation": "see engine.cancel_families.chain"
+   }
+  },
+  {
+   "from": "stand_mp",
+   "to": "stand_hk",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "delay_derivation": "see engine.cancel_families.chain"
+   }
+  },
+  {
+   "from": "stand_mp",
+   "to": "crouch_hk",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "delay_derivation": "see engine.cancel_families.chain"
+   }
+  },
+  {
+   "from": "crouch_mp",
+   "to": "stand_hp",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "delay_derivation": "see engine.cancel_families.chain"
+   }
+  },
+  {
+   "from": "crouch_mp",
+   "to": "crouch_hp",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "delay_derivation": "see engine.cancel_families.chain"
+   }
+  },
+  {
+   "from": "crouch_mp",
+   "to": "stand_hk",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "delay_derivation": "see engine.cancel_families.chain"
+   }
+  },
+  {
+   "from": "crouch_mp",
+   "to": "crouch_hk",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "delay_derivation": "see engine.cancel_families.chain"
+   }
+  },
+  {
+   "from": "stand_mk",
+   "to": "stand_hp",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "delay_derivation": "see engine.cancel_families.chain"
+   }
+  },
+  {
+   "from": "stand_mk",
+   "to": "crouch_hp",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "delay_derivation": "see engine.cancel_families.chain"
+   }
+  },
+  {
+   "from": "stand_mk",
+   "to": "stand_hk",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "delay_derivation": "see engine.cancel_families.chain"
+   }
+  },
+  {
+   "from": "stand_mk",
+   "to": "crouch_hk",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "delay_derivation": "see engine.cancel_families.chain"
+   }
+  },
+  {
+   "from": "crouch_mk",
+   "to": "stand_hp",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "delay_derivation": "see engine.cancel_families.chain"
+   }
+  },
+  {
+   "from": "crouch_mk",
+   "to": "crouch_hp",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "delay_derivation": "see engine.cancel_families.chain"
+   }
+  },
+  {
+   "from": "crouch_mk",
+   "to": "stand_hk",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "delay_derivation": "see engine.cancel_families.chain"
+   }
+  },
+  {
+   "from": "crouch_mk",
+   "to": "crouch_hk",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "delay_derivation": "see engine.cancel_families.chain"
+   }
+  },
+  {
+   "from": "stand_mp",
+   "to": "special_fireball_l",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "delay_derivation": "see engine.cancel_families.special_cancel"
+   }
+  },
+  {
+   "from": "stand_mp",
+   "to": "special_dash_punch",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "delay_derivation": "see engine.cancel_families.special_cancel"
+   }
+  },
+  {
+   "from": "crouch_mp",
+   "to": "special_fireball_l",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "delay_derivation": "see engine.cancel_families.special_cancel"
+   }
+  },
+  {
+   "from": "crouch_mp",
+   "to": "special_dash_punch",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "delay_derivation": "see engine.cancel_families.special_cancel"
+   }
+  },
+  {
+   "from": "stand_mk",
+   "to": "special_fireball_l",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "delay_derivation": "see engine.cancel_families.special_cancel"
+   }
+  },
+  {
+   "from": "stand_mk",
+   "to": "special_dash_punch",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "delay_derivation": "see engine.cancel_families.special_cancel"
+   }
+  },
+  {
+   "from": "crouch_mk",
+   "to": "special_fireball_l",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "delay_derivation": "see engine.cancel_families.special_cancel"
+   }
+  },
+  {
+   "from": "crouch_mk",
+   "to": "special_dash_punch",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "delay_derivation": "see engine.cancel_families.special_cancel"
+   }
+  },
+  {
+   "from": "stand_hp",
+   "to": "special_fireball_l",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "delay_derivation": "see engine.cancel_families.special_cancel"
+   }
+  },
+  {
+   "from": "stand_hp",
+   "to": "special_fireball_h",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "delay_derivation": "see engine.cancel_families.special_cancel"
+   }
+  },
+  {
+   "from": "stand_hp",
+   "to": "special_dash_punch",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "delay_derivation": "see engine.cancel_families.special_cancel"
+   }
+  },
+  {
+   "from": "crouch_hp",
+   "to": "special_fireball_l",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "delay_derivation": "see engine.cancel_families.special_cancel"
+   }
+  },
+  {
+   "from": "crouch_hp",
+   "to": "special_fireball_h",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "delay_derivation": "see engine.cancel_families.special_cancel"
+   }
+  },
+  {
+   "from": "crouch_hp",
+   "to": "special_dash_punch",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "delay_derivation": "see engine.cancel_families.special_cancel"
+   }
+  },
+  {
+   "from": "stand_hk",
+   "to": "special_fireball_l",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "delay_derivation": "see engine.cancel_families.special_cancel"
+   }
+  },
+  {
+   "from": "stand_hk",
+   "to": "special_fireball_h",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "delay_derivation": "see engine.cancel_families.special_cancel"
+   }
+  },
+  {
+   "from": "stand_hk",
+   "to": "special_dash_punch",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "delay_derivation": "see engine.cancel_families.special_cancel"
+   }
+  },
+  {
+   "from": "stand_mp",
+   "to": "super_beam",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "super_cancel",
+    "delay_derivation": "see engine.cancel_families.super_cancel"
+   },
+   "guard": {
+    "meter": 100
+   }
+  },
+  {
+   "from": "crouch_mp",
+   "to": "super_beam",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "super_cancel",
+    "delay_derivation": "see engine.cancel_families.super_cancel"
+   },
+   "guard": {
+    "meter": 100
+   }
+  },
+  {
+   "from": "stand_mk",
+   "to": "super_beam",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "super_cancel",
+    "delay_derivation": "see engine.cancel_families.super_cancel"
+   },
+   "guard": {
+    "meter": 100
+   }
+  },
+  {
+   "from": "crouch_mk",
+   "to": "super_beam",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "super_cancel",
+    "delay_derivation": "see engine.cancel_families.super_cancel"
+   },
+   "guard": {
+    "meter": 100
+   }
+  },
+  {
+   "from": "stand_hp",
+   "to": "super_beam",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "super_cancel",
+    "delay_derivation": "see engine.cancel_families.super_cancel"
+   },
+   "guard": {
+    "meter": 100
+   }
+  },
+  {
+   "from": "crouch_hp",
+   "to": "super_beam",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "super_cancel",
+    "delay_derivation": "see engine.cancel_families.super_cancel"
+   },
+   "guard": {
+    "meter": 100
+   }
+  },
+  {
+   "from": "stand_hk",
+   "to": "super_beam",
+   "delay": 2,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "super_cancel",
+    "delay_derivation": "see engine.cancel_families.super_cancel"
+   },
+   "guard": {
+    "meter": 100
+   }
+  },
+  {
+   "from": "special_fireball_l",
+   "to": "super_beam",
+   "delay": 4,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "super_cancel",
+    "delay_derivation": "see engine.cancel_families.super_cancel"
+   },
+   "guard": {
+    "meter": 100
+   }
+  },
+  {
+   "from": "special_fireball_h",
+   "to": "super_beam",
+   "delay": 4,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "super_cancel",
+    "delay_derivation": "see engine.cancel_families.super_cancel"
+   },
+   "guard": {
+    "meter": 100
+   }
+  },
+  {
+   "from": "special_dash_punch",
+   "to": "super_beam",
+   "delay": 4,
+   "on": "hit",
+   "certain": true,
+   "engine": {
+    "family": "super_cancel",
+    "delay_derivation": "see engine.cancel_families.super_cancel"
+   },
+   "guard": {
+    "meter": 100
+   }
+  }
+ ],
+ "engine": {
+  "schema_version": 2,
+  "units": {
+   "ticks_per_second": 60,
+   "sub_units_per_pixel": 256,
+   "pixels_per_reach_unit": 100,
+   "meter_units_per_bar": 100,
+   "damage_points_per_unit": 100,
+   "permille_denominator": 1000,
+   "note": "Checked at load, not assumed: Data/src/CharacterData.cpp:458-478 rejects any file whose sub_units_per_pixel is not 256 or whose ticks_per_second is not 60, because silently accepting a different scale would mis-scale every distance in the file and the failure would look like a balance problem rather than a unit problem."
+  },
+  "the_bug": {
+   "summary": "ONE cancel edge: cancels[0], stand_lp -> stand_lp, delay 2, on hit. Delete that one object and this file is an ordinary all-rounder with 59 cancels and no loop. Nothing else differs from a sane character: no move's frame data is exaggerated, no hitstun is inflated, no delay is shortened, decay is `none` with floor 0, and no resource is refunded anywhere.",
+   "why_it_is_the_only_cycle": "Every move carries engine.tier: 0 lights, 1 mediums, 2 heavies, 3 specials, 4 super. All 59 sane edges go from a strictly lower tier to a strictly higher one, so `tier` is a rank function that strictly increases along every one of them and the base graph is ACYCLIC BY CONSTRUCTION -- not by inspection, and not by luck. cancels[0] is the only edge in the file whose tier does not increase (0 -> 0), and it is also the only edge in the file that targets stand_lp at all. Therefore the graph has exactly one cycle, that cycle has length 1, and it is this edge. A reader can check both claims by sorting the cancel list on (tier[from], tier[to]).",
+   "the_closing_inequality": "For a self-cancel the loop closes iff (startup + delay) < hitstun -- the loop period must be shorter than the hitstun the move inflicts. stand_lp is 4 + 2 = 6 against 14, so it closes with 8 frames to spare. Read the other way: a jab that is +3 on hit and cancels into itself 2 frames after contact repeats every 6 ticks while freezing the defender for 14, and the defender never gets a tick back. The same jab with delay 10 (period 14) would be the exact boundary, and with delay 11 it would be a blockstring with a gap.",
+   "what_a_designer_would_have_typed": "This is a plausible authoring accident, not a strawman. The file's light tier chains into the medium tier, and the natural way to write that is one edge per (light, medium) pair -- 16 objects that all look alike. cancels[0] is the seventeenth, and it differs from its neighbours only in that its `to` repeats its `from`. In a hand-written or copy-pasted cancel table that is a one-word slip, and it is exactly the slip ADR-001:418-422 found ALREADY SHIPPED in Kung Fu Girl, whose corner infinite is stand_lp into itself with hitstun 9, delay 2 and startup 3.",
+   "how_to_repair_it": "Delete cancels[0]. Do not `fix` it by raising the delay, lowering the hitstun or shortening the window: every one of those numbers is load-bearing for the other 59 edges, and changing stand_lp's hitstun from 14 re-sizes the whole light tier. The bug is the EDGE."
+  },
+  "ground_truth": {
+   "what_this_is": "The recipe for ARCHITECTURE.md:632's validation. Everything below is a statement about Kernel/src/Combat.cpp and Data/src/MatchBuilder.cpp as they exist today, not about a runtime that is planned.",
+   "bindings": {
+    "note": "Buttons are the CALLER's, not the character's: MoveDef::button is filled from BuildOptions::bindings and nothing in this file can set it. Two tables are given because they have different warning profiles and a harness should know which it is asking for.",
+    "minimal_for_the_loop": {
+     "stand_lp": "kInputLP"
+    },
+    "minimal_note": "ONE binding is enough to drive the whole infinite, which is the property that makes this file testable. FindCancel takes an edge only if the TARGET move's buttons are all held (Combat.cpp:170-171); the target here is stand_lp itself, so the entire scripted input trace is `hold LP`. There is no motion input, no button release, and no timing to get right. MatchBuilder will warn once that N cancel edges point at a move with no button bound -- that is expected and correct with this table, and it is a property of the table, not of the character.",
+    "full": {
+     "crouch_lp": "kInputDown|kInputLP",
+     "crouch_mp": "kInputDown|kInputMP",
+     "crouch_hp": "kInputDown|kInputHP",
+     "crouch_lk": "kInputDown|kInputLK",
+     "crouch_mk": "kInputDown|kInputMK",
+     "crouch_hk": "kInputDown|kInputHK",
+     "special_fireball_l": "kInputLP|kInputLK",
+     "special_fireball_h": "kInputHP|kInputHK",
+     "special_uppercut_l": "kInputLP|kInputMP",
+     "special_uppercut_h": "kInputMP|kInputHP",
+     "special_dash_punch": "kInputLK|kInputMK",
+     "super_beam": "kInputMK|kInputHK",
+     "stand_lp": "kInputLP",
+     "stand_mp": "kInputMP",
+     "stand_hp": "kInputHP",
+     "stand_lk": "kInputLK",
+     "stand_mk": "kInputMK",
+     "stand_hk": "kInputHK"
+    },
+    "full_note": "ZERO shadowed-binding warnings, and that is why the move array is in the order it is in. StepAttack scans slots from 1 upward and starts the FIRST move all of whose bits are held (Combat.cpp:250-259), so a move whose buttons are a strict superset of an earlier move's can never start -- MatchBuilder.cpp:756-770 reports exactly that, and its own comment names '{LP} at slot 1 and {Down|LP} at slot 12' as the natural way somebody binds crouching normals. The fix is ordering: every two-bit binding precedes every one-bit binding, so the six crouching normals and the six special/super macros come before the six standing normals in `moves`. THE FILE ORDER IS A BINDING DECISION, not a taxonomy. It has no effect on the prover, which reads no order but the cancel list's.",
+    "why_the_specials_are_button_macros": "The kernel has no motion input and no command buffer: MoveDef::button is a held bit pattern. A quarter-circle is not expressible, so the specials are bound to two-attack-button macros, which is a real binding in the genre and, unlike a direction-plus-button macro, cannot make the fighter walk. Left/Right are read by stepFighter every tick (Simulate.cpp:53-56) whether or not a move is running, so any binding containing them would change the gap mid-combo."
+   },
+   "positions": {
+    "recommended": {
+     "p0.posX": -4352,
+     "p1.posX": 4352,
+     "p0.posY": 0,
+     "p1.posY": 0
+    },
+    "body": {
+     "halfWidthSub": 3328,
+     "heightSub": 15360,
+     "note": "BuildOptions::body. These are MatchBuilder's own defaults (kDefaultBodyHalfWidthSub 13 px, kDefaultBodyHeightSub 60 px) restated explicitly so the build emits no 'not supplied' warning and so engine.constants.pushbox is the number actually used. CharacterData carries no body -- that is a loss in the table below, and supplying it deliberately is how a harness stops it being the caller's accident."
+    },
+    "derivation": "MatchBuilder.cpp:680-728 builds the hitbox as [halfWidth, halfWidth + reach + 1) against a hurtbox of [-halfWidth, +halfWidth), so a move connects exactly when the BODY-TO-BODY GAP is <= reach. -17 px and +17 px put the origins 34 px apart and the bodies 34 - 26 = 8 px apart. stand_lp reaches 30 px, so the loop has 22 px of positional margin.",
+    "why_the_gap_never_changes": "Nobody moves. The attacker holds LP and no direction, so stepFighter sets velX = 0; the defender holds nothing; and the defender is in hitstun from tick 4 onward, which zeroes velX anyway. The kernel applies no pushback on hit at all -- MatchBuilder's `move.pushback` loss says so in as many words, 'the kernel moves nobody on hit, so two fighters stay exactly as far apart as they were'. THIS IS WHY THE LOOP IS ROBUST AND KUNG FU GIRL'S MIDSCREEN LOOP IS NOT: ADR-001:390-404 measures a +-20% error in the pushback estimate flipping that verdict, and its space budget closing by ONE unit. This file's loop does not consume space, does not depend on walk speed, and is authored `stage: corner` where the prover drops position entirely (model.py:453-456). There is no estimated quantity anywhere under it.",
+    "facing": "p0.posX <= p1.posX, so Simulate.cpp:112-117 gives p0 facing 0 and p1 facing 1 on every tick. Facing is resolved before ResolveHits, so no box is ever built from a stale mirror."
+   },
+   "defender": {
+    "character": "Either side may be this same file; the defender's data is never exercised.",
+    "input": "Zero on every tick.",
+    "note": "The defender needs no bindings. If the harness gives it any, they are unreachable anyway from tick 5 onward, because it is never actionable again."
+   },
+   "timeline": [
+    "Ticks are absolute, counted from the first tick on which the attacker is idle and holding LP. moveFrame is the attacker's Fighter::moveFrame at ResolveHits time on that tick. stand_lp is startup 4, active 2, recovery 9, duration 15, hitstun 14; cancels[0] is delay 2; the authored window is [4, 11] and MatchBuilder resolves it to earliest = max(4 + 2, 4) = 6, latest = min(14, 11) = 11.",
+    "tick 0  | moveFrame 0  | StepAttack: the fighter is idle and LP is held, so stand_lp starts. No box yet.",
+    "tick 1-3| moveFrame 1-3| startup. No box.",
+    "tick 4  | moveFrame 4  | the box is live on frames [4, 6). ResolveHits: HIT 1. defender.hitstun := 14, defender.health -= 30, attacker.alreadyHitBits := bit(1), and the defender's own move is cleared. THIS IS THE CONTACT TICK, N + s with N = 0 and s = 4.",
+    "tick 5  | moveFrame 5  | the contact is now visible (alreadyHitBits != 0) but moveFrame 5 < earliest 6, so no cancel. The box is still live and the multi-hit guard refuses a second hit -- without that guard a 2-frame jab would deal its damage twice and every string in the game would be an infinite for a reason that has nothing to do with this file (Combat.cpp:288-289). defender.hitstun 13.",
+    "tick 6  | moveFrame 6  | THE CANCEL FIRES. moveFrame 6 is in [6, 11], the source has connected, and the target's button (LP) is held. stand_lp restarts: moveId unchanged, moveFrame := 0, alreadyHitBits := 0. defender.hitstun 12. THIS IS N + w with w = startup + delay = 6.",
+    "tick 7-9| moveFrame 1-3| startup again. defender.hitstun 11, 10, 9.",
+    "tick 10 | moveFrame 4  | HIT 2, at N + w + s = 0 + 6 + 4. At ResolveHits time the defender's hitstun is 14 - 6 = 8, which is > 0: THE DEFENDER IS STILL IN HITSTUN AND HAS NOT HAD A SINGLE ACTIONABLE TICK SINCE TICK 4. hitstun is SET back to 14, not added to.",
+    "tick 12 | moveFrame 6  | the cancel fires again. The state is identical to tick 6 in every field the loop reads, which is what makes it a loop rather than a long string.",
+    "...     |              | period 6 ticks. Hit n lands on tick 4 + 6(n-1); the cancel that produces hit n+1 fires on tick 6n.",
+    "tick 202| moveFrame 4  | HIT 34. 30 damage x 34 >= 1000, so defender.health reaches 0 (ResolveHits floors at 0 rather than going negative). The loop would continue regardless: nothing in Simulate checks health."
+   ],
+   "the_arithmetic_that_closes_it": {
+    "first_hit_connects_at": "N + s = 0 + 4 = tick 4",
+    "defender_in_hitstun_through": "N + s + h - 1 = 0 + 4 + 14 - 1 = tick 17; first actionable tick would be 18",
+    "cancel_window_opens_at": "moveFrame w = startup + delay = 6, i.e. tick N + w = 6",
+    "follow_up_starts_at": "tick N + w = 6",
+    "follow_up_connects_at": "tick N + w + s = 6 + 4 = 10",
+    "margin": "18 - 10 = 8 ticks. The second hit lands 8 frames before the defender could have acted, and the defender's hitstun counter reads 8 at the moment it lands.",
+    "why_it_repeats": "The follow-up is the SAME move entered in the SAME way, so the whole relation shifts by w = 6 and repeats. The loop closes iff w < h, i.e. startup + delay < hitstun, i.e. 6 < 14.",
+    "what_the_test_should_assert": [
+     "the attacker's moveId is stand_lp's slot on every tick from 0 to 202",
+     "a hit lands on tick 4 and on every tick 4 + 6k thereafter, and on no other tick",
+     "the defender's hitstun is nonzero at the top of every tick from 5 to 202, i.e. `actionable(defender)` is false on every one of them -- this is the assertion that distinguishes a real infinite from a fast blockstring, and it is the one worth failing on",
+     "the defender's hitstun equals exactly 8 at ResolveHits time on every tick 10 + 6k",
+     "the defender's health is 0 on tick 202 and was positive on tick 201",
+     "the state at tick 6 + 6k is byte-identical to the state at tick 6 for every field except tick, rng, and the defender's health -- the loop is a true cycle in the state machine, not a coincidence of two hits",
+     "and the rollback assertion the engine is FOR: snapshot at tick 6, run to tick 100, restore, re-run, and get the same checksum"
+    ]
+   },
+   "expected_build_report": {
+    "errors": "none",
+    "load_warnings": "none, provided LoadOptions::expectedResources is ['meter','juggle']. If the caller leaves it empty the loader warns that A03 was not checked, which is a statement about the caller and not about this file.",
+    "build_warnings_minimal_table": "one: 'N of 60 cancel edges point at a move with no button bound'. With only stand_lp bound, N is 59.",
+    "build_warnings_full_table": "none.",
+    "losses_that_bite": "nonzero, and expected to be. playsAsAnalysed is FALSE for this character and would be false for any character, because MatchBuilder counts move.hitbox.y against every move (the schema authors no vertical extent), hurtbox against the caller's body, resources against both declared resources, and move.reach (provenance) against every move with a reach. The number to read is not `playsAsAnalysed` but the list: see engine.fit.known_losses for the four that could touch this loop and why none of them does."
+   }
+  },
+  "prover_vs_kernel": {
+   "why_this_block_exists": "ARCHITECTURE.md:632 names the one validation no offline analysis can produce: hand a printed loop to the engine as a scripted input trace and EXECUTE it. That test compares two different arithmetics, and if nobody writes them both down the first disagreement will look like a bug in whichever one was checked second. Both are written out here, from the source, for this file's loop.",
+   "the_prover": "comboprover.hpp:334-345. An edge is USABLE iff moves[to].startup <= decay.hitstun(moves[from].hitstun, settling) - delay. Decay is `none`, so settledStun is the authored hitstun and the test is `to.startup + delay <= from.hitstun`. For cancels[0]: 4 + 2 = 6 <= 14. The same inequality is re-checked per configuration at comboprover.hpp:431. The verdict then comes from the self-covering test at :492-500: returning to the same (move, hits) with no resource lower than an ancestor's is an infinite, and `covers` treats HAVING GAINED as just as fatal as having spent nothing.",
+   "the_kernel": "Kernel/src/Combat.cpp StepAttack + ResolveHits, driven by Simulate.cpp:97-124. Four facts set the arithmetic, and only the first is obvious. (1) A move that starts on tick T has moveFrame k on tick T+k, so it first connects on tick T + startup. (2) StepAttack runs BEFORE ResolveHits, so a hit landing on tick N is not visible to a cancel test until N+1: 'the fastest cancel the kernel can express is one tick after contact, never zero' (Combat.h). An authored delay of 0 therefore fires at 1. (3) Data/src/MatchBuilder.cpp:427-439 resolves the authored delay into an ABSOLUTE window in the source move's frame numbering, earliest = startup + delay intersected with the authored cancel window, latest = duration - 1 intersected with it. (4) ResolveHits SETS the defender's hitstun rather than adding, and stepFighter decrements it at the top of the tick, so a defender hit on tick H is first actionable on tick H + hitstun.",
+   "the_two_conditions_side_by_side": "Let w = max(delay, 1, cancel_window_open - startup) be the number of ticks after contact at which the follow-up starts, and let s2 be its startup. The prover calls the edge usable iff w + s2 <= from.hitstun (reading delay for w). The kernel lands the follow-up while the defender's hitstun counter is still nonzero iff w + s2 <= from.hitstun - 1. THE TWO DIFFER BY EXACTLY ONE FRAME, at the boundary only, and the difference has a meaning rather than being an off-by-one: at equality the defender gets precisely one actionable tick between the hits, which the prover cannot express because its model has no defender at all (ADR-001:268). Against a defender who presses nothing -- which is what a scripted trace does -- the hit still lands at equality, so the two agree on the OUTCOME and disagree only on whether the combo was escapable.",
+   "why_that_cannot_bite_this_file": "MEASURED over all 60 edges rather than argued: the smallest margin in the file is 3 frames (a medium cancelled into the light fireball, and the two fireball -> super edges), and the loop edge's margin is 8. The boundary case is 3 frames away from the nearest authored edge and 8 frames away from the loop, so no ground-truth assertion in this file rests on which of the two readings is taken. engine.fit.per_edge_margins carries the whole table.",
+   "the_one_place_the_kernel_is_stricter": "cancels[57..59], the three special -> super edges, author delay 4 and would fire at 4. Had they authored delay 0 the file would say 'a true cancel' and the kernel would fire at 1. Nothing in this file authors delay 0, so the gap is documented rather than exercised."
+  },
+  "relationship_to_fighter_a": {
+   "difference": "ONE object: cancels[0], {from: stand_lp, to: stand_lp, delay: 2, on: hit}. Everything else -- all 18 moves, all their frame data, both resources, the decay object, the gap action, the walk speed, the scaling table and the other 59 cancels -- is the same all-rounder shape, so the two files are comparable move for move and number for number.",
+   "how_to_check_it_mechanically": "Delete cancels[0] from this file and the remaining graph is acyclic by the tier rank function, which is what a sane all-rounder is. Any diff that touches a `startup`, `hitstun`, `delay` or `decay` field is NOT this difference and should be treated as a second bug.",
+   "why_a_cancel_and_not_a_number": "A broken number (a hitstun of 40 on a jab, a decay floor above the smallest hitstun) would also produce an infinite, and ADR-001:338-349 records that the project has already fabricated one that way. It would be a worse test subject: the loop would be an artefact of a value nobody would author, and the ground-truth trace would prove only that a 40-frame stun is long. A single wrong EDGE in a table of sixty identical-looking edges is the mistake a designer actually makes, it leaves every other number in the file honest, and it isolates the failure to the one thing the prover is for."
+  },
+  "quantized_sources": {
+   "note": "The integer originals of every float in the [P] section. The loader prefers these over the floats wherever both exist (CharacterData.cpp:196-228), which is what makes ARCHITECTURE D8 checkable: the engine loads these and the floats exist only for the prover. EVERY ONE OF THEM IS EXACT HERE -- the integers were chosen first and the floats derived from them by dividing by 100, so no conversion in this file rounds and the loader's inexact-quantization warning cannot fire.",
+   "walk_speed_sub_per_tick": 512,
+   "scaling_permille": [
+    1000,
+    900,
+    800,
+    700,
+    600,
+    500
+   ],
+   "reach_px": {
+    "crouch_lp": 28,
+    "crouch_mp": 32,
+    "crouch_hp": 38,
+    "crouch_lk": 30,
+    "crouch_mk": 46,
+    "crouch_hk": 50,
+    "special_uppercut_l": 24,
+    "special_uppercut_h": 26,
+    "special_dash_punch": 109,
+    "super_beam": 70,
+    "stand_lp": 30,
+    "stand_mp": 34,
+    "stand_hp": 40,
+    "stand_lk": 34,
+    "stand_mk": 48,
+    "stand_hk": 56
+   },
+   "reach_px_note": "The two fireballs are ABSENT from this map on purpose. A fireball's reach is a function of distance travelled, so `reach` is authored null and CharacterData.cpp:692-702 leaves reachSub at kNoReach; an entry here would override that null and fabricate range the file declines to claim. MatchBuilder then builds a zero-width box and the move connects with nothing, which is honest and is counted under `move.reach (absent)`.",
+   "pushback_px": {
+    "crouch_lp": 6,
+    "crouch_mp": 10,
+    "crouch_hp": 20,
+    "crouch_lk": 6,
+    "crouch_mk": 12,
+    "crouch_hk": 30,
+    "special_fireball_l": 14,
+    "special_fireball_h": 14,
+    "special_uppercut_l": 35,
+    "special_uppercut_h": 45,
+    "special_dash_punch": 40,
+    "super_beam": 60,
+    "stand_lp": 6,
+    "stand_mp": 10,
+    "stand_hp": 25,
+    "stand_lk": 6,
+    "stand_mk": 12,
+    "stand_hk": 30
+   },
+   "damage_hundredths": {
+    "crouch_lp": 2500,
+    "crouch_mp": 5500,
+    "crouch_hp": 8500,
+    "crouch_lk": 2000,
+    "crouch_mk": 6000,
+    "crouch_hk": 9000,
+    "special_fireball_l": 6000,
+    "special_fireball_h": 7000,
+    "special_uppercut_l": 9000,
+    "special_uppercut_h": 11000,
+    "special_dash_punch": 8000,
+    "super_beam": 25000,
+    "stand_lp": 3000,
+    "stand_mp": 6000,
+    "stand_hp": 9000,
+    "stand_lk": 2500,
+    "stand_mk": 6500,
+    "stand_hk": 10000
+   }
+  },
+  "constants": {
+   "health": 1000,
+   "meter_ceiling": 300,
+   "pushbox_half_width_sub": 3328,
+   "pushbox_height_sub": 15360,
+   "walk_forward_sub_per_tick": 512,
+   "walk_back_sub_per_tick": 512,
+   "gravity_sub_per_tick2": 64,
+   "jump_impulse_sub": 1280,
+   "source": "DESIGNED TO MATCH THE KERNEL EXACTLY, which is a thing only an original character can do. health 1000 is ResetMatch's (Simulate.cpp:153-154). walk 512 sub-units/tick is Simulate.cpp:15's hardcoded kWalkSpeed of 2 px/tick, so this character's authored walk_speed of 0.02 reach units quantizes to the number the engine already uses and the `character.walk_speed` loss is nominal rather than real. gravity 64 is kGravity (0.25 px/tick^2) and the jump impulse is kJumpImpulse; neither is exercised, because no move in this file leaves the ground and there is therefore no on_land transition and no A10 to satisfy. The pushbox is MatchBuilder's kDefaultBodyHalfWidthSub/kDefaultBodyHeightSub restated so a harness can supply BuildOptions::body deliberately."
+  },
+  "cancel_families": {
+   "BROKEN_self_chain": {
+    "delay": 2,
+    "on": "hit",
+    "certain": true,
+    "count": 1,
+    "condition": null,
+    "caveat": "THE DELIBERATE DEFECT. One edge, stand_lp -> stand_lp. See engine.the_bug."
+   },
+   "chain": {
+    "delay": 2,
+    "on": "hit",
+    "certain": true,
+    "count": 32,
+    "condition": null,
+    "delay_rule": "DESIGNED: 2. The chain window is a property of the SOURCE move's animation, not of the target, so every edge out of one normal shares one delay -- which is why the file has one number here and not sixty. 2 rather than 0 because a true cancel on the contact frame is not something this engine can express: StepAttack runs before ResolveHits, so the fastest cancel the kernel has is 1 (Combat.h, Simulate.cpp:90-96), and authoring 0 would make the file claim a frame the game cannot give. ADR-001:434-442 calls the discovery that MUGEN chain cancels are NOT delay 0 'the hardest single finding of the phase' and measures the real range at 2 to 20; 2 is the fast end of that range, chosen so the light tier confirms cleanly.",
+    "caveat": "lights -> mediums (16 edges) and mediums -> heavies (16). Strictly ascending: there is no L -> L, no M -> M and no H -> anything-lower edge anywhere in this file."
+   },
+   "special_cancel": {
+    "delay": 2,
+    "on": "hit",
+    "certain": true,
+    "count": 17,
+    "condition": null,
+    "delay_rule": "DESIGNED: 2, the same as the chain, for the same reason -- one window per source move. Sources are the four mediums and three of the four heavies; the sweep is excluded because it is an ender.",
+    "caveat": "The heavy fireball (startup 15) is deliberately NOT a medium's target: 2 + 15 = 17 against 18 frames of hitstun leaves the defender exactly 1 frame, which is a link wearing a cancel's clothes. It is authored only from the heavies, where it has 4-5 frames of margin. Authoring it from the mediums would have produced an edge the prover calls usable and a player cannot confirm, which is the class of mistake this whole project exists to make visible."
+   },
+   "super_cancel": {
+    "delay": "2 out of a normal, 4 out of a special",
+    "on": "hit",
+    "certain": true,
+    "count": 10,
+    "condition": null,
+    "guard": {
+     "meter": 100
+    },
+    "delay_rule": "DESIGNED. Out of a normal the source's own window applies (2). Out of a special it is 4, because a special's cancel window opens later in its animation. THE THREE EDGES OUT OF THE TWO FIREBALLS ARE THE ONE PLACE THIS FILE TOUCHES A KNOWN SOUNDNESS BUG, and it is discharged here rather than deferred -- see engine.fit.known_losses[0].",
+    "caveat": "Guarded on meter 100 and the super spends 100, so a super cancel is the one edge family in the file that is net-negative on a resource. It can therefore never be part of a loop, which the prover proves rather than assumes: `nonNegative` refuses the transition once meter would go below zero (comboprover.hpp:264-269, :434)."
+   }
+  },
+  "moves_with_no_outgoing_cancel": {
+   "crouch_hk": "The sweep is a hard-knockdown ENDER. -11 on hit and it puts the defender on the floor, so there is nothing to cancel into. Authored with cancel_window_ticks [] rather than omitted, which is the case ADR-001:541-545 records as load-bearing.",
+   "special_uppercut_l": "A reversal has no follow-up: -18 on hit, and its value is the 8 ticks of invulnerability, not a combo. It has no INCOMING edge either, which is also what keeps a 3-frame startup safe -- ADR-001:512-515 names a 4-frame launcher as 'exactly the shape that fabricates an infinite', and the shape only does that when something can cancel into it or out of it.",
+   "special_uppercut_h": "As the light version, -22 on hit.",
+   "super_beam": "A super is the end of a combo by definition, and it is the only move in the file that spends a resource."
+  },
+  "hit_rules": {
+   "summary": "There are none, and that is the design. No move in this file gates its hit on a predicate over the defender, so move.hit_condition is absent everywhere and engine.hit_condition carries no prose. Kung Fu Girl needs 17 of these because it disables MUGEN's juggle system and runs its own counters instead (ADR-001:255-260); this character has no such rule to lose.",
+   "juggle": "MUGEN's juggle system has no analogue here and the kernel has none either (Combat.h scopes juggle and proration out with blocking and pushback). The `juggle` resource is declared for the positional contract and spent by nothing."
+  },
+  "derivation_legend": "Every move's engine.derivation is one string that begins with DESIGNED in capitals, because this character has no source file and there is no .cns line to cite. What follows is the design intent for each number that is not implied by the tier template, and the frame-advantage arithmetic where it decides whether a cancel connects. Schema rule: every [P] field carries a derivation naming a file:line OR saying plainly that it was estimated and by what rule -- there is no third case, so an original character says DESIGNED and states the rule, and assertion A12 is satisfied by construction rather than by citation.",
+  "derivation_defaults": {
+   "frame_advantage": "hitstun - (active + recovery), which is the kernel's arithmetic exactly: a move started on tick T frees the attacker on T + startup + active + recovery and a hit on tick T + startup frees the defender on T + startup + hitstun.",
+   "tier_templates": "lights startup 4-5 / hitstun 13-14; mediums startup 6-7 / hitstun 18; heavies startup 8-11 / hitstun 21-22; fireballs startup 13-15; reversals startup 3-4. These are the brief's bands and every move sits inside them.",
+   "reach": "the maximum BODY-TO-BODY GAP at which the move connects, in pixels, which is what CharacterData.h Move::reachSub means and what MatchBuilder.cpp:680-728 builds. It is NOT the sprite's attack box measured from the origin -- that is the discrepancy MatchBuilder flags under `move.reach (provenance)` for the imported characters, and this file avoids it by authoring the quantity the engine actually consumes.",
+   "pushback": "DESIGNED displacement in pixels, scaled to the tier. Unlike the corpus it is not an estimate of an unrecorded quantity, but it is also not exercised: the stage is corner and the kernel moves nobody on hit.",
+   "damage": "hundredths of a damage point, against a health pool of 1000. Lights 20-30, mediums 55-65, heavies 85-100, specials 60-110, super 250."
+  },
+  "cancel_note": "60 edges, 4 families, one delay per source move. The full per-edge table is in `cancels` and every entry names its family; the family carries the delay rule, the certainty and the caveat, so no edge repeats them. `certain` is TRUE on all 60 -- unlike the corpus, where 200 of 247 edges are uncertain because the transcription could not establish the runtime condition gating them, this file has no runtime conditions to be uncertain about.",
+  "variants": {
+   "list": [],
+   "note": "One character, one automaton. No sub-characters, no mode variable and no per-variant gap action, so there is no selector to declare, assertion A11 does not apply, and notes[] carries no union warning. ADR-001 group I is the shape this avoids: the AOF2 thug is a spawner plus four disjoint sub-characters and an INFINITE verdict over the union of its variants can name a route no single sub-character can perform. A one-variant file has no union, so this file's verdict names a route ONE character can perform -- which is what makes it usable as a ground-truth trace at all."
+  },
+  "integrity": {
+   "content_hash": null,
+   "schema_hash": null,
+   "note": "Advisory identifiers, null until Phase 4. The connect handshake hashes the LOADED POD ARRAYS and never this text, so these can never be the desync check."
+  },
+  "fit": {
+   "moves_total": 18,
+   "moves_needing_escape_hatch": 0,
+   "cancels_total": 60,
+   "cancels_needing_escape_hatch": 0,
+   "gate": "ARCHITECTURE.md:289 sets the escape-hatch rate at < 20% and ADR-001 measured 1 of 59 under D7's own definition and 23 of 59 under the broader 'needed something the schema cannot say'. This file is 0 of 18 on both readings.",
+   "breakdown": {
+    "missing_schema_field": 0,
+    "schema_v2_field": 0,
+    "runtime_condition": 0,
+    "expression_language": 0,
+    "irreducible_cpp": 0
+   },
+   "the_measurement_phase_0_could_not_take": "READ THIS BEFORE QUOTING THE ZERO. ADR-001's 23-of-59 is the rate at which characters that ALREADY EXISTED needed fields schema v1 did not have. This file's 0-of-18 is the rate at which a character authored knowing the schema needs fields the schema does not have, and the two are different measurements: the second is trivially better and cannot refute or confirm the first. What it DOES establish, and what Phase 0 could not because all three of its characters were MUGEN imports (ADR-001:516-521 names that sampling bias itself), is the other direction -- that the v2 vocabulary is sufficient to author a complete all-rounder from nothing, with a fireball, a reversal, a travelling special and a multi-hit super, without reaching for prose once. Every one of the nine v2 fields that this character's shape calls for is exercised here with real data: engine.motion on the dash punch, engine.hits + hits_projection on the super, engine.projectile on both fireballs, engine.invuln and engine.freeze on the reversals and the super. The four that are NOT exercised are not exercised because the character does not have the shape that needs them, which is stated rather than left to inference: no move leaves the ground (so no on_land transition and no A10), no button selects between two moves by range (so no proximity_variant and no min_reach_sub), no move gates its hit on the defender's state (so no hit_condition), no cancel gates on the opponent's state (so no cancel.engine.condition), and there is one character rather than four sub-characters (so no variants and no A11).",
+   "why_no_opponent_predicates": "DELIBERATE, and it is the one place where authoring an original character is cheaper than transcribing one. ADR-001 section 4 group G is 'the finding': Kung Fu Girl gates all 17 normals on a juggle predicate and all 26 AOF2 cancels gate on `p2movetype != H`, and neither is evaluable until Phase 5 builds an opponent namespace. Rather than author gates the engine cannot evaluate -- which would make this file describe a character the engine cannot run, and would put the prover in the permissive direction on 60 edges at once -- this character has none. Every gate in the file is a resource guard, which the fragment reads natively.",
+   "schema_limits": [
+    "The prover half of the projectile contact frame is not closable by a schema field. See known_losses[0]; this file is the first in the project to author an outgoing cancel from a projectile, so it discharges the note schema.v2.json leaves for whoever does.",
+    "The kernel cannot represent knockdown, so the sweep and the two reversals are ordinary hits to it. Permissive, and inert: none of the three has an outgoing cancel.",
+    "move.reach is one horizontal scalar, so the schema authors no vertical extent for an attack at all and a low kick hits a fighter at the top of a jump. Horizontal is the axis the prover reasons on, so this is a kernel-vs-game loss and not a kernel-vs-prover one."
+   ],
+   "schema_fields_that_would_close_it": [],
+   "known_losses": [
+    "PROJECTILE CONTACT FRAME -- the one over-approximation in schema v2 that errs in the DANGEROUS direction, and the only one this file makes LIVE. schema.v2.json x-known-over-approximations.projectile_contact_frame records that it is inert across the whole Phase-0 corpus because Kung Fu Man's two projectiles have zero outgoing cancels. This file's two fireballs have one each (cancels[57] and cancels[58], into the super), so the note applies for the first time. IT IS DISCHARGED, NOT DEFERRED, and the schema says how: 'authoring a projectile move's outgoing cancel delays as if contact were at the minimum plausible range, which over-credits the attacker and flips the direction to the safe one'. Delay 4 is measured from the RELEASE tick, and at point-blank range release and contact coincide, so 4 IS the minimum-range reading. At any greater range the real contact is later and the authored edge is therefore more permissive than reality -- which can invent an infinite and cannot hide one, the direction ADR-001:224-225 calls safe. Bound: 2 edges. Effect on this file's verdict: none, because the verdict is INFINITE on a loop that contains no projectile.",
+    "DEFENDER HAS NO STATE -- the prover has no defender at all, so it lets a combo continue past a hit that really ends it. Permissive, safe. Bound: 3 moves whose reaction sets causes_knockdown (crouch_hk, special_uppercut_l, special_uppercut_h). Inert here: none of the three has an outgoing cancel, so there is no combo to continue past them.",
+    "ATTACKER DISPLACEMENT -- the kernel does not execute engine.motion, so special_dash_punch connects from where it started. Handled by authoring `reach` as the maximum gap at which the move connects INCLUDING the 54 px it travels first, so the static box reproduces the real total reach exactly. What is lost is where the two fighters END UP, which no field in this schema carries and which the corner model does not read. Bound: 1 move. Not in the loop.",
+    "RESOURCES ARE NOT SIMULATED -- Fighter::meter exists and nothing reads or writes it, so the super's guard of 100 is not enforced and its cost of 100 is not paid. Bound: every effect and guard in the file. NOT IN THE LOOP, and this matters: the loop's only resource interaction is a +5 gain, so a kernel that ignores resources and a prover that tracks them agree about it. A loop that depended on spending would not be executable today and this file deliberately does not author one.",
+    "HITSTUN DECAY AND DAMAGE SCALING -- the kernel applies neither, so the tenth hit of a combo deals what the first did and stuns for as long. For decay this file agrees with the kernel by construction (kind `none`), so there is nothing to lose. For scaling there is: the prover reports max damage through a 6-entry table the kernel does not apply, so the two disagree about DAMAGE and agree about the VERDICT, which is the half that matters. The loop's KO tick of 202 is computed from the kernel's unscaled 30 per hit and would be later under the authored scaling.",
+    "MULTI-HIT -- ResolveHits applies at most one hit per active window, so super_beam lands once for 250 rather than three times for 80/80/90. Damage-only; hitstun is identical on all three records so the [P] projection is exact. Bound: 1 move. Not in the loop."
+   ],
+   "per_edge_margins": {
+    "definition": "hitstun remaining on the defender at the tick the follow-up connects, computed the kernel's way: margin = from.hitstun - (max(delay,1) + to.startup). A margin >= 1 is a true combo; a margin of 0 gives the defender exactly one actionable tick; a negative margin is a gap.",
+    "histogram": {
+     "3": 6,
+     "4": 9,
+     "5": 14,
+     "6": 5,
+     "7": 16,
+     "8": 7,
+     "10": 1,
+     "11": 2
+    },
+    "minimum_over_all_60_edges": 3,
+    "the_loop_edge": 8,
+    "note": "The tightest authored edge in the file has 3 frames of margin and the loop has 8, so the one-frame disagreement between the prover's usability test and the kernel's true-combo test (engine.prover_vs_kernel) is 3 frames away from the nearest edge and cannot decide anything here."
+   },
+   "measured": {
+    "status": "NOT MEASURED. This object is where an actual `python -m comboprover analyse` run and an actual kernel trace go, and schema.v2.json requires it to be re-measured and never predicted. Nothing in it may be filled in from the arithmetic in this file.",
+    "verdict": null,
+    "stage": null,
+    "loop": null,
+    "configs_explored": null,
+    "wall_clock_ms": null,
+    "dead_cancels": null,
+    "usable_cancels": null,
+    "kernel_trace": null
+   },
+   "predicted_not_measured": {
+    "warning": "A PREDICTION, kept in a separate key from `measured` so it cannot be mistaken for one. If a run disagrees with any line below, the run is right and this file is wrong.",
+    "verdict": "Infinite, corner. The C++ header is corner-only by construction and this file authors stage `corner`, so the two are answering the same question.",
+    "loop": "[stand_lp], a self-loop of length 1. The witness prefix should be five repetitions of stand_lp, because hitCap = max(settlingIndex + 1, scaling.size()) = max(1, 6) = 6 and the covering test cannot fire until the hit counter saturates.",
+    "why_the_witness_is_that_short": "cancels[0] is FIRST in the array and stand_lp is FIRST in starters, so outgoing[stand_lp][0] is the self-edge and the depth-first search takes it before anything else. That ordering is deliberate: MatchBuilder.cpp preserves file order and Combat.cpp's FindCancel takes the first matching edge, so the same choice is made in the prover, in the bridge and in the tick.",
+    "dead_cancels": 0,
+    "usable_cancels": 60,
+    "hasRanking": "false, and for the FIRST of ADR-001 gate 3's two reasons rather than the second: every move gains meter, so `spendOnly` is cleared at comboprover.hpp:376-386. It is moot here -- the certificate is only computed for a Terminating verdict."
+   }
+  }
+ }
+}

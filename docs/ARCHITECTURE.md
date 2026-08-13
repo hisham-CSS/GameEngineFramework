@@ -630,6 +630,14 @@ Contribution #9 is "an integration of the analysis into a working engine's edito
 2. **Latency distribution.** `analyse` wall-clock per keystroke over a real editing session, with the `Unknown` rate. The header claims sub-millisecond (`:9-13`); a distribution over real authoring is a stronger claim.
 3. **Found-bugs evidence.** Dead cancels and unreachable moves discovered in genuinely authored content — the tool finding real defects a designer did not know about.
 4. **Ground-truth validation, which only an engine can supply.** Take a character the prover calls `Infinite`, hand the printed loop to the engine as a scripted input trace, and *execute it*. Either the combo works — the analysis is validated end to end on a running game — or it does not, and the gap between the model and the game is itself a publishable finding. **No offline analysis can produce this.**
+
+   > **DELIVERED, 2026-08-13** — `tests/test_ground_truth.cpp`, and it returned *both* outcomes at once rather than one of them.
+   >
+   > **The loop works.** `fighter_a_infinite`'s printed witness executes as written: 26 hits in 160 ticks, one every 6, defender out of hitstun on **0** ticks, bit-identical on replay, unaffected by a mashing defender. The input trace is derived from `ProverResult::loop` — nothing hardcodes a button — so the claim is that *the engine* can read the verdict, not that a human can.
+   >
+   > **The gap is real, and it is on the SAFE character.** `fighter_a` is `Terminating` with a ranking certificate whose content is "juggle runs down". The kernel has no juggle — no resources at all — so `air_mp`'s self-cancel, which the model permits **4** times, ran **18** times in 200 ticks with the defender unable to act. The analysis is correct about the file and the projection to the running game is what fails, which is precisely the D8 hazard §5.2's loss table exists to name. It is now a measured number rather than a caveat.
+   >
+   > The two findings are complementary, not contradictory: the prover is sound about the graph it is given, and *the graph is not yet the game* wherever the kernel lacks a mechanism the file uses. Closing it is Phase 3's resource work, and the test will say so the day it lands.
 5. **A soundness note on the projection.** §5.2's loss table, with the argument for each drop, is a contribution in its own right: it is the first written account of what an executable fighting game contains that a decidable model does not.
 
 ---

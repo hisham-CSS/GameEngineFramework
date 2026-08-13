@@ -1,0 +1,3474 @@
+{
+ "name": "Fighter A (placeholder)",
+ "notes": [
+  "PLACEHOLDER IDENTITY. The character id is the file stem, fighter_a; the display name says placeholder in so many words; every move id is generic and descriptive. Nothing here carries a theme, a personality or a piece of flavour text, because the roster is not named yet and a name authored now is a rename later. This is the FIRST ORIGINAL CHARACTER in the project: the three in tests/fixtures/characters are transcribed from third-party MUGEN characters this project holds no licence to, and they are evidence, not content.",
+  "AUTHORED, NOT TRANSCRIBED. There is no .cns behind this file, so no [P] field carries a file:line and every engine.derivation says AUTHORED in capitals and names the design rule instead. That is the honest form of assertion A12 for an original character. It also changes what the fit measurement means: 0 of 18 moves need an escape hatch, against ADR-001's 23 of 59, and the reason is not that this character is simpler -- it is that it was authored against schema v2 rather than pushed into schema v1.",
+  "STAGE IS CORNER, and that is the question this file is designed to answer. comboprover.hpp is corner-only by construction (:15-24), so the corner verdict is the one the editor computes live and the one the ranking certificate belongs to. walk_speed and every pushback are authored and real, but at stage corner model.py drops horizontal position entirely, so this character's verdict does NOT rest on the pushback number that ADR-001:386-404 shows flips Kung Fu Girl's midscreen verdict at a 20% error.",
+  "LAW 1, and it is the whole ground game: every GROUND move in this file is at most +2 on hit, and the fastest move in the file is 3 frames. Therefore no ground move links into any ground move, and every combo edge this character has is a cancel that appears in the cancels array. THE CANCEL TABLE IS COMPLETE. That is the property the three transcribed characters lack: a +4 or +5 light with 3f startup has a link edge that no .cmd table lists, and ADR-001:420-432 reports exactly that edge as the corner infinite in two of the three.",
+  "LAW 2: air_mp is the one move that breaks Law 1 on purpose, at +7 on hit, and all nine of the links its frame data implies are authored rather than omitted. It is safe because of Law 3.",
+  "LAW 3: juggle is spent, never gained, and every edge whose TARGET is an air move spends it. Every cycle in the usable cancel graph must pass through such an edge, so every cycle strictly decreases juggle. This is the termination argument, and engine.termination_argument states it as a checkable claim rather than a hope.",
+  "METER GAIN IS DELIBERATELY ABSENT FROM [P] effect, and this is the file's one significant modelling decision. The character does build meter on hit -- engine.reaction.meter_gain_units carries the real numbers on all 18 moves -- but a POSITIVE entry in [P] effect clears comboprover.hpp:376-386's spendOnly flag and destroys the ranking certificate (:563), which is why ADR-001 gate 3 measured hasRanking false on every real character. The omission UNDER-credits the attacker's meter, which is the direction that can HIDE an infinite, so it is justified rather than waved at: see engine.termination_argument.meter_is_not_load_bearing, which states the structural reason and names the counterfactual that checks it.",
+  "Juggle RESET is not modelled, and that is EXACT rather than a loss. The reset happens when the combo ends and the defender lands, which is outside the cancel graph by construction. Within one combo juggle only ever decreases, so the model is not approximating anything here. This is the first file in the project in which the juggle half of the resource vocabulary carries data at all: ADR-001:519-521 records that juggle is dead data in all three Phase-0 characters and that half of the vocabulary is therefore untested.",
+  "decay is `none`, and none is the WORST CASE for termination rather than a gap. Any decay only lowers hitstun, which only lowers advantage, which only removes edges from outgoing[] (comboprover.hpp:338-348) and only adds distinctions to the hits component of a configuration. Both effects make a loop harder to close, so a TERMINATING verdict at `none` implies TERMINATING under every decay rule schema v2 can express. Proving it at the worst case is why this character does not need a decay rule to be finite.",
+  "Resource order is [meter, juggle], the build-wide contract of assertion A03. Both resources carry data here, which is new: comboprover::Character keys a ResourceVec positionally (:56, :128-129, :152), so a file that declared them in the other order would silently compare this character's juggle budget against another character's meter."
+ ],
+ "stage": "corner",
+ "starters": [],
+ "walk_speed": 0.03,
+ "scaling": [
+  1.0,
+  1.0,
+  0.9,
+  0.8,
+  0.7,
+  0.6,
+  0.5,
+  0.4,
+  0.3,
+  0.25,
+  0.2,
+  0.1
+ ],
+ "decay": {
+  "kind": "none",
+  "step": 0,
+  "floor": 0,
+  "ratio": 1.0,
+  "table": [],
+  "engine": {
+   "derivation": "AUTHORED as none. A01 holds with room: floor 0 against a smallest authored hitstun of 12 (stand_lp and crouch_lp). A02 holds: multiplicative is not used and is no longer a legal kind.",
+   "why_none_rather_than_a_house_rule": "Two reasons, and the second is the one that decides it. (1) SOUNDNESS: none is the worst case, so the verdict proved here holds under any decay the schema can express -- see notes[]. (2) MEASUREMENT: both implementations evaluate every edge at the SETTLED hitstun (comboprover.hpp:338-339), so linear decay does not soften this character's cancel table, it deletes it. Authoring linear step 2 floor 10 on this file leaves 27 of 73 edges usable and, worse, ZERO resource-spending edges survive the prefilter, so anyDown is false for both resources and the RANKING CERTIFICATE IS LOST as well. That is a sharper form of ADR-001's D8 finding: inventing a decay rule does not only delete the game (:355), it can delete the proof.",
+   "if_a_decay_rule_is_ever_wanted": "Author it as `table` with integer permille multipliers, which is D8's preferred escape, and re-measure the certificate and not just the verdict. Do not reach for `linear` by eye."
+  }
+ },
+ "resources": [
+  {
+   "name": "meter",
+   "initial": 300,
+   "floor": 0,
+   "ceiling": 300,
+   "engine": {
+    "units_per_bar": 100,
+    "display": "bars",
+    "hud_bar_count": 3,
+    "spent_by_this_character": true,
+    "derivation": "1 unit = 1/100 bar, the build-wide unit ADR-001 section 3 gate 2 fixes at 10 MUGEN power. This character is not a MUGEN import so nothing needs to divide evenly, but the unit is inherited unchanged so that fighter_a and the three fixtures can be compared without a conversion.",
+    "why_initial_is_the_ceiling": "300 is deliberately the maximum, not a typical starting value. The model never GAINS meter (see notes[]), so starting anywhere below the ceiling would under-credit the attacker twice over. Starting AT the ceiling over-credits the opening state, which is the permissive direction ADR-001:224-225 calls safe: it can invent a combo the character could not afford, it cannot hide one.",
+    "ceiling_warning": "comboprover.hpp carries no ceiling at all (Character :148-174, nonNegative :264-269 hardcodes floor 0) while model.py:192 clamps. The adapter must clamp in its own search loop (ADR-001 section 8 item 4). This character never gains meter, so nothing in it can reach the ceiling from below and the divergence is inert here -- but it is inert by accident of this file, not fixed."
+   }
+  },
+  {
+   "name": "juggle",
+   "initial": 4,
+   "floor": 0,
+   "ceiling": 4,
+   "engine": {
+    "display": "integer",
+    "spent_by_this_character": true,
+    "derivation": "AUTHORED. 4 points per combo. air_mp costs 1, air_hk costs 2, nothing else touches it and nothing anywhere returns a point. The budget buys air_mp x4, or air_mp x2 then air_hk, but never air_mp x3 then air_hk.",
+    "semantics": "A PER-COMBO budget, not a per-launch one, because the prover asks about a single unbounded combo and has no combo-reset event. The reset is real and happens when the defender lands; it is outside the cancel graph by construction, so modelling juggle as monotone within a combo is EXACT and not an approximation. The budget SIZE is not what makes the character finite -- setting initial to 0 or to 40 leaves the verdict and the certificate unchanged -- the MONOTONE DECREASE is.",
+    "why_this_is_the_first_file_with_live_juggle_data": "ADR-001:519-521 records that juggle is dead data in all three Phase-0 characters: Kung Fu Girl disables MUGEN's juggle system outright, Kung Fu Man does not use it, and AOF2 has none, so 'the juggle half of the resource vocabulary is entirely untested by Phase 0'. This file is the test."
+   }
+  }
+ ],
+ "gap_actions": [
+  {
+   "id": "dash_forward",
+   "frames": 18,
+   "effect": {
+    "__space": 56
+   },
+   "guard": {},
+   "max_uses": 0,
+   "label": "forward dash",
+   "engine": {
+    "enabled": true,
+    "state_id": 100,
+    "derivation": "AUTHORED. An 18-tick forward dash covering 56 px, which is one space unit per pixel at model.py:465-468's scale of 100 against a 100 px reach unit. Unlike the two Kung Fu characters this character really has a fixed-distance dash, so gap.py:29-33's warning is satisfied by a derived number rather than by a zero.",
+    "inert_at_this_stage": "stage is corner, where model.py:453-456 drops horizontal position, so __space does not exist and this action is a pure frame cost with no effect -- it can never help the attacker and can never create an edge. It is authored truthfully anyway so that a midscreen run has the real number. A04 is satisfied: this is a GAP ACTION, the one place __space may be authored.",
+    "variant": null
+   }
+  }
+ ],
+ "moves": [
+  {
+   "id": "stand_lp",
+   "startup": 3,
+   "active": 2,
+   "recovery": 9,
+   "hitstun": 12,
+   "damage": 25.0,
+   "effect": {},
+   "guard": {},
+   "stance": "ground",
+   "reach": 0.42,
+   "pushback": 0.05,
+   "label": "Standing Light Punch",
+   "hit_condition": {
+    "all": [
+     {
+      "property": "opponent.state_type",
+      "op": "ne",
+      "value": "air",
+      "source": "fighter_a design law 2 -- a grounded normal does not connect against an airborne defender"
+     }
+    ],
+    "prose": "opponent is not airborne",
+    "unmodelled": "json_spec.py does not read move.hit_condition, so the prover lets every grounded normal connect against an airborne defender. PERMISSIVE (ADR-001:224-225): it can invent an infinite, it cannot hide one. It is INERT in this file and that is checkable rather than asserted -- every edge this predicate would forbid is already dead on frame data the prover CAN see, because both launchers are +2 on hit and the fastest move in the file is 3f. No edge is omitted on the strength of this predicate."
+   },
+   "engine": {
+    "state_id": 200,
+    "anim_id": 200,
+    "derivation": "AUTHORED. Jab shape: 3f startup is the floor of the whole file and it is what LAW 1's +2 ceiling is measured against. hitstun 12 with L = act+rec-1 = 10 gives on-hit +2, one frame under its own 3f startup, so it cannot link into itself or into any light. blockstun 10 gives on-block 0.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "reason": "Authored against schema v2 rather than transcribed into it. Every fact this move states has a field, and no value of any field is arithmetic over live state.",
+     "closed_by": null
+    },
+    "tags": [
+     "normal",
+     "light",
+     "punch",
+     "stand",
+     "chain_source",
+     "special_cancellable"
+    ],
+    "frame_advantage": {
+     "recovery_after_contact": 10,
+     "on_hit": 2,
+     "on_block": 0,
+     "derivation": "recovery_after_contact = active + recovery - 1 = 2 + 9 - 1 = 10, which is the delay $defs.cancel calls a link. on_hit = hitstun - that = 12 - 10 = +2. on_block = blockstun - that = 10 - 10 = +0."
+    },
+    "cancel_window_ticks": [
+     5,
+     9
+    ],
+    "reaction": {
+     "hitstop_ticks": 8,
+     "blockstun_ticks": 10,
+     "slide_ticks": 10,
+     "pushback_vel_sub": -256,
+     "corner_push_vel_sub": 0,
+     "air_hitstun_ticks": 16,
+     "causes_knockdown": false,
+     "meter_gain_units": 4,
+     "derivation": "AUTHORED. pushback displacement = |1 px/tick| * 10 ticks / 2 = 5 px, which is the [P] pushback 0.05 in reach units. DERIVED, not estimated: this character defines the velocity and the slide time, so the displacement is a design decision rather than the reconstruction ADR-001:486-494 flags on all three corpus characters."
+    },
+    "cancel_window_note": "Opens at tick 5, two ticks after the move first becomes dangerous, and closes at tick 9. The window is what every outgoing delay in this file is measured from: chain delay 2 = window open - startup. ADR-001:434-442 records that authoring a cancel delay as 0 'would have handed the character 2-20 free frames on EVERY edge'; 2 is the smallest number this character authors and it is authored, not assumed.",
+    "transitions": [
+     {
+      "kind": "frame",
+      "tick": 14,
+      "to_state": 0,
+      "to_move_id": null,
+      "source": "AUTHORED"
+     }
+    ]
+   }
+  },
+  {
+   "id": "stand_lk",
+   "startup": 4,
+   "active": 2,
+   "recovery": 10,
+   "hitstun": 13,
+   "damage": 28.0,
+   "effect": {},
+   "guard": {},
+   "stance": "ground",
+   "reach": 0.46,
+   "pushback": 0.05,
+   "label": "Standing Light Kick",
+   "hit_condition": {
+    "all": [
+     {
+      "property": "opponent.state_type",
+      "op": "ne",
+      "value": "air",
+      "source": "fighter_a design law 2 -- a grounded normal does not connect against an airborne defender"
+     }
+    ],
+    "prose": "opponent is not airborne",
+    "unmodelled": "json_spec.py does not read move.hit_condition, so the prover lets every grounded normal connect against an airborne defender. PERMISSIVE (ADR-001:224-225): it can invent an infinite, it cannot hide one. It is INERT in this file and that is checkable rather than asserted -- every edge this predicate would forbid is already dead on frame data the prover CAN see, because both launchers are +2 on hit and the fastest move in the file is 3f. No edge is omitted on the strength of this predicate."
+   },
+   "engine": {
+    "state_id": 230,
+    "anim_id": 230,
+    "derivation": "AUTHORED. Light kick, one frame slower and one unit longer than stand_lp. hitstun 13 against L = 11 gives on-hit +2. Not special-cancellable by design (only the light PUNCHES are), which is why it has 4 outgoing edges and stand_lp has 6.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "reason": "Authored against schema v2 rather than transcribed into it. Every fact this move states has a field, and no value of any field is arithmetic over live state.",
+     "closed_by": null
+    },
+    "tags": [
+     "normal",
+     "light",
+     "kick",
+     "stand",
+     "chain_source"
+    ],
+    "frame_advantage": {
+     "recovery_after_contact": 11,
+     "on_hit": 2,
+     "on_block": 0,
+     "derivation": "recovery_after_contact = active + recovery - 1 = 2 + 10 - 1 = 11, which is the delay $defs.cancel calls a link. on_hit = hitstun - that = 13 - 11 = +2. on_block = blockstun - that = 11 - 11 = +0."
+    },
+    "cancel_window_ticks": [
+     6,
+     10
+    ],
+    "reaction": {
+     "hitstop_ticks": 8,
+     "blockstun_ticks": 11,
+     "slide_ticks": 10,
+     "pushback_vel_sub": -256,
+     "corner_push_vel_sub": 0,
+     "air_hitstun_ticks": 17,
+     "causes_knockdown": false,
+     "meter_gain_units": 4,
+     "derivation": "AUTHORED. pushback displacement = |1 px/tick| * 10 ticks / 2 = 5 px, which is the [P] pushback 0.05 in reach units. DERIVED, not estimated: this character defines the velocity and the slide time, so the displacement is a design decision rather than the reconstruction ADR-001:486-494 flags on all three corpus characters."
+    },
+    "cancel_window_note": "Opens at tick 6, two ticks after the move first becomes dangerous, and closes at tick 10. The window is what every outgoing delay in this file is measured from: chain delay 2 = window open - startup. ADR-001:434-442 records that authoring a cancel delay as 0 'would have handed the character 2-20 free frames on EVERY edge'; 2 is the smallest number this character authors and it is authored, not assumed.",
+    "transitions": [
+     {
+      "kind": "frame",
+      "tick": 16,
+      "to_state": 0,
+      "to_move_id": null,
+      "source": "AUTHORED"
+     }
+    ]
+   }
+  },
+  {
+   "id": "crouch_lp",
+   "startup": 3,
+   "active": 2,
+   "recovery": 9,
+   "hitstun": 12,
+   "damage": 25.0,
+   "effect": {},
+   "guard": {},
+   "stance": "ground",
+   "reach": 0.4,
+   "pushback": 0.05,
+   "label": "Crouching Light Punch",
+   "hit_condition": {
+    "all": [
+     {
+      "property": "opponent.state_type",
+      "op": "ne",
+      "value": "air",
+      "source": "fighter_a design law 2 -- a grounded normal does not connect against an airborne defender"
+     }
+    ],
+    "prose": "opponent is not airborne",
+    "unmodelled": "json_spec.py does not read move.hit_condition, so the prover lets every grounded normal connect against an airborne defender. PERMISSIVE (ADR-001:224-225): it can invent an infinite, it cannot hide one. It is INERT in this file and that is checkable rather than asserted -- every edge this predicate would forbid is already dead on frame data the prover CAN see, because both launchers are +2 on hit and the fastest move in the file is 3f. No edge is omitted on the strength of this predicate."
+   },
+   "engine": {
+    "state_id": 400,
+    "anim_id": 400,
+    "derivation": "AUTHORED. Identical timing to stand_lp; shorter reach (40px vs 42px) because it is crouched. This is the move the crouch_lp -> crouch_lp link probe is authored against: the probe is dead by exactly one frame and that margin IS the character's finiteness. See engine.design_laws.law_1.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "reason": "Authored against schema v2 rather than transcribed into it. Every fact this move states has a field, and no value of any field is arithmetic over live state.",
+     "closed_by": null
+    },
+    "tags": [
+     "normal",
+     "light",
+     "punch",
+     "crouch",
+     "chain_source",
+     "special_cancellable"
+    ],
+    "frame_advantage": {
+     "recovery_after_contact": 10,
+     "on_hit": 2,
+     "on_block": 0,
+     "derivation": "recovery_after_contact = active + recovery - 1 = 2 + 9 - 1 = 10, which is the delay $defs.cancel calls a link. on_hit = hitstun - that = 12 - 10 = +2. on_block = blockstun - that = 10 - 10 = +0."
+    },
+    "cancel_window_ticks": [
+     5,
+     9
+    ],
+    "reaction": {
+     "hitstop_ticks": 8,
+     "blockstun_ticks": 10,
+     "slide_ticks": 10,
+     "pushback_vel_sub": -256,
+     "corner_push_vel_sub": 0,
+     "air_hitstun_ticks": 16,
+     "causes_knockdown": false,
+     "meter_gain_units": 4,
+     "derivation": "AUTHORED. pushback displacement = |1 px/tick| * 10 ticks / 2 = 5 px, which is the [P] pushback 0.05 in reach units. DERIVED, not estimated: this character defines the velocity and the slide time, so the displacement is a design decision rather than the reconstruction ADR-001:486-494 flags on all three corpus characters."
+    },
+    "cancel_window_note": "Opens at tick 5, two ticks after the move first becomes dangerous, and closes at tick 9. The window is what every outgoing delay in this file is measured from: chain delay 2 = window open - startup. ADR-001:434-442 records that authoring a cancel delay as 0 'would have handed the character 2-20 free frames on EVERY edge'; 2 is the smallest number this character authors and it is authored, not assumed.",
+    "transitions": [
+     {
+      "kind": "frame",
+      "tick": 14,
+      "to_state": 0,
+      "to_move_id": null,
+      "source": "AUTHORED"
+     }
+    ]
+   }
+  },
+  {
+   "id": "crouch_lk",
+   "startup": 4,
+   "active": 3,
+   "recovery": 9,
+   "hitstun": 13,
+   "damage": 26.0,
+   "effect": {},
+   "guard": {},
+   "stance": "ground",
+   "reach": 0.48,
+   "pushback": 0.04,
+   "label": "Crouching Light Kick (low)",
+   "hit_condition": {
+    "all": [
+     {
+      "property": "opponent.state_type",
+      "op": "ne",
+      "value": "air",
+      "source": "fighter_a design law 2 -- a grounded normal does not connect against an airborne defender"
+     }
+    ],
+    "prose": "opponent is not airborne",
+    "unmodelled": "json_spec.py does not read move.hit_condition, so the prover lets every grounded normal connect against an airborne defender. PERMISSIVE (ADR-001:224-225): it can invent an infinite, it cannot hide one. It is INERT in this file and that is checkable rather than asserted -- every edge this predicate would forbid is already dead on frame data the prover CAN see, because both launchers are +2 on hit and the fastest move in the file is 3f. No edge is omitted on the strength of this predicate."
+   },
+   "engine": {
+    "state_id": 430,
+    "anim_id": 430,
+    "derivation": "AUTHORED. The low light. active 3 rather than 2 (it is a sweeping toe) so L = 11 and on-hit is +2 with hitstun 13; the extra active frame is paid for with -1 on block, the only light in the file that is minus.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "reason": "Authored against schema v2 rather than transcribed into it. Every fact this move states has a field, and no value of any field is arithmetic over live state.",
+     "closed_by": null
+    },
+    "tags": [
+     "normal",
+     "light",
+     "kick",
+     "crouch",
+     "low",
+     "chain_source"
+    ],
+    "frame_advantage": {
+     "recovery_after_contact": 11,
+     "on_hit": 2,
+     "on_block": -1,
+     "derivation": "recovery_after_contact = active + recovery - 1 = 3 + 9 - 1 = 11, which is the delay $defs.cancel calls a link. on_hit = hitstun - that = 13 - 11 = +2. on_block = blockstun - that = 10 - 11 = -1."
+    },
+    "cancel_window_ticks": [
+     6,
+     11
+    ],
+    "reaction": {
+     "hitstop_ticks": 8,
+     "blockstun_ticks": 10,
+     "slide_ticks": 8,
+     "pushback_vel_sub": -256,
+     "corner_push_vel_sub": 0,
+     "air_hitstun_ticks": 17,
+     "causes_knockdown": false,
+     "meter_gain_units": 4,
+     "derivation": "AUTHORED. pushback displacement = |1 px/tick| * 8 ticks / 2 = 4 px, which is the [P] pushback 0.04 in reach units. DERIVED, not estimated: this character defines the velocity and the slide time, so the displacement is a design decision rather than the reconstruction ADR-001:486-494 flags on all three corpus characters."
+    },
+    "cancel_window_note": "Opens at tick 6, two ticks after the move first becomes dangerous, and closes at tick 11. The window is what every outgoing delay in this file is measured from: chain delay 2 = window open - startup. ADR-001:434-442 records that authoring a cancel delay as 0 'would have handed the character 2-20 free frames on EVERY edge'; 2 is the smallest number this character authors and it is authored, not assumed.",
+    "transitions": [
+     {
+      "kind": "frame",
+      "tick": 16,
+      "to_state": 0,
+      "to_move_id": null,
+      "source": "AUTHORED"
+     }
+    ]
+   }
+  },
+  {
+   "id": "stand_mp",
+   "startup": 6,
+   "active": 3,
+   "recovery": 14,
+   "hitstun": 18,
+   "damage": 52.0,
+   "effect": {},
+   "guard": {},
+   "stance": "ground",
+   "reach": 0.58,
+   "pushback": 0.09,
+   "label": "Standing Medium Punch",
+   "hit_condition": {
+    "all": [
+     {
+      "property": "opponent.state_type",
+      "op": "ne",
+      "value": "air",
+      "source": "fighter_a design law 2 -- a grounded normal does not connect against an airborne defender"
+     }
+    ],
+    "prose": "opponent is not airborne",
+    "unmodelled": "json_spec.py does not read move.hit_condition, so the prover lets every grounded normal connect against an airborne defender. PERMISSIVE (ADR-001:224-225): it can invent an infinite, it cannot hide one. It is INERT in this file and that is checkable rather than asserted -- every edge this predicate would forbid is already dead on frame data the prover CAN see, because both launchers are +2 on hit and the fastest move in the file is 3f. No edge is omitted on the strength of this predicate."
+   },
+   "engine": {
+    "state_id": 210,
+    "anim_id": 210,
+    "derivation": "AUTHORED. 6f medium, the first move in the file that can special-cancel into the fireball: hitstun 18 - special-cancel delay 3 = 15 against the fireball's 13f startup, 2 frames of margin. on-hit +2 (hitstun 18, L 16).",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "reason": "Authored against schema v2 rather than transcribed into it. Every fact this move states has a field, and no value of any field is arithmetic over live state.",
+     "closed_by": null
+    },
+    "tags": [
+     "normal",
+     "medium",
+     "punch",
+     "stand",
+     "chain_source",
+     "special_cancellable"
+    ],
+    "frame_advantage": {
+     "recovery_after_contact": 16,
+     "on_hit": 2,
+     "on_block": -2,
+     "derivation": "recovery_after_contact = active + recovery - 1 = 3 + 14 - 1 = 16, which is the delay $defs.cancel calls a link. on_hit = hitstun - that = 18 - 16 = +2. on_block = blockstun - that = 14 - 16 = -2."
+    },
+    "cancel_window_ticks": [
+     8,
+     13
+    ],
+    "reaction": {
+     "hitstop_ticks": 8,
+     "blockstun_ticks": 14,
+     "slide_ticks": 9,
+     "pushback_vel_sub": -512,
+     "corner_push_vel_sub": 0,
+     "air_hitstun_ticks": 22,
+     "causes_knockdown": false,
+     "meter_gain_units": 8,
+     "derivation": "AUTHORED. pushback displacement = |2 px/tick| * 9 ticks / 2 = 9 px, which is the [P] pushback 0.09 in reach units. DERIVED, not estimated: this character defines the velocity and the slide time, so the displacement is a design decision rather than the reconstruction ADR-001:486-494 flags on all three corpus characters."
+    },
+    "cancel_window_note": "Opens at tick 8, two ticks after the move first becomes dangerous, and closes at tick 13. The window is what every outgoing delay in this file is measured from: chain delay 2 = window open - startup. ADR-001:434-442 records that authoring a cancel delay as 0 'would have handed the character 2-20 free frames on EVERY edge'; 2 is the smallest number this character authors and it is authored, not assumed.",
+    "transitions": [
+     {
+      "kind": "frame",
+      "tick": 23,
+      "to_state": 0,
+      "to_move_id": null,
+      "source": "AUTHORED"
+     }
+    ]
+   }
+  },
+  {
+   "id": "stand_mk",
+   "startup": 7,
+   "active": 3,
+   "recovery": 15,
+   "hitstun": 19,
+   "damage": 55.0,
+   "effect": {},
+   "guard": {},
+   "stance": "ground",
+   "reach": 0.66,
+   "pushback": 0.09,
+   "label": "Standing Medium Kick",
+   "hit_condition": {
+    "all": [
+     {
+      "property": "opponent.state_type",
+      "op": "ne",
+      "value": "air",
+      "source": "fighter_a design law 2 -- a grounded normal does not connect against an airborne defender"
+     }
+    ],
+    "prose": "opponent is not airborne",
+    "unmodelled": "json_spec.py does not read move.hit_condition, so the prover lets every grounded normal connect against an airborne defender. PERMISSIVE (ADR-001:224-225): it can invent an infinite, it cannot hide one. It is INERT in this file and that is checkable rather than asserted -- every edge this predicate would forbid is already dead on frame data the prover CAN see, because both launchers are +2 on hit and the fastest move in the file is 3f. No edge is omitted on the strength of this predicate."
+   },
+   "engine": {
+    "state_id": 240,
+    "anim_id": 240,
+    "derivation": "AUTHORED. 7f, longest-reaching stand medium (66px). hitstun 19, L 17, on-hit +2, on-block -3.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "reason": "Authored against schema v2 rather than transcribed into it. Every fact this move states has a field, and no value of any field is arithmetic over live state.",
+     "closed_by": null
+    },
+    "tags": [
+     "normal",
+     "medium",
+     "kick",
+     "stand",
+     "chain_source",
+     "special_cancellable"
+    ],
+    "frame_advantage": {
+     "recovery_after_contact": 17,
+     "on_hit": 2,
+     "on_block": -3,
+     "derivation": "recovery_after_contact = active + recovery - 1 = 3 + 15 - 1 = 17, which is the delay $defs.cancel calls a link. on_hit = hitstun - that = 19 - 17 = +2. on_block = blockstun - that = 14 - 17 = -3."
+    },
+    "cancel_window_ticks": [
+     9,
+     14
+    ],
+    "reaction": {
+     "hitstop_ticks": 8,
+     "blockstun_ticks": 14,
+     "slide_ticks": 9,
+     "pushback_vel_sub": -512,
+     "corner_push_vel_sub": 0,
+     "air_hitstun_ticks": 23,
+     "causes_knockdown": false,
+     "meter_gain_units": 8,
+     "derivation": "AUTHORED. pushback displacement = |2 px/tick| * 9 ticks / 2 = 9 px, which is the [P] pushback 0.09 in reach units. DERIVED, not estimated: this character defines the velocity and the slide time, so the displacement is a design decision rather than the reconstruction ADR-001:486-494 flags on all three corpus characters."
+    },
+    "cancel_window_note": "Opens at tick 9, two ticks after the move first becomes dangerous, and closes at tick 14. The window is what every outgoing delay in this file is measured from: chain delay 2 = window open - startup. ADR-001:434-442 records that authoring a cancel delay as 0 'would have handed the character 2-20 free frames on EVERY edge'; 2 is the smallest number this character authors and it is authored, not assumed.",
+    "transitions": [
+     {
+      "kind": "frame",
+      "tick": 25,
+      "to_state": 0,
+      "to_move_id": null,
+      "source": "AUTHORED"
+     }
+    ]
+   }
+  },
+  {
+   "id": "crouch_mp",
+   "startup": 6,
+   "active": 3,
+   "recovery": 15,
+   "hitstun": 19,
+   "damage": 50.0,
+   "effect": {},
+   "guard": {},
+   "stance": "ground",
+   "reach": 0.56,
+   "pushback": 0.08,
+   "label": "Crouching Medium Punch",
+   "hit_condition": {
+    "all": [
+     {
+      "property": "opponent.state_type",
+      "op": "ne",
+      "value": "air",
+      "source": "fighter_a design law 2 -- a grounded normal does not connect against an airborne defender"
+     }
+    ],
+    "prose": "opponent is not airborne",
+    "unmodelled": "json_spec.py does not read move.hit_condition, so the prover lets every grounded normal connect against an airborne defender. PERMISSIVE (ADR-001:224-225): it can invent an infinite, it cannot hide one. It is INERT in this file and that is checkable rather than asserted -- every edge this predicate would forbid is already dead on frame data the prover CAN see, because both launchers are +2 on hit and the fastest move in the file is 3f. No edge is omitted on the strength of this predicate."
+   },
+   "engine": {
+    "state_id": 410,
+    "anim_id": 410,
+    "derivation": "AUTHORED. 6f crouching medium. hitstun 19, L 17, on-hit +2. Chains to every heavy: 19 - chain delay 2 = 17 covers the slowest heavy startup (stand_hk, 11).",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "reason": "Authored against schema v2 rather than transcribed into it. Every fact this move states has a field, and no value of any field is arithmetic over live state.",
+     "closed_by": null
+    },
+    "tags": [
+     "normal",
+     "medium",
+     "punch",
+     "crouch",
+     "chain_source",
+     "special_cancellable"
+    ],
+    "frame_advantage": {
+     "recovery_after_contact": 17,
+     "on_hit": 2,
+     "on_block": -3,
+     "derivation": "recovery_after_contact = active + recovery - 1 = 3 + 15 - 1 = 17, which is the delay $defs.cancel calls a link. on_hit = hitstun - that = 19 - 17 = +2. on_block = blockstun - that = 14 - 17 = -3."
+    },
+    "cancel_window_ticks": [
+     8,
+     13
+    ],
+    "reaction": {
+     "hitstop_ticks": 8,
+     "blockstun_ticks": 14,
+     "slide_ticks": 8,
+     "pushback_vel_sub": -512,
+     "corner_push_vel_sub": 0,
+     "air_hitstun_ticks": 23,
+     "causes_knockdown": false,
+     "meter_gain_units": 8,
+     "derivation": "AUTHORED. pushback displacement = |2 px/tick| * 8 ticks / 2 = 8 px, which is the [P] pushback 0.08 in reach units. DERIVED, not estimated: this character defines the velocity and the slide time, so the displacement is a design decision rather than the reconstruction ADR-001:486-494 flags on all three corpus characters."
+    },
+    "cancel_window_note": "Opens at tick 8, two ticks after the move first becomes dangerous, and closes at tick 13. The window is what every outgoing delay in this file is measured from: chain delay 2 = window open - startup. ADR-001:434-442 records that authoring a cancel delay as 0 'would have handed the character 2-20 free frames on EVERY edge'; 2 is the smallest number this character authors and it is authored, not assumed.",
+    "transitions": [
+     {
+      "kind": "frame",
+      "tick": 24,
+      "to_state": 0,
+      "to_move_id": null,
+      "source": "AUTHORED"
+     }
+    ]
+   }
+  },
+  {
+   "id": "crouch_mk",
+   "startup": 7,
+   "active": 4,
+   "recovery": 16,
+   "hitstun": 21,
+   "damage": 58.0,
+   "effect": {},
+   "guard": {},
+   "stance": "ground",
+   "reach": 0.72,
+   "pushback": 0.08,
+   "label": "Crouching Medium Kick (low)",
+   "hit_condition": {
+    "all": [
+     {
+      "property": "opponent.state_type",
+      "op": "ne",
+      "value": "air",
+      "source": "fighter_a design law 2 -- a grounded normal does not connect against an airborne defender"
+     }
+    ],
+    "prose": "opponent is not airborne",
+    "unmodelled": "json_spec.py does not read move.hit_condition, so the prover lets every grounded normal connect against an airborne defender. PERMISSIVE (ADR-001:224-225): it can invent an infinite, it cannot hide one. It is INERT in this file and that is checkable rather than asserted -- every edge this predicate would forbid is already dead on frame data the prover CAN see, because both launchers are +2 on hit and the fastest move in the file is 3f. No edge is omitted on the strength of this predicate."
+   },
+   "engine": {
+    "state_id": 440,
+    "anim_id": 440,
+    "derivation": "AUTHORED. The genre's canonical low poke into fireball. hitstun 21 is the highest of the four mediums, which is what pays for the direct super cancel (21 - 4 = 17 against super startup 8). on-hit +2, on-block -4.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "reason": "Authored against schema v2 rather than transcribed into it. Every fact this move states has a field, and no value of any field is arithmetic over live state.",
+     "closed_by": null
+    },
+    "tags": [
+     "normal",
+     "medium",
+     "kick",
+     "crouch",
+     "low",
+     "chain_source",
+     "special_cancellable",
+     "super_cancellable"
+    ],
+    "frame_advantage": {
+     "recovery_after_contact": 19,
+     "on_hit": 2,
+     "on_block": -4,
+     "derivation": "recovery_after_contact = active + recovery - 1 = 4 + 16 - 1 = 19, which is the delay $defs.cancel calls a link. on_hit = hitstun - that = 21 - 19 = +2. on_block = blockstun - that = 15 - 19 = -4."
+    },
+    "cancel_window_ticks": [
+     9,
+     15
+    ],
+    "reaction": {
+     "hitstop_ticks": 8,
+     "blockstun_ticks": 15,
+     "slide_ticks": 8,
+     "pushback_vel_sub": -512,
+     "corner_push_vel_sub": 0,
+     "air_hitstun_ticks": 25,
+     "causes_knockdown": false,
+     "meter_gain_units": 8,
+     "derivation": "AUTHORED. pushback displacement = |2 px/tick| * 8 ticks / 2 = 8 px, which is the [P] pushback 0.08 in reach units. DERIVED, not estimated: this character defines the velocity and the slide time, so the displacement is a design decision rather than the reconstruction ADR-001:486-494 flags on all three corpus characters."
+    },
+    "cancel_window_note": "Opens at tick 9, two ticks after the move first becomes dangerous, and closes at tick 15. The window is what every outgoing delay in this file is measured from: chain delay 2 = window open - startup. ADR-001:434-442 records that authoring a cancel delay as 0 'would have handed the character 2-20 free frames on EVERY edge'; 2 is the smallest number this character authors and it is authored, not assumed.",
+    "transitions": [
+     {
+      "kind": "frame",
+      "tick": 27,
+      "to_state": 0,
+      "to_move_id": null,
+      "source": "AUTHORED"
+     }
+    ]
+   }
+  },
+  {
+   "id": "stand_hp",
+   "startup": 9,
+   "active": 3,
+   "recovery": 19,
+   "hitstun": 23,
+   "damage": 88.0,
+   "effect": {},
+   "guard": {},
+   "stance": "ground",
+   "reach": 0.68,
+   "pushback": 0.15,
+   "label": "Standing Heavy Punch",
+   "hit_condition": {
+    "all": [
+     {
+      "property": "opponent.state_type",
+      "op": "ne",
+      "value": "air",
+      "source": "fighter_a design law 2 -- a grounded normal does not connect against an airborne defender"
+     }
+    ],
+    "prose": "opponent is not airborne",
+    "unmodelled": "json_spec.py does not read move.hit_condition, so the prover lets every grounded normal connect against an airborne defender. PERMISSIVE (ADR-001:224-225): it can invent an infinite, it cannot hide one. It is INERT in this file and that is checkable rather than asserted -- every edge this predicate would forbid is already dead on frame data the prover CAN see, because both launchers are +2 on hit and the fastest move in the file is 3f. No edge is omitted on the strength of this predicate."
+   },
+   "engine": {
+    "state_id": 220,
+    "anim_id": 220,
+    "derivation": "AUTHORED. The one special-cancellable heavy. hitstun 23, L 21, on-hit +2. The stand_hp -> stand_lp link probe is authored against exactly this: +2 versus a 3f startup, dead by one.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "reason": "Authored against schema v2 rather than transcribed into it. Every fact this move states has a field, and no value of any field is arithmetic over live state.",
+     "closed_by": null
+    },
+    "tags": [
+     "normal",
+     "heavy",
+     "punch",
+     "stand",
+     "special_cancellable",
+     "super_cancellable"
+    ],
+    "frame_advantage": {
+     "recovery_after_contact": 21,
+     "on_hit": 2,
+     "on_block": -4,
+     "derivation": "recovery_after_contact = active + recovery - 1 = 3 + 19 - 1 = 21, which is the delay $defs.cancel calls a link. on_hit = hitstun - that = 23 - 21 = +2. on_block = blockstun - that = 17 - 21 = -4."
+    },
+    "cancel_window_ticks": [
+     11,
+     16
+    ],
+    "reaction": {
+     "hitstop_ticks": 11,
+     "blockstun_ticks": 17,
+     "slide_ticks": 10,
+     "pushback_vel_sub": -768,
+     "corner_push_vel_sub": 0,
+     "air_hitstun_ticks": 27,
+     "causes_knockdown": false,
+     "meter_gain_units": 12,
+     "derivation": "AUTHORED. pushback displacement = |3 px/tick| * 10 ticks / 2 = 15 px, which is the [P] pushback 0.15 in reach units. DERIVED, not estimated: this character defines the velocity and the slide time, so the displacement is a design decision rather than the reconstruction ADR-001:486-494 flags on all three corpus characters."
+    },
+    "cancel_window_note": "Opens at tick 11, two ticks after the move first becomes dangerous, and closes at tick 16. The window is what every outgoing delay in this file is measured from: chain delay 2 = window open - startup. ADR-001:434-442 records that authoring a cancel delay as 0 'would have handed the character 2-20 free frames on EVERY edge'; 2 is the smallest number this character authors and it is authored, not assumed.",
+    "transitions": [
+     {
+      "kind": "frame",
+      "tick": 31,
+      "to_state": 0,
+      "to_move_id": null,
+      "source": "AUTHORED"
+     }
+    ]
+   }
+  },
+  {
+   "id": "stand_hk",
+   "startup": 11,
+   "active": 3,
+   "recovery": 26,
+   "hitstun": 30,
+   "damage": 92.0,
+   "effect": {},
+   "guard": {},
+   "stance": "ground",
+   "reach": 0.78,
+   "pushback": 0.1,
+   "label": "Standing Heavy Kick (launcher)",
+   "hit_condition": {
+    "all": [
+     {
+      "property": "opponent.state_type",
+      "op": "ne",
+      "value": "air",
+      "source": "fighter_a design law 2 -- a grounded normal does not connect against an airborne defender"
+     }
+    ],
+    "prose": "opponent is not airborne",
+    "unmodelled": "json_spec.py does not read move.hit_condition, so the prover lets every grounded normal connect against an airborne defender. PERMISSIVE (ADR-001:224-225): it can invent an infinite, it cannot hide one. It is INERT in this file and that is checkable rather than asserted -- every edge this predicate would forbid is already dead on frame data the prover CAN see, because both launchers are +2 on hit and the fastest move in the file is 3f. No edge is omitted on the strength of this predicate."
+   },
+   "engine": {
+    "state_id": 250,
+    "anim_id": 250,
+    "derivation": "AUTHORED. THE LAUNCHER, and its recovery is the point. hitstun 30 is the largest in the file because the defender is being lifted, but recovery 26 makes L = 28, so on-hit is +2 like everything else -- the 30 frames of hitstun are reachable ONLY through the jump cancel (delay 5), never through a link. A launcher that is +8 on hit is a launcher that links into a 3f jab, and that is the corner infinite ADR-001:429-432 found in Kung Fu Man.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "reason": "Authored against schema v2 rather than transcribed into it. Every fact this move states has a field, and no value of any field is arithmetic over live state.",
+     "closed_by": null
+    },
+    "tags": [
+     "normal",
+     "heavy",
+     "kick",
+     "stand",
+     "launcher",
+     "jump_cancellable"
+    ],
+    "frame_advantage": {
+     "recovery_after_contact": 28,
+     "on_hit": 2,
+     "on_block": -9,
+     "derivation": "recovery_after_contact = active + recovery - 1 = 3 + 26 - 1 = 28, which is the delay $defs.cancel calls a link. on_hit = hitstun - that = 30 - 28 = +2. on_block = blockstun - that = 19 - 28 = -9."
+    },
+    "cancel_window_ticks": [
+     13,
+     18
+    ],
+    "reaction": {
+     "hitstop_ticks": 11,
+     "blockstun_ticks": 19,
+     "slide_ticks": 10,
+     "pushback_vel_sub": -512,
+     "corner_push_vel_sub": 0,
+     "air_hitstun_ticks": 34,
+     "causes_knockdown": false,
+     "meter_gain_units": 12,
+     "derivation": "AUTHORED. pushback displacement = |2 px/tick| * 10 ticks / 2 = 10 px, which is the [P] pushback 0.10 in reach units. DERIVED, not estimated: this character defines the velocity and the slide time, so the displacement is a design decision rather than the reconstruction ADR-001:486-494 flags on all three corpus characters."
+    },
+    "cancel_window_note": "Opens at tick 13, two ticks after the move first becomes dangerous, and closes at tick 18. The window is what every outgoing delay in this file is measured from: chain delay 2 = window open - startup. ADR-001:434-442 records that authoring a cancel delay as 0 'would have handed the character 2-20 free frames on EVERY edge'; 2 is the smallest number this character authors and it is authored, not assumed.",
+    "transitions": [
+     {
+      "kind": "frame",
+      "tick": 40,
+      "to_state": 0,
+      "to_move_id": null,
+      "source": "AUTHORED"
+     }
+    ]
+   }
+  },
+  {
+   "id": "crouch_hp",
+   "startup": 8,
+   "active": 4,
+   "recovery": 22,
+   "hitstun": 27,
+   "damage": 85.0,
+   "effect": {},
+   "guard": {},
+   "stance": "ground",
+   "reach": 0.52,
+   "pushback": 0.1,
+   "label": "Crouching Heavy Punch (anti-air launcher)",
+   "hit_condition": {
+    "all": [
+     {
+      "property": "opponent.state_type",
+      "op": "ne",
+      "value": "air",
+      "source": "fighter_a design law 2 -- a grounded normal does not connect against an airborne defender"
+     }
+    ],
+    "prose": "opponent is not airborne",
+    "unmodelled": "json_spec.py does not read move.hit_condition, so the prover lets every grounded normal connect against an airborne defender. PERMISSIVE (ADR-001:224-225): it can invent an infinite, it cannot hide one. It is INERT in this file and that is checkable rather than asserted -- every edge this predicate would forbid is already dead on frame data the prover CAN see, because both launchers are +2 on hit and the fastest move in the file is 3f. No edge is omitted on the strength of this predicate."
+   },
+   "engine": {
+    "state_id": 420,
+    "anim_id": 420,
+    "derivation": "AUTHORED. Anti-air launcher. Same construction as stand_hk: hitstun 27 against L 25 is on-hit +2, and the 27 frames are spendable only via the jump cancel or the super cancel. Short reach (52px) because it is an upward hitbox.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "reason": "Authored against schema v2 rather than transcribed into it. Every fact this move states has a field, and no value of any field is arithmetic over live state.",
+     "closed_by": null
+    },
+    "tags": [
+     "normal",
+     "heavy",
+     "punch",
+     "crouch",
+     "anti_air",
+     "launcher",
+     "jump_cancellable",
+     "super_cancellable"
+    ],
+    "frame_advantage": {
+     "recovery_after_contact": 25,
+     "on_hit": 2,
+     "on_block": -7,
+     "derivation": "recovery_after_contact = active + recovery - 1 = 4 + 22 - 1 = 25, which is the delay $defs.cancel calls a link. on_hit = hitstun - that = 27 - 25 = +2. on_block = blockstun - that = 18 - 25 = -7."
+    },
+    "cancel_window_ticks": [
+     10,
+     16
+    ],
+    "reaction": {
+     "hitstop_ticks": 11,
+     "blockstun_ticks": 18,
+     "slide_ticks": 10,
+     "pushback_vel_sub": -512,
+     "corner_push_vel_sub": 0,
+     "air_hitstun_ticks": 31,
+     "causes_knockdown": false,
+     "meter_gain_units": 12,
+     "derivation": "AUTHORED. pushback displacement = |2 px/tick| * 10 ticks / 2 = 10 px, which is the [P] pushback 0.10 in reach units. DERIVED, not estimated: this character defines the velocity and the slide time, so the displacement is a design decision rather than the reconstruction ADR-001:486-494 flags on all three corpus characters."
+    },
+    "cancel_window_note": "Opens at tick 10, two ticks after the move first becomes dangerous, and closes at tick 16. The window is what every outgoing delay in this file is measured from: chain delay 2 = window open - startup. ADR-001:434-442 records that authoring a cancel delay as 0 'would have handed the character 2-20 free frames on EVERY edge'; 2 is the smallest number this character authors and it is authored, not assumed.",
+    "transitions": [
+     {
+      "kind": "frame",
+      "tick": 34,
+      "to_state": 0,
+      "to_move_id": null,
+      "source": "AUTHORED"
+     }
+    ]
+   }
+  },
+  {
+   "id": "crouch_hk",
+   "startup": 10,
+   "active": 3,
+   "recovery": 26,
+   "hitstun": 20,
+   "damage": 90.0,
+   "effect": {},
+   "guard": {},
+   "stance": "ground",
+   "reach": 0.94,
+   "pushback": 0.22,
+   "label": "Crouching Heavy Kick (sweep, knockdown)",
+   "hit_condition": {
+    "all": [
+     {
+      "property": "opponent.state_type",
+      "op": "ne",
+      "value": "air",
+      "source": "fighter_a design law 2 -- a grounded normal does not connect against an airborne defender"
+     }
+    ],
+    "prose": "opponent is not airborne",
+    "unmodelled": "json_spec.py does not read move.hit_condition, so the prover lets every grounded normal connect against an airborne defender. PERMISSIVE (ADR-001:224-225): it can invent an infinite, it cannot hide one. It is INERT in this file and that is checkable rather than asserted -- every edge this predicate would forbid is already dead on frame data the prover CAN see, because both launchers are +2 on hit and the fastest move in the file is 3f. No edge is omitted on the strength of this predicate."
+   },
+   "engine": {
+    "state_id": 450,
+    "anim_id": 450,
+    "derivation": "AUTHORED. Sweep. hitstun 20 against L 28 is on-hit -8, and on hit it causes a hard knockdown (engine.reaction.causes_knockdown) so nothing follows it in the real game either. Zero outgoing cancels; see engine.moves_with_no_outgoing_cancel.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "reason": "Authored against schema v2 rather than transcribed into it. Every fact this move states has a field, and no value of any field is arithmetic over live state.",
+     "closed_by": null
+    },
+    "tags": [
+     "normal",
+     "heavy",
+     "kick",
+     "crouch",
+     "low",
+     "sweep",
+     "knockdown",
+     "combo_ender"
+    ],
+    "frame_advantage": {
+     "recovery_after_contact": 28,
+     "on_hit": -8,
+     "on_block": -13,
+     "derivation": "recovery_after_contact = active + recovery - 1 = 3 + 26 - 1 = 28, which is the delay $defs.cancel calls a link. on_hit = hitstun - that = 20 - 28 = -8. on_block = blockstun - that = 15 - 28 = -13."
+    },
+    "cancel_window_ticks": [],
+    "reaction": {
+     "hitstop_ticks": 11,
+     "blockstun_ticks": 15,
+     "slide_ticks": 11,
+     "pushback_vel_sub": -1024,
+     "corner_push_vel_sub": 0,
+     "air_hitstun_ticks": 24,
+     "causes_knockdown": true,
+     "meter_gain_units": 12,
+     "derivation": "AUTHORED. pushback displacement = |4 px/tick| * 11 ticks / 2 = 22 px, which is the [P] pushback 0.22 in reach units. DERIVED, not estimated: this character defines the velocity and the slide time, so the displacement is a design decision rather than the reconstruction ADR-001:486-494 flags on all three corpus characters.",
+     "fall_recover_ticks": 20
+    },
+    "cancel_window_note": "EMPTY ON PURPOSE. This move has no cancel window at all -- it is a combo ender. The empty array is the case ADR-001:541-545 records a draft schema could not express.",
+    "transitions": [
+     {
+      "kind": "frame",
+      "tick": 39,
+      "to_state": 0,
+      "to_move_id": null,
+      "source": "AUTHORED"
+     }
+    ],
+    "ender_note": "ZERO OUTGOING CANCELS, and it is a fact about the character rather than an omission in the authoring: this move causes a hard knockdown, so in the running game the defender is on the floor and no follow-up connects. The prover cannot see that (x-known-over-approximations.defender_has_no_state gives it no defender state at all), so the knockdown is NOT what makes the model terminate -- the absence of the edges is. Recorded in engine.moves_with_no_outgoing_cancel."
+   }
+  },
+  {
+   "id": "air_mp",
+   "startup": 6,
+   "active": 4,
+   "recovery": 12,
+   "hitstun": 22,
+   "damage": 45.0,
+   "effect": {
+    "juggle": -1
+   },
+   "guard": {},
+   "stance": "air",
+   "reach": 0.5,
+   "pushback": 0.06,
+   "label": "Jumping Medium Punch",
+   "hit_condition": {
+    "all": [
+     {
+      "property": "self.juggle_count",
+      "op": "gt",
+      "value": 0,
+      "source": "fighter_a design law 3 -- an air attack needs a juggle point to connect"
+     }
+    ],
+    "prose": "the attacker has at least one juggle point left",
+    "unmodelled": "The prover CAN see this one, because it is authored as [P] effect.juggle rather than left to the predicate: the guard is enforced by comboprover.hpp:264-269 nonNegative() rejecting a negative resource. The predicate is the engine's spelling of the same rule and the two must stay in step."
+   },
+   "engine": {
+    "state_id": 610,
+    "anim_id": 610,
+    "derivation": "AUTHORED, AND IT IS THE ONE MOVE THAT BREAKS LAW 1 ON PURPOSE. hitstun 22 against L 15 is on-hit +7, so this move DOES link -- into all eight ground normals and into the uppercut. All nine of those links are authored. It is safe because every edge whose TARGET is an air move spends a juggle point, so every cycle that uses this move's descending links must pay to come back. recovery 12 is the airborne tail plus landing recovery and is a LOWER bound; see engine.transitions.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "reason": "Authored against schema v2 rather than transcribed into it. Every fact this move states has a field, and no value of any field is arithmetic over live state.",
+     "closed_by": null
+    },
+    "tags": [
+     "normal",
+     "medium",
+     "punch",
+     "air",
+     "juggle",
+     "jump_in"
+    ],
+    "frame_advantage": {
+     "recovery_after_contact": 15,
+     "on_hit": 7,
+     "on_block": -1,
+     "derivation": "recovery_after_contact = active + recovery - 1 = 4 + 12 - 1 = 15, which is the delay $defs.cancel calls a link. on_hit = hitstun - that = 22 - 15 = +7. on_block = blockstun - that = 14 - 15 = -1."
+    },
+    "cancel_window_ticks": [
+     8,
+     14
+    ],
+    "reaction": {
+     "hitstop_ticks": 12,
+     "blockstun_ticks": 14,
+     "slide_ticks": 6,
+     "pushback_vel_sub": -512,
+     "corner_push_vel_sub": 0,
+     "air_hitstun_ticks": 26,
+     "causes_knockdown": false,
+     "meter_gain_units": 8,
+     "derivation": "AUTHORED. pushback displacement = |2 px/tick| * 6 ticks / 2 = 6 px, which is the [P] pushback 0.06 in reach units. DERIVED, not estimated: this character defines the velocity and the slide time, so the displacement is a design decision rather than the reconstruction ADR-001:486-494 flags on all three corpus characters."
+    },
+    "cancel_window_note": "Opens at tick 8, two ticks after the move first becomes dangerous, and closes at tick 14. The window is what every outgoing delay in this file is measured from: chain delay 2 = window open - startup. ADR-001:434-442 records that authoring a cancel delay as 0 'would have handed the character 2-20 free frames on EVERY edge'; 2 is the smallest number this character authors and it is authored, not assumed.",
+    "transitions": [
+     {
+      "kind": "on_land",
+      "predicate": "landing",
+      "min_tick": 6,
+      "require_descending": true,
+      "to_state": 52,
+      "to_move_id": null,
+      "duration_bound": "lower",
+      "duration_derivation": "[P] recovery 12 is the airborne tail plus 3 ticks of landing recovery, measured on the NEUTRAL jump arc (jump velocity y -2816 sub, gravity 128 sub/tick). Any arc that starts higher or is hit later lands LATER, so the authored number is never longer than the real one: it is a LOWER bound, the attacker acts no later than the game allows, and the error is PERMISSIVE in ADR-001:224-225's sense -- it can invent an infinite, it cannot hide one. That direction matters here more than anywhere else in the file, because this recovery is what sets air_mp's link delay of 15 and therefore its +7 on hit.",
+      "source": "AUTHORED"
+     }
+    ],
+    "motion_physics": {
+     "gravity_sub": 128,
+     "applies_from_tick": 1,
+     "friction_permille": null,
+     "source": "AUTHORED. 0.5 px/tick^2 * 256 = 128 sub-units exactly; integer addition only, no multiply."
+    },
+    "juggle_note": "effect.juggle -1 is the whole termination argument of this character. It is charged on PERFORMING air_mp, so it is paid by every edge whose target is air_mp -- the two jump cancels and the self-cancel -- and totalEffect (comboprover.hpp:282-290) adds the target move's effect to the edge's, which is why no edge needs to carry it. See engine.design_laws.law_3 and engine.termination_argument."
+   }
+  },
+  {
+   "id": "air_hk",
+   "startup": 9,
+   "active": 3,
+   "recovery": 20,
+   "hitstun": 24,
+   "damage": 80.0,
+   "effect": {
+    "juggle": -2
+   },
+   "guard": {},
+   "stance": "air",
+   "reach": 0.6,
+   "pushback": 0.18,
+   "label": "Jumping Heavy Kick (juggle ender)",
+   "hit_condition": {
+    "all": [
+     {
+      "property": "self.juggle_count",
+      "op": "gt",
+      "value": 0,
+      "source": "fighter_a design law 3 -- an air attack needs a juggle point to connect"
+     }
+    ],
+    "prose": "the attacker has at least one juggle point left",
+    "unmodelled": "The prover CAN see this one, because it is authored as [P] effect.juggle rather than left to the predicate: the guard is enforced by comboprover.hpp:264-269 nonNegative() rejecting a negative resource. The predicate is the engine's spelling of the same rule and the two must stay in step."
+   },
+   "engine": {
+    "state_id": 650,
+    "anim_id": 650,
+    "derivation": "AUTHORED. Juggle ender. hitstun 24 against L 22 is on-hit +2, so unlike air_mp it descends into nothing. Costs 2 juggle rather than 1, which is what makes the juggle budget an economy rather than a counter: 4 points buys air_mp x4, or air_mp x2 + air_hk, but never air_mp x3 + air_hk.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "reason": "Authored against schema v2 rather than transcribed into it. Every fact this move states has a field, and no value of any field is arithmetic over live state.",
+     "closed_by": null
+    },
+    "tags": [
+     "normal",
+     "heavy",
+     "kick",
+     "air",
+     "juggle",
+     "knockdown",
+     "combo_ender"
+    ],
+    "frame_advantage": {
+     "recovery_after_contact": 22,
+     "on_hit": 2,
+     "on_block": -7,
+     "derivation": "recovery_after_contact = active + recovery - 1 = 3 + 20 - 1 = 22, which is the delay $defs.cancel calls a link. on_hit = hitstun - that = 24 - 22 = +2. on_block = blockstun - that = 15 - 22 = -7."
+    },
+    "cancel_window_ticks": [],
+    "reaction": {
+     "hitstop_ticks": 12,
+     "blockstun_ticks": 15,
+     "slide_ticks": 12,
+     "pushback_vel_sub": -768,
+     "corner_push_vel_sub": 0,
+     "air_hitstun_ticks": 28,
+     "causes_knockdown": true,
+     "meter_gain_units": 12,
+     "derivation": "AUTHORED. pushback displacement = |3 px/tick| * 12 ticks / 2 = 18 px, which is the [P] pushback 0.18 in reach units. DERIVED, not estimated: this character defines the velocity and the slide time, so the displacement is a design decision rather than the reconstruction ADR-001:486-494 flags on all three corpus characters.",
+     "fall_recover_ticks": 20
+    },
+    "cancel_window_note": "EMPTY ON PURPOSE. This move has no cancel window at all -- it is a combo ender. The empty array is the case ADR-001:541-545 records a draft schema could not express.",
+    "transitions": [
+     {
+      "kind": "on_land",
+      "predicate": "landing",
+      "min_tick": 9,
+      "require_descending": true,
+      "to_state": 52,
+      "to_move_id": null,
+      "duration_bound": "lower",
+      "duration_derivation": "[P] recovery 20 is the airborne tail plus 3 ticks of landing recovery, measured on the NEUTRAL jump arc (jump velocity y -2816 sub, gravity 128 sub/tick). Any arc that starts higher or is hit later lands LATER, so the authored number is never longer than the real one: it is a LOWER bound, the attacker acts no later than the game allows, and the error is PERMISSIVE in ADR-001:224-225's sense -- it can invent an infinite, it cannot hide one. That direction matters here more than anywhere else in the file, because this recovery is what sets air_mp's link delay of 15 and therefore its +7 on hit.",
+      "source": "AUTHORED"
+     }
+    ],
+    "motion_physics": {
+     "gravity_sub": 128,
+     "applies_from_tick": 1,
+     "friction_permille": null,
+     "source": "AUTHORED. 0.5 px/tick^2 * 256 = 128 sub-units exactly; integer addition only, no multiply."
+    },
+    "juggle_note": "effect.juggle -2. The heavy juggle costs double, which turns a counter into an economy: with 4 points a combo buys air_mp x4, or air_mp x2 then air_hk, but never air_mp x3 then air_hk (that would need 5).",
+    "ender_note": "ZERO OUTGOING CANCELS, and it is a fact about the character rather than an omission in the authoring: this move causes a hard knockdown, so in the running game the defender is on the floor and no follow-up connects. The prover cannot see that (x-known-over-approximations.defender_has_no_state gives it no defender state at all), so the knockdown is NOT what makes the model terminate -- the absence of the edges is. Recorded in engine.moves_with_no_outgoing_cancel."
+   }
+  },
+  {
+   "id": "special_fireball",
+   "startup": 13,
+   "active": 1,
+   "recovery": 32,
+   "hitstun": 21,
+   "damage": 60.0,
+   "effect": {},
+   "guard": {},
+   "stance": "ground",
+   "reach": null,
+   "pushback": 0.14,
+   "label": "Fireball",
+   "hit_condition": {
+    "all": [
+     {
+      "property": "opponent.state_type",
+      "op": "ne",
+      "value": "air",
+      "source": "fighter_a design law 2 -- a grounded normal does not connect against an airborne defender"
+     }
+    ],
+    "prose": "opponent is not airborne",
+    "unmodelled": "json_spec.py does not read move.hit_condition, so the prover lets every grounded normal connect against an airborne defender. PERMISSIVE (ADR-001:224-225): it can invent an infinite, it cannot hide one. It is INERT in this file and that is checkable rather than asserted -- every edge this predicate would forbid is already dead on frame data the prover CAN see, because both launchers are +2 on hit and the fastest move in the file is 3f. No edge is omitted on the strength of this predicate."
+   },
+   "engine": {
+    "state_id": 1000,
+    "anim_id": 1000,
+    "derivation": "AUTHORED. startup 13 means RELEASE, not contact ($defs.move and A09). active 1 is the release tick; the character's own state has no Clsn1 at all and the hitbox belongs to the projectile (engine.projectile). recovery 32 is the number the brief calls a real recovery: L = 32 against hitstun 21 is on-hit -11, so the fireball combos into nothing but the super and cannot chase its own hit.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "reason": "Authored against schema v2 rather than transcribed into it. Every fact this move states has a field, and no value of any field is arithmetic over live state.",
+     "closed_by": null
+    },
+    "tags": [
+     "special",
+     "projectile",
+     "zoning",
+     "super_cancellable"
+    ],
+    "frame_advantage": {
+     "recovery_after_contact": 32,
+     "on_hit": -11,
+     "on_block": -14,
+     "derivation": "recovery_after_contact = active + recovery - 1 = 1 + 32 - 1 = 32, which is the delay $defs.cancel calls a link. on_hit = hitstun - that = 21 - 32 = -11. on_block = blockstun - that = 18 - 32 = -14."
+    },
+    "cancel_window_ticks": [
+     15,
+     18
+    ],
+    "reaction": {
+     "hitstop_ticks": 12,
+     "blockstun_ticks": 18,
+     "slide_ticks": 7,
+     "pushback_vel_sub": -1024,
+     "corner_push_vel_sub": 0,
+     "air_hitstun_ticks": 25,
+     "causes_knockdown": false,
+     "meter_gain_units": 16,
+     "derivation": "AUTHORED. pushback displacement = |4 px/tick| * 7 ticks / 2 = 14 px, which is the [P] pushback 0.14 in reach units. DERIVED, not estimated: this character defines the velocity and the slide time, so the displacement is a design decision rather than the reconstruction ADR-001:486-494 flags on all three corpus characters."
+    },
+    "cancel_window_note": "Opens at tick 15, two ticks after the move first becomes dangerous, and closes at tick 18. The window is what every outgoing delay in this file is measured from: chain delay 2 = window open - startup. ADR-001:434-442 records that authoring a cancel delay as 0 'would have handed the character 2-20 free frames on EVERY edge'; 2 is the smallest number this character authors and it is authored, not assumed.",
+    "transitions": [
+     {
+      "kind": "frame",
+      "tick": 46,
+      "to_state": 0,
+      "to_move_id": null,
+      "source": "AUTHORED"
+     }
+    ],
+    "projectile": {
+     "spawn_tick": 13,
+     "proj_id": 1000,
+     "anim_id": 1005,
+     "hit_anim_id": 1006,
+     "offset_sub": {
+      "x": 6400,
+      "y": -13312
+     },
+     "velocity_sub": {
+      "x": 1024,
+      "y": 0
+     },
+     "accel_sub": {
+      "x": 0,
+      "y": 0
+     },
+     "lifetime_ticks": 90,
+     "remove_on_hit": true,
+     "hit_count": 1,
+     "priority": 1,
+     "hitdef": {
+      "tick": 0,
+      "damage_hundredths": 6000,
+      "hitstun_ticks": 21,
+      "blockstun_ticks": 18,
+      "slide_ticks": 7,
+      "pushback_vel_sub": -1024,
+      "meter_gain": 16,
+      "source": "AUTHORED. tick is relative to the projectile's own life, not the attacker's state."
+     },
+     "quantization_note": "4 px/tick * 256 = 1024 sub-units EXACTLY. Chosen to be exact: 4 divides 256, unlike Kung Fu Man's 3.2 px/tick which loses 0.78 px over its lifetime (schema.v2.json x-worked-examples.projectile.quantization). An original character can pick velocities that quantize exactly, and this one does everywhere.",
+     "source": "AUTHORED"
+    },
+    "projectile_prover_note": "A09 holds: spawn_tick 13 == [P] startup 13. THE PROVER HALF IS NOT CLOSABLE and it errs in the DANGEROUS direction (x-known-over-approximations.projectile_contact_frame): [P] startup measures RELEASE, while the defender's hitstun really begins at CONTACT, f ticks later, so a delay measured from the attacker's own animation under-credits the attacker and can HIDE an infinite. This file is the first in the project to author an outgoing cancel from a projectile move, so the schema's prescribed fix is applied here rather than deferred: the fireball -> super_beam delay is authored as 3, not 4, which is the window open tick (startup+4) minus POINT-BLANK contact (startup+1). Point-blank is the minimum plausible contact frame, so the delay is the smallest defensible number, which OVER-credits the attacker and flips the direction to the safe one."
+   }
+  },
+  {
+   "id": "special_uppercut",
+   "startup": 3,
+   "active": 8,
+   "recovery": 29,
+   "hitstun": 30,
+   "damage": 95.0,
+   "effect": {},
+   "guard": {},
+   "stance": "ground",
+   "reach": 0.44,
+   "pushback": 0.12,
+   "label": "Uppercut (reversal, invincible 1-6)",
+   "hit_condition": {
+    "all": [
+     {
+      "property": "opponent.state_type",
+      "op": "ne",
+      "value": "air",
+      "source": "fighter_a design law 2 -- a grounded normal does not connect against an airborne defender"
+     }
+    ],
+    "prose": "opponent is not airborne",
+    "unmodelled": "json_spec.py does not read move.hit_condition, so the prover lets every grounded normal connect against an airborne defender. PERMISSIVE (ADR-001:224-225): it can invent an infinite, it cannot hide one. It is INERT in this file and that is checkable rather than asserted -- every edge this predicate would forbid is already dead on frame data the prover CAN see, because both launchers are +2 on hit and the fastest move in the file is 3f. No edge is omitted on the strength of this predicate."
+   },
+   "engine": {
+    "state_id": 1010,
+    "anim_id": 1010,
+    "derivation": "AUTHORED. 3f reversal with 6 ticks of strike invincibility (engine.invuln) and -24 on block, which is what pays for it. active 8 is the rising arc. hitstun 30 against L 36 is on-hit -6: the uppercut launches but the attacker is airborne and recovering, so only the super cancel reaches the launched defender.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "reason": "Authored against schema v2 rather than transcribed into it. Every fact this move states has a field, and no value of any field is arithmetic over live state.",
+     "closed_by": null
+    },
+    "tags": [
+     "special",
+     "reversal",
+     "invincible",
+     "launcher",
+     "anti_air",
+     "super_cancellable"
+    ],
+    "frame_advantage": {
+     "recovery_after_contact": 36,
+     "on_hit": -6,
+     "on_block": -24,
+     "derivation": "recovery_after_contact = active + recovery - 1 = 8 + 29 - 1 = 36, which is the delay $defs.cancel calls a link. on_hit = hitstun - that = 30 - 36 = -6. on_block = blockstun - that = 12 - 36 = -24."
+    },
+    "cancel_window_ticks": [
+     5,
+     15
+    ],
+    "reaction": {
+     "hitstop_ticks": 12,
+     "blockstun_ticks": 12,
+     "slide_ticks": 8,
+     "pushback_vel_sub": -768,
+     "corner_push_vel_sub": 0,
+     "air_hitstun_ticks": 34,
+     "causes_knockdown": false,
+     "meter_gain_units": 20,
+     "derivation": "AUTHORED. pushback displacement = |3 px/tick| * 8 ticks / 2 = 12 px, which is the [P] pushback 0.12 in reach units. DERIVED, not estimated: this character defines the velocity and the slide time, so the displacement is a design decision rather than the reconstruction ADR-001:486-494 flags on all three corpus characters."
+    },
+    "cancel_window_note": "Opens at tick 5, two ticks after the move first becomes dangerous, and closes at tick 15. The window is what every outgoing delay in this file is measured from: chain delay 2 = window open - startup. ADR-001:434-442 records that authoring a cancel delay as 0 'would have handed the character 2-20 free frames on EVERY edge'; 2 is the smallest number this character authors and it is authored, not assumed.",
+    "transitions": [
+     {
+      "kind": "on_land",
+      "predicate": "landing",
+      "min_tick": 3,
+      "require_descending": true,
+      "to_state": 52,
+      "to_move_id": null,
+      "duration_bound": "lower",
+      "duration_derivation": "[P] recovery 29 is the airborne tail plus 3 ticks of landing recovery, measured on the NEUTRAL jump arc (jump velocity y -2816 sub, gravity 128 sub/tick). Any arc that starts higher or is hit later lands LATER, so the authored number is never longer than the real one: it is a LOWER bound, the attacker acts no later than the game allows, and the error is PERMISSIVE in ADR-001:224-225's sense -- it can invent an infinite, it cannot hide one. That direction matters here more than anywhere else in the file, because this recovery is what sets air_mp's link delay of 15 and therefore its +7 on hit.",
+      "source": "AUTHORED"
+     }
+    ],
+    "motion_physics": {
+     "gravity_sub": 128,
+     "applies_from_tick": 1,
+     "friction_permille": null,
+     "source": "AUTHORED. 0.5 px/tick^2 * 256 = 128 sub-units exactly; integer addition only, no multiply."
+    },
+    "motion": [
+     {
+      "tick": 1,
+      "vel_x_sub": 0,
+      "vel_y_sub": 0,
+      "source": "AUTHORED. 2 ticks of crouch before launch"
+     },
+     {
+      "tick": 3,
+      "vel_x_sub": 384,
+      "vel_y_sub": -2560,
+      "source": "AUTHORED. Launch at tick 3, the first dangerous tick: 1.5 px/tick forward, 10 px/tick up"
+     },
+     {
+      "tick": 11,
+      "vel_x_sub": 0,
+      "vel_y_sub": -1536,
+      "source": "AUTHORED. Forward drive ends with the active frames; gravity owns the arc from here"
+     }
+    ],
+    "invuln": [
+     {
+      "from_tick": 1,
+      "ticks": 6,
+      "kind": "not_hit_by",
+      "state_types": [],
+      "attrs": [
+       "NA",
+       "NP",
+       "SA",
+       "SP",
+       "HA",
+       "HP"
+      ],
+      "source": "AUTHORED. Strike invincible for the 3 startup ticks and the first 3 active ticks; throws (NT/ST/HT) are deliberately NOT in the list."
+     }
+    ]
+   }
+  },
+  {
+   "id": "special_dash_punch",
+   "startup": 11,
+   "active": 4,
+   "recovery": 22,
+   "hitstun": 24,
+   "damage": 80.0,
+   "effect": {},
+   "guard": {},
+   "stance": "ground",
+   "reach": 1.35,
+   "pushback": 0.24,
+   "label": "Dash Punch (mobility special)",
+   "hit_condition": {
+    "all": [
+     {
+      "property": "opponent.state_type",
+      "op": "ne",
+      "value": "air",
+      "source": "fighter_a design law 2 -- a grounded normal does not connect against an airborne defender"
+     }
+    ],
+    "prose": "opponent is not airborne",
+    "unmodelled": "json_spec.py does not read move.hit_condition, so the prover lets every grounded normal connect against an airborne defender. PERMISSIVE (ADR-001:224-225): it can invent an infinite, it cannot hide one. It is INERT in this file and that is checkable rather than asserted -- every edge this predicate would forbid is already dead on frame data the prover CAN see, because both launchers are +2 on hit and the fastest move in the file is 3f. No edge is omitted on the strength of this predicate."
+   },
+   "engine": {
+    "state_id": 1020,
+    "anim_id": 1020,
+    "derivation": "AUTHORED. The mobility special: 11f startup, 135px reach because the move travels 96px forward under engine.motion before the hitbox arrives. hitstun 24 against L 25 is on-hit -1. Super-cancellable, otherwise a combo ender.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "reason": "Authored against schema v2 rather than transcribed into it. Every fact this move states has a field, and no value of any field is arithmetic over live state.",
+     "closed_by": null
+    },
+    "tags": [
+     "special",
+     "mobility",
+     "advancing",
+     "super_cancellable"
+    ],
+    "frame_advantage": {
+     "recovery_after_contact": 25,
+     "on_hit": -1,
+     "on_block": -7,
+     "derivation": "recovery_after_contact = active + recovery - 1 = 4 + 22 - 1 = 25, which is the delay $defs.cancel calls a link. on_hit = hitstun - that = 24 - 25 = -1. on_block = blockstun - that = 18 - 25 = -7."
+    },
+    "cancel_window_ticks": [
+     13,
+     19
+    ],
+    "reaction": {
+     "hitstop_ticks": 12,
+     "blockstun_ticks": 18,
+     "slide_ticks": 12,
+     "pushback_vel_sub": -1024,
+     "corner_push_vel_sub": 0,
+     "air_hitstun_ticks": 28,
+     "causes_knockdown": false,
+     "meter_gain_units": 16,
+     "derivation": "AUTHORED. pushback displacement = |4 px/tick| * 12 ticks / 2 = 24 px, which is the [P] pushback 0.24 in reach units. DERIVED, not estimated: this character defines the velocity and the slide time, so the displacement is a design decision rather than the reconstruction ADR-001:486-494 flags on all three corpus characters."
+    },
+    "cancel_window_note": "Opens at tick 13, two ticks after the move first becomes dangerous, and closes at tick 19. The window is what every outgoing delay in this file is measured from: chain delay 2 = window open - startup. ADR-001:434-442 records that authoring a cancel delay as 0 'would have handed the character 2-20 free frames on EVERY edge'; 2 is the smallest number this character authors and it is authored, not assumed.",
+    "transitions": [
+     {
+      "kind": "frame",
+      "tick": 37,
+      "to_state": 0,
+      "to_move_id": null,
+      "source": "AUTHORED"
+     }
+    ],
+    "motion": [
+     {
+      "tick": 1,
+      "vel_x_sub": 0,
+      "vel_y_sub": 0,
+      "source": "AUTHORED, wind-up is stationary"
+     },
+     {
+      "tick": 4,
+      "vel_x_sub": 1536,
+      "vel_y_sub": 0,
+      "source": "AUTHORED. 6 px/tick for ticks 4-15 = 72 px of travel before the hitbox arrives at tick 11"
+     },
+     {
+      "tick": 16,
+      "vel_x_sub": 512,
+      "vel_y_sub": 0,
+      "source": "AUTHORED. 2 px/tick for ticks 16-27 = 24 px of slide-out"
+     },
+     {
+      "tick": 28,
+      "vel_x_sub": 0,
+      "vel_y_sub": 0,
+      "source": "AUTHORED. stopped for the recovery tail"
+     }
+    ],
+    "motion_note": "Total forward travel 72 + 24 = 96 px. This is why [P] reach is 1.35 rather than the 39 px the Clsn1 box alone would give: reach is an upper bound on the GAP (model.py:473-476), and the gap this move can close is the box plus the travel. Resolved to integer per-tick velocities at authoring time, never a runtime multiply -- see $defs.moveEngine.motion.",
+    "motion_physics": {
+     "gravity_sub": 0,
+     "applies_from_tick": 1,
+     "friction_permille": null,
+     "source": "AUTHORED. Grounded move, no gravity term."
+    }
+   }
+  },
+  {
+   "id": "super_beam",
+   "startup": 8,
+   "active": 2,
+   "recovery": 44,
+   "hitstun": 32,
+   "damage": 240.0,
+   "effect": {
+    "meter": -100
+   },
+   "guard": {
+    "meter": 100
+   },
+   "stance": "ground",
+   "reach": null,
+   "pushback": 0.3,
+   "label": "Super Beam (level 1, 1 bar)",
+   "hit_condition": {
+    "all": [
+     {
+      "property": "opponent.state_type",
+      "op": "ne",
+      "value": "air",
+      "source": "fighter_a design law 2 -- a grounded normal does not connect against an airborne defender"
+     }
+    ],
+    "prose": "opponent is not airborne",
+    "unmodelled": "json_spec.py does not read move.hit_condition, so the prover lets every grounded normal connect against an airborne defender. PERMISSIVE (ADR-001:224-225): it can invent an infinite, it cannot hide one. It is INERT in this file and that is checkable rather than asserted -- every edge this predicate would forbid is already dead on frame data the prover CAN see, because both launchers are +2 on hit and the fastest move in the file is 3f. No edge is omitted on the strength of this predicate."
+   },
+   "engine": {
+    "state_id": 3000,
+    "anim_id": 3000,
+    "derivation": "AUTHORED. Five hits at ticks 8/14/20/26/32, all authoring hitstun 32, so hits_projection first_damage_summed is exact on the hitstun half and A06 does not fire. [P] damage 240 is the sum 60+40+40+40+60. effect.meter -100 is one bar; engine.freeze carries the same 100 units as the SuperPause charge, which is the same spend recorded twice in the two vocabularies. Zero outgoing cancels.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "reason": "Authored against schema v2 rather than transcribed into it. Every fact this move states has a field, and no value of any field is arithmetic over live state.",
+     "closed_by": null
+    },
+    "tags": [
+     "super",
+     "level1",
+     "multi_hit",
+     "knockdown",
+     "combo_ender"
+    ],
+    "frame_advantage": {
+     "recovery_after_contact": 45,
+     "on_hit": -13,
+     "on_block": -19,
+     "derivation": "recovery_after_contact = active + recovery - 1 = 2 + 44 - 1 = 45, which is the delay $defs.cancel calls a link. on_hit = hitstun - that = 32 - 45 = -13. on_block = blockstun - that = 26 - 45 = -19."
+    },
+    "cancel_window_ticks": [],
+    "reaction": {
+     "hitstop_ticks": 12,
+     "blockstun_ticks": 26,
+     "slide_ticks": 12,
+     "pushback_vel_sub": -1280,
+     "corner_push_vel_sub": 0,
+     "air_hitstun_ticks": 36,
+     "causes_knockdown": true,
+     "meter_gain_units": 0,
+     "derivation": "AUTHORED. pushback displacement = |5 px/tick| * 12 ticks / 2 = 30 px, which is the [P] pushback 0.30 in reach units. DERIVED, not estimated: this character defines the velocity and the slide time, so the displacement is a design decision rather than the reconstruction ADR-001:486-494 flags on all three corpus characters.",
+     "fall_recover_ticks": 28
+    },
+    "cancel_window_note": "EMPTY ON PURPOSE. This move has no cancel window at all -- it is a combo ender. The empty array is the case ADR-001:541-545 records a draft schema could not express.",
+    "transitions": [
+     {
+      "kind": "frame",
+      "tick": 54,
+      "to_state": 0,
+      "to_move_id": null,
+      "source": "AUTHORED"
+     }
+    ],
+    "invuln": [
+     {
+      "from_tick": 1,
+      "ticks": 10,
+      "kind": "not_hit_by",
+      "state_types": [],
+      "attrs": [
+       "NA",
+       "NP",
+       "NT",
+       "SA",
+       "SP",
+       "ST",
+       "HA",
+       "HP",
+       "HT"
+      ],
+      "source": "AUTHORED. Full invincibility through the flash and the 8 startup ticks."
+     }
+    ],
+    "freeze": [
+     {
+      "from_tick": 2,
+      "ticks": 40,
+      "kind": "super_pause",
+      "meter_delta": -100,
+      "ticks_authored": true,
+      "source": "AUTHORED. The 40 ticks are stated, not inherited from an engine default -- contrast Kung Fu Girl's super_palm, whose 30 are MUGEN's SuperPause default (schema.v2.json $defs.freezeWindow). meter_delta -100 and [P] effect.meter -100 are the SAME spend in two vocabularies, not two spends."
+     }
+    ],
+    "hits_projection": "first_damage_summed",
+    "hits": [
+     {
+      "tick": 8,
+      "anim_elem": 4,
+      "damage_hundredths": 6000,
+      "hitstun_ticks": 32,
+      "blockstun_ticks": 26,
+      "slide_ticks": 12,
+      "pushback_vel_sub": -1280,
+      "meter_gain": 0,
+      "source": "AUTHORED, hit 1 of 5"
+     },
+     {
+      "tick": 14,
+      "anim_elem": 6,
+      "damage_hundredths": 4000,
+      "hitstun_ticks": 32,
+      "blockstun_ticks": 26,
+      "slide_ticks": 12,
+      "pushback_vel_sub": -1280,
+      "meter_gain": 0,
+      "source": "AUTHORED, hit 2 of 5"
+     },
+     {
+      "tick": 20,
+      "anim_elem": 8,
+      "damage_hundredths": 4000,
+      "hitstun_ticks": 32,
+      "blockstun_ticks": 26,
+      "slide_ticks": 12,
+      "pushback_vel_sub": -1280,
+      "meter_gain": 0,
+      "source": "AUTHORED, hit 3 of 5"
+     },
+     {
+      "tick": 26,
+      "anim_elem": 10,
+      "damage_hundredths": 4000,
+      "hitstun_ticks": 32,
+      "blockstun_ticks": 26,
+      "slide_ticks": 12,
+      "pushback_vel_sub": -1280,
+      "meter_gain": 0,
+      "source": "AUTHORED, hit 4 of 5"
+     },
+     {
+      "tick": 32,
+      "anim_elem": 12,
+      "damage_hundredths": 6000,
+      "hitstun_ticks": 32,
+      "blockstun_ticks": 26,
+      "slide_ticks": 12,
+      "pushback_vel_sub": -1536,
+      "meter_gain": 0,
+      "reaction": {
+       "causes_knockdown": true,
+       "fall_recover_ticks": 28
+      },
+      "source": "AUTHORED, hit 5 of 5, hard knockdown"
+     }
+    ],
+    "hits_note": "A05 holds: hits[0].tick 8 == [P] startup 8, and hits[0].hitstun_ticks 32 == [P] hitstun 32. A06 DOES NOT FIRE and that is by construction, not luck: every hit authors hitstun 32, so the `first` half of the projection is EXACT and no hits_projection_caveat is required. [P] damage 240 is the sum 60+40+40+40+60, which json_spec.py:69 sends to Result.maxDamage only and never to the verdict. Summing hitstun would not be safe and is not done.",
+    "ender_note": "ZERO OUTGOING CANCELS, and it is a fact about the character rather than an omission in the authoring: this move causes a hard knockdown, so in the running game the defender is on the floor and no follow-up connects. The prover cannot see that (x-known-over-approximations.defender_has_no_state gives it no defender state at all), so the knockdown is NOT what makes the model terminate -- the absence of the edges is. Recorded in engine.moves_with_no_outgoing_cancel."
+   }
+  }
+ ],
+ "cancels": [
+  {
+   "from": "stand_lp",
+   "to": "stand_mp",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_lp > stand_mp",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "source": "AUTHORED",
+    "delay_derivation": "chain window, delay 2. advantage = hitstun(stand_lp) - delay = 12 - 2 = 10; startup(stand_mp) = 6; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "stand_lp",
+   "to": "stand_mk",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_lp > stand_mk",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "source": "AUTHORED",
+    "delay_derivation": "chain window, delay 2. advantage = hitstun(stand_lp) - delay = 12 - 2 = 10; startup(stand_mk) = 7; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "stand_lp",
+   "to": "crouch_mp",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_lp > crouch_mp",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "source": "AUTHORED",
+    "delay_derivation": "chain window, delay 2. advantage = hitstun(stand_lp) - delay = 12 - 2 = 10; startup(crouch_mp) = 6; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "stand_lp",
+   "to": "crouch_mk",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_lp > crouch_mk",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "source": "AUTHORED",
+    "delay_derivation": "chain window, delay 2. advantage = hitstun(stand_lp) - delay = 12 - 2 = 10; startup(crouch_mk) = 7; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "stand_lk",
+   "to": "stand_mp",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_lk > stand_mp",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "source": "AUTHORED",
+    "delay_derivation": "chain window, delay 2. advantage = hitstun(stand_lk) - delay = 13 - 2 = 11; startup(stand_mp) = 6; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "stand_lk",
+   "to": "stand_mk",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_lk > stand_mk",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "source": "AUTHORED",
+    "delay_derivation": "chain window, delay 2. advantage = hitstun(stand_lk) - delay = 13 - 2 = 11; startup(stand_mk) = 7; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "stand_lk",
+   "to": "crouch_mp",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_lk > crouch_mp",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "source": "AUTHORED",
+    "delay_derivation": "chain window, delay 2. advantage = hitstun(stand_lk) - delay = 13 - 2 = 11; startup(crouch_mp) = 6; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "stand_lk",
+   "to": "crouch_mk",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_lk > crouch_mk",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "source": "AUTHORED",
+    "delay_derivation": "chain window, delay 2. advantage = hitstun(stand_lk) - delay = 13 - 2 = 11; startup(crouch_mk) = 7; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "crouch_lp",
+   "to": "stand_mp",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "crouch_lp > stand_mp",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "source": "AUTHORED",
+    "delay_derivation": "chain window, delay 2. advantage = hitstun(crouch_lp) - delay = 12 - 2 = 10; startup(stand_mp) = 6; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "crouch_lp",
+   "to": "stand_mk",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "crouch_lp > stand_mk",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "source": "AUTHORED",
+    "delay_derivation": "chain window, delay 2. advantage = hitstun(crouch_lp) - delay = 12 - 2 = 10; startup(stand_mk) = 7; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "crouch_lp",
+   "to": "crouch_mp",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "crouch_lp > crouch_mp",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "source": "AUTHORED",
+    "delay_derivation": "chain window, delay 2. advantage = hitstun(crouch_lp) - delay = 12 - 2 = 10; startup(crouch_mp) = 6; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "crouch_lp",
+   "to": "crouch_mk",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "crouch_lp > crouch_mk",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "source": "AUTHORED",
+    "delay_derivation": "chain window, delay 2. advantage = hitstun(crouch_lp) - delay = 12 - 2 = 10; startup(crouch_mk) = 7; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "crouch_lk",
+   "to": "stand_mp",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "crouch_lk > stand_mp",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "source": "AUTHORED",
+    "delay_derivation": "chain window, delay 2. advantage = hitstun(crouch_lk) - delay = 13 - 2 = 11; startup(stand_mp) = 6; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "crouch_lk",
+   "to": "stand_mk",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "crouch_lk > stand_mk",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "source": "AUTHORED",
+    "delay_derivation": "chain window, delay 2. advantage = hitstun(crouch_lk) - delay = 13 - 2 = 11; startup(stand_mk) = 7; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "crouch_lk",
+   "to": "crouch_mp",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "crouch_lk > crouch_mp",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "source": "AUTHORED",
+    "delay_derivation": "chain window, delay 2. advantage = hitstun(crouch_lk) - delay = 13 - 2 = 11; startup(crouch_mp) = 6; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "crouch_lk",
+   "to": "crouch_mk",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "crouch_lk > crouch_mk",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "source": "AUTHORED",
+    "delay_derivation": "chain window, delay 2. advantage = hitstun(crouch_lk) - delay = 13 - 2 = 11; startup(crouch_mk) = 7; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "stand_mp",
+   "to": "stand_hp",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_mp > stand_hp",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "source": "AUTHORED",
+    "delay_derivation": "chain window, delay 2. advantage = hitstun(stand_mp) - delay = 18 - 2 = 16; startup(stand_hp) = 9; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "stand_mp",
+   "to": "stand_hk",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_mp > stand_hk",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "source": "AUTHORED",
+    "delay_derivation": "chain window, delay 2. advantage = hitstun(stand_mp) - delay = 18 - 2 = 16; startup(stand_hk) = 11; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "stand_mp",
+   "to": "crouch_hp",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_mp > crouch_hp",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "source": "AUTHORED",
+    "delay_derivation": "chain window, delay 2. advantage = hitstun(stand_mp) - delay = 18 - 2 = 16; startup(crouch_hp) = 8; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "stand_mp",
+   "to": "crouch_hk",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_mp > crouch_hk",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "source": "AUTHORED",
+    "delay_derivation": "chain window, delay 2. advantage = hitstun(stand_mp) - delay = 18 - 2 = 16; startup(crouch_hk) = 10; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "stand_mk",
+   "to": "stand_hp",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_mk > stand_hp",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "source": "AUTHORED",
+    "delay_derivation": "chain window, delay 2. advantage = hitstun(stand_mk) - delay = 19 - 2 = 17; startup(stand_hp) = 9; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "stand_mk",
+   "to": "stand_hk",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_mk > stand_hk",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "source": "AUTHORED",
+    "delay_derivation": "chain window, delay 2. advantage = hitstun(stand_mk) - delay = 19 - 2 = 17; startup(stand_hk) = 11; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "stand_mk",
+   "to": "crouch_hp",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_mk > crouch_hp",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "source": "AUTHORED",
+    "delay_derivation": "chain window, delay 2. advantage = hitstun(stand_mk) - delay = 19 - 2 = 17; startup(crouch_hp) = 8; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "stand_mk",
+   "to": "crouch_hk",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_mk > crouch_hk",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "source": "AUTHORED",
+    "delay_derivation": "chain window, delay 2. advantage = hitstun(stand_mk) - delay = 19 - 2 = 17; startup(crouch_hk) = 10; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "crouch_mp",
+   "to": "stand_hp",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "crouch_mp > stand_hp",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "source": "AUTHORED",
+    "delay_derivation": "chain window, delay 2. advantage = hitstun(crouch_mp) - delay = 19 - 2 = 17; startup(stand_hp) = 9; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "crouch_mp",
+   "to": "stand_hk",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "crouch_mp > stand_hk",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "source": "AUTHORED",
+    "delay_derivation": "chain window, delay 2. advantage = hitstun(crouch_mp) - delay = 19 - 2 = 17; startup(stand_hk) = 11; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "crouch_mp",
+   "to": "crouch_hp",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "crouch_mp > crouch_hp",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "source": "AUTHORED",
+    "delay_derivation": "chain window, delay 2. advantage = hitstun(crouch_mp) - delay = 19 - 2 = 17; startup(crouch_hp) = 8; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "crouch_mp",
+   "to": "crouch_hk",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "crouch_mp > crouch_hk",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "source": "AUTHORED",
+    "delay_derivation": "chain window, delay 2. advantage = hitstun(crouch_mp) - delay = 19 - 2 = 17; startup(crouch_hk) = 10; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "crouch_mk",
+   "to": "stand_hp",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "crouch_mk > stand_hp",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "source": "AUTHORED",
+    "delay_derivation": "chain window, delay 2. advantage = hitstun(crouch_mk) - delay = 21 - 2 = 19; startup(stand_hp) = 9; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "crouch_mk",
+   "to": "stand_hk",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "crouch_mk > stand_hk",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "source": "AUTHORED",
+    "delay_derivation": "chain window, delay 2. advantage = hitstun(crouch_mk) - delay = 21 - 2 = 19; startup(stand_hk) = 11; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "crouch_mk",
+   "to": "crouch_hp",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "crouch_mk > crouch_hp",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "source": "AUTHORED",
+    "delay_derivation": "chain window, delay 2. advantage = hitstun(crouch_mk) - delay = 21 - 2 = 19; startup(crouch_hp) = 8; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "crouch_mk",
+   "to": "crouch_hk",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "crouch_mk > crouch_hk",
+   "certain": true,
+   "engine": {
+    "family": "chain",
+    "source": "AUTHORED",
+    "delay_derivation": "chain window, delay 2. advantage = hitstun(crouch_mk) - delay = 21 - 2 = 19; startup(crouch_hk) = 10; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "stand_lp",
+   "to": "special_fireball",
+   "delay": 3,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_lp > special_fireball",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "special-cancel window, delay 3. advantage = hitstun(stand_lp) - delay = 12 - 3 = 9; startup(special_fireball) = 13; DEAD, short by 4.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "crouch_lp",
+   "to": "special_fireball",
+   "delay": 3,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "crouch_lp > special_fireball",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "special-cancel window, delay 3. advantage = hitstun(crouch_lp) - delay = 12 - 3 = 9; startup(special_fireball) = 13; DEAD, short by 4.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "stand_mp",
+   "to": "special_fireball",
+   "delay": 3,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_mp > special_fireball",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "special-cancel window, delay 3. advantage = hitstun(stand_mp) - delay = 18 - 3 = 15; startup(special_fireball) = 13; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "stand_mk",
+   "to": "special_fireball",
+   "delay": 3,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_mk > special_fireball",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "special-cancel window, delay 3. advantage = hitstun(stand_mk) - delay = 19 - 3 = 16; startup(special_fireball) = 13; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "crouch_mp",
+   "to": "special_fireball",
+   "delay": 3,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "crouch_mp > special_fireball",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "special-cancel window, delay 3. advantage = hitstun(crouch_mp) - delay = 19 - 3 = 16; startup(special_fireball) = 13; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "crouch_mk",
+   "to": "special_fireball",
+   "delay": 3,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "crouch_mk > special_fireball",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "special-cancel window, delay 3. advantage = hitstun(crouch_mk) - delay = 21 - 3 = 18; startup(special_fireball) = 13; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "stand_hp",
+   "to": "special_fireball",
+   "delay": 3,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_hp > special_fireball",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "special-cancel window, delay 3. advantage = hitstun(stand_hp) - delay = 23 - 3 = 20; startup(special_fireball) = 13; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "stand_lp",
+   "to": "special_uppercut",
+   "delay": 3,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_lp > special_uppercut",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "special-cancel window, delay 3. advantage = hitstun(stand_lp) - delay = 12 - 3 = 9; startup(special_uppercut) = 3; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "crouch_lp",
+   "to": "special_uppercut",
+   "delay": 3,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "crouch_lp > special_uppercut",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "special-cancel window, delay 3. advantage = hitstun(crouch_lp) - delay = 12 - 3 = 9; startup(special_uppercut) = 3; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "stand_mp",
+   "to": "special_uppercut",
+   "delay": 3,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_mp > special_uppercut",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "special-cancel window, delay 3. advantage = hitstun(stand_mp) - delay = 18 - 3 = 15; startup(special_uppercut) = 3; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "stand_mk",
+   "to": "special_uppercut",
+   "delay": 3,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_mk > special_uppercut",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "special-cancel window, delay 3. advantage = hitstun(stand_mk) - delay = 19 - 3 = 16; startup(special_uppercut) = 3; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "crouch_mp",
+   "to": "special_uppercut",
+   "delay": 3,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "crouch_mp > special_uppercut",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "special-cancel window, delay 3. advantage = hitstun(crouch_mp) - delay = 19 - 3 = 16; startup(special_uppercut) = 3; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "crouch_mk",
+   "to": "special_uppercut",
+   "delay": 3,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "crouch_mk > special_uppercut",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "special-cancel window, delay 3. advantage = hitstun(crouch_mk) - delay = 21 - 3 = 18; startup(special_uppercut) = 3; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "stand_hp",
+   "to": "special_uppercut",
+   "delay": 3,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_hp > special_uppercut",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "special-cancel window, delay 3. advantage = hitstun(stand_hp) - delay = 23 - 3 = 20; startup(special_uppercut) = 3; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "stand_mp",
+   "to": "special_dash_punch",
+   "delay": 3,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_mp > special_dash_punch",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "special-cancel window, delay 3. advantage = hitstun(stand_mp) - delay = 18 - 3 = 15; startup(special_dash_punch) = 11; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "stand_mk",
+   "to": "special_dash_punch",
+   "delay": 3,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_mk > special_dash_punch",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "special-cancel window, delay 3. advantage = hitstun(stand_mk) - delay = 19 - 3 = 16; startup(special_dash_punch) = 11; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "crouch_mp",
+   "to": "special_dash_punch",
+   "delay": 3,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "crouch_mp > special_dash_punch",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "special-cancel window, delay 3. advantage = hitstun(crouch_mp) - delay = 19 - 3 = 16; startup(special_dash_punch) = 11; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "crouch_mk",
+   "to": "special_dash_punch",
+   "delay": 3,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "crouch_mk > special_dash_punch",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "special-cancel window, delay 3. advantage = hitstun(crouch_mk) - delay = 21 - 3 = 18; startup(special_dash_punch) = 11; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "stand_hp",
+   "to": "special_dash_punch",
+   "delay": 3,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_hp > special_dash_punch",
+   "certain": true,
+   "engine": {
+    "family": "special_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "special-cancel window, delay 3. advantage = hitstun(stand_hp) - delay = 23 - 3 = 20; startup(special_dash_punch) = 11; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "crouch_mk",
+   "to": "super_beam",
+   "delay": 4,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "crouch_mk > super_beam",
+   "certain": true,
+   "engine": {
+    "family": "super_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "super-cancel window, delay 4. advantage = hitstun(crouch_mk) - delay = 21 - 4 = 17; startup(super_beam) = 8; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "stand_hp",
+   "to": "super_beam",
+   "delay": 4,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_hp > super_beam",
+   "certain": true,
+   "engine": {
+    "family": "super_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "super-cancel window, delay 4. advantage = hitstun(stand_hp) - delay = 23 - 4 = 19; startup(super_beam) = 8; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "crouch_hp",
+   "to": "super_beam",
+   "delay": 4,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "crouch_hp > super_beam",
+   "certain": true,
+   "engine": {
+    "family": "super_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "super-cancel window, delay 4. advantage = hitstun(crouch_hp) - delay = 27 - 4 = 23; startup(super_beam) = 8; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "special_uppercut",
+   "to": "super_beam",
+   "delay": 4,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "special_uppercut > super_beam",
+   "certain": true,
+   "engine": {
+    "family": "super_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "super-cancel window, delay 4. advantage = hitstun(special_uppercut) - delay = 30 - 4 = 26; startup(super_beam) = 8; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "special_dash_punch",
+   "to": "super_beam",
+   "delay": 4,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "special_dash_punch > super_beam",
+   "certain": true,
+   "engine": {
+    "family": "super_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "super-cancel window, delay 4. advantage = hitstun(special_dash_punch) - delay = 24 - 4 = 20; startup(super_beam) = 8; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "special_fireball",
+   "to": "super_beam",
+   "delay": 3,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "special_fireball > super_beam",
+   "certain": true,
+   "engine": {
+    "family": "super_cancel_projectile",
+    "source": "AUTHORED",
+    "delay_derivation": "super-cancel window, delay 3 -- POINT-BLANK reading, see engine.cancel_families. advantage = hitstun(special_fireball) - delay = 21 - 3 = 18; startup(super_beam) = 8; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   },
+   "caveat": "Delay 3, not 4, and the missing frame is deliberate. See moves[special_fireball].engine.projectile_prover_note: the super-cancel window opens at tick 17 (startup 13 + 4), point-blank contact is at tick 14 (startup + 1), and 17 - 14 = 3. Measuring from release instead would give 4 and would under-credit the attacker, which is the direction that hides infinites."
+  },
+  {
+   "from": "stand_hk",
+   "to": "air_mp",
+   "delay": 5,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_hk > air_mp",
+   "certain": true,
+   "engine": {
+    "family": "jump_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "jump cancel off a launcher, delay 5. advantage = hitstun(stand_hk) - delay = 30 - 5 = 25; startup(air_mp) = 6; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "crouch_hp",
+   "to": "air_mp",
+   "delay": 5,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "crouch_hp > air_mp",
+   "certain": true,
+   "engine": {
+    "family": "jump_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "jump cancel off a launcher, delay 5. advantage = hitstun(crouch_hp) - delay = 27 - 5 = 22; startup(air_mp) = 6; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "air_mp",
+   "to": "air_mp",
+   "delay": 5,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "air_mp > air_mp",
+   "certain": true,
+   "engine": {
+    "family": "juggle_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "air jump cancel, delay 5. advantage = hitstun(air_mp) - delay = 22 - 5 = 17; startup(air_mp) = 6; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "air_mp",
+   "to": "air_hk",
+   "delay": 5,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "air_mp > air_hk",
+   "certain": true,
+   "engine": {
+    "family": "juggle_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "air jump cancel, delay 5. advantage = hitstun(air_mp) - delay = 22 - 5 = 17; startup(air_hk) = 9; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "air_mp",
+   "to": "stand_lp",
+   "delay": 15,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "air_mp > stand_lp",
+   "certain": true,
+   "engine": {
+    "family": "landing_link",
+    "source": "AUTHORED",
+    "delay_derivation": "link after landing recovery, delay = active + recovery - 1. advantage = hitstun(air_mp) - delay = 22 - 15 = 7; startup(stand_lp) = 3; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   },
+   "caveat": "A link, not a cancel: the attacker waits out air_mp's landing recovery. delay = active + recovery - 1 = 15, and `kind` is authored alongside the explicit number so that a reader that honours `kind` and one that reads `delay` compute the same 15.",
+   "kind": "link"
+  },
+  {
+   "from": "air_mp",
+   "to": "stand_lk",
+   "delay": 15,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "air_mp > stand_lk",
+   "certain": true,
+   "engine": {
+    "family": "landing_link",
+    "source": "AUTHORED",
+    "delay_derivation": "link after landing recovery, delay = active + recovery - 1. advantage = hitstun(air_mp) - delay = 22 - 15 = 7; startup(stand_lk) = 4; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   },
+   "caveat": "A link, not a cancel: the attacker waits out air_mp's landing recovery. delay = active + recovery - 1 = 15, and `kind` is authored alongside the explicit number so that a reader that honours `kind` and one that reads `delay` compute the same 15.",
+   "kind": "link"
+  },
+  {
+   "from": "air_mp",
+   "to": "crouch_lp",
+   "delay": 15,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "air_mp > crouch_lp",
+   "certain": true,
+   "engine": {
+    "family": "landing_link",
+    "source": "AUTHORED",
+    "delay_derivation": "link after landing recovery, delay = active + recovery - 1. advantage = hitstun(air_mp) - delay = 22 - 15 = 7; startup(crouch_lp) = 3; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   },
+   "caveat": "A link, not a cancel: the attacker waits out air_mp's landing recovery. delay = active + recovery - 1 = 15, and `kind` is authored alongside the explicit number so that a reader that honours `kind` and one that reads `delay` compute the same 15.",
+   "kind": "link"
+  },
+  {
+   "from": "air_mp",
+   "to": "crouch_lk",
+   "delay": 15,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "air_mp > crouch_lk",
+   "certain": true,
+   "engine": {
+    "family": "landing_link",
+    "source": "AUTHORED",
+    "delay_derivation": "link after landing recovery, delay = active + recovery - 1. advantage = hitstun(air_mp) - delay = 22 - 15 = 7; startup(crouch_lk) = 4; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   },
+   "caveat": "A link, not a cancel: the attacker waits out air_mp's landing recovery. delay = active + recovery - 1 = 15, and `kind` is authored alongside the explicit number so that a reader that honours `kind` and one that reads `delay` compute the same 15.",
+   "kind": "link"
+  },
+  {
+   "from": "air_mp",
+   "to": "stand_mp",
+   "delay": 15,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "air_mp > stand_mp",
+   "certain": true,
+   "engine": {
+    "family": "landing_link",
+    "source": "AUTHORED",
+    "delay_derivation": "link after landing recovery, delay = active + recovery - 1. advantage = hitstun(air_mp) - delay = 22 - 15 = 7; startup(stand_mp) = 6; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   },
+   "caveat": "A link, not a cancel: the attacker waits out air_mp's landing recovery. delay = active + recovery - 1 = 15, and `kind` is authored alongside the explicit number so that a reader that honours `kind` and one that reads `delay` compute the same 15.",
+   "kind": "link"
+  },
+  {
+   "from": "air_mp",
+   "to": "stand_mk",
+   "delay": 15,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "air_mp > stand_mk",
+   "certain": true,
+   "engine": {
+    "family": "landing_link",
+    "source": "AUTHORED",
+    "delay_derivation": "link after landing recovery, delay = active + recovery - 1. advantage = hitstun(air_mp) - delay = 22 - 15 = 7; startup(stand_mk) = 7; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   },
+   "caveat": "A link, not a cancel: the attacker waits out air_mp's landing recovery. delay = active + recovery - 1 = 15, and `kind` is authored alongside the explicit number so that a reader that honours `kind` and one that reads `delay` compute the same 15.",
+   "kind": "link"
+  },
+  {
+   "from": "air_mp",
+   "to": "crouch_mp",
+   "delay": 15,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "air_mp > crouch_mp",
+   "certain": true,
+   "engine": {
+    "family": "landing_link",
+    "source": "AUTHORED",
+    "delay_derivation": "link after landing recovery, delay = active + recovery - 1. advantage = hitstun(air_mp) - delay = 22 - 15 = 7; startup(crouch_mp) = 6; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   },
+   "caveat": "A link, not a cancel: the attacker waits out air_mp's landing recovery. delay = active + recovery - 1 = 15, and `kind` is authored alongside the explicit number so that a reader that honours `kind` and one that reads `delay` compute the same 15.",
+   "kind": "link"
+  },
+  {
+   "from": "air_mp",
+   "to": "crouch_mk",
+   "delay": 15,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "air_mp > crouch_mk",
+   "certain": true,
+   "engine": {
+    "family": "landing_link",
+    "source": "AUTHORED",
+    "delay_derivation": "link after landing recovery, delay = active + recovery - 1. advantage = hitstun(air_mp) - delay = 22 - 15 = 7; startup(crouch_mk) = 7; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   },
+   "caveat": "A link, not a cancel: the attacker waits out air_mp's landing recovery. delay = active + recovery - 1 = 15, and `kind` is authored alongside the explicit number so that a reader that honours `kind` and one that reads `delay` compute the same 15.",
+   "kind": "link"
+  },
+  {
+   "from": "air_mp",
+   "to": "special_uppercut",
+   "delay": 15,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "air_mp > special_uppercut",
+   "certain": true,
+   "engine": {
+    "family": "landing_link",
+    "source": "AUTHORED",
+    "delay_derivation": "link after landing recovery, delay = active + recovery - 1. advantage = hitstun(air_mp) - delay = 22 - 15 = 7; startup(special_uppercut) = 3; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   },
+   "caveat": "A link, not a cancel: the attacker waits out air_mp's landing recovery. delay = active + recovery - 1 = 15, and `kind` is authored alongside the explicit number so that a reader that honours `kind` and one that reads `delay` compute the same 15.",
+   "kind": "link"
+  },
+  {
+   "from": "special_fireball",
+   "to": "special_fireball",
+   "delay": 32,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "special_fireball > special_fireball",
+   "certain": true,
+   "engine": {
+    "family": "link_probe",
+    "source": "AUTHORED",
+    "delay_derivation": "authored link probe, delay = active + recovery - 1. advantage = hitstun(special_fireball) - delay = 21 - 32 = -11; startup(special_fireball) = 13; DEAD, short by 24.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   },
+   "caveat": "AUTHORED TO BE REPORTED DEAD. This is not a cancel the character has; it is the link the frame data implies, written down so the prover PRINTS its own margin instead of the file asserting one. See engine.design_laws.law_1.",
+   "kind": "link"
+  },
+  {
+   "from": "crouch_lp",
+   "to": "crouch_lp",
+   "delay": 10,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "crouch_lp > crouch_lp",
+   "certain": true,
+   "engine": {
+    "family": "link_probe",
+    "source": "AUTHORED",
+    "delay_derivation": "authored link probe, delay = active + recovery - 1. advantage = hitstun(crouch_lp) - delay = 12 - 10 = 2; startup(crouch_lp) = 3; DEAD, short by 1.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   },
+   "caveat": "AUTHORED TO BE REPORTED DEAD. This is not a cancel the character has; it is the link the frame data implies, written down so the prover PRINTS its own margin instead of the file asserting one. See engine.design_laws.law_1.",
+   "kind": "link"
+  },
+  {
+   "from": "stand_hp",
+   "to": "stand_lp",
+   "delay": 21,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_hp > stand_lp",
+   "certain": true,
+   "engine": {
+    "family": "link_probe",
+    "source": "AUTHORED",
+    "delay_derivation": "authored link probe, delay = active + recovery - 1. advantage = hitstun(stand_hp) - delay = 23 - 21 = 2; startup(stand_lp) = 3; DEAD, short by 1.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   },
+   "caveat": "AUTHORED TO BE REPORTED DEAD. This is not a cancel the character has; it is the link the frame data implies, written down so the prover PRINTS its own margin instead of the file asserting one. See engine.design_laws.law_1.",
+   "kind": "link"
+  }
+ ],
+ "engine": {
+  "schema_version": 2,
+  "units": {
+   "ticks_per_second": 60,
+   "sub_units_per_pixel": 256,
+   "pixels_per_reach_unit": 100,
+   "meter_units_per_bar": 100,
+   "damage_points_per_unit": 1,
+   "permille_denominator": 1000
+  },
+  "assets": {
+   "character_id": "fighter_a",
+   "display_name": "Fighter A (placeholder)",
+   "id_note": "The character id is the FILE STEM. Schema v2 sets additionalProperties false at the top level and declares no `id` key, and json_spec.py:205-207 substitutes the file stem when `name` is absent, so fighter_a.json IS the id. It is recorded here as well so a reader does not have to infer it from a filename.",
+   "naming_policy": "NEUTRAL PLACEHOLDER, held deliberately. Move ids are generic and descriptive (stand_lp, crouch_mk, special_fireball, super_beam) so that naming the roster later is a display-string change and never a data migration. No move id, label or note in this file carries a theme."
+  },
+  "constants": {
+   "health": 1000,
+   "meter_max": 300,
+   "juggle_budget": 4,
+   "walk_fwd_sub": 768,
+   "walk_back_sub": -640,
+   "dash_fwd_sub": 796,
+   "jump_vel_sub": {
+    "x": 0,
+    "y": -2816
+   },
+   "gravity_sub": 128,
+   "ground_friction_permille": 850,
+   "air_actions": 1,
+   "default_pushbox_sub": [
+    -3328,
+    -15360,
+    3328,
+    0
+   ],
+   "height_px": 60,
+   "attack_dist_px": 160,
+   "source": "AUTHORED. Every distance is an exact integer number of sub-units at 256 per pixel: walk 3 px/tick = 768, gravity 0.5 px/tick^2 = 128, jump 11 px/tick = 2816. ADR-001:499-504 records that Kung Fu Man's 2.4 px/tick walk CANNOT be expressed as (integer px)/100 and loses 0.4 px/tick through model.py:468's int(round(v*100)). This character's 3 px/tick is 0.03 reach units and survives that quantization exactly, because an original character can choose numbers that quantize and this one does everywhere."
+  },
+  "quantized_sources": {
+   "walk_speed_px_per_tick": 3,
+   "scaling_permille": [
+    1000,
+    1000,
+    900,
+    800,
+    700,
+    600,
+    500,
+    400,
+    300,
+    250,
+    200,
+    100
+   ],
+   "decay_table_permille": [],
+   "note": "reach_px, pushback_px and damage_hundredths are carried per move rather than in one table here: reach_px is move.reach * 100, pushback_px is move.pushback * 100, damage_hundredths is move.damage * 100, and every one of the three is an exact integer by construction because the [P] float was DERIVED FROM the integer rather than the other way round. That inversion is the point of D8 and it is the reason no value in this file needs a rounding rule."
+  },
+  "integrity": {
+   "content_hash": null,
+   "schema_hash": null
+  },
+  "derivation_legend": "Every move's engine.derivation reads: what shape the move is, then the arithmetic behind any number a reader would otherwise have to trust. There are no file:line citations anywhere in this file and their absence is correct, not an omission: this character is authored, so its provenance is a design rule, and assertion A12's 'name a file:line or say ESTIMATED in capitals' is satisfied here by AUTHORED in capitals plus the rule. Nothing in this file is ESTIMATED. ADR-001:486-497 names pushback and hitstun decay as the two quantities Phase 0 could only estimate; this character has neither problem, because it defines its own pushback displacement and has no decay.",
+  "derivation_defaults": {
+   "startup": "The first tick on which the move can connect: a hit box exists AND the hit is registered. Tick 1 is the first tick of the state.",
+   "active": "Ticks the hit box exists.",
+   "recovery": "Total state length - startup - active, except for the three moves whose state ends on a landing predicate, where it is a LOWER bound and engine.transitions[].duration_bound says so.",
+   "hitstun": "Ticks the defender is frozen, before decay. For super_beam it is hits[0]'s, per assertion A05.",
+   "damage": "[P] float = engine damage_hundredths / 100. For super_beam it is the SUM over hits[], which json_spec.py:69 sends to Result.maxDamage only.",
+   "reach": "Clsn1 extent in pixels / 100, plus any forward travel the move drives itself through, because reach is an upper bound on the GAP (model.py:473-476) and a move that travels can close a gap the box alone cannot.",
+   "pushback": "|pushback velocity px/tick| * slide ticks / 2, the same rule Phase 0 applied to all three fixtures -- but DERIVED here rather than estimated, because this character chooses the velocity and the slide time.",
+   "effect_and_guard": "Only two resources exist and neither is ever gained. See termination_argument."
+  },
+  "design_laws": {
+   "law_1": {
+    "statement": "Every GROUND move is at most +2 on hit. The fastest move in the file is 3 frames. Therefore no ground move links into any ground move.",
+    "why": "A link edge is a CONSEQUENCE OF FRAME DATA, not an entry in a cancel table. Any move that is +N on hit links into every move with startup <= N whether or not anybody authored it. A character whose cancel table omits those edges is a character whose model is missing edges, and missing edges is the direction that HIDES infinites. Law 1 removes the whole class instead of trying to enumerate it: with max on-hit +2 and min startup 3, the set of implied link edges is empty and THE CANCEL TABLE IS COMPLETE.",
+    "measured_against_the_corpus": "This is precisely what the three transcribed characters lack. Kung Fu Girl's stand_lp is +4 with 3f startup and Kung Fu Man's is +5; ADR-001:420-432 reports both corner infinites as stand_lp into itself, authored in the .cmd as a self-chain, and confirms them line by line against the .cns rather than dismissing them as transcription bugs.",
+    "the_margin_is_one_frame_and_it_is_deliberate": "crouch_lp is +2 against its own 3f startup and stand_hp is +2 against the same 3 frames. Both are dead by exactly one. The two link probes in the cancels array exist so the prover PRINTS 'short by 1' rather than this file asserting it. RAISING ANY GROUND MOVE'S HITSTUN BY ONE FRAME, OR LOWERING ANY RECOVERY BY ONE, MAKES THIS CHARACTER INFINITE. That is the number not to touch, and it is the honest cost of proving termination in the corner with no hitstun decay.",
+    "what_it_costs_the_character": "There are no links in the ground game, so every combo is a chain or a cancel. That is a real genre position -- it is how Darkstalkers, Marvel and Guilty Gear build combos -- but it is NOT the Street Fighter reading of an all-rounder, where a +5 medium linking into a 3f jab is the basic vocabulary. This is the one place where the ranking certificate and the genre default genuinely pull against each other, and this file resolves it toward the chain game. A link-based character can still be TERMINATING; what it cannot easily be is COMPLETE, because its real edge set is larger than its authored one."
+   },
+   "law_2": {
+    "statement": "air_mp is exempt from Law 1. It is +7 on hit and all nine link edges its frame data implies are authored.",
+    "why": "A jump-in that combos into a light is the most standard sequence in the genre and a character without one is not an all-rounder. The nine edges are authored rather than omitted precisely because Law 1's value is completeness: an exemption that hid its edges would give back everything Law 1 buys.",
+    "the_nine": "air_mp links into all four lights, all four mediums, and special_uppercut. Two of them (stand_mk and crouch_mk, both 7f) are exact 1-frame links at +7."
+   },
+   "law_3": {
+    "statement": "Juggle is spent and never gained, and every edge whose TARGET is an air move spends it. Every cycle in the usable cancel graph therefore strictly decreases juggle.",
+    "why": "Law 2 puts descending edges back into the graph, so the graph has cycles again. Law 3 is what pays for them. It is the classic fix the genre already uses: a launcher into air juggles is where infinites live, and a juggle counter that only decreases is how every real game bounds them.",
+    "how_it_is_enforced": "comboprover.hpp:282-290 totalEffect adds the TARGET MOVE's effect to the edge's, so charging effect.juggle -1 on air_mp itself charges every edge that enters it -- the two jump cancels and the self-cancel -- with no per-edge effect needed. nonNegative() at :264-269 then refuses the transition when the budget is gone."
+   }
+  },
+  "termination_argument": {
+   "claim": "TERMINATING at stage corner, WITH a ranking certificate, and the certificate's order is [meter, juggle].",
+   "the_structural_proof": "Order the moves L0 lights < L1 mediums < L2 heavies < L3 specials and air normals < L4 super. Every ground cancel in this file strictly ascends that order, so no cycle can be built from ground edges alone. The only descending edges in the whole graph are air_mp's nine landing links. To use one and return to air_mp, a path must take an edge whose target is air_mp, and all three such edges (stand_hk -> air_mp, crouch_hp -> air_mp, air_mp -> air_mp) carry totalEffect.juggle = -1. Therefore every cycle strictly decreases juggle, juggle has floor 0, and no cycle can repeat unboundedly.",
+   "verified_by_enumeration_not_asserted": "The usable cancel graph contains exactly 41 simple cycles: one of length 1 (air_mp into itself), eight of length 3 (air_mp -> a medium -> a launcher -> air_mp), and thirty-two of length 4 (air_mp -> a light -> a medium -> a launcher -> air_mp). All 41 contain at least one juggle-spending edge. 1 + 8 + 32 is 4 mediums x 2 launchers plus 4 lights x 4 mediums x 2 launchers plus the self-loop, which is the structure above counted a second way.",
+   "why_the_certificate_exists_here_and_nowhere_in_phase_0": "comboprover.hpp:376-386 clears spendOnly if ANY reachable cancel has a positive resource effect, and :563 gates the certificate on spendOnly. ADR-001 gate 3 measured hasRanking false in 2 of 2 terminating cases for two different reasons: Kung Fu Man builds meter on hit, and AOF2 has zero usable cancels so :578-583's `if (!anyEdge) break` fires immediately. This character avoids both. It has 68 usable cancels, so anyEdge is true. And no [P] effect anywhere in the file is positive, so spendOnly survives.",
+   "meter_is_not_load_bearing": {
+    "the_worry": "Meter gain on hit is real and this file keeps it out of [P] effect to preserve spendOnly. Dropping a resource the attacker really gains UNDER-credits the attacker, and under-crediting is the direction that can HIDE an infinite (ADR-001:224-225, and the same failure the meter_room design was rejected for at :369-374). An unjustified omission here would be a soundness bug dressed as a proof.",
+    "why_it_cannot_hide_a_loop_in_THIS_character": "super_beam is the only move in the file that spends meter, and super_beam has ZERO outgoing cancels. Meter therefore appears on no cycle at all: it gates exactly one class of terminal edge. The set of cycles in this graph is independent of the meter value, so no amount of meter, gained or not, can create a loop that the model does not already see.",
+    "the_counterfactual_that_checks_it": "Set resources[meter].initial to 0, or to 100000, or delete super_beam's effect and guard entirely, and re-analyse. The verdict must stay TERMINATING and the usable/dead split must stay 68/5 in all three cases. If any of them changes, this argument is wrong and the meter gain must go back into [P] effect at the cost of the certificate.",
+    "what_it_would_cost_to_be_honest_the_other_way": "Authoring stand_lp effect.meter +4 -- this character's real gain, and one unit less than Kung Fu Girl's +5 -- leaves the verdict TERMINATING and turns spendOnly false, hasRanking false, rankingOrder empty. That is the ordinary result ADR-001 gate 3 describes, and it is one keystroke away in either direction. The certificate is bought by exactly this decision and by nothing else."
+   },
+   "what_the_certificate_does_and_does_not_say": "READ THE TOOL CAREFULLY HERE. comboprover.hpp:563-613 builds the order greedily: it takes a resource that decreases on some live edge and increases on none, records it, DELETES every edge that decreases it, and repeats. hasRanking is set from `!rankingOrder.empty()` at :612, so it becomes true as soon as ONE resource is extracted -- it does not mean the ranking function explains the whole graph. On this character the loop extracts meter (killing the 6 super edges), then juggle (killing the 4 edges into air moves), and then stops with 58 live edges still standing: 32 chains, 17 special cancels and 9 landing links, none of which touches a resource. Those 58 are not covered by the certificate. They are acyclic, and it is the DFS at :469-539 that proved it, not the ranking function. So the true statement is: the lexicographic order (meter, juggle) strictly decreases on every edge that spends anything, and the edges it does not cover form an acyclic subgraph. describe() at :708-714 prints 'ends because these run down, in order: meter, juggle', which is a fair summary of the first half and silent about the second.",
+   "midscreen": "Not the question this file is posed for, and expected TERMINATING as well: stage midscreen adds a synthesized __space resource and reach guards, which can only remove edges from a graph whose sole cycle class is already juggle-bounded. Note that the certificate is a CORNER concept regardless -- hasRanking is computed by the C++ header, which does not implement midscreen at all (:15-24), and midscreen's walking gap action gives __space back, which would clear spendOnly in the Python model."
+  },
+  "cancel_families": {
+   "chain": {
+    "condition": "self.move_hit && target strength > source strength",
+    "authored_as": "A strictly ascending magic series: lights chain to mediums, mediums chain to heavies, nothing chains within a tier or downward. The ascending restriction is not decoration -- an intra-tier chain such as stand_lp -> crouch_lp is a 2-cycle with no resource cost, which is an infinite.",
+    "delay_rule": "2 on every edge. Each move's engine.cancel_window_ticks opens at startup + 2, and delay = window open - startup.",
+    "certain": true,
+    "caveat": "2 is the smallest delay this file authors and it is authored rather than defaulted. ADR-001:434-442 calls the discovery that MUGEN chain cancels are NOT delay 0 the hardest single finding of Phase 0."
+   },
+   "special_cancel": {
+    "condition": "self.move_hit",
+    "authored_as": "The light punches, all four mediums and stand_hp cancel into fireball and uppercut; the mediums and stand_hp also cancel into dash_punch. The light KICKS do not special-cancel, which is why they have 4 outgoing edges and the light punches have 6.",
+    "delay_rule": "3. One tick later than a chain, because a special needs a motion input to complete.",
+    "certain": true,
+    "caveat": "The two light -> fireball edges are DEAD by 4 frames and are authored anyway, because 'your jab does not combo into your fireball' is exactly the thing the editor panel exists to tell a designer. It is also the correct genre answer."
+   },
+   "super_cancel": {
+    "condition": "self.move_hit && self.meter >= 100",
+    "authored_as": "crouch_mk, stand_hp and crouch_hp super-cancel directly; all three specials super-cancel.",
+    "delay_rule": "4. Two ticks later than a chain, because the super needs a double motion.",
+    "certain": true
+   },
+   "super_cancel_projectile": {
+    "condition": "self.move_hit && self.meter >= 100",
+    "authored_as": "special_fireball -> super_beam only.",
+    "delay_rule": "3, NOT 4, and the difference is the schema's prescribed soundness fix rather than an inconsistency. See moves[special_fireball].engine.projectile_prover_note.",
+    "certain": true
+   },
+   "jump_cancel": {
+    "condition": "self.move_hit && source is a launcher",
+    "authored_as": "stand_hk and crouch_hp only. These are the only two moves whose 30 and 27 frames of hitstun are reachable by anything, and only through this window.",
+    "delay_rule": "5: four pre-jump ticks plus one tick of transition.",
+    "certain": true
+   },
+   "juggle_cancel": {
+    "condition": "self.move_hit && self.juggle_count > 0",
+    "authored_as": "air_mp into air_mp and into air_hk, using the character's one air action.",
+    "delay_rule": "5, the same air-action cost as a jump cancel.",
+    "certain": true,
+    "caveat": "air_mp -> air_mp is the ONLY self-loop in the usable graph and it is the reason this character needs a resource argument at all. Delete effect.juggle from air_mp and the verdict is INFINITE with the loop printed as air_mp."
+   },
+   "landing_link": {
+    "condition": "self.move_hit, then the attacker waits out landing recovery",
+    "authored_as": "air_mp into all four lights, all four mediums and special_uppercut: the nine edges Law 2 owes.",
+    "delay_rule": "active + recovery - 1 = 15, authored as an explicit number AND as kind: link so that a reader honouring either computes the same 15.",
+    "certain": true
+   },
+   "link_probe": {
+    "condition": "none -- these edges are authored to be reported DEAD",
+    "authored_as": "special_fireball into itself, crouch_lp into itself, stand_hp into stand_lp.",
+    "delay_rule": "active + recovery - 1.",
+    "certain": true,
+    "caveat": "These three are not cancels the character has; they are the links its frame data implies, written down so that the prover prints its own margin. Two of them are short by exactly 1 and that pair IS Law 1. The third answers the brief's requirement that the fireball have a real recovery: short by 24, so the fireball cannot chase its own hit."
+   }
+  },
+  "hit_rules": {
+   "summary": "Two character-level rules, both authored as structured move.hit_condition on every move and both invisible to today's loader (field class E5).",
+   "ground_rule": "A grounded normal does not connect against an airborne defender. This is the same shape as Kung Fu Girl's !var(16) && var(15) < 1 on all 17 of its normals (ADR-001:255-260), which is the largest single gap the Phase-0 transcription found by move count.",
+   "air_rule": "An air attack needs a juggle point. Unlike the ground rule this one is ALSO expressed prover-visibly, as [P] effect.juggle plus nonNegative(), so the model enforces it rather than ignoring it.",
+   "the_important_property": "NO EDGE IS OMITTED FROM THIS FILE ON THE STRENGTH OF A PREDICATE THE PROVER CANNOT SEE. Every edge the character lacks, it lacks because of frame data the prover CAN see. The ground rule would forbid, for instance, stand_hk -> stand_lp; but stand_hk is +2 on hit and stand_lp starts in 3, so that edge is dead on Law 1 alone and the predicate is never load-bearing. This is checkable: no ground move is more than +2, so the set of edges the predicate uniquely removes is empty."
+  },
+  "moves_with_no_outgoing_cancel": {
+   "crouch_hk": "The sweep. Hard knockdown, fall_recover_ticks 20. Nothing follows a knockdown in the running game, and it is -8 on hit besides, so even without the knockdown no link exists.",
+   "air_hk": "The juggle ender. Hard knockdown, and +2 on hit so Law 1 forbids a link independently.",
+   "super_beam": "The super. Its fifth hit is a hard knockdown and it is -13 on hit.",
+   "note": "All three are enders on TWO independent grounds -- a knockdown the prover cannot see, and frame data it can. Only the second is doing any work in the model, and that is deliberate: x-known-over-approximations.defender_has_no_state means the prover would happily continue a combo past a hit that really ends it, so a file that leaned on knockdown to terminate would be leaning on something the tool ignores."
+  },
+  "cancel_note": {
+   "authored": 73,
+   "usable": 68,
+   "dead": 5,
+   "dead_list": "stand_lp -> special_fireball (short by 4), crouch_lp -> special_fireball (short by 4), special_fireball -> special_fireball (short by 24), crouch_lp -> crouch_lp (short by 1), stand_hp -> stand_lp (short by 1).",
+   "on_block_edges_not_authored": "Every edge in this file is on: hit. MUGEN's Movecontact means hit OR block and the prover's vocabulary has no such value (schema $defs.cancel), but this character is not a MUGEN import and the omission here is simply that the block half does not change a verdict: model.py:81 COMBO_CONTACT counts only hit and always. The block half exists in the running game -- every special cancel is available on block -- and belongs in the engine's own cancel table, not in the prover's."
+  },
+  "anim_note": "Per-frame sprite references and 4 x int16 sub-unit hit/hurt/push boxes are NOT authored here. ADR-001:463-466 records that they are transcribed for none of the 59 corpus moves either, and no prover field depends on them. move.engine.reaction carries everything the hit resolver needs that the prover's single hitstun cannot hold; the boxes are the hitbox editor's job in Phase 3, and move.reach plus quantized_sources carry the one number the model reads from them.",
+  "fit": {
+   "moves_total": 18,
+   "moves_needing_escape_hatch": 0,
+   "cancels_total": 73,
+   "cancels_needing_escape_hatch": 0,
+   "gate": "< 20% (ARCHITECTURE.md:289)",
+   "rate": 0.0,
+   "breakdown": {
+    "irreducible_cpp": 0,
+    "expression_language": 0,
+    "runtime_condition": 0,
+    "schema_v2_field": 0,
+    "missing_schema_field": 0
+   },
+   "what_this_number_does_and_does_not_show": "0 of 18 against ADR-001's 23 of 59 is NOT evidence that this character is simpler than a real one. It is evidence of the direction of authoring. The Phase-0 rate measured a transcription being pushed into a schema drafted before the data was read; this one measures a character authored against the schema after it was fixed. A rate of 0 here is the expected result if ADR-001 section 4's nine fields were the right nine, and it is worth exactly that much: a NEGATIVE result -- an original character that still needed a tenth field -- would have been the informative one, and it did not occur.",
+   "schema_limits": [
+    "A minimum gap is not expressible: guard is componentwise >= only, so move.reach can bound the gap from above and never from below. This character does not use a proximity pair, so the limit is untested here rather than closed.",
+    "A projectile's contact frame is a function of distance and [P] startup is a constant. Not closable by a field. This file applies the schema's prescribed mitigation -- author the outgoing delay at point-blank contact -- at the first edge in the project that needs it.",
+    "The prover has no defender state, so knockdown cannot end a combo in the model. Three moves in this file cause one; none of them relies on it."
+   ],
+   "known_losses": [
+    "METER GAIN IS ABSENT FROM [P] effect while engine.reaction.meter_gain_units carries it on all 18 moves. DIRECTION: under-credits the attacker, which is the CONSERVATIVE direction and CAN HIDE AN INFINITE. This is the dangerous direction and it is the one loss in this file that needed a real argument rather than a note. The argument is structural -- super_beam is the only meter spender and has no outgoing edges, so meter is on no cycle -- and it is falsifiable by the counterfactual named in termination_argument.meter_is_not_load_bearing. It is also mitigated by starting meter at the ceiling rather than at a typical value.",
+    "The fireball's super-cancel delay is authored from POINT-BLANK contact (3) rather than from release (4). DIRECTION: over-credits the attacker by one frame, PERMISSIVE, safe. This is deliberate and is the schema's own prescription for the projectile over-approximation.",
+    "The three on_land recoveries are LOWER bounds measured on the neutral jump arc. DIRECTION: PERMISSIVE, safe. It matters most on air_mp, whose recovery sets the +7 that Law 2 depends on.",
+    "move.hit_condition and move.stance are invisible to the fragment: json_spec.py never reads hit_condition, and comboprover.hpp's Move has no stance field at all. DIRECTION: PERMISSIVE, safe. Measured to be INERT in this file -- see hit_rules.the_important_property -- because no edge is omitted on their strength.",
+    "Knockdown ends three moves in the running game and the prover cannot see it. DIRECTION: PERMISSIVE, safe, and inert because all three moves have zero outgoing edges anyway.",
+    "Blockstun exists on every move as engine data and has no [P] home, so the on-block column of this character's frame chart is invisible to the prover. It cannot move a verdict: only hit and always continue a combo.",
+    "NOT A LOSS, recorded because a reader will look for one here: the juggle reset. It happens when the combo ends, which is outside the cancel graph by construction, so modelling juggle as monotone within a combo is EXACT."
+   ],
+   "measured": {
+    "status": "NOT MEASURED IN THIS FILE. ADR-001's fit.measured is required to come from an actual `python -m comboprover analyse` run and to be re-measured rather than predicted, and this file is authored ahead of that run. The author's PREDICTION -- corner: TERMINATING, spend-only fragment, 68 usable / 5 dead, hasRanking true with rankingOrder [meter, juggle] -- is recorded in termination_argument as a claim to be checked, not as a result. If the run disagrees, the run is right."
+   }
+  }
+ }
+}

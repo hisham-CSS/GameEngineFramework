@@ -182,7 +182,15 @@ private:
 
     // The path field. A fixed buffer because ImGui::InputText wants one; 260 is
     // the same width the asset drag-drop payload uses.
-    char pathBuf_[260] = "Characters/kung_fu_man.json";
+    //
+    // The default names THE PROJECT'S OWN CHARACTER. It used to name
+    // kung_fu_man.json, and that stopped being a file the editor can open the
+    // moment the transcribed MUGEN corpus moved to tests/fixtures/characters --
+    // those three are evidence rather than content and are deliberately not
+    // staged, so the panel would have greeted every designer with a load error
+    // for a file they had done nothing wrong to lose. A default path is a
+    // promise that something is there.
+    char pathBuf_[260] = "Characters/fighter_a.json";
 
     // The panel's own copy, used only when the caller passes nullptr.
     cse::data::CharacterData owned_;

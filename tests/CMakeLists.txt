@@ -145,6 +145,22 @@ add_executable(test_cancels test_cancels.cpp)
 target_link_libraries(test_cancels PRIVATE CseData CseKernel GTest::gtest_main)
 add_test(NAME test_cancels COMMAND $<TARGET_FILE:test_cancels>)
 
+# GROUND-TRUTH VALIDATION — ARCHITECTURE.md 5.5 item 4, the evidence no offline
+# analysis can produce: the loop the prover PRINTS, executed by the kernel as a
+# scripted input trace.
+#
+# Unlike every other character test, this one reads the STAGED SHIPPING tree
+# (Exported/Characters) rather than tests/fixtures/characters, because it is
+# about the project's own characters rather than the MUGEN corpus. So it takes an
+# explicit dependency on the staging target instead of relying on whatever a
+# previous build happened to leave behind — the test walks up from the working
+# directory to find them and would otherwise fall through to the source tree,
+# silently testing unstaged content.
+add_executable(test_ground_truth test_ground_truth.cpp)
+target_link_libraries(test_ground_truth PRIVATE CseData CseKernel GTest::gtest_main)
+add_dependencies(test_ground_truth test_runtime_deps)
+add_test(NAME test_ground_truth COMMAND $<TARGET_FILE:test_ground_truth>)
+
 engine_test(test_event_bus)        # EventBus publish/subscribe
 engine_test(test_input_map)        # actions/axes/deadzone via scripted-input fake
 engine_test(test_render_passes)    # GL-headless CSM/forward/tonemap wiring
