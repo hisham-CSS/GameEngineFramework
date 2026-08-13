@@ -237,11 +237,30 @@ TEST(UIMarkup, LoadsFromFileAndReportsAMissingOne) {
 // "../../evil.xml" or an absolute path must be refused BEFORE it is opened.
 TEST(UIMarkup, RejectsTraversalAndAbsolutePaths) {
     UIDocument doc;
-    for (const char* evil : { "../../evil.cxml",
-                              R"(..\..\evil.cxml)",
-                              "Exported/UI/../../../../evil.cxml",
-                              "C:/Windows/System32/evil.cxml",
-                              "/etc/passwd" }) {
+    // Refused on every platform: a forward slash separates components
+    // everywhere, ".." climbs everywhere — even when the component before it
+    // is a filename that merely contains a backslash — and a leading slash is
+    // a root everywhere.
+    std::vector<const char*> evilPaths{ "../../evil.cxml",
+                                        "Exported/UI/../../../../evil.cxml",
+                                        R"(weird\name/../../evil.cxml)",
+                                        "/etc/passwd" };
+#ifdef _WIN32
+    // Windows-only because on Linux these are legitimately CONTAINED, not
+    // because they misbehave there. libstdc++ hides backslash-as-separator and
+    // drive-letter parsing behind _GLIBCXX_FILESYSTEM_IS_WINDOWS, so
+    // "..\..\evil.cxml" is one ordinary filename with no ".." component and
+    // "C:/Windows/..." is a relative path under a directory named "C:". Both
+    // resolve inside the project; rejecting them there would reject filenames
+    // a POSIX user can legitimately create.
+    evilPaths.push_back(R"(..\..\evil.cxml)");
+    evilPaths.push_back("C:/Windows/System32/evil.cxml");
+#endif
+    // An #ifdef-assembled list can go empty on the platform you are not
+    // looking at, and a loop over nothing asserts nothing.
+    ASSERT_GE(evilPaths.size(), 4u) << "the containment cases were emptied";
+
+    for (const char* evil : evilPaths) {
         std::vector<std::string> errors;
         EXPECT_FALSE(UIMarkup::LoadFileInto(doc, evil, errors)) << evil;
         ASSERT_FALSE(errors.empty()) << evil;

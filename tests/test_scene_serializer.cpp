@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <vector>
 #include <nlohmann/json.hpp>
 
 using namespace MyCoreEngine;
@@ -944,11 +945,29 @@ TEST(SceneSerializer, SceneWithoutEnvironmentBlockGetsTheProceduralSky) {
 // slot — stays intact.
 TEST(SceneSerializer, RejectsTraversalAndAbsoluteModelPaths) {
     const char* path = "test_scene_evil_model.json";
-    for (const char* evil : { "../../evil.obj",
-                              R"(..\..\evil.obj)",
-                              "Exported/Model/../../../../evil.obj",
-                              "C:/Windows/System32/evil.obj",
-                              "/etc/passwd" }) {
+    // The shapes EVERY platform must refuse: an outright climb, a climb buried
+    // behind plausible-looking directories, a climb hidden behind a filename
+    // that merely contains a backslash, and an absolute POSIX path.
+    std::vector<const char*> evilPaths{ "../../evil.obj",
+                                        "Exported/Model/../../../../evil.obj",
+                                        R"(weird\name/../../evil.obj)",
+                                        "/etc/passwd" };
+#ifdef _WIN32
+    // Backslash separators and drive letters are an escape only where the
+    // filesystem parses them as one. libstdc++ compiles that grammar out — it
+    // lives behind _GLIBCXX_FILESYSTEM_IS_WINDOWS — so on Linux
+    // "..\..\evil.obj" is ONE ordinary filename with no ".." component, and
+    // "C:/Windows/..." is a relative path whose first directory happens to be
+    // named "C:". Both resolve harmlessly inside the project, and refusing them
+    // there would mean refusing filenames a POSIX user may legitimately create.
+    evilPaths.push_back(R"(..\..\evil.obj)");
+    evilPaths.push_back("C:/Windows/System32/evil.obj");
+#endif
+    // A list assembled behind an #ifdef is one edit away from being empty on
+    // the platform you are not looking at, and a loop over nothing passes.
+    ASSERT_GE(evilPaths.size(), 4u) << "the containment cases were emptied";
+
+    for (const char* evil : evilPaths) {
         {
             nlohmann::json root;
             root["version"] = SceneSerializer::kVersion;
@@ -989,11 +1008,22 @@ TEST(SceneSerializer, RejectsTraversalAndAbsoluteModelPaths) {
 // binary. It must pass the same containment gate as model/script/HDRi paths.
 TEST(SceneSerializer, RejectsTraversalAndAbsoluteAudioClipPaths) {
     const char* path = "test_scene_evil_clip.json";
-    for (const char* evil : { "../../evil.wav",
-                              R"(..\..\evil.wav)",
-                              "Exported/Audio/../../../../evil.wav",
-                              "C:/Windows/System32/evil.wav",
-                              "/etc/passwd" }) {
+    // Rejected everywhere; see RejectsTraversalAndAbsoluteModelPaths for why
+    // the backslash and drive-letter shapes below are Windows-only.
+    std::vector<const char*> evilPaths{ "../../evil.wav",
+                                        "Exported/Audio/../../../../evil.wav",
+                                        R"(weird\name/../../evil.wav)",
+                                        "/etc/passwd" };
+#ifdef _WIN32
+    // On a POSIX std::filesystem these two are ordinary contained relative
+    // paths, not escapes: backslash is a filename character there and "C:" is
+    // just a directory name.
+    evilPaths.push_back(R"(..\..\evil.wav)");
+    evilPaths.push_back("C:/Windows/System32/evil.wav");
+#endif
+    ASSERT_GE(evilPaths.size(), 4u) << "the containment cases were emptied";
+
+    for (const char* evil : evilPaths) {
         {
             nlohmann::json root;
             root["version"] = SceneSerializer::kVersion;
@@ -1065,13 +1095,35 @@ TEST(SceneSerializer, ContainmentAcceptsRelativeExportedPaths) {
     EXPECT_TRUE(PathIsContained("Exported", "Model/backpack.obj", out));
 
     // ...and the escapes stay rejected, including a ".." buried mid-path that
-    // still climbs back out of the tree.
+    // still climbs back out of the tree. These hold on every platform: a
+    // forward slash separates components everywhere, ".." is a climb
+    // everywhere, and a leading slash is a root everywhere.
     EXPECT_FALSE(PathIsContained("", "../../evil.obj", out));
-    EXPECT_FALSE(PathIsContained("", R"(..\..\evil.obj)", out));
     EXPECT_FALSE(PathIsContained("", "Exported/Model/../../../etc/passwd", out));
     EXPECT_FALSE(PathIsContained("", "/etc/passwd", out));
+    // The POSIX spelling of the UNC case below: leading "//" is a root
+    // directory to libstdc++ and a root NAME to MSVC's std::filesystem, so it
+    // is refused either way.
+    EXPECT_FALSE(PathIsContained("", "//host/share/evil.obj", out));
+    // A backslash is a legal character in a POSIX filename, so the containment
+    // check must not be blinded by one: whatever the leading component is
+    // called, the ".." that follows still climbs out.
+    EXPECT_FALSE(PathIsContained("", R"(weird\name/../../evil.obj)", out));
+
+#ifdef _WIN32
+    // Windows-only, and NOT because they fail on Linux — because on Linux they
+    // are correctly contained. libstdc++ keeps backslash-as-separator and
+    // drive-letter parsing behind _GLIBCXX_FILESYSTEM_IS_WINDOWS, so there
+    // "..\..\evil.obj" is a single ordinary filename holding no ".."
+    // component, "C:/Windows/..." is a relative path beginning with a
+    // directory named "C:", and "\\host\share\evil.obj" is one more legal
+    // filename. All three land under the project root and are safe. Making
+    // PathIsContained reject them there would reject files a POSIX user can
+    // legitimately create — see MAINTENANCE.md, "Authored paths are untrusted".
+    EXPECT_FALSE(PathIsContained("", R"(..\..\evil.obj)", out));
     EXPECT_FALSE(PathIsContained("", "C:/Windows/System32/evil.obj", out));
     EXPECT_FALSE(PathIsContained("", R"(\\host\share\evil.obj)", out));
+#endif
 }
 
 TEST(SceneSerializer, MalformedFieldTypeDoesNotCrash) {

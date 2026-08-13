@@ -40,23 +40,32 @@
 # file (see the 0xc06d007e note above) and costs a CI round trip to read.
 cmake_minimum_required(VERSION 3.21)
 
-if (NOT DEFINED SRC OR NOT DEFINED DST)
-  message(FATAL_ERROR "stage_runtime_dlls.cmake: SRC and DST are required")
+if (NOT DEFINED DST)
+  message(FATAL_ERROR "stage_runtime_dlls.cmake: DST is required")
 endif()
 
-file(GLOB dlls "${SRC}/*.dll")
+# SRC is optional. The tests directory needs it (their DLLs live next to the
+# engine, one directory up); the app bin directory does not, because the engine
+# links straight into it and SRC would be the same directory as DST.
+if (NOT DEFINED SRC OR SRC STREQUAL "")
+  set(dlls "")
+else()
+  file(GLOB dlls "${SRC}/*.dll")
+endif()
 
-if (NOT dlls)
+if (NOT dlls AND NOT DEFINED VCPKG_BIN)
   # Not fatal -- a Linux build has no DLLs and never invokes this. But say so,
-  # because a silent no-op here means the tests fail later with a loader error
-  # that points nowhere near this file.
-  message(WARNING "stage_runtime_dlls: no DLLs found in ${SRC}; tests may not load")
+  # because a silent no-op here means a loader error later that points nowhere
+  # near this file.
+  message(WARNING "stage_runtime_dlls: nothing to copy (SRC='${SRC}', no VCPKG_BIN)")
   return()
 endif()
 
 # file(COPY) already skips files whose timestamp and size match, so this is cheap
 # on a rebuild and safe to run from a target that is always considered dirty.
-file(COPY ${dlls} DESTINATION "${DST}")
+if (dlls)
+  file(COPY ${dlls} DESTINATION "${DST}")
+endif()
 
 # Second, anything vcpkg installed that applocal did not carry across. Copied
 # FIRST-LOSES order-wise -- the engine's own directory was copied above and these

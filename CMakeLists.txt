@@ -5,6 +5,38 @@ cmake_minimum_required(VERSION 3.20)
 # does at build time. Must be set before project().
 set(X_VCPKG_APPLOCAL_DEPS_INSTALL ON)
 
+# Turn OFF vcpkg's per-executable BUILD-TIME DLL deployment, project-wide.
+#
+# Note this is the BUILD-time knob and the line above is the INSTALL-time one.
+# They are independent: `cmake --install` and `cpack` still get the full DLL
+# closure deployed for them, which is what packaging needs. This only changes who
+# copies DLLs next to binaries in the BUILD tree.
+#
+# WHY. vcpkg runs `z-applocal` as a POST_BUILD on EVERY executable. Every
+# executable in this project lands in one of two shared directories —
+# build/bin/<CONFIG>/ for Editor, Player, PlayerDebug and AssetCooker, and
+# tests/ for the ~45 test binaries — so under Ninja a dozen links finish at once
+# and a dozen applocal processes copy the SAME DLLs into the SAME directory
+# simultaneously. On Windows that is a sharing violation waiting for a busy
+# enough machine.
+#
+# It has now bitten twice in one day, which is what moved this from "tidy" to
+# "fix it":
+#   * `vcpkg z-applocal ... test_ui_binding.exe` -> "Access is denied."
+#     (run 31662777312, hidden because gl-tests was still advisory)
+#   * `vcpkg z-applocal ... Player.exe` -> "The process cannot access the file
+#     because it is being used by another process." while PlayerDebug and Editor
+#     were linking into the same directory (run 31670209142, the FIRST run after
+#     those jobs were promoted to required)
+#
+# Replaced by one staging target per output directory — test_runtime_deps in
+# tests/, app_runtime_deps below — both driven by cmake/stage_runtime_dlls.cmake,
+# which copies a superset of what applocal would and does it once. That is the
+# same lesson as the note at the top of tests/CMakeLists.txt about per-test
+# POST_BUILD copies, and this repository has now learned it three times: the fix
+# for concurrent copies into a shared directory is ONE copier, not faster ones.
+set(VCPKG_APPLOCAL_DEPS OFF)
+
 # Set the project name
 project(GameEngineFramework)
 
@@ -62,6 +94,32 @@ add_subdirectory(docs)
 # the Editor must produce/refresh the cooker too, or a dev-loop build ships
 # a missing/stale cooker next to a new editor.
 add_dependencies(Editor AssetCooker)
+
+# ONE staging step for the DLLs all four applications share, replacing the
+# per-executable vcpkg applocal turned off at the top of this file.
+#
+# Editor, Player, PlayerDebug and AssetCooker all link into
+# build/bin/<CONFIG>/ (see each of their RUNTIME_OUTPUT_DIRECTORY_* settings),
+# and Engine.dll lands there too, so one copier serving that directory is the
+# whole job. The engine's own directory IS the destination here, which is why
+# SRC is left unset and only VCPKG_BIN is passed.
+#
+# Ordering: this depends on Engine so vcpkg has finished installing by the time
+# it runs, and each application depends on IT, so no executable is considered
+# built until its DLLs are beside it.
+if (WIN32)
+    add_custom_target(app_runtime_deps
+        COMMAND ${CMAKE_COMMAND}
+            -DVCPKG_BIN=${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/$<$<CONFIG:Debug>:debug/>bin
+            -DDST=${CMAKE_BINARY_DIR}/build/bin/$<CONFIG>
+            -P ${CMAKE_SOURCE_DIR}/cmake/stage_runtime_dlls.cmake
+        COMMENT "Staging application runtime DLLs"
+        VERBATIM)
+    add_dependencies(app_runtime_deps Engine)
+    foreach(app Editor PlayerDebug PlayerShipping AssetCooker)
+        add_dependencies(${app} app_runtime_deps)
+    endforeach()
+endif()
 
 option(ENABLE_TESTS "Build unit tests" ON)
 

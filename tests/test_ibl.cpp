@@ -163,11 +163,29 @@ TEST_F(IBLTest, RejectsHDRiPathOutsideTheProject) {
     const unsigned goodIrr = baker.textures().irradiance;
     ASSERT_NE(goodIrr, 0u);
 
-    for (const char* evil : { "../../evil.hdr",
-                              R"(..\..\evil.hdr)",
-                              "Exported/Env/../../../etc/passwd",
-                              "C:/Windows/System32/evil.hdr",
-                              "/etc/passwd" }) {
+    // Refused on every platform: ".." is a climb wherever it appears — even
+    // behind a filename that merely contains a backslash — and a leading slash
+    // is a root everywhere.
+    std::vector<const char*> evilPaths{ "../../evil.hdr",
+                                        "Exported/Env/../../../etc/passwd",
+                                        R"(weird\name/../../evil.hdr)",
+                                        "/etc/passwd" };
+#ifdef _WIN32
+    // Windows-only because on Linux these are correctly CONTAINED. libstdc++
+    // keeps backslash-as-separator and drive-letter parsing behind
+    // _GLIBCXX_FILESYSTEM_IS_WINDOWS, so "..\..\evil.hdr" is a single ordinary
+    // filename with no ".." component and "C:/Windows/..." is a relative path
+    // whose first directory is named "C:". Both stay under the project root;
+    // refusing them there would refuse names a POSIX user may legitimately
+    // create, so the assertion — not the sandbox — is what is platform-shaped.
+    evilPaths.push_back(R"(..\..\evil.hdr)");
+    evilPaths.push_back("C:/Windows/System32/evil.hdr");
+#endif
+    // A conditionally built list can end up empty on the platform you are not
+    // looking at, and an empty loop passes while asserting nothing.
+    ASSERT_GE(evilPaths.size(), 4u) << "the containment cases were emptied";
+
+    for (const char* evil : evilPaths) {
         EXPECT_FALSE(baker.BakeFromFile(evil)) << "accepted out-of-project HDRi: " << evil;
         EXPECT_NE(baker.lastError().find("rejected"), std::string::npos)
             << "rejection must be reported for: " << evil;

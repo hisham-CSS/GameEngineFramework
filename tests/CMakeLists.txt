@@ -37,7 +37,7 @@ if (WIN32)
       -DSRC=$<TARGET_FILE_DIR:Engine>
       -DVCPKG_BIN=${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/$<$<CONFIG:Debug>:debug/>bin
       -DDST=${CMAKE_CURRENT_BINARY_DIR}
-      -P ${CMAKE_CURRENT_SOURCE_DIR}/stage_runtime_dlls.cmake
+      -P ${CMAKE_SOURCE_DIR}/cmake/stage_runtime_dlls.cmake
     COMMAND ${CMAKE_COMMAND} -E copy_directory
       ${CMAKE_SOURCE_DIR}/Editor/src/Exported
       ${CMAKE_CURRENT_BINARY_DIR}/Exported
@@ -59,26 +59,6 @@ add_dependencies(test_runtime_deps Engine)
 # lua-c++.dll into the engine's output directory (vcpkg's applocal misses it, for
 # the same import-table reason as PhysXCommon_64.dll), so it is copied when it is
 # there and simply absent when it is not. No condition required.
-
-# Turn OFF vcpkg's per-executable applocal deployment for the test targets.
-#
-# It is both redundant and racy here. Redundant because test_runtime_deps above
-# already stages a SUPERSET of what applocal would copy — the engine's whole
-# output directory plus vcpkg's whole bin directory — and it does so from one
-# target, once. Racy because applocal runs as a POST_BUILD on EVERY test
-# executable, so ~45 parallel links under Ninja each try to copy the same DLLs
-# into this same directory at the same moment.
-#
-# That race is not theoretical. It took the GL job down on 2026-08-12
-# (run 31662777312): `vcpkg z-applocal ... test_ui_binding.exe` failed with
-# "Access is denied." while a dozen other links were copying the same files.
-# It went unnoticed because the job was advisory at the time — which is a fair
-# summary of what advisory jobs are for.
-#
-# It is also the same lesson as the comment at the top of this file, one layer
-# down: the fix for concurrent copies into a shared directory is one copier, not
-# faster copiers.
-set(VCPKG_APPLOCAL_DEPS OFF)
 
 macro(engine_test name)
   add_executable(${name} ${name}.cpp)
