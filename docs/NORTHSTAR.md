@@ -375,6 +375,17 @@ This section exists to protect the schedule. Each of these is attractive and eac
 
 ## 7. OPEN QUESTIONS
 
+> **ALL SEVEN ANSWERED. See [ADR-002](ADR-002-open-decisions.md).**
+> **Q1** (a) crossplay in scope — so fixed-point is mandatory, not advisable.
+> **Q2** (a) 3D on a 2D plane — 2D is *more* art, not less, and the 11-pass
+> renderer already exists; skinning is ~4 weeks and `Mesh.h:30,:139` show it was
+> started and abandoned. **Q3** (a) Lua banned from the simulation.
+> **Q4** (b) flat `GameState` — sub-5 µs `memcpy` versus ~907 µs. **Q5** (a)
+> verbatim superset, settled by *measurement*: the prover reads our files
+> unmodified and stripping every `engine` key changes no verdict. **Q6** (a) yes,
+> and it becomes a CI test — same input log through both hosts, compare the hash.
+> **Q7** publish the inventory now; publish nothing about rollback until it runs.
+
 Each of these is a choice only the author can make. Each is stated as named options with consequences, because the answer changes the plan.
 
 **Q1 — Is Windows↔Linux crossplay in scope, or only cross-platform *builds*?**

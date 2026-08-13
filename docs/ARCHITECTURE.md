@@ -263,6 +263,15 @@ The input ring is 256 ticks × 8 B = 2 KB, indexed by tick, **separate from `Gam
 
 ## D9 — Named choices where I am genuinely torn
 
+> **ANSWERED. See [ADR-002](ADR-002-open-decisions.md).** In brief: **A** adopt
+> GekkoNet, but it is **not in vcpkg** — adopting means vendoring, and the
+> two-day spike is now a gate. **B** data-only first, confirmed by Phase 0's
+> measurement (a DSL would have addressed 1.7% while 39% was missing struct
+> fields). **C** abort and name the frame, plus write a repro artifact. **D** keep
+> Jolt — and make the D2 boundary a **link error** by giving the gameplay kernel
+> its own target that links no Jolt, EnTT or Lua, because today proved a rule the
+> build enforces beats a rule in a document.
+
 **CHOICE A — Write the rollback session layer, or adopt one.**
 *Recommended default: **adopt GekkoNet** (MIT, C, header-light, designed for exactly this), and own only `(state, inputs) -> state`.*
 Input delay, prediction, confirm frames, frame-advantage/rift adjustment, packet loss, disconnect handling and desync detection are 6-12 weeks of the riskiest code in the project, and none of it is differentiating. The requirement says "GGPO-style" and no proposal on the table mentioned GGPO once. Wrap it behind a thin `ISession` so it can be replaced; **do not** write `GameState` into the session layer's types, or game #2 forks it. If GekkoNet turns out to be a poor fit, fall back to writing it — but decide after a two-day spike, not on principle.
