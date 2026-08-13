@@ -26,7 +26,16 @@ engineering answer, but a resourcing or business fact could override it and I ca
 
 **ANSWER: Adopt. Vendor GekkoNet. But the two-day spike is now a hard gate, not a formality.**
 
-> **The read-only half of that spike has RUN. See [ADR-003](ADR-003-gekkonet-spike.md).**
+> **SETTLED. The building spike passed all three gates — see [ADR-003](ADR-003-gekkonet-spike.md)
+> — and the author's own C# rollback library was weighed against it and not taken, see
+> [ADR-004](ADR-004-choronos-considered.md).** The decisive evidence is a harness that ran our real
+> `GameState` through GekkoNet's stress session: **231 rollbacks, 1617 re-simulated ticks,
+> byte-identical to the kernel-alone reference.** The float never re-enters the library and the tick
+> count is an integer the host sets. Remaining: patch the vendored `/MT`, define `GEKKONET_STATIC`,
+> and confirm it under gcc — CI is the first place that happens.
+>
+> **The earlier read-only pass is kept below for its reasoning.** Note its "not established" verdict
+> was correct at the time and has since been closed by measurement.
 > Two of the three gates below pass on real evidence — the API takes bytes not
 > types, and its C++20 is quarantined behind a C header so our C++17 is untouched.
 > **The float gate is NOT established**: the spike proved no float crosses the
