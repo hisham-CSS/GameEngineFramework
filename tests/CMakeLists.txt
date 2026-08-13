@@ -161,6 +161,29 @@ target_link_libraries(test_ground_truth PRIVATE CseData CseKernel GTest::gtest_m
 add_dependencies(test_ground_truth test_runtime_deps)
 add_test(NAME test_ground_truth COMMAND $<TARGET_FILE:test_ground_truth>)
 
+# HOW BIG THE GAP IS. test_ground_truth measured ONE of fighter_a's cycles
+# executing forever in a kernel that has no juggle to stop it. This one
+# enumerates the cancel graph's simple cycles from the loaded character —
+# derived, not taken from the authoring report — and asks the same question of
+# every one of them.
+add_executable(test_gap_extent test_gap_extent.cpp)
+target_link_libraries(test_gap_extent PRIVATE CseData CseKernel GTest::gtest_main)
+add_dependencies(test_gap_extent test_runtime_deps)
+add_test(NAME test_gap_extent COMMAND $<TARGET_FILE:test_gap_extent>)
+
+# ONE INTEGER. fighter_a's `crouch_lp` self-cancel resolves to an EMPTY kernel
+# window, so the character is safe on that edge by one frame of window rather
+# than by frame advantage. This mutates that single delay IN MEMORY — the shape
+# test_character_data.cpp uses to make each load assertion fail on purpose — and
+# sweeps it, which is stronger than shipping a variant file: it holds everything
+# else identical by construction, and keeps a deliberately-broken character out
+# of the game's asset directory.
+add_executable(test_one_frame test_one_frame.cpp)
+target_link_libraries(test_one_frame
+    PRIVATE CseData CseKernel nlohmann_json::nlohmann_json GTest::gtest_main)
+add_dependencies(test_one_frame test_runtime_deps)
+add_test(NAME test_one_frame COMMAND $<TARGET_FILE:test_one_frame>)
+
 engine_test(test_event_bus)        # EventBus publish/subscribe
 engine_test(test_input_map)        # actions/axes/deadzone via scripted-input fake
 engine_test(test_render_passes)    # GL-headless CSM/forward/tonemap wiring
