@@ -1376,14 +1376,35 @@ TEST(GroundTruthGap, TheSafeCharactersOnlyLiveSelfCancelIsStoppedByAResource) {
 
     // And the certificate names juggle, so this is not an incidental field --
     // it is the reason `describe()` gives for the character terminating.
-    if (safe.verdict.hasRanking) {
-        bool namesJuggle = false;
-        for (ResourceIndex r : safe.verdict.rankingOrder)
-            if (r == juggle) namesJuggle = true;
-        EXPECT_TRUE(namesJuggle)
-            << "the ranking certificate does not mention juggle, though juggle is "
-               "what stops the only live cycle in the character";
-    }
+    //
+    // UNCONDITIONAL, AND THAT IS THE POINT. This was written as
+    // `if (safe.verdict.hasRanking) { ... }`, which is the shape of a check that
+    // can never fail: with no certificate the body does not run, the test stays
+    // green, and the header comment's claim -- "its certificate is that juggle
+    // runs down" -- would be resting on nothing anybody executed. A guarded
+    // assertion is indistinguishable from a passing one in the output, which is
+    // exactly the vacuous-test class this repository has been bitten by before
+    // (the non-ACP filename test that compiled to mojibake and asserted nothing).
+    //
+    // The certificate is ALSO the rarest thing about this character. ADR-001
+    // gate 3 measured `hasRanking` false for all three fixtures, because
+    // `spendOnly` is cleared by any reachable cancel with a positive resource
+    // effect and every real fighting game builds meter on hit. So if this ever
+    // goes false, `fighter_a` has quietly stopped being the thing it was authored
+    // to be, and that must be a red test rather than a skipped branch.
+    ASSERT_TRUE(safe.verdict.hasRanking)
+        << "`" << kSafe << "` no longer carries a ranking certificate. It was "
+           "authored to carry one -- the first character in this repository to do "
+           "so -- and section 5 of this file describes the gap in terms of what "
+           "that certificate promises.\n"
+        << DescribeVerdict(safe.character, safe.verdict);
+
+    bool namesJuggle = false;
+    for (ResourceIndex r : safe.verdict.rankingOrder)
+        if (r == juggle) namesJuggle = true;
+    EXPECT_TRUE(namesJuggle)
+        << "the ranking certificate does not mention juggle, though juggle is "
+           "what stops the only live cycle in the character";
 }
 
 // Second half: execute it. THIS IS THE FINDING.
