@@ -270,6 +270,17 @@ void EditorApplication::Run() {
             // disabled), and be silently destroyed by Stop's restore —
             // deferring applies it to the restored edit scene instead
             if (!playing_) pollPendingModelOps_(scene);
+            // The combo prover, for authoring fighting-game characters. It owns
+            // the character it is inspecting (path field + Load button) rather
+            // than following the scene selection, because a character file is
+            // not a scene entity — nothing in the ECS represents one yet. It
+            // re-runs the analysis only when the character's content
+            // fingerprint moves, so drawing it every frame costs a hash rather
+            // than a search.
+            if (panels_.comboProver) {
+                comboProver_.Draw(nullptr, &panels_.comboProver);
+            }
+
             // The asset SCAN tick above always runs; only the panel draw and
             // its action handling are gated by visibility.
             if (panels_.assets) {
@@ -1619,6 +1630,8 @@ void EditorApplication::DrawMainMenuBar(MyCoreEngine::Scene& scene)
                 ImGui::MenuItem("Information", nullptr, &panels_.information);
                 ImGui::MenuItem("Edit History",nullptr, &panels_.edit);
                 ImGui::MenuItem("Settings",    nullptr, &panels_.settings);
+                ImGui::Separator();
+                ImGui::MenuItem("Combo Prover", nullptr, &panels_.comboProver);
                 ImGui::Separator();
                 if (ImGui::MenuItem("Show All Panels")) panels_ = PanelVis{};
                 ImGui::TextDisabled("Layouts: Settings > Editor tab");

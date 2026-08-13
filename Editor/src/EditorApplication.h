@@ -5,6 +5,7 @@
 #include "panels/SceneHierarchyPanel.h"
 #include "panels/InspectorPanel.h"
 #include "panels/AssetBrowserPanel.h"
+#include "panels/ComboProverPanel.h"
 #include "Subprocess.h"
 
 #include <atomic>
@@ -119,6 +120,7 @@ private:
     SceneHierarchyPanel hierarchy_;
     InspectorPanel      inspector_;
     AssetBrowserPanel   assetBrowser_;
+    ComboProverPanel    comboProver_;
     // Engine-side asset filesystem domain: cached tree of Exported/, all
     // disk walking + rescan throttling live here; the panel is a view.
     MyCoreEngine::AssetIndex assetIndex_;
@@ -333,6 +335,10 @@ private:
     struct PanelVis {
         bool scene = true, game = true, hierarchy = true, inspector = true,
              assets = true, information = true, edit = true, settings = true;
+        // Off by default: it is a fighting-game authoring tool, and an editor
+        // session that is not authoring a character should not have it in the
+        // way. Window > Combo Prover.
+        bool comboProver = false;
     } panels_;
 
     // layout .ini to load before the next frame (empty = none). Deferred

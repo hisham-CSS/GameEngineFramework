@@ -13,6 +13,8 @@ add_executable(Editor
     src/UndoHistory.h
     src/panels/AssetBrowserPanel.h
     src/panels/AssetBrowserPanel.cpp
+    src/panels/ComboProverPanel.h
+    src/panels/ComboProverPanel.cpp
     src/panels/SceneHierarchyPanel.h "src/panels/SceneHierarchyPanel.cpp" "src/panels/InspectorPanel.h" "src/panels/InspectorPanel.cpp" "src/EditorMain.cpp")
 
 
@@ -27,6 +29,12 @@ find_package(imguizmo CONFIG REQUIRED)
 target_link_libraries(Editor PRIVATE Engine)
 target_link_libraries(Editor PRIVATE imgui::imgui)
 target_link_libraries(Editor PRIVATE imguizmo::imguizmo)
+
+# Character data and the combo prover, for the Combo Prover panel. This is the
+# editor half of what ADR-001 calls research contribution #9: the designer sees
+# the verdict on the character they are authoring, computed from the file that
+# ships, with no export step in between.
+target_link_libraries(Editor PRIVATE CseData)
 
 
 # Set different output directories for Debug and Release
