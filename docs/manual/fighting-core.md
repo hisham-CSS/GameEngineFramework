@@ -19,7 +19,7 @@ This is a young subsystem and the manual would be doing you harm if it read like
 
 - The kernel simulates two fighters: movement, jumping, stage clamps, stun countdown, hitboxes, hurtboxes, one hit each way per tick, and a multi-hit guard.
 - Cross-toolchain bit-identity is **proven**, not argued: a golden state hash recorded on MSVC/Windows is reproduced exactly by GCC/Linux over 3000 ticks (`tests/test_determinism_crossplat.cpp:667`).
-- Three real characters transcribed from MUGEN load out of `Exported/Characters/`, and one of them drives 400 deterministic ticks with snapshot/restore round-trips (`MatchBridgeSimulation.ARealCharacterDrivesTheKernelDeterministically` and `MatchBridgeSimulation.SnapshotRestoreAndResimulateReproducesTheStraightRun`, in `tests/test_match_bridge.cpp`).
+- Three real characters transcribed from MUGEN load out of `Editor/src/Exported/Characters/` (staged as `Exported/Characters` beside the executables), and one of them drives 400 deterministic ticks with snapshot/restore round-trips (`MatchBridgeSimulation.ARealCharacterDrivesTheKernelDeterministically` and `MatchBridgeSimulation.SnapshotRestoreAndResimulateReproducesTheStraightRun`, in `tests/test_match_bridge.cpp`).
 - The combo prover reads the shipped files and reproduces the ADR-001 corner verdicts.
 
 ### Not there yet
@@ -218,7 +218,8 @@ Properties the suite pins down, so you know what you may rely on:
 
 ### Where the files live
 
-`Exported/Characters/` in the **repository root** holds:
+`Editor/src/Exported/Characters/` — inside the asset root, so it is staged
+next to every executable — holds:
 
 | File | What it is |
 |---|---|
@@ -261,7 +262,7 @@ options.expectedResources = { "meter", "juggle" };      // the BUILD's order
 CharacterData character;
 LoadReport    report;                                   // CharacterData.h:338
 
-if (!LoadCharacterFile("Exported/Characters", "kung_fu_girl.json",
+if (!LoadCharacterFile("Exported/Characters", "kung_fu_girl.json",  // as staged, next to the exe
                        options, character, report)) {   // CharacterData.h:349
     // report.error is non-empty; report.rule is "A01".."A08" when a load
     // assertion is what refused it.
@@ -642,7 +643,7 @@ The footer (`ComboProverPanel.cpp:677`) shows run count, last / worst / mean mil
 
 The editor calls `comboProver_.Draw(nullptr, &panels_.comboProver)` (`Editor/src/EditorApplication.cpp:281`) and does not call `SetContentRoot` or `SetExpectedResources`. Two consequences today:
 
-- **The default content root is `"Exported"`** (`ComboProverPanel.h:173`), resolved relative to the process working directory, and the default path is `Characters/kung_fu_man.json` (`:178`). Since `Exported/Characters` is not staged next to the executable, the panel finds the shipped characters only when the editor's working directory is the repository root. A `..` in the path field is refused lexically before anything opens a file, so you cannot climb out. A wrong root is visible rather than silent — the panel prints the loader's own error, which names the file.
+- **The default content root is `"Exported"`** (`ComboProverPanel.h:173`), resolved relative to the process working directory, and the default path is `Characters/kung_fu_man.json` (`:178`). The characters live in `Editor/src/Exported/Characters`, which the asset staging copies next to the executable, so the default finds them with no configuration. A `..` in the path field is refused lexically before anything opens a file, so you cannot climb out. A wrong root is visible rather than silent — the panel prints the loader's own error, which names the file.
 - **A03 is skipped**, not passed. With no expected resource order supplied, the loader records a warning and the panel shows it in the same colour as everything else that could make the verdict meaningless. Call `SetExpectedResources({"meter", "juggle"})` (`ComboProverPanel.h:128`) if you wire this up yourself.
 
 ### Running the analysis outside the editor

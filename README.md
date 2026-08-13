@@ -40,8 +40,8 @@ and the ADRs. They are unusually candid: ADR-001 leads with a result that is hal
 and records two instructions the plan originally gave that would have fabricated an infinite
 combo.
 
-**Scale:** 249 first-party C++ files / 66.8k lines · 26 GLSL shaders ·
-1,039 tests in 52 executables (55 CTest entries) · 289 commits since October 2024.
+**Scale:** 261 first-party C++ files / 74.7k lines · 26 GLSL shaders ·
+1,118 tests in 58 executables (61 CTest entries) · 300 commits since October 2024.
 
 ## Documentation
 
@@ -89,10 +89,10 @@ Legend: ✅ working · 🟡 partial · 🔲 planned
 | **Player** | ✅ | `Player.exe [scene.json]` runs a saved scene with no editor deps |
 | **Packaging** | ✅ | `cpack -G ZIP` → self-contained Windows game bundle |
 | **Job system** | ✅ | Worker-pool `JobSystem` backing async asset loads |
-| **Platform** | 🟡 | Windows (primary) + **Linux** — compiles under gcc 13, *checked by CI on every push*, not asserted. PhysX is Windows-only there. Still 🟡 because the Linux job builds but does not yet run the test suite |
-| **Tests** | ✅ | GoogleTest cases in 52 executables (55 CTest entries): CSM math, shadow stability, render passes, post-process chain, serialization, physics conformance across all three backends, scripting, audio, IBL/FXAA, input, 25 executables covering the UI toolkit, and the kernel + rollback-session suites. `ctest -LE "perf\|gl"` → 44/44 in ~3 s |
+| **Platform** | ✅ | Windows (primary) + **Linux** — gcc 13 **builds AND runs the full test suite** on every push, including the cross-toolchain determinism check. PhysX is Windows-only there |
+| **Tests** | ✅ | 1,118 GoogleTest cases in 58 executables (61 CTest entries): CSM math, shadow stability, render passes, post-process chain, serialization, physics conformance across all three backends, scripting, audio, IBL/FXAA, input, 25 executables covering the UI toolkit, and the kernel + rollback-session suites. `ctest -LE "perf\|gl"` → 50/50 in ~4 s |
 | **CI** | ✅ | GitHub Actions: **four required jobs** — a determinism flag gate that fails the build on any fast-math flag (10 s, runs first), all four Windows configurations + the GPU-free tests, the 11 GL tests under Mesa llvmpipe, and the Linux build. Nothing is advisory |
-| **Gameplay kernel** | 🟡 | `Kernel/` — integer-only POD state, pure `Simulate`, `memcpy` snapshot, FNV-1a checksum. Links nothing, enforced at configure time. Combat systems not built yet |
+| **Gameplay kernel** | 🟡 | `Kernel/` — integer-only POD state, pure `Simulate`, `memcpy` snapshot, FNV-1a checksum. Links nothing, enforced at configure time. Hitboxes, hit resolution and cancels work; no blocking, throws or meter spending yet |
 | **Rollback netcode** | 🟡 | `Net/` — `ISession` over a vendored GekkoNet (pinned commit, built with our flags). Save/load/re-simulate proven byte-identical under a stress session. No socket has been opened yet |
 | **Skeletal animation** | 🔲 | Static meshes only today |
 | **In-game / runtime UI** | ✅ | Retained-mode toolkit, separate from ImGui: `.cxml` markup + `.cstyle` stylesheets (selectors, cascade, pseudo-classes), yoga flexbox layout, two-way data binding, hot reload, focus/keyboard/gamepad navigation, scrolling and clipping, and widgets (Button, Label, Image, TextField, Slider, TabView, `repeat=` collections). Authored as a scene component |
@@ -128,7 +128,6 @@ GameEngineFramework/
 │                   #   so exactly one .cpp includes gekkonet.h
 ├── Data/            # Character data loading (schema v2 -> memory)
 ├── ThirdParty/      # Vendored: GekkoNet as a pinned submodule, built with our flags
-├── Exported/        # Authored character data (schema + three transcribed characters)
 ├── Engine/          # Core engine (DLL): core systems, render passes, 2D renderer,
 │                   #   in-game UI toolkit, physics + script + audio backends
 ├── Editor/          # Editor application (ImGui) + Exported/ shaders & sample assets

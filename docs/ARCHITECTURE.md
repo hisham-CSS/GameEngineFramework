@@ -337,7 +337,9 @@ Total to a networked, cross-platform-verified, moddable fighting-game framework:
 > ### ✅ PHASE 0 IS DONE. Read [`ADR-001-fighting-core.md`](ADR-001-fighting-core.md).
 >
 > Ran 2026-08-12 on three MUGEN characters (59 moves, 247 cancels). Deliverables
-> are in `Exported/Characters/`. Four amendments to what this section says:
+> are in `Editor/src/Exported/Characters/` (moved there 2026-08-13 so the
+> asset staging copies them next to the executables). Four amendments to what
+> this section says:
 >
 > **1. The answer, against gate 1.** Moves needing a C++ effect or an expression
 > language: **1 of 59 (1.7%)**. D7 and D2 stand. But **23 of 59 (39%)** needed a

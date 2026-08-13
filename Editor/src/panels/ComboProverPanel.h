@@ -109,13 +109,20 @@ public:
     // untrusted (docs/MAINTENANCE.md) and this panel is a place where a human
     // types a path, which is the definition of untrusted.
     //
-    // The default is the same "Exported" the editor's other relative paths use.
-    // NOTE for whoever wires this up: the character files live in the REPOSITORY
-    // root's `Exported/Characters`, which `stage_runtime_assets.cmake` does not
-    // copy next to the executable -- it stages `Editor/src/Exported`, and that
-    // tree has no Characters folder. Either stage them or call this with a path
-    // that reaches the source tree. A wrong root is visible rather than silent:
-    // the panel prints the loader's own error, which names the file.
+    // The default is the same "Exported" the editor's other relative paths use,
+    // and it resolves next to the executable because the character files live in
+    // `Editor/src/Exported/Characters` -- inside the asset root that
+    // `stage_runtime_assets.cmake` copies subdirectory by subdirectory. So the
+    // panel finds them with no configuration.
+    //
+    // They were briefly in a top-level `Exported/Characters` instead, which is
+    // NOT the asset root and was never staged; the panel then found nothing
+    // unless the editor happened to be run from the repository root. Moved
+    // rather than special-cased, because two directories called Exported is a
+    // trap regardless of which one any given tool reads.
+    //
+    // A wrong root stays visible rather than silent: the panel prints the
+    // loader's own error, which names the file.
     void SetContentRoot(std::string baseDir) { contentRoot_ = std::move(baseDir); }
 
     // The build-wide resource ORDER, which is assertion A03 and is not a

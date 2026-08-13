@@ -82,8 +82,18 @@ std::string charactersDir() {
     namespace fs = std::filesystem;
     fs::path here = fs::current_path();
     for (int i = 0; i < 8; ++i) {
-        const fs::path candidate = here / "Exported" / "Characters";
-        if (fs::exists(candidate / "kung_fu_girl.json")) return candidate.string();
+        // Two spellings, and both are load-bearing. The first is where the
+        // characters are STAGED -- next to the executable, because they live in
+        // Editor/src/Exported/Characters and stage_runtime_assets.cmake copies
+        // every subdirectory of that asset root. Tests run with their own build
+        // directory as the working directory, so this hits on the first
+        // iteration. The second is the SOURCE tree, which keeps the binary
+        // runnable from a shell anywhere above it.
+        for (const fs::path candidate : {
+                 here / "Exported" / "Characters",
+                 here / "Editor" / "src" / "Exported" / "Characters" }) {
+            if (fs::exists(candidate / "kung_fu_girl.json")) return candidate.string();
+        }
         if (!here.has_parent_path() || here.parent_path() == here) break;
         here = here.parent_path();
     }

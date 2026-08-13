@@ -59,7 +59,7 @@ Escape-hatch tally by kind, counted directly out of the shipped files rather tha
 **[V]**: `missing_schema_field` 9, `schema_v2_field` 7, `runtime_condition` 6, `expression_language`
 1, `irreducible_cpp` **0**.
 
-**Deliverables.** `Exported/Characters/schema.v1.json`, `kung_fu_girl.json`, `kung_fu_man.json`,
+**Deliverables.** `Editor/src/Exported/Characters/schema.v1.json`, `kung_fu_girl.json`, `kung_fu_man.json`,
 `aof2_strength_training.json`.
 
 **Loader compatibility: 3 of 3 loaded by the unmodified `json_spec.load()` on the first attempt.**

@@ -281,7 +281,7 @@ The runtime half: a **frame-indexed** clip player. Animation is sampled from the
 
 Also here: a JSON input-binding file loaded into `InputMap` at boot (bindings are code today — `InputMap.h:56-67` exposes only imperative binders, and `ProjectSettings.h:14-25` carries exactly `startupScene` and `masterVolume`), and a data-driven command table (`{name, motion:"236", button:"P", window:12, priority:3}`) matched **backwards** over the input ring. Do not try to express motion inputs as `InputMap` actions — that abstraction is per-frame boolean with no place to put a sequence.
 
-**Done when:** `python -m comboprover Exported/Characters/*.fchar` runs on the engine's own files with no export step, and a move's frame data edited on disk takes effect in a running match within 0.25 s. **Effort: 8–12 weeks (skinning adds ~4).**
+**Done when:** `python -m comboprover Editor/src/Exported/Characters/*.fchar` runs on the engine's own files with no export step, and a move's frame data edited on disk takes effect in a running match within 0.25 s. **Effort: 8–12 weeks (skinning adds ~4).**
 
 ### Phase 4 — Authoring and debugging tools
 **Goal:** make frame data inspectable, because the rest of the project is spent iterating it.
