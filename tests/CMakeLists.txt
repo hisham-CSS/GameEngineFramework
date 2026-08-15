@@ -197,6 +197,22 @@ target_link_libraries(test_one_frame
 add_dependencies(test_one_frame test_runtime_deps)
 add_test(NAME test_one_frame COMMAND $<TARGET_FILE:test_one_frame>)
 
+# THE GAME LAYER — the seam that makes a fight recordable, demonstrable and
+# judged. Record→playback bit-identity, a hostile-replay fuzz pass, the
+# tool-assisted player performing the prover's printed loop through the reusable
+# source rather than by hand, and the live combo verdict.
+#
+# Links CseGame (which links CseKernel + CseData and deliberately nothing else),
+# so this whole file runs headless — no window, no GL. That is not a convenience:
+# every claim this project has earned was earned by a test that a clean CI
+# machine could re-run, and a training mode whose session could only be exercised
+# by launching an editor would be the first part of the argument nobody could
+# check.
+add_executable(test_game_core test_game_core.cpp)
+target_link_libraries(test_game_core PRIVATE CseGame CseData CseKernel GTest::gtest_main)
+add_dependencies(test_game_core test_runtime_deps)
+add_test(NAME test_game_core COMMAND $<TARGET_FILE:test_game_core>)
+
 engine_test(test_event_bus)        # EventBus publish/subscribe
 engine_test(test_input_map)        # actions/axes/deadzone via scripted-input fake
 engine_test(test_render_passes)    # GL-headless CSM/forward/tonemap wiring

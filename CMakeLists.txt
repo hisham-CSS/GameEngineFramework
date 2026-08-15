@@ -84,6 +84,12 @@ add_subdirectory(Net)
 # come to depend on it; it depends on neither.
 add_subdirectory(Data)
 
+# The headless game core: input sources, the fight session, replay capture and
+# the live combo judge. Links CseKernel and CseData and nothing else — asserted
+# at configure time, because Engine-free is what keeps its claims testable
+# without a GL context.
+add_subdirectory(Game)
+
 # Add subdirectories for Engine, Editor, the standalone Player, and the
 # headless AssetCooker (batch asset work, spawned by the editor)
 add_subdirectory(Engine)

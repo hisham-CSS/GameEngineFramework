@@ -16,7 +16,7 @@ comment "// perf".
 
 WHAT IT CHECKS
 --------------
-Two layers, because either alone has a hole:
+Three layers, because no one of them closes the hole on its own:
 
 1. The build configuration we author -- CMakeLists.txt, cmake/*.cmake,
    CMakePresets.json. Catches a flag at the moment it is written.
@@ -26,6 +26,11 @@ Two layers, because either alone has a hole:
    INTERFACE compile option propagates into our compile lines, and that exact
    mechanism already caused a real crash in this repository once when
    Jolt::Jolt's `_HAS_EXCEPTIONS=0` contaminated every engine TU.
+3. The SOURCES on the path from an input to a checksum (KERNEL_GLOBS: Kernel/
+   and Game/). The flags above are about how the compiler treats float; this is
+   about float, libm, a clock and global rand() not being there at all. A build
+   flag cannot make integer arithmetic drift, so layers 1 and 2 say nothing
+   about a `float speed = 0.5f` typed straight into the simulation.
 
 WHAT IT DOES NOT CHECK
 ----------------------
@@ -81,18 +86,19 @@ ALLOWLIST_SUBSTRINGS = [
     # (none today -- verified 2026-08-12: no forbidden flag reaches our build files)
 ]
 
-# Floating point has no business in the gameplay kernel at all. The flags above
-# are about how the compiler treats float; this is about float not being there.
+# Floating point has no business in the simulation at all -- KERNEL_GLOBS below
+# is the list of files that sentence is about. The flags above are about how the
+# compiler treats float; this is about float not being there.
 #
 # ARCHITECTURE.md D2 says cross-platform bit-identity is a property of integer
-# arithmetic rather than of a build flag -- which is only true while the kernel
-# contains no float. One `float speed = 0.5f` and Windows<->Linux crossplay
+# arithmetic rather than of a build flag -- which is only true while those files
+# contain no float. One `float speed = 0.5f` and Windows<->Linux crossplay
 # (NORTHSTAR Q1) stops being free and starts being a research project. The
 # CMake side of the guarantee is in Kernel/CMakeLists.txt, which asserts the
 # target links nothing; this is the source side.
 KERNEL_FORBIDDEN = [
-    ("float",        "the kernel is integer-only: use sub-units, 1 px = 256"),
-    ("double",       "the kernel is integer-only: use sub-units, 1 px = 256"),
+    ("float",        "the simulation is integer-only: use sub-units, 1 px = 256"),
+    ("double",       "the simulation is integer-only: use sub-units, 1 px = 256"),
     ("<cmath>",      "libm results are not bit-identical across platforms"),
     ("<math.h>",     "libm results are not bit-identical across platforms"),
     ("<random>",     "the standard engines are not specified to match across implementations"),
@@ -100,9 +106,34 @@ KERNEL_FORBIDDEN = [
     ("rand(",        "unseeded global RNG: not part of GameState, so rollback cannot restore it"),
 ]
 
+# The sources held to that rule. "Kernel" is the historical name and the list is
+# wider than the Kernel/ directory, because the property is not "this directory
+# is tidy" -- it is that everything on the path from an input to a checksum is
+# integer.
+#
+# WHY Game/ IS HELD TO IT TOO, in three parts, because the module does three
+# things and each fails differently:
+#
+#   1. FightSession is the only caller of Simulate and computes the InputPair it
+#      hands over. A float anywhere in that path changes the BITS fed to a kernel
+#      that is itself still perfectly deterministic.
+#   2. Replay encodes the input stream and the per-checkpoint checksums into a
+#      FILE. A float there is a file that decodes differently on the machine that
+#      did not write it, which is the one failure this format exists to catch.
+#   3. ComboWatcher judges. Its arithmetic never reaches GameState, so a float in
+#      it would leave the simulation bit-identical and make the VERDICT drift --
+#      which is worse rather than better, because the run really would be
+#      reproducible and only the sentence shown to a playtester would not be.
+#
+# tests/ is deliberately NOT here. strip_comments() blanks comments and not
+# string literals, and the test file quotes these very words in failure messages
+# ("double-count every hit"), so adding it would report a false positive on the
+# first run and teach everyone to ignore this gate.
 KERNEL_GLOBS = [
     "Kernel/include/cse/kernel/*.h",
     "Kernel/src/*.cpp",
+    "Game/include/cse/game/*.h",
+    "Game/src/*.cpp",
 ]
 
 AUTHORED_GLOBS = [
@@ -119,9 +150,20 @@ GENERATED_GLOBS = [
 ]
 
 
+def rel_of(path: Path, repo: Path) -> str:
+    """The repo-relative path, forward-slashed on every platform.
+
+    One function because the string is an IDENTITY here, not just a label: the
+    allowlist matches on it and main() decides which advice a hit gets by
+    comparing it against the scanned set. Two spellings of the same path would
+    silently mean two different files.
+    """
+    return str(path.relative_to(repo)).replace("\\", "/")
+
+
 def scan_file(path: Path, repo: Path) -> list[tuple[str, int, str, str]]:
     """Return (relpath, lineno, needle, why) for each hit."""
-    rel = str(path.relative_to(repo)).replace("\\", "/")
+    rel = rel_of(path, repo)
     if any(a in rel for a in ALLOWLIST_SUBSTRINGS):
         return []
     try:
@@ -174,7 +216,7 @@ def strip_comments(text: str) -> list[str]:
 
 def scan_kernel(path: Path, repo: Path) -> list[tuple[str, int, str, str]]:
     """Return (relpath, lineno, needle, why) for float/libm/clock use in code."""
-    rel = str(path.relative_to(repo)).replace("\\", "/")
+    rel = rel_of(path, repo)
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
@@ -196,6 +238,20 @@ def collect(repo: Path, globs: list[str]) -> list[Path]:
     for g in globs:
         out.extend(p for p in repo.glob(g) if p.is_file())
     return sorted(set(out))
+
+
+def split_hits(hits: list[tuple[str, int, str, str]],
+               purity_rel: set[str]) -> tuple[list, list]:
+    """Split hits into (purity, flag) by WHICH SCAN produced them.
+
+    Membership in the scanned set rather than a `Kernel/` prefix test. The
+    purity rule covers two modules now, and a prefix test would send whoever
+    wrote `float` in Game/ to read Kernel/CMakeLists.txt -- the wrong file, with
+    the wrong instruction in it.
+    """
+    purity = [h for h in hits if h[0] in purity_rel]
+    flag = [h for h in hits if h[0] not in purity_rel]
+    return purity, flag
 
 
 def self_test() -> int:
@@ -258,11 +314,63 @@ def self_test() -> int:
                   f"(reported {hits[0][1]}, expected 2)")
             failures += 1
 
+        # --- WHICH FILES THE PURITY LAYER ACTUALLY REACHES -----------------
+        #
+        # A typo in a glob is the failure this file is most exposed to: it scans
+        # nothing, finds nothing, and prints OK. main() warns about a glob that
+        # matches nothing in the real repo; this proves the other half -- that
+        # each pattern's SHAPE names a file that can exist, and that a `double`
+        # sitting at that path is caught rather than walked past.
+        for g in KERNEL_GLOBS:
+            parts = g.split("/")
+            if any("*" in part for part in parts[:-1]):
+                print(f"SELF-TEST FAILED: purity glob {g!r} wildcards a DIRECTORY, "
+                      f"and this probe only knows how to fill in a file name")
+                failures += 1
+                continue
+            probe = repo.joinpath(*parts[:-1], parts[-1].replace("*", "probe"))
+            probe.parent.mkdir(parents=True, exist_ok=True)
+            probe.write_text("double sneaky = 0.5;\n", encoding="utf-8")
+
+            if not collect(repo, [g]):
+                print(f"SELF-TEST FAILED: purity glob {g!r} matched nothing with a "
+                      f"file laid down at exactly that path")
+                failures += 1
+
+        for p in collect(repo, KERNEL_GLOBS):
+            if not scan_kernel(p, repo):
+                print(f"SELF-TEST FAILED: a double at {rel_of(p, repo)} was scanned "
+                      f"and not flagged")
+                failures += 1
+
+        # --- AND THAT A HIT GETS THE ADVICE THAT FITS ITS FILE -------------
+        #
+        # The two halves print different instructions, and the split was once
+        # `startswith("Kernel/")`. Under that rule a float in Game/ was reported
+        # as a build-flag problem and its author was sent to read
+        # Kernel/CMakeLists.txt, which has nothing to do with it.
+        scanned = {"Kernel/src/Simulate.cpp", "Game/src/FightSession.cpp"}
+        rows = [("Kernel/src/Simulate.cpp", 1, "float", "why"),
+                ("Game/src/FightSession.cpp", 2, "double", "why"),
+                ("CMakeLists.txt", 3, "/fp:fast", "why")]
+        purity, flag = split_hits(rows, scanned)
+        if [h[0] for h in purity] != ["Kernel/src/Simulate.cpp",
+                                      "Game/src/FightSession.cpp"]:
+            print("SELF-TEST FAILED: a purity hit outside Kernel/ was classified as "
+                  "a build-flag hit, so its author would be sent to CMakeLists.txt")
+            failures += 1
+        if [h[0] for h in flag] != ["CMakeLists.txt"]:
+            print("SELF-TEST FAILED: a build-flag hit was classified as non-integer "
+                  "code, so its author would be told to use sub-units")
+            failures += 1
+
     if failures:
         return 1
     print(f"self-test OK: all {len(FORBIDDEN)} flag patterns and "
-          f"{len(KERNEL_FORBIDDEN)} kernel patterns detect, det-ok suppresses, "
-          f"comments are not flagged, clean files pass")
+          f"{len(KERNEL_FORBIDDEN)} kernel patterns detect, all "
+          f"{len(KERNEL_GLOBS)} purity globs match and are scanned, each hit gets "
+          f"the advice for its own file, det-ok suppresses, comments are not "
+          f"flagged, clean files pass")
     return 0
 
 
@@ -291,10 +399,19 @@ def main() -> int:
         hits.extend(scan_kernel(p, repo))
 
     print(f"determinism gate: {len(authored)} authored + {len(generated)} generated "
-          f"build file(s), {len(kernel)} kernel source file(s) scanned")
+          f"build file(s), {len(kernel)} simulation source file(s) scanned")
     if not kernel:
-        print("  WARNING: no kernel sources found under Kernel/. If the gameplay")
-        print("  kernel has moved, update KERNEL_GLOBS or this half checks nothing.")
+        print("  WARNING: no simulation sources found. If the gameplay kernel has")
+        print("  moved, update KERNEL_GLOBS or this half checks nothing.")
+    else:
+        # PER GLOB, not just for the list as a whole. Once the list covers more
+        # than one module, a typo in ONE entry leaves the total non-zero and the
+        # warning above silent, so the module nobody noticed had stopped being
+        # scanned goes on reporting green.
+        empty = [g for g in KERNEL_GLOBS if not collect(repo, [g])]
+        for g in empty:
+            print(f"  WARNING: `{g}` matched no files, so whatever lives there is")
+            print("  not being checked. Fix the glob or drop it.")
     if not generated:
         # Not fatal on its own, but say so loudly: a green result that scanned
         # nothing is the failure mode this whole file exists to avoid.
@@ -311,12 +428,14 @@ def main() -> int:
     # Two different failures land here and they want different words. Saying
     # "flag" at someone who wrote `float x` sends them to look at CMakeLists,
     # which is the wrong file.
-    kernel_hits = [h for h in hits if h[0].startswith("Kernel/")]
-    flag_hits = [h for h in hits if not h[0].startswith("Kernel/")]
+    kernel_hits, flag_hits = split_hits(hits, {rel_of(p, repo) for p in kernel})
     if flag_hits and kernel_hits:
-        print("FAILED: a fast-math build flag AND non-integer code in the kernel.")
+        print("FAILED: a fast-math build flag AND non-integer code in the simulation.")
     elif kernel_hits:
-        print("FAILED: the gameplay kernel is supposed to be integer-only, and is not.")
+        # The modules are named from the hits rather than written out, so this
+        # says `Game/` on a Game/ hit instead of sending its author to Kernel/.
+        modules = sorted({h[0].split("/")[0] + "/" for h in kernel_hits})
+        print(f"FAILED: {', '.join(modules)} is supposed to be integer-only, and is not.")
         print("Cross-platform bit-identity is a property of integer arithmetic")
         print("(ARCHITECTURE.md D2). Use sub-units: 1 pixel = 256.")
     else:

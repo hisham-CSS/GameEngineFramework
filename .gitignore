@@ -7,3 +7,8 @@ vcpkg_installed/
 CMakeSettings.json
 # Visual Studio resource-editor intermediate (binary, regenerated from app.rc)
 *.aps
+
+# Python bytecode. scripts/check_determinism_flags.py grew an importable
+# helper and running it now leaves a __pycache__ beside the sources.
+__pycache__/
+*.pyc
