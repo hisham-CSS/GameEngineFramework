@@ -6,9 +6,12 @@
 // header on purpose: MatchBuilder.h includes cse/kernel/Combat.h for the struct
 // definitions, and a panel header that drags the kernel's types into every
 // translation unit including it would be the same widening this file has spent
-// two headers avoiding. CseData already links into the Editor for the prover, so
-// this costs no new library -- and it cannot make the Editor link CseKernel,
-// because MatchBuilder calls no kernel function (Data/CMakeLists.txt asserts it).
+// two headers avoiding. This library already links CseData for the prover, so
+// this costs no new library -- and it cannot make it link CseKernel, because
+// MatchBuilder calls no kernel function (Games/UntitledFighter/Data/CMakeLists.txt
+// asserts it). That last part is why the panel can be plugged into a
+// general-purpose editor at all: what reaches the Editor executable through
+// this is character data and an analysis, never the simulation.
 #include "cse/data/MatchBuilder.h"
 
 #include <chrono>

@@ -207,6 +207,31 @@
   background-gradient: horizontal;
 }
 
+/* A GAME MODE's verb. The four verbs above are four words somebody typed into
+   menu.cxml; a mode's label is DATA — it is whatever title this build ships
+   calling itself whatever it likes, and this menu ships with the engine, so it
+   has to survive a name nobody here has seen. Both properties are about that
+   and neither is decoration:
+
+     font-scale   0.71 puts ~34px glyphs in a 288px content box, which fits
+                  about 17 characters. "Untitled Fighting Game" is 22 and would
+                  have run straight out of the 320px band while the focus
+                  highlight — width: 100% — stayed 320 wide. 0.50 is ~24px, so
+                  a name of about 24 characters fits on one line.
+     white-space  .verb sets nowrap so that a long word cannot silently make a
+                  two-line button and shift its neighbours down. That reasoning
+                  is about text typed HERE, where a surprise is a bug. A mode's
+                  name can be any length at all, and an overlong one wrapping to
+                  two lines is much better than one drawn outside its own
+                  highlight. Deliberate here, surprising there.
+
+   Later in the file than .verb on purpose: the cascade is CSS specificity with
+   later-wins on ties, and these two rules tie. */
+.verb-mode {
+  font-scale: 0.50;
+  white-space: normal;
+}
+
 /* QUIT is the one verb you cannot undo. It should not look like NEW GAME. */
 .verb-danger {
   margin: 14px 0 0 0;

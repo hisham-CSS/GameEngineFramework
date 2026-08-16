@@ -1,6 +1,17 @@
 // The combo-prover panel: a decision procedure's verdict, in front of a
 // designer.
 //
+// WHERE THIS LIVES, AND WHY IT MOVED. It was Editor/src/panels/ComboProverPanel.h
+// and it was compiled into the general-purpose editor, which linked CseData to
+// make it build. This is a fighting-game authoring tool: it knows what a move,
+// a cancel and a resource are, and the editor is meant to host more than one
+// title. So it now belongs to the title, and reaches the editor through the
+// registry in Editor/src/EditorPanel.h -- the wrapper that presents it as an
+// editor::IEditorPanel is in UntitledFighterPanels.cpp beside this file. NOT ONE
+// LINE OF THE PANEL ITSELF CHANGED in that move, which is the property the seam
+// was designed to have: an extension point you have to rewrite a panel to fit is
+// not an extension point.
+//
 // docs/ARCHITECTURE.md section 5.3 specifies this panel and docs/ADR-001 amends
 // it. Everything below is why the panel is shaped the way it is, because almost
 // every shape here is a correction of a draft that was wrong in a way you would

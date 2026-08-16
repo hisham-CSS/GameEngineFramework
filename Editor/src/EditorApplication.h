@@ -5,7 +5,10 @@
 #include "panels/SceneHierarchyPanel.h"
 #include "panels/InspectorPanel.h"
 #include "panels/AssetBrowserPanel.h"
-#include "panels/ComboProverPanel.h"
+// The seam for panels this editor did NOT compile. The Combo Prover used to be
+// included here and is now supplied by the fighting game through this registry
+// -- see EditorPanel.h for why the editor must not know that game exists.
+#include "EditorPanel.h"
 #include "Subprocess.h"
 
 #include <atomic>
@@ -120,7 +123,11 @@ private:
     SceneHierarchyPanel hierarchy_;
     InspectorPanel      inspector_;
     AssetBrowserPanel   assetBrowser_;
-    ComboProverPanel    comboProver_;
+    // Panels supplied by whatever title this editor was built with, if any.
+    // Populated once in Initialize() and empty in a title-free build. Declared
+    // beside the built-in panels rather than off in some extension section,
+    // because as far as the UI loop is concerned it is one more thing to draw.
+    editor::PanelRegistry titlePanels_;
     // Engine-side asset filesystem domain: cached tree of Exported/, all
     // disk walking + rescan throttling live here; the panel is a view.
     MyCoreEngine::AssetIndex assetIndex_;
@@ -332,13 +339,13 @@ private:
 
     // Panel visibility, toggled from the Window menu. All on by default;
     // hiding one skips its draw (and, for the Game view, its render).
+    //
+    // The BUILT-IN panels only. A title's panels keep their bools inside
+    // titlePanels_, because this struct is reset wholesale by "Show All Panels"
+    // and a registry entry has its own opinion about what its default is.
     struct PanelVis {
         bool scene = true, game = true, hierarchy = true, inspector = true,
              assets = true, information = true, edit = true, settings = true;
-        // Off by default: it is a fighting-game authoring tool, and an editor
-        // session that is not authoring a character should not have it in the
-        // way. Window > Combo Prover.
-        bool comboProver = false;
     } panels_;
 
     // layout .ini to load before the next frame (empty = none). Deferred

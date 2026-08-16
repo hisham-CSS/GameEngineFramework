@@ -30,7 +30,8 @@
 // input; in lockstep it is an unrecoverable desync.
 //
 // NO RENDERER, NO ENGINE, NO GL. This library links CseKernel and CseData and
-// nothing else, asserted at configure time in Game/CMakeLists.txt. That is what
+// nothing else, asserted at configure time in
+// Games/UntitledFighter/Game/CMakeLists.txt. That is what
 // makes every claim below testable in a unit test with no window, which is how
 // every other proof in this repository was earned.
 //

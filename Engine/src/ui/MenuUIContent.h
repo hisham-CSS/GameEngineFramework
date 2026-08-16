@@ -21,10 +21,28 @@ namespace MyCoreEngine {
 
     class Application;
     class AudioWorld;
+    class GameModeRegistry;
     class Renderer;
     class Scene;
     class UIWorld;
     struct SceneSwapResult;
+
+    // How many game-mode verbs the menu markup has room for.
+    //
+    // A FIXED NUMBER OF SLOTS, and not because a list would be nicer. A UI
+    // action is a `void()` registered by NAME on a data source, so a `repeat=`
+    // block over the registry would render one button per mode and every one of
+    // them would invoke the SAME action with no way to say which row was
+    // clicked. Slots are the shape the markup language actually has: each is a
+    // `<Button if="menuMode0" text="{menuMode0Name}" on-click="menuEnterMode0">`,
+    // absent when the slot is empty, so a build with one mode shows one verb and
+    // a build with none shows a menu identical to the one before modes existed.
+    //
+    // Four because the shipped menu has four verbs of its own and a column of
+    // nine is a different design; a registry with more modes than this is a
+    // title that needs a mode SELECT screen rather than a taller main menu, and
+    // the extras are reported rather than silently dropped.
+    inline constexpr int kMenuModeSlots = 4;
 
     // Everything the menu's verbs need that a .cxml cannot express.
     //
@@ -41,6 +59,29 @@ namespace MyCoreEngine {
         Renderer*    renderer = nullptr;  // ApplyQualityTier
         AudioWorld*  audio    = nullptr;  // SetMasterVolume — there is NO getter,
                                           // which is why initialVolume exists
+
+        // The modes this build ships, for their NAMES and their count. Null =>
+        // no mode verbs at all, which is every host that has not registered any
+        // and is exactly the menu as it was before modes existed.
+        //
+        // READ AT INSTALL TIME, not per frame. Modes are registered during host
+        // startup, before this function is called, and a registry that grew a
+        // mode afterwards would not appear -- which is stated here rather than
+        // guarded against, because the alternative is republishing eight
+        // properties every frame to catch something that never happens.
+        GameModeRegistry* modes = nullptr;
+
+        // The verb behind a mode button. Empty => the buttons are not drawn at
+        // all (see the seeding in the .cpp), because a menu that offers a mode
+        // it cannot enter is worse than one that offers nothing.
+        //
+        // The HOST enters, not this file, and the reason is GameModeContext: it
+        // carries the host's Font and its asset root, which live in the
+        // executable and which MenuUIHooks has no business acquiring. Returns
+        // an EMPTY string on success or a message to show the player, so the
+        // failure lands on the same status line as a failed scene load rather
+        // than in a console the shipped player does not have.
+        std::function<std::string(int /*modeIndex*/)> onEnterMode;
 
         std::string playScenePath = "Exported/scene.json";
         std::string menuScenePath = "Exported/menu.json";
@@ -68,9 +109,10 @@ namespace MyCoreEngine {
         std::function<void()> onQualityChanged;
     };
 
-    // Call ONCE per host, AFTER setSceneLoader (the verbs need it) and after
+    // Call ONCE per host, AFTER setSceneLoader (the verbs need it), after
     // InstallDemoUIContent (the menu's name field binds to `playerName`, which
-    // is seeded there).
+    // is seeded there), and after every game mode has been registered (their
+    // names are published here, once — see MenuUIHooks::modes).
     ENGINE_API void InstallMenuUIContent(UIWorld& world, const MenuUIHooks& hooks);
 
     // Call from the host's SceneLoader::SetOnSwapComplete handler. Appends to

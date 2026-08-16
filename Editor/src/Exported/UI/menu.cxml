@@ -86,6 +86,39 @@
 
       <Element name="verbs" class="verbs" focus-scope="true" if="!panelOpen">
         <Element class="rule"/>
+
+        <!-- THE GAME MODES THIS BUILD SHIPS, and they come first.
+
+             NOTHING HERE NAMES A GAME. Each slot is a flag and a name published
+             by InstallMenuUIContent from the host's GameModeRegistry, so what
+             appears in this column is whatever the TITLE registered, in the
+             order it registered it. This file is shipped with the engine and
+             would be the wrong place to write "Untitled Fighting Game" — the
+             day a second game is built on this engine, its menu is this same
+             file with different modes behind it.
+
+             FOUR SLOTS AND NOT A `repeat=`, and the reason is a real limit
+             rather than taste: a bound action is a `void()` looked up by NAME,
+             so every row of a repeat would invoke the same one with no way to
+             say which was clicked. kMenuModeSlots in MenuUIContent.h is the
+             other half of this and the two must agree.
+
+             An empty slot's flag is false, so its button is not displayed at
+             all — a build with one mode shows one verb, and a build with none
+             shows exactly the menu that existed before modes did. The names are
+             drawn VERBATIM: the four verbs below are typed in caps because
+             somebody chose those four words, not because this menu uppercases
+             what it is given. `verb-mode` is what makes an arbitrary-length
+             name survive the 320px band — see menu.cstyle. -->
+        <Button name="mode0" class="verb verb-mode" if="menuMode0"
+                text="{menuMode0Name}" on-click="menuEnterMode0"/>
+        <Button name="mode1" class="verb verb-mode" if="menuMode1"
+                text="{menuMode1Name}" on-click="menuEnterMode1"/>
+        <Button name="mode2" class="verb verb-mode" if="menuMode2"
+                text="{menuMode2Name}" on-click="menuEnterMode2"/>
+        <Button name="mode3" class="verb verb-mode" if="menuMode3"
+                text="{menuMode3Name}" on-click="menuEnterMode3"/>
+
         <Button name="newGame"  class="verb" text="NEW GAME" on-click="menuNewGame"/>
         <Button name="settings" class="verb" text="SETTINGS" on-click="menuOpenSettings"/>
         <Button name="system"   class="verb" text="SYSTEM"   on-click="menuOpenSystem"/>

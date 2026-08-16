@@ -26,8 +26,9 @@ Three layers, because no one of them closes the hole on its own:
    INTERFACE compile option propagates into our compile lines, and that exact
    mechanism already caused a real crash in this repository once when
    Jolt::Jolt's `_HAS_EXCEPTIONS=0` contaminated every engine TU.
-3. The SOURCES on the path from an input to a checksum (KERNEL_GLOBS: Kernel/
-   and Game/). The flags above are about how the compiler treats float; this is
+3. The SOURCES on the path from an input to a checksum (KERNEL_GLOBS: the
+   fighting game's Kernel/ and Game/ modules, under Games/UntitledFighter/).
+   The flags above are about how the compiler treats float; this is
    about float, libm, a clock and global rand() not being there at all. A build
    flag cannot make integer arithmetic drift, so layers 1 and 2 say nothing
    about a `float speed = 0.5f` typed straight into the simulation.
@@ -94,8 +95,8 @@ ALLOWLIST_SUBSTRINGS = [
 # arithmetic rather than of a build flag -- which is only true while those files
 # contain no float. One `float speed = 0.5f` and Windows<->Linux crossplay
 # (NORTHSTAR Q1) stops being free and starts being a research project. The
-# CMake side of the guarantee is in Kernel/CMakeLists.txt, which asserts the
-# target links nothing; this is the source side.
+# CMake side of the guarantee is in Games/UntitledFighter/Kernel/CMakeLists.txt,
+# which asserts the target links nothing; this is the source side.
 KERNEL_FORBIDDEN = [
     ("float",        "the simulation is integer-only: use sub-units, 1 px = 256"),
     ("double",       "the simulation is integer-only: use sub-units, 1 px = 256"),
@@ -106,13 +107,29 @@ KERNEL_FORBIDDEN = [
     ("rand(",        "unseeded global RNG: not part of GameState, so rollback cannot restore it"),
 ]
 
+# WHERE THE SIMULATION LIVES, as ONE constant, because two things are derived
+# from it and they must not drift: the globs that decide which files are
+# scanned, and the module a failure message names.
+#
+# It has moved once. These were `Kernel/` and `Game/` at the top level until the
+# fighting game was gathered under Games/UntitledFighter/ -- this engine is
+# meant to host more than one title, so a title's code lives under Games/ and
+# only general-purpose code sits at the root. A gate that had kept its old globs
+# across that move would have matched zero files and printed OK, which is the
+# exact failure this whole file exists to prevent. The per-glob warning in
+# main() and the probe in self_test() are both here because of it.
+KERNEL_MODULE_ROOTS = [
+    "Games/UntitledFighter/Kernel/",
+    "Games/UntitledFighter/Game/",
+]
+
 # The sources held to that rule. "Kernel" is the historical name and the list is
-# wider than the Kernel/ directory, because the property is not "this directory
-# is tidy" -- it is that everything on the path from an input to a checksum is
+# wider than the kernel module, because the property is not "this directory is
+# tidy" -- it is that everything on the path from an input to a checksum is
 # integer.
 #
-# WHY Game/ IS HELD TO IT TOO, in three parts, because the module does three
-# things and each fails differently:
+# WHY THE GAME CORE IS HELD TO IT TOO, in three parts, because that module does
+# three things and each fails differently:
 #
 #   1. FightSession is the only caller of Simulate and computes the InputPair it
 #      hands over. A float anywhere in that path changes the BITS fed to a kernel
@@ -130,15 +147,27 @@ KERNEL_FORBIDDEN = [
 # ("double-count every hit"), so adding it would report a false positive on the
 # first run and teach everyone to ignore this gate.
 KERNEL_GLOBS = [
-    "Kernel/include/cse/kernel/*.h",
-    "Kernel/src/*.cpp",
-    "Game/include/cse/game/*.h",
-    "Game/src/*.cpp",
+    "Games/UntitledFighter/Kernel/include/cse/kernel/*.h",
+    "Games/UntitledFighter/Kernel/src/*.cpp",
+    "Games/UntitledFighter/Game/include/cse/game/*.h",
+    "Games/UntitledFighter/Game/src/*.cpp",
 ]
 
 AUTHORED_GLOBS = [
     "CMakeLists.txt",
     "*/CMakeLists.txt",
+    # The titles, named explicitly. `*/CMakeLists.txt` above reaches exactly ONE
+    # level, and it stopped covering the game's build files the moment they
+    # moved to Games/<title>/<library>/ -- three CMakeLists.txt dropping out of
+    # the fast-math scan while the file count stayed large enough that nobody
+    # would look twice. Two entries because a title has a build file of its own
+    # as well as one per library.
+    #
+    # Not `**/CMakeLists.txt`, which would be shorter and wrong: it recurses
+    # into ThirdParty/GekkoNet (a pinned submodule -- see ALLOWLIST_SUBSTRINGS
+    # on scanning what is not ours) and into out/build/.
+    "Games/*/CMakeLists.txt",
+    "Games/*/*/CMakeLists.txt",
     "cmake/*.cmake",
     "CMakePresets.json",
     "scripts/linux-build.sh",
@@ -244,14 +273,33 @@ def split_hits(hits: list[tuple[str, int, str, str]],
                purity_rel: set[str]) -> tuple[list, list]:
     """Split hits into (purity, flag) by WHICH SCAN produced them.
 
-    Membership in the scanned set rather than a `Kernel/` prefix test. The
-    purity rule covers two modules now, and a prefix test would send whoever
-    wrote `float` in Game/ to read Kernel/CMakeLists.txt -- the wrong file, with
+    Membership in the scanned set rather than a path-prefix test. The purity
+    rule covers two modules, and a prefix test would send whoever wrote `float`
+    in the game core to read the KERNEL's CMakeLists.txt -- the wrong file, with
     the wrong instruction in it.
     """
     purity = [h for h in hits if h[0] in purity_rel]
     flag = [h for h in hits if h[0] not in purity_rel]
     return purity, flag
+
+
+def module_of(rel: str) -> str:
+    """The module a purity hit belongs to, for the sentence that reports it.
+
+    This was `rel.split("/")[0] + "/"`, which named the top-level directory, and
+    that stopped meaning anything the moment the game moved under
+    Games/UntitledFighter/: every purity hit now begins `Games/`, so a float in
+    the replay writer and a float in the simulation would both be reported
+    against "Games/" and neither author would learn which of the two rules they
+    had broken. Name the MODULE, not the tree it happens to sit in.
+
+    Falls back to the top-level directory for anything unclassified, because a
+    slightly vague sentence beats a KeyError in a build gate.
+    """
+    for root in KERNEL_MODULE_ROOTS:
+        if rel.startswith(root):
+            return root
+    return rel.split("/")[0] + "/"
 
 
 def self_test() -> int:
@@ -343,34 +391,71 @@ def self_test() -> int:
                       f"and not flagged")
                 failures += 1
 
+        # --- ...AND THAT THE GLOBS AND THE MODULE NAMES STILL AGREE ---------
+        #
+        # KERNEL_GLOBS decides what is scanned; KERNEL_MODULE_ROOTS decides what
+        # a hit in it is called. Two spellings of one location, so a move that
+        # updates one and forgets the other leaves the gate scanning files it
+        # cannot name -- and module_of()'s fallback would then answer `Games/`,
+        # which looks like a real module and is not one. That is precisely the
+        # kind of wrong answer that survives a review, so assert it here.
+        for g in KERNEL_GLOBS:
+            if not any(g.startswith(r) for r in KERNEL_MODULE_ROOTS):
+                print(f"SELF-TEST FAILED: purity glob {g!r} lies under no entry in "
+                      f"KERNEL_MODULE_ROOTS, so a hit in it would be reported "
+                      f"against the wrong module")
+                failures += 1
+
+        named = {module_of(g) for g in KERNEL_GLOBS}
+        if named != set(KERNEL_MODULE_ROOTS):
+            print(f"SELF-TEST FAILED: the purity globs name {sorted(named)} but "
+                  f"KERNEL_MODULE_ROOTS lists {sorted(KERNEL_MODULE_ROOTS)}; a "
+                  f"failure message would either collapse two modules into one "
+                  f"name or name a module nothing scans")
+            failures += 1
+
         # --- AND THAT A HIT GETS THE ADVICE THAT FITS ITS FILE -------------
         #
         # The two halves print different instructions, and the split was once
-        # `startswith("Kernel/")`. Under that rule a float in Game/ was reported
-        # as a build-flag problem and its author was sent to read
-        # Kernel/CMakeLists.txt, which has nothing to do with it.
-        scanned = {"Kernel/src/Simulate.cpp", "Game/src/FightSession.cpp"}
-        rows = [("Kernel/src/Simulate.cpp", 1, "float", "why"),
-                ("Game/src/FightSession.cpp", 2, "double", "why"),
+        # `startswith("Kernel/")`. Under that rule a float in the game core was
+        # reported as a build-flag problem and its author was sent to read the
+        # kernel's CMakeLists.txt, which has nothing to do with it.
+        sim = KERNEL_MODULE_ROOTS[0] + "src/Simulate.cpp"
+        fight = KERNEL_MODULE_ROOTS[1] + "src/FightSession.cpp"
+        scanned = {sim, fight}
+        rows = [(sim, 1, "float", "why"),
+                (fight, 2, "double", "why"),
                 ("CMakeLists.txt", 3, "/fp:fast", "why")]
         purity, flag = split_hits(rows, scanned)
-        if [h[0] for h in purity] != ["Kernel/src/Simulate.cpp",
-                                      "Game/src/FightSession.cpp"]:
-            print("SELF-TEST FAILED: a purity hit outside Kernel/ was classified as "
-                  "a build-flag hit, so its author would be sent to CMakeLists.txt")
+        if [h[0] for h in purity] != [sim, fight]:
+            print("SELF-TEST FAILED: a purity hit outside the kernel module was "
+                  "classified as a build-flag hit, so its author would be sent to "
+                  "CMakeLists.txt")
             failures += 1
         if [h[0] for h in flag] != ["CMakeLists.txt"]:
             print("SELF-TEST FAILED: a build-flag hit was classified as non-integer "
                   "code, so its author would be told to use sub-units")
             failures += 1
 
+        # ...and that the two purity hits are reported against DIFFERENT
+        # modules. Both now live under Games/UntitledFighter/, so the classifier
+        # that used to work by top-level directory would name them identically
+        # and the sentence "X is supposed to be integer-only" would point at a
+        # directory containing the whole title.
+        if module_of(sim) == module_of(fight):
+            print(f"SELF-TEST FAILED: the simulation and the game core both report "
+                  f"as {module_of(sim)!r}, so a failure names the title rather than "
+                  f"the module that broke the rule")
+            failures += 1
+
     if failures:
         return 1
     print(f"self-test OK: all {len(FORBIDDEN)} flag patterns and "
           f"{len(KERNEL_FORBIDDEN)} kernel patterns detect, all "
-          f"{len(KERNEL_GLOBS)} purity globs match and are scanned, each hit gets "
-          f"the advice for its own file, det-ok suppresses, comments are not "
-          f"flagged, clean files pass")
+          f"{len(KERNEL_GLOBS)} purity globs match, are scanned and name one of "
+          f"the {len(KERNEL_MODULE_ROOTS)} modules, each hit gets the advice for "
+          f"its own file, det-ok suppresses, comments are not flagged, clean "
+          f"files pass")
     return 0
 
 
@@ -412,6 +497,17 @@ def main() -> int:
         for g in empty:
             print(f"  WARNING: `{g}` matched no files, so whatever lives there is")
             print("  not being checked. Fix the glob or drop it.")
+
+    # The same check on the authored side, against the same mistake. These globs
+    # name DIRECTORIES, and a directory that moves takes its build files out of
+    # the flag scan while the total stays large enough that nobody looks -- which
+    # is not hypothetical: `*/CMakeLists.txt` is one level deep and stopped
+    # covering the fighting game the day it moved under Games/.
+    for g in AUTHORED_GLOBS:
+        if not collect(repo, [g]):
+            print(f"  WARNING: `{g}` matched no authored build file. If something")
+            print("  moved, the flag scan is quietly smaller than it used to be.")
+
     if not generated:
         # Not fatal on its own, but say so loudly: a green result that scanned
         # nothing is the failure mode this whole file exists to avoid.
@@ -433,8 +529,9 @@ def main() -> int:
         print("FAILED: a fast-math build flag AND non-integer code in the simulation.")
     elif kernel_hits:
         # The modules are named from the hits rather than written out, so this
-        # says `Game/` on a Game/ hit instead of sending its author to Kernel/.
-        modules = sorted({h[0].split("/")[0] + "/" for h in kernel_hits})
+        # says the game core on a game-core hit instead of sending its author to
+        # the kernel. See module_of() for why that is not a split("/")[0].
+        modules = sorted({module_of(h[0]) for h in kernel_hits})
         print(f"FAILED: {', '.join(modules)} is supposed to be integer-only, and is not.")
         print("Cross-platform bit-identity is a property of integer arithmetic")
         print("(ARCHITECTURE.md D2). Use sub-units: 1 pixel = 256.")

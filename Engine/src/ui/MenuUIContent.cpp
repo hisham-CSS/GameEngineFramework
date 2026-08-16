@@ -5,6 +5,7 @@
 
 #include "../audio/AudioWorld.h"
 #include "../core/Application.h"
+#include "../core/GameMode.h"
 #include "../core/ProjectSettings.h"
 #include "../core/Renderer.h"
 #include "../core/Scene.h"
@@ -99,6 +100,19 @@ namespace {
         src.SetBool("menuQLow",  q == Scene::QualityLevel::Low);
         src.SetBool("menuQMed",  q == Scene::QualityLevel::Medium);
         src.SetBool("menuQHigh", q == Scene::QualityLevel::High);
+    }
+
+    // "menuMode2" / "menuMode2Name" without a stringstream, because these are
+    // built in a loop over a compile-time-bounded slot count and a std::string
+    // + append is the whole cost.
+    std::string modeFlagKey(int slot) {
+        return "menuMode" + std::to_string(slot);
+    }
+    std::string modeNameKey(int slot) {
+        return "menuMode" + std::to_string(slot) + "Name";
+    }
+    std::string modeActionName(int slot) {
+        return "menuEnterMode" + std::to_string(slot);
     }
 
     void publishVolume(ui::UIDataSource& src, float v) {
@@ -225,7 +239,71 @@ void InstallMenuUIContent(UIWorld& world, const MenuUIHooks& hooks) {
     setStatus(src, "Ready.", true);
     publishSwapLog(src, {});
 
+    // ---- the game modes this build ships -----------------------------------
+    // One flag and one name per slot, seeded for EVERY slot including the empty
+    // ones: the markup names all four unconditionally, a hole against a missing
+    // property is a diagnostic the author has to read past, and an empty slot's
+    // flag is exactly what makes its button absent.
+    //
+    // Gated on onEnterMode as well as on the registry: a menu that offers a mode
+    // it has no way to enter is worse than one that offers nothing, and a host
+    // that wired the registry but forgot the verb should get the menu it had
+    // before rather than four dead buttons.
+    {
+        const int available = (h.modes && h.onEnterMode) ? h.modes->Count() : 0;
+        for (int slot = 0; slot < kMenuModeSlots; ++slot) {
+            const bool filled = slot < available;
+            src.SetBool(modeFlagKey(slot), filled);
+            // The name goes out VERBATIM. A title names its own modes and this
+            // file does not uppercase, truncate or decorate it -- the menu's
+            // other verbs are typed in caps in the markup, which is an authoring
+            // choice about those four words and not a house style this code gets
+            // to impose on somebody else's title.
+            src.SetString(modeNameKey(slot),
+                          filled ? h.modes->DisplayNameAt(slot) : "");
+        }
+        // Reported rather than dropped silently, and after the "Ready." above so
+        // it is the line actually on screen. A fifth mode that simply never
+        // appeared would look like a registration that failed, and the fix (a
+        // mode select screen, or more slots) is a design decision somebody has
+        // to make on purpose.
+        if (available > kMenuModeSlots) {
+            setStatus(src, std::to_string(available - kMenuModeSlots) +
+                           " mode(s) beyond the menu's slots", false);
+        }
+    }
+
     // ---- the verbs ----
+
+    // Enter a game mode. One action per SLOT, registered for every slot whether
+    // or not a mode is behind it: the markup names `menuEnterMode3`
+    // unconditionally and an action name with nothing registered under it is a
+    // document diagnostic at load, which is noise about a button that is not
+    // even displayed.
+    //
+    // Slot 0 is the FIRST verb in the column, above NEW GAME, because a build
+    // whose reason to exist is a game mode should not bury it under the demo
+    // scene loader. Which mode is in slot 0 is the title's decision: registration
+    // order is menu order (GameMode.h).
+    for (int slot = 0; slot < kMenuModeSlots; ++slot) {
+        src.AddAction(modeActionName(slot), [&src, h, slot] {
+            if (!allowed(h)) return;   // the editor refuses host mutations while
+                                       // stopped, same as every other verb here
+            if (!h.onEnterMode) {
+                // Only reachable if a host cleared the hook after Install; the
+                // seeding above hides the buttons otherwise. Said rather than
+                // ignored, because a verb that does nothing at all is the
+                // hardest kind of bug to see.
+                setStatus(src, "No game modes in this build.", false);
+                return;
+            }
+            const std::string err = h.onEnterMode(slot);
+            if (!err.empty()) setStatus(src, err, false);
+            // Nothing on success, deliberately: the mode is now on screen and
+            // this menu is not, so a confirmation would be written to a label
+            // nobody can see and would still be there when they came back.
+        });
+    }
 
     // The whole point of the demo. DEFERRED by the loader: this runs inside
     // UIWorld::Update, inside the UI render pass, so the registry cannot be

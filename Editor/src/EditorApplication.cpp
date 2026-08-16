@@ -29,6 +29,19 @@ void EditorApplication::Initialize()
 {
     // Load resources once during initialization:
     MyCoreEngine::SetImageFlipVerticallyOnLoad(true); // or false
+
+#ifdef CSE_EDITOR_TITLE_PANELS
+    // Panels supplied by the title this editor was built with. The macro is not
+    // set in Editor/CMakeLists.txt -- it arrives as an INTERFACE compile
+    // definition on the title's editor library, so this call exists exactly
+    // when something is linked that defines it. See EditorPanel.h.
+    //
+    // Here rather than in Run(): the registry only allocates and stores, it
+    // touches no GL and no ImGui context, and doing it before the window opens
+    // means a title whose panel construction is expensive pays for it during
+    // startup rather than in the first frame.
+    editor::RegisterTitlePanels(titlePanels_);
+#endif
 }
 
 void EditorApplication::Run() {
@@ -270,15 +283,24 @@ void EditorApplication::Run() {
             // disabled), and be silently destroyed by Stop's restore —
             // deferring applies it to the restored edit scene instead
             if (!playing_) pollPendingModelOps_(scene);
-            // The combo prover, for authoring fighting-game characters. It owns
-            // the character it is inspecting (path field + Load button) rather
-            // than following the scene selection, because a character file is
-            // not a scene entity — nothing in the ECS represents one yet. It
-            // re-runs the analysis only when the character's content
-            // fingerprint moves, so drawing it every frame costs a hash rather
-            // than a search.
-            if (panels_.comboProver) {
-                comboProver_.Draw(nullptr, &panels_.comboProver);
+            // Panels the editor did not compile, supplied by the title (see
+            // EditorPanel.h). A no-op in a title-free build.
+            //
+            // Drawn HERE, among the editor's own panels and after the asset
+            // tick, rather than in a section of their own: a title panel is a
+            // dockable ImGui window like any other and the ordering that
+            // matters is the one below -- assets before hierarchy/inspector, so
+            // an asset click can hand the Inspector over this same frame. A
+            // title panel participates in no such arbitration and so has no
+            // claim on a particular slot.
+            {
+                editor::PanelContext pctx;
+                // The editor's asset root, so a panel that opens authored files
+                // resolves them the same way every other editor path does
+                // rather than hardcoding a guess of its own.
+                pctx.contentRoot = "Exported";
+                pctx.playing = playing_;
+                titlePanels_.DrawVisible(pctx);
             }
 
             // The asset SCAN tick above always runs; only the panel draw and
@@ -592,6 +614,21 @@ void EditorApplication::Run() {
         // A tier's CSM half lives on the Renderer and is not serialized, and the
         // editor has TWO renderers.
         menuHooks_.onQualityChanged = [this] { forceAllCSMUpdate_(); };
+        // NO `modes` AND NO `onEnterMode`, AND THAT IS A KNOWN GAP RATHER THAN A
+        // DECISION. A game mode (Engine/src/core/GameMode.h) is something a host
+        // ENTERS -- it takes the fixed tick, the screen and the keyboard -- and
+        // the Game view previews a scene inside a docked panel with the editor's
+        // own shortcuts live around it, so "the mode owns the screen" has no
+        // meaning here yet. The menu previewed in the Game view therefore shows
+        // the four authored verbs and none of the mode verbs the shipped player
+        // shows, which is the one place this editor does NOT preview exactly
+        // what ships.
+        //
+        // Closing it is the natural next step and needs no change to the seam:
+        // the editor grows a GameModeRegistry of its own, Play enters the
+        // selected mode instead of starting a scene session, and Stop leaves it.
+        // MyCoreEngine::RegisterTitleGameModes is declared in the ENGINE rather
+        // than in Player/ precisely so that this host can call it too.
         MyCoreEngine::InstallMenuUIContent(uiWorld_, menuHooks_);
         gameRenderer_.SetUIDraw([this, &scene](MyCoreEngine::Renderer2D& r2d,
                                               int w, int h, float dt) {
@@ -1630,10 +1667,21 @@ void EditorApplication::DrawMainMenuBar(MyCoreEngine::Scene& scene)
                 ImGui::MenuItem("Information", nullptr, &panels_.information);
                 ImGui::MenuItem("Edit History",nullptr, &panels_.edit);
                 ImGui::MenuItem("Settings",    nullptr, &panels_.settings);
+                // Whatever the title registered, in its own section. Draws
+                // nothing at all -- not even the separator -- when no title is
+                // linked, so a general editor has no empty gap suggesting
+                // something failed to load.
+                titlePanels_.DrawMenuItems();
                 ImGui::Separator();
-                ImGui::MenuItem("Combo Prover", nullptr, &panels_.comboProver);
-                ImGui::Separator();
-                if (ImGui::MenuItem("Show All Panels")) panels_ = PanelVis{};
+                // Each half restores its OWN defaults. PanelVis{} turns the
+                // built-ins back on; a registered panel that asked to start
+                // hidden stays hidden, which is what its VisibleByDefault
+                // means and is exactly the behaviour the Combo Prover had when
+                // its bool lived in PanelVis and this reset left it false.
+                if (ImGui::MenuItem("Show All Panels")) {
+                    panels_ = PanelVis{};
+                    titlePanels_.ResetToDefaults();
+                }
                 ImGui::TextDisabled("Layouts: Settings > Editor tab");
                 ImGui::EndMenu();
             }

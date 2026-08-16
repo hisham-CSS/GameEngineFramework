@@ -21,6 +21,9 @@
 #include "../src/core/SceneLoader.h"
 #include "../src/core/ProjectSettings.h"
 #include "../src/core/FixedTimestep.h"
+// Modes a host can enter, tick, draw and leave. The engine owns the seam; the
+// modes come from a title.
+#include "../src/core/GameMode.h"
 #include "../src/core/InputMap.h"
 #include "../src/core/JobSystem.h"
 #include "../src/core/RenderTarget.h"

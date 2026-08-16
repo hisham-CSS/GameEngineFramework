@@ -6,7 +6,7 @@
 # string-bearing, loaded once at match start and never mutated by a tick. It must
 # never end up inside GameState, and keeping it in its own library makes that
 # visible rather than merely intended — the kernel does not link this, and
-# Kernel/CMakeLists.txt asserts it links nothing at all.
+# Games/UntitledFighter/Kernel/CMakeLists.txt asserts it links nothing at all.
 #
 # The bridge between them is a small integer handle: the POD state holds a
 # uint16 move index, and this library owns the table it indexes.
@@ -38,6 +38,11 @@ add_library(CseData STATIC
     # The tidier long-term shape is a tiny PathSandbox target both Engine and
     # this library link. That touches Engine/CMakeLists.txt and is not worth
     # doing at 2am; recorded here so the next person has the option.
+    #
+    # CMAKE_SOURCE_DIR, and it stays that way now the title lives under Games/:
+    # this path reaches OUT of the title to the engine, which sits at the repo
+    # root and is not part of any title. Spelling it ../../../Engine would tie
+    # the title to sitting exactly three directories deep.
     ${CMAKE_SOURCE_DIR}/Engine/src/core/PathSandbox.cpp
 )
 
@@ -58,7 +63,14 @@ target_include_directories(CseData
     # kernel-shaped POD, never the reverse. A library that both READS character
     # files and LINKS the simulation is one refactor away from putting a
     # std::string inside GameState.
-    PUBLIC  ${CMAKE_SOURCE_DIR}/Kernel/include
+    #
+    # Spelled relative to THIS directory, unlike the two Engine paths above.
+    # Kernel/ is a sibling inside the same title, so the title stays movable and
+    # renameable as a unit — which is the whole reason it was gathered under
+    # Games/UntitledFighter/ in the first place. Reaching it through
+    # CMAKE_SOURCE_DIR would write the title's own location into three of its
+    # own files.
+    PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/../Kernel/include
 )
 
 target_compile_features(CseData PUBLIC cxx_std_17)

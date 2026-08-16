@@ -1,4 +1,13 @@
-# Add executable target for the editor
+# A GENERAL-PURPOSE EDITOR. Nothing in this directory names a game.
+#
+# It used to: src/panels/ComboProverPanel.{h,cpp} was a fighting-game authoring
+# tool compiled in here, and the target_link_libraries(Editor PRIVATE CseData)
+# that used to sit further down existed only to make it build. Both are gone.
+# The panel now lives with the title that owns it, in
+# Games/UntitledFighter/Editor/, and reaches this executable through the
+# registry in src/EditorPanel.h. The one line that composes the two is in the
+# ROOT CMakeLists.txt, which is already the only file allowed to know a title
+# exists.
 add_executable(Editor
     src/EditorApplication.cpp
     src/EditorApplication.h
@@ -11,10 +20,12 @@ add_executable(Editor
     src/ImGuiInputMap.h
     src/UndoHistory.cpp
     src/UndoHistory.h
+    # The panel seam a title plugs into. Not under panels/, deliberately: that
+    # directory is the editor's own panels, and this is the hole one goes in.
+    src/EditorPanel.h
+    src/EditorPanel.cpp
     src/panels/AssetBrowserPanel.h
     src/panels/AssetBrowserPanel.cpp
-    src/panels/ComboProverPanel.h
-    src/panels/ComboProverPanel.cpp
     src/panels/SceneHierarchyPanel.h "src/panels/SceneHierarchyPanel.cpp" "src/panels/InspectorPanel.h" "src/panels/InspectorPanel.cpp" "src/EditorMain.cpp")
 
 
@@ -30,12 +41,19 @@ target_link_libraries(Editor PRIVATE Engine)
 target_link_libraries(Editor PRIVATE imgui::imgui)
 target_link_libraries(Editor PRIVATE imguizmo::imguizmo)
 
-# Character data and the combo prover, for the Combo Prover panel. This is the
-# editor half of what ADR-001 calls research contribution #9: the designer sees
-# the verdict on the character they are authoring, computed from the file that
-# ships, with no export step in between.
-target_link_libraries(Editor PRIVATE CseData)
-
+# NO GAME LIBRARIES HERE, and the absence is the point.
+#
+# This used to read `target_link_libraries(Editor PRIVATE CseData)` -- character
+# data and the combo prover, linked so that a fighting-game panel could compile
+# into a general-purpose editor. That is what this whole change was for. If you
+# are about to add a game library back to this line, the panel that needs it
+# belongs in that game's own Games/<title>/Editor/ instead; see src/EditorPanel.h
+# for the seam and Games/UntitledFighter/Editor/ for a worked example.
+#
+# The editor keeps the ADR-001 research contribution #9 property either way --
+# the designer sees the verdict on the character they are authoring, computed
+# from the file that ships, with no export step in between. It is now delivered
+# by the title rather than baked into the tool.
 
 # Set different output directories for Debug and Release
 set_target_properties(Editor PROPERTIES

@@ -43,8 +43,9 @@ std::int32_t damagePointsFromHundredths(std::int32_t hundredths) {
 
 // The bound check Combat.h asks the loader to perform. This is BoxIsValid's
 // range half, written out rather than called: calling it would put CseKernel on
-// CseData's link line, and Data/CMakeLists.txt fails the configure when that
-// happens. The emptiness half is deliberately NOT replicated -- a zero-width box
+// CseData's link line, and Games/UntitledFighter/Data/CMakeLists.txt fails the
+// configure when that happens. The emptiness half is deliberately NOT
+// replicated -- a zero-width box
 // is how this file expresses "this move has no reach", and it is inert rather
 // than invalid.
 bool coordInRange(std::int32_t v) {

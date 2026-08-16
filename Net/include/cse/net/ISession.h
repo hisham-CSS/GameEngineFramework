@@ -21,7 +21,10 @@
 //    makes the snapshot a memcpy of a POD, so bytes is all it needs, and
 //    ADR-002 CHOICE A warns that letting the state's TYPE into the session layer
 //    is how game #2 ends up forking the netcode. This header does not include
-//    anything from Kernel/ and must not start.
+//    anything from a game's kernel -- Games/UntitledFighter/Kernel/ today --
+//    and must not start. That is also why this library stayed at the top level
+//    when the fighting game moved under Games/: it names no fighter, so game #2
+//    inherits it rather than forking it.
 //
 // 3. NO FLOAT CROSSES THIS BOUNDARY. FramesAhead() returns an int. GekkoNet
 //    computes a frame-advantage average in f32 -- ADR-003 traced it and proved

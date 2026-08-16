@@ -12,7 +12,8 @@
 # ---------------------------------------------------------------------------
 # CseGame is the first library in this tree that both READS CHARACTER DATA and
 # LINKS THE SIMULATION, and that is legitimate precisely because it is a CALLER.
-# Data/CMakeLists.txt asserts that CseData never acquires CseKernel and says why:
+# Games/UntitledFighter/Data/CMakeLists.txt asserts that CseData never acquires
+# CseKernel and says why:
 # "the dependency runs the other way: a future match-setup layer reads character
 # data and fills in kernel state." This target is that layer. It is the caller
 # both libraries were kept apart in anticipation of, and it is the only place in
@@ -28,9 +29,10 @@
 # nobody could re-run.
 #
 # The assertion at the bottom makes that a configure-time failure rather than a
-# convention somebody remembers, in the same spirit as Kernel/CMakeLists.txt
-# ("CseKernel calls target_link_libraries exactly once, with nothing") and
-# Data/CMakeLists.txt.
+# convention somebody remembers, in the same spirit as the two CMakeLists.txt
+# beside this one — Games/UntitledFighter/Kernel/ ("CseKernel calls
+# target_link_libraries exactly once, with nothing") and
+# Games/UntitledFighter/Data/.
 
 add_library(CseGame STATIC
     # One translation unit per public header, and deliberately so: three agents
@@ -53,6 +55,10 @@ target_include_directories(CseGame
     # PRIVATE, because no consumer of cse/game/Replay.h needs the sandbox on its
     # include path — the header names no filesystem type and takes its paths as
     # strings, exactly as CharacterData.h does.
+    #
+    # Still CMAKE_SOURCE_DIR now the title lives under Games/: this reaches OUT
+    # of the title to the engine at the repo root, which belongs to no title.
+    # ../../../Engine would tie this file to sitting exactly three deep.
     PRIVATE ${CMAKE_SOURCE_DIR}/Engine/src/core
 )
 
@@ -71,8 +77,8 @@ target_link_libraries(CseGame PUBLIC CseKernel CseData)
 
 # --- PathIsContained comes from CseData's archive, deliberately -------------
 #
-# Data/CMakeLists.txt compiles Engine/src/core/PathSandbox.cpp directly into
-# CseData rather than linking the whole Engine (which would give character data a
+# Games/UntitledFighter/Data/CMakeLists.txt compiles Engine/src/core/PathSandbox.cpp
+# into CseData rather than linking the whole Engine (which would give character data a
 # transitive dependency on GL, Jolt and Lua). CseGame links CseData, so the
 # symbol is already on its link line and this target must NOT compile that file
 # again: two archives each defining PathIsContained is an LNK2005 waiting for the
@@ -80,7 +86,7 @@ target_link_libraries(CseGame PUBLIC CseKernel CseData)
 #
 # The coupling is real and is recorded rather than hidden: if CseData ever stops
 # compiling PathSandbox.cpp, Replay.cpp loses its definition. The tidy fix is the
-# one Data/CMakeLists.txt already names — a tiny PathSandbox target that Engine,
+# one that file already names — a tiny PathSandbox target that Engine,
 # CseData and this all link. It touches Engine/CMakeLists.txt, so it is a
 # separate change; recorded here so the next person has the option in front of
 # them rather than rediscovering it from a linker error.

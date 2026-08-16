@@ -28,8 +28,9 @@
 //
 // This test links CseData AND CseKernel, which no other test does. That is not a
 // crack in the D2 boundary -- it is the shape the boundary predicts. CseData
-// still does not link CseKernel (Data/CMakeLists.txt asserts it) and the kernel
-// still links nothing (Kernel/CMakeLists.txt asserts that). A match-setup layer
+// still does not link CseKernel (Games/UntitledFighter/Data/CMakeLists.txt
+// asserts it) and the kernel still links nothing
+// (Games/UntitledFighter/Kernel/CMakeLists.txt asserts that). A match-setup layer
 // that reads one and fills in the other is exactly what Combat.h's opening note
 // describes, and a test of it has to see both.
 #include <gtest/gtest.h>

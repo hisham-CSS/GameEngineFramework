@@ -88,8 +88,10 @@
 #include "cse/game/Replay.h"
 
 // PathSandbox.h lives in Engine/src/core and pulls in nothing but Core.h,
-// <filesystem> and <string>. Game/CMakeLists.txt puts that directory on this
-// target's PRIVATE include path and deliberately does NOT compile
+// <filesystem> and <string>. This library's own CMakeLists.txt puts that
+// directory on this target's PRIVATE include path — repo-rooted, because the
+// engine sits at the repo root and this title does not — and deliberately does
+// NOT compile
 // PathSandbox.cpp -- CseData already does, and a second archive defining
 // PathIsContained is an LNK2005 waiting for the first unlucky link order.
 #include "PathSandbox.h"

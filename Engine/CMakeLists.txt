@@ -38,6 +38,11 @@ add_library(Engine SHARED
     src/core/ProjectSettings.h
     src/core/ProjectSettings.cpp
     src/core/FixedTimestep.h
+    # A mode the host can enter, tick, draw and leave -- "play the saved scene"
+    # is one, a fight is another. General infrastructure: it names no game, and
+    # the modes themselves are supplied by a title. See GameMode.h.
+    src/core/GameMode.h
+    src/core/GameMode.cpp
     src/core/InputMap.h
     src/core/InputMap.cpp
     src/core/JobSystem.h

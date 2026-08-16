@@ -63,13 +63,6 @@ function(cse_add_app_icon tgt)
     endif()
 endfunction()
 
-# The authoritative fighting-game simulation. FIRST, and deliberately not inside
-# Engine/: it links nothing at all (see Kernel/CMakeLists.txt, which asserts
-# that), and inside Engine it would inherit Engine's whole link interface and the
-# guarantee would be worth nothing. docs/ARCHITECTURE.md D2, made structural by
-# docs/ADR-002-open-decisions.md CHOICE D.
-add_subdirectory(Kernel)
-
 # Vendored third-party built with OUR flags: GekkoNet, the rollback session
 # layer. Compiled here rather than via its own CMakeLists because that file
 # forces /MT on a static build while this engine is /MD — see the long note in
@@ -78,17 +71,32 @@ add_subdirectory(ThirdParty)
 
 # The rollback session seam. Links GekkoNet PRIVATE so gekkonet.h reaches exactly
 # one translation unit, which is what keeps ADR-002 CHOICE A reversible.
+#
+# It is deliberately NOT under Games/ with the fighting game that motivated it:
+# ISession takes an opaque state blob and a byte of input per player and names
+# no fighter, so it is infrastructure any deterministic game wants. See the
+# header of Games/UntitledFighter/CMakeLists.txt.
 add_subdirectory(Net)
 
-# Character data (schema v2 -> memory). Before Engine and tests because both may
-# come to depend on it; it depends on neither.
-add_subdirectory(Data)
-
-# The headless game core: input sources, the fight session, replay capture and
-# the live combo judge. Links CseKernel and CseData and nothing else — asserted
-# at configure time, because Engine-free is what keeps its claims testable
-# without a GL context.
-add_subdirectory(Game)
+# ---------------------------------------------------------------------------
+# THE TITLES
+# ---------------------------------------------------------------------------
+# Every other directory in this file is general-purpose. The one line below is
+# the entire fighting game, and it is the only place in the root that knows
+# such a thing exists. That split is the point: this engine is meant to host
+# more than one title and the fighting game is only the first, so a title may
+# depend on the engine and the engine may never depend on a title. The rule,
+# and why Net/ stayed behind, are written out in
+# Games/UntitledFighter/CMakeLists.txt.
+#
+# ONE LINE PER TITLE, NOT PER LIBRARY. The fighting game is three libraries
+# (Kernel, Data, Game) and that is its own file's business. The day a second
+# game exists this list gains one line, not three.
+#
+# After ThirdParty/ because the title's data layer links ComboProver; before
+# Engine/ and tests/ because either may come to depend on the title while the
+# title depends on neither.
+add_subdirectory(Games/UntitledFighter)
 
 # Add subdirectories for Engine, Editor, the standalone Player, and the
 # headless AssetCooker (batch asset work, spawned by the editor)
@@ -104,6 +112,99 @@ add_subdirectory(docs)
 # the Editor must produce/refresh the cooker too, or a dev-loop build ships
 # a missing/stale cooker next to a new editor.
 add_dependencies(Editor AssetCooker)
+
+# ---------------------------------------------------------------------------
+# COMPOSING THE GENERAL HOSTS WITH THE TITLE
+# ---------------------------------------------------------------------------
+# Editor/, Player/ and Engine/ are general-purpose and none of them names a game
+# anywhere in its sources or its build file. This block is where a general host
+# and a specific title are put together, and it is here rather than in
+# Editor/CMakeLists.txt or Player/CMakeLists.txt for the reason the block above
+# gives: THIS FILE IS ALREADY THE ONE PLACE ALLOWED TO KNOW A TITLE EXISTS.
+#
+# Each host declares a hook it never defines and the title's library defines it:
+#   editor::RegisterTitlePanels             Editor/src/EditorPanel.h
+#   MyCoreEngine::RegisterTitleGameModes    Engine/src/core/GameMode.h
+# Linking the library is also what TURNS THE HOOK ON -- each library carries the
+# guard macro as an INTERFACE compile definition, so there is no second line here
+# that anybody could forget and no way for the link and the macro to disagree.
+# See Games/UntitledFighter/CMakeLists.txt for the pattern written out.
+#
+# REMOVE THE add_subdirectory ABOVE AND YOU HAVE A GENERAL ENGINE with a general
+# editor and a general player, all of which still build and run -- the editor
+# simply has no Combo Prover in its Window menu and the player's main menu has no
+# fighting game on it. That is the property this arrangement is for.
+#
+# IT IS GUARDED RATHER THAN ADVERTISED, and the difference is the whole point.
+# These three lines named their targets WITHOUT a `::`, and CMake treats an
+# unknown non-namespaced name as a raw library for the linker rather than as a
+# missing target -- so dropping the title configured CLEAN and then died with
+# `LNK1104: cannot open file 'UntitledFighterPlayer.lib'` (gcc:
+# `cannot find -lUntitledFighterPlayer`), naming a file that never existed. That
+# is the opposite of how every other rule in this repository fails, and it made
+# the paragraph above a wish rather than a boundary. Verified by experiment, not
+# by reading.
+#
+# `if (TARGET ...)` turns it into an executed property: with the title present
+# these link exactly as before; with it absent the engine builds and the hooks
+# stay undefined, which is precisely what the guard macros already expect.
+#
+# A SECOND TITLE ADDS LINES HERE, and edits nothing under Engine/, Editor/ or
+# Player/. If it ever needs to edit one of those, the seam was drawn wrong.
+if (TARGET UntitledFighterEditor)
+    target_link_libraries(Editor PRIVATE UntitledFighterEditor)
+endif()
+if (TARGET UntitledFighterPlayer)
+    target_link_libraries(PlayerDebug    PRIVATE UntitledFighterPlayer)
+    target_link_libraries(PlayerShipping PRIVATE UntitledFighterPlayer)
+endif()
+
+# --------------------------------------------------------------------------
+# THE BOUNDARY, AS A CONFIGURE-TIME FAILURE RATHER THAN AN INTENTION
+# --------------------------------------------------------------------------
+# The rule: a TITLE may depend on the engine; the ENGINE may never depend on a
+# title. Every other load-bearing rule in this tree is a FATAL_ERROR --
+# CseKernel links nothing, CseData never links CseKernel, CseGame links exactly
+# those two, CseNet leaks no GekkoNet -- and this one was held by inspection.
+#
+# It is the wrong rule to leave unchecked, because it is the only one on that
+# list that HAS ACTUALLY BEEN BROKEN. `target_link_libraries(Editor PRIVATE
+# CseData)` sat in Editor/CMakeLists.txt for months so that a fighting-game panel
+# could compile inside the general-purpose editor, and no configure ever said a
+# word. Re-adding that line today would trip nothing without this block.
+#
+# The engine's own targets are checked, not the composition above: Editor and the
+# players are ALLOWED to link the title's thin host libraries, because that is
+# what composing a title into a host means and this file is the one place
+# documented to know a title exists. What they may not do is reach past those
+# libraries into the title's simulation, its data layer or its game systems.
+set(_cse_engine_targets Engine Editor PlayerDebug PlayerShipping AssetCooker)
+set(_cse_title_internals CseKernel CseData CseGame)
+foreach(_t IN LISTS _cse_engine_targets)
+    if (NOT TARGET ${_t})
+        continue()
+    endif()
+    get_target_property(_libs ${_t} LINK_LIBRARIES)
+    if (NOT _libs)
+        continue()
+    endif()
+    foreach(_forbidden IN LISTS _cse_title_internals)
+        # $<LINK_ONLY:X> is what a PRIVATE dependency of a static library looks
+        # like from the outside, so match the name rather than the whole entry --
+        # the lesson from an earlier guard in this tree that asserted an empty
+        # INTERFACE_LINK_LIBRARIES and was wrong about what correct looks like.
+        if (_libs MATCHES "(^|;|:|<)${_forbidden}(;|>|$)")
+            message(FATAL_ERROR
+                "BOUNDARY VIOLATION: the general-purpose target `${_t}` links "
+                "`${_forbidden}`, which belongs to a title under Games/.\n"
+                "  The engine may not depend on a game. If ${_t} needs something "
+                "from the title, the title should push it in through a seam "
+                "(editor::RegisterTitlePanels, MyCoreEngine::RegisterTitleGameModes) "
+                "rather than the engine reaching in.\n"
+                "  Link line was: ${_libs}")
+        endif()
+    endforeach()
+endforeach()
 
 # ONE staging step for the DLLs all four applications share, replacing the
 # per-executable vcpkg applocal turned off at the top of this file.

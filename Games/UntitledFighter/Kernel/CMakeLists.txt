@@ -10,9 +10,12 @@
 # a rule in a document. This repository has the evidence: the fast-math gate
 # works for exactly that reason.
 #
-# It is also why the kernel is a top-level directory rather than Engine/src/game.
-# Inside Engine it would inherit Engine's link interface and every one of those
-# dependencies, and the guarantee would be worth nothing.
+# It is also why the kernel has never been a directory inside Engine/. There it
+# would inherit Engine's link interface and every one of those dependencies, and
+# the guarantee would be worth nothing. It now sits under Games/UntitledFighter/
+# instead, which says the second thing as well: the kernel is not merely outside
+# the engine, it belongs to a TITLE, and the engine is meant to host more than
+# this one. See Games/UntitledFighter/CMakeLists.txt for that rule.
 
 add_library(CseKernel STATIC
     src/Simulate.cpp

@@ -8,10 +8,16 @@
 #     file in the project can accidentally grow a dependency on the concrete
 #     implementation. Replacing GekkoNet becomes "rewrite one .cpp".
 #
-#   * Separate from Kernel because Kernel links NOTHING (see Kernel/CMakeLists.txt
-#     and its configure-time assertion). The session is not part of the
+#   * Separate from the kernel because the kernel links NOTHING (see
+#     Games/UntitledFighter/Kernel/CMakeLists.txt and its configure-time
+#     assertion). The session is not part of the
 #     authoritative simulation; it TELLS the simulation when to run. Putting it in
 #     the kernel would break the guarantee that makes the kernel portable.
+#
+#   * ...and it stays at the top level rather than moving under Games/ with the
+#     fighting game that motivated it, because ISession names no fighter. Any
+#     deterministic game wants rollback. See the header of
+#     Games/UntitledFighter/CMakeLists.txt for that test.
 #
 #   * Separate from Engine because the session has nothing to do with rendering
 #     and the shipped dedicated/headless case should be able to link it alone.

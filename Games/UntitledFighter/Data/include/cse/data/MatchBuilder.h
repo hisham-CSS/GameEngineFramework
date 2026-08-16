@@ -10,18 +10,20 @@
 // ---------------------------------------------------------------------------
 // WHY THIS LIVES IN CseData AND NOT IN CseKernel
 // ---------------------------------------------------------------------------
-// The kernel links NOTHING and Kernel/CMakeLists.txt makes that a configure-time
-// failure to change. It therefore cannot see CharacterData, which is exactly the
-// point: std::string and std::vector must not be reachable from a tick. The
+// The kernel links NOTHING and Games/UntitledFighter/Kernel/CMakeLists.txt makes
+// that a configure-time failure to change. It therefore cannot see
+// CharacterData, which is exactly the point: std::string and std::vector must
+// not be reachable from a tick. The
 // dependency runs one way only -- data reads a file and fills in a kernel-shaped
 // POD; the kernel never reads a file.
 //
 // Note what that costs and what it does not. This translation unit includes
 // cse/kernel/Combat.h for the STRUCT DEFINITIONS and calls no function declared
 // in it. Not BoxIsValid, which would be the natural thing to reuse: calling it
-// would put CseKernel into CseData's link line, and Data/CMakeLists.txt asserts
-// that never happens. So the one bound check this file needs is written out
-// again below, against the kernel's own kMaxBoxCoord constant. Duplicating four
+// would put CseKernel into CseData's link line, and this library's own
+// CMakeLists.txt asserts that never happens. So the one bound check this file
+// needs is written out again below, against the kernel's own kMaxBoxCoord
+// constant. Duplicating four
 // comparisons is the cheaper half of that trade.
 //
 // ---------------------------------------------------------------------------

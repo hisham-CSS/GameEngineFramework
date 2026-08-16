@@ -9,9 +9,9 @@
 // ---------------------------------------------------------------------------
 // The alternative was a fixed-capacity move table inside GameState. It is
 // rejected, and the rule that rejects it is already written down in
-// Data/include/cse/data/CharacterData.h: "if a tick WRITES it, it is an integer
-// field in GameState; if a tick only READS it, it lives [in character data] and
-// the state holds an index."
+// Games/UntitledFighter/Data/include/cse/data/CharacterData.h: "if a tick
+// WRITES it, it is an integer field in GameState; if a tick only READS it, it
+// lives [in character data] and the state holds an index."
 //
 // A hitbox is read-only for the whole match. No tick writes one. So putting the
 // table in GameState would:
@@ -238,9 +238,10 @@ inline constexpr std::int32_t kMaxMovesPerFighter = 32;
 //
 // WHY THE WINDOW IS ABSOLUTE AND NOT A DELAY. The authored datum is a delay in
 // ticks measured from the moment the source move CONNECTED (see
-// Data/include/cse/data/CharacterData.h, Cancel::delay). Evaluating that at tick
-// time needs the contact tick, which GameState does not carry and -- per the
-// long note at the top of this file -- is not going to start carrying. So the
+// Games/UntitledFighter/Data/include/cse/data/CharacterData.h, Cancel::delay).
+// Evaluating that at tick time needs the contact tick, which GameState does not
+// carry and -- per the long note at the top of this file -- is not going to
+// start carrying. So the
 // bridge resolves the delay against the source move's frame numbering ONCE, at
 // load, and hands the kernel two frame numbers it can compare against
 // Fighter::moveFrame with no arithmetic at all. Both bounds are INCLUSIVE:

@@ -3,6 +3,20 @@
 // without any editor UI. Built twice: PlayerDebug.exe (console subsystem,
 // keeps the terminal for logs) and Player.exe (shipping, no console).
 // Usage: Player.exe [path/to/scene.json]   (overrides the project settings)
+//
+// A GENERAL HOST. Nothing in this file names a game, a fighter or a move, and
+// nothing may: this executable is what every title built on this engine ships
+// as, and the day a second one exists it must not begin by deleting the first
+// one's code out of here.
+//
+// The saved scene is still what the player boots into and is still the default
+// thing it does. What changed is that it is no longer the ONLY thing it can do:
+// a title registers GAME MODES (Engine/src/core/GameMode.h) and the main menu
+// offers them. A mode is something the host enters, ticks, draws and leaves, and
+// it exists because A FIGHT IS NOT A SCENE -- a FightSession has its own fixed
+// tick, its own render path and no ECS entities at all, so there is no .json
+// that could express it. Which modes this build has is decided entirely by what
+// is linked; see the composition block in the root CMakeLists.txt.
 #include "Engine.h"
 
 #include <iostream>
@@ -101,6 +115,13 @@ class PlayerApplication : public MyCoreEngine::Application {
     // invoked for the app's whole life, which outlasts Run()'s stack frame.
     MyCoreEngine::MenuUIHooks  menuHooks_;
     MyCoreEngine::UINavSynth   navSynth_;   // holds the auto-repeat clock
+    // The modes this build ships, and which one is live. A MEMBER for the same
+    // reason as everything above it: the fixed-tick subscriber, the UI draw
+    // callback and the capture provider all capture it by reference and are
+    // invoked for the app's whole life. It also OWNS the modes, so a mode's
+    // destructor must not outlive the GL context -- hence a member of the app
+    // rather than a local in Run().
+    MyCoreEngine::GameModeRegistry modes_;
 public:
     PlayerApplication() : Application(1280, 720, "Cat Splat Player") {}
 
@@ -236,13 +257,80 @@ public:
         // Escape on the exact frame you first clicked into a field.
         SetUICaptureProvider([this] {
             UICapture caps;
-            caps.keyboard = uiWorld_.wantsKeyboard();
-            caps.textInput = uiWorld_.wantsTextInput();
+            // A MODE THAT OWNS THE SCREEN TAKES THE KEYBOARD WITH IT, and the
+            // two are one decision rather than two (IGameMode::OwnsScreen says
+            // so). `keyboard` is what gates RunLoop's built-in behaviour: the
+            // free-fly camera, and the "Quit" check that closes the window.
+            // "Quit" is bound to Escape AND to gamepad BACK -- which is exactly
+            // what a mode means by "leave" -- so a mode owning the screen while
+            // this stayed false would find its Back button quitting the game
+            // instead of returning to the menu. That is the same failure the
+            // paragraph above records for text fields, one layer up.
+            const bool modeOwnsScreen = modes_.activeOwnsScreen();
+            caps.keyboard = modeOwnsScreen || uiWorld_.wantsKeyboard();
+            // The scene's documents are not being updated while a mode owns the
+            // screen (see the UI draw below), so whatever a menu text field
+            // believed about focus is stale and must not keep suppressing
+            // gameplay input for the whole time the mode is up.
+            caps.textInput = !modeOwnsScreen && uiWorld_.wantsTextInput();
             // The pointer is NOT captured. A game's UI and its camera share the
             // mouse -- the UI takes clicks by hit-testing, which is a decision
             // per press rather than a mode.
             caps.mouse = false;
             return caps;
+        });
+
+        // ---- game modes -----------------------------------------------------
+        //
+        // What a mode is handed on entry, built in ONE place so the menu's verb
+        // and any future entry point cannot hand out different contexts.
+        //
+        // A FACTORY rather than a stored struct, because it is evaluated at
+        // ENTRY: the font may not have finished baking when this lambda is
+        // written, and a stored context would carry that first answer forever.
+        // Everything it names is host-lifetime, so the pointers are safe for as
+        // long as a mode can hold them.
+        const auto modeContext = [this, &scene] {
+            GameModeContext ctx;
+            ctx.app = this;
+            ctx.scene = &scene;
+            // The host's UI font, baked once at the size the whole UI shares. A
+            // mode that loaded its own would be a second atlas and a second
+            // answer to "how big is body text". May be null if the bake failed,
+            // which is why GameModeContext documents it as optional.
+            ctx.font = uiFont_.IsValid() ? &uiFont_ : nullptr;
+            // Where Exported/ was staged next to this executable, i.e. the same
+            // root every other path in this file is relative to.
+            ctx.contentRoot = "Exported";
+            return ctx;
+        };
+
+#ifdef CSE_HOST_TITLE_MODES
+        // The modes this build ships. The macro is not set in
+        // Player/CMakeLists.txt -- it arrives as an INTERFACE compile definition
+        // on the title's own library, so this call exists exactly when something
+        // is linked that defines it, and a player built with no title has no
+        // mode verbs and boots exactly as it did before modes existed.
+        //
+        // BEFORE InstallMenuUIContent below, which publishes the modes' names
+        // into the menu once. Registration order is menu order.
+        RegisterTitleGameModes(modes_);
+#endif
+
+        // The active mode's simulation step. SetFixedUpdate is the PRIMARY fixed
+        // slot and its own comment in Application.h reserves it for "a game's
+        // own hook" -- this is that game, whichever one it turns out to be.
+        // Physics and anything else that needs the tick are AddFixedUpdate
+        // subscribers and are unaffected by taking it.
+        SetFixedUpdate([this](float dt) {
+            if (IGameMode* m = modes_.active()) m->FixedTick(dt);
+        });
+        // Per-frame. A SUBSCRIBER rather than SetUpdate, because scripting
+        // already occupies the subscriber list and the primary variable slot is
+        // the matching reservation to the one above; a mode taking it would
+        // silently delete a scene's own per-frame hook the day one exists.
+        AddUpdate([this](float dt) {
+            if (IGameMode* m = modes_.active()) m->Update(dt);
         });
 
         InstallDemoUIContent(uiWorld_);
@@ -257,6 +345,27 @@ public:
         menuHooks_.renderer = &renderer();
         menuHooks_.audio = &audio_;
         menuHooks_.initialVolume = settings.masterVolume;
+        // The modes, for their NAMES, and the verb that enters one. Two fields
+        // because they are two different things -- data and an action -- the
+        // same split as `audio` and `onMasterVolume` above.
+        //
+        // THE HOST ENTERS, NOT THE MENU: GameModeContext carries this
+        // executable's Font and its asset root, which MenuUIContent has no
+        // business acquiring. The returned string is empty on success or a
+        // message for the menu's own status line, so a mode that refuses to
+        // start is reported the same way a scene that will not load is, in the
+        // shipped player which has no console to print to.
+        menuHooks_.onEnterMode = [this, modeContext](int index) -> std::string {
+            std::string error;
+            if (!modes_.Enter(index, modeContext(), error)) {
+                std::cerr << "PLAYER: mode " << index << " refused: " << error
+                          << std::endl;
+                return error;
+            }
+            std::cout << "PLAYER: entered mode '"
+                      << modes_.DisplayNameAt(index) << "'." << std::endl;
+            return {};
+        };
         InstallMenuUIContent(uiWorld_, menuHooks_);
         sceneLoader.SetOnSwapComplete([this](const SceneSwapResult& r) {
             MenuUIReportSwap(uiWorld_, r);
@@ -272,6 +381,60 @@ public:
         // reference is safe for the callback's whole life.
         renderer().SetUIDraw([this, &scene](MyCoreEngine::Renderer2D& r2d,
                                             int w, int h, float dt) {
+            // ---- the active game mode, first ----------------------------
+            //
+            // THE EXIT DRAIN LIVES HERE, and the obvious home for it -- an
+            // AddUpdate subscriber beside the one that calls Update -- is the
+            // wrong one. Variable-rate subscribers are skipped entirely while
+            // paused, at timeScale 0, and on the frame of a scene swap, so a
+            // mode that asked to leave in any of those states would stay up
+            // forever with its own Escape apparently dead. This callback runs
+            // every frame the renderer runs, unconditionally, and it runs
+            // BEFORE the mode's Draw below -- so a mode that asked to leave
+            // never draws another frame.
+            modes_.DrainExitRequest();
+
+            if (IGameMode* mode = modes_.active()) {
+                if (mode->OwnsScreen()) {
+                    // The scene's own UI documents do NOT run. Not merely "are
+                    // not drawn": uiWorld_.Update is what dispatches clicks and
+                    // moves focus, so leaving it running would put a live main
+                    // menu underneath the mode, taking presses nobody can see.
+                    // The other half of this pairing is in the capture provider
+                    // above -- both or neither.
+                    //
+                    // THE 3D PASS STILL RAN. RunLoop renders the scene every
+                    // frame and this callback is a pass at the end of it, so a
+                    // mode that owns the screen is painting over a frame that
+                    // was already drawn -- correct, and wasteful. Skipping it
+                    // needs a switch on Application ("render no world this
+                    // frame"), which is a change to the loop rather than to this
+                    // seam, and it is not worth making until a mode is doing
+                    // enough work for the wasted pass to matter.
+                    //
+                    // DRAIN THE UI'S INPUT ACCUMULATORS ANYWAY. The GLFW key and
+                    // char callbacks keep filling g_uiKeys between frames
+                    // whatever is on screen, and the engine's scroll callback
+                    // keeps summing notches -- they are installed once, for the
+                    // app's life, and know nothing about modes. Skipping the
+                    // drain below without doing it here means the vector grows
+                    // for as long as the mode is up and then delivers every
+                    // keystroke of a whole fight to the menu the instant you
+                    // return to it, along with one enormous scroll.
+                    // Cleared, not forwarded: a mode reads the engine's InputMap
+                    // (actions and axes), which is polled by RunLoop and needs
+                    // nothing from here. uiWorld_ is not updated at all while a
+                    // mode is up, so its own copy of this state is overwritten
+                    // by the first ordinary frame after the mode leaves.
+                    g_uiKeys.clear();
+                    (void)ConsumeScrollDelta();
+                    mode->Draw(r2d, w, h, dt);
+                    return;
+                }
+                // A mode layered OVER the running scene draws after the
+                // documents do, at the bottom of this callback.
+            }
+
             // The UI covers the whole window here, so window coords ARE UI
             // coords — no mapping needed (the editor is the case that needs it).
             // Read straight from GLFW: the engine's InputMap is action/axis
@@ -316,6 +479,10 @@ public:
                                            !uiWorld_.wantsTextInput()));
             uiWorld_.Update(scene.registry, w, h, dt);
             uiWorld_.Draw(r2d);
+
+            // A non-OwnsScreen mode: an overlay on the running scene, drawn
+            // last so it sits on top of the scene's own HUD.
+            if (IGameMode* mode = modes_.active()) mode->Draw(r2d, w, h, dt);
         });
 
         // Render through the scene's camera entity, exactly like the editor's
@@ -348,6 +515,15 @@ public:
         }
 
         RunLoop(scene, shader); // ESC or window close exits
+
+        // Leave whatever mode was live, HERE rather than leaving it to
+        // ~GameModeRegistry. The registry is a member and would do it, but by
+        // then `scene`, `sceneLoader` and `shader` -- all locals of this
+        // function, and all reachable from a GameModeContext -- have already
+        // been destroyed. A mode's Exit is allowed to touch what it was handed;
+        // doing it before this function's frame unwinds is the only place that
+        // is true.
+        modes_.Leave();
     }
 };
 

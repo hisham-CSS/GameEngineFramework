@@ -6,8 +6,9 @@
 // judgement of what the player just did against what the combo prover said they
 // could do (ComboWatcher.h). This file is the proof that each of those does what
 // its header says, with no window, no GL context and no Engine on the link line
-// -- which is the property Game/CMakeLists.txt makes a configure-time failure to
-// lose, and the reason every other claim in this repository was cheap to re-run.
+// -- which is the property Games/UntitledFighter/Game/CMakeLists.txt makes a
+// configure-time failure to lose, and the reason every other claim in this
+// repository was cheap to re-run.
 //
 // ---------------------------------------------------------------------------
 // THE SEVEN CLAIMS, IN THE ORDER OF HOW MUCH THEY WOULD HURT TO GET WRONG
