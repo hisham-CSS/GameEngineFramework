@@ -41,11 +41,21 @@ REM must still accept what the old loop accepted -- this file is here to turn
 REM silence into a message, not to start rejecting builds that used to work.
 REM The real gate is the `where` check at the bottom, which tests the thing we
 REM actually need rather than the mechanism we used to get it.
+REM `_rung` records WHICH query answered, because a ladder that falls back
+REM quietly is the same defect this file was written to remove, one level up.
+REM Each `if not defined` is its own statement rather than a line inside the
+REM block below it -- setting and testing a variable in one parenthesised block
+REM needs delayed expansion, and this way needs none.
 set "_vsroot="
+set "_rung=1"
 for /f "usebackq tokens=*" %%i in (`"%_vswhere%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2^>nul`) do set "_vsroot=%%i"
+
+if not defined _vsroot set "_rung=2"
 if not defined _vsroot (
     for /f "usebackq tokens=*" %%i in (`"%_vswhere%" -latest -products * -property installationPath 2^>nul`) do set "_vsroot=%%i"
 )
+
+if not defined _vsroot set "_rung=3"
 if not defined _vsroot (
     for /f "usebackq tokens=*" %%i in (`"%_vswhere%" -latest -property installationPath 2^>nul`) do set "_vsroot=%%i"
 )
@@ -97,5 +107,20 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo MSVC environment ready: %_vsroot%
+echo MSVC environment ready: %_vsroot%  [vswhere query %_rung%]
+
+REM `::warning::` rather than a plain echo, on purpose. A fallback only matters
+REM on a run that is otherwise GREEN, and nobody opens the log of a green job --
+REM this puts it on the run summary where it is seen without looking for it.
+REM Outside Actions it is just an odd-looking line, which is a fair price.
+REM Only the ::warning:: line itself becomes the annotation, so it has to be a
+REM whole sentence on its own -- the detail lines below are ordinary log output.
+if not "%_rung%"=="1" (
+    echo ::warning::MSVC found only via vswhere fallback query %_rung%; the build is fine but the runner image no longer matches the precise query.
+    echo        No installed instance advertised
+    echo        Microsoft.VisualStudio.Component.VC.Tools.x86.x64, so the
+    echo        `-requires` query returned nothing and a looser one answered.
+    echo        The toolchain checks above passed, so this is not a failure --
+    echo        it is the warning you get before it degrades the rest of the way.
+)
 exit /b 0
