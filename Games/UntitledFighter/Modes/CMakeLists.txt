@@ -1,19 +1,47 @@
-# The title's runtime modes: what this game contributes to a general-purpose
-# host that can enter, tick, draw and leave a mode.
+# The title's GAME MODES: what this game contributes to any general-purpose host
+# that can enter, tick, draw and leave a mode.
+#
+# ---------------------------------------------------------------------------
+# WHY THIS IS NOT CALLED "Player" ANY MORE
+# ---------------------------------------------------------------------------
+# It was, and the name was a claim about WHO CONSUMES THIS rather than about
+# what it contains. That claim turned out to be wrong within one release: the
+# EDITOR wants these modes too, because entering a mode in the Game view is how
+# the editor previews what ships, and "the editor previews exactly what ships" is
+# the property this codebase protects hardest. Making the Editor link a library
+# called `UntitledFighterPlayer` would have worked and would have been a lie --
+# the editor is not a player, and the next person to read that link line has to
+# find out why it is there.
+#
+# So the libraries under this title are named for WHAT THEY CONTRIBUTE, one per
+# seam, and a host links the ones it wants:
+#
+#   UntitledFighterModes      MyCoreEngine::RegisterTitleGameModes  (both hosts)
+#   UntitledFighterFrontEnd   MyCoreEngine::TitleFrontEndScene      (players only)
+#   UntitledFighterEditor     editor::RegisterTitlePanels           (editor only)
+#
+# ONE LIBRARY PER SEAM IS THE RULE THE SPLIT ESTABLISHES, and the guard macros
+# were already shaped for it: Engine/src/core/TitleFrontEnd.h spends a paragraph
+# on why CSE_HOST_TITLE_FRONT_END is a SEPARATE macro from CSE_HOST_TITLE_MODES,
+# so that a title can have modes without a front end or a front end without
+# modes. Two independent switches wired to one library was the part that did not
+# fit: a host could not take one without the other, however carefully the macros
+# were kept apart. Now the switch and the library are the same decision, which is
+# the same reason each macro rides its own library's INTERFACE rather than being
+# set by a host.
 #
 # ---------------------------------------------------------------------------
 # THE DIRECTION OF THE ARROW
 # ---------------------------------------------------------------------------
 # This library depends on the Engine, on the headless game core, and on the
-# game-mode seam in Engine/src/core/GameMode.h. Nothing under Player/ or Engine/
-# depends on it. Games/UntitledFighter/CMakeLists.txt states the rule -- a title
-# may depend on the engine, the engine may never depend on a title -- and this is
-# the runtime host's instance of it, the same shape as the Editor's in
-# ../Editor/CMakeLists.txt.
+# game-mode seam in Engine/src/core/GameMode.h. Nothing under Player/, Editor/ or
+# Engine/ depends on it. Games/UntitledFighter/CMakeLists.txt states the rule --
+# a title may depend on the engine, the engine may never depend on a title -- and
+# this is the runtime instance of it, the same shape as ../Editor/CMakeLists.txt.
 #
-# Player/src/PlayerMain.cpp names no game. The composition -- both players link
-# this -- is one place in the ROOT CMakeLists.txt, already the only file in the
-# tree allowed to know a title exists.
+# Player/src/PlayerMain.cpp and Editor/src/ name no game. The composition -- who
+# links this -- is one place in the ROOT CMakeLists.txt, already the only file in
+# the tree allowed to know a title exists.
 #
 # ---------------------------------------------------------------------------
 # WHY THIS IS NOT PART OF CseGame
@@ -36,7 +64,7 @@
 # a view that could remember where a fighter was would be a second source of
 # truth for a position, which is ARCHITECTURE.md D8 moved down to a layer where
 # a player cannot read the file to find out they were lied to.
-add_library(UntitledFighterPlayer STATIC
+add_library(UntitledFighterModes STATIC
     src/UntitledFighterMode.h
     src/UntitledFighterMode.cpp
     # The fight, drawn: the kernel's own boxes, the stage and the corner.
@@ -47,28 +75,22 @@ add_library(UntitledFighterPlayer STATIC
     src/FightHud.cpp
     # The registration list, and the definition of the hook the engine declares.
     src/UntitledFighterModes.cpp
-    # The front end: which scene the host boots when this game is in the build.
-    # A second seam and a second file, because it answers a different question --
-    # UntitledFighterModes.cpp says what the host can BE IN, this says where it
-    # STARTS. The scene it names, and the markup, stylesheet and art behind it,
-    # are in ../Assets/UntitledFighter/.
-    src/TitleFrontEnd.cpp
 )
 
-target_compile_features(UntitledFighterPlayer PUBLIC cxx_std_17)
-set_target_properties(UntitledFighterPlayer PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_compile_features(UntitledFighterModes PUBLIC cxx_std_17)
+set_target_properties(UntitledFighterModes PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # Engine.h reaches GLFW through Window.h, and GLFW must be told not to drag in
-# its own GL headers -- glad owns those. Both hosts define this for the same
+# its own GL headers -- glad owns those. Every host defines this for the same
 # reason; a library that includes Engine.h needs it just as much.
-target_compile_definitions(UntitledFighterPlayer PRIVATE GLFW_INCLUDE_NONE)
+target_compile_definitions(UntitledFighterModes PRIVATE GLFW_INCLUDE_NONE)
 
 # LINKING THIS LIBRARY IS THE REGISTRATION.
 #
 # PUBLIC, which is PRIVATE and INTERFACE, and both halves are load-bearing:
 #
 #   INTERFACE  turns on the ENGINE's declaration of
-#              MyCoreEngine::RegisterTitleGameModes and the HOST's call to it.
+#              MyCoreEngine::RegisterTitleGameModes and EVERY HOST's call to it.
 #              It has to ride the LINK LINE, because that is what makes the link
 #              and the macro impossible to get out of step: one place in the root
 #              does both, and a host that links nothing compiles the hook out and
@@ -78,36 +100,20 @@ target_compile_definitions(UntitledFighterPlayer PRIVATE GLFW_INCLUDE_NONE)
 #              the engine's declaration. Without it the guard hides the
 #              declaration here, a changed signature compiles happily into a
 #              differently-mangled symbol, and the mismatch surfaces as an
-#              unresolved external in the player naming a function the file you
+#              unresolved external in the host naming a function the file you
 #              are looking at appears to define.
 #
 # The one remaining way to be wrong -- define without link -- is an unresolved
 # external, which is loud. The silent one (link without define, so the archive is
 # referenced by nothing and the linker drops it) is what the INTERFACE half rules
 # out.
-target_compile_definitions(UntitledFighterPlayer PUBLIC CSE_HOST_TITLE_MODES=1)
-
-# ...AND THE REGISTRATION OF THE FRONT END, on exactly the same terms. PUBLIC for
-# both of the reasons the block above spells out: INTERFACE turns on the engine's
-# declaration of MyCoreEngine::TitleFrontEndScene and the host's call to it,
-# PRIVATE turns it on while compiling src/TitleFrontEnd.cpp so the compiler checks
-# this library's definition against that declaration.
 #
-# A SECOND MACRO RATHER THAN A SECOND USE OF THE FIRST, and it is the engine's
-# decision rather than this file's -- TitleFrontEnd.h argues it at length. The
-# short version is that the two are independent: a title can register modes and
-# own no front end (which is exactly what this title was until its menu moved out
-# of the engine's asset root), and a scene-driven game with a title screen and no
-# modes at all is most games. One macro would force every title to define both
-# functions or fail to link, and one of the two would be a stub returning nothing.
-#
-# THE CONTENT IS NOT COMPOSED HERE. The scene this switch makes the host boot
-# lives in ../Assets/, which the ROOT CMakeLists layers onto the engine's asset
-# root -- by the convention `Games/<title>/Assets`, gated on this very target
-# existing. So there is no asset path in this file and no build rule to keep in
-# step with one: linking the library is what brings the code, and the same
-# add_subdirectory is what brings the content.
-target_compile_definitions(UntitledFighterPlayer PUBLIC CSE_HOST_TITLE_FRONT_END=1)
+# THE SAME MACRO NOW REACHES TWO DIFFERENT HOSTS, and that costs this file
+# nothing: the guard says "something in this build defines the hook", never "the
+# player is running". A host that links this and never calls
+# RegisterTitleGameModes is not an error either -- it is a host that has no
+# concept of entering a mode, which is what the Editor was until it grew one.
+target_compile_definitions(UntitledFighterModes PUBLIC CSE_HOST_TITLE_MODES=1)
 
 # BOTH PRIVATE, and that is a statement about this library rather than a default.
 #
@@ -126,8 +132,11 @@ target_compile_definitions(UntitledFighterPlayer PUBLIC CSE_HOST_TITLE_FRONT_END
 #            one line brings the simulation, the character loader and
 #            MatchBuilder with it.
 #
-# What crosses from here to the host is an IGameMode pointer and one function
-# call. Nothing of cse::game, cse::data or cse::kernel appears in it -- which is
-# what lets a general Player executable link this archive and still name no
-# fighter, no hitbox and no move anywhere in Player/src.
-target_link_libraries(UntitledFighterPlayer PRIVATE Engine CseGame)
+# What crosses from here to a host is an IGameMode pointer and one function call.
+# Nothing of cse::game, cse::data or cse::kernel appears in it -- which is what
+# lets a general Player executable AND a general Editor executable link this
+# archive and still name no fighter, no hitbox and no move anywhere in their own
+# sources. The root's boundary assertion checks exactly that distinction: a host
+# may link this thin library, and may not reach past it to CseKernel, CseData or
+# CseGame directly.
+target_link_libraries(UntitledFighterModes PRIVATE Engine CseGame)

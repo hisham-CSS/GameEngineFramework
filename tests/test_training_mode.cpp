@@ -1,6 +1,6 @@
 // TRAINING MODE, PROVEN WITHOUT A WINDOW.
 //
-// Games/UntitledFighter/Player/src/UntitledFighterMode.cpp is a GameMode: it owns
+// Games/UntitledFighter/Modes/src/UntitledFighterMode.cpp is a GameMode: it owns
 // a Renderer2D call, a fixed tick and a keyboard, and none of those can be
 // asserted on a CI machine with no display. What it is BUILT OUT OF can be, and
 // that is what this file does -- every behaviour training mode claims, exercised
@@ -2136,7 +2136,7 @@ TEST(TrainingModeVerdict, ACertifiedAwayCycleOutrunsTheAnalysisOwnWorstCase) {
 // ---------------------------------------------------------------------------
 // WHY THESE TESTS DO NOT LINK THE HUD, AND WHAT THEY ARE THEREFORE ABOUT
 // ---------------------------------------------------------------------------
-// Games/UntitledFighter/Player/ links Renderer2D, a font atlas and a GL context,
+// Games/UntitledFighter/Modes/ links Renderer2D, a font atlas and a GL context,
 // and tests/ may not acquire one -- the same rule that put every other claim in
 // this file behind a headless seam. So each derivation is RESTATED below in the
 // shape its source spells it, and WHAT IS UNDER TEST IS THE KERNEL'S ANSWER:

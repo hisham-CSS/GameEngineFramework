@@ -75,30 +75,54 @@ add_subdirectory(Game)
 # ---------------------------------------------------------------------------
 # The three libraries above are the GAME: they know nothing about a window, a
 # renderer or an editor, and two of them spend a configure-time assertion each
-# keeping it that way. The two below are how that game REACHES a host, and they
+# keeping it that way. The three below are how that game REACHES a host, and they
 # exist because the hosts are general-purpose and must stay that way.
 #
-# The pattern is the same in both, and it is the pattern a second title copies:
+# The pattern is the same in all three, and it is the pattern a second title
+# copies:
 #
 #   * the HOST declares a hook and never defines it -- editor::RegisterTitlePanels
 #     in Editor/src/EditorPanel.h, MyCoreEngine::RegisterTitleGameModes in
-#     Engine/src/core/GameMode.h. Same idiom as MyCoreEngine::CreateApplication:
-#     the link is where the two meet.
+#     Engine/src/core/GameMode.h, MyCoreEngine::TitleFrontEndScene in
+#     Engine/src/core/TitleFrontEnd.h. Same idiom as
+#     MyCoreEngine::CreateApplication: the link is where the two meet.
 #   * the TITLE defines it, in a library whose INTERFACE carries the compile
 #     definition that turns the host's call site on. Linking the library IS the
 #     registration, so the link and the macro cannot get out of step.
-#   * the ROOT CMakeLists.txt composes the two, in the one file already allowed
-#     to know a title exists.
+#   * the ROOT CMakeLists.txt composes them, in the one file already allowed to
+#     know a title exists.
 #
-# Neither is added to CseGame. That target asserts it links exactly CseKernel and
-# CseData, and it should: these two render, hold an ImGui window and read a
-# controller, and the headless core stays headless.
+# ONE LIBRARY PER SEAM, NAMED FOR WHAT IT CONTRIBUTES. That is the rule, and it
+# was learned the hard way: the modes and the front end used to share one library
+# called `UntitledFighterPlayer`, named for the host that consumed it. Then the
+# EDITOR needed the modes -- entering a mode in the Game view is how the editor
+# previews what ships -- and the choice was between an editor linking a library
+# called "Player" (which works and is a lie) and a split. A name that says WHO
+# USES THIS is a prediction; a name that says WHAT THIS IS is a fact.
+#
+# A HOST TAKES THE SEAMS IT WANTS, which is the property the split buys and the
+# reason the two guard macros were separate all along (TitleFrontEnd.h argues
+# it): the editor takes panels and modes, a player takes modes and a front end,
+# and a scene-driven title with a title screen and no modes at all -- most games
+# -- would ship only the front-end library.
+#
+# None of them is added to CseGame. That target asserts it links exactly
+# CseKernel and CseData, and it should: these render, hold an ImGui window and
+# read a controller, and the headless core stays headless.
 
 # The Combo Prover panel, plugged into the general editor. Was compiled straight
 # into Editor/ with target_link_libraries(Editor PRIVATE CseData) holding it up.
 add_subdirectory(Editor)
 
-# "Untitled Fighting Game" as a mode the Player can enter, tick, draw and leave.
+# "Untitled Fighting Game" as a mode a host can enter, tick, draw and leave.
 # A fight is not a scene -- no entities, no camera, its own fixed tick -- which
-# is the whole reason the host needed a concept above the scene at all.
-add_subdirectory(Player)
+# is the whole reason the hosts needed a concept above the scene at all. BOTH
+# hosts link this: the shipped player to play the game, the editor to preview it.
+add_subdirectory(Modes)
+
+# Where the game STARTS: the one scene a host boots when this title is in the
+# build. A different question from the one above -- what a host can BE IN versus
+# what it OPENS AT -- and therefore a different library, so that a host can have
+# either without the other. Players link this; the editor does not, because an
+# editor opens the scene the designer asked for.
+add_subdirectory(FrontEnd)

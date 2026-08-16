@@ -139,6 +139,29 @@ private:
     // and because the editor's refusals capture `this`.
     MyCoreEngine::MenuUIHooks menuHooks_;
     MyCoreEngine::UINavSynth  navSynth_;   // holds the auto-repeat clock
+
+    // The modes this build ships, and which one the editor is IN.
+    //
+    // A MODE IS A PLAY-SESSION THING HERE. It is entered from the menu being
+    // previewed in the Game view, that menu's verbs are refused while the editor
+    // is stopped (MenuUIHooks::allowHostMutation, [this]{ return playing_; }),
+    // and a mode's fixed tick is the play session's fixed tick — RunLoop skips
+    // the gameplay hooks entirely while gameplayEnabled_ is off. So this is
+    // never non-empty outside Play, and startPlay_/stopPlay_ are the two ends of
+    // its life. See the discussion at menuHooks_.onEnterMode in Run().
+    //
+    // UNGUARDED, on purpose: GameModeRegistry is an Engine type and is always
+    // available, so an editor built with no title is this editor with an empty
+    // list rather than a second shape of editor. Only the REGISTRATION call is
+    // guarded (Initialize()), which is the split PlayerMain makes too.
+    //
+    // A MEMBER for the same reason as everything above it: the fixed-tick hook,
+    // the Game view's UI draw and the input capture provider all capture it by
+    // reference and are invoked for the app's whole life. It also OWNS the
+    // modes, and a mode's destructor must not run after the GL context is gone —
+    // a derived member is destroyed before Application's window, so a member
+    // here is the placement that is safe and a local in Run() would not be.
+    MyCoreEngine::GameModeRegistry modes_;
     // Refuses GAME-originated swaps while stopped. The Game panel dispatches
     // the game's UI clicks even in edit mode, so without this a menu button in
     // a document being authored could replace the scene under the author.
@@ -281,6 +304,26 @@ private:
     bool gameViewFocused_ = false;
     bool gameSurfaceFocused_ = false;
 
+    // A MODE HAS THE SCREEN *AND* THE KEYBOARD. Both halves or neither, which is
+    // exactly what IGameMode::OwnsScreen documents, ANDed with the editor's own
+    // extra condition: this host's screen is a docked panel among live ImGui
+    // shortcuts, so "the mode owns it" can only mean "while the Game SURFACE is
+    // the thing holding focus". The Player has no such condition because it has
+    // no second UI to lose focus to.
+    //
+    // gameSurfaceFocused_, not gameViewFocused_: clicking the camera picker or
+    // the Blend field focuses the panel without handing the fight the keyboard,
+    // and the narrow flag is the one every other gate in this file reads.
+    //
+    // Asked by the capture provider (whether RunLoop's Escape-quits and fly
+    // camera stand down) and by the Game panel's toolbar (what it tells the
+    // author about where input is going). One function, because two call sites
+    // that answered it differently would be a fly camera and a fight both
+    // acting on one W.
+    bool modeHasTheKeyboard_() const {
+        return modes_.activeOwnsScreen() && gameSurfaceFocused_;
+    }
+
     // A text field in the PREVIEWED document is typing, and the keys really are
     // going there. The keyboard forward in DrawGameViewport is
     // `gameSurfaceFocused_ && !ui_.WantTextInput()` and is NOT gated on
@@ -291,8 +334,15 @@ private:
     // last character. Scoped to gameSurfaceFocused_ deliberately: a field that
     // merely still holds focus while the user works in an ImGui panel must not
     // deadlock the editor's shortcuts.
+    //
+    // ...AND NOT WHILE A MODE OWNS THE SCREEN. uiWorld_ is not updated at all
+    // then (see the Game view's UI draw), so wantsTextInput() is frozen at
+    // whatever the previewed menu believed on the way in. A name half-typed into
+    // a title screen would otherwise keep Ctrl+P disabled for the whole fight —
+    // and Ctrl+P is how you stop it.
     bool gameIsTyping_() const {
-        return gameSurfaceFocused_ && uiWorld_.wantsTextInput();
+        return gameSurfaceFocused_ && !modes_.activeOwnsScreen() &&
+               uiWorld_.wantsTextInput();
     }
 
     // Which aspect ratio the Game view's surface is locked to.

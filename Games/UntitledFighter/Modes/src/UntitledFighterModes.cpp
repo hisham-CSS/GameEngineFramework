@@ -13,15 +13,23 @@
 namespace MyCoreEngine {
 
 // DECLARED by the engine (Engine/src/core/GameMode.h), DEFINED here. Linking
-// this library is what turns the host's call site on -- the CSE_HOST_TITLE_MODES
+// this library is what turns a host's call site on -- the CSE_HOST_TITLE_MODES
 // definition rides in on this target's INTERFACE, so the link and the macro
-// cannot get out of step. See Games/UntitledFighter/Player/CMakeLists.txt.
+// cannot get out of step. See Games/UntitledFighter/Modes/CMakeLists.txt.
+//
+// TWO HOSTS RUN THIS FUNCTION, not one: the shipped Player, and the Editor,
+// which enters a mode in its Game view so that the preview and the shipped
+// build cannot show different menus. Nothing below has to know which -- the
+// registry it fills is the host's, and every mode registered here is handed a
+// GameModeContext by whoever entered it (Engine/src/core/GameMode.h).
 void RegisterTitleGameModes(GameModeRegistry& registry) {
     // REGISTRATION ORDER IS MENU ORDER (GameMode.h), and this is the whole
     // reason "Untitled Fighting Game" is the first thing on the main menu: the
     // menu markup names no game and holds four anonymous slots, so which one is
-    // at the top is decided here, by the title, and by nothing in Engine/ or
-    // Player/.
+    // at the top is decided here, by the title, and by nothing in Engine/,
+    // Player/ or Editor/. That is also why the editor's Game view shows the same
+    // menu in the same order as the shipped build without either host holding a
+    // list: both read this registry.
     registry.Add(std::make_unique<untitledfighter::UntitledFighterMode>());
 
     // The modes that follow this one are already named in the plan and are NOT

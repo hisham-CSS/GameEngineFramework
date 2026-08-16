@@ -1,12 +1,14 @@
 // The title's half of the FRONT-END seam: which scene a host boots when this
 // game is in the build.
 //
-// One function, in its own translation unit beside UntitledFighterModes.cpp and
-// for the same reason: this is the file somebody opens to answer "what does the
-// game boot into", and a one-line answer buried at the bottom of a 250-line mode
-// implementation is a one-line answer somebody edits the wrong copy of. The two
-// seams are two files because they are two questions -- what the host can BE IN
-// (a mode) and what the host STARTS AT (a scene).
+// One function, and its own LIBRARY rather than its own file inside a larger
+// one. It used to sit beside ../../Modes/src/UntitledFighterModes.cpp, and being
+// a separate file there was already the right instinct for the wrong unit: the
+// two seams are two QUESTIONS -- what a host can BE IN (a mode) and what a host
+// STARTS AT (a scene) -- and a host that wants one answer and not the other can
+// only decline the second at a LINK boundary. The editor is that host: it enters
+// modes to preview what ships, and it opens the scene a designer asked for
+// rather than booting a title screen. ../CMakeLists.txt argues it in full.
 //
 // DECLARED by the engine (Engine/src/core/TitleFrontEnd.h, reached through
 // Engine.h), DEFINED here. The CSE_HOST_TITLE_FRONT_END definition rides in on
@@ -16,9 +18,10 @@
 //
 // Engine.h rather than a four-level relative climb into Engine/src: only
 // Engine/include is on this target's include path (Engine/CMakeLists.txt exports
-// exactly one PUBLIC directory), and every other file in this library already
-// includes it. A ../../../../ path would compile today and would be the first
-// thing to break the day anything moves.
+// exactly one PUBLIC directory), so there is no narrower header to include and
+// inventing one would mean widening the engine's exported paths for a consumer's
+// convenience. A ../../../../ path would compile today and would be the first
+// thing to break the day anything moves -- as this file just did.
 #include "Engine.h"
 
 #include <string>

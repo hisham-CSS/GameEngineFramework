@@ -42,6 +42,31 @@ void EditorApplication::Initialize()
     // startup rather than in the first frame.
     editor::RegisterTitlePanels(titlePanels_);
 #endif
+
+#ifdef CSE_HOST_TITLE_MODES
+    // The game modes this build ships (Engine/src/core/GameMode.h). Same seam
+    // as the panels above and the same guard mechanism -- the macro is not set
+    // in Editor/CMakeLists.txt, it rides in as an INTERFACE compile definition
+    // on UntitledFighterModes, so LINKING THE LIBRARY IS TURNING THE HOOK ON.
+    // An editor built with no title compiles this call out, keeps an empty
+    // registry, and previews the menu it previewed before modes existed.
+    //
+    // DECLARED IN THE ENGINE PRECISELY SO THIS HOST CAN CALL IT. The Player has
+    // been calling the identical function since the seam landed; that both hosts
+    // enter modes through one registration function is what stops the editor's
+    // preview and the shipped game from drifting into two lists.
+    //
+    // Here, beside the panels, for the reason written above them and for one
+    // more: registration order is MENU order (GameMode.h), and the menu that
+    // reads it is installed in Run(). Registering in the constructor-side pass
+    // means the registry is finished before anything can look at it, whatever
+    // order Run() ends up doing things in.
+    //
+    // Nothing here touches GL either: a mode is constructed once and only
+    // allocates in Enter(), which is the point of the registry owning them for
+    // the process rather than building one per visit.
+    MyCoreEngine::RegisterTitleGameModes(modes_);
+#endif
 }
 
 void EditorApplication::Run() {
@@ -97,7 +122,53 @@ void EditorApplication::Run() {
             // from the Game panel across the Scene viewport used to make capK
             // false while a game TextField still had focus, and Escape then
             // reached the quit path and closed THE EDITOR, losing unsaved work.
-            caps.keyboard = ui_.WantTextInput() || uiWorld_.wantsKeyboard() || !inViewport;
+            //
+            // A GAME MODE IS THE SAME BUG ONE LAYER UP, and it is worse. A fight
+            // is not a UI document, so uiWorld_.wantsKeyboard() is false for the
+            // whole time one is on screen: with the Game surface focused and the
+            // cursor merely resting over the Scene image, capK went false, the
+            // fly camera took A/D/W (which are also Fight.Left/Right/Up) AND
+            // RunLoop's "Quit" check ran -- and "Quit" is Escape and gamepad
+            // BACK, which is exactly what a mode means by "leave". Pressing Back
+            // in a fight would have closed the editor. IGameMode::OwnsScreen
+            // documents the pairing; modeHasTheKeyboard_() is this host's half.
+            // A MODE OWNS THE KEYBOARD FOR AS LONG AS IT OWNS THE SCREEN, and
+            // NOT only while the Game surface holds focus. Two bugs made that
+            // the safe reading, and the second is why it is not focus-gated.
+            //
+            // FIRST, THE STALE TERM. `uiWorld_.wantsKeyboard()` is
+            // `document().focused() != nullptr`, and uiWorld_ is NOT UPDATED AT
+            // ALL while a mode owns the screen -- exactly the staleness the
+            // textInput line below already guards against, in the same function,
+            // with the reason written next to it. It was left unguarded here.
+            // And it is reliably TRUE on the way in: a <Button> is focusable by
+            // default and click-to-focus fires on the press edge, so the very
+            // press that enters the mode focuses TRAINING and freezes that
+            // answer for the whole fight. capK was therefore true forever, the
+            // fly camera never came back, and the toolbar tooltip told the
+            // author to click the Scene view -- which did nothing. The label
+            // added to explain the input rules was itself misdirecting the fix.
+            //
+            // SECOND, AND THE REASON THE FOCUS GATE IS GONE. Guarding the stale
+            // term alone leaves capK = `!inViewport` when a mode is up and the
+            // author has clicked away: cursor resting over the Scene image makes
+            // it FALSE, RunLoop's "Quit" check runs, and "Quit" is Escape and
+            // gamepad BACK -- which is what a mode means by "leave". Pressing
+            // Back in a fight would close THE EDITOR with unsaved work. That is
+            // verbatim the failure the paragraph above says was eliminated, and
+            // a focus-gated claim re-opens it every time focus moves.
+            //
+            // So the claim follows OwnsScreen, which is the thing that is true
+            // for exactly as long as the hazard exists. The cost is real and
+            // small: the Scene view's fly camera cannot be flown while a fight
+            // is running in the Game panel. Stop gives it back, and the tooltip
+            // says so. modeHasTheKeyboard_() stays -- the TOOLBAR still wants
+            // the narrower question, because "where is input going" and "may the
+            // editor act on this key" are different questions and only the
+            // second one is a safety property.
+            caps.keyboard = modes_.activeOwnsScreen() || ui_.WantTextInput() ||
+                            (!modes_.activeOwnsScreen() && uiWorld_.wantsKeyboard()) ||
+                            !inViewport;
             // the viewport is an ImGui window too — camera controls
             // must keep working while the mouse is over it
             caps.mouse = ui_.WantCaptureMouse() && !viewportHovered_;
@@ -107,12 +178,44 @@ void EditorApplication::Run() {
             // Same widening as above: a space typed into the GAME'''s text field
             // is content, and without this it also fires whatever gameplay
             // action is bound to Space (InputMap binds "Jump" there by default).
-            caps.textInput = ui_.WantTextInput() || uiWorld_.wantsTextInput();
+            //
+            // The previewed document's half drops out entirely while a mode owns
+            // the screen, and NOT because of focus -- uiWorld_ is not updated at
+            // all then, so whatever a menu text field believed on the way in is
+            // frozen there for the whole fight. RunLoop clears the press latches
+            // every frame `typing` is true, which would eat the mode's input
+            // silently. Same reasoning as PlayerMain's capture provider, same
+            // line. (activeOwnsScreen() alone, without the focus AND: staleness
+            // is a property of the world not ticking, not of who has focus.)
+            caps.textInput = ui_.WantTextInput() ||
+                             (!modes_.activeOwnsScreen() && uiWorld_.wantsTextInput());
             return caps;
         });
     });
 
     SetUIDraw([this, &scene](float dt) {
+
+        // ---- the active mode's way out -------------------------------------
+        //
+        // A mode asks to leave (its Escape, its Back button, a match ending) and
+        // the host drains the request at a frame boundary. GameMode.h is
+        // emphatic about WHERE: not in a variable-rate update subscriber, which
+        // is skipped while paused, at timeScale 0 and on the frame of a scene
+        // swap -- a mode that asked to leave in any of those states would stay up
+        // forever with its own Escape apparently dead. The editor has all three
+        // states and a fourth of its own (edit mode gates the hooks off outright).
+        //
+        // THIS callback is the editor's "runs every frame regardless". It is
+        // Application::SetUIDraw, called unconditionally from RunLoop after the
+        // 3D pass, and it is the same slot PlayerMain drains from -- with one
+        // difference worth stating, because the obvious alternative is wrong: the
+        // GAME renderer's UI draw (where the mode's Draw lands) does NOT run when
+        // the Game panel is closed, collapsed or camera-less, so draining there
+        // would tie a mode's ability to leave to a panel being visible.
+        //
+        // FIRST in the frame, so a mode that asked to leave never draws again:
+        // DrawGameViewport is called from further down this same lambda.
+        modes_.DrainExitRequest();
 
         // Apply a requested layout between frames: LoadIniSettingsFromDisk
         // re-applies settings to live windows through the settings handlers'
@@ -457,6 +560,20 @@ void EditorApplication::Run() {
             undo_.clear();            // ...including all of the history's
             gameDirector_.reset();    // ...and the Game view's camera handles
             pendingModelOps_.clear(); // in-flight ops were aimed at the old scene
+            // A mode does not survive the scene it was entered from. It holds no
+            // entity handle -- UntitledFighterMode never touches ctx_.scene at
+            // all -- so this is not the stale-handle reset the four lines above
+            // are. It is that a mode is entered from a MENU in a particular
+            // scene, and a swap means the game went somewhere else; leaving it up
+            // over the new scene would also leave its action names (Fight.*)
+            // bound in the shared InputMap of a scene that never asked for them.
+            //
+            // HERE rather than at the call sites, for the reason the four lines
+            // above are here: this observer is the only thing every swap goes
+            // through, including the GAME-initiated ones the editor did not
+            // start. Leave() is safe and idempotent with nothing active, so the
+            // paths that already left (stopPlay_) pay nothing to pass through.
+            modes_.Leave();
             // Play is now standing on a scene it did not start in, so Stop
             // cannot restore its snapshot over the top. Deliberately does NOT
             // clear playSnapshot_: it is the fallback if the reload fails.
@@ -590,6 +707,124 @@ void EditorApplication::Run() {
         // The two things a file cannot carry: a named action and a converter.
         MyCoreEngine::InstallDemoUIContent(uiWorld_);
 
+        // ---- game modes ------------------------------------------------------
+        //
+        // WHAT A MODE IS TO THIS HOST, because the answer decides everything
+        // below and half of it is a refusal.
+        //
+        // A mode is a thing the host is IN: it takes the fixed tick, the screen
+        // and the keyboard (GameMode.h). The editor is a host that is also an
+        // editor, so all three of those are things it already has other users
+        // for, and the shape that falls out is:
+        //
+        //   A MODE LIVES INSIDE A PLAY SESSION. Play does not enter one directly.
+        //   Play starts the session exactly as it always has; the MENU previewed
+        //   in the Game view enters the mode, which is precisely how the shipped
+        //   player does it and is the flow the author actually reported (Play,
+        //   click TRAINING, "No game modes in this build."). Stop leaves it.
+        //
+        // That is not a preference, it is what the existing gates already say
+        // three times over, and it is worth writing them down because each one
+        // would have to be UNDONE to get the alternative:
+        //
+        //   1. The menu's verbs are refused while stopped. `allowHostMutation`
+        //      below is [this]{ return playing_; } and MenuUIContent checks it
+        //      before every verb including this one, so a mode simply cannot be
+        //      entered from edit mode. That hook predates modes entirely.
+        //   2. A MODE'S FIXED TICK IS THE PLAY SESSION'S FIXED TICK. RunLoop
+        //      skips the gameplay hooks wholesale while gameplayEnabled_ is off,
+        //      which is the editor's definition of edit mode, so a mode entered
+        //      while stopped would sit on screen and never be ticked once.
+        //   3. Its keys are the session's keys. setGameplayInputEnabled is
+        //      `playing_ && gameSurfaceFocused_`, and the mode binds A/D/W --
+        //      the fly camera's keys -- so a mode reading input outside a
+        //      session would drive the fight and the editor camera together.
+        //
+        // THE ALTERNATIVE, AND WHAT IT WOULD COST. Letting a mode be entered in
+        // edit mode means calling setGameplayEnabled(true) for it, and that flag
+        // is not a mode switch: it is the ONE gate on the whole fixed pipeline,
+        // shared with the physics and scripting subscribers. Turning it on would
+        // start stepping the solver over the scene the author is editing, with no
+        // Play pressed, no snapshot taken and therefore nothing to restore from
+        // -- edit-mode poses mutated by a fight that has nothing to do with them.
+        // The narrower version (a second gate that ticks the mode but not the
+        // subscribers) is a change to Application's loop, not to this seam, and it
+        // buys an entry point the shipped player does not have.
+        //
+        // DOES STOP ALWAYS LEAVE, OR ONLY WHEN PLAY ENTERED? The question does
+        // not arise, and that is the point of answering the first one properly:
+        // Play is the only door in, so "a mode is active" implies "Play entered
+        // it". stopPlay_ therefore leaves unconditionally, and Leave() is
+        // documented safe with nothing active, so the ordinary Stop that never
+        // saw a mode pays one branch. A half-answer here -- Stop leaving only the
+        // modes it remembers starting -- is exactly what produces a mode still
+        // ticking over a stopped scene.
+        //
+        // AND THE SCENE UNDERNEATH KEEPS RUNNING, deliberately. A fight is not a
+        // scene (FightSession owns a POD GameState and no entities), so the
+        // loaded scene is not the fight's world -- it is whatever the session was
+        // standing in when the menu button was pressed, and the mode paints an
+        // opaque backdrop over it. The editor does NOT stop simulating it, for
+        // three reasons: the Player does not either, and this panel exists to
+        // preview what ships; the scene's ticks come from the same accumulator as
+        // the mode's, so suppressing one without the other means unsubscribing
+        // physics mid-session; and everything it mutates is play-session state,
+        // which Stop discards wholesale (stopPlay_'s snapshot restore) -- so the
+        // author's FILE is never touched by a fight running over it. What was
+        // worth fixing is not the ticking but the silence about it, and the Game
+        // panel's toolbar now names the mode that is up.
+        //
+        // What DOES stop is the scene's UI: uiWorld_ is not updated while a mode
+        // owns the screen (see the Game view's UI draw), because Update is what
+        // dispatches clicks and moves focus, and a live menu sitting under a
+        // fight takes presses nobody can see. Same rule as the Player, same line.
+
+        // Everything a mode is handed on entry, built in ONE place so that this
+        // host cannot hand out two different contexts.
+        //
+        // A FACTORY rather than a stored struct, for the reason PlayerMain gives:
+        // it is evaluated at ENTRY, and the font may not have finished baking when
+        // this lambda is written. Everything it names is host-lifetime -- `scene`
+        // is Run()'s local, which outlives RunLoop, and the rest are members.
+        const auto modeContext = [this, &scene] {
+            MyCoreEngine::GameModeContext ctx;
+            ctx.app = this;
+            ctx.scene = &scene;
+            // May be null, which GameModeContext documents as allowed: the font
+            // load above prints and carries on.
+            ctx.font = uiFont_.IsValid() ? &uiFont_ : nullptr;
+            // The editor's asset root -- the same "Exported" every other editor
+            // path resolves against, and the same string the title PANELS are
+            // handed (editor::PanelContext::contentRoot). A mode that opens
+            // authored content joins onto this rather than guessing.
+            ctx.contentRoot = "Exported";
+            return ctx;
+        };
+
+        // The active mode's simulation step. SetFixedUpdate is the PRIMARY fixed
+        // slot, reserved by Application.h for "a game's own hook", and the editor
+        // has never used it -- physics is an AddFixedUpdate subscriber and is
+        // unaffected by taking it. Same slot the Player uses, so a mode is ticked
+        // at the same point in the loop in both hosts.
+        //
+        // GATED BY gameplayEnabled_ ALREADY, which is the editor's edit/play
+        // switch: this lambda is simply not called in edit mode. That is why
+        // there is no `if (playing_)` here -- a second copy of the gate that
+        // could disagree with the first.
+        SetFixedUpdate([this](float dt) {
+            if (MyCoreEngine::IGameMode* m = modes_.active()) m->FixedTick(dt);
+        });
+        // Per-frame. A SUBSCRIBER rather than SetUpdate, because scripting
+        // already occupies the subscriber list and the primary variable slot is
+        // the matching reservation to the one above.
+        //
+        // This is where the mode reads its Escape (UntitledFighterMode::Update
+        // reads "Quit"), so the request is MADE here and DRAINED from the
+        // top-level UI draw -- which runs even on the frames this does not.
+        AddUpdate([this](float dt) {
+            if (MyCoreEngine::IGameMode* m = modes_.active()) m->Update(dt);
+        });
+
         // The menu's verbs, with the editor's three refusals wired in. The Game
         // panel dispatches the running document's clicks even while STOPPED, so
         // without these a menu button in a document being AUTHORED would change
@@ -614,24 +849,113 @@ void EditorApplication::Run() {
         // A tier's CSM half lives on the Renderer and is not serialized, and the
         // editor has TWO renderers.
         menuHooks_.onQualityChanged = [this] { forceAllCSMUpdate_(); };
-        // NO `modes` AND NO `onEnterMode`, AND THAT IS A KNOWN GAP RATHER THAN A
-        // DECISION. A game mode (Engine/src/core/GameMode.h) is something a host
-        // ENTERS -- it takes the fixed tick, the screen and the keyboard -- and
-        // the Game view previews a scene inside a docked panel with the editor's
-        // own shortcuts live around it, so "the mode owns the screen" has no
-        // meaning here yet. The menu previewed in the Game view therefore shows
-        // the four authored verbs and none of the mode verbs the shipped player
-        // shows, which is the one place this editor does NOT preview exactly
-        // what ships.
+        // The modes, and the verb that enters one. THIS IS THE LINE THAT USED TO
+        // SAY "a known gap": the menu previewed here showed the four authored
+        // verbs and none of the mode verbs the shipped player shows, which was
+        // the one place this editor did not preview exactly what ships. A title
+        // front end loaded into the Game view drew its TRAINING button (it is
+        // typed markup, not a bound slot), the click reached `menuEnterMode0`,
+        // and the status line answered "No game modes in this build."
         //
-        // Closing it is the natural next step and needs no change to the seam:
-        // the editor grows a GameModeRegistry of its own, Play enters the
-        // selected mode instead of starting a scene session, and Stop leaves it.
-        // MyCoreEngine::RegisterTitleGameModes is declared in the ENGINE rather
-        // than in Player/ precisely so that this host can call it too.
+        // TWO FIELDS, BOTH OR NOTHING. MenuUIContent publishes
+        // `(h.modes && h.onEnterMode) ? h.modes->Count() : 0`, so setting one of
+        // them leaves every `if="menuModeN"` slot false and the feature entirely
+        // invisible -- no error, no empty button, nothing to notice, on a build
+        // whose binary contains the mode. PlayerMain.cpp:451 records that exact
+        // one-field miss costing a debugging session; this comment is here so it
+        // costs nothing to repeat.
+        //
+        // `modes` is a pointer, and the flags are re-derived from it every frame
+        // by MenuUIPublishCounters below -- so an empty registry (a title-free
+        // editor) publishes four absent slots and the previewed menu is identical
+        // to the one from before modes existed.
+        menuHooks_.modes = &modes_;
+        // THE HOST ENTERS, NOT THE MENU: GameModeContext carries this
+        // executable's Font and its asset root, which MenuUIContent has no
+        // business acquiring. The returned string is empty on success or a
+        // message for the menu's own status line -- the same line a failed scene
+        // load lands on, which is what the author will be looking at.
+        menuHooks_.onEnterMode = [this, modeContext](int index) -> std::string {
+            // THE EDITOR'S OWN RULE, STATED BY THE EDITOR. It is currently
+            // unreachable -- MenuUIContent consults allowHostMutation first and
+            // refuses every verb while stopped -- and it is written anyway,
+            // because that hook belongs to the menu and this one belongs to this
+            // host. The day a second entry point exists (a toolbar button, a
+            // command palette) it will call THIS lambda and not that gate, and
+            // "a mode ticks on the play session's fixed tick" is a fact about
+            // the editor rather than about the menu.
+            if (!playing_) {
+                return "Press Play first - a mode runs on the play session's tick";
+            }
+            std::string error;
+            if (!modes_.Enter(index, modeContext(), error)) {
+                std::cerr << "[editor] game mode " << index << " refused: "
+                          << error << std::endl;
+                return error;
+            }
+            // The Game surface is what feeds a mode its keys
+            // (setGameplayInputEnabled is `playing_ && gameSurfaceFocused_`), and
+            // it is ALREADY focused on every real path in: the menu button was
+            // clicked on that surface, which is what latched the flag. Said out
+            // loud rather than assumed, because the toolbar's "Click the image to
+            // give input to the game" is the recovery if it ever is not.
+            std::cout << "EDITOR: entered game mode '"
+                      << modes_.DisplayNameAt(index) << "'." << std::endl;
+            return {};
+        };
         MyCoreEngine::InstallMenuUIContent(uiWorld_, menuHooks_);
         gameRenderer_.SetUIDraw([this, &scene](MyCoreEngine::Renderer2D& r2d,
                                               int w, int h, float dt) {
+            // The Inspector reports what the scale settings resolve to, and this
+            // is the only place that knows the real UI surface. FIRST, above the
+            // mode branch below, because it is a fact about the SURFACE rather
+            // than about what is drawn on it -- leaving it under the branch made
+            // the Inspector report the size from before a fight started, for as
+            // long as the fight was up.
+            inspector_.SetUISurfaceSize(float(w), float(h));
+
+            // ---- the active game mode, first -------------------------------
+            //
+            // w and h are gameTarget_'s, i.e. THE GAME VIEW'S LETTERBOXED
+            // SURFACE, not the editor window's -- DrawGameViewport sizes the
+            // target from the aspect-locked rect and RenderFrame passes those
+            // through as the viewport UIPass hands us. That is the whole reason
+            // the mode's Draw takes a width and a height instead of asking the
+            // Application: this host has two surfaces and the fight belongs on
+            // the small one. A HUD laid out against the main window's size would
+            // be drawn at the wrong scale in the wrong place.
+            //
+            // The exit drain is NOT here. It lives in the editor's top-level UI
+            // draw, which runs on frames this callback does not -- the Game panel
+            // can be closed, collapsed or camera-less, and a mode must still be
+            // able to leave. See the drain for the full argument.
+            if (MyCoreEngine::IGameMode* mode = modes_.active()) {
+                if (mode->OwnsScreen()) {
+                    // THE SCENE'S UI DOCUMENTS DO NOT RUN. Not merely "are not
+                    // drawn": uiWorld_.Update is what dispatches clicks and moves
+                    // focus, so leaving it running would put a live menu
+                    // underneath the fight, taking presses nobody can see -- and
+                    // one of those presses is the button that enters this mode.
+                    // The other half of the pairing is in the capture provider;
+                    // both or neither.
+                    //
+                    // The 3D pass still ran and the mode paints over it. Same
+                    // situation the Player is in and for the same reason: this
+                    // callback is a pass at the END of RenderFrame, so skipping
+                    // the world would mean skipping the call that gets us here.
+                    //
+                    // The repeat clock is reset for the same reason the else
+                    // branch below resets it: nav is not polled while a mode is
+                    // up, and a stick held on the way in must not deliver a
+                    // burst of moves to the menu on the way out.
+                    navSynth_.repeat.Reset();
+                    mode->Draw(r2d, w, h, dt);
+                    return;
+                }
+                // A mode layered OVER the running scene (OwnsScreen false) draws
+                // after the documents do, at the bottom of this callback.
+            }
+
             // Before Update, so the frame that draws the counters draws the
             // current ones. Pushed rather than polled -- see MenuUIContent.h.
             MyCoreEngine::MenuUIPublishCounters(uiWorld_, menuHooks_);
@@ -669,9 +993,14 @@ void EditorApplication::Run() {
             }
             uiWorld_.Update(scene.registry, w, h, dt);
             uiWorld_.Draw(r2d);
-            // The Inspector reports what the scale settings resolve to, and
-            // this is the only place that knows the real UI surface.
-            inspector_.SetUISurfaceSize(float(w), float(h));
+
+            // A non-OwnsScreen mode: an overlay on the running scene, drawn last
+            // so it sits on top of the scene's own HUD. No mode in this build
+            // takes that branch, and it is written because the alternative --
+            // an early return above that silently dropped such a mode's Draw --
+            // is the kind of hole that is only found by the first mode to need it.
+            if (MyCoreEngine::IGameMode* mode = modes_.active())
+                mode->Draw(r2d, w, h, dt);
         });
 
         // Audio: per-frame listener/source update installed for the app's life;
@@ -688,6 +1017,15 @@ void EditorApplication::Run() {
     }
 
     RunLoop(scene, *shader);
+
+    // Leave whatever mode was live, HERE rather than leaving it to
+    // ~GameModeRegistry. The registry is a member and would do it -- its
+    // destructor calls Leave for exactly this reason -- but by then `scene`,
+    // `sceneLoader_` and `shader`, all reachable from a GameModeContext, are
+    // gone. A mode's Exit is allowed to touch what it was handed, and this is
+    // the last moment that is true. Idempotent, so the ordinary case (Stop was
+    // pressed, or a mode was never entered) costs one branch.
+    modes_.Leave();
 }
 
 void EditorApplication::DrawViewport(MyCoreEngine::Scene& scene)
@@ -1082,10 +1420,59 @@ void EditorApplication::DrawGameViewport(MyCoreEngine::Scene& scene,
                                   "keyboard -- clicking the toolbar above focuses the panel but\n"
                                   "not the game. The Scene view stays navigable while playing.");
             }
+
+            // WHICH MODE THIS EDITOR IS IN, and the way out of it.
+            //
+            // The same argument as the input label beside it: silence is what
+            // makes working behaviour look broken. A mode owns the screen AND the
+            // keyboard, so while one is up the fly camera stands down even with
+            // the cursor over the Scene view (see the capture provider) -- and
+            // "the camera stopped responding" with nothing on screen to explain
+            // it is a bug report this panel has already produced once.
+            //
+            // The button is not a duplicate of the mode's own Escape. Escape is
+            // the mode's, is consumed by the mode, and only arrives while the
+            // surface has the keyboard; this is the EDITOR's way out, and it
+            // works when the mode's own does not -- which is the state an author
+            // debugging a mode is most likely to be in.
+            if (IGameMode* activeMode = modes_.active()) {
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(0.85f, 0.55f, 0.95f, 1.f), "| Mode: %s",
+                                   activeMode->DisplayName());
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip(
+                        "A game mode is running in this panel. It owns the surface and\n"
+                        "the keyboard for as long as it is running, so the Scene view's\n"
+                        "fly camera stands down -- press Stop to take them back.\n\n"
+                        "Not while the image has focus, but always: Escape and gamepad\n"
+                        "BACK mean 'leave the mode' here, and if the editor could act on\n"
+                        "them it would quit with your unsaved work.\n\n"
+                        "The scene keeps simulating underneath (the mode paints over it),\n"
+                        "and every entity change still reverts on Stop.");
+                }
+                ImGui::SameLine();
+                // Leaves NOW, mid-toolbar, which is safely before this frame's
+                // RenderFrame further down: the UI pass then takes the ordinary
+                // document path rather than drawing a half-exited mode.
+                if (ImGui::SmallButton("Leave Mode")) modes_.Leave();
+            }
         }
     }
 
-    if (!gameDirector_.Update(scene.registry, dt, gameCamera_)) {
+    // A camera-less scene is not a reason to hide a MODE. A fight is not a scene
+    // -- FightSession owns a POD GameState and no entities -- so a mode draws
+    // over whatever the 3D pass produced and needs nothing from the director. The
+    // early return below was written when the only thing this panel could show
+    // was the scene; leaving it unqualified meant a mode entered from a menu in a
+    // scene whose camera was later deleted (or a title front end that never had
+    // one) simply vanished, still ticking, with the panel explaining how to add a
+    // Camera component to a fight.
+    //
+    // gameCamera_ keeps whatever the director last wrote, or its default -- it is
+    // a member and is always a valid camera, and nothing on screen comes from it
+    // while a mode owns the surface anyway.
+    if (!gameDirector_.Update(scene.registry, dt, gameCamera_) &&
+        !modes_.activeOwnsScreen()) {
         ImGui::TextDisabled("No camera in the scene.");
         ImGui::TextDisabled("Select an entity and use Inspector > Add Component > Camera.");
         ImGui::End();
@@ -1449,6 +1836,14 @@ void EditorApplication::newScene_(MyCoreEngine::Scene& scene)
     physics_.Clear();         // bodies referred to the old entities
     scripts_.Clear();         // ...and so did every script instance
     audio_.Clear();           // ...and so did any voices
+    // ...and a mode was entered from a menu in the scene that just went away.
+    // This function replaces the scene BY HAND rather than through SceneLoader,
+    // so it does not get the observer that handles every other swap -- which is
+    // why it already repeats the four lines above it. Unreachable today (New
+    // Scene is disabled while playing, and a mode only exists during play) and
+    // written anyway, because the list this line belongs to is right here and a
+    // second path that forgot one of them is how the observer came to exist.
+    modes_.Leave();
     // wholesale caster removal bypasses the departure-sphere flow: the old
     // scene's shadows would stay baked otherwise
     forceAllCSMUpdate_();
@@ -2408,6 +2803,19 @@ void EditorApplication::startPlay_(MyCoreEngine::Scene& scene)
 void EditorApplication::stopPlay_(MyCoreEngine::Scene& scene)
 {
     if (!playing_) return;
+    // THE MODE GOES FIRST, and unconditionally. A mode lives inside a play
+    // session (see the game-modes block in Run()), so Play is the only door in
+    // and Stop is therefore always the right time to leave -- there is no such
+    // thing as a mode this Stop did not start, and remembering which ones it did
+    // is how a mode ends up still ticking over a stopped scene.
+    //
+    // BEFORE the gameplay gates below, so the mode's last frame is a frame it was
+    // still being ticked in rather than one where FixedTick had already stopped
+    // arriving. Exit() gives back what Enter took -- for the fighting game that
+    // is its Fight.* action names, which live in the host's SHARED InputMap and
+    // would otherwise sit on the J and A/D/W keys of an editor that has never
+    // heard of them. Safe with nothing active, which is the common case.
+    modes_.Leave();
     setGameplayEnabled(false);
     setGameplayInputEnabled(false); // no game to receive input once stopped
     // BEFORE anything below: the swap observers read playing_ (to arm

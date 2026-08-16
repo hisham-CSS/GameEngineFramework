@@ -125,25 +125,48 @@ add_dependencies(Editor AssetCooker)
 # Each host declares a hook it never defines and the title's library defines it:
 #   editor::RegisterTitlePanels             Editor/src/EditorPanel.h
 #   MyCoreEngine::RegisterTitleGameModes    Engine/src/core/GameMode.h
+#   MyCoreEngine::TitleFrontEndScene        Engine/src/core/TitleFrontEnd.h
 # Linking the library is also what TURNS THE HOOK ON -- each library carries the
 # guard macro as an INTERFACE compile definition, so there is no second line here
 # that anybody could forget and no way for the link and the macro to disagree.
 # See Games/UntitledFighter/CMakeLists.txt for the pattern written out.
 #
+# ONE LIBRARY PER SEAM, AND A HOST TAKES THE SEAMS IT WANTS. That is why the
+# three hooks above are three targets below rather than one per host: the modes
+# and the front end used to share a library called `UntitledFighterPlayer`, and
+# the moment the EDITOR wanted the modes -- entering a mode in the Game view is
+# how the editor previews what ships -- the only way to give it them was to make
+# a general-purpose editor link a library called "Player". That works and it is a
+# lie. The split is what makes each link line below readable on its own: the
+# editor links the panels and the modes, a player links the modes and the front
+# end, and nobody links a name that predicts who they are.
+#
 # REMOVE THE add_subdirectory ABOVE AND YOU HAVE A GENERAL ENGINE with a general
 # editor and a general player, all of which still build and run -- the editor
-# simply has no Combo Prover in its Window menu and the player's main menu has no
-# fighting game on it. That is the property this arrangement is for.
+# simply has no Combo Prover in its Window menu and nothing to enter in its Game
+# view, and the player's main menu has no fighting game on it and boots the
+# engine demo. That is the property this arrangement is for.
+#
+# A TITLE-LESS EDITOR STILL HAS THE MACHINERY, and that is what makes the above
+# cost nothing to keep true. GameModeRegistry is an ENGINE type, so the editor's
+# registry is still constructed, still empty, and still the thing the previewed
+# menu derives its slots from -- `Count() == 0`, four `if="menuModeN"` slots
+# false, a menu identical to the one before modes existed (MenuUIHooks::modes
+# says so). Only the CALL to MyCoreEngine::RegisterTitleGameModes is compiled
+# out, because only the call needs a definition that a title supplies. Guarding
+# the registry itself would be guarding the wrong half: it would mean two shapes
+# of editor to reason about instead of one editor with an empty list.
 #
 # IT IS GUARDED RATHER THAN ADVERTISED, and the difference is the whole point.
-# These three lines named their targets WITHOUT a `::`, and CMake treats an
-# unknown non-namespaced name as a raw library for the linker rather than as a
-# missing target -- so dropping the title configured CLEAN and then died with
+# These lines name their targets WITHOUT a `::`, and CMake treats an unknown
+# non-namespaced name as a raw library for the linker rather than as a missing
+# target -- so dropping the title configured CLEAN and then died with
 # `LNK1104: cannot open file 'UntitledFighterPlayer.lib'` (gcc:
-# `cannot find -lUntitledFighterPlayer`), naming a file that never existed. That
-# is the opposite of how every other rule in this repository fails, and it made
-# the paragraph above a wish rather than a boundary. Verified by experiment, not
-# by reading.
+# `cannot find -lUntitledFighterPlayer`), naming a file that never existed. (That
+# was the library's name at the time; it is `UntitledFighterModes` now, and the
+# trap is identical for every name below.) That is the opposite of how every
+# other rule in this repository fails, and it made the paragraph above a wish
+# rather than a boundary. Verified by experiment, not by reading.
 #
 # `if (TARGET ...)` turns it into an executed property: with the title present
 # these link exactly as before; with it absent the engine builds and the hooks
@@ -154,9 +177,46 @@ add_dependencies(Editor AssetCooker)
 if (TARGET UntitledFighterEditor)
     target_link_libraries(Editor PRIVATE UntitledFighterEditor)
 endif()
-if (TARGET UntitledFighterPlayer)
-    target_link_libraries(PlayerDebug    PRIVATE UntitledFighterPlayer)
-    target_link_libraries(PlayerShipping PRIVATE UntitledFighterPlayer)
+
+# THE MODES GO TO BOTH HOSTS, and this is the line the whole split was for.
+#
+# The editor links them because ENTERING A MODE IN THE GAME VIEW IS HOW THE
+# EDITOR PREVIEWS WHAT SHIPS -- the one property this codebase protects hardest,
+# and the one place it was not being kept: the shipped player's main menu offered
+# the game's modes and the same menu previewed in the editor's Game view showed
+# four authored verbs and none of them, because the editor had no registry to
+# publish. It is the same archive in both executables, so there is no second
+# implementation of a mode to drift.
+#
+# THE GUARD MACRO ARRIVES WITH THE LINK, here as everywhere: this line is also
+# what defines CSE_HOST_TITLE_MODES for every source file in the target, which is
+# what compiles each host's call to MyCoreEngine::RegisterTitleGameModes in. A
+# host that gains this line and never calls the hook is not an error -- it is a
+# host with no concept of entering a mode, which is what the editor was.
+if (TARGET UntitledFighterModes)
+    target_link_libraries(Editor         PRIVATE UntitledFighterModes)
+    target_link_libraries(PlayerDebug    PRIVATE UntitledFighterModes)
+    target_link_libraries(PlayerShipping PRIVATE UntitledFighterModes)
+endif()
+
+# THE FRONT END GOES TO THE PLAYERS ONLY, and the absence of `Editor` here is a
+# decision rather than an oversight.
+#
+# MyCoreEngine::TitleFrontEndScene answers "what does this host START AT", and an
+# editor never asks it: a designer opens the scene they want, from the asset
+# browser or the command line, and an editor that booted a game's title screen
+# instead would be overriding them. So the editor gets no
+# CSE_HOST_TITLE_FRONT_END, which also means an editor call site added later
+# would fail to compile rather than quietly change what the editor opens -- the
+# loud failure, which is how the rest of this seam behaves.
+#
+# The editor still PREVIEWS that front end perfectly well: it is an ordinary
+# scene in the title's staged assets (UntitledFighter/menu.json), opened the
+# ordinary way. Booting it and opening it are different verbs, and only one of
+# them belongs to a tool.
+if (TARGET UntitledFighterFrontEnd)
+    target_link_libraries(PlayerDebug    PRIVATE UntitledFighterFrontEnd)
+    target_link_libraries(PlayerShipping PRIVATE UntitledFighterFrontEnd)
 endif()
 
 # ---------------------------------------------------------------------------
@@ -195,10 +255,11 @@ set(CSE_ASSET_ROOTS ${CMAKE_SOURCE_DIR}/Editor/src/Exported)
 #
 # THE TARGET IS THE GATE, not the directory. Delete the add_subdirectory above
 # and the Assets/ folder is still sitting on disk, so a directory test alone
-# would go on staging a game into a build that does not contain one. Both of the
-# title's host libraries come from that single add_subdirectory, so either
-# answers "is this title in the build"; this one is named to match the block
-# directly above.
+# would go on staging a game into a build that does not contain one. All THREE
+# of the title's host libraries come from that single add_subdirectory, so any of
+# them answers "is this title in the build" identically -- the question is
+# whether the title was added, not which seams a host took. This names the modes
+# because they are the half both hosts link.
 #
 # THE DIRECTORY TEST IS THE SECOND HALF, and it is not a transitional
 # convenience: a title need not ship assets at all. The fighting game was exactly
@@ -206,7 +267,7 @@ set(CSE_ASSET_ROOTS ${CMAKE_SOURCE_DIR}/Editor/src/Exported)
 # title whose modes draw everything procedurally never acquires one. The staging
 # script FATAL_ERRORs on a root that is not a directory -- the right answer for a
 # path somebody mistyped, the wrong one for a title that simply has no files.
-if (TARGET UntitledFighterPlayer AND
+if (TARGET UntitledFighterModes AND
     IS_DIRECTORY ${CMAKE_SOURCE_DIR}/Games/UntitledFighter/Assets)
     list(APPEND CSE_ASSET_ROOTS ${CMAKE_SOURCE_DIR}/Games/UntitledFighter/Assets)
 endif()
@@ -262,6 +323,17 @@ add_custom_target(runtime_assets
 # what composing a title into a host means and this file is the one place
 # documented to know a title exists. What they may not do is reach past those
 # libraries into the title's simulation, its data layer or its game systems.
+#
+# WHAT IS CHECKED IS THE DIRECT LINK LINE, NOT THE CLOSURE, and that is the
+# correct thing to check rather than a limitation to apologise for. Linking
+# UntitledFighterModes now drags CseGame, CseKernel and CseData into the Editor's
+# transitive closure -- more than the Combo Prover's CseData ever did -- and none
+# of it is reachable from Editor/src: the title's libraries export no include
+# directories at all (both of their CMakeLists say so and why), so the compiler
+# cannot find a `cse/...` header from inside the editor's sources even though the
+# linker holds the archives. The rule this block enforces is about what a
+# general-purpose target may NAME, and the property that keeps the rule honest is
+# that naming one is the only way to reach one.
 set(_cse_engine_targets Engine Editor PlayerDebug PlayerShipping AssetCooker)
 set(_cse_title_internals CseKernel CseData CseGame)
 foreach(_t IN LISTS _cse_engine_targets)
