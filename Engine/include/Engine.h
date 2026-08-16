@@ -20,6 +20,13 @@
 #include "../src/core/SceneSerializer.h"
 #include "../src/core/SceneLoader.h"
 #include "../src/core/ProjectSettings.h"
+// What ships, and what a Build does with it. BuildSettings is the editor's
+// authoring surface (an ordered scene list); ProjectSettings above stays the
+// runtime contract and its startupScene becomes a field the build writes.
+// BuildPipeline declares the phases, the progress a panel polls, and the
+// process seam a HOST fills -- the engine spawns nothing itself.
+#include "../src/core/BuildSettings.h"
+#include "../src/core/BuildPipeline.h"
 #include "../src/core/FixedTimestep.h"
 // Modes a host can enter, tick, draw and leave. The engine owns the seam; the
 // modes come from a title.

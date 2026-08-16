@@ -5,6 +5,10 @@
 #include "panels/SceneHierarchyPanel.h"
 #include "panels/InspectorPanel.h"
 #include "panels/AssetBrowserPanel.h"
+// What ships, and the button that produces it. The panel edits the scene list
+// in place and emits actions for everything that outlives a frame -- saving,
+// preflight, starting and cancelling the build. See its header for the split.
+#include "panels/BuildSettingsPanel.h"
 // The seam for panels this editor did NOT compile. The Combo Prover used to be
 // included here and is now supplied by the fighting game through this registry
 // -- see EditorPanel.h for why the editor must not know that game exists.
@@ -18,7 +22,10 @@ class EditorApplication : public MyCoreEngine::Application
 {
 public:
     EditorApplication() : Application(1280, 720, "Cat Splat Engine") {}
-    ~EditorApplication() { cancelValidate_(); } // kill a hung cooker child
+    // Kill a hung cooker child, and ask a running build to stop. Both are child
+    // processes this editor holds a handle to; leaving either running past
+    // shutdown leaves an orphan compiler writing into the tree.
+    ~EditorApplication() { cancelValidate_(); cancelBuild_(); }
 
     void Initialize();
 
@@ -112,6 +119,37 @@ private:
     // spawn `AssetCooker validate` as a child process on a worker thread
     // (crash isolation: hostile assets take down the cooker, not us)
     void startValidate_();
+
+    // ---- Build Settings ------------------------------------------------
+    // Read Exported/build.json, seeding a one-entry list from the legacy
+    // startupScene when there is no file yet. Called once at startup and again
+    // by the panel's Reload.
+    void loadBuildSettings_();
+    // False on a refused or failed write, which is not the same as "nothing
+    // happened": a Malformed standing refuses BEFORE opening the file, and a
+    // stream that went bad partway leaves a truncated build list. Both are
+    // reported; the caller decides whether that matters to its own status line.
+    bool saveBuildSettings_();
+    // Cheap-but-not-free: it stats the scene list and walks the staged asset
+    // root, so it runs on request (the panel opening, an explicit Check, a save,
+    // the end of a build) rather than per frame. BuildPipeline.h says so.
+    void runBuildPreflight_();
+    void startBuild_();
+    void cancelBuild_();
+    // Drain the running job's progress and log. Called EVERY FRAME a job exists,
+    // deliberately outside `if (panels_.build)`: a build whose pipe stops being
+    // drained fills the OS buffer and the child WEDGES, so closing the window
+    // must not be able to stall a compile. See BuildSettingsPanel.h note 2.
+    void pollBuild_();
+    // What the pipeline needs to know about the tree this editor was built from.
+    // A plain struct the host fills; see the definition for where the values
+    // come from and why they are compile definitions here.
+    MyCoreEngine::BuildEnvironment buildEnvironment_() const;
+    // Empty when a build is possible at all. Non-empty means this editor was
+    // configured without the definitions above, which is a "reconfigure with
+    // CMake" problem rather than anything on the panel.
+    std::string buildEnvironmentProblem_() const;
+
     void finishSpawn_(MyCoreEngine::Scene& scene,
                       const std::shared_ptr<MyCoreEngine::Model>& model,
                       const glm::vec3& pos);
@@ -123,6 +161,7 @@ private:
     SceneHierarchyPanel hierarchy_;
     InspectorPanel      inspector_;
     AssetBrowserPanel   assetBrowser_;
+    BuildSettingsPanel  buildPanel_;
     // Panels supplied by whatever title this editor was built with, if any.
     // Populated once in Initialize() and empty in a title-free build. Declared
     // beside the built-in panels rather than off in some extension section,
@@ -222,6 +261,46 @@ private:
     std::string startupSceneDisplay_;
     std::string buildSettingsStatus_;
     bool startupSceneLoaded_ = false;
+
+    // ---- what ships ----------------------------------------------------
+    // The ORDERED build list, owned here rather than in the panel because two
+    // things edit it: the panel, and File > Set Current Scene as Player Startup,
+    // which BuildSettings.h names as the menu item `SetStartupScene` becomes. A
+    // copy inside the panel would mean those two disagreeing the moment the
+    // panel was closed.
+    MyCoreEngine::BuildSettings           buildSettings_;
+    // How the last load went. KEPT, not discarded, because Malformed is the
+    // state in which saving would overwrite somebody's list with defaults -- the
+    // panel goes read-only on it and saveBuildSettings_ refuses on it.
+    MyCoreEngine::BuildSettingsLoadResult buildLoad_;
+    bool buildDirty_ = false;      // edits not yet written to build.json
+    bool buildFocus_ = false;      // one-shot: File > Build Settings... pressed
+
+    // The cached preflight. NOT re-run per frame: it stats the scene list and
+    // walks the staged asset root (BuildPipeline.h). Stale means the settings
+    // moved since; the panel shows that rather than presenting old answers as
+    // current, and BuildJob::Start re-runs it anyway so a stale one can never
+    // produce a wrong build.
+    MyCoreEngine::BuildPreflight buildPreflight_;
+    bool buildPreflightValid_ = false;
+    bool buildPreflightStale_ = true;
+
+    // The running build. ONE DEDICATED THREAD inside the job (BuildPipeline.h
+    // explains why not the JobSystem: its pool is hardware_concurrency/3 clamped
+    // to [1,4] and has no cancellation, and a build occupies a thread for
+    // minutes). This side of it is main-thread only.
+    std::unique_ptr<MyCoreEngine::BuildJob> buildJob_;
+    MyCoreEngine::BuildProgress buildProgress_;
+    // Survives the job, which is the point: BuildPipeline.h calls the report
+    // "a value the panel keeps after the job is gone", and the panel that keeps
+    // it has to be one that is still there when the window is reopened.
+    MyCoreEngine::BuildReport   buildReport_;
+    bool        buildHaveReport_ = false;
+    std::string buildLog_;
+    // A full compile is megabytes and every byte of it is copied into an ImGui
+    // draw. The tail is what answers the question, so the head is dropped at a
+    // line boundary once the buffer passes this.
+    static constexpr std::size_t kMaxBuildLogBytes = 512u * 1024u;
 
     MyCoreEngine::RenderTarget sceneTarget_;
     MyCoreEngine::RenderTarget gameTarget_;   // Game panel's offscreen target
@@ -396,6 +475,12 @@ private:
     struct PanelVis {
         bool scene = true, game = true, hierarchy = true, inspector = true,
              assets = true, information = true, edit = true, settings = true;
+        // OFF by default, unlike every other built-in. Build Settings is a
+        // task-specific tool you open when you are shipping, the same judgement
+        // the panel registry lets a title panel make for itself
+        // (IEditorPanel::VisibleByDefault). "Show All Panels" resets the whole
+        // struct, so it correctly leaves this one hidden.
+        bool build = false;
     } panels_;
 
     // layout .ini to load before the next frame (empty = none). Deferred

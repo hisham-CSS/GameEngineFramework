@@ -242,6 +242,14 @@ target_link_libraries(test_training_mode PRIVATE CseGame CseData CseKernel GTest
 add_dependencies(test_training_mode test_runtime_deps)
 add_test(NAME test_training_mode COMMAND $<TARGET_FILE:test_training_mode>)
 
+# BUILD SETTINGS — the scene list a Build assembles from, and the refusals that
+# keep a hand-edited or copied settings file from writing somewhere it should
+# not. Links Engine because BuildSettings lives there with the path sandbox it
+# validates against.
+add_executable(test_build_settings test_build_settings.cpp)
+target_link_libraries(test_build_settings PRIVATE Engine GTest::gtest_main)
+add_test(NAME test_build_settings COMMAND $<TARGET_FILE:test_build_settings>)
+
 engine_test(test_event_bus)        # EventBus publish/subscribe
 engine_test(test_input_map)        # actions/axes/deadzone via scripted-input fake
 engine_test(test_render_passes)    # GL-headless CSM/forward/tonemap wiring

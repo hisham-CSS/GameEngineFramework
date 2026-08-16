@@ -37,6 +37,18 @@ add_library(Engine SHARED
     src/core/SceneLoader.cpp
     src/core/ProjectSettings.h
     src/core/ProjectSettings.cpp
+    # WHAT SHIPS, as data the editor authors: an ordered scene list, an output
+    # directory and a profile. project.json's `startupScene` is what this
+    # replaces as an authoring surface -- it stays as the RUNTIME contract and
+    # becomes a field the Build action writes. See BuildSettings.h.
+    src/core/BuildSettings.h
+    src/core/BuildSettings.cpp
+    # What a Build DOES: preflight, compile, assemble, validate. The
+    # process-spawning half is a seam a HOST fills (IBuildProcess) so that
+    # "launch an arbitrary program" never lands inside a shipped game -- the
+    # engine names what it needs and the editor supplies it.
+    src/core/BuildPipeline.h
+    src/core/BuildPipeline.cpp
     src/core/FixedTimestep.h
     # A mode the host can enter, tick, draw and leave -- "play the saved scene"
     # is one, a fight is another. General infrastructure: it names no game, and

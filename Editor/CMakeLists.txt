@@ -26,6 +26,11 @@ add_executable(Editor
     src/EditorPanel.cpp
     src/panels/AssetBrowserPanel.h
     src/panels/AssetBrowserPanel.cpp
+    # What ships, and the button that produces it. General-purpose: it knows
+    # about an ordered scene list, an output directory and a profile, and names
+    # no game -- the same bar every other file in this directory has to clear.
+    src/panels/BuildSettingsPanel.h
+    src/panels/BuildSettingsPanel.cpp
     src/panels/SceneHierarchyPanel.h "src/panels/SceneHierarchyPanel.cpp" "src/panels/InspectorPanel.h" "src/panels/InspectorPanel.cpp" "src/EditorMain.cpp")
 
 
@@ -104,3 +109,50 @@ add_dependencies(Editor runtime_assets)
 
 #target_compile_definitions(Editor PRIVATE MYCE_ENABLE_ENTRY=1)
 target_compile_definitions(Editor PRIVATE GLFW_INCLUDE_NONE)
+
+# WHERE THIS TREE IS, so the editor can build the player out of it.
+#
+# MyCoreEngine::BuildEnvironment (Engine/src/core/BuildPipeline.h) is "a plain
+# struct the host fills, with no discovery hidden inside it", and it says why: a
+# running executable does not know its CMake binary directory, and deriving it
+# from the exe path (exeDir/../../..) is a layout assumption that breaks silently
+# the day somebody changes an output directory. Only the build system knows, so
+# the build system says.
+#
+# DEFINITIONS RATHER THAN THE CONFIGURE-TIME JSON THAT HEADER PROPOSES, and the
+# deviation is deliberate. Its stated objection is that "baking absolute
+# build-machine paths into Engine.dll puts them in every shipped game" -- an
+# argument about Engine.dll. This is Editor.exe, which nothing installs (the only
+# install rules in the tree are Engine's and PlayerShipping's), so there is no
+# bundle for these to leak into. Two things also make definitions the better fit
+# here specifically:
+#   * $<CONFIG>. A file written by configure_file cannot carry it, and exeDir is
+#     per-configuration; a generate-time file would work but is a second
+#     mechanism for one string.
+#   * The Editor links no JSON library. Reading a JSON environment file would
+#     mean either adding nlohmann to this target or hand-parsing, to hold four
+#     strings and two flags.
+# An editor configured before this block existed simply leaves them undefined;
+# EditorApplication::buildEnvironmentProblem_ notices and the Build Settings
+# panel says "reconfigure with CMake" instead of failing further in.
+get_property(_cse_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+target_compile_definitions(Editor PRIVATE
+    CSE_BUILD_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    CSE_BUILD_BINARY_DIR="${CMAKE_BINARY_DIR}"
+    # Matches the RUNTIME_OUTPUT_DIRECTORY_* settings above, which is where all
+    # four applications and the staged runtime assets land.
+    CSE_BUILD_EXE_DIR="${CMAKE_BINARY_DIR}/build/bin/$<CONFIG>"
+    # The cmake that configured this tree, not whatever "cmake" a PATH search
+    # would find. Visual Studio ships its own, and building a player with a
+    # different CMake than the one that generated the tree is a class of failure
+    # nobody enjoys diagnosing.
+    CSE_BUILD_CMAKE_COMMAND="${CMAKE_COMMAND}"
+    # Meaningful only on a single-config generator, which is the DEFAULT case
+    # here: CMakePresets.json uses Ninja and so does CI. A profile whose
+    # configuration differs from this one is a request this tree cannot satisfy,
+    # and preflight refuses it by name rather than silently building the wrong
+    # configuration under the right filename.
+    CSE_BUILD_CONFIG_TYPE="${CMAKE_BUILD_TYPE}"
+    # $<BOOL:> already yields exactly 1 or 0, including for an unset property.
+    CSE_BUILD_MULTI_CONFIG=$<BOOL:${_cse_multi_config}>
+)

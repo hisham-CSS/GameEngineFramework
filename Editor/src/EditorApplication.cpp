@@ -67,6 +67,15 @@ void EditorApplication::Initialize()
     // the process rather than building one per visit.
     MyCoreEngine::RegisterTitleGameModes(modes_);
 #endif
+
+    // What ships. Read here, beside the two registrations above and for the same
+    // reason: it touches no GL and no ImGui context, and doing it before the
+    // window opens means the Build Settings panel's first draw shows the real
+    // list rather than a default that flickers into the real one.
+    //
+    // The path is working-directory-relative, exactly like ProjectSettings --
+    // which is the same directory this editor already stages Exported/ into.
+    loadBuildSettings_();
 }
 
 void EditorApplication::Run() {
@@ -380,6 +389,15 @@ void EditorApplication::Run() {
                 validateOpen_ = true; // reopen even if closed mid-run
             }
 
+            // A running build, drained EVERY FRAME and NOT gated on
+            // panels_.build. Poll() is what moves the child's stdout out of the
+            // pipe; stop calling it and the OS buffer fills and the compiler
+            // BLOCKS ON A WRITE -- so closing the Build Settings window would
+            // wedge a build that was working, with no error anywhere and a
+            // Cancel button that is no longer being drawn. Same reason the
+            // AssetCooker collection above sits outside `if (panels_.assets)`.
+            pollBuild_();
+
             assetIndex_.tick(dt, &jobs()); // throttled; the walk runs on a worker
             // gated off during play: an edit-mode drop landing mid-play
             // would spawn into the play scene, record no undo (recording
@@ -429,6 +447,62 @@ void EditorApplication::Run() {
                 // hand the INSPECTOR to the asset view; the entity selection
                 // itself survives — "Assign to Selected Entity" depends on it
                 if (aba.assetClicked) inspectorShowsAsset_ = true;
+            }
+
+            // Build Settings. The DRAW is gated on visibility; pollBuild_()
+            // above is not, so a build survives this window being closed.
+            if (panels_.build) {
+                BuildPanelInputs bin;
+                bin.load            = buildLoad_;
+                bin.dirty           = buildDirty_;
+                bin.preflight       = buildPreflightValid_ ? &buildPreflight_ : nullptr;
+                bin.preflightStale  = buildPreflightStale_;
+                bin.building        = (buildJob_ != nullptr);
+                bin.progress        = buildProgress_;
+                bin.report          = buildHaveReport_ ? &buildReport_ : nullptr;
+                bin.log             = &buildLog_;
+                bin.currentScene    = currentScenePath_;
+                bin.playing         = playing_;
+                bin.environmentProblem = buildEnvironmentProblem_();
+                bin.focus           = buildFocus_;
+                buildFocus_ = false; // one-shot; the menu item sets it again
+
+                const BuildSettingsActions bpa =
+                    buildPanel_.Draw(buildSettings_, bin, &panels_.build);
+
+                // A list edit invalidates the cached preflight but does NOT
+                // trigger a new one: preflight stats the scene list and walks
+                // the staged asset root, and running that per keystroke in the
+                // output field is exactly the per-frame cost its header warns
+                // against. It goes stale, the panel says so, and the next
+                // explicit Check (or the Build itself) resolves it.
+                if (bpa.settingsChanged) {
+                    buildDirty_ = true;
+                    buildPreflightStale_ = true;
+                }
+                if (bpa.reloadRequested)   loadBuildSettings_();
+                // Save and Discard are the same write; they differ only in what
+                // the author agreed to. saveBuildSettings_ refuses a Malformed
+                // load, so Discard clears that standing FIRST -- otherwise the
+                // confirmation the panel just collected would do nothing.
+                if (bpa.discardRequested) {
+                    buildLoad_ = MyCoreEngine::BuildSettingsLoadResult{};
+                    buildLoad_.status = MyCoreEngine::BuildSettingsStatus::Ok;
+                    saveBuildSettings_();
+                }
+                else if (bpa.saveRequested) {
+                    saveBuildSettings_();
+                }
+                if (bpa.preflightRequested) runBuildPreflight_();
+                if (bpa.buildRequested)     startBuild_();
+                if (bpa.cancelRequested && buildJob_) buildJob_->RequestCancel();
+                // Opening a scene from the build list goes down the SAME path as
+                // the asset browser's double-click: it clears the undo history
+                // and forces a CSM rebuild, and a second copy of that would be a
+                // second place to forget one of them.
+                if (!bpa.openScene.empty() && !playing_) {
+                    loadSceneFromFile_(scene, bpa.openScene);
+                }
             }
         }
 
@@ -2016,6 +2090,18 @@ void EditorApplication::DrawMainMenuBar(MyCoreEngine::Scene& scene)
                     setStartupScene_(currentScenePath_);
                     setSceneStatus_(buildSettingsStatus_); // surface it in the bar
                 }
+                // UNDER FILE, next to the item above, because that is where a
+                // Unity refugee looks and because the two are the same subject:
+                // one of them sets index 0 of the list the other one edits.
+                // It also has a Window checkbox, like every other panel -- the
+                // bool is the same, so the two can never disagree about whether
+                // the window is up. Choosing it while the window is already open
+                // behind three others brings it forward rather than doing
+                // nothing visible.
+                if (ImGui::MenuItem("Build Settings...")) {
+                    panels_.build = true;
+                    buildFocus_ = true;
+                }
                 ImGui::Separator();
                 if (ImGui::MenuItem("Exit"))
                     glfwSetWindowShouldClose(GetNativeWindow(), 1);
@@ -2062,6 +2148,7 @@ void EditorApplication::DrawMainMenuBar(MyCoreEngine::Scene& scene)
                 ImGui::MenuItem("Information", nullptr, &panels_.information);
                 ImGui::MenuItem("Edit History",nullptr, &panels_.edit);
                 ImGui::MenuItem("Settings",    nullptr, &panels_.settings);
+                ImGui::MenuItem("Build Settings", nullptr, &panels_.build);
                 // Whatever the title registered, in its own section. Draws
                 // nothing at all -- not even the separator -- when no title is
                 // linked, so a general editor has no empty gap suggesting
@@ -2600,6 +2687,53 @@ bool EditorApplication::loadSceneFromFile_(MyCoreEngine::Scene& /*scene*/,
 
 bool EditorApplication::setStartupScene_(const std::string& path)
 {
+    // TWO FILES MOVE, AND BOTH HAVE TO, or the editor's two ways of saying "this
+    // is where the game starts" disagree with each other.
+    //
+    // build.json is the one that decides. BuildSettings.h names this menu item
+    // as the verb `SetStartupScene` becomes -- move the scene to index 0, adding
+    // it first if it is not in the list -- and a Build writes `scenes[0]` over
+    // project.json's startupScene on its way into the bundle. So a version of
+    // this that wrote only project.json would let somebody press this item, see
+    // it confirmed, and get a bundle that boots something else, because the
+    // build never read the field they set.
+    //
+    // project.json is written TOO, and not just for symmetry: it is the file
+    // that already exists in every project, the one a player run out of the
+    // build tree reads (PlayerMain resolves it after a linked title's front
+    // end), and the one whose masterVolume the load-modify-save preserves.
+    // Nothing here sets `startupSceneFromBuild` -- that flag means "a build
+    // wrote this", and this is a preference.
+    //
+    // NOTE THE VISIBLE SIDE EFFECT: choosing this for a scene already in the
+    // build REORDERS the list, because index 0 is what boots. That is what the
+    // item means now, and the status line below says how long the list is so it
+    // is not silent.
+    std::string listNote;
+    if (buildLoad_.safeToSave()) {
+        std::string why;
+        if (buildSettings_.SetStartupScene(path, &why)) {
+            buildPreflightStale_ = true;
+            if (saveBuildSettings_()) {
+                listNote = "; first of " +
+                           std::to_string(buildSettings_.scenes.size()) +
+                           " scene(s) in the build";
+            }
+            else {
+                listNote = "; build.json write FAILED (see console)";
+            }
+        }
+        else {
+            // AddScene's own sentence, which names the reason (over the scene
+            // limit, or a path the sandbox refuses). Surfaced rather than
+            // swallowed: the build list is what actually decides.
+            listNote = "; NOT added to the build (" + why + ")";
+        }
+    }
+    else {
+        listNote = "; build.json is unreadable, so the build list was left alone";
+    }
+
     MyCoreEngine::ProjectSettings s;
     s.Load(); // preserves the fields the struct knows; Save rewrites the file
     s.startupScene = path;
@@ -2607,10 +2741,10 @@ bool EditorApplication::setStartupScene_(const std::string& path)
     if (ok) {
         startupSceneDisplay_ = path;
         startupSceneLoaded_ = true;
-        buildSettingsStatus_ = "Saved to Exported/project.json (ships with the game)";
+        buildSettingsStatus_ = "Saved to Exported/project.json" + listNote;
     }
     else {
-        buildSettingsStatus_ = "Save FAILED (see console)";
+        buildSettingsStatus_ = "Save FAILED (see console)" + listNote;
     }
     return ok;
 }
@@ -2771,6 +2905,326 @@ void EditorApplication::cancelValidate_()
     validateRun_->proc.wait(); // reap on the main thread (no zombie left behind)
     validateRun_.reset();      // Subprocess dtor closes the child handles
     validateRunning_ = false;
+}
+
+// ===========================================================================
+// Build Settings: the editor's half of the build pipeline
+// ===========================================================================
+namespace {
+
+// The process seam BuildPipeline.h declares, over the Subprocess this editor
+// already owns. A FORWARDING SHIM AND NOTHING MORE, which is the property the
+// interface was shaped for: the four operations are deliberately the four
+// editor::Subprocess exposes.
+//
+// IT LIVES HERE RATHER THAN IN THE ENGINE, and BuildPipeline.h gives the reason
+// that matters: Engine.dll is linked by the PLAYER too, so process spawning
+// inside the engine would put "launch an arbitrary program" inside every shipped
+// game. Behind a seam the host fills, the shipped player passes nothing and the
+// capability is simply absent.
+//
+// THE CALLING DISCIPLINE IS THE PIPELINE'S, not this class's, and it is stated
+// in IBuildProcess: ReadChunk and Wait only on the job thread, Wait only after
+// ReadChunk returned false, Kill from any thread while a ReadChunk is blocked.
+// Subprocess already satisfies all three -- its own comments record the
+// use-after-reap this repository has already met once.
+class SubprocessBuildProcess final : public MyCoreEngine::IBuildProcess {
+public:
+    explicit SubprocessBuildProcess(editor::Subprocess p) : proc_(std::move(p)) {}
+    bool ReadChunk(std::string& out) override { return proc_.readChunk(out); }
+    int  Wait() override { return proc_.wait(); }
+    void Kill() override { proc_.kill(); }
+private:
+    editor::Subprocess proc_;
+};
+
+} // namespace
+
+void EditorApplication::loadBuildSettings_()
+{
+    buildSettings_ = MyCoreEngine::BuildSettings{};
+    buildLoad_ = buildSettings_.Load();
+    buildDirty_ = false;
+    buildPreflightStale_ = true;
+
+    // MISSING IS THE MIGRATION CASE, NOT AN ERROR. Every project that predates
+    // the build list has a startupScene in project.json and no build.json, and
+    // BuildSettings::SeedFromProjectSettings exists to turn that one field into
+    // a one-element list. It only ever ADDS and only to an empty list, so it
+    // cannot reorder an authored list if this is ever called twice.
+    //
+    // NOT SAVED HERE. Seeding writes nothing: an editor that created a file on
+    // every launch would put a build.json into every checkout that ever opened
+    // the editor, including ones where nobody is shipping anything. The panel
+    // shows "No Exported/build.json yet" and the first Save is the author's.
+    if (buildLoad_.status == MyCoreEngine::BuildSettingsStatus::Missing) {
+        MyCoreEngine::ProjectSettings legacy;
+        legacy.Load();
+        buildSettings_.SeedFromProjectSettings(legacy);
+        buildDirty_ = !buildSettings_.scenes.empty();
+    }
+}
+
+bool EditorApplication::saveBuildSettings_()
+{
+    // THE REFUSAL THAT PROTECTS A TWELVE-SCENE LIST FROM A MISPLACED COMMA. A
+    // Malformed load left buildSettings_ holding this session's DEFAULTS, not
+    // the file's contents, so writing now replaces somebody's list with two
+    // lines. BuildSettings.h states the rule; this is the one place in the
+    // editor that could break it.
+    if (!buildLoad_.safeToSave()) {
+        buildSettingsStatus_ = "build.json is unreadable; refusing to overwrite it";
+        return false;
+    }
+    if (!buildSettings_.Save()) {
+        buildSettingsStatus_ = "Saving Exported/build.json FAILED (see console)";
+        return false;
+    }
+    buildDirty_ = false;
+    // A successful write makes the file readable again by definition, so a
+    // Discard that just overwrote a malformed file leaves a truthful standing
+    // rather than one that keeps the page read-only until the next launch.
+    buildLoad_ = MyCoreEngine::BuildSettingsLoadResult{};
+    buildLoad_.status = MyCoreEngine::BuildSettingsStatus::Ok;
+    return true;
+}
+
+std::string EditorApplication::buildEnvironmentProblem_() const
+{
+    // Reads the macros directly rather than building a BuildEnvironment and
+    // inspecting it: this is asked once per frame while the panel is open, and
+    // constructing the environment allocates a std::function for the launcher
+    // that is then thrown away.
+    static const char* const kMissing =
+        "This editor was compiled without its build-tree locations, so it cannot "
+        "invoke a build. Re-run CMake configure and rebuild the editor.";
+#if defined(CSE_BUILD_SOURCE_DIR) && defined(CSE_BUILD_BINARY_DIR) && \
+    defined(CSE_BUILD_EXE_DIR)
+    if (CSE_BUILD_SOURCE_DIR[0] == '\0' || CSE_BUILD_BINARY_DIR[0] == '\0' ||
+        CSE_BUILD_EXE_DIR[0] == '\0') {
+        return kMissing;
+    }
+    return std::string();
+#else
+    return kMissing;
+#endif
+}
+
+MyCoreEngine::BuildEnvironment EditorApplication::buildEnvironment_() const
+{
+    MyCoreEngine::BuildEnvironment env;
+
+    // WHERE THESE COME FROM: compile definitions set on the Editor target
+    // (Editor/CMakeLists.txt). BuildPipeline.h proposes a configure-time JSON
+    // instead, and its stated reason is that "baking absolute build-machine
+    // paths into Engine.dll puts them in every shipped game" -- which is an
+    // argument about Engine.dll, and this is Editor.exe. Nothing installs the
+    // editor (the only install rules in the tree are Engine and PlayerShipping),
+    // so nothing here can leak into a bundle. A file would additionally need a
+    // JSON parser in a target that does not link one, and could not carry
+    // $<CONFIG>; definitions can, which is what makes exeDir correct on a
+    // multi-config generator without a second mechanism.
+    //
+    // A tree configured before these existed leaves them undefined, the strings
+    // stay empty, and buildEnvironmentProblem_ says so on the panel rather than
+    // the pipeline failing somewhere further in.
+#ifdef CSE_BUILD_SOURCE_DIR
+    env.sourceDir = CSE_BUILD_SOURCE_DIR;
+#endif
+#ifdef CSE_BUILD_BINARY_DIR
+    env.binaryDir = CSE_BUILD_BINARY_DIR;
+#endif
+#ifdef CSE_BUILD_EXE_DIR
+    env.exeDir = CSE_BUILD_EXE_DIR;
+#endif
+#ifdef CSE_BUILD_CMAKE_COMMAND
+    env.cmakeCommand = CSE_BUILD_CMAKE_COMMAND;
+#endif
+#ifdef CSE_BUILD_CONFIG_TYPE
+    env.configuredBuildType = CSE_BUILD_CONFIG_TYPE;
+#endif
+#ifdef CSE_BUILD_MULTI_CONFIG
+    env.multiConfigGenerator = (CSE_BUILD_MULTI_CONFIG != 0);
+#endif
+
+    // Empty means sourceDir, which is what BuildSettings::outputDirectory being
+    // "Builds" is written against. Left empty rather than restated, so there is
+    // one definition of the default.
+    env.outputRoot.clear();
+
+    // LEFT EMPTY, AND THE EDITOR CANNOT DO OTHERWISE. Telling the pipeline which
+    // scene a linked title boots would need TitleFrontEndScene(), and this
+    // executable is not linked against the title's front end -- deliberately, by
+    // the rule the root CMakeLists' boundary assertion enforces. The consequence
+    // (a build whose index 0 is not the title's front end can be overruled in
+    // the bundle) is stated by the panel as help text instead.
+    env.titleFrontEndScene.clear();
+
+    // RESOLVING argv[0] IS THE ADAPTER'S JOB, and BuildPipeline.h says so: it
+    // passes "a program, not a target name", which in practice is TWO KINDS OF
+    // THING and neither of the editor's existing rules covers both.
+    //
+    //   `cmake`             on PATH, or an absolute path from configure time.
+    //   `AssetCooker`       a SIBLING of the editor, bare-named by the validate
+    //                       phase. It is not on PATH and never will be.
+    //
+    // Subprocess::Spawn resolves everything as a sibling, which turns cmake into
+    // ".\cmake.exe" and fails with "is cmake.exe built?". SpawnProgram resolves
+    // everything the way the OS does, which finds a sibling on WINDOWS (its
+    // search starts in the calling process's directory) and NOT ON LINUX, where
+    // posix_spawnp searches PATH only and the current directory is not on it.
+    // Left alone, that is a Linux editor whose builds silently skip the asset
+    // check with a warning, forever, while Windows passes.
+    //
+    // So: a bare name that names a file NEXT TO US becomes that file's path, and
+    // everything else goes through untouched. One rule, both platforms.
+    env.launchProcess = [](const std::vector<std::string>& argv,
+                           std::string& error)
+        -> std::unique_ptr<MyCoreEngine::IBuildProcess> {
+        namespace fs = std::filesystem;
+        std::vector<std::string> resolved = argv;
+        if (!resolved.empty()) {
+            const bool bare = resolved[0].find('/')  == std::string::npos &&
+                              resolved[0].find('\\') == std::string::npos;
+            if (bare) {
+                // "." is the working directory, which is the editor's own
+                // directory -- the same assumption Spawn makes and the same one
+                // that lets ProjectSettings::DefaultPath() find Exported/.
+                fs::path sibling = fs::path(".") / resolved[0];
+#if defined(_WIN32)
+                sibling += ".exe";
+#endif
+                std::error_code ec;
+                if (fs::is_regular_file(sibling, ec)) {
+                    resolved[0] = sibling.make_preferred().string();
+                }
+            }
+            else {
+                // Native separators. Forward slashes are what CMake hands out
+                // and what CreateProcess is least sure about when it is parsing
+                // an application path out of a command line.
+                resolved[0] = fs::path(resolved[0]).make_preferred().string();
+            }
+        }
+        editor::Subprocess p = editor::Subprocess::SpawnProgram(resolved);
+        if (!p.ok()) {
+            error = p.error();
+            return nullptr;
+        }
+        return std::unique_ptr<MyCoreEngine::IBuildProcess>(
+            new SubprocessBuildProcess(std::move(p)));
+    };
+    return env;
+}
+
+void EditorApplication::runBuildPreflight_()
+{
+    buildPreflight_ = MyCoreEngine::PreflightBuild(buildSettings_, buildEnvironment_());
+    buildPreflightValid_ = true;
+    buildPreflightStale_ = false;
+}
+
+void EditorApplication::startBuild_()
+{
+    if (buildJob_) return; // one at a time; the button is disabled anyway
+
+    // The previous attempt's output goes NOW, before anything can fail: a
+    // "nothing was built" report sitting above the last successful compile's log
+    // reads as if that log belonged to it.
+    buildLog_.clear();
+    buildHaveReport_ = false;
+    buildProgress_ = MyCoreEngine::BuildProgress{};
+
+    // SAVE FIRST, so the bundle and build.json agree about what shipped. The job
+    // builds from the IN-MEMORY settings (BuildJob::Start takes them by value,
+    // precisely so a build cannot change under its own feet), and a bundle whose
+    // scene list was never written to disk is one nobody can reproduce.
+    // A refused save (Malformed) also blocks the build -- the panel greys the
+    // button for the same reason, so this is the second of two agreeing gates
+    // rather than a surprise.
+    //
+    // AND IT REPORTS THROUGH THE SAME CHANNEL AS EVERY OTHER FAILURE. Returning
+    // quietly here would be the one way to press Build and get nothing at all,
+    // with the explanation sitting in a status string the panel does not read.
+    if (!saveBuildSettings_()) {
+        buildReport_ = MyCoreEngine::BuildReport{};
+        buildReport_.result = MyCoreEngine::BuildResult::FailedPreflight;
+        buildReport_.message = "Nothing was built: the build settings could not "
+                               "be written, so the bundle and build.json would "
+                               "have disagreed about what shipped.";
+        buildReport_.errors.push_back(buildSettingsStatus_);
+        buildHaveReport_ = true;
+        return;
+    }
+
+    // Open the log as the build starts, not at the end: a compile that fails in
+    // the first ten seconds should not need a second click to explain itself.
+    panels_.build = true;
+
+    buildJob_ = MyCoreEngine::BuildJob::Start(buildSettings_, buildEnvironment_());
+    // Start ALWAYS returns a job -- a preflight failure comes back as an
+    // already-finished one carrying the reasons -- so there is one code path for
+    // "how did the build go" and pollBuild_ below is it. A null here would mean
+    // the allocation failed, which is not something to paper over.
+    if (!buildJob_) {
+        buildReport_ = MyCoreEngine::BuildReport{};
+        buildReport_.result = MyCoreEngine::BuildResult::FailedPreflight;
+        buildReport_.message = "could not start the build job";
+        buildHaveReport_ = true;
+    }
+}
+
+void EditorApplication::pollBuild_()
+{
+    if (!buildJob_) return;
+
+    // APPENDS, so the editor owns the accumulated buffer and Poll never hands
+    // back a growing string -- the same shape as Subprocess::readChunk, and for
+    // the same reason: the log of a long compile is large and must be moved
+    // once, not copied per frame.
+    buildProgress_ = buildJob_->Poll(&buildLog_);
+    if (buildLog_.size() > kMaxBuildLogBytes) {
+        // Drop the head at a LINE boundary, so the first visible line is a whole
+        // one rather than the tail of a compiler diagnostic. The panel renders a
+        // smaller tail still; this bound is about the buffer, which would
+        // otherwise grow for the life of the editor session.
+        const std::size_t cut = buildLog_.size() - kMaxBuildLogBytes;
+        const std::size_t nl = buildLog_.find('\n', cut);
+        buildLog_.erase(0, nl == std::string::npos ? cut : nl + 1);
+    }
+
+    if (!buildProgress_.finished) return;
+
+    // Finished: take the report BEFORE the job is destroyed, because it lives
+    // inside the job and the panel keeps it long after.
+    buildReport_ = buildJob_->report();
+    buildHaveReport_ = true;
+    buildJob_.reset();   // joins the job's thread
+
+    // The bundle that now exists (or the refusal that stopped it) changes what a
+    // preflight would say -- an output directory that did not exist before does
+    // now, and it carries this build's marker. Re-running once here is cheaper
+    // than leaving the panel showing a check from before the build.
+    runBuildPreflight_();
+
+    setSceneStatus_(buildReport_.ok()
+        ? ("Build succeeded: " + buildReport_.outputDirectory)
+        : ("Build " + std::string(MyCoreEngine::BuildResultName(buildReport_.result)) +
+           " - see Build Settings"));
+}
+
+void EditorApplication::cancelBuild_()
+{
+    if (!buildJob_) return;
+    // Ask first, THEN destroy -- even though ~BuildJob does the same thing, for
+    // the same reason it does: the job's thread is parked in a blocking pipe read
+    // inside a compile that can run for minutes, and killing the child EOFs the
+    // pipe so that read returns. Written out here rather than left to the
+    // destructor because the SHUTDOWN PATH is the one that has to be obviously
+    // right at a glance, and this is the same kill-then-join shape
+    // cancelValidate_ above already establishes for the cooker.
+    buildJob_->RequestCancel();
+    buildJob_.reset();
 }
 
 void EditorApplication::startPlay_(MyCoreEngine::Scene& scene)
