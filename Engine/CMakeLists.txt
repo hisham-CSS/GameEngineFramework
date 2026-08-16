@@ -43,6 +43,11 @@ add_library(Engine SHARED
     # the modes themselves are supplied by a title. See GameMode.h.
     src/core/GameMode.h
     src/core/GameMode.cpp
+    # Which scene a host boots when a title is linked. Declaration only -- there
+    # is no .cpp, because the engine never DEFINES it: a title does, and a build
+    # with no title compiles the call site out. Same shape as GameMode.h's hook,
+    # separate guard; see the header.
+    src/core/TitleFrontEnd.h
     src/core/InputMap.h
     src/core/InputMap.cpp
     src/core/JobSystem.h

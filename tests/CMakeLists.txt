@@ -37,6 +37,22 @@ FetchContent_MakeAvailable(googletest)
 # overwrite: a file deleted from the source tree stayed staged here forever. Two
 # staging rules for one directory layout is the divergence that has already bitten
 # this build twice, so there is now one script and the tests exercise it too.
+#
+# SAME ROOTS AS THE SHIPPING TREE, and that is the whole reason this reads a
+# variable instead of naming a directory. `${CSE_ASSET_ROOTS}` is set by the root
+# CMakeLists (the one file allowed to know a title exists) and is the engine's
+# asset root plus every linked title's, in the order they layer -- so the tests
+# stage the SAME Exported/ the game ships with. Several character tests read the
+# staged tree on purpose rather than tests/fixtures, precisely so they are testing
+# the artifact (see test_ground_truth below); if this staged only the engine's
+# root, moving a title's content out of the engine asset root would leave those
+# tests reading a directory that no longer exists, and the failure would look like
+# a broken loader rather than a build step that lost a root.
+#
+# QUOTED, and it must be: unquoted, CMake splits `-DROOTS=a;b` into two arguments
+# and the script silently sees one root -- then mirrors the staged tree against
+# it and deletes the other root's files on every build. VERBATIM (already here)
+# is what escapes the `;` for /bin/sh on Linux.
 if (WIN32)
   add_custom_target(test_runtime_deps
     COMMAND ${CMAKE_COMMAND}
@@ -45,7 +61,7 @@ if (WIN32)
       -DDST=${CMAKE_CURRENT_BINARY_DIR}
       -P ${CMAKE_SOURCE_DIR}/cmake/stage_runtime_dlls.cmake
     COMMAND ${CMAKE_COMMAND}
-      -DSRC=${CMAKE_SOURCE_DIR}/Editor/src/Exported
+      "-DROOTS=${CSE_ASSET_ROOTS}"
       -DDST=${CMAKE_CURRENT_BINARY_DIR}/Exported
       -P ${CMAKE_SOURCE_DIR}/cmake/stage_runtime_assets.cmake
     COMMENT "Staging test runtime dependencies"
@@ -53,7 +69,7 @@ if (WIN32)
 else()
   add_custom_target(test_runtime_deps
     COMMAND ${CMAKE_COMMAND}
-      -DSRC=${CMAKE_SOURCE_DIR}/Editor/src/Exported
+      "-DROOTS=${CSE_ASSET_ROOTS}"
       -DDST=${CMAKE_CURRENT_BINARY_DIR}/Exported
       -P ${CMAKE_SOURCE_DIR}/cmake/stage_runtime_assets.cmake
     COMMENT "Staging test runtime assets"

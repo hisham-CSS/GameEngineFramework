@@ -1,0 +1,474 @@
+/*
+  UNTITLED FIGHTING GAME — title screen styling.
+  Structure is in menu.cxml; this file is the whole look.
+
+  ===========================================================================
+  IT IS DELIBERATELY NOT THE ENGINE DEMO IN A NEW COLOUR
+  ===========================================================================
+  The engine's menu is gold on blue-grey slate, lit warm from low-left: a
+  studio's demo reel. This is a fighting game, so the screen is a STAGE — near
+  black, an ember key on the left and a steel rim on the right, with the centre
+  third left dark because that is where the wordmark and the verbs sit. If the
+  two menus had come out looking the same, the whole content separation would
+  have been invisible to the only person it is actually for.
+
+  WHAT IS COPIED, AND WHY COPYING IT IS RIGHT. The type scale, the two surface
+  alphas, the focus-over-hover priority and the "padding is constant across
+  every state" rule are all measured findings from the engine's own menu, and
+  re-deriving them here would have been re-making the same mistakes. Owning the
+  front end means owning the words and the look, not re-learning the toolkit.
+
+  ---------------------------------------------------------------------------
+  FOUR RULES THIS FILE OBEYS, each of which costs real time to rediscover
+  ---------------------------------------------------------------------------
+  1. `position: absolute` writes ALL FOUR insets. Style::Edges defaults every
+     side to 0 rather than "unset" and UIElement pushes all four to yoga
+     unconditionally, so left/top always win over a right/bottom written alone.
+     Both absolute rules here write all four as zero.
+
+  2. `gap`, `flex-grow`, `flex-shrink` and the four insets are NUMBERS and
+     reject a unit: `gap: 10` is right, `gap: 10px` is a parse error that kills
+     the WHOLE sheet and leaves the previous one running. width / height /
+     min-width / border-radius / border-width are Lengths and require one. The
+     parser reports the RULE's line, not the declaration's, so read every line
+     in the block it names.
+
+  3. `font-scale` multiplies the BAKED ATLAS SIZE, 48px (kUIFontAtlasPixels in
+     Font.h), and the surface's own scale factor is applied on top of it. So
+     0.375 is 18px at the 1280x720 reference this document scales against, and
+     anything much above 0.71 is being resampled UP on a 1080p display and gets
+     visibly soft. That is the constraint the wordmark is designed around: the
+     drama is in the lockup, not the point size.
+
+  4. `border-width` is ONE uniform float and it is PAINT ONLY: there is no
+     border-left-width, and a border does not inset the content box, so a child
+     will happily paint over it.
+
+  ---------------------------------------------------------------------------
+  THE TYPE SCALE — five steps, and nothing between them
+  ---------------------------------------------------------------------------
+     0.71   34px   the wordmark's main line
+     0.58   28px   the verbs
+     0.46   22px   EVERYTHING YOU OPERATE — option labels, values, chips
+     0.375  18px   the status line, and the `*` default
+     0.27   13px   captions, keycaps, the crumb, the wordmark's top line
+
+  The verbs are a step DOWN from the engine demo's, where they are the loudest
+  thing on screen because nothing competes with them. Here the title competes,
+  and the title should win: a game's own front end that shouted its menu options
+  louder than its name would have the hierarchy backwards.
+
+  That fourth step is 0.375 rather than a rounder number because it IS
+  kUIFontBodyPixels / kUIFontAtlasPixels — the size the atlas was baked to
+  serve, resampled 1:1.
+
+  ---------------------------------------------------------------------------
+  THE PALETTE — ten values
+  ---------------------------------------------------------------------------
+     ember       rgb(226,  78,  52)   the accent: rules, focus, the lit chip
+     ember hot   rgb(255, 138,  96)   the lit end of every accent gradient
+     ember text  rgb(255, 178, 152)   accent-coloured TYPE, which needs to be
+                                      lighter than the accent itself to clear
+                                      the contrast floor on a near-black page
+     ink         rgb( 14,  15,  19)   what an active control's text sits on
+     white       rgb(255, 255, 255)
+     text        rgb(206, 210, 220)   a verb at rest
+     muted       rgb(124, 132, 150)   captions and the status line
+     white 0.10 / 0.16 / 0.04         surfaces, hairlines, and the fading end
+                                      of a horizontal highlight
+
+  HOT RELOAD: the running app reads the STAGED copy next to the executable
+  (build/bin/<config>/Exported/UntitledFighter/UI/), which every build refreshes
+  from this file. Save that copy while the player is running and the change
+  appears within a quarter of a second — but this directory is MIRRORED, so the
+  next build overwrites it. Copy the change back here to keep it.
+*/
+
+* {
+  font-scale: 0.375;
+}
+
+#titleMenu {
+  width: 100%;
+  height: 100%;
+}
+
+/* --------------------------------------------------------- the two layers - */
+
+.backdrop {
+  position: absolute;
+  left: 0; top: 0; right: 0; bottom: 0;
+  background-image: "Exported/UntitledFighter/UI/art/title_backdrop.png";
+  background-size: cover;
+  pointer-events: none;
+}
+
+/* DIRECTIONAL, not a flat veil. Heavy on the left, under the wordmark and the
+   verb column, and fully clear on the right where the stage's steel rim is the
+   only thing that keeps this screen from being a black rectangle.
+
+   Two stops of `background-gradient` rather than the stretched PNG the engine
+   demo uses for the same job: vColor is already interpolated across the quad,
+   so two corner colours IS the gradient and it costs nothing. */
+.scrim {
+  position: absolute;
+  left: 0; top: 0; right: 0; bottom: 0;
+  background-color: rgba(6, 7, 10, 0.86);
+  background-color-to: rgba(6, 7, 10, 0.0);
+  background-gradient: horizontal;
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------- the frame -- */
+
+.frame {
+  width: 100%;
+  height: 100%;
+  flex-direction: column;
+  padding: 44px 64px;
+}
+
+/* ------------------------------------------------------------ the header -- */
+
+.header {
+  width: 100%;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.wordmark {
+  flex-direction: row;
+  align-items: stretch;
+  gap: 18;
+}
+
+/* THE ACCENT BAR, and it is the loudest object on the screen on purpose.
+   `align-items: stretch` on the row above means this has no height of its own:
+   it grows to whatever the two lines beside it come to, so changing either
+   line's size cannot leave the bar short or overhanging. Fixed heights on
+   decorations beside type is how a lockup drifts. */
+.mark {
+  width: 6px;
+  background-color: rgba(255, 138, 96, 1);
+  background-color-to: rgba(226, 78, 52, 1);
+  background-gradient: vertical;
+  border-radius: 3px;
+}
+
+.wordmark-text {
+  flex-direction: column;
+}
+
+.title-top {
+  font-scale: 0.27;
+  color: rgba(255, 178, 152, 1);
+  margin: 2px 0 3px 0;
+}
+
+/* 0.71 and not a step higher: see rule 3 above. Everything about this lockup is
+   arranged so that the largest glyph on the screen is still inside the atlas it
+   was baked from. */
+.title-main {
+  font-scale: 0.71;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 1);
+}
+
+.crumb-text {
+  font-scale: 0.27;
+  color: rgba(124, 132, 150, 1);
+  margin: 6px 0 0 0;
+}
+
+/* ------------------------------------------------------------- the stage -- */
+
+/* Takes the slack, so the header stays at the top and the footer at the bottom
+   whatever is between them. Without this, opening the options panel moves the
+   whole composition. */
+.stage {
+  width: 100%;
+  flex-grow: 1;
+  flex-direction: column;
+  justify-content: center;
+}
+
+/* -------------------------------------------------------------- the verbs - */
+
+.verbs {
+  width: 320px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4;
+}
+
+/* A verb is type on a BAND. Full width, because a button sizes to its text and
+   any highlight drawn on one hugs the glyphs, which reads as a badly-fitted box.
+   Padding is constant across every state, so moving focus does not reflow. */
+.verb {
+  width: 100%;
+  /* A verb is one line by definition. Text wraps by default, and a longer word
+     in a 320px column would silently become a two-line button whose neighbours
+     all shift down. Overruled for the BOUND mode slots below, where the text is
+     not typed here and the surprise is expected rather than a bug. */
+  white-space: nowrap;
+  padding: 10px 16px;
+  border-radius: 3px;
+  font-scale: 0.58;
+  color: rgba(206, 210, 220, 1);
+}
+
+.verb:hover {
+  color: rgba(255, 255, 255, 1);
+  background-color: rgba(255, 255, 255, 0.10);
+}
+
+/* FOCUS, not hover, is the state that matters: this menu is driven by a pad,
+   where hover does not exist. The band is a two-stop gradient fading out to the
+   right — a directional highlight rather than a flat slab. */
+.verb:focus {
+  color: rgba(255, 255, 255, 1);
+  background-color: rgba(226, 78, 52, 0.55);
+  background-color-to: rgba(226, 78, 52, 0.04);
+  background-gradient: horizontal;
+}
+
+.verb:active {
+  color: rgba(14, 15, 19, 1);
+  background-color: rgba(255, 138, 96, 1);
+  background-color-to: rgba(226, 78, 52, 1);
+  background-gradient: horizontal;
+}
+
+/* A BOUND mode's verb: whatever a future mode calls itself, at whatever length.
+   Later in the file than `.verb` on purpose — the cascade is CSS specificity
+   with later-wins on ties, and these two rules tie. */
+.verb-mode {
+  font-scale: 0.46;
+  white-space: normal;
+}
+
+/* The empty state, when the front end is linked and no mode is. Muted and small:
+   it is a diagnostic, not a verb, and it must not read as one. */
+.verbs-empty {
+  width: 100%;
+  font-scale: 0.27;
+  color: rgba(124, 132, 150, 1);
+  padding: 10px 16px;
+}
+
+/* Separates what starts the game from what does not. 16px inside the 320px
+   column so it reads as a divider under the play verbs rather than as a rule
+   spanning the whole panel. */
+.verb-rule {
+  width: 56px;
+  height: 2px;
+  background-color: rgba(255, 255, 255, 0.16);
+  margin: 14px 0 14px 16px;
+}
+
+/* OPTIONS and QUIT are not the game. A step down and dimmer at rest, so the eye
+   lands on the play verbs first and finds these when it goes looking. */
+.verb-minor {
+  font-scale: 0.46;
+  color: rgba(124, 132, 150, 1);
+}
+
+/* QUIT: the one verb here you cannot undo.
+   DESATURATED rather than reddened, which is the opposite of the engine demo's
+   answer and for a reason specific to this palette — ember IS the accent here,
+   so colouring the dangerous verb red would have made QUIT the loudest thing on
+   the screen and TRAINING the quiet one. A neutral focus band says "this is not
+   the accent verb" using the one channel the accent occupies.
+   Below `.verb:focus` so the tie in specificity breaks this way. */
+.verb-quit {
+  margin: 4px 0 0 0;
+}
+
+.verb-quit:focus {
+  color: rgba(255, 255, 255, 1);
+  background-color: rgba(255, 255, 255, 0.22);
+  background-color-to: rgba(255, 255, 255, 0.02);
+  background-gradient: horizontal;
+}
+
+.verb-quit:active {
+  color: rgba(14, 15, 19, 1);
+  background-color: rgba(206, 210, 220, 1);
+  background-color-to: rgba(206, 210, 220, 1);
+}
+
+/* ------------------------------------------------------------- the panel -- */
+
+.panel {
+  width: 720px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4;
+}
+
+/* ONE ROW SHAPE. Same height, same label column, every option.
+   min-height centres CHILDREN, which is what makes this work here and would NOT
+   work on a button: an element's own glyphs are placed at position + padding.top,
+   so anything carrying text is sized by its padding. */
+.opt {
+  width: 100%;
+  min-height: 52px;
+  flex-direction: row;
+  align-items: center;
+  gap: 16;
+}
+
+.opt-label {
+  width: 190px;
+  font-scale: 0.46;
+  color: rgba(206, 210, 220, 1);
+}
+
+.opt-value {
+  width: 68px;
+  font-scale: 0.46;
+  color: rgba(255, 178, 152, 1);
+}
+
+/* --------------------------------------------------------------- controls - */
+
+.slider {
+  flex-grow: 1;
+  height: 14px;
+  background-color: rgba(255, 255, 255, 0.10);
+  border-radius: 7px;
+  border-width: 1px;
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.slider:hover { border-color: rgba(255, 255, 255, 0.16); }
+.slider:focus { border-color: rgba(226, 78, 52, 1); border-width: 2px; }
+
+/* Vertical two-stop, so the fill has a lit top edge and reads as a solid rather
+   than a flat block of colour. */
+.slider-fill {
+  height: 100%;
+  background-color: rgba(255, 138, 96, 1);
+  background-color-to: rgba(226, 78, 52, 1);
+  background-gradient: vertical;
+  border-radius: 7px;
+  pointer-events: none;
+}
+
+/* THE FILL is the focus cue, not the ring: border-width is paint-only and does
+   not inset the content box, so at 100% the fill covers the ring entirely and a
+   focused slider would be pixel-identical to an unfocused one. */
+.slider:focus .slider-fill {
+  background-color: rgba(255, 255, 255, 1);
+  background-color-to: rgba(255, 138, 96, 1);
+}
+
+.chips {
+  flex-direction: row;
+  align-items: center;
+  gap: 8;
+}
+
+.chip {
+  padding: 9px 16px;
+  background-color: rgba(255, 255, 255, 0.10);
+  border-width: 1px;
+  border-color: rgba(255, 255, 255, 0.16);
+  border-radius: 4px;
+  font-scale: 0.46;
+  color: rgba(206, 210, 220, 1);
+}
+
+.chip:hover {
+  background-color: rgba(255, 255, 255, 0.10);
+  color: rgba(255, 255, 255, 1);
+}
+
+.chip:focus {
+  border-color: rgba(226, 78, 52, 1);
+  background-color: rgba(226, 78, 52, 0.32);
+  color: rgba(255, 255, 255, 1);
+}
+
+.chip:active {
+  background-color: rgba(255, 138, 96, 1);
+  color: rgba(14, 15, 19, 1);
+}
+
+/* SELECTED. `.chip.chip-on` rather than `.chip-on`, and it MUST sit below
+   `.chip:focus`: a pseudo-class counts as a class, so `.chip:focus` is (0,2,0)
+   and a bare `.chip-on` is (0,1,0) — focus would win every one of these and the
+   current tier would go blank the instant a pad navigated onto it. Two classes
+   ties the specificity and file order breaks the tie. */
+.chip.chip-on {
+  background-color: rgba(255, 138, 96, 1);
+  background-color-to: rgba(226, 78, 52, 1);
+  background-gradient: vertical;
+  border-color: rgba(255, 178, 152, 1);
+  color: rgba(14, 15, 19, 1);
+}
+
+/* ...and (0,3,0) for focused-AND-selected, which the tie above cannot express:
+   without it a focused ON chip would be identical to an unfocused one, so the
+   focus ring would disappear instead of the fill. */
+.chip.chip-on:focus,
+.chip.chip-on:hover {
+  border-color: rgba(255, 255, 255, 1);
+  border-width: 2px;
+}
+
+/* ------------------------------------------------------------ the footer -- */
+
+.footer {
+  width: 100%;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.status {
+  font-scale: 0.375;
+  color: rgba(124, 132, 150, 1);
+}
+
+/* A status colour that lies is worse than none: this is the line a mode's
+   refusal to start lands on. */
+.status-bad {
+  color: rgba(255, 138, 96, 1);
+}
+
+.legend {
+  flex-direction: row;
+  align-items: center;
+  gap: 18;
+}
+
+.key {
+  flex-direction: row;
+  align-items: center;
+  gap: 8;
+}
+
+/* NO FIXED WIDTH. The cap holds a BOUND glyph name that changes with the
+   player's hands — "A" on a pad, "ENTER" on a keyboard, "L STICK" vs "ARROWS" —
+   and a circle sized for a single letter cuts "ENTER" in half. It sizes to its
+   text and keeps a pill radius large enough to round whatever lands in it;
+   min-width keeps the one-letter case from collapsing to a sliver, and nowrap
+   keeps "L STICK" from becoming two lines inside a 24px pill. */
+.keycap {
+  min-width: 26px;
+  white-space: nowrap;
+  padding: 5px 9px;
+  background-color: rgba(255, 255, 255, 0.10);
+  border-radius: 12px;
+  border-width: 1px;
+  border-color: rgba(255, 255, 255, 0.16);
+  font-scale: 0.27;
+  color: rgba(255, 255, 255, 1);
+}
+
+.keyname {
+  font-scale: 0.27;
+  color: rgba(124, 132, 150, 1);
+}

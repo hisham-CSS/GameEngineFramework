@@ -68,12 +68,19 @@ set_target_properties(Editor PROPERTIES
 # — same lesson as tests' test_runtime_deps), and a blind copy_directory
 # clobbered editor-saved scenes with the checked-in copy every build. The
 # script overwrites static assets but only seeds authored .json files.
-add_custom_target(runtime_assets
-  COMMAND ${CMAKE_COMMAND}
-    -DSRC=${CMAKE_CURRENT_SOURCE_DIR}/src/Exported
-    -DDST=$<TARGET_FILE_DIR:Editor>/Exported
-    -P ${CMAKE_SOURCE_DIR}/cmake/stage_runtime_assets.cmake
-  COMMENT "Staging runtime assets")
+#
+# THE TARGET ITSELF MOVED TO THE ROOT CMakeLists.txt, and `src/Exported` moved
+# with it -- from being THE asset root to being the FIRST of an ordered list the
+# staging step layers, with each linked title's root going on top. That list is
+# composition, composition means knowing which titles exist, and this file may
+# not: it is the general-purpose editor, and the same rule that keeps a game
+# library off the link line above keeps a game's asset root out of here. See the
+# content-composition block in the root, beside the link composition it belongs
+# with.
+#
+# The dependency stays here, where the target that needs it is declared. It is a
+# forward reference to a target defined later in the top-level scope, which CMake
+# resolves at generate time.
 add_dependencies(Editor runtime_assets)
 
 # NOTE: Player/ and Cooker/ each have a debug-info block here that adds -g//Zi to

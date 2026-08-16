@@ -1,0 +1,328 @@
+<!--
+  UNTITLED FIGHTING GAME — the title's own front end.
+
+  ===========================================================================
+  THIS FILE IS THE POINT OF THE CONTENT SEPARATION
+  ===========================================================================
+  Until this existed, the fighting game was ONE MORE VERB on the engine's demo
+  menu: a button in Editor/src/Exported/UI/menu.cxml, on a scene the engine
+  owns, beside a NEW GAME that loads a room with a backpack in it. The engine's
+  menu is a good menu and it is not this game's menu — nobody sells a game whose
+  title screen belongs to the toolkit it was built with.
+
+  So the game owns the whole front end. Nothing here is in the engine's asset
+  root: this file, its stylesheet, its art and the scene that carries it all
+  live under Games/UntitledFighter/Assets/ and are LAYERED into the runtime
+  Exported/ by cmake/stage_runtime_assets.cmake. Delete the title's
+  add_subdirectory from the root CMakeLists and every one of them is pruned out
+  of the staged tree again, and the player boots the engine demo exactly as it
+  did before — which is the property the boundary assertion exists to protect.
+
+  Nothing INSTALLS this file. Games/UntitledFighter/Assets/UntitledFighter/
+  menu.json has an entity carrying a UIDocumentComponent that points at it, and
+  the host boots that scene because MyCoreEngine::TitleFrontEndScene() — the
+  seam in Engine/src/core/TitleFrontEnd.h, defined in
+  ../../../Player/src/TitleFrontEnd.cpp — names it. The engine declares; the
+  game answers.
+
+  ===========================================================================
+  THE VERBS ARE THE ENGINE'S; THE WORDS ARE THE GAME'S
+  ===========================================================================
+  Every on-click below is a HOST verb registered by InstallMenuUIContent
+  (Engine/src/ui/MenuUIContent.h) onto UIWorld's SHARED data source — the one
+  named `scene`, which every document in the process binds against. That is why
+  this markup, in a completely different asset root from the engine's menu, can
+  drive the same volume slider and enter the same game mode with no C++ of its
+  own: the actions were never per-document.
+
+  Two of those verbs are deliberately ABSENT here, and their absence is the
+  content boundary showing up in a file rather than in a build script:
+
+    menuNewGame    loads MenuUIHooks::playScenePath, which is the ENGINE's
+                   403-entity backpack demo. It is the engine testing itself and
+                   it has nothing to do with this game. The host leaves
+                   playScenePath alone on purpose (PlayerMain.cpp), so the verb
+                   still exists and still works — this menu simply does not
+                   offer it.
+    menuOpenSystem opens the demo's swap log and live-document counters. That is
+                   an ENGINE diagnostic, and a shipped fighting game's title
+                   screen is not where it belongs.
+
+  ===========================================================================
+  THE SKELETON IS THE ENGINE MENU'S, AND ON PURPOSE
+  ===========================================================================
+  Header, stage, footer; the stage takes flex-grow; the brand and the status
+  line live OUTSIDE the swapping middle. Every one of those is a fix for a
+  measured bug in the engine's own menu (the brand vanished whenever a panel
+  opened; setStatus fired from inside panels onto a label that was hidden at
+  that moment; panels of different heights moved the content top by 30-40px).
+  Owning the front end means owning the WORDS and the LOOK. It does not mean
+  re-learning the same three lessons.
+
+  NAVIGATION is the same model too: focus-scope="true" confines navigation to a
+  subtree while it is VISIBLE, on-back="..." is what B/Escape invoke while that
+  scope is innermost, and `if=` reading an app bool is the single source of
+  truth for both. Movement is geometric over the laid-out rects.
+
+  TWO LAYOUT RULES THAT COST TIME TO REDISCOVER, restated because this file is
+  the first one a second title will copy:
+    `position: absolute` writes ALL FOUR insets — Style::Edges defaults every
+    side to 0, so a lone `right:` right-aligns nothing. Both absolute elements
+    here write all four as zero.
+    `gap`, `flex-grow` and the four insets are NUMBERS and reject a px unit;
+    width, height, border-radius and border-width are Lengths and require one.
+-->
+<UI name="titleMenu" data-source="scene">
+
+  <!-- TWO LAYERS, NOT THREE. The engine's menu puts a flat 55% veil over its
+       backdrop because that art is a placeholder standing in for whatever a
+       user eventually drops there, and a contrast FLOOR is the only thing that
+       survives an unknown image. This backdrop is known: it is authored dark,
+       with its lights deliberately outside the centre third where the type
+       lives (see gen_title_art.py). So the flat veil is gone and the scrim is
+       DIRECTIONAL — heavy on the left under the wordmark and the verbs, clear
+       on the right where the stage lighting should actually show.
+
+       The scrim is a two-stop `background-gradient`, not the stretched PNG the
+       engine demo uses. That asset predates the property existing; scrim_ramp's
+       own docstring still says "there is no gradient PROPERTY in the stylesheet
+       language", which stopped being true. Same picture, one fewer file. -->
+  <Element name="backdrop" class="backdrop"/>
+  <Element name="scrim" class="scrim"/>
+
+  <Element name="frame" class="frame">
+
+    <!-- ===================================================== the header == -->
+    <!-- THE WORDMARK IS THE HERO and it is built out of TYPE, which is a
+         constraint rather than a preference. font-scale multiplies the 48px
+         baked atlas AND is multiplied by the surface's own scale factor before
+         it gets there, so a wordmark authored large is resampled up and goes
+         soft on every monitor bigger than the reference — the engine demo
+         measured exactly that and had to shrink its studio name and grow its
+         logo to fix it.
+
+         So the drama comes from the LOCKUP instead of from the point size: an
+         ember bar, a small muted first line, and one crisp 34px second line.
+         Nothing here is rendered above the atlas size at 1080p. -->
+    <Element name="header" class="header">
+      <Element class="wordmark">
+        <Element name="mark" class="mark"/>
+        <Element class="wordmark-text">
+          <Label name="titleTop" class="title-top" text="UNTITLED"/>
+          <Label name="titleMain" class="title-main" text="FIGHTING GAME"/>
+        </Element>
+      </Element>
+      <!-- Where you are. Two labels rather than one bound string: a {hole} is a
+           PATH and there is no expression language to choose between them.
+           The wrapper carries no class of its own — `.header`'s space-between
+           is what puts it on the right, and a class with no rule behind it is a
+           selector somebody later goes looking for. -->
+      <Element name="crumb">
+        <Label class="crumb-text" text="MAIN MENU" if="!panelOpen"/>
+        <Label class="crumb-text" text="OPTIONS"   if="panelSettings"/>
+      </Element>
+    </Element>
+
+    <!-- ====================================================== the stage == -->
+    <Element name="stage" class="stage">
+
+      <Element name="verbs" class="verbs" focus-scope="true" if="!panelOpen">
+
+        <!-- TRAINING, and the word is TYPED HERE rather than bound.
+             ============================================================
+             The engine's menu binds {menuMode0Name} because it ships with the
+             engine and must not name a game; what it draws is the mode's
+             DisplayName, which is "Untitled Fighting Game". That is the right
+             string in the engine demo, where the verb's job is to say WHICH
+             GAME this build contains. It is the wrong string here, on a screen
+             whose header already says it in 34px type — a menu offering
+             "UNTITLED FIGHTING GAME" underneath the words UNTITLED FIGHTING
+             GAME is the engine's compromise leaking into the game's own front
+             end. Here the verb's job is to say which MODE, so it says TRAINING.
+
+             This is the same fact wearing the two names it needs in the two
+             places it appears, which is only possible because the two menus are
+             now two files with two owners.
+
+             `if="menuMode0"` IS STILL BOUND, deliberately: the WORD is the
+             title's, but WHETHER THERE IS A MODE BEHIND IT is the host's, and a
+             button that enters nothing is the one thing worse than a missing
+             button. The flag is false unless a registry AND an onEnterMode hook
+             both exist (MenuUIContent.cpp), so this verb cannot outlive its
+             mode.
+
+             THE COUPLING TO KEEP IN MIND: slot 0 is the FIRST mode registered,
+             and registration order is menu order (GameMode.h). Both halves are
+             the title's — ../../../Player/src/UntitledFighterModes.cpp is where
+             the order is decided — so if a mode is ever registered BEFORE the
+             training mode, this line's text is what has to change with it.
+             The slots below need no such edit, which is the whole reason they
+             are bound. -->
+        <Button name="training" class="verb" if="menuMode0"
+                text="TRAINING" on-click="menuEnterMode0"/>
+
+        <!-- THE MODES THIS TITLE HAS NOT BUILT YET. REPLAY (drive a session
+             from a ReplayInputSource) and VERSUS (over CseNet's ISession) are
+             both named in UntitledFighterModes.cpp as planned and deliberately
+             not stubbed, because a menu entry that enters an empty screen is
+             worse than one that is absent. Their flags are false, so these
+             three buttons are not displayed at all today.
+
+             BOUND, not typed, precisely because they do not exist yet: the day
+             one is registered it appears here under whatever name it registers,
+             and nobody has to remember that this file also needed editing. The
+             `upper` converter is what keeps a DisplayName written in sentence
+             case from breaking the column's voice — the engine publishes a
+             mode's name VERBATIM and does not impose a house style on somebody
+             else's title, so imposing this title's own is this file's job.
+
+             Four slots and not a `repeat=`, and it is a real limit rather than
+             taste: a bound action is a `void()` looked up by NAME, so every row
+             of a repeat would invoke the same one with no way to say which was
+             clicked. kMenuModeSlots in MenuUIContent.h is the other half of
+             this and the two must agree.
+
+             `verb-mode` is what makes an arbitrary-length name survive the
+             320px column, and it is on these three and NOT on TRAINING. The
+             difference is where the text came from: TRAINING is eight
+             characters somebody typed into this file, where a surprise would be
+             a bug, so it keeps `.verb`'s nowrap. A future mode's DisplayName
+             can be any length at all, and one wrapping to two lines is much
+             better than one drawn outside its own focus highlight. -->
+        <Button name="mode1" class="verb verb-mode" if="menuMode1"
+                text="{menuMode1Name | upper}" on-click="menuEnterMode1"/>
+        <Button name="mode2" class="verb verb-mode" if="menuMode2"
+                text="{menuMode2Name | upper}" on-click="menuEnterMode2"/>
+        <Button name="mode3" class="verb verb-mode" if="menuMode3"
+                text="{menuMode3Name | upper}" on-click="menuEnterMode3"/>
+
+        <!-- A build with the front end and no modes is a real configuration:
+             CSE_HOST_TITLE_FRONT_END and CSE_HOST_TITLE_MODES are separate
+             guards on purpose (TitleFrontEnd.h), so the two can be turned on
+             independently. Without this line that build shows a title screen
+             whose only verbs are OPTIONS and QUIT, and nothing anywhere says
+             the game is missing rather than broken. -->
+        <Label class="verbs-empty" if="!menuMode0"
+               text="NO PLAYABLE MODES IN THIS BUILD"/>
+
+        <Element class="verb-rule"/>
+
+        <!-- OPTIONS rather than SETTINGS: the engine demo's word for its own
+             panel, changed here for no reason except that this is a game and
+             that is what a game calls it. The ACTION keeps the engine's name,
+             because the action is the engine's. -->
+        <Button name="options" class="verb verb-minor" text="OPTIONS"
+                on-click="menuOpenSettings"/>
+        <!-- QUIT is the one verb here you cannot undo, and it should not look
+             like the one that starts the game. It is separated and DESATURATED
+             rather than reddened: red is this title's primary accent, so the
+             engine demo's trick of colouring the dangerous verb red would have
+             made QUIT the loudest thing on the screen. -->
+        <Button name="quit" class="verb verb-minor verb-quit" text="QUIT"
+                on-click="menuQuit"/>
+      </Element>
+
+      <!-- ONE ROW SHAPE for every option: [label] [control], same height, same
+           label column. A settings list is scanned rather than read.
+
+           THREE ROWS, AND PILOT IS NOT ONE OF THEM. The engine demo's fourth
+           row is a name field two-way-bound to `playerName`, which exists to
+           greet you from the sample HUD after NEW GAME. Nothing in this game
+           reads it — the fight's HUD shows frame data, not a greeting — and a
+           setting that visibly does nothing is worse than an absent one. The
+           property is still published and still shared; this menu just has no
+           use for it. -->
+      <Element name="optionsPanel" class="panel" focus-scope="true"
+               if="panelSettings" on-back="menuClosePanel">
+
+        <Element class="opt">
+          <Label class="opt-label" text="MASTER VOLUME"/>
+          <!-- Two-way: the Slider writes menuVolume straight into the shared
+               source and MenuUIPublishCounters follows it into the AudioWorld
+               every frame, writing the SETTING to disk only once the value
+               stops moving. Press anywhere to jump, then drag — the drag is a
+               pointer capture, so it keeps tracking past either end.
+               key-step/key-ramp are the digital grain: one tap is 1%, because a
+               control that only moves in 5% jumps cannot be set to 43%. -->
+          <Slider name="volume" class="slider" bind-value="menuVolume"
+                  min="0" max="1" key-step="0.01" key-step-max="0.05"
+                  key-ramp="10">
+            <Element name="volumeFill" class="slider-fill"
+                     bind="width: {menuVolume | percent}"/>
+          </Slider>
+          <Label class="opt-value" text="{menuVolumePct}%"/>
+        </Element>
+
+        <Element class="opt">
+          <Label class="opt-label" text="QUALITY"/>
+          <!-- No separate readout: the lit chip IS the value. -->
+          <Element class="chips">
+            <Button name="qLow" class="chip" classes="chip-on: {menuQLow}"
+                    text="LOW" on-click="menuQualityLow"/>
+            <Button name="qMed" class="chip" classes="chip-on: {menuQMed}"
+                    text="MEDIUM" on-click="menuQualityMedium"/>
+            <Button name="qHigh" class="chip" classes="chip-on: {menuQHigh}"
+                    text="HIGH" on-click="menuQualityHigh"/>
+          </Element>
+        </Element>
+
+        <!-- VSYNC EARNS ITS ROW IN A WAY IT DOES NOT IN THE ENGINE DEMO. This
+             game's fight runs on a fixed tick and is judged in frames: the
+             training mode's whole job is to make frame advantage readable, and
+             a player chasing a one-frame link wants the presentation path they
+             will actually play on. It is a display setting on the demo's menu
+             and a gameplay setting on this one. -->
+        <Element class="opt">
+          <Label class="opt-label" text="VSYNC"/>
+          <Element class="chips">
+            <Button name="vsync" class="chip" classes="chip-on: {menuVSync}"
+                    text="{menuVSyncName}" on-click="menuVSyncToggle"/>
+          </Element>
+        </Element>
+
+      </Element>
+
+    </Element>
+
+    <!-- ===================================================== the footer == -->
+    <Element name="footer" class="footer">
+      <!-- Persistent, so a message written from inside the options panel is
+           actually SEEN while that panel is open — which is when most of them
+           are written. It also carries the failure of a mode that refused to
+           start: MenuUIHooks::onEnterMode returns a message rather than
+           throwing, precisely so it lands here and not in a console the shipped
+           player does not have. -->
+      <Label name="statusText" class="status" text="{menuStatus}"
+             classes="status-bad: {menuStatusOk | not}" if="!menuLoading"/>
+      <!-- The async swap's own line. While the next scene's models warm on
+           worker threads NOTHING has been torn down, so this menu is still
+           live, still animating, and still able to say how far along it is. -->
+      <Label name="loadingText" class="status" if="menuLoading"
+             text="LOADING  {menuLoadDone}/{menuLoadTotal}"/>
+      <!-- The button legend, and the caps are BOUND rather than typed: UIWorld
+           republishes them the moment the player's hands move — A/B/L STICK on
+           a pad, ENTER/ESC/ARROWS on a keyboard. Telling a keyboard player to
+           press A is a small lie that makes a menu feel ported rather than
+           made, and it would be a particularly bad lie on a fighting game.
+
+           BACK is hidden at the root, where nothing is open to back out of.
+           That is not decoration: the verb column is a focus scope with no
+           on-back, so the press genuinely goes nowhere. -->
+      <Element class="legend">
+        <Element class="key">
+          <Label name="keyNav" class="keycap" text="{uiGlyphNav}"/>
+          <Label class="keyname" text="MOVE"/>
+        </Element>
+        <Element class="key">
+          <Label name="keySelect" class="keycap" text="{uiGlyphSelect}"/>
+          <Label class="keyname" text="SELECT"/>
+        </Element>
+        <Element name="legendBack" class="key" if="panelOpen">
+          <Label name="keyBack" class="keycap" text="{uiGlyphBack}"/>
+          <Label class="keyname" text="BACK"/>
+        </Element>
+      </Element>
+    </Element>
+
+  </Element>
+</UI>

@@ -200,13 +200,18 @@ public:
     // types a path, which is the definition of untrusted.
     //
     // The default is the same "Exported" the editor's other relative paths use,
-    // and it resolves next to the executable because the character files live in
-    // `Editor/src/Exported/Characters` -- inside the asset root that
-    // `stage_runtime_assets.cmake` copies subdirectory by subdirectory. So the
-    // panel finds them with no configuration.
+    // and it resolves next to the executable because the character files are
+    // STAGED to `Exported/Characters` beside it. Their SOURCE moved out of the
+    // engine's asset root to `Games/UntitledFighter/Assets/Characters` when this
+    // title took ownership of its own content; the staged path is deliberately
+    // unchanged, because `stage_runtime_assets.cmake` layers every asset root's
+    // subdirectories into the one runtime `Exported/` and a title's
+    // `Characters/` lands exactly where the engine's used to. So this panel, the
+    // game mode and five tests all go on resolving the same relative path, and
+    // nothing here had to learn a second place to look.
     //
     // They were briefly in a top-level `Exported/Characters` instead, which is
-    // NOT the asset root and was never staged; the panel then found nothing
+    // NOT an asset root and was never staged; the panel then found nothing
     // unless the editor happened to be run from the repository root. Moved
     // rather than special-cased, because two directories called Exported is a
     // trap regardless of which one any given tool reads.

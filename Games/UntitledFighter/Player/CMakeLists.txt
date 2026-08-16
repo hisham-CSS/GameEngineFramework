@@ -47,6 +47,12 @@ add_library(UntitledFighterPlayer STATIC
     src/FightHud.cpp
     # The registration list, and the definition of the hook the engine declares.
     src/UntitledFighterModes.cpp
+    # The front end: which scene the host boots when this game is in the build.
+    # A second seam and a second file, because it answers a different question --
+    # UntitledFighterModes.cpp says what the host can BE IN, this says where it
+    # STARTS. The scene it names, and the markup, stylesheet and art behind it,
+    # are in ../Assets/UntitledFighter/.
+    src/TitleFrontEnd.cpp
 )
 
 target_compile_features(UntitledFighterPlayer PUBLIC cxx_std_17)
@@ -80,6 +86,28 @@ target_compile_definitions(UntitledFighterPlayer PRIVATE GLFW_INCLUDE_NONE)
 # referenced by nothing and the linker drops it) is what the INTERFACE half rules
 # out.
 target_compile_definitions(UntitledFighterPlayer PUBLIC CSE_HOST_TITLE_MODES=1)
+
+# ...AND THE REGISTRATION OF THE FRONT END, on exactly the same terms. PUBLIC for
+# both of the reasons the block above spells out: INTERFACE turns on the engine's
+# declaration of MyCoreEngine::TitleFrontEndScene and the host's call to it,
+# PRIVATE turns it on while compiling src/TitleFrontEnd.cpp so the compiler checks
+# this library's definition against that declaration.
+#
+# A SECOND MACRO RATHER THAN A SECOND USE OF THE FIRST, and it is the engine's
+# decision rather than this file's -- TitleFrontEnd.h argues it at length. The
+# short version is that the two are independent: a title can register modes and
+# own no front end (which is exactly what this title was until its menu moved out
+# of the engine's asset root), and a scene-driven game with a title screen and no
+# modes at all is most games. One macro would force every title to define both
+# functions or fail to link, and one of the two would be a stub returning nothing.
+#
+# THE CONTENT IS NOT COMPOSED HERE. The scene this switch makes the host boot
+# lives in ../Assets/, which the ROOT CMakeLists layers onto the engine's asset
+# root -- by the convention `Games/<title>/Assets`, gated on this very target
+# existing. So there is no asset path in this file and no build rule to keep in
+# step with one: linking the library is what brings the code, and the same
+# add_subdirectory is what brings the content.
+target_compile_definitions(UntitledFighterPlayer PUBLIC CSE_HOST_TITLE_FRONT_END=1)
 
 # BOTH PRIVATE, and that is a statement about this library rather than a default.
 #

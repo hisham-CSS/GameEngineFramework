@@ -76,8 +76,11 @@ inline constexpr std::int32_t kNeverAirborne = -1;
 
 // A NOTE ON THE VERSION NUMBER BEFORE IT CONFUSES SOMEBODY. The comments below
 // cite SCHEMA V3, and there is no file called schema.v3.json. The schema
-// document lives where it always has, at
-// Editor/src/Exported/Characters/schema.v2.json, and declares itself v3 in its
+// document lives beside the characters it describes, at
+// Games/UntitledFighter/Assets/Characters/schema.v2.json (it was in the engine's
+// asset root, Editor/src/Exported/Characters/, until this title took ownership
+// of its own content; the STAGED path, Exported/Characters/, is unchanged), and
+// declares itself v3 in its
 // `$id`, its title and its engine.schema_version enum -- a JSON Schema
 // document's identity is its `$id` rather than its filename, and nothing in this
 // repository resolves that file by path. The schema says the same thing about

@@ -24,6 +24,9 @@
 // Modes a host can enter, tick, draw and leave. The engine owns the seam; the
 // modes come from a title.
 #include "../src/core/GameMode.h"
+// Which scene a host boots when a title is linked. A separate seam from the one
+// above, and its header argues why the front end is a scene rather than a mode.
+#include "../src/core/TitleFrontEnd.h"
 #include "../src/core/InputMap.h"
 #include "../src/core/JobSystem.h"
 #include "../src/core/RenderTarget.h"

@@ -19,6 +19,7 @@
 // is linked; see the composition block in the root CMakeLists.txt.
 #include "Engine.h"
 
+#include <fstream>   // "does project.json exist" — see the boot order in Run()
 #include <iostream>
 #include <string>
 
@@ -137,17 +138,89 @@ public:
             return;
         }
 
-        // Startup scene: command line beats project settings beats default.
-        // commandLine() is captured portably by Main.h (argv), so `Player
-        // <scene.json>` works on Windows and Linux alike.
+        // The asset root: where Exported/ was staged next to this executable.
+        // NAMED ONCE because two things have to agree about it and they are set
+        // forty lines apart -- the scene this boots, and the contentRoot a game
+        // mode resolves its own files against. The other "Exported/..." literals
+        // in this file are single-use paths to engine assets and are deliberately
+        // left alone; this is the pair that must not drift, not a refactor.
+        const std::string contentRoot = "Exported";
+
         // Project settings ship in project.json: the startup scene and the
-        // master volume the game boots at. Always load them (the master volume
-        // is honoured even when a scene is passed on the command line).
+        // master volume the game boots at. Always load them -- the master volume
+        // is honoured however the scene ends up being chosen.
         ProjectSettings settings;
         settings.Load(); // Exported/project.json, written by the editor
+
+        // ---- the title's front end ------------------------------------------
+        //
+        // Empty when this build has no title, and everything below reads the
+        // same either way: a player built with no title boots exactly what it
+        // booted before this seam existed, which is the property the boundary
+        // assertion in the root CMakeLists exists to protect.
+        std::string titleFrontEnd;
+#ifdef CSE_HOST_TITLE_FRONT_END
+        {
+            // THE HOST DOES THE JOIN, and the title returns a content-relative
+            // path (TitleFrontEnd.h says why). It is one line here and it is the
+            // only line that changes the day the asset search path lands, when
+            // "the content root" stops being a single directory.
+            const std::string rel = TitleFrontEndScene();
+            if (!rel.empty()) titleFrontEnd = contentRoot + "/" + rel;
+        }
+#endif
+
+        // ---- what this boots, in order --------------------------------------
+        //
+        //   1. a scene named on the COMMAND LINE. It beats everything, including
+        //      a linked title, because somebody debugging a scene must not have
+        //      to uninstall the game to open it. commandLine() is captured
+        //      portably by Main.h (argv), so it works on Windows and Linux alike.
+        //   2. the TITLE's front end, if one is linked.
+        //   3. project.json's startupScene, i.e. exactly what this did before.
+        //
+        // THE TITLE BEATS project.json, and that is the interesting one because
+        // project.json is EDITOR-WRITTEN: a designer really can set a startup
+        // scene in the editor and be overruled here. It is still the right
+        // order. project.json is a HOST setting that predates titles and its
+        // default (`Exported/scene.json`) is the engine's demo, so letting it win
+        // would mean a shipped game boots the backpack room whenever anyone ever
+        // pressed "Set Current Scene as Player Startup" -- a game that fails to
+        // start itself because of a preference nobody remembers setting. The
+        // command line is the deliberate act, so the command line is what wins.
+        //
+        // AND THE LOSING CASE SAYS SO. A setting that is read, ignored and never
+        // mentioned is the same failure as the staging step that silently kept a
+        // stale scene: the file is visibly right and the running game disagrees
+        // with it, with nothing anywhere to explain the gap.
         std::string scenePath;
         if (commandLine().size() > 1) scenePath = commandLine()[1];
+        const bool fromCommandLine = !scenePath.empty();
+        if (scenePath.empty()) scenePath = titleFrontEnd;
         if (scenePath.empty()) scenePath = settings.startupScene;
+
+        if (!titleFrontEnd.empty()) {
+            if (fromCommandLine) {
+                std::cout << "PLAYER: booting '" << scenePath
+                          << "' from the command line; this build's title front end ('"
+                          << titleFrontEnd << "') is not being used." << std::endl;
+            }
+            // Only when the file is actually THERE. project.json is written by
+            // the editor and is not in the source tree, so a fresh install does
+            // not have one and settings.startupScene is just the struct's
+            // default -- announcing a conflict with a file nobody wrote, naming
+            // a path that does not exist, would be its own small mystery.
+            else if (settings.startupScene != titleFrontEnd &&
+                     std::ifstream(ProjectSettings::DefaultPath()).good()) {
+                std::cout << "PLAYER: " << ProjectSettings::DefaultPath()
+                          << " asks for '" << settings.startupScene
+                          << "', but this build links a title and the title's front end "
+                             "wins: booting '" << titleFrontEnd
+                          << "'. Pass a path (Player <scene.json>) to open the other one. "
+                             "The rest of that file still applies — the master volume is "
+                             "read from it." << std::endl;
+            }
+        }
 
         Scene scene;
         // The loader is installed BEFORE the boot load, so the boot goes
@@ -290,7 +363,7 @@ public:
         // written, and a stored context would carry that first answer forever.
         // Everything it names is host-lifetime, so the pointers are safe for as
         // long as a mode can hold them.
-        const auto modeContext = [this, &scene] {
+        const auto modeContext = [this, &scene, contentRoot] {
             GameModeContext ctx;
             ctx.app = this;
             ctx.scene = &scene;
@@ -300,8 +373,10 @@ public:
             // which is why GameModeContext documents it as optional.
             ctx.font = uiFont_.IsValid() ? &uiFont_ : nullptr;
             // Where Exported/ was staged next to this executable, i.e. the same
-            // root every other path in this file is relative to.
-            ctx.contentRoot = "Exported";
+            // root every other path in this file is relative to -- and the same
+            // string the title's front-end path was joined onto at boot, which
+            // is why it is a named local rather than a second literal.
+            ctx.contentRoot = contentRoot;
             return ctx;
         };
 
@@ -345,6 +420,16 @@ public:
         menuHooks_.renderer = &renderer();
         menuHooks_.audio = &audio_;
         menuHooks_.initialVolume = settings.masterVolume;
+        // "THE MENU" IS WHATEVER FRONT END THIS BUILD ACTUALLY HAS. MenuUIHooks
+        // defaults menuScenePath to the engine demo's own Exported/menu.json,
+        // which is right for a title-less build and wrong the moment a title
+        // supplies its own: every verb that means "go back to the menu" would
+        // swap the player OUT of the game's front end and INTO the engine's
+        // sample, which is the failure this whole seam is about, arriving one
+        // button later. `playScenePath` is left alone deliberately -- it is the
+        // demo menu's NEW GAME target, so a title that wants that verb is
+        // declaring it in its own markup rather than inheriting the backpack.
+        if (!titleFrontEnd.empty()) menuHooks_.menuScenePath = titleFrontEnd;
         // The modes, for their NAMES, and the verb that enters one. Two fields
         // because they are two different things -- data and an action -- the
         // same split as `audio` and `onMasterVolume` above.

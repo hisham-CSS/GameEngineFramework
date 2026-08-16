@@ -159,6 +159,90 @@ if (TARGET UntitledFighterPlayer)
     target_link_libraries(PlayerShipping PRIVATE UntitledFighterPlayer)
 endif()
 
+# ---------------------------------------------------------------------------
+# COMPOSING THE CONTENT, WHICH IS THE OTHER HALF OF COMPOSING A TITLE
+# ---------------------------------------------------------------------------
+# The block above composes CODE. This one composes ASSETS, and until now there
+# was nothing to compose: `Editor/src/Exported` WAS the asset root, it was the
+# only one, and a title's content therefore had to live inside it. Fighting-game
+# character data sat in the general-purpose editor's asset directory, and the
+# game itself was a verb on the ENGINE DEMO's main menu whose NEW GAME loads a
+# backpack. The code boundary was a configure-time FATAL_ERROR and the content
+# boundary was held by nothing at all -- not because anyone decided that, but
+# because there was no way for a title to own content.
+#
+# ONE ORDERED LIST, LATER WINNING. The engine's asset root is first and each
+# linked title's goes on top; cmake/stage_runtime_assets.cmake flattens them into
+# the single runtime Exported/ beside the executables. Every relative path that
+# resolves today goes on resolving, because the RUNTIME layout is unchanged --
+# what changes is who is allowed to put things into it.
+#
+# INTERIM, AND MEANT TO BE. The real answer is an asset SEARCH PATH that the
+# LOADER walks, so nothing is ever copied over anything and a shipped title
+# carries its own root wherever it likes. That is a change to every path
+# resolution in the engine; this is a change to one build step, and it buys the
+# SOURCE separation now.
+#
+# DECLARED HERE FOR THE SAME REASON THE LINKS ARE: this file is the one place
+# allowed to know a title exists. The staging target below reads this list and so
+# does tests/, and neither of them ends up naming a game.
+set(CSE_ASSET_ROOTS ${CMAKE_SOURCE_DIR}/Editor/src/Exported)
+
+# A title's asset root is `Games/<title>/Assets` BY CONVENTION rather than by
+# declaration, so composing a title's content costs the same one line as
+# composing its code, and a second title copies the line rather than inventing a
+# protocol.
+#
+# THE TARGET IS THE GATE, not the directory. Delete the add_subdirectory above
+# and the Assets/ folder is still sitting on disk, so a directory test alone
+# would go on staging a game into a build that does not contain one. Both of the
+# title's host libraries come from that single add_subdirectory, so either
+# answers "is this title in the build"; this one is named to match the block
+# directly above.
+#
+# THE DIRECTORY TEST IS THE SECOND HALF, and it is not a transitional
+# convenience: a title need not ship assets at all. The fighting game was exactly
+# such a title until its front end moved out of the engine's asset root, and a
+# title whose modes draw everything procedurally never acquires one. The staging
+# script FATAL_ERRORs on a root that is not a directory -- the right answer for a
+# path somebody mistyped, the wrong one for a title that simply has no files.
+if (TARGET UntitledFighterPlayer AND
+    IS_DIRECTORY ${CMAKE_SOURCE_DIR}/Games/UntitledFighter/Assets)
+    list(APPEND CSE_ASSET_ROOTS ${CMAKE_SOURCE_DIR}/Games/UntitledFighter/Assets)
+endif()
+
+# ONE staging step for the runtime assets the applications share.
+#
+# IT IS HERE RATHER THAN IN Editor/CMakeLists.txt, where it lived for as long as
+# there was one root, because staging is now COMPOSITION: the runtime Exported/
+# is the engine plus every linked title, and the general-purpose editor's build
+# file may no more name a game than its link line may. Editor/, Player/ and
+# tests/ keep their `add_dependencies(... runtime_assets)` untouched -- a forward
+# reference to a target defined later in the top-level scope, resolved at
+# generate time. Verified rather than assumed: CMake accepts it, orders the two
+# correctly, and errors loudly if the target never appears at all.
+#
+# ONE WRITER, still, which is why it was a single shared target to begin with:
+# Editor, PlayerDebug and PlayerShipping all link into build/bin/<CONFIG>/, and
+# concurrent copies into one directory race under Ninja. Same lesson as
+# app_runtime_deps below and test_runtime_deps in tests/.
+#
+# QUOTE THE ROOTS ARGUMENT, AND PASS VERBATIM. Both are load-bearing and neither
+# was needed while there was one root, which is exactly why they are easy to drop:
+#   * unquoted, CMake splits `-DROOTS=a;b` into two arguments BEFORE the command
+#     line is built, so the script receives one root, mirrors the staged tree
+#     against it, and deletes everything the title staged on every build -- while
+#     configuring and building perfectly happily.
+#   * VERBATIM is what escapes that `;` for /bin/sh on Linux, where it is a
+#     command separator rather than part of an argument.
+add_custom_target(runtime_assets
+  COMMAND ${CMAKE_COMMAND}
+    "-DROOTS=${CSE_ASSET_ROOTS}"
+    "-DDST=$<TARGET_FILE_DIR:Editor>/Exported"
+    -P ${CMAKE_SOURCE_DIR}/cmake/stage_runtime_assets.cmake
+  COMMENT "Staging runtime assets"
+  VERBATIM)
+
 # --------------------------------------------------------------------------
 # THE BOUNDARY, AS A CONFIGURE-TIME FAILURE RATHER THAN AN INTENTION
 # --------------------------------------------------------------------------
