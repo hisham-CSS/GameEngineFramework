@@ -37,6 +37,7 @@
     {
       "name": "x64-debug",
       "displayName": "x64 Debug",
+      "description": "The application. ENABLE_TESTS is OFF on purpose: it is the only lever this repository has on Visual Studio's Startup Item list, and turning it ON puts ~45 test executables into it. Use x64 RelWithDebInfo (Tests) to run tests.",
       "inherits": "windows-base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
@@ -46,6 +47,7 @@
     {
       "name": "x64-release",
       "displayName": "x64 Release",
+      "description": "The application, optimised. ENABLE_TESTS is OFF on purpose: it is the only lever this repository has on Visual Studio's Startup Item list, and turning it ON puts ~45 test executables into it. Use x64 RelWithDebInfo (Tests) to run tests.",
       "inherits": "windows-base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
@@ -55,6 +57,7 @@
     {
       "name": "x64-relwithdebinfo",
       "displayName": "x64 RelWithDebInfo",
+      "description": "The everyday editor build. ENABLE_TESTS is OFF on purpose: it is the only lever this repository has on Visual Studio's Startup Item list, and turning it ON puts ~45 test executables into it. Use x64 RelWithDebInfo (Tests) to run tests.",
       "inherits": "windows-base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
@@ -64,6 +67,7 @@
     {
       "name": "x64-relwithdebinfo-tests",
       "displayName": "x64 RelWithDebInfo (Tests)",
+      "description": "The test tree. The ~45 test executables live here and nowhere else, which is why the three application presets can keep a short Startup Item list.",
       "inherits": "windows-base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",

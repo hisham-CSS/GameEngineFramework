@@ -122,10 +122,13 @@ target_compile_definitions(Editor PRIVATE GLFW_INCLUDE_NONE)
 # DEFINITIONS RATHER THAN THE CONFIGURE-TIME JSON THAT HEADER PROPOSES, and the
 # deviation is deliberate. Its stated objection is that "baking absolute
 # build-machine paths into Engine.dll puts them in every shipped game" -- an
-# argument about Engine.dll. This is Editor.exe, which nothing installs (the only
-# install rules in the tree are Engine's and PlayerShipping's), so there is no
-# bundle for these to leak into. Two things also make definitions the better fit
-# here specifically:
+# argument about Engine.dll. This is Editor.exe, and NO INSTALL RULE ANYWHERE
+# NAMES IT: the rules in this tree cover Engine, the lua-cpp DLL, ONE PLAYER PER
+# PROFILE and the content, which is the whole of what a bundle is. So there is no
+# bundle for these to leak into -- and that is a property of those rules rather
+# than of this file, so if the editor ever became something you ship, this block
+# is one of the things that would have to change. Two things also make
+# definitions the better fit here specifically:
 #   * $<CONFIG>. A file written by configure_file cannot carry it, and exeDir is
 #     per-configuration; a generate-time file would work but is a second
 #     mechanism for one string.

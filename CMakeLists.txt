@@ -63,10 +63,47 @@ function(cse_add_app_icon tgt)
     endif()
 endfunction()
 
+# ---------------------------------------------------------------------------
+# THE IDE'S LISTS, AND WHICH HALF OF THEM THIS FILE CAN REACH
+# ---------------------------------------------------------------------------
+# Visual Studio in Open Folder mode builds two lists out of this project, and
+# they are not the same list:
+#
+#   THE STARTUP-ITEM DROPDOWN comes from the CMake file API -- every EXECUTABLE
+#   target in <binaryDir>/.cmake/api/v1/reply/, which VS requests as client
+#   "MicrosoftVS" (its query.json is sitting in every build tree here). NOTHING
+#   IN THIS REPOSITORY CAN FILTER THAT LIST. A target's entry carries name,
+#   type, artifacts and folder, and no "not launchable" bit of any kind: an
+#   EXCLUDE_FROM_ALL executable and an ordinary one produce byte-identical
+#   target JSON. Measured against codemodel-v2 2.10 by generating both and
+#   diffing the reply, not inferred from the documentation. The only way to
+#   take a name out of that dropdown is to not define the target at all in the
+#   configuration being used.
+#
+#   THE CMAKE TARGETS VIEW groups by the FOLDER property, and codemodel-v2 DOES
+#   carry `folder` (same experiment: the target that set it got a `folder` key,
+#   the ones that did not have none). That is the one lever there is, so the
+#   `set(CMAKE_FOLDER ...)` lines below pull it. Every library, artifact and
+#   test in this build goes into a named group and THE ONE TARGET LEFT LOOSE IS
+#   THE EDITOR -- the only executable here a person is meant to start
+#   (ADR-008). A target that lands beside the Editor at the top level is
+#   telling you it was never grouped, not that it is launchable.
+#
+# THE THIRD LIST IS NOT OURS AND NOT CMAKE'S. ThirdParty/GekkoNet is a pinned
+# submodule that ships GekkoNet.sln, GekkoLib/GekkoLib.vcxproj and six
+# Examples/*.vcxproj; Open Folder discovers those by scanning the tree, and no
+# CMake file reaches them because they are not CMake targets. The only thing
+# that does is Visual Studio's own workspace exclusion list --
+# .vs/VSWorkspaceSettings.json, which this repository now commits. Its header
+# comment carries the rest of the story, including what to do by hand if your
+# Visual Studio ignores it.
+set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+
 # Vendored third-party built with OUR flags: GekkoNet, the rollback session
 # layer. Compiled here rather than via its own CMakeLists because that file
 # forces /MT on a static build while this engine is /MD — see the long note in
 # ThirdParty/CMakeLists.txt.
+set(CMAKE_FOLDER "Third-party")
 add_subdirectory(ThirdParty)
 
 # The rollback session seam. Links GekkoNet PRIVATE so gekkonet.h reaches exactly
@@ -76,6 +113,10 @@ add_subdirectory(ThirdParty)
 # ISession takes an opaque state blob and a byte of input per player and names
 # no fighter, so it is infrastructure any deterministic game wants. See the
 # header of Games/UntitledFighter/CMakeLists.txt.
+#
+# It groups under "Engine" for exactly that reason: the folder a target sits in
+# is the same claim its directory makes.
+set(CMAKE_FOLDER "Engine")
 add_subdirectory(Net)
 
 # ---------------------------------------------------------------------------
@@ -96,22 +137,80 @@ add_subdirectory(Net)
 # After ThirdParty/ because the title's data layer links ComboProver; before
 # Engine/ and tests/ because either may come to depend on the title while the
 # title depends on neither.
+set(CMAKE_FOLDER "Games/UntitledFighter")
 add_subdirectory(Games/UntitledFighter)
 
 # Add subdirectories for Engine, Editor, the standalone Player, and the
-# headless AssetCooker (batch asset work, spawned by the editor)
+# headless AssetCooker (batch asset work, spawned by the editor).
+#
+# THE CMAKE_FOLDER LINES ARE THE WHOLE GROUPING SCHEME, and they read top to
+# bottom as the answer to "what is this thing": the engine, then the one
+# application, then everything that application produces or spawns -- the two
+# players, the cooker, and the API reference. The `unset` before Editor
+# is not a reset for tidiness; it is what leaves the Editor alone at the top
+# level, which is the rule stated above.
+#
+# `unset`, NOT `set(CMAKE_FOLDER "")`, and the difference is visible in the file
+# API rather than a style preference. An empty value is still a value: CMake
+# emits `"folder": {"name": ""}` for such a target, and an IDE reading that has
+# been handed a folder whose name happens to be blank rather than told there is
+# no folder. Unsetting it omits the key entirely, which is what an ungrouped
+# target looks like. Checked in a generated reply both ways.
+set(CMAKE_FOLDER "Engine")
 add_subdirectory(Engine)
+unset(CMAKE_FOLDER)
 add_subdirectory(Editor)
+set(CMAKE_FOLDER "Artifacts")
 add_subdirectory(Player)
 add_subdirectory(Cooker)
 # API reference (optional): defines a 'docs' target when Doxygen is installed,
 # and quietly skips it otherwise. Never a build dependency.
 add_subdirectory(docs)
+unset(CMAKE_FOLDER)
 
 # The editor invokes AssetCooker.exe at runtime (Validate button): building
 # the Editor must produce/refresh the cooker too, or a dev-loop build ships
 # a missing/stale cooker next to a new editor.
 add_dependencies(Editor AssetCooker)
+
+# ---------------------------------------------------------------------------
+# FOUR EXECUTABLES, AND ONE OF THEM IS A THING SOMEBODY STARTS
+# ---------------------------------------------------------------------------
+#   Editor          the application. This is the startup item.
+#   AssetCooker     a CHILD PROCESS. The editor spawns it (Validate); the
+#                   dependency above is what keeps it from being stale. Running
+#                   it by hand is a debugging act, not a use of the engine.
+#   PlayerDebug     ARTIFACTS. File > Build Settings > Build picks a profile,
+#   PlayerShipping  builds one of them and installs it into a bundle, and that
+#                   bundle is the product. Starting one from the IDE runs a
+#                   player against the BUILD TREE's staged Exported/, which is
+#                   not the thing anybody ships.
+#
+# ALL FOUR STAY IN THE DEFAULT BUILD, and that is a decision about coverage
+# rather than a leftover. EXCLUDE_FROM_ALL on the two players is the obvious
+# way to make them "an artifact produced on demand" in the build system as well
+# as in the ADR, and the editor would not even notice: BuildPipeline.cpp runs
+# `cmake --build <binaryDir> --target PlayerShipping`, BY NAME, so membership
+# of `all` is not what makes the Build button work.
+#
+# It is still not worth what it costs, for two reasons that were measured
+# rather than argued:
+#   * IT WOULD NOT SHORTEN THE DROPDOWN BY ONE ENTRY. See the note above
+#     add_subdirectory(ThirdParty): EXCLUDE_FROM_ALL is invisible to the CMake
+#     file API, so Visual Studio would go on offering PlayerDebug and
+#     PlayerShipping exactly as it does today. The purity would be real and the
+#     visible benefit exactly zero.
+#   * IT WOULD GUT A CI CHECK WITHOUT FAILING ONE. `cmake --build --preset
+#     x64-release` builds the default target set, and the "Build the shipping
+#     configurations" step in .github/workflows/ci.yml exists for one stated
+#     reason: "a missing symbol shows up when the Player links, not when the
+#     Engine does". Take the players out of `all` and that step stops linking a
+#     player while still passing -- a green job checking less than its own
+#     comment claims. Every developer's Build All loses the same check.
+#
+# So the two dropdown entries stay and the FOLDER above is what says what they
+# are. IF THEY EVER DO LEAVE `all`, the same commit has to add `--target
+# PlayerDebug PlayerShipping` to that CI step, or the coverage goes quietly.
 
 # ---------------------------------------------------------------------------
 # COMPOSING THE GENERAL HOSTS WITH THE TITLE
@@ -303,6 +402,11 @@ add_custom_target(runtime_assets
     -P ${CMAKE_SOURCE_DIR}/cmake/stage_runtime_assets.cmake
   COMMENT "Staging runtime assets"
   VERBATIM)
+# Grouped explicitly rather than by CMAKE_FOLDER: this target is created in the
+# ROOT scope, where CMAKE_FOLDER is deliberately unset so that the Editor is the
+# only thing at the top level. A build step sitting up there beside it would say
+# the wrong thing about both.
+set_target_properties(runtime_assets PROPERTIES FOLDER "Build steps")
 
 # --------------------------------------------------------------------------
 # THE BOUNDARY, AS A CONFIGURE-TIME FAILURE RATHER THAN AN INTENTION
@@ -386,20 +490,82 @@ if (WIN32)
     foreach(app Editor PlayerDebug PlayerShipping AssetCooker)
         add_dependencies(${app} app_runtime_deps)
     endforeach()
+    # Same reason as runtime_assets above: created in the root scope, grouped by
+    # hand so the top level stays the Editor's alone.
+    set_target_properties(app_runtime_deps PROPERTIES FOLDER "Build steps")
 endif()
 
 option(ENABLE_TESTS "Build unit tests" ON)
 
+# THE ~45 TEST BINARIES ARE THE BIGGEST SINGLE THING IN THE STARTUP DROPDOWN,
+# and the reason they are usually not in it is this option: the three
+# application presets in CMakePresets.json set ENABLE_TESTS=OFF, so the tests
+# exist as targets only in x64-relwithdebinfo-tests, which is where somebody
+# wanting to run a test already is. That is not a tidiness setting; it is the
+# one lever on that list this repository actually owns (nothing can filter the
+# dropdown -- see the note above add_subdirectory(ThirdParty)), so turning it
+# back ON in an application preset puts all of them back.
+#
+# They still group: one folder for the lot rather than 45 loose targets in the
+# view. tests/CMakeLists.txt names no folder itself, so this is the whole of it.
 if(ENABLE_TESTS)
   enable_testing()
+  set(CMAKE_FOLDER "Tests")
   add_subdirectory(tests)
+  unset(CMAKE_FOLDER)
 endif()
 
-# --- Packaging: `cpack -G ZIP` (or the `package` target) bundles the
-# standalone game: Player.exe + Engine.dll + third-party DLLs + Exported/.
-set(CPACK_GENERATOR "ZIP")
-set(CPACK_PACKAGE_NAME "CatSplatGame")
-set(CPACK_PACKAGE_VERSION "0.1.0")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Standalone game build (player + assets)")
-set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY OFF)
-include(CPack)
+# ---------------------------------------------------------------------------
+# ONE PLACE PRODUCES A PLAYER BUNDLE, AND IT IS NOT THIS FILE
+# ---------------------------------------------------------------------------
+# This block used to be five CPACK_ variables and `include(CPack)`, which gave
+# the build a `package` target and `cpack -G ZIP`: a second way to turn this
+# tree into a shipped game, beside File > Build Settings > Build in the editor.
+# ADR-008 says the editor produces the player, and two entry points are two
+# things that have to keep agreeing.
+#
+# THEY AGREED ABOUT THE FILE LIST AND DISAGREED ABOUT EVERYTHING BEFORE IT.
+# Contents were never the problem: both routes go through the SAME install
+# rules in Player/CMakeLists.txt, which were deliberately written so `cpack`
+# and the Build action assemble the same directory. The difference is the
+# questions the editor asks first. The Build action refuses a build whose
+# configuration is not the one this tree was generated for, whose scene list is
+# empty or names a scene that fails SceneSerializer::Validate or sits outside
+# the asset root, whose output directory is inside the build tree, whose first
+# scene is not the one it says the game boots into. `cpack` asks none of that:
+# run it on a tree the editor has never saved in and it prints a WARNING, ships
+# the source-tree defaults instead of the author's scenes, and exits 0. A game
+# with the wrong level in it and a green exit code is exactly the failure this
+# whole pipeline exists to make impossible.
+#
+# THE MECHANISM STAYS AND THE SECOND DOOR CLOSES. The install rules are
+# untouched -- they are still the only thing in this tree that assembles a
+# bundle, and the editor calls them. A headless release job is still one line,
+# `cmake --install <tree> --config Release --prefix <dir>`, because that is
+# literally the command BuildPipeline.cpp runs. What is gone is the target that
+# ran it without asking any of the questions.
+#
+# AND THERE IS DELIBERATELY NO REPLACEMENT `package` TARGET, which was tried and
+# reverted here rather than shipped.
+#
+# The idea was a signpost: an `add_custom_target(package)` that prints where
+# bundles come from and then fails, catching anybody reaching for the old target
+# by name. It configures cleanly on a FRESH tree, which is the only way it was
+# tested, and it hard-fails on every EXISTING one:
+#
+#     CMake Error at CMakeLists.txt (add_custom_target):
+#       The target name "package" is reserved when CPack packaging is enabled.
+#
+# `package` is reserved while CPack is enabled, and CMake still considers it
+# enabled from the FOUR STALE CPACK_* ENTRIES a previously-configured cache
+# carries -- deleting `include(CPack)` from this file does not remove them. So
+# the signpost would have configured green on CI, which always starts from
+# nothing, and broken the configure for every developer with a build directory
+# older than this commit. A change whose failure mode is invisible to CI and
+# universal locally is the exact shape this repository keeps getting caught by,
+# and a nicer error message is not worth it.
+#
+# What a bare `cpack` does now is already self-explanatory: without
+# include(CPack) there is no CPackConfig.cmake in the build tree and it says so.
+# `--target package` says "unknown target", which is also true. Neither needs a
+# target to explain it, and ADR-008 is where the reasoning lives.

@@ -338,7 +338,7 @@ cpack -G ZIP -C Release
 
 The two `Exported/` layers matter: the source-tree copy provides the baseline, and the authored copy from the runtime output directory is applied on top, so the shipped bundle actually contains what you configured in the editor rather than the checked-in defaults.
 
-`PlayerDebug.exe`, the Editor, and the Cooker have no install rules — the package is the game, not the toolchain.
+The Editor and the Cooker have no install rules — the bundle is the game, not the toolchain. Both players do: `install(TARGETS ...)` is restricted **per configuration**, so a bundle carries exactly one executable — `Player.exe` from Release, `PlayerDebug.exe` from Debug or RelWithDebInfo. That restriction is what stops a Shipping bundle shipping two players and leaving a user to guess which one to double-click.
 
 > ### Gotcha 3 — the bundle takes the authored content from the configuration you install
 >

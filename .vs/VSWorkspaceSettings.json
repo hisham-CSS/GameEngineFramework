@@ -1,0 +1,50 @@
+{
+  // WHY THIS ONE FILE IS IN SOURCE CONTROL WHEN THE REST OF .vs/ IS NOT.
+  //
+  // Visual Studio opens this repository in Open Folder mode, and its Startup
+  // Item dropdown is fed from two places. The first is the CMake file API, and
+  // nothing in this repository can touch it -- the long note above
+  // add_subdirectory(ThirdParty) in the root CMakeLists.txt says what was
+  // measured. The second is Visual Studio's own scan of the folder tree, which
+  // finds .sln and .vcxproj files and offers them whether or not this project
+  // builds them. THIS FILE IS THE ONLY COMMITTED LEVER ON THAT SECOND HALF.
+  //
+  // The second half is entirely ThirdParty/GekkoNet. It is a PINNED SUBMODULE
+  // (.gitmodules -> HeatXD/GekkoNet), it ships GekkoNet.sln, GekkoLib.vcxproj
+  // and six Examples/*.vcxproj, and this build compiles none of them:
+  // ThirdParty/CMakeLists.txt builds GekkoLib/src/*.cpp with OUR flags
+  // precisely because the upstream project files force /MT against our /MD.
+  // They are upstream files at a pinned commit, so deleting them is not on the
+  // table; keeping Visual Studio from scanning them is.
+  //
+  // .gitignore was changed from `.vs/` to `.vs/*` plus one negation to allow
+  // this. Git cannot re-include a file whose parent DIRECTORY is excluded, so
+  // the shorter form would have made the exception silently inert. Everything
+  // else Visual Studio writes here is still per-user and still ignored.
+  //
+  // GekkoLib/src IS DELIBERATELY NOT EXCLUDED. We compile it, so search and Go
+  // To Definition have to keep reaching it. Only the project FILES and the
+  // Examples tree go, because only those become IDE entries.
+  //
+  // IF VISUAL STUDIO EVER REWRITES THIS FILE -- it owns the name, and a
+  // settings change made through the IDE can land here -- the fix is to put the
+  // three GekkoNet entries back. That is also the whole of the per-user step for
+  // anyone whose Visual Studio ignores the file: the mechanism is per-user by
+  // design, and committing it only means every clone starts with it applied.
+  "ExcludedItems": [
+    // Visual Studio's own defaults, repeated on purpose. This file may REPLACE
+    // the default array rather than merge with it, and quietly losing the .git
+    // exclusion would be a far worse trade than any GekkoNet entry is worth.
+    ".git",
+    ".vs",
+    ".vscode",
+    "node_modules/",
+
+    // The pinned submodule's own Visual Studio projects: not ours, not built by
+    // us, and the entire content of "why does the dropdown list six sessions I
+    // have never heard of".
+    "ThirdParty/GekkoNet/GekkoNet.sln",
+    "ThirdParty/GekkoNet/GekkoLib/GekkoLib.vcxproj",
+    "ThirdParty/GekkoNet/Examples/"
+  ]
+}

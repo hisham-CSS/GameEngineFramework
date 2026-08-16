@@ -52,9 +52,10 @@
 // where nobody would look. Beside, not inside.
 //
 // A SHIPPED GAME NEVER READS THIS FILE. It is editor metadata, the same class as
-// the `.import` sidecars that both install rules already exclude
-// (Player/CMakeLists.txt:50-51, :69), and the Build action excludes it from the
-// bundle for the same reason.
+// the `.import` sidecars, and it is kept out of a bundle the same way they are:
+// by NAME, in the install rules themselves (Player/CMakeLists.txt:116-117, :151),
+// so that `cpack` and the editor's Build action produce the same bundle. The
+// Build action's prune removes it too, announced, as a backstop.
 //
 // UNTRUSTED ON READ, like every other authored file. It is JSON somebody can
 // hand-edit, and it names paths that a build will read and a directory a build

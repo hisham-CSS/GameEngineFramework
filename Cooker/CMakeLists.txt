@@ -2,6 +2,11 @@
 # subsystem, links Engine but never initializes GL — the out-of-process
 # seam for batch asset work (validation now; BC7 texture cooking with
 # P4-2; packing later). Spawned by the editor as a child process.
+#
+# Visual Studio offers it as a startup item anyway, and no file here can stop
+# that -- the reason, and the folder that at least labels it, are in the root
+# CMakeLists.txt above add_subdirectory(ThirdParty). F5 on it gets you a console
+# process that cooks nothing, because the editor passes it arguments.
 add_executable(AssetCooker src/CookerMain.cpp)
 target_link_libraries(AssetCooker PRIVATE Engine)
 target_compile_definitions(AssetCooker PRIVATE GLFW_INCLUDE_NONE)

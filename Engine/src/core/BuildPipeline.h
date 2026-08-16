@@ -428,19 +428,32 @@ namespace MyCoreEngine {
     //   - an existing output directory carrying no marker from a previous build
     //   - a profile whose configuration this tree cannot produce (see
     //     BuildEnvironment::multiConfigGenerator)
-    //   - a profile with no install rule behind it: today only PlayerShipping is
-    //     installed (Player/CMakeLists.txt:49), so Development and Debug assemble
-    //     to a bundle with no player in it. See the assemble contract.
+    //   - a profile whose configuration this tree's install rules put no player
+    //     in the bundle for. Player/CMakeLists.txt:106-109 installs PlayerShipping
+    //     for Release and PlayerDebug for Debug and RelWithDebInfo; a tree
+    //     generated before those rules existed installs neither for two of the
+    //     three profiles, and a bundle carrying the whole game except the program
+    //     that runs it is broken output. See the assemble contract.
     //   - scenes[0] != titleFrontEndScene, WHEN that field is set and the player
     //     does not yet honour a build manifest. This is the second road to
     //     ADR-008 decision 5's invariant; see the manifest section below for
     //     which road is live.
     //   - a missing launchProcess, sourceDir, binaryDir or exeDir
     //
-    // Warnings worth having: a Shipping profile in a tree with no title linked,
-    // which produces a perfectly good player that boots the engine demo; a build
-    // list of one scene, which is what every project looks like immediately after
-    // the migration from startupScene and is worth mentioning once.
+    // AND WHAT IT MUST NOT REFUSE, which is the same list read the other way and
+    // is the harder half to keep honest. THE TEST IS WHETHER THE OUTPUT WOULD BE
+    // BROKEN, not whether the build is unusual, because a preflight that refuses
+    // unusual builds teaches the author to stop reading it.
+    //
+    // A BUILD LIST OF ONE SCENE IS A COMPLETE GAME and gets a note. Plenty of
+    // shipped titles are exactly one scene, and this project's own front end plus
+    // training mode is very nearly that; the useful thing to say is not "add
+    // more" but "the bundle carries what is listed and prunes the rest". So do:
+    // an output directory that already holds a previous build; a Shipping profile
+    // in a tree with no title linked, which produces a perfectly good player that
+    // boots the engine demo; a build assembling content from a configuration other
+    // than the editor's; and an install rule this preflight could not read an
+    // answer out of, where validate over the assembled bundle answers instead.
     //
     // NOT FREE, so do not call it per frame: it stats the scene list and walks
     // the staged asset root looking for scenes to exclude. Call it when the
@@ -533,7 +546,7 @@ namespace MyCoreEngine {
     // title's (root CMakeLists.txt:249-305, cmake/stage_runtime_assets.cmake).
     // The compile phase refreshes it for free -- both player targets carry
     // `add_dependencies(... runtime_assets)` (Player/CMakeLists.txt:43-44) -- and
-    // the `install(CODE ...)` block at Player/CMakeLists.txt:63-81 is what layers
+    // the `install(CODE ...)` block at Player/CMakeLists.txt:145-163 is what layers
     // it over the source defaults.
     //
     // THAT LAYERING IS ALSO A KNOWN WEAKNESS AND IT IS INHERITED, NOT INTRODUCED.
@@ -559,40 +572,71 @@ namespace MyCoreEngine {
     // two assembly paths, two bug reports, and the difference only visible as a
     // loader error on somebody else's machine. The rules already exist and are
     // already exercised by the `package` target: `install(TARGETS Engine)`
-    // (Engine/CMakeLists.txt:365), `install(TARGETS PlayerShipping)` and the
+    // (Engine/CMakeLists.txt:377), the two player rules, and the
     // `install(DIRECTORY ...)` + `install(CODE ...)` pair that layers
-    // editor-authored content over the source defaults (Player/CMakeLists.txt:49-81).
+    // editor-authored content over the source defaults (Player/CMakeLists.txt:106-163).
+    //
+    // WHICH MEANS `cpack` FOLLOWS THE PROFILE RULE TOO, and that is the point
+    // rather than a side effect: the `package` target on a RelWithDebInfo tree now
+    // zips PlayerDebug.exe instead of an exe named Player.exe compiled with
+    // RelWithDebInfo flags. Two assembly paths agreeing is the whole reason this
+    // phase shells out to CMake at all, and they now agree about the executable as
+    // well as about the DLLs.
     //
     // THIS IS ADR-008 DECISION 2, and it is a deliberate reversal of the obvious
     // design. The obvious one -- copy the exe, copy *.dll from <exeDir>, copy
     // Exported/ -- is defensible right up to the point where somebody runs
     // `cpack` and gets a different answer.
     //
-    // TWO THINGS THE INSTALL RULES DO NOT COVER TODAY, both measured:
+    // ONE PLAYER PER BUNDLE, AND THE CONFIGURATION CHOOSES IT. Two player targets,
+    // three profiles, and a bundle that may contain exactly one executable -- put
+    // both in and the player somebody double-clicks is ambiguous, with the wrong
+    // guess being the console build of a shipped game. The install rules are
+    // therefore restricted to the configurations each profile selects
+    // (Player/CMakeLists.txt:106-109):
     //
-    //   * ONLY THE SHIPPING PLAYER IS INSTALLED. `install(TARGETS PlayerShipping
-    //     RUNTIME DESTINATION .)` is the only player install rule in the tree
-    //     (Player/CMakeLists.txt:49); PlayerDebug has none. So a Development or
-    //     Debug profile assembled purely by `cmake --install` produces a bundle
-    //     WITH NO PLAYER EXECUTABLE IN IT. The fix is one line in
-    //     Player/CMakeLists.txt (an install rule for PlayerDebug, ideally under
-    //     its own COMPONENT so a Shipping build does not ship both); until it
-    //     lands, a non-Shipping profile must either be refused in preflight or
-    //     have its one executable copied after the install. Refusing is the
-    //     honest interim -- a bundle silently missing its exe is worse than a
-    //     greyed-out profile.
-    //   * build.json IS INSTALLED. The `install(CODE ...)` block at :63-81 copies
-    //     every staged file that is not `*.import`, and BuildSettings::DefaultPath()
-    //     lives in that directory. The prune step below removes it; the cleaner
-    //     fix is adding it to that block's exclusion, in Player/CMakeLists.txt.
+    //     install(TARGETS PlayerShipping RUNTIME DESTINATION .
+    //             CONFIGURATIONS Release)
+    //     install(TARGETS PlayerDebug RUNTIME DESTINATION .
+    //             CONFIGURATIONS Debug RelWithDebInfo)
+    //
+    // which is BuildSettings.h's profile table written as install rules.
+    // `cmake --install --config <Config>` then selects the player without this
+    // pipeline naming a target at all, and the rule and the pipeline cannot drift
+    // apart because they agree on the CONFIGURATION -- something both sides
+    // already had to get right -- rather than on a second name.
+    //
+    // NOT COMPONENTS, which is the other obvious answer and the wrong one here:
+    // `cmake --install --component <name>` installs ONLY that component, and every
+    // other rule in this tree is in the default one (Engine, the lua-cpp DLL, and
+    // the two content rules below). A component-selected install would produce a
+    // bundle holding a player and no Engine.dll, and making it work means tagging
+    // every rule across three files with one name that nobody may ever miss.
+    //
+    // AND PREFLIGHT SEES IT COMING, which is the requirement that decided this
+    // rather than a bonus: CMake wraps each restricted rule in an
+    // `if(CMAKE_INSTALL_CONFIG_NAME MATCHES ...)` guard in the generated install
+    // script, so "does this profile install a player" has an answer in the build
+    // tree with nothing built and no process started. That is what
+    // BuildPipeline.cpp's ProfileHasInstallRule reads, and it is why this is a
+    // preflight refusal rather than something discovered after a compile.
+    //
+    // build.json IS NOT INSTALLED. The `install(CODE ...)` block at :145-163 copies
+    // every staged file that is not a sidecar, and BuildSettings::DefaultPath()
+    // lives in that directory, so it is excluded there by name (:151). Excluded in
+    // the RULE rather than only in the prune below, so that `cpack` produces the
+    // same bundle this pipeline does; the prune still removes it, announced, as
+    // the backstop for any third route in.
     //
     // AND THE EXECUTABLE ALLOW-LIST STILL MATTERS, EVEN THOUGH INSTALL HANDLES
-    // IT. Editor.exe, AssetCooker.exe and the other player all live in
+    // IT. Editor.exe, AssetCooker.exe and the OTHER player all live in
     // <exeDir> -- all four applications share build/bin/<CONFIG>/ (root
-    // CMakeLists.txt:377-389). Nothing installs them, which is exactly why
-    // `cmake --install` is safe and why any post-install copy step must name the
-    // single file it wants and never glob for executables. A "copy the
-    // directory" assemble phase ships the editor inside the game.
+    // CMakeLists.txt:377-389). Nothing installs the editor or the cooker, and the
+    // other player is kept out by the configuration restriction rather than by
+    // having no rule, which is exactly why `cmake --install` is safe and why any
+    // post-install copy step must name the single file it wants and never glob
+    // for executables. A "copy the directory" assemble phase ships the editor
+    // inside the game; a glob for `Player*` ships both players.
     //
     // THE LINUX BUNDLE IS NOT SELF-CONTAINED, said here rather than discovered.
     // vcpkg's applocal deployment is a Windows behaviour; on Linux, assimp, glfw
@@ -610,12 +654,19 @@ namespace MyCoreEngine {
     //
     // Removed from <output>/Exported/ :
     //
-    //   * build.json -- see above; editor metadata the shipped game never reads.
-    //   * EVERY FILE THAT IS A SCENE AND IS NOT IN THE BUILD LIST.
+    //   * EVERY FILE THAT IS A SCENE AND IS NOT IN THE BUILD LIST. This is the
+    //     only one the install rules cannot do, and the only reason this step
+    //     exists: CMake knows nothing about a scene list.
     //   * project.json is REPLACED rather than removed. See 3.
+    //   * build.json, as a BACKSTOP. The install rules already exclude it by name
+    //     (Player/CMakeLists.txt:151), so this normally removes nothing.
     //
-    // (`*.import` needs no handling here: both install rules already exclude
-    // them -- Player/CMakeLists.txt:51, :69.)
+    // (`*.import` is the same shape: excluded by both install rules
+    // -- Player/CMakeLists.txt:117, :151 -- and removed here only as a backstop.)
+    //
+    // BOTH BACKSTOPS ANNOUNCE WHEN THEY FIRE, which is what stops them from
+    // quietly becoming the reason this bundle differs from the one `cpack`
+    // produces out of the same rules.
     //
     //   "IS A SCENE" MEANS SceneSerializer::Validate ACCEPTS IT. That is the
     //   engine's own definition, it is the same probe a scene swap runs, and it

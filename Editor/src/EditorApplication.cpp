@@ -3019,7 +3019,9 @@ MyCoreEngine::BuildEnvironment EditorApplication::buildEnvironment_() const
     // instead, and its stated reason is that "baking absolute build-machine
     // paths into Engine.dll puts them in every shipped game" -- which is an
     // argument about Engine.dll, and this is Editor.exe. Nothing installs the
-    // editor (the only install rules in the tree are Engine and PlayerShipping),
+    // editor (the install rules are Engine and, per configuration, exactly one
+    // player -- PlayerShipping in Release, PlayerDebug in Debug and
+    // RelWithDebInfo),
     // so nothing here can leak into a bundle. A file would additionally need a
     // JSON parser in a target that does not link one, and could not carry
     // $<CONFIG>; definitions can, which is what makes exeDir correct on a

@@ -1,7 +1,19 @@
 # Directories
 out/
-.vs/
 vcpkg_installed/
+
+# Visual Studio's per-user scratch state -- databases, indexes, window layout.
+#
+# `.vs/*` RATHER THAN `.vs/`, and the difference is the only reason the line
+# below works: git cannot re-include a file whose PARENT DIRECTORY is excluded,
+# so `.vs/` would make the negation silently inert. Excluding the contents
+# instead leaves the directory itself visible and the exception effective.
+#
+# The one exception is workspace configuration rather than user state: it says
+# which files Visual Studio should not scan, and the answer is the same for
+# everybody who clones this (see the header comment inside it).
+.vs/*
+!.vs/VSWorkspaceSettings.json
 
 # Files
 CMakeSettings.json
@@ -12,3 +24,7 @@ CMakeSettings.json
 # helper and running it now leaves a __pycache__ beside the sources.
 __pycache__/
 *.pyc
+
+# CTest scratch (Testing/Temporary). Written by any ctest run in the source
+# tree; never an input to anything.
+Testing/
