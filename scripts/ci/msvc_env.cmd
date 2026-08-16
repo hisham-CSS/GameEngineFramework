@@ -28,6 +28,24 @@ REM No `setlocal` anywhere in this file: the whole point is to mutate the
 REM caller's environment, and setlocal would discard it at `exit /b`.
 REM ============================================================================
 
+REM SCOPE: this is scripts/CI/ and it means it. Two reasons not to reach for it
+REM on a developer box:
+REM
+REM   1. It takes `-latest`, which on a CI runner is the only instance there is
+REM      but on a dev box is whichever VS is newest -- measured here, that
+REM      selects VS 18 Community over the VS 2022 Community this project is
+REM      known to build with. Mixing VS 18's STL with an older compiler is an
+REM      STL1001 away from a confusing failure.
+REM   2. The `where ninja.exe` gate below is a CI requirement, not a universal
+REM      one. Every CI step runs `cmake --preset`, a FRESH configure, which
+REM      resolves the generator from PATH. An incremental `cmake --build <dir>`
+REM      against a configured tree reads the cached absolute CMAKE_MAKE_PROGRAM
+REM      and does not need ninja on PATH at all -- so this gate would refuse a
+REM      local build that was going to work fine.
+REM
+REM (Both VS 2022 Community and VS 18 Community do put ninja on PATH via
+REM vcvars64 -- measured, in case an old note says otherwise.)
+
 set "_vswhere=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
 if not exist "%_vswhere%" (
     echo ERROR: vswhere.exe is not at "%_vswhere%".
