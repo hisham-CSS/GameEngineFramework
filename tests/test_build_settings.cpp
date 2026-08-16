@@ -669,7 +669,23 @@ TEST(BuildSettingsList, AddSceneRefusesWithoutMutating) {
 
     // Exactly at the bound is allowed -- the refusal is "longer than", and an
     // off-by-one here would reject a legal path on somebody's deep asset tree.
-    EXPECT_TRUE(s.AddScene(std::string(kMaxPathLength - 6, 'a') + ".json", &why)) << why;
+    //
+    // BUILT FROM MANY SHORT COMPONENTS RATHER THAN ONE LONG ONE, and that is not
+    // cosmetic. This was `std::string(kMaxPathLength - 6, 'a') + ".json"`: a
+    // single 1023-character FILENAME, which is inside kMaxPathLength and outside
+    // what a filesystem will accept. Linux caps one path COMPONENT at 255 bytes
+    // (NAME_MAX), so weakly_canonical inside PathIsContained failed with
+    // ENAMETOOLONG and the sandbox refused a path this test called legal.
+    //
+    // It passed on Windows and failed the Linux CI leg, which is the shape worth
+    // remembering: the bound under test is on the WHOLE PATH, so the fixture has
+    // to be a legal deep path rather than an illegal shallow one. A test that can
+    // only be satisfied on one platform is testing the platform.
+    std::string deep;
+    while (deep.size() + 64 < kMaxPathLength - 5) deep += std::string(63, 'a') + "/";
+    deep += std::string(kMaxPathLength - 5 - deep.size(), 'a') + ".json";
+    ASSERT_EQ(deep.size(), kMaxPathLength);
+    EXPECT_TRUE(s.AddScene(deep, &why)) << why;
     EXPECT_EQ(s.scenes.size(), 2u);
 }
 
