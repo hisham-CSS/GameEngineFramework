@@ -388,7 +388,14 @@ public:
         // mode verbs and boots exactly as it did before modes existed.
         //
         // BEFORE InstallMenuUIContent below, which publishes the modes' names
-        // into the menu once. Registration order is menu order.
+        // into the menu. Registration order is menu order.
+        //
+        // Still ordered, no longer load-bearing: the menu re-derives its mode
+        // flags from this registry every frame (MenuUIHooks::modes), so a mode
+        // registered later would appear rather than vanish. Kept here anyway,
+        // because "the registry is finished before anything reads it" is the
+        // shape a startup sequence should have whether or not something downstream
+        // is forgiving about it.
         RegisterTitleGameModes(modes_);
 #endif
 
@@ -455,6 +462,18 @@ public:
         // caught it: the menu needs a GL context, the registry is populated in a
         // host this file is the only instance of, and both halves independently
         // reviewed as correct.
+        //
+        // ...AND ASSIGNING IT WAS NOT THE END OF IT, which is the more useful
+        // half of the story. The menu still showed no playable modes with all
+        // three of these lines in place, and the reason was not in this file: the
+        // mode flags were the only menu properties published exactly ONCE, during
+        // startup, so their value was whatever the registry held at one instant
+        // and nothing ever looked again. Every other property is either re-derived
+        // per frame or moved by a player pressing something, which is precisely
+        // why every other property was fine and why this one failure mode had
+        // never been seen. The flags are now derived every frame from this
+        // registry (MenuUIHooks::modes), so the question "did the host do things
+        // in the right order" no longer has a wrong answer for them.
         menuHooks_.modes = &modes_;
         menuHooks_.onEnterMode = [this, modeContext](int index) -> std::string {
             std::string error;

@@ -14,6 +14,7 @@
 #include <GLFW/glfw3.h>
 
 #include <algorithm>
+#include <iostream>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -115,6 +116,53 @@ namespace {
         return "menuEnterMode" + std::to_string(slot);
     }
 
+    // WHICH MODE VERBS THE MENU HAS, DERIVED FROM THE REGISTRY RATHER THAN
+    // REMEMBERED FROM IT.
+    //
+    // ONE DEFINITION, TWO CALLERS, and the split is the point. It runs at
+    // INSTALL, so a host that never drives a frame -- every test, and anything
+    // that only wants the actions -- still finds real values; and it runs again
+    // from MenuUIPublishCounters, once per frame, BEFORE UIWorld::Update. That
+    // second call is what makes these flags a FUNCTION of the registry instead of
+    // a photograph of it, and the photograph is what failed: the flags are the
+    // only properties here published exactly once during startup, so anything
+    // that read them at the wrong instant -- a document built before the install,
+    // a registry that grew afterwards, a second install with an empty one -- got
+    // an answer that was true when it was taken and wrong ever after, with no
+    // error anywhere because every individual step was correct.
+    //
+    // Two copies of this mapping would be two answers to "is there a mode behind
+    // slot 0", which is the one question the whole feature turns on, so there is
+    // one function and both callers use it.
+    //
+    // Returns how many modes the registry actually holds, which is more than the
+    // slots can show when a title registers more than kMenuModeSlots; the caller
+    // decides whether that is worth reporting.
+    int publishModeSlots(ui::UIDataSource& src, const MenuUIHooks& h) {
+
+        // Gated on onEnterMode as well as on the registry: a menu that offers a
+        // mode it has no way to enter is worse than one that offers nothing, and
+        // a host that wired the registry but forgot the verb should get the menu
+        // it had before rather than four dead buttons.
+        const int available = (h.modes && h.onEnterMode) ? h.modes->Count() : 0;
+        for (int slot = 0; slot < kMenuModeSlots; ++slot) {
+            const bool filled = slot < available;
+            // Written for EVERY slot including the empty ones: the markup names
+            // all four unconditionally, a hole against a missing property is a
+            // diagnostic the author has to read past, and an empty slot's flag is
+            // exactly what makes its button absent.
+            src.SetBool(modeFlagKey(slot), filled);
+            // The name goes out VERBATIM. A title names its own modes and this
+            // file does not uppercase, truncate or decorate it -- the menu's
+            // other verbs are typed in caps in the markup, which is an authoring
+            // choice about those four words and not a house style this code gets
+            // to impose on somebody else's title.
+            src.SetString(modeNameKey(slot),
+                          filled ? h.modes->DisplayNameAt(slot) : "");
+        }
+        return available;
+    }
+
     void publishVolume(ui::UIDataSource& src, float v) {
         src.SetNumber("menuVolume", v);                       // 0..1, for a fill bar
         src.SetInt("menuVolumePct", (long long)std::lround(v * 100.0f));
@@ -196,6 +244,29 @@ void InstallMenuUIContent(UIWorld& world, const MenuUIHooks& hooks) {
     ui::UIDataSource& src = world.shared();
     const MenuUIHooks h = hooks;   // by VALUE: the actions outlive the caller's
 
+    // ---- THE ORDERING, CHECKED RATHER THAN DOCUMENTED ----------------------
+    //
+    // Everything below SEEDS the shared source, and a document binds at LOAD --
+    // so a host that has already built one is wiring a menu to whatever these
+    // properties happened to be, and collecting one load-time diagnostic per
+    // unresolved hole into a console the shipped player does not have. The
+    // header has always stated the half of the contract that is about
+    // REGISTRATION ("modes are registered before this is called") and has never
+    // stated this half, which is the one that is easy to get wrong: a host grows
+    // a startup sequence, the scene load drifts past the install, and nothing
+    // anywhere says so.
+    //
+    // Live documents are the honest test for it. UIWorld builds a document the
+    // first time it reconciles an entity's UIDocumentComponent, so a non-zero
+    // count here means something has already bound -- and it is the same
+    // question in every host, with no new API and nothing for a caller to pass.
+    //
+    // NOT a hard failure: the mode flags are immune (publishModeSlots re-derives
+    // them every frame) and everything else self-heals the moment a value moves,
+    // because `if=` is a style write rather than tree surgery and the binder
+    // re-applies on the source's version. What is NOT recoverable is silence, so
+    // this is reported and the host keeps running.
+    const bool documentsAlreadyBound = world.liveCount() > 0;
     swapLogs()[&world] = Log{};
     volumeWatches()[&world] = VolumeWatch{};
 
@@ -240,37 +311,41 @@ void InstallMenuUIContent(UIWorld& world, const MenuUIHooks& hooks) {
     publishSwapLog(src, {});
 
     // ---- the game modes this build ships -----------------------------------
-    // One flag and one name per slot, seeded for EVERY slot including the empty
-    // ones: the markup names all four unconditionally, a hole against a missing
-    // property is a diagnostic the author has to read past, and an empty slot's
-    // flag is exactly what makes its button absent.
-    //
-    // Gated on onEnterMode as well as on the registry: a menu that offers a mode
-    // it has no way to enter is worse than one that offers nothing, and a host
-    // that wired the registry but forgot the verb should get the menu it had
-    // before rather than four dead buttons.
+    // A first answer, for a host that never drives a frame. MenuUIPublishCounters
+    // re-derives these every frame from the same function, so this call is the
+    // FLOOR rather than the whole story -- see publishModeSlots.
     {
-        const int available = (h.modes && h.onEnterMode) ? h.modes->Count() : 0;
-        for (int slot = 0; slot < kMenuModeSlots; ++slot) {
-            const bool filled = slot < available;
-            src.SetBool(modeFlagKey(slot), filled);
-            // The name goes out VERBATIM. A title names its own modes and this
-            // file does not uppercase, truncate or decorate it -- the menu's
-            // other verbs are typed in caps in the markup, which is an authoring
-            // choice about those four words and not a house style this code gets
-            // to impose on somebody else's title.
-            src.SetString(modeNameKey(slot),
-                          filled ? h.modes->DisplayNameAt(slot) : "");
-        }
+        const int available = publishModeSlots(src, h);
         // Reported rather than dropped silently, and after the "Ready." above so
         // it is the line actually on screen. A fifth mode that simply never
         // appeared would look like a registration that failed, and the fix (a
         // mode select screen, or more slots) is a design decision somebody has
         // to make on purpose.
+        //
+        // Left at INSTALL rather than moved into the per-frame publisher with
+        // the flags: setStatus every frame would nail the status line shut and
+        // no other message could ever be read. Both hosts register their modes
+        // during startup, so install is when this is true or never.
         if (available > kMenuModeSlots) {
             setStatus(src, std::to_string(available - kMenuModeSlots) +
                            " mode(s) beyond the menu's slots", false);
         }
+    }
+
+    // ...and the ordering complaint LAST of the seeding, so it owns the status
+    // line: a menu wired to values that were already read is a worse problem
+    // than a mode that did not fit, and both are worse than "Ready."
+    //
+    // BOTH CHANNELS, on purpose. std::cerr is where every other UI diagnostic in
+    // this codebase goes and is invisible in a /SUBSYSTEM:WINDOWS build; the
+    // status line is the shipped player's only console, and it is already how a
+    // mode that refuses to start reports itself (MenuUIHooks::onEnterMode).
+    if (documentsAlreadyBound) {
+        std::cerr << "[UI] InstallMenuUIContent ran with " << world.liveCount()
+                  << " document(s) already loaded in this UIWorld. Every menu "
+                     "property is seeded HERE and a document binds at LOAD, so "
+                     "install before the scene that carries the menu.\n";
+        setStatus(src, "Menu installed after its document loaded", false);
     }
 
     // ---- the verbs ----
@@ -446,6 +521,29 @@ void MenuUIReportSwap(UIWorld& world, const SceneSwapResult& r) {
 
 void MenuUIPublishCounters(UIWorld& world, const MenuUIHooks& hooks) {
     ui::UIDataSource& src = world.shared();
+
+    // ---- which mode verbs exist ---------------------------------------------
+    //
+    // FIRST in this function, because this function runs before UIWorld::Update
+    // and Update is where a document is BUILT: a menu appearing this frame binds
+    // against flags written moments ago rather than against whatever the last
+    // host to touch them left behind. That single ordering is what replaces the
+    // whole unwritten "install before the document exists" rule for these eight
+    // properties.
+    //
+    // The cost is eight equality-gated writes on a steady frame -- four compares
+    // that find the same bool and four that find the same string, waking no
+    // binding and bumping no version, exactly like the counters below. The key
+    // names ("menuMode0", "menuMode0Name") are short enough to live in a
+    // std::string's small buffer, so building them allocates nothing either.
+    //
+    // That cost is the answer to the objection this file used to carry, that
+    // republishing every frame was too much to pay "to catch something that
+    // never happens". It happened. And the thing it bought is bigger than the
+    // bug: the flags now TRACK the registry, so a host that registers a mode
+    // after the menu is up gets its verb, and nothing anywhere has to reason
+    // about which of two startup sequences ran first.
+    publishModeSlots(src, hooks);
 
     // ---- loading progress, for a screen that has to say something ----------
     // Published unconditionally: the setters are equality-gated, so the frames

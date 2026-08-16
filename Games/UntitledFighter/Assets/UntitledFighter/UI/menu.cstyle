@@ -240,22 +240,7 @@
   background-gradient: horizontal;
 }
 
-/* A BOUND mode's verb: whatever a future mode calls itself, at whatever length.
-   Later in the file than `.verb` on purpose — the cascade is CSS specificity
-   with later-wins on ties, and these two rules tie. */
-.verb-mode {
-  font-scale: 0.46;
-  white-space: normal;
-}
 
-/* The empty state, when the front end is linked and no mode is. Muted and small:
-   it is a diagnostic, not a verb, and it must not read as one. */
-.verbs-empty {
-  width: 100%;
-  font-scale: 0.27;
-  color: rgba(124, 132, 150, 1);
-  padding: 10px 16px;
-}
 
 /* Separates what starts the game from what does not. 16px inside the 320px
    column so it reads as a divider under the play verbs rather than as a rule

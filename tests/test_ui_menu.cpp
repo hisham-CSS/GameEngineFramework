@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -61,6 +62,33 @@ int countDocs(Scene& s) {
     int n = 0;
     for (auto e : s.registry.view<UIDocumentComponent>()) { (void)e; ++n; }
     return n;
+}
+
+// A mode that does nothing, because nothing about a mode's BEHAVIOUR is under
+// test here -- only whether the menu can see that it exists. Entering it needs
+// no GL context, no font and no content root, which is the only reason this
+// corner of the seam is testable at all.
+class NullMode : public IGameMode {
+public:
+    explicit NullMode(const char* name) : name_(name) {}
+    const char* DisplayName() const override { return name_.c_str(); }
+    bool Enter(const GameModeContext&, std::string&) override { return true; }
+private:
+    std::string name_;
+};
+
+std::unique_ptr<IGameMode> makeMode(const char* name) {
+    return std::make_unique<NullMode>(name);
+}
+
+// Every host that shows mode verbs supplies both halves. A registry with no
+// entry verb is deliberately worth nothing (see MenuUIContent.cpp), so a test
+// that forgot the hook would be testing that gate rather than the flags.
+MenuUIHooks hooksFor(GameModeRegistry& registry) {
+    MenuUIHooks h;
+    h.modes = &registry;
+    h.onEnterMode = [](int) { return std::string(); };
+    return h;
 }
 
 } // namespace
@@ -151,6 +179,134 @@ TEST(MenuUIContent, SeedsEverythingTheMarkupBindsToBeforeAnyDocumentLoads) {
     EXPECT_EQ(src.GetInt("swapLogCursor"), 0);
     EXPECT_FALSE(src.GetString("menuQualityName").empty());
     EXPECT_TRUE(src.GetBool("menuStatusOk"));
+}
+
+// --------------------------------------------------------- the mode verbs
+//
+// TWO SHIPPED BUGS LIVE HERE AND NEITHER HAD A TEST. The first was an
+// unassigned MenuUIHooks::modes, so the menu asked a null registry how many
+// modes there were. The second survived that fix: the flags were published
+// exactly ONCE, during host startup, so their value was whatever the registry
+// held at one instant and nothing ever looked again. Both produced the same
+// symptom -- a title screen with no way into the game and no error anywhere,
+// on a build that contained the mode, registered it first, and had correct
+// markup.
+//
+// What follows is the contract that replaces the guesswork: the flags are a
+// FUNCTION of the registry, evaluated at install and again on every published
+// frame.
+
+TEST(MenuUIModes, InstallSeedsTheSlotsFromTheRegistry) {
+    UIWorld world;
+    GameModeRegistry registry;
+    registry.Add(makeMode("Training"));
+    InstallMenuUIContent(world, hooksFor(registry));
+
+    UIDataSource& src = world.shared();
+    // A host that never drives a frame -- every test, and any tool that only
+    // wants the actions -- still gets a real answer out of the install alone.
+    EXPECT_TRUE(src.GetBool("menuMode0"));
+    EXPECT_EQ(src.GetString("menuMode0Name"), "Training");
+    // Every slot is written, not just the filled ones: the markup names all four
+    // unconditionally, and an empty slot's FALSE is what makes its button absent
+    // rather than unresolved.
+    for (int slot = 1; slot < kMenuModeSlots; ++slot) {
+        const std::string flag = "menuMode" + std::to_string(slot);
+        EXPECT_TRUE(src.Has(flag)) << flag << " was never published";
+        EXPECT_FALSE(src.GetBool(flag)) << flag;
+        EXPECT_TRUE(src.GetString("menuMode" + std::to_string(slot) + "Name").empty());
+    }
+}
+
+// THE ONE THAT SHIPPED. The flags must not be a photograph of the registry
+// taken at install; they must follow it. Registering after the install is the
+// cheapest way to ask that question, and it is not a contrived one -- it is
+// exactly what "the host did its startup in a different order this time" looks
+// like from inside this file.
+TEST(MenuUIModes, TheFlagsFollowTheRegistryRatherThanRecordingIt) {
+    UIWorld world;
+    GameModeRegistry registry;
+    MenuUIHooks h = hooksFor(registry);
+    InstallMenuUIContent(world, h);
+
+    UIDataSource& src = world.shared();
+    ASSERT_FALSE(src.GetBool("menuMode0")) << "an empty registry showed a verb";
+
+    registry.Add(makeMode("Training"));
+    // What both hosts already call once a frame, BEFORE UIWorld::Update -- so a
+    // document built this frame binds against this answer, not the last one.
+    MenuUIPublishCounters(world, h);
+
+    EXPECT_TRUE(src.GetBool("menuMode0"))
+        << "the menu is still showing the registry as it was at install; a host "
+           "that registers its modes anywhere but exactly here has no verb";
+    EXPECT_EQ(src.GetString("menuMode0Name"), "Training");
+
+    // ...and it follows in both directions, which is what makes it a function
+    // rather than a latch.
+    registry.Add(makeMode("Replay"));
+    MenuUIPublishCounters(world, h);
+    EXPECT_TRUE(src.GetBool("menuMode1"));
+    EXPECT_EQ(src.GetString("menuMode1Name"), "Replay");
+    EXPECT_FALSE(src.GetBool("menuMode2"));
+}
+
+// A registry with no way IN is worth nothing: a menu that offers a mode it
+// cannot enter is worse than one that offers nothing. The gate has to hold on
+// the per-frame path too, or the editor -- which deliberately supplies neither
+// half (EditorApplication.cpp) -- would grow mode verbs it cannot honour.
+TEST(MenuUIModes, AModeWithNoEntryVerbIsNotOffered) {
+    UIWorld world;
+    GameModeRegistry registry;
+    registry.Add(makeMode("Training"));
+    MenuUIHooks h;
+    h.modes = &registry;   // ...and no onEnterMode
+    InstallMenuUIContent(world, h);
+    MenuUIPublishCounters(world, h);
+
+    EXPECT_FALSE(world.shared().GetBool("menuMode0"));
+    EXPECT_TRUE(world.shared().GetString("menuMode0Name").empty());
+}
+
+// The OTHER half of the contract, the one that was never written down: this
+// function seeds ~20 properties and a document binds at LOAD. A host that has
+// already built one gets a menu wired to whatever the properties happened to
+// be, and the only diagnostic was a wall of unresolved-hole errors printed to a
+// console the shipped player does not have.
+//
+// So the install asks, and it answers on the STATUS LINE -- the one channel a
+// /SUBSYSTEM:WINDOWS build can actually show a person.
+TEST(MenuUIModes, InstallingAfterADocumentHasBoundIsReportedNotIgnored) {
+    writeUIScene("test_menu_late.json", 1, /*withDocument=*/true);
+    AssetManager assets;
+    Scene scene;
+    UIWorld world;
+    SceneLoader loader(scene, assets);
+    InstallDemoUIContent(world);   // the shipped HUD's own values
+
+    ASSERT_TRUE(loader.RequestSwap("test_menu_late.json"));
+    ASSERT_TRUE(loader.DrainPendingSwap());
+    world.Update(scene.registry, 1280, 720, 0.016f);
+    ASSERT_EQ(world.liveCount(), 1u) << "no document bound, so nothing to detect";
+
+    InstallMenuUIContent(world, MenuUIHooks{});
+
+    UIDataSource& src = world.shared();
+    EXPECT_FALSE(src.GetBool("menuStatusOk"));
+    EXPECT_NE(src.GetString("menuStatus").find("document"), std::string::npos)
+        << "installed after a document had already bound and said nothing: '"
+        << src.GetString("menuStatus") << "'";
+
+    std::remove("test_menu_late.json");
+}
+
+// ...and the ordinary case stays quiet. A check that cries wolf on every
+// correct host is a check somebody deletes.
+TEST(MenuUIModes, InstallingBeforeAnyDocumentSaysNothing) {
+    UIWorld world;
+    InstallMenuUIContent(world, MenuUIHooks{});
+    EXPECT_TRUE(world.shared().GetBool("menuStatusOk"));
+    EXPECT_EQ(world.shared().GetString("menuStatus"), "Ready.");
 }
 
 // No Application, no crash and no silent half-action. Every host verb checks

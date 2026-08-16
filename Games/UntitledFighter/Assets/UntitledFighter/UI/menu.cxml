@@ -128,82 +128,58 @@
 
       <Element name="verbs" class="verbs" focus-scope="true" if="!panelOpen">
 
-        <!-- TRAINING, and the word is TYPED HERE rather than bound.
+        <!-- THIS MENU IS STATIC, AND THAT IS THE DESIGN.
              ============================================================
-             The engine's menu binds {menuMode0Name} because it ships with the
-             engine and must not name a game; what it draws is the mode's
-             DisplayName, which is "Untitled Fighting Game". That is the right
-             string in the engine demo, where the verb's job is to say WHICH
-             GAME this build contains. It is the wrong string here, on a screen
-             whose header already says it in 34px type — a menu offering
-             "UNTITLED FIGHTING GAME" underneath the words UNTITLED FIGHTING
-             GAME is the engine's compromise leaking into the game's own front
-             end. Here the verb's job is to say which MODE, so it says TRAINING.
+             The engine's own menu binds everything: `if="menuMode0"`,
+             `text="{menuMode0Name}"`, four anonymous slots. It has to. It ships
+             WITH THE ENGINE and must not name a game, so the only way a title
+             can put a verb on it is for the host to publish one and the markup
+             to render whatever arrives.
 
-             This is the same fact wearing the two names it needs in the two
-             places it appears, which is only possible because the two menus are
-             now two files with two owners.
+             THIS FILE HAS NO SUCH PROBLEM. It is the title's own front end, in
+             the title's own directory, next to the title's own modes. It knows
+             it has a training mode because the same title wrote
+             ../../../Player/src/UntitledFighterModes.cpp. Asking a registry at
+             runtime whether the mode exists is indirection that buys nothing:
+             the answer is decided at compile time by a file three directories
+             away that this one is shipped alongside.
 
-             `if="menuMode0"` IS STILL BOUND, deliberately: the WORD is the
-             title's, but WHETHER THERE IS A MODE BEHIND IT is the host's, and a
-             button that enters nothing is the one thing worse than a missing
-             button. The flag is false unless a registry AND an onEnterMode hook
-             both exist (MenuUIContent.cpp), so this verb cannot outlive its
-             mode.
+             And it cost something real. The verb was bound `if="menuMode0"`,
+             the flag did not reach the document, and the menu drew NO PLAYABLE
+             MODES IN THIS BUILD on a build that contained the mode -- with the
+             registry holding it, both hooks set and the flag true in the data
+             source. A typed button cannot fail that way, because there is no
+             wire to come loose.
+
+             What stays bound is the ACTION. `menuEnterMode0` is the host's job:
+             it enters the mode, reports a refusal on the status line, and is the
+             one part of this that genuinely belongs to the engine.
 
              THE COUPLING TO KEEP IN MIND: slot 0 is the FIRST mode registered,
              and registration order is menu order (GameMode.h). Both halves are
-             the title's — ../../../Player/src/UntitledFighterModes.cpp is where
-             the order is decided — so if a mode is ever registered BEFORE the
-             training mode, this line's text is what has to change with it.
-             The slots below need no such edit, which is the whole reason they
-             are bound. -->
-        <Button name="training" class="verb" if="menuMode0"
+             the title's, so if a mode is ever registered BEFORE training, this
+             line is what changes with it. That is a one-line edit in a file the
+             same author owns, which is a better trade than a runtime lookup
+             that can silently answer "no". -->
+        <Button name="training" class="verb"
                 text="TRAINING" on-click="menuEnterMode0"/>
 
-        <!-- THE MODES THIS TITLE HAS NOT BUILT YET. REPLAY (drive a session
-             from a ReplayInputSource) and VERSUS (over CseNet's ISession) are
-             both named in UntitledFighterModes.cpp as planned and deliberately
-             not stubbed, because a menu entry that enters an empty screen is
-             worse than one that is absent. Their flags are false, so these
-             three buttons are not displayed at all today.
+        <!-- REPLAY and VERSUS ARE NOT HERE, AND THAT IS THE SAME DECISION.
+             They are named in UntitledFighterModes.cpp as planned and
+             deliberately not stubbed, because a menu entry that enters an empty
+             screen is worse than one that is absent.
 
-             BOUND, not typed, precisely because they do not exist yet: the day
-             one is registered it appears here under whatever name it registers,
-             and nobody has to remember that this file also needed editing. The
-             `upper` converter is what keeps a DisplayName written in sentence
-             case from breaking the column's voice — the engine publishes a
-             mode's name VERBATIM and does not impose a house style on somebody
-             else's title, so imposing this title's own is this file's job.
+             This file used to carry three bound slots waiting for them, plus a
+             label for the case where nothing was registered at all. All four
+             elements existed to render something that does not exist, and the
+             empty-state label is what the author actually saw on a build that
+             HAD the mode -- a screen that read NO PLAYABLE MODES IN THIS BUILD
+             because a flag did not arrive.
 
-             Four slots and not a `repeat=`, and it is a real limit rather than
-             taste: a bound action is a `void()` looked up by NAME, so every row
-             of a repeat would invoke the same one with no way to say which was
-             clicked. kMenuModeSlots in MenuUIContent.h is the other half of
-             this and the two must agree.
-
-             `verb-mode` is what makes an arbitrary-length name survive the
-             320px column, and it is on these three and NOT on TRAINING. The
-             difference is where the text came from: TRAINING is eight
-             characters somebody typed into this file, where a surprise would be
-             a bug, so it keeps `.verb`'s nowrap. A future mode's DisplayName
-             can be any length at all, and one wrapping to two lines is much
-             better than one drawn outside its own focus highlight. -->
-        <Button name="mode1" class="verb verb-mode" if="menuMode1"
-                text="{menuMode1Name | upper}" on-click="menuEnterMode1"/>
-        <Button name="mode2" class="verb verb-mode" if="menuMode2"
-                text="{menuMode2Name | upper}" on-click="menuEnterMode2"/>
-        <Button name="mode3" class="verb verb-mode" if="menuMode3"
-                text="{menuMode3Name | upper}" on-click="menuEnterMode3"/>
-
-        <!-- A build with the front end and no modes is a real configuration:
-             CSE_HOST_TITLE_FRONT_END and CSE_HOST_TITLE_MODES are separate
-             guards on purpose (TitleFrontEnd.h), so the two can be turned on
-             independently. Without this line that build shows a title screen
-             whose only verbs are OPTIONS and QUIT, and nothing anywhere says
-             the game is missing rather than broken. -->
-        <Label class="verbs-empty" if="!menuMode0"
-               text="NO PLAYABLE MODES IN THIS BUILD"/>
+             So they are gone. The day REPLAY is built, this file gains a line
+             that says REPLAY, typed, next to the line that says TRAINING. That
+             is a smaller edit than the comment explaining why it was not
+             needed, and it cannot render the wrong thing in the meantime. -->
 
         <Element class="verb-rule"/>
 

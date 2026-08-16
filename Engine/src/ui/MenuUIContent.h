@@ -64,11 +64,29 @@ namespace MyCoreEngine {
         // no mode verbs at all, which is every host that has not registered any
         // and is exactly the menu as it was before modes existed.
         //
-        // READ AT INSTALL TIME, not per frame. Modes are registered during host
-        // startup, before this function is called, and a registry that grew a
-        // mode afterwards would not appear -- which is stated here rather than
-        // guarded against, because the alternative is republishing eight
-        // properties every frame to catch something that never happens.
+        // READ AT INSTALL *AND* ON EVERY MenuUIPublishCounters CALL, so the
+        // `menuModeN` / `menuModeNName` properties are a FUNCTION of this
+        // registry rather than a photograph of it. A registry that grows a mode
+        // after the menu is up gets its verb on the next frame, and a document
+        // that loads later binds against current values whatever order the host
+        // did things in.
+        //
+        // IT USED TO BE READ ONCE, AT INSTALL, and that is worth keeping because
+        // it is the bug this contract was rewritten around. These were the only
+        // properties in the whole menu published exactly once during startup:
+        // everything else is either re-derived per frame or moved by a user
+        // action, so everything else re-evaluated and these did not. Nothing was
+        // wrong at any single step -- the registry held the mode, the hooks
+        // pointed at it, the install wrote `menuMode0 = true` -- and the menu
+        // still said the build had no playable modes, because the value was read
+        // at an instant when it was not yet, or no longer, what it should be.
+        // A once-published flag with no owner watching it is not cheaper than a
+        // derived one; it is the same cost paid in a debugging session instead.
+        //
+        // A HOST STILL HAS TO CALL MenuUIPublishCounters for the tracking half.
+        // One that does not (a test, a tool) gets the install-time answer, which
+        // is correct as long as it registered its modes first -- the original
+        // contract, still honoured, now the floor rather than the whole story.
         GameModeRegistry* modes = nullptr;
 
         // The verb behind a mode button. Empty => the buttons are not drawn at
@@ -111,8 +129,24 @@ namespace MyCoreEngine {
 
     // Call ONCE per host, AFTER setSceneLoader (the verbs need it), after
     // InstallDemoUIContent (the menu's name field binds to `playerName`, which
-    // is seeded there), and after every game mode has been registered (their
-    // names are published here, once — see MenuUIHooks::modes).
+    // is seeded there), and after every game mode has been registered (see
+    // MenuUIHooks::modes).
+    //
+    // ...AND BEFORE ANY DOCUMENT THAT READS THESE PROPERTIES EXISTS. That is the
+    // other half of the contract and it went unwritten for a long time, which is
+    // exactly why it is now CHECKED rather than merely stated: this function
+    // seeds ~20 properties into UIWorld::shared(), and a document binds at LOAD.
+    // A host that has already built one gets a menu wired to whatever the
+    // properties happened to be, plus one load-time diagnostic per unresolved
+    // hole — into a console the shipped player does not have.
+    //
+    // So the install ASKS: UIWorld::liveCount() > 0 means a document has already
+    // bound, and that is reported to std::cerr AND to the menu's own status line,
+    // which is the only one of the two a shipped player can show you. It is a
+    // report rather than a refusal because the situation is recoverable — the
+    // mode flags are re-derived every frame, and `if=` is a style write rather
+    // than tree surgery, so a hidden element keeps its bindings and reappears the
+    // moment a value moves. What is not recoverable is silence.
     ENGINE_API void InstallMenuUIContent(UIWorld& world, const MenuUIHooks& hooks);
 
     // Call from the host's SceneLoader::SetOnSwapComplete handler. Appends to
@@ -127,6 +161,12 @@ namespace MyCoreEngine {
     ENGINE_API void MenuUIReportSwap(UIWorld& world, const SceneSwapResult& r);
 
     // Call once per frame from the host's UI-draw lambda, BEFORE UIWorld::Update.
+    //
+    // BEFORE Update is not a style note, it is the whole reason this is safe to
+    // rely on: Update is where UIWorld builds a document it has not seen yet, so
+    // a menu appearing this frame binds against values written moments earlier.
+    // That is what lets `menuModeN` be published here rather than only at install
+    // — see MenuUIHooks::modes for the bug that made the difference matter.
     //
     // Also reconciles the master volume, which a <Slider> now writes DIRECTLY
     // into the shared source through its two-way binding rather than through a
