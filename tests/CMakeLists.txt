@@ -213,6 +213,19 @@ target_link_libraries(test_game_core PRIVATE CseGame CseData CseKernel GTest::gt
 add_dependencies(test_game_core test_runtime_deps)
 add_test(NAME test_game_core COMMAND $<TARGET_FILE:test_game_core>)
 
+# TRAINING MODE, minus the window. The mode itself needs a GL context and a
+# playtester, but almost everything it CLAIMS is a property of the seam it is
+# built from — the Demonstrate handover, that frame-step and slow-mo are the
+# host's business rather than a hidden clock, that reset really resets, and that
+# the watcher raises a cycle the certificate retired but the kernel performs.
+#
+# Testing those here is what keeps the mode from being the one part of this
+# project whose claims rest on somebody having looked at it.
+add_executable(test_training_mode test_training_mode.cpp)
+target_link_libraries(test_training_mode PRIVATE CseGame CseData CseKernel GTest::gtest_main)
+add_dependencies(test_training_mode test_runtime_deps)
+add_test(NAME test_training_mode COMMAND $<TARGET_FILE:test_training_mode>)
+
 engine_test(test_event_bus)        # EventBus publish/subscribe
 engine_test(test_input_map)        # actions/axes/deadzone via scripted-input fake
 engine_test(test_render_passes)    # GL-headless CSM/forward/tonemap wiring

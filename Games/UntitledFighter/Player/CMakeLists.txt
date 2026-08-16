@@ -25,9 +25,26 @@
 # reads a controller, it holds a Font. Putting a mode in CseGame would trip that
 # assertion, and it should: the headless core stays headless and the presentation
 # sits on top of it.
+#
+# ---------------------------------------------------------------------------
+# WHY THE TRAINING MODE IS THREE PAIRS AND NOT ONE
+# ---------------------------------------------------------------------------
+# The mode owns the SESSION -- when a tick runs, where the bits come from, what
+# Demonstrate does. FightView owns the PICTURE and FightHud owns the NUMBERS, and
+# both are written as free functions over borrowed state with no members at all.
+# That split is what keeps the drawing layer from acquiring a copy of anything:
+# a view that could remember where a fighter was would be a second source of
+# truth for a position, which is ARCHITECTURE.md D8 moved down to a layer where
+# a player cannot read the file to find out they were lied to.
 add_library(UntitledFighterPlayer STATIC
     src/UntitledFighterMode.h
     src/UntitledFighterMode.cpp
+    # The fight, drawn: the kernel's own boxes, the stage and the corner.
+    src/FightView.h
+    src/FightView.cpp
+    # The readouts: frame data, frame advantage, the verdict and the judge.
+    src/FightHud.h
+    src/FightHud.cpp
     # The registration list, and the definition of the hook the engine declares.
     src/UntitledFighterModes.cpp
 )
