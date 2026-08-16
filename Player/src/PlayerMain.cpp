@@ -355,6 +355,22 @@ public:
         // message for the menu's own status line, so a mode that refuses to
         // start is reported the same way a scene that will not load is, in the
         // shipped player which has no console to print to.
+        //
+        // THIS LINE WAS MISSING AND THE FEATURE WAS INVISIBLE. The comment above
+        // said "two fields" and only the action half was ever assigned, so
+        // `MenuUIContent.cpp`'s `(h.modes && h.onEnterMode) ? h.modes->Count() : 0`
+        // read a null registry, published `available = 0`, and every one of the
+        // four `if="menuModeN"` slots evaluated false. The result was a main menu
+        // that looked exactly like the one from before modes existed -- no error,
+        // no empty button, nothing to notice -- on a build whose binary contained
+        // the mode, whose registration ran first, and whose markup was correct.
+        //
+        // Everything about the seam was right except that nobody handed it the
+        // data. It is worth naming because no test in this repository could have
+        // caught it: the menu needs a GL context, the registry is populated in a
+        // host this file is the only instance of, and both halves independently
+        // reviewed as correct.
+        menuHooks_.modes = &modes_;
         menuHooks_.onEnterMode = [this, modeContext](int index) -> std::string {
             std::string error;
             if (!modes_.Enter(index, modeContext(), error)) {
