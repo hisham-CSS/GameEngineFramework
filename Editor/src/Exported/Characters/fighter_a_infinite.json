@@ -108,10 +108,12 @@
     "meter": 5
    },
    "guard": {},
-   "stance": "ground",
+   "stance": "crouching",
+   "blocked_as": "low",
    "reach": 0.28,
    "pushback": 0.06,
    "engine": {
+    "stance_and_guard_note": "CROUCHING, LOW, AND THE LOW IS READ OUT OF THIS MOVE'S OWN FRAME DATA rather than decided now. The derivation below says `hitstun 13 is the light-tier value minus one because a crouching light trades one frame of stun for hitting low` -- the file PAID a frame for a guard height it then had no field to record. Authoring `mid` here would contradict a number already in the file. NOTE THAT THIS DISAGREES WITH fighter_a.json, whose crouch_lp is a MID on its own evidence (no `low` in engine.tags, identical timing to stand_lp, and ADR-006 section 2's `a sweep and a crouching jab are both crouching and only one is low`). The two files are SIBLINGS AND NOT COPIES -- this one's crouch_lp is 4f and that one's is 3f -- and each move's blocked_as is taken from its own file's own evidence. Reconciling them by eye would be inventing agreement.",
     "derivation": "DESIGNED, not measured -- this character has no source file. startup 4 / active 2 / recovery 9 is the light-tier template (the brief's 3-5 startup band); hitstun 13 is the light-tier value minus one because a crouching light trades one frame of stun for hitting low. Advantage on hit = hitstun - (active + recovery) = 13 - 11 = +2. reach 28 px is the light-tier gap minus 2 px for the crouched posture.",
     "escape_hatch": {
      "needed": false,
@@ -144,10 +146,12 @@
     "meter": 10
    },
    "guard": {},
-   "stance": "ground",
+   "stance": "crouching",
+   "blocked_as": "mid",
    "reach": 0.32,
    "pushback": 0.1,
    "engine": {
+    "stance_and_guard_note": "CROUCHING, MID. The only crouching move in the file whose derivation makes NO claim about height either way -- it argues about recovery and confirm windows and nothing else -- so `mid` is the ordinary answer for an ordinary body punch from a crouch, and the absence of a claim is itself the evidence in a file where every other crouching move states one.",
     "derivation": "DESIGNED. Medium-tier template: startup 6, hitstun 18. recovery 14 (one more than standing) gives +1 on hit, so the crouching medium is the safer confirm and the standing one the better button. 18 frames of stun is what every special-cancel target in this file is sized against: 2 (window) + 13 (light fireball) = 15 <= 17.",
     "escape_hatch": {
      "needed": false,
@@ -180,10 +184,19 @@
     "meter": 15
    },
    "guard": {},
-   "stance": "ground",
+   "stance": "crouching",
+   "blocked_as": "mid",
    "reach": 0.38,
    "pushback": 0.2,
    "engine": {
+    "stance_and_guard_note": "CROUCHING, AND MID, AND THIS IS THE COUNTEREXAMPLE THE TWO FIELDS EXIST APART FOR -- the same argument as fighter_a.json's crouch_hp, on the same move of the same character. The derivation below calls it `the anti-air-ish one`, and a move that hits an opponent above you is not one a crouching block is the answer to. Derive blocked_as from stance -- the simplification CharacterData.h's note on BlockHeight refuses in advance -- and the character's anti-air is beaten by holding down-back. IT CARRIES A hurtbox_sub FOR THE OPPOSITE REASON TO crouch_mk's: 36 px is an ordinary crouch, taller than the 26 px that ducks and shorter than the standing 60, and it is `not every crouching attack would low profile` written as a number instead of as a silence.",
+    "hurtbox_sub": {
+     "x0": -3840,
+     "y0": 0,
+     "x1": 3840,
+     "y1": 9216,
+     "source": "DESIGNED, CHOSEN. Identical to fighter_a.json's crouch_hp, and identical on purpose: it is the SAME CHARACTER'S CROUCH, and the two files may differ in frame data and in one cancel edge without differing in how tall the fighter is. Symmetric about the origin at 15 px each way because the arm travels upward rather than forward. +Y IS UP here, matching cse::kernel::Box; engine.constants states the same body as pushbox_half_width_sub 3328 and pushbox_height_sub 15360, which is this file's happier spelling of the Y-DOWN rectangle fighter_a.json carries and A15 warns about."
+    },
     "derivation": "DESIGNED. Heavy tier, punch: startup 8 is the fastest heavy in the file (the anti-air-ish one), paid for with 4 active frames and 21 recovery, so it is -4 on hit. hitstun 21 is one below the standing heavies because the extra active frame already bought it a wider confirm.",
     "escape_hatch": {
      "needed": false,
@@ -216,10 +229,12 @@
     "meter": 5
    },
    "guard": {},
-   "stance": "ground",
+   "stance": "crouching",
+   "blocked_as": "low",
    "reach": 0.3,
    "pushback": 0.06,
    "engine": {
+    "stance_and_guard_note": "CROUCHING, LOW, and the derivation below states it in so many words: `startup 5 rather than 4 because it hits low`. A frame of startup was spent on a guard height that had no field, exactly as crouch_lp spent a frame of hitstun on the same thing. NO hurtbox_sub: hitting low and low-profiling are different properties, the first is blocked_as and the second is geometry, and this move is a toe poke that does the first without doing the second.",
     "derivation": "DESIGNED. The low light: startup 5 rather than 4 because it hits low, hitstun 13, recovery 10 -> +1 on hit. It is the worst chain source in the file and the file is sized so that even it connects: 2 + 7 (slowest medium) = 9 <= 12.",
     "escape_hatch": {
      "needed": false,
@@ -252,10 +267,19 @@
     "meter": 10
    },
    "guard": {},
-   "stance": "ground",
+   "stance": "crouching",
+   "blocked_as": "low",
    "reach": 0.46,
    "pushback": 0.12,
    "engine": {
+    "stance_and_guard_note": "CROUCHING, LOW. The derivation below opens `The long low medium`, so the guard height was authored the day the move was and lived in a prose string until v3 gave it a slot. THE MOVE THIS CHARACTER DUCKS WITH: hurtbox_sub is 26 px tall against a standing 60, the same crouch fighter_a.json authors, with the forward lean scaled to this file's own 46 px kick rather than copied from that file's 72 px one.",
+    "hurtbox_sub": {
+     "x0": -3840,
+     "y0": 0,
+     "x1": 2816,
+     "y1": 6656,
+     "source": "DESIGNED, CHOSEN. 26 px tall -- the same crouch height as fighter_a.json's crouch_mk, because it is the same character crouching -- and 11 px of forward lean rather than that file's 17, because this file's crouching medium kick reaches 46 px and that one's reaches 72. HEIGHT IS A PROPERTY OF THE CHARACTER AND LEAN IS A PROPERTY OF THE MOVE, which is why one number is shared and the other is not. It goes under any attack whose box begins above 26 px and under nothing else; there is no flag anywhere saying so."
+    },
     "derivation": "DESIGNED. The long low medium: reach 46 px, the second-longest normal, paid for with startup 7 and recovery 16 -> -2 on hit. Still chains and special-cancels, because hitstun 18 covers 2 + 13.",
     "escape_hatch": {
      "needed": false,
@@ -288,10 +312,19 @@
     "meter": 15
    },
    "guard": {},
-   "stance": "ground",
+   "stance": "crouching",
+   "blocked_as": "low",
    "reach": 0.5,
    "pushback": 0.3,
    "engine": {
+    "stance_and_guard_note": "CROUCHING, LOW. The sweep -- [P] label says `(sweep)` and the derivation calls it one -- and the lowest thing this character does in either file: 20 px tall against crouch_mk's 26 and a standing 60. The body is stretched along the floor rather than folded over it, the leading leg is INSIDE the hurtbox, and -11 on hit is this file's number for the same fact. A box that ducked without stretching would have been a free low.",
+    "hurtbox_sub": {
+     "x0": -4608,
+     "y0": 0,
+     "x1": 4096,
+     "y1": 5120,
+     "source": "DESIGNED, CHOSEN. 20 px tall -- the same sweep posture as fighter_a.json's crouch_hk -- 18 px behind the origin and 16 px in front of it. The lean is 16 rather than that file's 30 because this sweep reaches 50 px and that one reaches 94; the height is shared and the lean is not, for the reason crouch_mk's box states. x0 reaches further back than the standing half-width of 13 px because a sweeping body is longer than a standing one."
+    },
     "derivation": "DESIGNED. The sweep, and a deliberate combo ENDER: recovery 26 makes it -11 on hit and it authors NO cancel window and no outgoing edge. hitstun 18 rather than 21 because the reaction is a knockdown, which the kernel cannot represent (Combat.h scopes knockdown out) -- so the number is the ground-hitstun reading and engine.reaction carries the intent.",
     "escape_hatch": {
      "needed": false,
@@ -326,10 +359,12 @@
     "meter": 20
    },
    "guard": {},
-   "stance": "ground",
+   "stance": "standing",
+   "blocked_as": "mid",
    "reach": null,
    "pushback": 0.14,
    "engine": {
+    "stance_and_guard_note": "STANDING, MID. One of the six moves in this file with no counterpart in a stance tag or a label -- the five specials and the super -- so it is one of the six that had to be decided rather than read off. A fireball is thrown from a standing posture and is the genre's canonical either-block attack. NOTE WHAT blocked_as DESCRIBES ON A PROJECTILE MOVE: the field is a property of THE ATTACK, and for this move the attack is the projectile rather than the release animation, so `mid` is a claim about the fireball. Nothing in the schema ties the two together, and if a character ever wants a low projectile the answer is ADR-006's `reversed if` clause -- blocked_as into engine.hits[] -- not a second field.",
     "derivation": "DESIGNED. startup 13 is the low end of the brief's 13-15 fireball band and is chosen so a medium can cancel into it: 2 (window) + 13 = 15 <= 18 - 1. recovery 29 makes it -14 point blank and positive at range, which is the whole point of a fireball. [P] active 1 is the RELEASE tick, not a Clsn1 run: the attacker registers no attack box at all and the projectile carries the hit. reach is null for the same reason Kung Fu Man's two projectiles author null (ADR-001 section 4 group F): a fireball's contact frame is a function of distance and no constant is that function.",
     "escape_hatch": {
      "needed": false,
@@ -393,10 +428,12 @@
     "meter": 20
    },
    "guard": {},
-   "stance": "ground",
+   "stance": "standing",
+   "blocked_as": "mid",
    "reach": null,
    "pushback": 0.14,
    "engine": {
+    "stance_and_guard_note": "STANDING, MID, as the light version. Two strengths of one fireball differ in startup, recovery and which sources may cancel into them, and in nothing a block height can see -- which is worth one sentence because it is the first place in either file where two moves are near-copies, and a reader could reasonably wonder whether the pair was annotated twice or once.",
     "derivation": "DESIGNED. startup 15, the top of the band. It is deliberately NOT a medium's special-cancel target: 2 + 15 = 17 would leave a medium's 18 frames of stun exactly 1 frame, which is a link dressed as a cancel. The heavies (hitstun 21/22) carry it with 4-5 frames of slack, so the edge is authored only there.",
     "escape_hatch": {
      "needed": false,
@@ -460,10 +497,12 @@
     "meter": 20
    },
    "guard": {},
-   "stance": "ground",
+   "stance": "standing",
+   "blocked_as": "mid",
    "reach": 0.24,
    "pushback": 0.35,
    "engine": {
+    "stance_and_guard_note": "STANDING, MID, AND NO engine.airborne_from_tick -- WHICH IS THE ONE ANNOTATION THIS FILE DELIBERATELY DOES NOT MAKE, and the place to say so, because a reversal is the move a reader will expect to carry it. fighter_a.json's uppercut authors airborne_from_tick 3, and it can: it has an engine.motion keyframe setting vel_y_sub -2560 at tick 3 and an on_land transition with min_tick 3, so the tick is DERIVED from two fields already in that file. THIS FILE HAS NEITHER, and it says why in engine.constants.source: `neither is exercised, because no move in this file leaves the ground and there is therefore no on_land transition and no A10 to satisfy.` A tick here would be a number with nothing behind it, in a file where every value says DESIGNED and states its rule. The field records a fact; it is not a blank to be filled in. A rising reversal that never leaves the floor is a simplification this file already made and already documented, and v3 does not get to quietly undo it.",
     "derivation": "DESIGNED. The reversal, and every number pays for the 3-frame startup: 8 active frames, 30 recovery, -18 on hit and far worse on whiff, plus 8 ticks of full invulnerability from tick 1 (engine.invuln). It has NO incoming cancel and NO outgoing cancel: a reversal is an option out of neutral, not a combo tool. That is also why a 3-frame launcher is safe here -- ADR-001:512-515 names a 4-frame launcher as 'exactly the shape that fabricates an infinite', and the shape only fabricates one if something can cancel into it or out of it.",
     "escape_hatch": {
      "needed": false,
@@ -515,10 +554,12 @@
     "meter": 20
    },
    "guard": {},
-   "stance": "ground",
+   "stance": "standing",
+   "blocked_as": "mid",
    "reach": 0.26,
    "pushback": 0.45,
    "engine": {
+    "stance_and_guard_note": "STANDING, MID, and no airborne tick, on special_uppercut_l's argument exactly.",
     "derivation": "DESIGNED. The heavy reversal: one more frame of startup, two more active, four more recovery and 10 ticks of invulnerability. -22 on hit. Same isolation as the light version: no incoming, no outgoing.",
     "escape_hatch": {
      "needed": false,
@@ -570,10 +611,12 @@
     "meter": 20
    },
    "guard": {},
-   "stance": "ground",
+   "stance": "standing",
+   "blocked_as": "mid",
    "reach": 1.09,
    "pushback": 0.4,
    "engine": {
+    "stance_and_guard_note": "STANDING, MID, AND NO airborne_from_tick, which this move can PROVE rather than merely not claim: every keyframe in engine.motion below authors vel_y_sub 0 and engine.motion_physics.gravity_sub is 0. The move covers 62 px of ground and never leaves it.",
     "derivation": "DESIGNED. The mobility special. startup 12, 4 active, 22 recovery, -6 on hit. engine.motion carries the travel as resolved integer sub-units (54 px forward by the tick the box goes live, 62 px by the time it stops). READ reach 109 px WITH THAT: reach is defined as the maximum gap at which the move connects (CharacterData.h Move::reachSub), and the travel is part of how it connects, so 109 = 55 px of box measured at the moment of contact plus the 54 px the attacker covered getting there. The engine's static box therefore reproduces the real total reach exactly; what it does not reproduce is where the two fighters END UP, which is a positional loss and is recorded in engine.fit.known_losses.",
     "escape_hatch": {
      "needed": false,
@@ -647,10 +690,12 @@
    "guard": {
     "meter": 100
    },
-   "stance": "ground",
+   "stance": "standing",
+   "blocked_as": "mid",
    "reach": 0.7,
    "pushback": 0.6,
    "engine": {
+    "stance_and_guard_note": "STANDING, MID. The file's only multi-hit move, so the only place a scalar blocked_as could have been a projection rather than a fact -- ADR-006's `reversed if` clause is precisely the case where one string's hits differ in guard height, at which point blocked_as belongs in engine.hits[]. Every hit here is the same beam at the same height, so the scalar is exact and hides nothing.",
     "derivation": "DESIGNED. Three hits at ticks 9, 12 and 15 inside an 8-tick active window (engine.hits), 80 + 80 + 90 = 250 damage summed into the [P] scalar under hits_projection 'first_damage_summed' -- safe because json_spec.py:69 feeds damage to Result.maxDamage only. [P] hitstun is hits[0]'s 24 and all three hits author 24, so the projection is EXACT and assertion A06 has nothing to say. Costs meter 100 (one bar) and guards on 100. 40 recovery makes it -22 on hit; a super is an ender.",
     "escape_hatch": {
      "needed": false,
@@ -741,10 +786,12 @@
     "meter": 5
    },
    "guard": {},
-   "stance": "ground",
+   "stance": "standing",
+   "blocked_as": "mid",
    "reach": 0.3,
    "pushback": 0.06,
    "engine": {
+    "stance_and_guard_note": "STANDING, MID -- AND THIS IS THE MOVE THE FILE EXISTS FOR, so it is the one place worth stating what the annotation did NOT do. The deliberate defect is cancels[0], stand_lp into itself, and the loop closes on startup + delay < hitstun, i.e. 4 + 2 < 14. NOT ONE OF THOSE THREE NUMBERS IS A FIELD THIS PASS CAN REACH. stance and blocked_as are not read by comboprover.hpp, by json_spec.py or by cse::kernel::MoveDef, so the INFINITE verdict, the witness, the 33 executable cycles and the delay sweep are the same before and after -- which is the property ADR-006 section 10 item 9 makes the regression test for the whole revision, and this file is where it is cheapest to check.",
     "derivation": "DESIGNED, AND THIS IS THE MOVE THE FILE EXISTS FOR. startup 4 / active 2 / recovery 9 / hitstun 14 is the light-tier template: advantage on hit = 14 - (2 + 9) = +3, which is an ordinary, unremarkable jab. Nothing about these four numbers is broken. What is broken is the single cancel edge stand_lp -> stand_lp; see engine.the_bug.",
     "escape_hatch": {
      "needed": false,
@@ -777,10 +824,12 @@
     "meter": 10
    },
    "guard": {},
-   "stance": "ground",
+   "stance": "standing",
+   "blocked_as": "mid",
    "reach": 0.34,
    "pushback": 0.1,
    "engine": {
+    "stance_and_guard_note": "STANDING, MID. The mediums are where a standing overhead would live in a character that had one; this character has none, in either file, and `mid` on all six standing normals is how that is now stated rather than left unsaid.",
     "derivation": "DESIGNED. The medium-tier template: startup 6, hitstun 18, recovery 13 -> +2 on hit, the best medium in the file and the standard confirm into a special.",
     "escape_hatch": {
      "needed": false,
@@ -813,10 +862,12 @@
     "meter": 15
    },
    "guard": {},
-   "stance": "ground",
+   "stance": "standing",
+   "blocked_as": "mid",
    "reach": 0.4,
    "pushback": 0.25,
    "engine": {
+    "stance_and_guard_note": "STANDING, MID.",
     "derivation": "DESIGNED. Heavy punch: startup 9, hitstun 22, recovery 20 -> -1 on hit. 22 frames of stun is what makes the heavy fireball (startup 15) a real cancel target: 2 + 15 = 17 <= 21.",
     "escape_hatch": {
      "needed": false,
@@ -849,10 +900,12 @@
     "meter": 5
    },
    "guard": {},
-   "stance": "ground",
+   "stance": "standing",
+   "blocked_as": "mid",
    "reach": 0.34,
    "pushback": 0.06,
    "engine": {
+    "stance_and_guard_note": "STANDING, MID.",
     "derivation": "DESIGNED. Light kick: one frame slower than the light punch and one pixel-band longer, hitstun 14, recovery 10 -> +2 on hit.",
     "escape_hatch": {
      "needed": false,
@@ -885,10 +938,12 @@
     "meter": 10
    },
    "guard": {},
-   "stance": "ground",
+   "stance": "standing",
+   "blocked_as": "mid",
    "reach": 0.48,
    "pushback": 0.12,
    "engine": {
+    "stance_and_guard_note": "STANDING, MID -- and this is the pair the whole revision came from, one file over: `stand_mk` and `crouch_mk` used to declare the IDENTICAL stance, and the only thing telling them apart was the word `crouch` inside an id string, which is the D7-forbidden heuristic. Here they now differ in two fields: this one is standing and mid, crouch_mk is crouching and low and carries a 26 px body.",
     "derivation": "DESIGNED. The long medium: reach 48 px, startup 7, recovery 15 -> 0 on hit. Exactly break-even is deliberate; it is the button that keeps a turn without stealing one.",
     "escape_hatch": {
      "needed": false,
@@ -921,10 +976,12 @@
     "meter": 15
    },
    "guard": {},
-   "stance": "ground",
+   "stance": "standing",
+   "blocked_as": "mid",
    "reach": 0.56,
    "pushback": 0.3,
    "engine": {
+    "stance_and_guard_note": "STANDING, MID, AND NO airborne_from_tick. It is the heaviest standing normal and, in the sibling file, the corresponding button is the jump-cancellable LAUNCHER -- so it is worth saying that what a launcher launches is the DEFENDER. airborne_from_tick is a fact about the attacker's own body and no move in this file has one; engine.constants.source says so for the whole file.",
     "derivation": "DESIGNED. The slowest normal: startup 11, hitstun 22, recovery 22 -> -3 on hit. It is the heaviest chain target in the file and the file is sized so a medium still connects it: 2 + 11 = 13 <= 17.",
     "escape_hatch": {
      "needed": false,
@@ -1642,7 +1699,8 @@
   }
  ],
  "engine": {
-  "schema_version": 2,
+  "schema_version": 3,
+  "schema_version_note": "RAISED FROM 2 TO 3 BY THE ANNOTATION PASS engine.stance_and_guard describes. Nothing in code reads this key -- CharacterData.cpp does not look at it -- so it is a claim the author makes about themselves, and here the claim is that every move has been considered for stance precision and block height rather than simply lacking both. The schema document is still at Editor/src/Exported/Characters/schema.v2.json; its $id says character.v3.json and nothing resolves it by path.",
   "units": {
    "ticks_per_second": 60,
    "sub_units_per_pixel": 256,
@@ -1901,7 +1959,23 @@
    "tier_templates": "lights startup 4-5 / hitstun 13-14; mediums startup 6-7 / hitstun 18; heavies startup 8-11 / hitstun 21-22; fireballs startup 13-15; reversals startup 3-4. These are the brief's bands and every move sits inside them.",
    "reach": "the maximum BODY-TO-BODY GAP at which the move connects, in pixels, which is what CharacterData.h Move::reachSub means and what MatchBuilder.cpp:680-728 builds. It is NOT the sprite's attack box measured from the origin -- that is the discrepancy MatchBuilder flags under `move.reach (provenance)` for the imported characters, and this file avoids it by authoring the quantity the engine actually consumes.",
    "pushback": "DESIGNED displacement in pixels, scaled to the tier. Unlike the corpus it is not an estimate of an unrecorded quantity, but it is also not exercised: the stage is corner and the kernel moves nobody on hit.",
-   "damage": "hundredths of a damage point, against a health pool of 1000. Lights 20-30, mediums 55-65, heavies 85-100, specials 60-110, super 250."
+   "damage": "hundredths of a damage point, against a health pool of 1000. Lights 20-30, mediums 55-65, heavies 85-100, specials 60-110, super 250.",
+   "stance_and_blocked_as": "Both are per move and both are stated on all eighteen; engine.stance_and_guard carries the rule and each move's engine.stance_and_guard_note carries its own argument."
+  },
+  "stance_and_guard": {
+   "what_this_pass_did": "Annotated all eighteen existing moves against schema v3: added none, removed none, and changed no frame number, no delay, no cancel and no resource effect. [P] move.stance replaced with a precise value on all eighteen, [G] move.blocked_as authored on all eighteen, engine.hurtbox_sub on three, engine.airborne_from_tick on NONE. THE FILE'S ONE PURPOSE IS UNAFFECTED AND THAT IS CHECKABLE RATHER THAN ASSERTED: the deliberate defect is cancels[0], stand_lp into itself, and it closes on startup + delay < hitstun -- 4 + 2 < 14 -- none of which is a field this pass can reach. See stand_lp's own note.",
+
+   "where_the_guard_heights_came_from": "OUT OF THIS FILE'S OWN DERIVATION PROSE, MOVE BY MOVE, and not out of the sibling file. Unlike fighter_a.json this character carries an EMPTY engine.tags on every move, so there was no tag to promote; what it has instead is a derivation string per move that argues for its numbers, and four of those strings already state a guard height in English. crouch_lp: `a crouching light trades one frame of stun for hitting low`. crouch_lk: `startup 5 rather than 4 because it hits low`. crouch_mk: `The long low medium`. crouch_hk: `The sweep`. Two moves that PAID FRAME DATA for a property the schema had no field to hold, and two that named it outright. crouch_hp is `the anti-air-ish one` and is therefore a MID. crouch_mp's derivation makes no height claim at all, in a file where every other crouching move does, and is a mid on that silence.",
+
+   "the_one_place_the_two_files_disagree": "crouch_lp IS A LOW HERE AND A MID IN fighter_a.json, and the disagreement is deliberate rather than an oversight in one of the two. Each file's blocked_as is read out of that file's own evidence: this one's derivation buys the low with a frame of hitstun, while that one's crouch_lp has identical timing to its stand_lp, carries no `low` tag, and is the jab ADR-006 section 2 names in `a sweep and a crouching jab are both crouching and only one is low`. THE TWO FILES ARE SIBLINGS AND NOT COPIES -- this crouch_lp is 4f and that one is 3f, this character has no aerials at all and that one has two, and the notes arrays say plainly that this file is not to be balanced against. Forcing the two to agree would have meant overruling one file's own arithmetic with the other's, which is the opposite of reading the data.",
+
+   "the_hurtbox_policy": "THREE BOXES, ON THE SAME THREE MOVES AS THE SIBLING FILE and for the same reasons: crouch_mk at 26 px because it ducks, crouch_hk at 20 px because the sweep ducks furthest, crouch_hp at 36 px because it deliberately does NOT and a number says so where a silence would have left the standing 60 px body standing in for a crouch. THE HEIGHTS ARE IDENTICAL ACROSS THE TWO FILES AND THE FORWARD LEANS ARE NOT, which is the rule worth stating: HEIGHT IS A PROPERTY OF THE CHARACTER and LEAN IS A PROPERTY OF THE MOVE, and this character's crouching kicks reach 46 and 50 px here against 72 and 94 px there. The other three crouching moves carry no override and therefore present the default body from engine.constants -- 3328 half-width by 15360 tall -- which OVER-STATES their height, makes them easier to hit, and is the conservative direction as well as the state all eighteen were in before this pass.",
+
+   "why_no_move_here_authors_airborne_from_tick": "BECAUSE THE FILE ALREADY SAYS NO MOVE LEAVES THE GROUND, and it says it as a reason rather than as a shrug: engine.constants.source reads `neither is exercised, because no move in this file leaves the ground and there is therefore no on_land transition and no A10 to satisfy`. The two uppercuts are where a reader will look, and they are the reason to state this rather than leave it to an absence -- fighter_a.json's uppercut DOES author airborne_from_tick 3, derived from an engine.motion keyframe and an on_land transition that exist in that file and not in this one. A tick here would be a number with nothing behind it, in a file whose every value says DESIGNED and states its rule. THE FIELD RECORDS A FACT AND IS NOT A BLANK TO BE FILLED IN.",
+
+   "the_census_A16_now_sees": "standing 12, crouching 6, air 0, `ground` 0. A16 warns about one line -- air, 0 of 6 -- where before this pass it warned about all three and reported eighteen moves as GROUNDED, STANCE UNSPECIFIED. The standing figure is 12 rather than the convention's 6 because A16 counts BY STANCE and the five specials and the super are standing too; the 6/6/6 standard counts NORMALS, this character has exactly six standing normals, and schema x-load-assertions.A16 records that divergence deliberately. The surviving warning is TRUE AND CORRECT FOR THIS FILE IN PARTICULAR: it has no aerials, on purpose, because its job is one ground loop executed by the kernel and an air move would have been a move the ground truth does not need.",
+
+   "cannot_move_a_measured_number": "The four fields are read by nothing that decides anything. comboprover.hpp has no stance concept and no blocking; ProverAdapter.cpp's only use of stance is a projection loss count over `!= Stance::Any`, which `standing` and `crouching` satisfy exactly as `ground` did; cse::kernel::MoveDef carries startup, active, recovery, damage, hitstun, hitbox and button and nothing else, so the MatchData hash this file's replay tests compare is byte-identical across the pass; and json_spec.py's _move() reads thirteen named keys and enumerates none. THE ONE COST IS RECORDED RATHER THAN BURIED: ADR-006 section 5 measures model.py:120-121 raising on any stance outside a closed three-value tuple, so this file is unloadable by the unmodified reference implementation until that line is widened to five. It costs this character nothing today -- stage is corner and the corner verdict is the C++ header's -- and it costs the midscreen path everything, because Python is the only midscreen path. ADR-006 section 10 item 7 is the one-line remedy."
   },
   "cancel_note": "60 edges, 4 families, one delay per source move. The full per-edge table is in `cancels` and every entry names its family; the family carries the delay rule, the certainty and the caveat, so no edge repeats them. `certain` is TRUE on all 60 -- unlike the corpus, where 200 of 247 edges are uncertain because the transcription could not establish the runtime condition gating them, this file has no runtime conditions to be uncertain about.",
   "variants": {
@@ -1940,7 +2014,8 @@
     "ATTACKER DISPLACEMENT -- the kernel does not execute engine.motion, so special_dash_punch connects from where it started. Handled by authoring `reach` as the maximum gap at which the move connects INCLUDING the 54 px it travels first, so the static box reproduces the real total reach exactly. What is lost is where the two fighters END UP, which no field in this schema carries and which the corner model does not read. Bound: 1 move. Not in the loop.",
     "RESOURCES ARE NOT SIMULATED -- Fighter::meter exists and nothing reads or writes it, so the super's guard of 100 is not enforced and its cost of 100 is not paid. Bound: every effect and guard in the file. NOT IN THE LOOP, and this matters: the loop's only resource interaction is a +5 gain, so a kernel that ignores resources and a prover that tracks them agree about it. A loop that depended on spending would not be executable today and this file deliberately does not author one.",
     "HITSTUN DECAY AND DAMAGE SCALING -- the kernel applies neither, so the tenth hit of a combo deals what the first did and stuns for as long. For decay this file agrees with the kernel by construction (kind `none`), so there is nothing to lose. For scaling there is: the prover reports max damage through a 6-entry table the kernel does not apply, so the two disagree about DAMAGE and agree about the VERDICT, which is the half that matters. The loop's KO tick of 202 is computed from the kernel's unscaled 30 per hit and would be later under the authored scaling.",
-    "MULTI-HIT -- ResolveHits applies at most one hit per active window, so super_beam lands once for 250 rather than three times for 80/80/90. Damage-only; hitstun is identical on all three records so the [P] projection is exact. Bound: 1 move. Not in the loop."
+    "MULTI-HIT -- ResolveHits applies at most one hit per active window, so super_beam lands once for 250 rather than three times for 80/80/90. Damage-only; hitstun is identical on all three records so the [P] projection is exact. Bound: 1 move. Not in the loop.",
+    "SCHEMA v3'S FOUR FIELDS ARE DATA AND NOT YET BEHAVIOUR. move.stance is a KernelPermits loss over all 18 moves because the kernel gates starting a move on hitstun and blockstun only -- a `crouching` move is still startable in the air, and making the field precise did not make it enforced. blocked_as is further back still: cse::kernel::Combat.h scopes blocking out entirely (`Fighter::blockstun exists and nothing ever writes it`), so there is nothing yet for a guard height to be checked against. engine.hurtbox_sub gives the DEFENDER a height and the schema still authors no vertical extent for an ATTACK, so until a hitbox has a y-range a shorter crouch is data nothing consumes. Bound: every move in the file. DIRECTION: none -- nothing reads any of the four, which is exactly why this pass cannot have moved the verdict. Authoring the data before the rule is the right order (ADR-006 section 10 item 6); the alternative is a kernel rule with no file able to describe the character it applies to."
    ],
    "per_edge_margins": {
     "definition": "hitstun remaining on the defender at the tick the follow-up connects, computed the kernel's way: margin = from.hitstun - (max(delay,1) + to.startup). A margin >= 1 is a true combo; a margin of 0 gives the defender exactly one actionable tick; a negative margin is a gap.",

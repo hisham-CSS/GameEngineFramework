@@ -764,9 +764,21 @@ TEST(GroundTruthLoading, BothOriginalCharactersLoadWithNoAssertionFailure) {
         // loader opened the file this test names and not one beside it.
         const std::string name(file);
         EXPECT_EQ(c.id, name.substr(0, name.size() - 5));
-        EXPECT_EQ(c.moves.size(), 18u)
-            << c.id << " no longer has 18 moves; the frame numbers this file "
-                       "reasons about were read out of that file.";
+        // THE TWO CHARACTERS NO LONGER HAVE THE SAME MOVE COUNT, and that is the
+        // point rather than an inconvenience. `fighter_a` was brought up to the
+        // roster standard the author set -- six standing, six crouching and six
+        // aerial normals -- which took it from 18 moves to 22.
+        // `fighter_a_infinite` deliberately stayed at 18: it exists to be the
+        // smallest thing that makes the prover print a loop, and growing it would
+        // only make the witness harder to read.
+        //
+        // Asserted per file rather than dropped, because the frame numbers the
+        // rest of this file reasons about were read out of these two files and a
+        // silent roster change is exactly what would rot them.
+        const std::size_t expectedMoves = (name == kSafe) ? 22u : 18u;
+        EXPECT_EQ(c.moves.size(), expectedMoves)
+            << c.id << " no longer has " << expectedMoves << " moves; the frame "
+                       "numbers this file reasons about were read out of it.";
         EXPECT_GT(c.cancels.size(), 0u);
         EXPECT_FALSE(c.cancelsFrom.empty())
             << "RebuildIndices did not run, so no tick could ask what a move "

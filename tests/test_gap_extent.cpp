@@ -13,9 +13,9 @@
 // ---------------------------------------------------------------------------
 // THE QUESTION, AND THE FOUR THINGS IT DECOMPOSES INTO
 // ---------------------------------------------------------------------------
-// fighter_a's own `engine.termination_argument` claims its usable cancel graph
-// holds EXACTLY 41 SIMPLE CYCLES -- "one of length 1 (air_mp into itself), eight
-// of length 3, and thirty-two of length 4" -- and that all 41 terminate for one
+// fighter_a's usable cancel graph holds EXACTLY 121 SIMPLE CYCLES -- one of
+// length 1 (air_mp into itself), eight of length 3, forty-eight of length 4 and
+// sixty-four of length 5 -- and all 121 terminate for one
 // reason: every one contains an edge into an air move, air moves spend juggle,
 // so every cycle strictly decreases it. If that is true, then in a kernel with no
 // juggle every one of those 41 is a candidate infinite.
@@ -884,6 +884,29 @@ std::string Table(const TickLog& log, const MoveIndexMap& map,
 constexpr int kSweepTicks = 160;
 constexpr int kMinTurns   = 3;
 
+// ONE BUDGET STOPPED WORKING WHEN THE CYCLES GOT LONGER, and the two failure
+// modes pull in opposite directions, which is why this is a function of the
+// cycle rather than a bigger constant.
+//
+// A turn of a length-N cycle takes about N times as long as one move, so a
+// length-5 cycle managed only TWO turns inside the 160 ticks that gave a
+// length-4 cycle three. Raising the constant for everybody is the obvious fix
+// and it is the wrong one: the short cycles would then run long enough to KO the
+// defender, `Fighter::health` clamps at zero, and "the defender's health fell
+// this tick" would stop reporting hits -- silently undercounting the very thing
+// this sweep measures. The comment above already names that hazard.
+//
+// So the budget scales with length and is FLOORED at the old number. Every cycle
+// of length 1, 3 or 4 is driven for exactly the 160 ticks it was driven for
+// before, so no previously-measured number can move for this reason; only the
+// length-5 cycles the six-aerial roster introduced get more.
+constexpr int kTicksPerMoveInCycle = 40;   // 160 / 4, the old budget's own ratio
+
+inline int sweepTicksFor(std::size_t cycleLength) {
+    const int scaled = kTicksPerMoveInCycle * static_cast<int>(cycleLength);
+    return scaled > kSweepTicks ? scaled : kSweepTicks;
+}
+
 // ResetMatch's opening health (Simulate.cpp).
 constexpr std::int32_t kStartingHealth = 1000;
 
@@ -1067,12 +1090,13 @@ void runSweep(const Subject& s, Sweep& out) {
         }
         Driver mashDriver(c, cycle, build.moves[0], bindings);
 
-        r.silent = drive(build.data, silentDriver, kSweepTicks,
+        const int budget = sweepTicksFor(cycle.moves.size());
+        r.silent = drive(build.data, silentDriver, budget,
                          DefenderPolicy::Silent, 0);
         // The defender mashes the FIRST move of the cycle, which is bound by
         // construction. Handing them an unbound button would make "the defender
         // never acted" a fact about the binding table rather than about the combo.
-        const TickLog mashed = drive(build.data, mashDriver, kSweepTicks,
+        const TickLog mashed = drive(build.data, mashDriver, budget,
                                      DefenderPolicy::MashesOnceHit, bindings[0].button);
 
         const std::size_t length = cycle.moves.size();
@@ -1130,27 +1154,28 @@ void runSweep(const Subject& s, Sweep& out) {
 // Every one of these is DERIVED by the sweep and asserted against, never used to
 // compute anything. A character edit that changes the gap fails a test that
 // prints both the old number and the new one.
-constexpr std::size_t kAuthoredCycles = 143;  // over all 73 authored edges
-constexpr std::size_t kUsableCycles   = 41;   // over the 68 the prover keeps
+constexpr std::size_t kAuthoredCycles = 615;  // over all 94 authored edges
+constexpr std::size_t kUsableCycles   = 121;  // over the 88 the prover keeps
 constexpr std::size_t kSelfLoops      = 1;    // ... of length 1
 constexpr std::size_t kLengthThree    = 8;
-constexpr std::size_t kLengthFour     = 32;
+constexpr std::size_t kLengthFour     = 48;
+constexpr std::size_t kLengthFive     = 64;
 
-constexpr std::size_t kDeadCancels    = 5;
-constexpr std::size_t kUsableCancels  = 68;
+constexpr std::size_t kDeadCancels    = 6;
+constexpr std::size_t kUsableCancels  = 88;
 
-constexpr std::size_t kEndedByJuggle  = 41;   // of 41
-constexpr std::size_t kFullyTakeable  = 1;    // of 41
-constexpr std::size_t kEmptyWindowed  = 40;   // of 41
+constexpr std::size_t kEndedByJuggle  = 121;  // of 121
+constexpr std::size_t kFullyTakeable  = 1;    // of 121
+constexpr std::size_t kEmptyWindowed  = 120;  // of 121
 
-constexpr std::size_t kUnescapable    = 33;   // of 41, on the actionable detector
-constexpr std::size_t kEscapable      = 8;
-constexpr std::size_t kByCancelAlone  = 1;    // of the 33
-constexpr std::size_t kByHeldButton   = 32;
+constexpr std::size_t kUnescapable    = 97;   // of 121, on the actionable detector
+constexpr std::size_t kEscapable      = 24;
+constexpr std::size_t kByCancelAlone  = 1;    // of the 97
+constexpr std::size_t kByHeldButton   = 96;
 
 // What the copied detectors would have said, kept so the difference is pinned
 // rather than described.
-constexpr std::size_t kUnescapableByFreeTicks = 37;
+constexpr std::size_t kUnescapableByFreeTicks = 109;
 
 // air_mp's landing links: startup 6 + delay 15 = 21, against a cancel window that
 // closes at 14. Named so a failure can quote the arithmetic and not just the
@@ -1170,16 +1195,34 @@ constexpr std::size_t kAirToAirCancels  = 2;
 // would test nothing but the arithmetic on this page. Both are load-bearing: the
 // blocked-hop count must be one per cycle that is not the self-loop, and the
 // escapable count must leave the self-loop and the length-4 cycles alone.
-static_assert(kEmptyWindowed == kLengthThree + kLengthFour,
+static_assert(kEmptyWindowed == kUsableCycles - kSelfLoops,
               "every cycle but the self-loop is blocked at exactly one edge");
-static_assert(kUsableCycles == kSelfLoops + kLengthThree + kLengthFour,
+static_assert(kUsableCycles == kSelfLoops + kLengthThree + kLengthFour + kLengthFive,
               "the length histogram must account for every cycle");
 static_assert(kUnescapable + kEscapable == kUsableCycles,
               "every cycle is either escapable or not");
 static_assert(kUnescapable == kByCancelAlone + kByHeldButton,
               "every loop runs by one of the two routes");
-static_assert(kEscapable == kLengthThree,
-              "the cycles that leak are exactly the ones of length 3");
+
+// THE RELATION THAT USED TO BE HERE WAS A COINCIDENCE OF A TWO-AERIAL CHARACTER,
+// and saying so is worth more than replacing it with a new arithmetic identity.
+//
+// It read `kEscapable == kLengthThree` -- "the cycles that leak are exactly the
+// ones of length 3" -- and that was true only because, with `air_mp` and
+// `air_hk` the sole aerials, every length-3 cycle happened to be one whose
+// landing link enters a MEDIUM and no length-4 cycle was. What actually decides
+// whether a cycle leaks is that the held-button restart route is one tick later
+// than the file's authored delay, so `air_mp` at +7 still connects into a light
+// (3f/4f) and does not into a medium (6f/7f).
+//
+// The six-aerial character breaks the coincidence without touching the rule:
+// the leaking cycles are now the 8 of length 3 PLUS 16 of length 4. Restating
+// that as `kEscapable == kLengthThree + 16` would encode a second coincidence
+// and teach the next reader nothing, so the property is asserted where it
+// belongs instead -- section 6 measures the route per cycle and this file's own
+// `[ GAP EXTENT ]` block prints the split.
+static_assert(kEscapable < kUsableCycles,
+              "if every cycle leaks there is no gap left to measure");
 
 }  // namespace
 
@@ -1234,11 +1277,12 @@ TEST(GapExtentGraph, TheCycleCountIsDerivedAndMatchesTheAuthoringReport) {
     EXPECT_EQ(byLength[1], kSelfLoops)   << "self-loops";
     EXPECT_EQ(byLength[3], kLengthThree) << "cycles of length 3";
     EXPECT_EQ(byLength[4], kLengthFour)  << "cycles of length 4";
+    EXPECT_EQ(byLength[5], kLengthFive)  << "cycles of length 5";
     for (std::size_t n = 0; n < byLength.size(); ++n)
-        if (n != 1 && n != 3 && n != 4)
+        if (n != 1 && n != 3 && n != 4 && n != 5)
             EXPECT_EQ(byLength[n], 0u)
-                << "a cycle of length " << n << " appeared, and the report's "
-                   "1 / 8 / 32 structure accounts for none";
+                << "a cycle of length " << n << " appeared, and the "
+                   "1 / 8 / 48 / 64 structure accounts for none";
 
     RecordProperty("usable_cycles", static_cast<int>(sweep.usable.size()));
     RecordProperty("authored_cycles", static_cast<int>(sweep.authored.size()));
@@ -1490,7 +1534,7 @@ TEST(GapExtentKernel, ExactlyOneCycleIsPerformableThroughTheCancelSystem) {
 // ============================================================================
 
 // THIS IS THE FILE'S ANSWER.
-TEST(GapExtentKernel, ThirtyThreeOfTheFortyOneRunForever) {
+TEST(GapExtentKernel, NinetySevenOfThe121RunForever) {
     Subject safe{};
     bringUp(kSafe, safe);
     ASSERT_FALSE(::testing::Test::HasFatalFailure());
@@ -1512,7 +1556,7 @@ TEST(GapExtentKernel, ThirtyThreeOfTheFortyOneRunForever) {
                "below rather than counted as unperformable."
             << describe(safe.character, r);
         EXPECT_GE(r.turns, static_cast<std::size_t>(kMinTurns))
-            << "this cycle managed " << r.turns << " turns in " << kSweepTicks
+            << "this cycle managed " << r.turns << " turns in " << sweepTicksFor(r.cycle.moves.size())
             << " ticks, which is too few to call it periodic."
             << describe(safe.character, r);
         EXPECT_TRUE(r.periodic)
@@ -1601,18 +1645,50 @@ TEST(GapExtentKernel, ThirtyThreeOfTheFortyOneRunForever) {
     EXPECT_EQ(viaCancel, kByCancelAlone);
     EXPECT_EQ(viaButton, kByHeldButton);
 
-    // --- WHY the eight that leak, leak ---------------------------------------
+    // --- WHY the ones that leak, leak ----------------------------------------
     //
-    // They are exactly the cycles of length 3, and that is not a coincidence: a
-    // length-3 cycle lands from `air_mp` straight into a MEDIUM, and the
-    // button-start route arrives one tick later than the link the file authored.
-    // A medium's startup does not fit in what is left of +7; a light's does.
+    // THIS USED TO ASSERT A LENGTH AND THE LENGTH WAS A COINCIDENCE. It read
+    // `EXPECT_EQ(r.cycle.moves.size(), 3u)` -- "the cycles that leak are exactly
+    // the ones of length 3" -- which was true of a character with two aerials and
+    // is false of one with six. The six-aerial roster leaks cycles of length 3
+    // AND of length 4, so the old assertion would now fail while the underlying
+    // rule had not changed at all.
+    //
+    // The rule was always about WHAT THE CYCLE LANDS INTO, not how long it is.
+    // Every cycle but the self-loop leaves the air by a landing link out of
+    // `air_mp`, and the held-button restart route arrives ONE TICK LATER than the
+    // link the file authored. `air_mp` is +7 on hit, so what is left after that
+    // tick fits a light's startup and does not fit a medium's. Asserting the
+    // startup is asserting the mechanism; asserting the length was asserting a
+    // correlate that happened to hold.
+    //
+    // The startup comes from the character's own frame data rather than from the
+    // sweep, so this is not the simulation checking itself.
+    const MoveIndex airMpIdx = safe.character.FindMove("air_mp");
+    ASSERT_NE(airMpIdx, kInvalidMove);
+    const std::int32_t airMpStartup = safe.character.moves[airMpIdx].startup;
+
     for (const CycleResult& r : sweep.results) {
         if (r.Unescapable()) continue;
-        EXPECT_EQ(r.cycle.moves.size(), 3u)
-            << "a cycle of length " << r.cycle.moves.size()
-            << " leaks a defender turn, and the one-tick account this file gives "
-               "covers only the eight of length 3."
+
+        // The move this cycle enters immediately after `air_mp`.
+        const std::size_t n = r.cycle.moves.size();
+        std::size_t at = n;
+        for (std::size_t i = 0; i < n; ++i)
+            if (r.cycle.moves[i] == airMpIdx) { at = i; break; }
+        ASSERT_LT(at, n)
+            << "a leaking cycle does not pass through `air_mp`, so the landing-link "
+               "account this section gives does not describe it at all."
+            << describe(safe.character, r);
+
+        const MoveIndex landed = r.cycle.moves[(at + 1) % n];
+        const std::int32_t landedStartup = safe.character.moves[landed].startup;
+        EXPECT_GT(landedStartup, airMpStartup - 1)
+            << "this cycle leaks a defender turn but lands into `"
+            << safe.character.moves[landed].id << "`, whose startup of "
+            << landedStartup << " should have fitted inside what is left of "
+               "`air_mp`'s advantage after the one-tick restart delay -- so the "
+               "one-tick account this section gives does not explain the leak."
             << describe(safe.character, r);
         // A marginal miss rather than a broken chain: the loop still lands every
         // hit on schedule, it simply hands one or two ticks back per turn.
@@ -1622,11 +1698,31 @@ TEST(GapExtentKernel, ThirtyThreeOfTheFortyOneRunForever) {
                "is a gap rather than the one-tick miss described here."
             << describe(safe.character, r);
     }
-    // ... and every cycle of length 4, plus the self-loop, is on the other side.
+    // ... and the converse, stated by the same rule rather than by its old
+    // length proxy: a cycle that lands into something FAST enough to fit inside
+    // what is left of `air_mp`'s advantage does not leak.
+    //
+    // The self-loop is excluded because it never performs a landing link at all
+    // -- it is the one cycle the cancel system takes end to end, which is a
+    // different mechanism and is measured in section 3.
     for (const CycleResult& r : sweep.results) {
-        if (r.cycle.moves.size() == 3u) continue;
+        const std::size_t n = r.cycle.moves.size();
+        if (n <= 1) continue;
+
+        std::size_t at = n;
+        for (std::size_t i = 0; i < n; ++i)
+            if (r.cycle.moves[i] == airMpIdx) { at = i; break; }
+        if (at == n) continue;   // counted elsewhere; section 3 owns it
+
+        const MoveIndex landed = r.cycle.moves[(at + 1) % n];
+        if (safe.character.moves[landed].startup >= airMpStartup) continue;
+
         EXPECT_TRUE(r.Unescapable())
-            << "a cycle that does not land into a medium still leaked a turn."
+            << "this cycle lands into `" << safe.character.moves[landed].id
+            << "`, whose startup of " << safe.character.moves[landed].startup
+            << " fits inside what is left of `air_mp`'s advantage, and it still "
+               "leaked a defender turn -- so the one-tick account is incomplete "
+               "in the direction that matters."
             << describe(safe.character, r);
     }
 
@@ -1671,8 +1767,9 @@ TEST(GapExtentKernel, ThirtyThreeOfTheFortyOneRunForever) {
         << " over the AUTHORED graph, " << sweep.usable.size()
         << " over the USABLE one:\n"
         << "                  " << kSelfLoops << " self-loop, " << kLengthThree
-        << " of length 3, " << kLengthFour << " of length 4 -- the authoring\n"
-        << "                  report's number, derived here rather than believed.\n"
+        << " of length 3, " << kLengthFour << " of length 4, " << kLengthFive
+        << " of length 5 --\n"
+        << "                  derived here rather than believed.\n"
         << "  ended by juggle " << endedByJuggle << " of " << sweep.usable.size()
         << ". Every cycle spends juggle strictly and none touches\n"
         << "                  meter, and `move.effect` is a "
@@ -1698,9 +1795,11 @@ TEST(GapExtentKernel, ThirtyThreeOfTheFortyOneRunForever) {
         << viaButton << " through the held-button restart\n"
         << "                  that performs the inert link anyway. The other "
         << escapable << " hand one tick\n"
-        << "                  back per turn and are exactly the eight that land "
-           "from `air_mp`\n"
-        << "                  into a medium.\n"
+        << "                  back per turn, and they are exactly the ones that land\n"
+        << "                  from `air_mp` into a move too slow to fit what is left\n"
+        << "                  of its advantage -- a medium, not a light. That is the\n"
+        << "                  rule; the cycle LENGTH that used to stand in for it was\n"
+        << "                  a coincidence of a two-aerial character.\n"
         << "  SO THE GAP IS   " << unescapable
         << " cycles wide on a character the tool certifies as\n"
         << "                  TERMINATING, and the ground-truth file measured 1 of "
@@ -1776,7 +1875,7 @@ TEST(GapExtentKernel, EveryLoopReturnsToItsOwnOpeningStateExactly) {
 // Both then report a clean loop. The defender was actionable and got hit for it,
 // which is a one-frame gap rather than no gap -- and in a kernel that had
 // blocking, it is the frame the combo would end on.
-TEST(GapExtentMethod, TheGroundTruthDetectorsMissFourEscapesThisOneFinds) {
+TEST(GapExtentMethod, TheGroundTruthDetectorsMissTwelveEscapesThisOneFinds) {
     Subject safe{};
     bringUp(kSafe, safe);
     ASSERT_FALSE(::testing::Test::HasFatalFailure());

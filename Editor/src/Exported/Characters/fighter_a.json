@@ -5,8 +5,8 @@
   "AUTHORED, NOT TRANSCRIBED. There is no .cns behind this file, so no [P] field carries a file:line and every engine.derivation says AUTHORED in capitals and names the design rule instead. That is the honest form of assertion A12 for an original character. It also changes what the fit measurement means: 0 of 18 moves need an escape hatch, against ADR-001's 23 of 59, and the reason is not that this character is simpler -- it is that it was authored against schema v2 rather than pushed into schema v1.",
   "STAGE IS CORNER, and that is the question this file is designed to answer. comboprover.hpp is corner-only by construction (:15-24), so the corner verdict is the one the editor computes live and the one the ranking certificate belongs to. walk_speed and every pushback are authored and real, but at stage corner model.py drops horizontal position entirely, so this character's verdict does NOT rest on the pushback number that ADR-001:386-404 shows flips Kung Fu Girl's midscreen verdict at a 20% error.",
   "LAW 1, and it is the whole ground game: every GROUND move in this file is at most +2 on hit, and the fastest move in the file is 3 frames. Therefore no ground move links into any ground move, and every combo edge this character has is a cancel that appears in the cancels array. THE CANCEL TABLE IS COMPLETE. That is the property the three transcribed characters lack: a +4 or +5 light with 3f startup has a link edge that no .cmd table lists, and ADR-001:420-432 reports exactly that edge as the corner infinite in two of the three.",
-  "LAW 2: air_mp is the one move that breaks Law 1 on purpose, at +7 on hit, and all nine of the links its frame data implies are authored rather than omitted. It is safe because of Law 3.",
-  "LAW 3: juggle is spent, never gained, and every edge whose TARGET is an air move spends it. Every cycle in the usable cancel graph must pass through such an edge, so every cycle strictly decreases juggle. This is the termination argument, and engine.termination_argument states it as a checkable claim rather than a hope.",
+  "LAW 2: TWO moves break Law 1 on purpose and both are aerials at +7 on hit -- air_mp, and air_hp since the 6/6/6 pass -- and all nine of the link edges each one's frame data implies are authored rather than omitted. Both are safe because of Law 3. THE OTHER FOUR AERIALS ARE +2 AND IMPLY NOTHING, which is the reason six air moves cost this character eighteen descending edges rather than fifty: an aerial is exempt from Law 1 only if its frame data actually claims the advantage, and four of the six decline to.",
+  "LAW 3: juggle is spent, never gained, and every edge whose TARGET is an air move spends it. Every cycle in the usable cancel graph must pass through such an edge, so every cycle strictly decreases juggle. This is the termination argument, and engine.termination_argument states it as a checkable claim rather than a hope. THE 6/6/6 PASS TRIPLED THE AIR ROSTER AND DID NOT TOUCH THE LAW: there are now six air moves and fifteen edges entering one, against two and four before, and the law is unchanged because it was never a statement about how many aerials there are. Every one of the four new aerials carries a negative effect.juggle, and a single one that did not would have been a free route around the whole argument.",
   "METER GAIN IS DELIBERATELY ABSENT FROM [P] effect, and this is the file's one significant modelling decision. The character does build meter on hit -- engine.reaction.meter_gain_units carries the real numbers on all 18 moves -- but a POSITIVE entry in [P] effect clears comboprover.hpp:376-386's spendOnly flag and destroys the ranking certificate (:563), which is why ADR-001 gate 3 measured hasRanking false on every real character. The omission UNDER-credits the attacker's meter, which is the direction that can HIDE an infinite, so it is justified rather than waved at: see engine.termination_argument.meter_is_not_load_bearing, which states the structural reason and names the counterfactual that checks it.",
   "Juggle RESET is not modelled, and that is EXACT rather than a loss. The reset happens when the combo ends and the defender lands, which is outside the cancel graph by construction. Within one combo juggle only ever decreases, so the model is not approximating anything here. This is the first file in the project in which the juggle half of the resource vocabulary carries data at all: ADR-001:519-521 records that juggle is dead data in all three Phase-0 characters and that half of the vocabulary is therefore untested.",
   "decay is `none`, and none is the WORST CASE for termination rather than a gap. Any decay only lowers hitstun, which only lowers advantage, which only removes edges from outgoing[] (comboprover.hpp:338-348) and only adds distinctions to the hits component of a configuration. Both effects make a loop harder to close, so a TERMINATING verdict at `none` implies TERMINATING under every decay rule schema v2 can express. Proving it at the worst case is why this character does not need a decay rule to be finite.",
@@ -65,7 +65,7 @@
    "engine": {
     "display": "integer",
     "spent_by_this_character": true,
-    "derivation": "AUTHORED. 4 points per combo. air_mp costs 1, air_hk costs 2, nothing else touches it and nothing anywhere returns a point. The budget buys air_mp x4, or air_mp x2 then air_hk, but never air_mp x3 then air_hk.",
+    "derivation": "AUTHORED. 4 points per combo. ALL SIX AIR MOVES SPEND IT and nothing anywhere returns a point: the four air lights and mediums cost 1 each (air_lp, air_lk, air_mp, air_mk) and the two air heavies cost 2 (air_hp, air_hk), on the tier rule air_hk's note has always stated -- the heavy juggle costs double. THE BUDGET WAS NOT RAISED WHEN THE ROSTER TRIPLED, and that is a decision rather than an oversight. 4 is exactly the price of the longest ascending air string the character can perform -- a light (1), a medium (1) and a heavy ender (2) -- so the budget buys one complete string and no more. It also still buys air_mp x4, or air_mp x2 then air_hk, and still never air_mp x3 then air_hk. Opening with the heavy jump-in air_hp spends 2 of the 4 before the combo starts, which leaves a light and a medium but no heavy ender: that trade is the point of the move costing what it costs.",
     "semantics": "A PER-COMBO budget, not a per-launch one, because the prover asks about a single unbounded combo and has no combo-reset event. The reset is real and happens when the defender lands; it is outside the cancel graph by construction, so modelling juggle as monotone within a combo is EXACT and not an approximation. The budget SIZE is not what makes the character finite -- setting initial to 0 or to 40 leaves the verdict and the certificate unchanged -- the MONOTONE DECREASE is.",
     "why_this_is_the_first_file_with_live_juggle_data": "ADR-001:519-521 records that juggle is dead data in all three Phase-0 characters: Kung Fu Girl disables MUGEN's juggle system outright, Kung Fu Man does not use it, and AOF2 has none, so 'the juggle half of the resource vocabulary is entirely untested by Phase 0'. This file is the test."
    }
@@ -100,7 +100,8 @@
    "damage": 25.0,
    "effect": {},
    "guard": {},
-   "stance": "ground",
+   "stance": "standing",
+   "blocked_as": "mid",
    "reach": 0.42,
    "pushback": 0.05,
    "label": "Standing Light Punch",
@@ -119,6 +120,7 @@
    "engine": {
     "state_id": 200,
     "anim_id": 200,
+    "stance_and_guard_note": "STANDING, MID, and neither value is a new claim about this move: engine.tags below has said `stand` since the file was written and it does NOT say `low`. schema v3 promotes both from a free-string array nothing can read into typed fields, and the tags stay as provenance -- that is ADR-006 section 9's finding stated on one move. MID is a DECISION and not merely the default that costs nothing to leave alone: this is the 3f jab Law 1 is measured against, and making it an overhead would have changed a mixup rather than a frame number. See engine.stance_and_guard for the rule this file applied to all eighteen.",
     "derivation": "AUTHORED. Jab shape: 3f startup is the floor of the whole file and it is what LAW 1's +2 ceiling is measured against. hitstun 12 with L = act+rec-1 = 10 gives on-hit +2, one frame under its own 3f startup, so it cannot link into itself or into any light. blockstun 10 gives on-block 0.",
     "escape_hatch": {
      "needed": false,
@@ -176,7 +178,8 @@
    "damage": 28.0,
    "effect": {},
    "guard": {},
-   "stance": "ground",
+   "stance": "standing",
+   "blocked_as": "mid",
    "reach": 0.46,
    "pushback": 0.05,
    "label": "Standing Light Kick",
@@ -195,6 +198,7 @@
    "engine": {
     "state_id": 230,
     "anim_id": 230,
+    "stance_and_guard_note": "STANDING, MID, on the same evidence as stand_lp: engine.tags carries `stand` and no `low`. Being one frame slower and four pixels longer than the light punch changes nothing about which block stops it, and that independence is the point of keeping the two fields apart from the frame data as well as from each other.",
     "derivation": "AUTHORED. Light kick, one frame slower and one unit longer than stand_lp. hitstun 13 against L = 11 gives on-hit +2. Not special-cancellable by design (only the light PUNCHES are), which is why it has 4 outgoing edges and stand_lp has 6.",
     "escape_hatch": {
      "needed": false,
@@ -251,7 +255,8 @@
    "damage": 25.0,
    "effect": {},
    "guard": {},
-   "stance": "ground",
+   "stance": "crouching",
+   "blocked_as": "mid",
    "reach": 0.4,
    "pushback": 0.05,
    "label": "Crouching Light Punch",
@@ -270,6 +275,7 @@
    "engine": {
     "state_id": 400,
     "anim_id": 400,
+    "stance_and_guard_note": "CROUCHING, AND MID. ADR-006 section 2 names this pairing by name -- `a sweep and a crouching jab are both crouching and only one is low` -- and this is the jab. Three of this character's six crouching moves carry `low` in engine.tags and three do not; this is one of the three that do not, and that absence is the file's own answer from before the field existed rather than a judgement made now. The crouch buys it two pixels less reach than stand_lp and nothing else: identical startup, active, recovery and hitstun. NO engine.hurtbox_sub -- see engine.stance_and_guard.the_hurtbox_policy for why a box is authored on three moves and not on six.",
     "derivation": "AUTHORED. Identical timing to stand_lp; shorter reach (40px vs 42px) because it is crouched. This is the move the crouch_lp -> crouch_lp link probe is authored against: the probe is dead by exactly one frame and that margin IS the character's finiteness. See engine.design_laws.law_1.",
     "escape_hatch": {
      "needed": false,
@@ -327,7 +333,8 @@
    "damage": 26.0,
    "effect": {},
    "guard": {},
-   "stance": "ground",
+   "stance": "crouching",
+   "blocked_as": "low",
    "reach": 0.48,
    "pushback": 0.04,
    "label": "Crouching Light Kick (low)",
@@ -346,6 +353,7 @@
    "engine": {
     "state_id": 430,
     "anim_id": 430,
+    "stance_and_guard_note": "CROUCHING, LOW. The file had already said so twice and neither time in a field: engine.tags carries `low`, and [P] label reads `Crouching Light Kick (low)` -- a guard height living in a display string, where the loader cannot reach it, which is the exact defect ADR-006 section 1.5 opens with. NO engine.hurtbox_sub, deliberately: this is a 4f toe poke that hits low without ducking anything, and hitting low and low-profiling are different properties -- the first is blocked_as and the second is geometry. Conflating them is how `low` would have become a synonym for `ducks`, which is the collapse the two mechanisms exist separately to refuse.",
     "derivation": "AUTHORED. The low light. active 3 rather than 2 (it is a sweeping toe) so L = 11 and on-hit is +2 with hitstun 13; the extra active frame is paid for with -1 on block, the only light in the file that is minus.",
     "escape_hatch": {
      "needed": false,
@@ -403,7 +411,8 @@
    "damage": 52.0,
    "effect": {},
    "guard": {},
-   "stance": "ground",
+   "stance": "standing",
+   "blocked_as": "mid",
    "reach": 0.58,
    "pushback": 0.09,
    "label": "Standing Medium Punch",
@@ -422,6 +431,7 @@
    "engine": {
     "state_id": 210,
     "anim_id": 210,
+    "stance_and_guard_note": "STANDING, MID. The mediums are where a standing overhead lives in a character that has one, and `mid` here is the statement that this character does not -- which is a thing worth stating, because before v3 no file could distinguish a character with an overhead from one without. This character's only two `high` attacks are its two aerials.",
     "derivation": "AUTHORED. 6f medium, the first move in the file that can special-cancel into the fireball: hitstun 18 - special-cancel delay 3 = 15 against the fireball's 13f startup, 2 frames of margin. on-hit +2 (hitstun 18, L 16).",
     "escape_hatch": {
      "needed": false,
@@ -479,7 +489,8 @@
    "damage": 55.0,
    "effect": {},
    "guard": {},
-   "stance": "ground",
+   "stance": "standing",
+   "blocked_as": "mid",
    "reach": 0.66,
    "pushback": 0.09,
    "label": "Standing Medium Kick",
@@ -498,6 +509,7 @@
    "engine": {
     "state_id": 240,
     "anim_id": 240,
+    "stance_and_guard_note": "STANDING, MID -- AND THIS IS THE MOVE THE WHOLE REVISION CAME FROM. The finding was that `stand_mk` and `crouch_mk` declared the IDENTICAL stance and that the only thing telling them apart was the word `crouch` inside an id string, which is reading behaviour out of the spelling of a string and is what ARCHITECTURE.md D7 rejects by name. They are now different in two fields rather than in a substring: this one is `standing` and `mid`; crouch_mk is `crouching` and `low` and carries a hurtbox 26 px tall.",
     "derivation": "AUTHORED. 7f, longest-reaching stand medium (66px). hitstun 19, L 17, on-hit +2, on-block -3.",
     "escape_hatch": {
      "needed": false,
@@ -555,7 +567,8 @@
    "damage": 50.0,
    "effect": {},
    "guard": {},
-   "stance": "ground",
+   "stance": "crouching",
+   "blocked_as": "mid",
    "reach": 0.56,
    "pushback": 0.08,
    "label": "Crouching Medium Punch",
@@ -574,6 +587,7 @@
    "engine": {
     "state_id": 410,
     "anim_id": 410,
+    "stance_and_guard_note": "CROUCHING, MID. With crouch_lp this is the second of the two crouching moves that are mids for an ORDINARY reason -- a body punch thrown from a crouch, tagged `crouch` and not `low`. crouch_hp is a crouching mid for a pointed reason and its note is where that argument lives. The distinction matters because the two reasons survive different edits: a designer rebalancing this move could reasonably make it a low, and could not do that to the anti-air without breaking it.",
     "derivation": "AUTHORED. 6f crouching medium. hitstun 19, L 17, on-hit +2. Chains to every heavy: 19 - chain delay 2 = 17 covers the slowest heavy startup (stand_hk, 11).",
     "escape_hatch": {
      "needed": false,
@@ -631,7 +645,8 @@
    "damage": 58.0,
    "effect": {},
    "guard": {},
-   "stance": "ground",
+   "stance": "crouching",
+   "blocked_as": "low",
    "reach": 0.72,
    "pushback": 0.08,
    "label": "Crouching Medium Kick (low)",
@@ -650,6 +665,14 @@
    "engine": {
     "state_id": 440,
     "anim_id": 440,
+    "stance_and_guard_note": "CROUCHING, LOW, AND THE MOVE THIS CHARACTER DUCKS WITH. Both values were already in the file as strings -- engine.tags carries `low`, [P] label reads `(low)` -- and the box below is the new thing. IT IS 26 px TALL AGAINST A STANDING 60 (engine.constants.height_px), WITH 17 px OF FORWARD LEAN, so it passes under any attack whose box begins above 26 px and under nothing else. THE BEHAVIOUR IS WRITTEN NOWHERE. There is no low_profiles flag in this file or in the schema, by decision (ADR-006 section 10 item 4): change the 6656 and the behaviour changes with it, with no boolean to remember to update and no second rule saying WHICH attacks it ducks. The numbers are the schema's own -- x-worked-examples.low_profile_is_a_shape names this move and fixes this box -- so the two documents state one shape rather than two that can drift.",
+    "hurtbox_sub": {
+     "x0": -3840,
+     "y0": 0,
+     "x1": 4352,
+     "y1": 6656,
+     "source": "AUTHORED, and CHOSEN rather than derived: nothing in this project says how tall this character crouches, so 26 px is a design decision and is marked as one. 15 px behind the origin and 17 px in front of it, leaning into the kick. +Y IS UP HERE, matching cse::kernel::Box and MatchBuilder.cpp, and NOT the Y-DOWN of engine.constants.default_pushbox_sub in this same file -- the standing body is [-3328, -15360, 3328, 0] there and [-3328, 0, 3328, 15360] here. Both are well-formed rectangles of identical size, so nothing but A15's y0 warning stands between the two conventions."
+    },
     "derivation": "AUTHORED. The genre's canonical low poke into fireball. hitstun 21 is the highest of the four mediums, which is what pays for the direct super cancel (21 - 4 = 17 against super startup 8). on-hit +2, on-block -4.",
     "escape_hatch": {
      "needed": false,
@@ -709,7 +732,8 @@
    "damage": 88.0,
    "effect": {},
    "guard": {},
-   "stance": "ground",
+   "stance": "standing",
+   "blocked_as": "mid",
    "reach": 0.68,
    "pushback": 0.15,
    "label": "Standing Heavy Punch",
@@ -728,6 +752,7 @@
    "engine": {
     "state_id": 220,
     "anim_id": 220,
+    "stance_and_guard_note": "STANDING, MID. Tagged `stand`, untagged for `low`. A heavy punch is where a character with a standing overhead would most plausibly put one, and this one does not have it; `mid` records that a choice was made here rather than that nobody looked.",
     "derivation": "AUTHORED. The one special-cancellable heavy. hitstun 23, L 21, on-hit +2. The stand_hp -> stand_lp link probe is authored against exactly this: +2 versus a 3f startup, dead by one.",
     "escape_hatch": {
      "needed": false,
@@ -785,7 +810,8 @@
    "damage": 92.0,
    "effect": {},
    "guard": {},
-   "stance": "ground",
+   "stance": "standing",
+   "blocked_as": "mid",
    "reach": 0.78,
    "pushback": 0.1,
    "label": "Standing Heavy Kick (launcher)",
@@ -804,6 +830,7 @@
    "engine": {
     "state_id": 250,
     "anim_id": 250,
+    "stance_and_guard_note": "STANDING, MID, AND NO engine.airborne_from_tick -- WHICH IS THE POINT WORTH STATING ON THIS MOVE OF ALL EIGHTEEN. It is THE LAUNCHER, and what it launches is the DEFENDER. The attacker's own state ends on a frame transition at tick 40 (engine.transitions), there is no engine.motion and no on_land predicate, so nothing here takes THIS character off the floor. airborne_from_tick is a fact about the attacker's body, and a hop-over is therefore not a property of being a launcher, of being a heavy, or of causing a juggle -- it is a property of leaving the ground, which this move never does.",
     "derivation": "AUTHORED. THE LAUNCHER, and its recovery is the point. hitstun 30 is the largest in the file because the defender is being lifted, but recovery 26 makes L = 28, so on-hit is +2 like everything else -- the 30 frames of hitstun are reachable ONLY through the jump cancel (delay 5), never through a link. A launcher that is +8 on hit is a launcher that links into a 3f jab, and that is the corner infinite ADR-001:429-432 found in Kung Fu Man.",
     "escape_hatch": {
      "needed": false,
@@ -861,7 +888,8 @@
    "damage": 85.0,
    "effect": {},
    "guard": {},
-   "stance": "ground",
+   "stance": "crouching",
+   "blocked_as": "mid",
    "reach": 0.52,
    "pushback": 0.1,
    "label": "Crouching Heavy Punch (anti-air launcher)",
@@ -880,6 +908,14 @@
    "engine": {
     "state_id": 420,
     "anim_id": 420,
+    "stance_and_guard_note": "CROUCHING, AND MID, AND THIS MOVE IS THE REASON THE TWO FIELDS ARE TWO FIELDS. It is the anti-air launcher, and a move that hits an opponent above you is not one a crouching block is the answer to. Derive blocked_as from stance -- the simplification that will look like tidying to whoever comes next, and which CharacterData.h's note on BlockHeight and schema x-v3-changes.the_check_that_was_refused both refuse in advance -- and this move silently becomes a `low`, and this character's anti-air is beaten by holding down-back. That is a balance change delivered by a refactor. ADR-006 section 2 cites this exact move, by its label, as the counterexample that settles the orthogonality. ITS BOX IS AUTHORED FOR THE OPPOSITE REASON TO crouch_mk's: 36 px is an ORDINARY crouch, taller than crouch_mk's 26 and shorter than the standing 60, and it is the author's `not every crouching attack would low profile` written as arithmetic instead of as a silence. The body stays up because the punch goes up.",
+    "hurtbox_sub": {
+     "x0": -3840,
+     "y0": 0,
+     "x1": 3840,
+     "y1": 9216,
+     "source": "AUTHORED, CHOSEN. 36 px, an ordinary crouch, symmetric about the origin at 15 px each way because the arm travels upward rather than forward -- contrast crouch_mk, which leans. It does NOT low-profile a high attack whose box begins at 28 px, and crouch_mk does; that difference between two crouching moves of one character is the whole case for geometry over a boolean. The numbers are schema x-worked-examples.low_profile_is_a_shape's, so the schema and the file cannot disagree about this move. +Y UP, as everywhere in this convention and NOT as engine.constants.default_pushbox_sub."
+    },
     "derivation": "AUTHORED. Anti-air launcher. Same construction as stand_hk: hitstun 27 against L 25 is on-hit +2, and the 27 frames are spendable only via the jump cancel or the super cancel. Short reach (52px) because it is an upward hitbox.",
     "escape_hatch": {
      "needed": false,
@@ -939,7 +975,8 @@
    "damage": 90.0,
    "effect": {},
    "guard": {},
-   "stance": "ground",
+   "stance": "crouching",
+   "blocked_as": "low",
    "reach": 0.94,
    "pushback": 0.22,
    "label": "Crouching Heavy Kick (sweep, knockdown)",
@@ -958,6 +995,14 @@
    "engine": {
     "state_id": 450,
     "anim_id": 450,
+    "stance_and_guard_note": "CROUCHING, LOW. The sweep, and the lowest thing this character does: 20 px tall against crouch_mk's 26 and a standing 60. Guard height was already stated twice in English -- engine.tags carries `low` and `sweep`, and [P] label reads `(sweep, knockdown)` -- and is a field now. THE BOX IS 48 px LONG AND THAT COSTS WHAT IT SHOULD: the leading leg is INSIDE the hurtbox, which is why a whiffed sweep is punished in every game in the genre, and -13 on block is this file's number for the same fact. A box that ducked without stretching would have been a free low, and this move is not free.",
+    "hurtbox_sub": {
+     "x0": -4608,
+     "y0": 0,
+     "x1": 7680,
+     "y1": 5120,
+     "source": "AUTHORED, CHOSEN. 20 px tall, 18 px behind the origin and 30 px in front of it: the body is stretched along the floor rather than folded over it, which is why x0 reaches further back than the standing half-width of 13 px. The 30 px of lean is less than [P] reach 0.94 because reach is an upper bound on the GAP and includes the part of the leg that is hitbox and not body. Lowest y1 in the file, which is the arithmetic form of `the sweep ducks furthest`."
+    },
     "derivation": "AUTHORED. Sweep. hitstun 20 against L 28 is on-hit -8, and on hit it causes a hard knockdown (engine.reaction.causes_knockdown) so nothing follows it in the real game either. Zero outgoing cancels; see engine.moves_with_no_outgoing_cancel.",
     "escape_hatch": {
      "needed": false,
@@ -1008,6 +1053,190 @@
    }
   },
   {
+   "id": "air_lp",
+   "startup": 4,
+   "active": 3,
+   "recovery": 12,
+   "hitstun": 16,
+   "damage": 22.0,
+   "effect": {
+    "juggle": -1
+   },
+   "guard": {},
+   "stance": "air",
+   "blocked_as": "high",
+   "reach": 0.44,
+   "pushback": 0.04,
+   "label": "Jumping Light Punch (air-to-air)",
+   "hit_condition": {
+    "all": [
+     {
+      "property": "self.juggle_count",
+      "op": "gt",
+      "value": 0,
+      "source": "fighter_a design law 3 -- an air attack needs a juggle point to connect"
+     }
+    ],
+    "prose": "the attacker has at least one juggle point left",
+    "unmodelled": "The prover CAN see this one, because it is authored as [P] effect.juggle rather than left to the predicate: the guard is enforced by comboprover.hpp:264-269 nonNegative() rejecting a negative resource. The predicate is the engine's spelling of the same rule and the two must stay in step."
+   },
+   "engine": {
+    "state_id": 600,
+    "anim_id": 600,
+    "stance_and_guard_note": "AIR, HIGH, on air_mp's argument exactly: an aerial is an overhead under the author's model, in which a high block covers mid and high attacks and a low block covers mid and CROUCHING attacks -- an aerial is neither, so a low block does not stop it. ONE SENTENCE IS OWED THAT air_mp DOES NOT OWE, because this is the first air LIGHT the character has ever had and it changes what `high` MEANS here. On a committed 6f jump-in, `high` is a description of geometry: the attack arrives from above and there is nothing the defender could have done about the angle. On a 4f air-to-air jab it is a MIXUP -- the fastest attack in this file that a crouching block does not stop. That is deliberate and it is the value a designer should come to FIRST if this character's air-to-air ever reads as too strong, ahead of air_mp, precisely because air_mp is a commitment and this is not. The schema's refusal to warn when an `air` move is not `high` is what leaves the choice open in both directions. NO engine.airborne_from_tick: the field answers `when does this move leave the floor` and this move began off it.",
+    "derivation": "AUTHORED. THE AIR-TO-AIR JAB, and the first of the four aerials this file was missing against the author's 6/6/6 standard. 4f startup is the fastest aerial in the file. hitstun 16 against L = active + recovery - 1 = 3 + 12 - 1 = 14 gives on-hit +2, WHICH IS LAW 1'S CEILING AND IS THE WHOLE POINT OF THE MOVE'S FRAME DATA. Law 1 binds ground moves only, so this aerial did not have to obey it and obeys it anyway: at +2 against a 3f floor it links into NOTHING, so it implies no edge the cancel table has to carry and the table stays COMPLETE without a second exemption. An air-to-air light that converted into a ground combo would be the best move in the character by a distance. What it gets instead is the AIR CHAIN (engine.cancel_families.air_chain), which is the correct reward in the genre and the correct reward here: the opponent this move is designed to hit is AIRBORNE, and what follows a hit on an airborne opponent is another air move, not a ground one. blockstun 12 gives on-block -2.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "reason": "Authored against schema v2 rather than transcribed into it. Every fact this move states has a field, and no value of any field is arithmetic over live state.",
+     "closed_by": null
+    },
+    "tags": [
+     "normal",
+     "light",
+     "punch",
+     "air",
+     "juggle",
+     "air_to_air",
+     "chain_source"
+    ],
+    "frame_advantage": {
+     "recovery_after_contact": 14,
+     "on_hit": 2,
+     "on_block": -2,
+     "derivation": "recovery_after_contact = active + recovery - 1 = 3 + 12 - 1 = 14, which is the delay $defs.cancel calls a link. on_hit = hitstun - that = 16 - 14 = +2. on_block = blockstun - that = 12 - 14 = -2."
+    },
+    "cancel_window_ticks": [
+     6,
+     11
+    ],
+    "reaction": {
+     "hitstop_ticks": 12,
+     "blockstun_ticks": 12,
+     "slide_ticks": 8,
+     "pushback_vel_sub": -256,
+     "corner_push_vel_sub": 0,
+     "air_hitstun_ticks": 20,
+     "causes_knockdown": false,
+     "meter_gain_units": 4,
+     "derivation": "AUTHORED. pushback displacement = |1 px/tick| * 8 ticks / 2 = 4 px, which is the [P] pushback 0.04 in reach units. DERIVED, not estimated: this character defines the velocity and the slide time, so the displacement is a design decision rather than the reconstruction ADR-001:486-494 flags on all three corpus characters."
+    },
+    "cancel_window_note": "Opens at tick 6, two ticks after the move first becomes dangerous, and closes at tick 11. BOTH ENDS ARE THIS FILE'S OWN RULE RATHER THAN A NEW CHOICE, and it is worth writing down once here because the four aerials added by this pass are the first moves authored since it became checkable: every one of the fifteen moves that carried a window before this pass opens at startup + 2 and closes at startup + active + 4, without a single exception, and all four new moves follow it. delay 2 = window open - startup is what every air_chain edge out of this move is measured from, exactly as it is for a ground chain.",
+    "transitions": [
+     {
+      "kind": "on_land",
+      "predicate": "landing",
+      "min_tick": 4,
+      "require_descending": true,
+      "to_state": 52,
+      "to_move_id": null,
+      "duration_bound": "lower",
+      "duration_derivation": "[P] recovery 12 is the airborne tail plus 3 ticks of landing recovery, measured on the NEUTRAL jump arc (jump velocity y -2816 sub, gravity 128 sub/tick). Any arc that starts higher or is hit later lands LATER, so the authored number is never longer than the real one: it is a LOWER bound, the attacker acts no later than the game allows, and the error is PERMISSIVE in ADR-001:224-225's sense -- it can invent an infinite, it cannot hide one.",
+      "source": "AUTHORED"
+     }
+    ],
+    "motion_physics": {
+     "gravity_sub": 128,
+     "applies_from_tick": 1,
+     "friction_permille": null,
+     "source": "AUTHORED. 0.5 px/tick^2 * 256 = 128 sub-units exactly; integer addition only, no multiply."
+    },
+    "juggle_note": "effect.juggle -1, the light-tier cost. LAW 3 IS WHAT THIS PASS HAD TO PRESERVE AND THE REASON EVERY ONE OF THE FOUR NEW AERIALS CHARGES: the law is `every edge whose TARGET is an air move spends juggle`, and it is the entire termination argument. A single new air move with no cost would have been a move the graph could route a cycle through for free, and this character would be INFINITE. Charged on PERFORMING, so totalEffect (comboprover.hpp:282-290) charges every edge that ENTERS it; there are now FIFTEEN juggle-spending edges where there were four."
+   }
+  },
+  {
+   "id": "air_lk",
+   "startup": 5,
+   "active": 4,
+   "recovery": 11,
+   "hitstun": 16,
+   "damage": 24.0,
+   "effect": {
+    "juggle": -1
+   },
+   "guard": {},
+   "stance": "air",
+   "blocked_as": "high",
+   "reach": 0.52,
+   "pushback": 0.04,
+   "label": "Jumping Light Kick (air-to-air)",
+   "hit_condition": {
+    "all": [
+     {
+      "property": "self.juggle_count",
+      "op": "gt",
+      "value": 0,
+      "source": "fighter_a design law 3 -- an air attack needs a juggle point to connect"
+     }
+    ],
+    "prose": "the attacker has at least one juggle point left",
+    "unmodelled": "The prover CAN see this one, because it is authored as [P] effect.juggle rather than left to the predicate: the guard is enforced by comboprover.hpp:264-269 nonNegative() rejecting a negative resource. The predicate is the engine's spelling of the same rule and the two must stay in step."
+   },
+   "engine": {
+    "state_id": 630,
+    "anim_id": 630,
+    "stance_and_guard_note": "AIR, HIGH, on air_lp's argument and with air_lp's caveat. The pair is the air twin of stand_lp / stand_lk on the ground: one frame slower, eight pixels longer, and identical in every field that decides how it is blocked or what it is worth. That independence is the point -- being a kick rather than a punch changes the reach and nothing else -- and it is the same observation stand_lk's own note makes about the ground pair.",
+    "derivation": "AUTHORED. The air-to-air light kick: one frame slower and eight pixels longer than air_lp, which is the same relationship stand_lk has to stand_lp (4f/46px against 3f/42px). DIFFERENT SHAPE, IDENTICAL ARITHMETIC: active 4 and recovery 11 against air_lp's 3 and 12 give the SAME L = 4 + 11 - 1 = 14 and the same hitstun 16, so this move is also on-hit +2 and also implies no link. That is not a coincidence being tolerated, it is the pair being held to one number on purpose: two air lights that differed on the Law 1 margin would mean the character had a fast overhead that converts and a fast overhead that does not, distinguishable only by which button was pressed. blockstun 12 gives on-block -2.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "reason": "Authored against schema v2 rather than transcribed into it. Every fact this move states has a field, and no value of any field is arithmetic over live state.",
+     "closed_by": null
+    },
+    "tags": [
+     "normal",
+     "light",
+     "kick",
+     "air",
+     "juggle",
+     "air_to_air",
+     "chain_source"
+    ],
+    "frame_advantage": {
+     "recovery_after_contact": 14,
+     "on_hit": 2,
+     "on_block": -2,
+     "derivation": "recovery_after_contact = active + recovery - 1 = 4 + 11 - 1 = 14, which is the delay $defs.cancel calls a link. on_hit = hitstun - that = 16 - 14 = +2. on_block = blockstun - that = 12 - 14 = -2."
+    },
+    "cancel_window_ticks": [
+     7,
+     13
+    ],
+    "reaction": {
+     "hitstop_ticks": 12,
+     "blockstun_ticks": 12,
+     "slide_ticks": 8,
+     "pushback_vel_sub": -256,
+     "corner_push_vel_sub": 0,
+     "air_hitstun_ticks": 20,
+     "causes_knockdown": false,
+     "meter_gain_units": 4,
+     "derivation": "AUTHORED. pushback displacement = |1 px/tick| * 8 ticks / 2 = 4 px, which is the [P] pushback 0.04 in reach units. DERIVED, not estimated: this character defines the velocity and the slide time, so the displacement is a design decision rather than the reconstruction ADR-001:486-494 flags on all three corpus characters."
+    },
+    "cancel_window_note": "Opens at tick 7 and closes at tick 13, by the file's universal rule -- startup + 2 and startup + active + 4. See air_lp's note, where the rule is stated once.",
+    "transitions": [
+     {
+      "kind": "on_land",
+      "predicate": "landing",
+      "min_tick": 5,
+      "require_descending": true,
+      "to_state": 52,
+      "to_move_id": null,
+      "duration_bound": "lower",
+      "duration_derivation": "[P] recovery 11 is the airborne tail plus 3 ticks of landing recovery, measured on the NEUTRAL jump arc (jump velocity y -2816 sub, gravity 128 sub/tick). Any arc that starts higher or is hit later lands LATER, so the authored number is never longer than the real one: it is a LOWER bound, the attacker acts no later than the game allows, and the error is PERMISSIVE in ADR-001:224-225's sense -- it can invent an infinite, it cannot hide one.",
+      "source": "AUTHORED"
+     }
+    ],
+    "motion_physics": {
+     "gravity_sub": 128,
+     "applies_from_tick": 1,
+     "friction_permille": null,
+     "source": "AUTHORED. 0.5 px/tick^2 * 256 = 128 sub-units exactly; integer addition only, no multiply."
+    },
+    "juggle_note": "effect.juggle -1, the light-tier cost, identical to air_lp. See air_lp's juggle_note for why every one of the four new aerials had to carry one."
+   }
+  },
+  {
    "id": "air_mp",
    "startup": 6,
    "active": 4,
@@ -1019,6 +1248,7 @@
    },
    "guard": {},
    "stance": "air",
+   "blocked_as": "high",
    "reach": 0.5,
    "pushback": 0.06,
    "label": "Jumping Medium Punch",
@@ -1037,6 +1267,7 @@
    "engine": {
     "state_id": 610,
     "anim_id": 610,
+    "stance_and_guard_note": "AIR -- UNCHANGED, and the two aerials are the only moves in this file whose v2 stance was already the precise one, because `air` was never the value the transcription collapsed. HIGH: an aerial is an overhead under the author's model, in which a high block covers mid and high attacks and a low block covers mid and CROUCHING attacks -- an aerial is neither, so a low block does not stop it. STATED RATHER THAN ASSUMED, because the genre is not unanimous: several Street Fighter titles let a crouching block stop a jump-in, and schema x-v3-changes.the_check_that_was_refused cites exactly that when it refuses to warn about an `air` move that is not `high`. `high` here is this project's rule as the author wrote it, not a transcription of somebody else's game, and it is the one blocked_as value in this file that a designer could reasonably revisit. NO engine.airborne_from_tick: the field answers `when does this move leave the floor` and this move began off it. The schema says authoring it here would say nothing new rather than something false; the file declines to say nothing.",
     "derivation": "AUTHORED, AND IT IS THE ONE MOVE THAT BREAKS LAW 1 ON PURPOSE. hitstun 22 against L 15 is on-hit +7, so this move DOES link -- into all eight ground normals and into the uppercut. All nine of those links are authored. It is safe because every edge whose TARGET is an air move spends a juggle point, so every cycle that uses this move's descending links must pay to come back. recovery 12 is the airborne tail plus landing recovery and is a LOWER bound; see engine.transitions.",
     "escape_hatch": {
      "needed": false,
@@ -1097,6 +1328,189 @@
    }
   },
   {
+   "id": "air_mk",
+   "startup": 7,
+   "active": 4,
+   "recovery": 14,
+   "hitstun": 19,
+   "damage": 48.0,
+   "effect": {
+    "juggle": -1
+   },
+   "guard": {},
+   "stance": "air",
+   "blocked_as": "high",
+   "reach": 0.56,
+   "pushback": 0.07,
+   "label": "Jumping Medium Kick (air-to-air)",
+   "hit_condition": {
+    "all": [
+     {
+      "property": "self.juggle_count",
+      "op": "gt",
+      "value": 0,
+      "source": "fighter_a design law 3 -- an air attack needs a juggle point to connect"
+     }
+    ],
+    "prose": "the attacker has at least one juggle point left",
+    "unmodelled": "The prover CAN see this one, because it is authored as [P] effect.juggle rather than left to the predicate: the guard is enforced by comboprover.hpp:264-269 nonNegative() rejecting a negative resource. The predicate is the engine's spelling of the same rule and the two must stay in step."
+   },
+   "engine": {
+    "state_id": 640,
+    "anim_id": 640,
+    "stance_and_guard_note": "AIR, HIGH. The value is air_mp's and needs no separate argument; what this move needs a note for is that it is the ONLY ONE OF THE SIX AERIALS THAT NEITHER OPENS A COMBO NOR ENDS ONE, and that this is a decision with a number behind it rather than a move that was left thin. See engine.derivation.",
+    "derivation": "AUTHORED. THE AIR-TO-AIR MEDIUM, and the move that made this pass re-derive its own frame data. hitstun 19 against L = 4 + 14 - 1 = 17 gives on-hit +2. THE FIRST DRAFT AUTHORED hitstun 22 AND THEREFORE +5, INTENDING A CROSSUP THAT CONVERTS INTO A LIGHT BUT NOT INTO A MEDIUM -- and that was WRONG, for the reason design_laws.law_1 states in its own words: `a link edge is a CONSEQUENCE OF FRAME DATA, not an entry in a cancel table`. At +5 this move would have implied links into all four lights and the 3f uppercut whether or not anybody authored them, so the choice was to author five more descending edges or to stop claiming the advantage. THE FRAME DATA NOW SAYS WHAT THE MOVE DOES: +2, no implied link, no authored landing link, and a cancel table that is still complete. What it gets instead is the air chain into air_hk -- it is the middle of the character's air string, the move that takes an air-to-air light and turns it into the knockdown ender. blockstun 14 gives on-block -3, the same pair of numbers as stand_mk, which has the same hitstun.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "reason": "Authored against schema v2 rather than transcribed into it. Every fact this move states has a field, and no value of any field is arithmetic over live state.",
+     "closed_by": null
+    },
+    "tags": [
+     "normal",
+     "medium",
+     "kick",
+     "air",
+     "juggle",
+     "air_to_air"
+    ],
+    "frame_advantage": {
+     "recovery_after_contact": 17,
+     "on_hit": 2,
+     "on_block": -3,
+     "derivation": "recovery_after_contact = active + recovery - 1 = 4 + 14 - 1 = 17, which is the delay $defs.cancel calls a link. on_hit = hitstun - that = 19 - 17 = +2. on_block = blockstun - that = 14 - 17 = -3."
+    },
+    "cancel_window_ticks": [
+     9,
+     15
+    ],
+    "reaction": {
+     "hitstop_ticks": 12,
+     "blockstun_ticks": 14,
+     "slide_ticks": 7,
+     "pushback_vel_sub": -512,
+     "corner_push_vel_sub": 0,
+     "air_hitstun_ticks": 23,
+     "causes_knockdown": false,
+     "meter_gain_units": 8,
+     "derivation": "AUTHORED. pushback displacement = |2 px/tick| * 7 ticks / 2 = 7 px, which is the [P] pushback 0.07 in reach units. DERIVED, not estimated: this character defines the velocity and the slide time, so the displacement is a design decision rather than the reconstruction ADR-001:486-494 flags on all three corpus characters."
+    },
+    "cancel_window_note": "Opens at tick 9 and closes at tick 15, by the file's universal rule -- startup + 2 and startup + active + 4. See air_lp's note.",
+    "transitions": [
+     {
+      "kind": "on_land",
+      "predicate": "landing",
+      "min_tick": 7,
+      "require_descending": true,
+      "to_state": 52,
+      "to_move_id": null,
+      "duration_bound": "lower",
+      "duration_derivation": "[P] recovery 14 is the airborne tail plus 3 ticks of landing recovery, measured on the NEUTRAL jump arc (jump velocity y -2816 sub, gravity 128 sub/tick). Any arc that starts higher or is hit later lands LATER, so the authored number is never longer than the real one: it is a LOWER bound, the attacker acts no later than the game allows, and the error is PERMISSIVE in ADR-001:224-225's sense -- it can invent an infinite, it cannot hide one.",
+      "source": "AUTHORED"
+     }
+    ],
+    "motion_physics": {
+     "gravity_sub": 128,
+     "applies_from_tick": 1,
+     "friction_permille": null,
+     "source": "AUTHORED. 0.5 px/tick^2 * 256 = 128 sub-units exactly; integer addition only, no multiply."
+    },
+    "juggle_note": "effect.juggle -1, the medium-tier cost, the same as air_mp. Together with the two lights this is what makes the budget of 4 buy exactly one full air string: a light (1), a medium (1) and a heavy ender (2). See engine.termination_argument.the_juggle_economy."
+   }
+  },
+  {
+   "id": "air_hp",
+   "startup": 8,
+   "active": 4,
+   "recovery": 18,
+   "hitstun": 28,
+   "damage": 78.0,
+   "effect": {
+    "juggle": -2
+   },
+   "guard": {},
+   "stance": "air",
+   "blocked_as": "high",
+   "reach": 0.58,
+   "pushback": 0.16,
+   "label": "Jumping Heavy Punch (jump-in)",
+   "hit_condition": {
+    "all": [
+     {
+      "property": "self.juggle_count",
+      "op": "gt",
+      "value": 0,
+      "source": "fighter_a design law 3 -- an air attack needs a juggle point to connect"
+     }
+    ],
+    "prose": "the attacker has at least one juggle point left",
+    "unmodelled": "The prover CAN see this one, because it is authored as [P] effect.juggle rather than left to the predicate: the guard is enforced by comboprover.hpp:264-269 nonNegative() rejecting a negative resource. The predicate is the engine's spelling of the same rule and the two must stay in step."
+   },
+   "engine": {
+    "state_id": 620,
+    "anim_id": 620,
+    "stance_and_guard_note": "AIR, HIGH, on air_mp's argument. THE SENTENCE THIS MOVE OWES IS ABOUT ITS INCOMING EDGES AND NOT ITS BLOCK HEIGHT: it is the only attack in the file that NOTHING CANCELS INTO. That is not an omission and it is the single most load-bearing decision in this pass -- see engine.role_note.",
+    "derivation": "AUTHORED. THE HEAVY JUMP-IN, the move the author's brief calls `the jump-in that starts a combo`, and the character's second and last exemption from Law 1. hitstun 28 against L = 4 + 18 - 1 = 21 gives on-hit +7, which is air_mp's number exactly, and the nine link edges it implies are all authored -- the four lights, the four mediums and the 3f uppercut. IT IS +7 AND NOT MORE ON PURPOSE: +8 would reach crouch_hp and +11 would reach stand_hk, and a jump-in that links directly into a launcher is a jump-in that starts the juggle loop without paying the ground combo for it. WHY IT IS NOT A CLONE OF air_mp, since the two share an advantage: this one is 8f rather than 6f, so it must be timed deeper and loses to a faster air-to-air; it does 78 damage rather than 45; and it costs TWO juggle rather than one, so opening with it spends half the budget before the combo starts. Same reward, strictly more commitment, which is what separates a heavy from a medium in this genre. blockstun 17 gives on-block -4.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "reason": "Authored against schema v2 rather than transcribed into it. Every fact this move states has a field, and no value of any field is arithmetic over live state.",
+     "closed_by": null
+    },
+    "tags": [
+     "normal",
+     "heavy",
+     "punch",
+     "air",
+     "juggle",
+     "jump_in"
+    ],
+    "frame_advantage": {
+     "recovery_after_contact": 21,
+     "on_hit": 7,
+     "on_block": -4,
+     "derivation": "recovery_after_contact = active + recovery - 1 = 4 + 18 - 1 = 21, which is the delay $defs.cancel calls a link. on_hit = hitstun - that = 28 - 21 = +7. on_block = blockstun - that = 17 - 21 = -4."
+    },
+    "cancel_window_ticks": [
+     10,
+     16
+    ],
+    "reaction": {
+     "hitstop_ticks": 12,
+     "blockstun_ticks": 17,
+     "slide_ticks": 8,
+     "pushback_vel_sub": -1024,
+     "corner_push_vel_sub": 0,
+     "air_hitstun_ticks": 32,
+     "causes_knockdown": false,
+     "meter_gain_units": 12,
+     "derivation": "AUTHORED. pushback displacement = |4 px/tick| * 8 ticks / 2 = 16 px, which is the [P] pushback 0.16 in reach units. DERIVED, not estimated: this character defines the velocity and the slide time, so the displacement is a design decision rather than the reconstruction ADR-001:486-494 flags on all three corpus characters."
+    },
+    "cancel_window_note": "Opens at tick 10 and closes at tick 16, by the file's universal rule. NOTE WHAT THAT DOES TO THE NINE LANDING LINKS BELOW, because it is the same thing it does to air_mp's: startup 8 + delay 21 = 29 against a window that closes at 16, so MatchBuilder intersects to the EMPTY window [29, 16] and the kernel's cancel system cannot take any of them. That is the state test_gap_extent.cpp measures on air_mp and calls `inert instead of wrong`, and this move reproduces it rather than escaping it: a link authored as a delay is not a cancel, and the file means it as a link.",
+    "transitions": [
+     {
+      "kind": "on_land",
+      "predicate": "landing",
+      "min_tick": 8,
+      "require_descending": true,
+      "to_state": 52,
+      "to_move_id": null,
+      "duration_bound": "lower",
+      "duration_derivation": "[P] recovery 18 is the airborne tail plus 3 ticks of landing recovery, measured on the NEUTRAL jump arc (jump velocity y -2816 sub, gravity 128 sub/tick). Any arc that starts higher or is hit later lands LATER, so the authored number is never longer than the real one: it is a LOWER bound, the attacker acts no later than the game allows, and the error is PERMISSIVE in ADR-001:224-225's sense -- it can invent an infinite, it cannot hide one.",
+      "source": "AUTHORED"
+     }
+    ],
+    "motion_physics": {
+     "gravity_sub": 128,
+     "applies_from_tick": 1,
+     "friction_permille": null,
+     "source": "AUTHORED. 0.5 px/tick^2 * 256 = 128 sub-units exactly; integer addition only, no multiply."
+    },
+    "juggle_note": "effect.juggle -2, the heavy-tier cost, on the rule air_hk's note already states -- `the heavy juggle costs double`. IT IS CHARGED EVEN THOUGH THIS IS AN OPENER, and that is the conservative direction rather than a modelling slip: the prover has no combo-start event (see resources[juggle].semantics), so a neutral jump-in cannot be told apart from a juggle, and charging it can only make combos shorter than the real game allows.",
+    "role_note": "AIR_HP HAS NO INCOMING CANCEL EDGE, AND EVERY OTHER AERIAL IN THIS CHARACTER DOES. READ THIS BEFORE ADDING ONE.\nWHAT IT MEANS. You reach this move by JUMPING at a standing opponent from neutral. A jump is not a cancel, so there is no edge to author; [P] starters is empty, which comboprover.hpp:350-353 reads as `every move is a starter`, so the move is reachable and its nine landing links are live. It participates in combos. What it cannot do is appear on a CYCLE, because a cycle needs an incoming edge and nothing in this character hands you back into a neutral jump.\nWHY IT IS RIGHT AS DESIGN. The two air heavies are mirror images and the character is clearer for it: air_hp OPENS a combo and cannot be re-entered; air_hk ENDS one, has zero outgoing edges, and knocks down. Neither is reachable from the other's position. The rule that produces it -- NO AIR HEAVY IS A JUMP-CANCEL TARGET -- is not new either, it is already in this file with a sample size of one: the two launchers have always jump cancelled into air_mp and never into air_hk, because a launched opponent is rising and a 9f aerial arrives after they are gone. air_hp at 8f is the second member of that rule, not an exception to it. THE FRAME DATA WOULD PERMIT THE EDGE -- stand_hk leaves 30 - 5 = 25 of advantage against an 8f startup -- so this is a design restriction and is marked as one, not a consequence the arithmetic forced.\nWHAT IT COSTS AND WHAT IT BUYS, MEASURED. Authoring air_mp -> air_hp and air_mk -> air_hp at the air-action delay of 5 was tried and rejected. It takes the usable graph from 121 simple cycles to 2905 and the AUTHORED graph from 615 to 9807, and 9807 is past test_gap_extent.cpp's kMaxCycles of 4096 -- so the enumerator would stop early and the test would fail as a blown cap rather than as a moved number. The verdict survives it (Law 3 still holds on all 2905), so this is a tractability and clarity argument, NOT a soundness one, and it should be re-opened deliberately if the character ever wants an air string that ends in the heavy PUNCH as well as the heavy kick."
+   }
+  },
+  {
    "id": "air_hk",
    "startup": 9,
    "active": 3,
@@ -1108,6 +1522,7 @@
    },
    "guard": {},
    "stance": "air",
+   "blocked_as": "high",
    "reach": 0.6,
    "pushback": 0.18,
    "label": "Jumping Heavy Kick (juggle ender)",
@@ -1126,6 +1541,7 @@
    "engine": {
     "state_id": 650,
     "anim_id": 650,
+    "stance_and_guard_note": "AIR, HIGH, on air_mp's argument exactly. Worth one added sentence because this move is a juggle ender: an overhead that costs 2 juggle points is not a mixup tool, so `high` here is a statement about geometry -- the attack arrives from above -- and not about the character's offence. blocked_as describes the attack; what the attack is FOR is not a field.",
     "derivation": "AUTHORED. Juggle ender. hitstun 24 against L 22 is on-hit +2, so unlike air_mp it descends into nothing. Costs 2 juggle rather than 1, which is what makes the juggle budget an economy rather than a counter: 4 points buys air_mp x4, or air_mp x2 + air_hk, but never air_mp x3 + air_hk.",
     "escape_hatch": {
      "needed": false,
@@ -1194,7 +1610,8 @@
    "damage": 60.0,
    "effect": {},
    "guard": {},
-   "stance": "ground",
+   "stance": "standing",
+   "blocked_as": "mid",
    "reach": null,
    "pushback": 0.14,
    "label": "Fireball",
@@ -1213,6 +1630,7 @@
    "engine": {
     "state_id": 1000,
     "anim_id": 1000,
+    "stance_and_guard_note": "STANDING, MID, AND THE STANCE IS DERIVED RATHER THAN CHOSEN. engine.projectile.offset_sub.y is -13312, which in this file's Y-DOWN constants convention is 52 px ABOVE the origin, on a body engine.constants.height_px says is 60 px tall. The fireball leaves the hand at shoulder height, which is a standing posture and not a crouching one, so the stance is read off a number the file already carried rather than decided now. This is one of the four moves with no stance tag -- the three specials and the super -- which are the only four in the file that needed deciding at all. NOTE WHAT blocked_as DESCRIBES ON A PROJECTILE MOVE, because this is the first place in the project where the two halves could differ: the field is a property of THE ATTACK, and for this move the attack is the PROJECTILE, not the release animation. `mid` is a claim about the fireball. Nothing in the schema ties a move's blocked_as to its engine.projectile block, and the day a character wants a low projectile from a standing release the answer is ADR-006's `reversed if` clause -- blocked_as moves into engine.hits[] -- and not a second field here.",
     "derivation": "AUTHORED. startup 13 means RELEASE, not contact ($defs.move and A09). active 1 is the release tick; the character's own state has no Clsn1 at all and the hitbox belongs to the projectile (engine.projectile). recovery 32 is the number the brief calls a real recovery: L = 32 against hitstun 21 is on-hit -11, so the fireball combos into nothing but the super and cannot chase its own hit.",
     "escape_hatch": {
      "needed": false,
@@ -1303,7 +1721,8 @@
    "damage": 95.0,
    "effect": {},
    "guard": {},
-   "stance": "ground",
+   "stance": "standing",
+   "blocked_as": "mid",
    "reach": 0.44,
    "pushback": 0.12,
    "label": "Uppercut (reversal, invincible 1-6)",
@@ -1322,6 +1741,8 @@
    "engine": {
     "state_id": 1010,
     "anim_id": 1010,
+    "stance_and_guard_note": "STANDING, MID, AND THE ONE MOVE IN THIS FILE THAT EARNS engine.airborne_from_tick. THE TICK IS DERIVED AND NOT INVENTED, from two fields that were already here before v3 existed: engine.motion's second keyframe sets vel_y_sub -2560 at tick 3, and engine.transitions[0] is an on_land predicate with min_tick 3. Both of them IMPLY that the character leaves the floor on tick 3 and neither of them SAYS it -- the first is a velocity and the second is a landing condition -- and schema $defs.moveEngine.airborne_from_tick is explicit that this field is the state-type change itself, MUGEN's `StateTypeSet stateType = A`, and the normative answer to `is the attacker on the floor on tick N`. A14 holds with room: 1 <= 3 <= startup + active + recovery = 3 + 8 + 29 = 40. THE THIRD OVERLAPPING FIELD DISAGREES AND THAT IS CORRECT RATHER THAN A CONTRADICTION TO FIX: engine.motion_physics.applies_from_tick is 1, because gravity integrates from the first tick of the state, and for ticks 1 and 2 it integrates against a velocity keyframe of (0, 0) while the character is still standing on the floor. Gravity starting and the character leaving are different events, and this is the move where they differ. STANCE IS `standing` AND NOT `ground`: stance names the state the move BEGINS in, which is what a MUGEN statedef type is, and airborne_from_tick names the tick that stops being true. The pair says strictly more than the single `ground` it replaces, which is ADR-006 section 3.1's whole argument, on the one move in the file that can demonstrate it. THE TWO TICKS OF CROUCH in engine.motion's first keyframe are an ANIMATION wind-up and not a crouching state: a move is not `crouching` because its opening frames are drawn low, or every uppercut in the genre would be. MID: a rising invincible reversal is neither an overhead nor a low.",
+    "airborne_from_tick": 3,
     "derivation": "AUTHORED. 3f reversal with 6 ticks of strike invincibility (engine.invuln) and -24 on block, which is what pays for it. active 8 is the rising arc. hitstun 30 against L 36 is on-hit -6: the uppercut launches but the attacker is airborne and recovering, so only the super cancel reaches the launched defender.",
     "escape_hatch": {
      "needed": false,
@@ -1426,7 +1847,8 @@
    "damage": 80.0,
    "effect": {},
    "guard": {},
-   "stance": "ground",
+   "stance": "standing",
+   "blocked_as": "mid",
    "reach": 1.35,
    "pushback": 0.24,
    "label": "Dash Punch (mobility special)",
@@ -1445,6 +1867,7 @@
    "engine": {
     "state_id": 1020,
     "anim_id": 1020,
+    "stance_and_guard_note": "STANDING, MID, AND NO engine.airborne_from_tick -- and unlike most of the moves that lack one, this file can PROVE the absence rather than merely not claim it. Every keyframe in engine.motion authors vel_y_sub 0, and engine.motion_physics.gravity_sub is 0 with the source line `Grounded move, no gravity term.` The move covers 96 px of ground and never leaves it. That is worth writing down because the move is the file's most plausible false positive: it travels, it is a special, and it is the one grounded attack a reader skimming for a hop-over would stop on.",
     "derivation": "AUTHORED. The mobility special: 11f startup, 135px reach because the move travels 96px forward under engine.motion before the hitbox arrives. hitstun 24 against L 25 is on-hit -1. Super-cancellable, otherwise a combo ender.",
     "escape_hatch": {
      "needed": false,
@@ -1537,7 +1960,8 @@
    "guard": {
     "meter": 100
    },
-   "stance": "ground",
+   "stance": "standing",
+   "blocked_as": "mid",
    "reach": null,
    "pushback": 0.3,
    "label": "Super Beam (level 1, 1 bar)",
@@ -1556,6 +1980,7 @@
    "engine": {
     "state_id": 3000,
     "anim_id": 3000,
+    "stance_and_guard_note": "STANDING, MID. THE ONLY MULTI-HIT MOVE IN THE FILE, so it is the only place where a scalar blocked_as could have been a PROJECTION rather than a fact -- and ADR-006's `reversed if` clause is exactly this case: the day a guard height differs between hits of one string, blocked_as belongs in engine.hits[] and stops being a scalar. All five hits here are the same beam at the same height (engine.hits, ticks 8/14/20/26/32, one animation, one hitstun), so `mid` is EXACT and the scalar hides nothing. Recorded because assertions A05 and A06 already made this move declare which of its numbers are hits[0]'s and which are the whole move's; blocked_as is a third such number and it would have been the first one nobody checked.",
     "derivation": "AUTHORED. Five hits at ticks 8/14/20/26/32, all authoring hitstun 32, so hits_projection first_damage_summed is exact on the hitstun half and A06 does not fire. [P] damage 240 is the sum 60+40+40+40+60. effect.meter -100 is one bar; engine.freeze carries the same 100 units as the SuperPause charge, which is the same spend recorded twice in the two vocabularies. Zero outgoing cancels.",
     "escape_hatch": {
      "needed": false,
@@ -2938,6 +3363,133 @@
    }
   },
   {
+   "from": "stand_hk",
+   "to": "air_lp",
+   "delay": 5,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_hk > air_lp",
+   "certain": true,
+   "engine": {
+    "family": "jump_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "jump cancel, delay 5. advantage = hitstun(stand_hk) - delay = 30 - 5 = 25; startup(air_lp) = 4; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   },
+   "caveat": "The launcher's chase, widened from one aerial to four by the pass that added the missing aerials. Both launchers now reach every air move whose startup is FAST enough to catch a rising opponent -- air_lp, air_lk, air_mp, air_mk -- and NEITHER air heavy, which is the rule the file already applied to air_hk and now applies to air_hp as well. Delay 5 is four pre-jump ticks plus one of transition, unchanged."
+  },
+  {
+   "from": "stand_hk",
+   "to": "air_lk",
+   "delay": 5,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_hk > air_lk",
+   "certain": true,
+   "engine": {
+    "family": "jump_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "jump cancel, delay 5. advantage = hitstun(stand_hk) - delay = 30 - 5 = 25; startup(air_lk) = 5; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "stand_hk",
+   "to": "air_mk",
+   "delay": 5,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "stand_hk > air_mk",
+   "certain": true,
+   "engine": {
+    "family": "jump_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "jump cancel, delay 5. advantage = hitstun(stand_hk) - delay = 30 - 5 = 25; startup(air_mk) = 7; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "crouch_hp",
+   "to": "air_lp",
+   "delay": 5,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "crouch_hp > air_lp",
+   "certain": true,
+   "engine": {
+    "family": "jump_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "jump cancel, delay 5. advantage = hitstun(crouch_hp) - delay = 27 - 5 = 22; startup(air_lp) = 4; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "crouch_hp",
+   "to": "air_lk",
+   "delay": 5,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "crouch_hp > air_lk",
+   "certain": true,
+   "engine": {
+    "family": "jump_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "jump cancel, delay 5. advantage = hitstun(crouch_hp) - delay = 27 - 5 = 22; startup(air_lk) = 5; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "crouch_hp",
+   "to": "air_mk",
+   "delay": 5,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "crouch_hp > air_mk",
+   "certain": true,
+   "engine": {
+    "family": "jump_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "jump cancel, delay 5. advantage = hitstun(crouch_hp) - delay = 27 - 5 = 22; startup(air_mk) = 7; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
    "from": "air_mp",
    "to": "air_mp",
    "delay": 5,
@@ -2971,6 +3523,113 @@
     "family": "juggle_cancel",
     "source": "AUTHORED",
     "delay_derivation": "air jump cancel, delay 5. advantage = hitstun(air_mp) - delay = 22 - 5 = 17; startup(air_hk) = 9; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "air_mk",
+   "to": "air_hk",
+   "delay": 5,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "air_mk > air_hk",
+   "certain": true,
+   "engine": {
+    "family": "juggle_cancel",
+    "source": "AUTHORED",
+    "delay_derivation": "air action, delay 5. advantage = hitstun(air_mk) - delay = 19 - 5 = 14; startup(air_hk) = 9; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   },
+   "caveat": "The air string's terminator. air_mp has reached air_hk this way since the file was written and this edge gives the air-to-air medium the same exit at the same price, so BOTH mediums end in the knockdown and neither ends in air_hp -- see moves[air_hp].engine.role_note. Delay 5 is the air action, not a chain: reaching an air HEAVY always costs it, which is why an air string is at most three moves long."
+  },
+  {
+   "from": "air_lp",
+   "to": "air_mp",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "air_lp > air_mp",
+   "certain": true,
+   "engine": {
+    "family": "air_chain",
+    "source": "AUTHORED",
+    "delay_derivation": "air chain window, delay 2. advantage = hitstun(air_lp) - delay = 16 - 2 = 14; startup(air_mp) = 6; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   },
+   "caveat": "THE AIR TWIN OF A GROUND CHAIN AND PRICED IDENTICALLY: delay 2 = the move's cancel window open minus its startup, the same arithmetic every `chain` edge in this file uses. It ascends exactly one tier, light to medium, which is the ground rule too -- there is no light-to-heavy chain on the ground and there is none in the air. WHAT SEPARATES IT FROM juggle_cancel, which reaches an air move at delay 5: that family costs the character's one AIR ACTION (engine.constants.air_actions) and is how a repeat or a heavy is reached; this one is simply the next button of a string and costs nothing but the two ticks."
+  },
+  {
+   "from": "air_lp",
+   "to": "air_mk",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "air_lp > air_mk",
+   "certain": true,
+   "engine": {
+    "family": "air_chain",
+    "source": "AUTHORED",
+    "delay_derivation": "air chain window, delay 2. advantage = hitstun(air_lp) - delay = 16 - 2 = 14; startup(air_mk) = 7; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "air_lk",
+   "to": "air_mp",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "air_lk > air_mp",
+   "certain": true,
+   "engine": {
+    "family": "air_chain",
+    "source": "AUTHORED",
+    "delay_derivation": "air chain window, delay 2. advantage = hitstun(air_lk) - delay = 16 - 2 = 14; startup(air_mp) = 6; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   }
+  },
+  {
+   "from": "air_lk",
+   "to": "air_mk",
+   "delay": 2,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "air_lk > air_mk",
+   "certain": true,
+   "engine": {
+    "family": "air_chain",
+    "source": "AUTHORED",
+    "delay_derivation": "air chain window, delay 2. advantage = hitstun(air_lk) - delay = 16 - 2 = 14; startup(air_mk) = 7; USABLE.",
     "escape_hatch": {
      "needed": false,
      "kind": "",
@@ -3187,6 +3846,213 @@
    "kind": "link"
   },
   {
+   "from": "air_hp",
+   "to": "stand_lp",
+   "delay": 21,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "air_hp > stand_lp",
+   "certain": true,
+   "engine": {
+    "family": "landing_link",
+    "source": "AUTHORED",
+    "delay_derivation": "link after landing recovery, delay = active + recovery - 1, delay 21. advantage = hitstun(air_hp) - delay = 28 - 21 = 7; startup(stand_lp) = 3; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   },
+   "caveat": "A link, not a cancel: the attacker waits out air_hp's landing recovery. delay = active + recovery - 1 = 21, and `kind` is authored alongside the explicit number so that a reader that honours `kind` and one that reads `delay` compute the same 21. THESE NINE ARE THE SECOND LAW 2 EXEMPTION AND THEY ARE OWED RATHER THAN CHOSEN: air_hp is +7 on hit, so it links into every ground move with startup <= 7 whether or not anybody writes it down, and Law 1's whole value is that the table carries the edges the frame data implies. The set is the four lights, the four mediums and the uppercut -- the same nine air_mp owes, for the same reason. NO AIR TARGET APPEARS IN IT: reaching an air move from the ground costs the jump, which this file prices at 5, and +7 against air_lp's 4 + 5 = 9 is short by two.",
+   "kind": "link"
+  },
+  {
+   "from": "air_hp",
+   "to": "stand_lk",
+   "delay": 21,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "air_hp > stand_lk",
+   "certain": true,
+   "engine": {
+    "family": "landing_link",
+    "source": "AUTHORED",
+    "delay_derivation": "link after landing recovery, delay = active + recovery - 1, delay 21. advantage = hitstun(air_hp) - delay = 28 - 21 = 7; startup(stand_lk) = 4; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   },
+   "caveat": "A link, not a cancel: the attacker waits out air_hp's landing recovery. delay = active + recovery - 1 = 21. One of the nine Law 2 owes; see the air_hp > stand_lp edge for the argument.",
+   "kind": "link"
+  },
+  {
+   "from": "air_hp",
+   "to": "crouch_lp",
+   "delay": 21,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "air_hp > crouch_lp",
+   "certain": true,
+   "engine": {
+    "family": "landing_link",
+    "source": "AUTHORED",
+    "delay_derivation": "link after landing recovery, delay = active + recovery - 1, delay 21. advantage = hitstun(air_hp) - delay = 28 - 21 = 7; startup(crouch_lp) = 3; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   },
+   "caveat": "A link, not a cancel: the attacker waits out air_hp's landing recovery. delay = active + recovery - 1 = 21. One of the nine Law 2 owes; see the air_hp > stand_lp edge for the argument.",
+   "kind": "link"
+  },
+  {
+   "from": "air_hp",
+   "to": "crouch_lk",
+   "delay": 21,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "air_hp > crouch_lk",
+   "certain": true,
+   "engine": {
+    "family": "landing_link",
+    "source": "AUTHORED",
+    "delay_derivation": "link after landing recovery, delay = active + recovery - 1, delay 21. advantage = hitstun(air_hp) - delay = 28 - 21 = 7; startup(crouch_lk) = 4; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   },
+   "caveat": "A link, not a cancel: the attacker waits out air_hp's landing recovery. delay = active + recovery - 1 = 21. One of the nine Law 2 owes; see the air_hp > stand_lp edge for the argument.",
+   "kind": "link"
+  },
+  {
+   "from": "air_hp",
+   "to": "stand_mp",
+   "delay": 21,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "air_hp > stand_mp",
+   "certain": true,
+   "engine": {
+    "family": "landing_link",
+    "source": "AUTHORED",
+    "delay_derivation": "link after landing recovery, delay = active + recovery - 1, delay 21. advantage = hitstun(air_hp) - delay = 28 - 21 = 7; startup(stand_mp) = 6; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   },
+   "caveat": "A link, not a cancel: the attacker waits out air_hp's landing recovery. delay = active + recovery - 1 = 21. One of the nine Law 2 owes; see the air_hp > stand_lp edge for the argument.",
+   "kind": "link"
+  },
+  {
+   "from": "air_hp",
+   "to": "stand_mk",
+   "delay": 21,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "air_hp > stand_mk",
+   "certain": true,
+   "engine": {
+    "family": "landing_link",
+    "source": "AUTHORED",
+    "delay_derivation": "link after landing recovery, delay = active + recovery - 1, delay 21. advantage = hitstun(air_hp) - delay = 28 - 21 = 7; startup(stand_mk) = 7; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   },
+   "caveat": "A link, not a cancel: the attacker waits out air_hp's landing recovery. delay = active + recovery - 1 = 21. One of the nine Law 2 owes; see the air_hp > stand_lp edge for the argument.",
+   "kind": "link"
+  },
+  {
+   "from": "air_hp",
+   "to": "crouch_mp",
+   "delay": 21,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "air_hp > crouch_mp",
+   "certain": true,
+   "engine": {
+    "family": "landing_link",
+    "source": "AUTHORED",
+    "delay_derivation": "link after landing recovery, delay = active + recovery - 1, delay 21. advantage = hitstun(air_hp) - delay = 28 - 21 = 7; startup(crouch_mp) = 6; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   },
+   "caveat": "A link, not a cancel: the attacker waits out air_hp's landing recovery. delay = active + recovery - 1 = 21. One of the nine Law 2 owes; see the air_hp > stand_lp edge for the argument.",
+   "kind": "link"
+  },
+  {
+   "from": "air_hp",
+   "to": "crouch_mk",
+   "delay": 21,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "air_hp > crouch_mk",
+   "certain": true,
+   "engine": {
+    "family": "landing_link",
+    "source": "AUTHORED",
+    "delay_derivation": "link after landing recovery, delay = active + recovery - 1, delay 21. advantage = hitstun(air_hp) - delay = 28 - 21 = 7; startup(crouch_mk) = 7; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   },
+   "caveat": "A link, not a cancel: the attacker waits out air_hp's landing recovery. delay = active + recovery - 1 = 21. One of the nine Law 2 owes; see the air_hp > stand_lp edge for the argument.",
+   "kind": "link"
+  },
+  {
+   "from": "air_hp",
+   "to": "special_uppercut",
+   "delay": 21,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "air_hp > special_uppercut",
+   "certain": true,
+   "engine": {
+    "family": "landing_link",
+    "source": "AUTHORED",
+    "delay_derivation": "link after landing recovery, delay = active + recovery - 1, delay 21. advantage = hitstun(air_hp) - delay = 28 - 21 = 7; startup(special_uppercut) = 3; USABLE.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   },
+   "caveat": "A link, not a cancel: the attacker waits out air_hp's landing recovery. delay = active + recovery - 1 = 21. One of the nine Law 2 owes; see the air_hp > stand_lp edge for the argument.",
+   "kind": "link"
+  },
+  {
    "from": "special_fireball",
    "to": "special_fireball",
    "delay": 32,
@@ -3254,10 +4120,34 @@
    },
    "caveat": "AUTHORED TO BE REPORTED DEAD. This is not a cancel the character has; it is the link the frame data implies, written down so the prover PRINTS its own margin instead of the file asserting one. See engine.design_laws.law_1.",
    "kind": "link"
+  },
+  {
+   "from": "air_lp",
+   "to": "stand_lp",
+   "delay": 14,
+   "on": "hit",
+   "effect": {},
+   "guard": {},
+   "label": "air_lp > stand_lp",
+   "certain": true,
+   "engine": {
+    "family": "link_probe",
+    "source": "AUTHORED",
+    "delay_derivation": "authored link probe, delay = active + recovery - 1, delay 14. advantage = hitstun(air_lp) - delay = 16 - 14 = 2; startup(stand_lp) = 3; DEAD, short by 1.",
+    "escape_hatch": {
+     "needed": false,
+     "kind": "",
+     "closed_by": null,
+     "reason": "Authored edge; the delay is a design decision with arithmetic, not a transcription."
+    }
+   },
+   "caveat": "AUTHORED TO BE REPORTED DEAD, and it is the fourth such probe rather than the first: this is not a cancel the character has, it is the link its frame data implies, written down so the prover PRINTS its own margin instead of the file asserting one. THE MARGIN IS ONE FRAME, exactly as it is for crouch_lp and stand_hp, and it is what makes the two new air lights safe -- +2 against the 3f floor. ONE PROBE COVERS THE PAIR: air_lk has the identical L of 14 and the identical hitstun of 16, so it is dead by the same one frame, and a second probe would print the same sentence twice. RAISING EITHER AIR LIGHT'S HITSTUN BY ONE FRAME, OR LOWERING EITHER RECOVERY BY ONE, GIVES THIS CHARACTER A FAST OVERHEAD THAT CONVERTS INTO A FULL GROUND COMBO.",
+   "kind": "link"
   }
  ],
  "engine": {
-  "schema_version": 2,
+  "schema_version": 3,
+  "schema_version_note": "RAISED FROM 2 TO 3 BY THE ANNOTATION PASS engine.stance_and_guard describes, and unlike v2's equivalent line this one carries information. Nothing in code keys off it -- CharacterData.cpp does not read it at all -- so it is a claim the author makes about themselves, and the claim is specific: this file has CONSIDERED stance precision and block height on every move, as opposed to simply not having either. That distinction is the only thing separating a v3 file from a v2 one that happens to validate. THE DOCUMENT IS STILL AT Editor/src/Exported/Characters/schema.v2.json: a JSON Schema's identity is its $id (character.v3.json), nothing in this repository resolves it by path, and the file's own first key says so.",
   "units": {
    "ticks_per_second": 60,
    "sub_units_per_pixel": 256,
@@ -3323,12 +4213,46 @@
   "derivation_defaults": {
    "startup": "The first tick on which the move can connect: a hit box exists AND the hit is registered. Tick 1 is the first tick of the state.",
    "active": "Ticks the hit box exists.",
-   "recovery": "Total state length - startup - active, except for the three moves whose state ends on a landing predicate, where it is a LOWER bound and engine.transitions[].duration_bound says so.",
+   "recovery": "Total state length - startup - active, except for the SEVEN moves whose state ends on a landing predicate -- all six aerials and special_uppercut -- where it is a LOWER bound and engine.transitions[].duration_bound says so. It was three before the 6/6/6 pass; every aerial added by that pass ends on the same predicate for the same reason, so the count tracks the air roster and always will.",
    "hitstun": "Ticks the defender is frozen, before decay. For super_beam it is hits[0]'s, per assertion A05.",
    "damage": "[P] float = engine damage_hundredths / 100. For super_beam it is the SUM over hits[], which json_spec.py:69 sends to Result.maxDamage only.",
    "reach": "Clsn1 extent in pixels / 100, plus any forward travel the move drives itself through, because reach is an upper bound on the GAP (model.py:473-476) and a move that travels can close a gap the box alone cannot.",
    "pushback": "|pushback velocity px/tick| * slide ticks / 2, the same rule Phase 0 applied to all three fixtures -- but DERIVED here rather than estimated, because this character chooses the velocity and the slide time.",
-   "effect_and_guard": "Only two resources exist and neither is ever gained. See termination_argument."
+   "effect_and_guard": "Only two resources exist and neither is ever gained. See termination_argument.",
+   "stance_and_blocked_as": "Both are per move and both are stated on all eighteen; the rule that assigned them is engine.stance_and_guard and each move's engine.stance_and_guard_note carries its own argument."
+  },
+  "stance_and_guard": {
+   "what_this_pass_did": "Annotated all eighteen existing moves against schema v3 and added none, removed none, and changed no frame number, no cancel, no delay and no resource effect. Four fields: [P] move.stance replaced with a precise value, [G] move.blocked_as on every move, engine.hurtbox_sub on three, engine.airborne_from_tick on one. THIS PASS TOUCHES EXACTLY ONE PROVER-VISIBLE FIELD -- move.stance -- and only by replacing `ground` with a more precise value drawn from the same closed vocabulary. Nothing else it writes is readable by json_spec.py, by comboprover.hpp or by cse::kernel.",
+
+   "where_the_data_came_from_because_none_of_it_is_new": "THE CHARACTER ALREADY KNEW ALL OF THIS AND HAD NOWHERE TO PUT IT, which is ADR-006 section 9's finding restated on this file. STANCE was in engine.tags as `stand` / `crouch` / `air`, on all fourteen normals, since the day the file was written. GUARD HEIGHT was in engine.tags as `low` on exactly three moves -- crouch_lk, crouch_mk, crouch_hk -- and again in [P] label as the English `(low)` and `(sweep, knockdown)`. So the three lows below are not a judgement made now: they are this file's own claim promoted from a free string an id-reading heuristic would have had to guess at, into a field a loader reads. The tags are left exactly where they are, as provenance. THE ONLY FOUR MOVES THAT NEEDED DECIDING are the four with no stance tag -- the three specials and the super -- and one of those four decided itself: special_fireball's stance is read off engine.projectile.offset_sub.y, a number the file already carried.",
+
+   "the_blocked_as_table": {
+    "low": "crouch_lk, crouch_mk, crouch_hk. Exactly the three the file already tagged `low`, and exactly the three ADR-006 section 1.5 lists as declaring their guard height in a display string.",
+    "high": "ALL SIX AERIALS and nothing else -- air_lp, air_lk, air_mp, air_mk, air_hp, air_hk, four of them added by the later 6/6/6 pass. This character has NO overhead on the ground -- no standing or crouching move is `high` -- which is a real statement about it rather than an omission, and one that no file could make before v3. WHAT CHANGED WHEN THE ROSTER TRIPLED IS NOT THE RULE BUT ITS WEIGHT: `high` on a committed 6f or 8f jump-in describes geometry, and `high` on a 4f air-to-air jab is a mixup -- the fastest attack in the file a crouching block does not stop. Same value, two different claims, and moves[air_lp].engine.stance_and_guard_note is where the second one is argued.",
+    "mid": "the other thirteen. MID IS THE DECISION AND NOT MERELY THE DEFAULT, and the schema is honest that a default cannot tell those two apart (x-migration: `there is no way to tell a move that was considered and is a mid from one nobody thought about`). That is what the per-move notes are for. Three of the thirteen had to be argued rather than assumed: crouch_lp and crouch_mp, crouching and not low, on ADR-006 section 2's `a sweep and a crouching jab are both crouching and only one is low`; and crouch_hp, the anti-air launcher, which is the counterexample the orthogonality of the two fields rests on and whose note is the longest in the file for that reason."
+   },
+
+   "why_nothing_cross_checks_the_two": "NOT AN OMISSION. Three checks were available and all three are refused by decision, in the schema (x-v3-changes.the_check_that_was_refused), in CharacterData.h's note on BlockHeight, and in ADR-006 section 10 item 3: warn when a `crouching` move is not `low`; warn when an `air` move is not `high`; warn when a `standing` move is `low`. Every one of them encodes the word USUALLY and every one of them fires on a move IN THIS FILE -- the first on crouch_hp, the second on nothing here but on most of Street Fighter, the third on the standing overhead this character does not happen to have. A diagnostic that fires on correct data is how a diagnostic gets deleted, and this project has already learned that once with assertion A04.",
+
+   "the_hurtbox_policy_and_why_three_moves_and_not_six": "A BOX IS AUTHORED WHERE THE HEIGHT IS A DESIGN DECISION AND NOWHERE ELSE. Three moves carry one, all crouching: crouch_mk at 26 px, which ducks; crouch_hk at 20 px, the sweep, which ducks furthest and pays for it with a 48 px body; and crouch_hp at 36 px, which deliberately does NOT duck. THE THIRD IS THE ONE THAT NEEDS DEFENDING, because schema x-migration says to author a box `on crouching attacks that should low-profile, and only those`. It is here for two reasons. First, 36 px is what turns `this crouching attack does not duck` from a silence into a NUMBER, which is the author's `not every crouching attack would low profile` made arithmetic -- and a silence would have meant the standing 60 px body, which is not what a crouching anti-air is. Second, schema x-worked-examples.low_profile_is_a_shape already fixes this move's box at 9216, so authoring anything else, INCLUDING NOTHING, would put the schema and the character file into disagreement about one move of one character. THE OTHER THREE CROUCHING MOVES -- crouch_lp, crouch_mp, crouch_lk -- carry no override and therefore present the character's default 60 px body from engine.constants. That OVER-STATES how tall they are, which makes them easier to hit, which is the conservative direction, and which is the state all eighteen moves were in before this pass. It is not an omission awaiting a tidy-up: pasting one default body onto every move states nothing, and what this file is trying to say is which crouches are different from each other.",
+
+   "the_y_axis_trap_in_this_very_file": "STATED ONCE HERE AND AGAIN ON EVERY BOX, because it is the one mistake A15 cannot refuse. engine.hurtbox_sub is +Y UP with the floor at 0, matching cse::kernel::Box and what MatchBuilder.cpp builds. engine.constants.default_pushbox_sub in this same file is [-3328, -15360, 3328, 0], which is MUGEN's Y-DOWN with the head at -60 px. THEY ARE THE SAME BODY WRITTEN TWO WAYS and both are well-formed rectangles of identical size, so A15's inversion, emptiness and range clauses all pass either one -- an author reaching for a hurtbox will reach for the pushbox already sitting in the file, and get a body sixty pixels underground that nothing but a warning will catch. All three boxes here author y0 = 0.",
+
+   "the_airborne_policy_and_why_one_move_and_not_none": "ONE MOVE HAS ONE: special_uppercut, tick 3, DERIVED from engine.motion and engine.transitions rather than chosen -- its note carries the arithmetic and the A14 bound. NOTHING ELSE IN THE FILE EARNS ONE, and the file says so on the three moves where a reader would look rather than leaving it to be inferred from an absence. stand_hk and crouch_hp are launchers that launch the DEFENDER and end on frame transitions; special_dash_punch authors vel_y_sub 0 on every keyframe and gravity_sub 0; the two aerials were airborne before they began, where the schema says the field would say nothing new rather than something false. THERE IS NO HOP KICK IN THIS CHARACTER, and that is why the hop-over half of the mechanism is expressible here and not exercised here. The author's own example of it -- Ryu's f+HK -- is a COMMAND NORMAL, and command normals are scoped out by ADR-006 section 8 and blocked on a most-specific-wins rule in StepAttack rather than on any field. Inventing a hop kick to exercise the field would have meant ADDING A MOVE, which this pass does not do.",
+
+   "the_census_A16_now_sees": "standing 10, crouching 6, air 6, `ground` 0, AND A16 NOW WARNS ABOUT NOTHING. The annotation pass left exactly one warning standing -- air, 2 of 6 -- and called it `the shortest complete description of what this character is missing: four aerials`. The 6/6/6 pass added those four and the warning went out. THAT IS THE ASSERTION DOING ITS JOB END TO END and it is worth recording as such: A16 was authored to name a shortfall on real data, it named one, the shortfall was filled, and the diagnostic went quiet without anybody editing the diagnostic. READ THE STANDING FIGURE CAREFULLY, because it is the one line that still diverges: it is 10 because A16 counts BY STANCE, and the three specials and the super are standing too, while the 6/6/6 convention counts NORMALS and this character has exactly six standing normals. ADR-006 section 8's table says 6 for that reason and A16 says 10 for the other; schema x-load-assertions.A16 records the divergence deliberately rather than leaving somebody to find it as a bug, and closing it needs a move CATEGORY field, which is a v4 conversation. The air line is now 6 by BOTH counts, because all six aerials are normals.",
+
+   "cannot_move_a_measured_number": "STRUCTURAL RATHER THAN MEASURED-AND-HOPED, which matters because this file's verdict, its cycle count, its usable-dead split and its ranking certificate are all asserted by tests. READ THIS AS A CLAIM ABOUT THE ANNOTATION PASS ONLY. It was true and it held: annotating stance and blocked_as moved nothing. The LATER 6/6/6 pass moved all four numbers on purpose -- 41 cycles became 121 and 68/5 became 88/6 -- because it added four moves and twenty-one edges, which is a change to the CHARACTER rather than to its description. The two passes are separated here so that a future reader does not read this paragraph as a promise the file has since broken; see engine.the_six_six_six_pass. (1) THE PROVER HAS NO STANCE AND NO BLOCKING. comboprover.hpp contains no stance concept at all, and ProverAdapter.cpp never passes stance into comboprover::Character -- its single use is a projection loss count, `if (m.stance != Stance::Any) ++stanced`, and `standing` and `crouching` are != Any exactly as `ground` was, so even that count is unchanged at 18. Nothing in the fragment concerns blocking: model.py:81's COMBO_CONTACT counts `hit` and `always` and stops. (2) THE KERNEL CANNOT SEE ANY OF THE FOUR. cse::kernel::MoveDef carries startup, active, recovery, damage, hitstun, hitbox and button and nothing else, so the connect handshake's MatchData hash is byte-identical across this pass; MatchBuilder builds the body from kDefaultBodyHalfWidthSub and kDefaultBodyHeightSub and never from engine.hurtbox_sub. (3) THE THREE ENGINE FIELDS ARE INVISIBLE TO json_spec.py by the argument v2 already measured -- _move() reads thirteen named keys and enumerates none. ADR-006 section 10 item 9 makes this the regression test for the whole ADR: if any verdict moves, something was implemented wrongly.",
+
+   "the_one_thing_that_is_not_free": "RECORDED RATHER THAN BURIED, and it is the price of the only [P] change here. ADR-006 section 5 measures model.py:120-121 validating stance against a closed three-value tuple and RAISING, so this file authoring `standing` and `crouching` is UNLOADABLE by the unmodified reference implementation until that one line is widened to five. It costs THIS character nothing today: it declares stage `corner`, and the corner verdict is the C++ header's, which has no stance at all. It costs the MIDSCREEN path everything, because comboprover.hpp is corner-only by construction and Python is therefore the only midscreen path there is. ADR-006 section 10 item 7 is the remedy, it is one line, and it is provably verdict-neutral because no decision procedure in the reference reads the field. The three MUGEN fixtures keep authoring `ground` and are unaffected either way."
+  },
+  "the_six_six_six_pass": {
+   "what_it_did": "Added the FOUR MISSING AERIALS -- air_lp, air_lk, air_mk, air_hp -- bringing the character to the author's standard of six standing normals, six crouching normals and six aerials. 18 moves became 22 and 73 cancel edges became 94. It changed NO existing move: not a frame number, not a resource effect, not a tag, not a note. It changed no existing cancel edge either, and in particular it added no edge OUT of air_mp, whose eleven outgoing edges are what the gap-extent measurement is built on. Everything it altered outside the two arrays is prose that had gone stale, listed in what_prose_it_corrected.",
+   "the_six_roles": "The character now reads as three pairs rather than two loose moves. AIR-TO-AIR LIGHTS (air_lp 4f, air_lk 5f): fast, cheap, +2 on hit so they convert into nothing on the ground, and they exist to open an air string. AIR MEDIUMS, one of each kind: air_mp is the jump-in that converts at +7 and air_mk is the air-to-air continuer at +2 that hands off to the ender. AIR HEAVIES, mirror images: air_hp OPENS a combo -- +7, nine landing links, and nothing cancels into it -- while air_hk ENDS one, knocks down, and nothing cancels out of it. TWO OF SIX CONVERT ON LANDING, which is the ratio a real character has; six of six would mean every air button gave a full ground combo.",
+   "the_number_that_moved_and_why_it_moved_that_much": "41 simple cycles in the usable graph became 121, and 143 in the authored graph became 615. The mechanism is narrow and worth stating exactly, because 121 is not 41 plus a bit. Every cycle still leaves the air by an air_mp landing link -- air_mp is still the only move that both descends and can be re-entered -- but there are now three ways back UP into it instead of one: the launchers jump cancel into air_lp and air_lk as well as air_mp, and both lights chain into air_mp. So each of the 40 old cycles that passes through a launcher gained exactly two variants, one per air light: 8 x 2 = 16 new cycles of length 4 and 32 x 2 = 64 of length 5. 41 + 16 + 64 = 121, and the self-loop and the eight length-3 cycles are untouched.",
+   "what_it_deliberately_did_not_do": "RAISE THE JUGGLE BUDGET. 4 was already exactly the price of the longest air string the character can perform, and adding the lights made that string three moves long at the same price rather than more expensive: light (1) + medium (1) + heavy (2) = 4. The budget is also not what makes the character finite -- see resources[juggle].engine.semantics -- so raising it to 6 would have been a pure design change with no effect on the verdict or the certificate, and it was not needed.",
+   "the_one_decision_to_re_open_first": "air_hp having NO incoming cancel edge. It is what keeps the graph at 121 rather than 2905, and the measured alternative is written down in moves[air_hp].engine.role_note rather than left for somebody to rediscover. It is a clarity and tractability argument and NOT a soundness one: the verdict survives the alternative, but the authored graph would hold 9807 simple cycles, which is past the kMaxCycles of 4096 in tests/test_gap_extent.cpp, so the enumerator would stop early and the test would fail as a blown cap rather than as a moved number.",
+   "what_prose_it_corrected": "notes[] laws 2 and 3; resources[juggle].engine.derivation; stance_and_guard.the_blocked_as_table.high, .the_census_A16_now_sees and .cannot_move_a_measured_number; design_laws.law_2; all of termination_argument's counts; cancel_families (jump_cancel, juggle_cancel, landing_link, link_probe, and the new air_chain); cancel_note; and fit. EVERY ONE OF THOSE CARRIED A NUMBER OR A LIST THAT THE FOUR NEW MOVES FALSIFIED, and this file's whole value is that its prose is checkable, so a stale sentence here is worse than no sentence."
   },
   "design_laws": {
    "law_1": {
@@ -3339,9 +4263,12 @@
     "what_it_costs_the_character": "There are no links in the ground game, so every combo is a chain or a cancel. That is a real genre position -- it is how Darkstalkers, Marvel and Guilty Gear build combos -- but it is NOT the Street Fighter reading of an all-rounder, where a +5 medium linking into a 3f jab is the basic vocabulary. This is the one place where the ranking certificate and the genre default genuinely pull against each other, and this file resolves it toward the chain game. A link-based character can still be TERMINATING; what it cannot easily be is COMPLETE, because its real edge set is larger than its authored one."
    },
    "law_2": {
-    "statement": "air_mp is exempt from Law 1. It is +7 on hit and all nine link edges its frame data implies are authored.",
-    "why": "A jump-in that combos into a light is the most standard sequence in the genre and a character without one is not an all-rounder. The nine edges are authored rather than omitted precisely because Law 1's value is completeness: an exemption that hid its edges would give back everything Law 1 buys.",
-    "the_nine": "air_mp links into all four lights, all four mediums, and special_uppercut. Two of them (stand_mk and crouch_mk, both 7f) are exact 1-frame links at +7."
+    "statement": "EXACTLY TWO moves are exempt from Law 1, air_mp and air_hp. Both are +7 on hit and all nine link edges each one's frame data implies are authored.",
+    "why": "A jump-in that combos into a light is the most standard sequence in the genre and a character without one is not an all-rounder. The eighteen edges are authored rather than omitted precisely because Law 1's value is completeness: an exemption that hid its edges would give back everything Law 1 buys.",
+    "the_nine": "air_mp links into all four lights, all four mediums, and special_uppercut. Two of them (stand_mk and crouch_mk, both 7f) are exact 1-frame links at +7.",
+    "the_second_nine": "air_hp is +7 on the same arithmetic and owes the SAME nine targets, so the exemption doubled in size without changing shape. It is +7 and not more deliberately: +8 would reach crouch_hp and +11 would reach stand_hk, and a jump-in that links straight into a launcher enters the juggle loop without paying the ground combo for it.",
+    "why_the_exemption_did_not_grow_to_six": "THE 6/6/6 PASS ADDED FOUR AERIALS AND ONLY ONE EXEMPTION, and the reason is the sentence Law 1 opens with -- a link edge is a consequence of FRAME DATA, not an entry in a cancel table. air_lp, air_lk and air_mk are +2 against a 3f floor, so they imply no link, need no exemption and author no landing link. That is what `air-to-air` means expressed as arithmetic rather than as a label. An earlier draft gave air_mk +5, intending a crossup that converts into a light but not into a medium; at +5 it silently owed five descending edges it did not carry, which is precisely the incompleteness Law 1 exists to prevent, and the hitstun was lowered rather than the edges added. See moves[air_mk].engine.derivation.",
+    "the_air_lights_are_law_1_compliant_by_choice": "Law 1 binds GROUND moves and air_lp and air_lk obey it anyway. An air-to-air light that converted into a full ground combo would be the strongest move in the character by a distance; what they get instead is the air chain, which rewards them for hitting the opponent they were designed to hit -- an airborne one. The margin is one frame and it is PRINTED rather than asserted: the cancels array authors air_lp > stand_lp as a link probe, reported DEAD, short by 1."
    },
    "law_3": {
     "statement": "Juggle is spent and never gained, and every edge whose TARGET is an air move spends it. Every cycle in the usable cancel graph therefore strictly decreases juggle.",
@@ -3351,16 +4278,18 @@
   },
   "termination_argument": {
    "claim": "TERMINATING at stage corner, WITH a ranking certificate, and the certificate's order is [meter, juggle].",
-   "the_structural_proof": "Order the moves L0 lights < L1 mediums < L2 heavies < L3 specials and air normals < L4 super. Every ground cancel in this file strictly ascends that order, so no cycle can be built from ground edges alone. The only descending edges in the whole graph are air_mp's nine landing links. To use one and return to air_mp, a path must take an edge whose target is air_mp, and all three such edges (stand_hk -> air_mp, crouch_hp -> air_mp, air_mp -> air_mp) carry totalEffect.juggle = -1. Therefore every cycle strictly decreases juggle, juggle has floor 0, and no cycle can repeat unboundedly.",
-   "verified_by_enumeration_not_asserted": "The usable cancel graph contains exactly 41 simple cycles: one of length 1 (air_mp into itself), eight of length 3 (air_mp -> a medium -> a launcher -> air_mp), and thirty-two of length 4 (air_mp -> a light -> a medium -> a launcher -> air_mp). All 41 contain at least one juggle-spending edge. 1 + 8 + 32 is 4 mediums x 2 launchers plus 4 lights x 4 mediums x 2 launchers plus the self-loop, which is the structure above counted a second way.",
-   "why_the_certificate_exists_here_and_nowhere_in_phase_0": "comboprover.hpp:376-386 clears spendOnly if ANY reachable cancel has a positive resource effect, and :563 gates the certificate on spendOnly. ADR-001 gate 3 measured hasRanking false in 2 of 2 terminating cases for two different reasons: Kung Fu Man builds meter on hit, and AOF2 has zero usable cancels so :578-583's `if (!anyEdge) break` fires immediately. This character avoids both. It has 68 usable cancels, so anyEdge is true. And no [P] effect anywhere in the file is positive, so spendOnly survives.",
+   "the_structural_proof": "Order the moves L0 lights < L1 mediums < L2 heavies < L3 specials and air normals < L4 super. Every ground cancel in this file strictly ascends that order, so no cycle can be built from ground edges alone. The only descending edges in the whole graph are the eighteen landing links, air_mp's nine and air_hp's nine. To use one and return to an air move, a path must take an edge whose TARGET is an air move, and all fifteen such edges carry a negative totalEffect.juggle, because every one of the six air moves authors a negative effect.juggle and comboprover.hpp:282-290 adds the target move's effect to the edge's. Therefore every cycle strictly decreases juggle, juggle has floor 0, and no cycle can repeat unboundedly. NOTHING IN THAT ARGUMENT COUNTS AERIALS, which is why tripling the air roster did not touch it.",
+   "verified_by_enumeration_not_asserted": "The usable cancel graph contains exactly 121 simple cycles: one of length 1 (air_mp into itself), eight of length 3, forty-eight of length 4 and sixty-four of length 5. All 121 contain at least one juggle-spending edge and NONE touches meter. The count is 41 x 3 minus 2 and that is a coincidence of arithmetic rather than a structure; the structure is this. Every cycle still leaves the air by an air_mp landing link, because air_mp remains the only move that both descends and can be re-entered. What the pass added is a second way back UP: the two launchers now jump cancel into air_lp and air_lk as well as air_mp, and both air lights chain into air_mp. So each of the 41 old cycles that passed through a launcher gained two variants -- one per air light -- which is 8 x 2 = 16 new length-4 cycles and 32 x 2 = 64 new length-5 cycles, and 41 + 16 + 64 = 121. The self-loop is unchanged, the eight length-3 cycles are unchanged, and the thirty-two old length-4 cycles are unchanged.",
+   "two_of_the_four_new_aerials_are_on_no_cycle_at_all": "MEASURED, and it is the cleanest statement of what the pass did to the graph. air_hp appears in ZERO of the 121 because nothing cancels into it -- it is a combo opener reached by jumping, and a cycle needs an incoming edge (see moves[air_hp].engine.role_note, which is where that decision is argued and where the rejected alternative is measured at 2905 cycles). air_mk appears in zero because its only outgoing edge goes to air_hk, which has none. So the two aerials that carry the most damage in the file are provably incapable of participating in a loop, and the four that can loop are the two lights, air_mp and the launchers they hang off.",
+   "the_juggle_economy": "4 points, six spenders, and the budget deliberately NOT raised. The longest ascending air string is light -> medium -> heavy at 1 + 1 + 2 = 4, so the budget buys exactly one complete string: air_lp > air_mp > air_hk, or air_lp > air_mk > air_hk, and nothing longer. Opening with air_hp costs 2 and leaves a light and a medium but no ender. THE BUDGET IS STILL NOT WHAT MAKES THE CHARACTER FINITE -- resources[juggle].engine.semantics records that setting it to 0 or to 40 leaves the verdict and the certificate unchanged, and that is as true with six aerials as with two, because it is the MONOTONE DECREASE that terminates the search and not the starting value. Raising it to 6 would be a pure design change: longer juggles, a slower prover search, the same verdict and the same certificate.",
+   "why_the_certificate_exists_here_and_nowhere_in_phase_0": "comboprover.hpp:376-386 clears spendOnly if ANY reachable cancel has a positive resource effect, and :563 gates the certificate on spendOnly. ADR-001 gate 3 measured hasRanking false in 2 of 2 terminating cases for two different reasons: Kung Fu Man builds meter on hit, and AOF2 has zero usable cancels so :578-583's `if (!anyEdge) break` fires immediately. This character avoids both. It has 88 usable cancels, so anyEdge is true. And no [P] effect anywhere in the file is positive, so spendOnly survives -- the four aerials added by the 6/6/6 pass author effect.juggle -1 or -2 and nothing else, so they can only reinforce spendOnly and could never clear it.",
    "meter_is_not_load_bearing": {
     "the_worry": "Meter gain on hit is real and this file keeps it out of [P] effect to preserve spendOnly. Dropping a resource the attacker really gains UNDER-credits the attacker, and under-crediting is the direction that can HIDE an infinite (ADR-001:224-225, and the same failure the meter_room design was rejected for at :369-374). An unjustified omission here would be a soundness bug dressed as a proof.",
     "why_it_cannot_hide_a_loop_in_THIS_character": "super_beam is the only move in the file that spends meter, and super_beam has ZERO outgoing cancels. Meter therefore appears on no cycle at all: it gates exactly one class of terminal edge. The set of cycles in this graph is independent of the meter value, so no amount of meter, gained or not, can create a loop that the model does not already see.",
-    "the_counterfactual_that_checks_it": "Set resources[meter].initial to 0, or to 100000, or delete super_beam's effect and guard entirely, and re-analyse. The verdict must stay TERMINATING and the usable/dead split must stay 68/5 in all three cases. If any of them changes, this argument is wrong and the meter gain must go back into [P] effect at the cost of the certificate.",
+    "the_counterfactual_that_checks_it": "Set resources[meter].initial to 0, or to 100000, or delete super_beam's effect and guard entirely, and re-analyse. The verdict must stay TERMINATING and the usable/dead split must stay 88/6 in all three cases. If any of them changes, this argument is wrong and the meter gain must go back into [P] effect at the cost of the certificate.",
     "what_it_would_cost_to_be_honest_the_other_way": "Authoring stand_lp effect.meter +4 -- this character's real gain, and one unit less than Kung Fu Girl's +5 -- leaves the verdict TERMINATING and turns spendOnly false, hasRanking false, rankingOrder empty. That is the ordinary result ADR-001 gate 3 describes, and it is one keystroke away in either direction. The certificate is bought by exactly this decision and by nothing else."
    },
-   "what_the_certificate_does_and_does_not_say": "READ THE TOOL CAREFULLY HERE. comboprover.hpp:563-613 builds the order greedily: it takes a resource that decreases on some live edge and increases on none, records it, DELETES every edge that decreases it, and repeats. hasRanking is set from `!rankingOrder.empty()` at :612, so it becomes true as soon as ONE resource is extracted -- it does not mean the ranking function explains the whole graph. On this character the loop extracts meter (killing the 6 super edges), then juggle (killing the 4 edges into air moves), and then stops with 58 live edges still standing: 32 chains, 17 special cancels and 9 landing links, none of which touches a resource. Those 58 are not covered by the certificate. They are acyclic, and it is the DFS at :469-539 that proved it, not the ranking function. So the true statement is: the lexicographic order (meter, juggle) strictly decreases on every edge that spends anything, and the edges it does not cover form an acyclic subgraph. describe() at :708-714 prints 'ends because these run down, in order: meter, juggle', which is a fair summary of the first half and silent about the second.",
+   "what_the_certificate_does_and_does_not_say": "READ THE TOOL CAREFULLY HERE. comboprover.hpp:563-613 builds the order greedily: it takes a resource that decreases on some live edge and increases on none, records it, DELETES every edge that decreases it, and repeats. hasRanking is set from `!rankingOrder.empty()` at :612, so it becomes true as soon as ONE resource is extracted -- it does not mean the ranking function explains the whole graph. On this character the loop extracts meter (killing the 6 super edges), then juggle (killing the 15 edges into air moves), and then stops with 67 live edges still standing: 32 chains, 17 special cancels and 18 landing links, none of which touches a resource. Those 67 are not covered by the certificate. They are acyclic, and it is the DFS at :469-539 that proved it, not the ranking function. So the true statement is: the lexicographic order (meter, juggle) strictly decreases on every edge that spends anything, and the edges it does not cover form an acyclic subgraph. describe() at :708-714 prints 'ends because these run down, in order: meter, juggle', which is a fair summary of the first half and silent about the second.",
    "midscreen": "Not the question this file is posed for, and expected TERMINATING as well: stage midscreen adds a synthesized __space resource and reach guards, which can only remove edges from a graph whose sole cycle class is already juggle-bounded. Note that the certificate is a CORNER concept regardless -- hasRanking is computed by the C++ header, which does not implement midscreen at all (:15-24), and midscreen's walking gap action gives __space back, which would clear spendOnly in the Python model."
   },
   "cancel_families": {
@@ -3392,29 +4321,38 @@
    },
    "jump_cancel": {
     "condition": "self.move_hit && source is a launcher",
-    "authored_as": "stand_hk and crouch_hp only. These are the only two moves whose 30 and 27 frames of hitstun are reachable by anything, and only through this window.",
+    "authored_as": "stand_hk and crouch_hp only. These are the only two moves whose 30 and 27 frames of hitstun are reachable by anything, and only through this window. EACH NOW REACHES FOUR AERIALS RATHER THAN ONE: air_lp, air_lk, air_mp and air_mk, which is every air move fast enough to catch a rising opponent.",
     "delay_rule": "5: four pre-jump ticks plus one tick of transition.",
-    "certain": true
+    "certain": true,
+    "the_rule_about_which_aerials": "NO AIR HEAVY IS A JUMP-CANCEL TARGET. The file has always had this rule and used to have one instance of it -- air_hk was never jump-cancellable into -- and the 6/6/6 pass made it a rule with two, by declining to author a launcher into air_hp as well. The reason is the same for both: a launched opponent is rising, and a 9f or 8f aerial arrives after they are out of reach. IT IS A DESIGN RESTRICTION AND NOT AN ARITHMETIC ONE, which is worth stating because the frame data would happily permit it -- stand_hk leaves 30 - 5 = 25 of advantage against air_hp's 8f startup. It is also the decision that keeps the cycle count at 121; see moves[air_hp].engine.role_note for the measured alternative."
+   },
+   "air_chain": {
+    "condition": "self.move_hit && target tier > source tier",
+    "authored_as": "The two air lights into the two air mediums: air_lp and air_lk each into air_mp and air_mk. Four edges, added by the 6/6/6 pass, and the reason the air lights are worth having.",
+    "delay_rule": "2 on every edge, the SAME rule and the same number as a ground chain: each move's engine.cancel_window_ticks opens at startup + 2, and delay = window open - startup.",
+    "certain": true,
+    "caveat": "THE AIR TWIN OF `chain`, ascending exactly one tier. There is no light-to-heavy chain on the ground and there is none in the air; reaching an air HEAVY costs the air action instead and belongs to juggle_cancel at delay 5. That split is what makes an air string at most three moves long, and it is also what makes the budget of 4 buy exactly one of them. THE STRICTLY ASCENDING RESTRICTION IS NOT DECORATION HERE ANY MORE THAN IT IS ON THE GROUND: an intra-tier air chain such as air_lp -> air_lk would be a 2-cycle, and although juggle would still bound it -- every air move spends -- it would be a loop the character does not mean to have."
    },
    "juggle_cancel": {
     "condition": "self.move_hit && self.juggle_count > 0",
-    "authored_as": "air_mp into air_mp and into air_hk, using the character's one air action.",
+    "authored_as": "air_mp into air_mp and into air_hk, and air_mk into air_hk, using the character's one air action.",
     "delay_rule": "5, the same air-action cost as a jump cancel.",
     "certain": true,
-    "caveat": "air_mp -> air_mp is the ONLY self-loop in the usable graph and it is the reason this character needs a resource argument at all. Delete effect.juggle from air_mp and the verdict is INFINITE with the loop printed as air_mp."
+    "caveat": "air_mp -> air_mp is STILL the ONLY self-loop in the usable graph -- the 6/6/6 pass deliberately added none, because a second self-loop would have multiplied the length-1 cycles for no design gain -- and it is the reason this character needs a resource argument at all. Delete effect.juggle from air_mp and the verdict is INFINITE with the loop printed as air_mp. The third edge, air_mk -> air_hk, gives the air-to-air medium the same terminator air_mp has, so BOTH air mediums end the string in the knockdown and neither ends it in air_hp."
    },
    "landing_link": {
     "condition": "self.move_hit, then the attacker waits out landing recovery",
-    "authored_as": "air_mp into all four lights, all four mediums and special_uppercut: the nine edges Law 2 owes.",
-    "delay_rule": "active + recovery - 1 = 15, authored as an explicit number AND as kind: link so that a reader honouring either computes the same 15.",
-    "certain": true
+    "authored_as": "air_mp into all four lights, all four mediums and special_uppercut at delay 15, and air_hp into the same nine at delay 21: the eighteen edges Law 2 owes.",
+    "delay_rule": "active + recovery - 1 -- 15 for air_mp and 21 for air_hp -- authored as an explicit number AND as kind: link so that a reader honouring either computes the same delay.",
+    "certain": true,
+    "why_no_air_target_appears_in_either_set": "Both sources are +7, and air_lp starts in 4, so a reader may reasonably ask why neither aerial links into another aerial. Because a LANDING link starts from the floor, and reaching an air move from the floor costs the jump, which this file prices at 5 in the jump_cancel family. +7 against 4 + 5 = 9 is short by two. The rule was already implicit in air_mp's nine targets before this pass and is stated now that there are two sources to be consistent about."
    },
    "link_probe": {
     "condition": "none -- these edges are authored to be reported DEAD",
-    "authored_as": "special_fireball into itself, crouch_lp into itself, stand_hp into stand_lp.",
+    "authored_as": "special_fireball into itself, crouch_lp into itself, stand_hp into stand_lp, and air_lp into stand_lp.",
     "delay_rule": "active + recovery - 1.",
     "certain": true,
-    "caveat": "These three are not cancels the character has; they are the links its frame data implies, written down so that the prover prints its own margin. Two of them are short by exactly 1 and that pair IS Law 1. The third answers the brief's requirement that the fireball have a real recovery: short by 24, so the fireball cannot chase its own hit."
+    "caveat": "These four are not cancels the character has; they are the links its frame data implies, written down so that the prover prints its own margin. THREE of them are now short by exactly 1 and that trio IS Law 1: crouch_lp and stand_hp on the ground, and air_lp in the air since the 6/6/6 pass. The fourth answers the brief's requirement that the fireball have a real recovery: short by 24, so the fireball cannot chase its own hit. ONE PROBE COVERS BOTH AIR LIGHTS: air_lk has the identical L of 14 and the identical hitstun of 16, so it is dead by the same one frame and a second probe would print the same sentence twice."
    }
   },
   "hit_rules": {
@@ -3430,17 +4368,18 @@
    "note": "All three are enders on TWO independent grounds -- a knockdown the prover cannot see, and frame data it can. Only the second is doing any work in the model, and that is deliberate: x-known-over-approximations.defender_has_no_state means the prover would happily continue a combo past a hit that really ends it, so a file that leaned on knockdown to terminate would be leaning on something the tool ignores."
   },
   "cancel_note": {
-   "authored": 73,
-   "usable": 68,
-   "dead": 5,
-   "dead_list": "stand_lp -> special_fireball (short by 4), crouch_lp -> special_fireball (short by 4), special_fireball -> special_fireball (short by 24), crouch_lp -> crouch_lp (short by 1), stand_hp -> stand_lp (short by 1).",
+   "authored": 94,
+   "usable": 88,
+   "dead": 6,
+   "dead_list": "stand_lp -> special_fireball (short by 4), crouch_lp -> special_fireball (short by 4), special_fireball -> special_fireball (short by 24), crouch_lp -> crouch_lp (short by 1), stand_hp -> stand_lp (short by 1), air_lp -> stand_lp (short by 1).",
+   "by_family": "32 chain, 19 special_cancel (17 usable), 5 super_cancel, 1 super_cancel_projectile, 8 jump_cancel, 3 juggle_cancel, 4 air_chain, 18 landing_link, 4 link_probe (0 usable). The 6/6/6 pass added 21 edges: 6 jump_cancel, 4 air_chain, 1 juggle_cancel, 9 landing_link and 1 link_probe. IT ADDED NO EDGE OUT OF air_mp, whose eleven outgoing edges -- nine landing links and two air-to-air -- are byte-identical to what they were before.",
    "on_block_edges_not_authored": "Every edge in this file is on: hit. MUGEN's Movecontact means hit OR block and the prover's vocabulary has no such value (schema $defs.cancel), but this character is not a MUGEN import and the omission here is simply that the block half does not change a verdict: model.py:81 COMBO_CONTACT counts only hit and always. The block half exists in the running game -- every special cancel is available on block -- and belongs in the engine's own cancel table, not in the prover's."
   },
   "anim_note": "Per-frame sprite references and 4 x int16 sub-unit hit/hurt/push boxes are NOT authored here. ADR-001:463-466 records that they are transcribed for none of the 59 corpus moves either, and no prover field depends on them. move.engine.reaction carries everything the hit resolver needs that the prover's single hitstun cannot hold; the boxes are the hitbox editor's job in Phase 3, and move.reach plus quantized_sources carry the one number the model reads from them.",
   "fit": {
-   "moves_total": 18,
+   "moves_total": 22,
    "moves_needing_escape_hatch": 0,
-   "cancels_total": 73,
+   "cancels_total": 94,
    "cancels_needing_escape_hatch": 0,
    "gate": "< 20% (ARCHITECTURE.md:289)",
    "rate": 0.0,
@@ -3451,7 +4390,7 @@
     "schema_v2_field": 0,
     "missing_schema_field": 0
    },
-   "what_this_number_does_and_does_not_show": "0 of 18 against ADR-001's 23 of 59 is NOT evidence that this character is simpler than a real one. It is evidence of the direction of authoring. The Phase-0 rate measured a transcription being pushed into a schema drafted before the data was read; this one measures a character authored against the schema after it was fixed. A rate of 0 here is the expected result if ADR-001 section 4's nine fields were the right nine, and it is worth exactly that much: a NEGATIVE result -- an original character that still needed a tenth field -- would have been the informative one, and it did not occur.",
+   "what_this_number_does_and_does_not_show": "0 of 22 against ADR-001's 23 of 59 is NOT evidence that this character is simpler than a real one. It is evidence of the direction of authoring. The Phase-0 rate measured a transcription being pushed into a schema drafted before the data was read; this one measures a character authored against the schema after it was fixed. A rate of 0 here is the expected result if ADR-001 section 4's nine fields were the right nine, and it is worth exactly that much: a NEGATIVE result -- an original character that still needed a tenth field -- would have been the informative one, and it did not occur.",
    "schema_limits": [
     "A minimum gap is not expressible: guard is componentwise >= only, so move.reach can bound the gap from above and never from below. This character does not use a proximity pair, so the limit is untested here rather than closed.",
     "A projectile's contact frame is a function of distance and [P] startup is a constant. Not closable by a field. This file applies the schema's prescribed mitigation -- author the outgoing delay at point-blank contact -- at the first edge in the project that needs it.",
@@ -3460,14 +4399,16 @@
    "known_losses": [
     "METER GAIN IS ABSENT FROM [P] effect while engine.reaction.meter_gain_units carries it on all 18 moves. DIRECTION: under-credits the attacker, which is the CONSERVATIVE direction and CAN HIDE AN INFINITE. This is the dangerous direction and it is the one loss in this file that needed a real argument rather than a note. The argument is structural -- super_beam is the only meter spender and has no outgoing edges, so meter is on no cycle -- and it is falsifiable by the counterfactual named in termination_argument.meter_is_not_load_bearing. It is also mitigated by starting meter at the ceiling rather than at a typical value.",
     "The fireball's super-cancel delay is authored from POINT-BLANK contact (3) rather than from release (4). DIRECTION: over-credits the attacker by one frame, PERMISSIVE, safe. This is deliberate and is the schema's own prescription for the projectile over-approximation.",
-    "The three on_land recoveries are LOWER bounds measured on the neutral jump arc. DIRECTION: PERMISSIVE, safe. It matters most on air_mp, whose recovery sets the +7 that Law 2 depends on.",
+    "The SEVEN on_land recoveries are LOWER bounds measured on the neutral jump arc -- three before the 6/6/6 pass and one per aerial added by it. DIRECTION: PERMISSIVE, safe. It matters most on air_mp and air_hp, whose recoveries set the two +7s that Law 2 depends on, and it matters newly on air_lp, air_lk and air_mk in the OPPOSITE way: their +2 is what keeps them Law 1 compliant, and a recovery that is a lower bound means the real advantage can only be SMALLER than +2, never larger. So the bound cannot turn an air light into a converting overhead by accident.",
     "move.hit_condition and move.stance are invisible to the fragment: json_spec.py never reads hit_condition, and comboprover.hpp's Move has no stance field at all. DIRECTION: PERMISSIVE, safe. Measured to be INERT in this file -- see hit_rules.the_important_property -- because no edge is omitted on their strength.",
+    "SCHEMA v3'S FOUR FIELDS ARE DATA AND NOT YET BEHAVIOUR, and the gap is wide enough to state plainly rather than let a reader assume the annotation did something. move.stance is reported by MatchBuilder as a KernelPermits loss over all 18 moves because the kernel gates starting a move on hitstun and blockstun only -- a `crouching` move remains startable in the air, and v3 makes the field precise without making it enforced. blocked_as is further back than that: cse::kernel::Combat.h scopes blocking out entirely (`Fighter::blockstun exists and nothing ever writes it`), so there is nothing yet for a guard height to be checked against. engine.hurtbox_sub closes only the DEFENDER's half of low-profiling -- the schema still authors no vertical extent for an ATTACK, so every hitbox spans the whole body and a shorter crouch is data nothing consumes. engine.airborne_from_tick has no consumer at all. DIRECTION: none, because none of the four is read by anything that decides anything. Authoring the data before the rules is the right order (ADR-006 section 10 item 6): the alternative is a kernel rule with no file able to describe the character it applies to.",
     "Knockdown ends three moves in the running game and the prover cannot see it. DIRECTION: PERMISSIVE, safe, and inert because all three moves have zero outgoing edges anyway.",
     "Blockstun exists on every move as engine data and has no [P] home, so the on-block column of this character's frame chart is invisible to the prover. It cannot move a verdict: only hit and always continue a combo.",
     "NOT A LOSS, recorded because a reader will look for one here: the juggle reset. It happens when the combo ends, which is outside the cancel graph by construction, so modelling juggle as monotone within a combo is EXACT."
    ],
    "measured": {
-    "status": "NOT MEASURED IN THIS FILE. ADR-001's fit.measured is required to come from an actual `python -m comboprover analyse` run and to be re-measured rather than predicted, and this file is authored ahead of that run. The author's PREDICTION -- corner: TERMINATING, spend-only fragment, 68 usable / 5 dead, hasRanking true with rankingOrder [meter, juggle] -- is recorded in termination_argument as a claim to be checked, not as a result. If the run disagrees, the run is right."
+    "status": "NOT MEASURED IN THIS FILE. ADR-001's fit.measured is required to come from an actual `python -m comboprover analyse` run and to be re-measured rather than predicted, and this file is authored ahead of that run. The author's PREDICTION -- corner: TERMINATING, spend-only fragment, 88 usable / 6 dead, hasRanking true with rankingOrder [meter, juggle], 121 simple cycles in the usable graph and 615 in the authored one -- is recorded in termination_argument as a claim to be checked, not as a result. If the run disagrees, the run is right.",
+    "what_the_6_6_6_pass_predicts_will_MOVE": "STATED AHEAD OF THE RUN so a deliberate change can be told from a regression. tests/test_gap_extent.cpp asserts 143 authored / 41 usable cycles with a 1/8/32 length split, 68 usable and 5 dead cancels, 41 ended by juggle, 1 fully takeable, 40 empty-windowed, 33 unescapable and 8 escapable. The new values are 615 / 121 with a 1/8/48/64 split, 88 usable and 6 dead, 121 ended by juggle, 1 fully takeable, 120 empty-windowed, and a PREDICTED 97 unescapable against 24 escapable. THREE OF THAT FILE'S static_asserts ENCODE COINCIDENCES OF A TWO-AERIAL CHARACTER AND WILL FAIL TO COMPILE RATHER THAN FAIL AT RUNTIME: `kEmptyWindowed == kLengthThree + kLengthFour` should be `kUsableCycles - kSelfLoops`; `kEscapable == kLengthThree` should be `the cycles whose landing link enters a medium`, which is now the 8 of length 3 plus 16 of length 4; and `kUnescapable == kByCancelAlone + kByHeldButton` needs its two terms re-measured. The escapable figure of 24 is the one number here that is a MODEL of a simulation rather than an enumeration, and it is the one to trust least: it assumes the leak is decided solely by whether air_mp's landing link enters a light or a medium, which is the mechanism that file measures, applied to 80 more cycles than it measured it on."
    }
   }
  }
