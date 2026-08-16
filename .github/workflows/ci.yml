@@ -42,6 +42,9 @@
 # Only first-party actions (checkout, cache) are used. The MSVC environment
 # comes from vswhere + vcvars64 rather than a third-party action, because a
 # build pipeline is a supply-chain surface and this one is cheap to own.
+# It is behind scripts/ci/msvc_env.cmd, which exists because the inline `for /f`
+# it replaces ran its body zero times and SUCCEEDED when vswhere printed
+# nothing -- see the header of that file for the run it cost us.
 #
 # vcpkg builds Assimp, Jolt, PhysX, Lua and friends from source: slow once, fast
 # forever after. The binary cache is what makes this viable -- check cache hit
@@ -138,7 +141,7 @@ jobs:
       - name: Configure and build (tests)
         shell: cmd
         run: |
-          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do call "%%i\VC\Auxiliary\Build\vcvars64.bat"
+          call scripts\ci\msvc_env.cmd || exit /b 1
           cmake --preset x64-relwithdebinfo-tests || exit /b 1
           cmake --build --preset x64-relwithdebinfo-tests || exit /b 1
 
@@ -182,7 +185,7 @@ jobs:
         # Player links, not when the Engine does, and the tests configuration
         # does not build the Player.
         run: |
-          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do call "%%i\VC\Auxiliary\Build\vcvars64.bat"
+          call scripts\ci\msvc_env.cmd || exit /b 1
           cmake --preset x64-debug              || exit /b 1
           cmake --build --preset x64-debug      || exit /b 1
           cmake --preset x64-release            || exit /b 1
@@ -235,7 +238,7 @@ jobs:
       - name: Configure and build
         shell: cmd
         run: |
-          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do call "%%i\VC\Auxiliary\Build\vcvars64.bat"
+          call scripts\ci\msvc_env.cmd || exit /b 1
           cmake --preset x64-relwithdebinfo-tests || exit /b 1
           cmake --build --preset x64-relwithdebinfo-tests || exit /b 1
 
