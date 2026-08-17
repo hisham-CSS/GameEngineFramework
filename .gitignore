@@ -28,3 +28,8 @@ __pycache__/
 # CTest scratch (Testing/Temporary). Written by any ctest run in the source
 # tree; never an input to anything.
 Testing/
+
+# The editor's Build action writes bundles here (BuildSettings default output).
+# It is build OUTPUT: a player exe, every runtime DLL, and a copy of the whole
+# Exported/ tree. `git add -A` swept 67 of those files into a commit once.
+Builds/
