@@ -5,7 +5,7 @@
 # the shared source of configurations (its presets are gated to Windows hosts);
 # this script is the Linux equivalent, kept separate so it never disturbs that.
 #
-# Prerequisites (see docs/BUILDING_LINUX.md for the full list):
+# Prerequisites (see docs/manual/getting-started.md, "Building on Linux"):
 #   - CMake >= 3.21, Ninja, a C++17 compiler (gcc >= 11 or clang >= 14)
 #   - vcpkg, with VCPKG_ROOT exported to its checkout
 #   - GLFW's X11 dev packages installed on the host

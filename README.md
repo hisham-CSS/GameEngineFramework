@@ -49,7 +49,6 @@ combo.
 |---|---|
 | **[Manual](docs/manual/index.md)** | How the engine works and how to build things with it — architecture, editor, components, physics, scripting, rendering, shipping a build |
 | **[Getting Started](docs/manual/getting-started.md)** | Prerequisites, build configurations, running the editor and player |
-| **[Building on Linux](docs/BUILDING_LINUX.md)** | The Linux build path (the engine targets Windows **and** Linux) |
 | **[API Reference](docs/api-index.md)** | Generated per-class reference. Build it with the `docs` CMake target (requires Doxygen) |
 | **[Architecture Decisions](docs/ARCHITECTURE.md)** | The fighting-game direction: D1–D9, the build order, the determinism contract, and a table of rejected ideas with the condition each comes back under |
 | **[North Star](docs/NORTHSTAR.md)** | What the engine is today, made testable, and what blocks the target |
@@ -200,7 +199,7 @@ instead: `cmake -B build -S . -G Ninja -DCMAKE_TOOLCHAIN_FILE=[vcpkg]/scripts/bu
 
 ### Linux
 
-See **[docs/BUILDING_LINUX.md](docs/BUILDING_LINUX.md)** — in short, install the GLFW X11 dev
+See **[docs/manual/getting-started.md](docs/manual/getting-started.md#building-on-linux)** — in short, install the GLFW X11 dev
 packages, export `VCPKG_ROOT`, and run:
 
 ```bash

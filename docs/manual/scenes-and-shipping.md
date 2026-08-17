@@ -289,6 +289,11 @@ Gameplay drives cameras by editing these fields; the director notices on its own
 
 ## Runtime asset staging
 
+### The staging rule
+
+This is the one home for it. `docs/manual/assets.md` and
+`docs/manual/getting-started.md` link here.
+
 `cmake/stage_runtime_assets.cmake` copies assets next to the executables. It splits content into two classes and treats them differently:
 
 - **Static assets** (every *subdirectory* of `Editor/src/Exported/` — today `Env/`, `Fonts/`, `Icon/`, `Layouts/`, `Model/`, `Scripts/`, `Shaders/`, `UI/`) are owned by the source tree and re-copied every build, so shader, model, script and UI edits show up. The script globs the subdirectories rather than naming them: the list used to be hardcoded, and adding `Scripts/` and then `Env/` each silently shipped a feature whose assets never reached the runtime directory.

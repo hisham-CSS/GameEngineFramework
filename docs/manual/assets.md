@@ -14,7 +14,7 @@ explicit AssetIndex(std::string root = "Exported");
 
 Paths used throughout the engine are *engine-style*: forward slashes, rooted at the asset root, e.g. `Exported/Model/backpack.obj`.
 
-Source content lives in `Editor/src/Exported/` and is staged into the runtime `Exported/` next to the built executables by the shared `runtime_assets` CMake target, defined in `Editor/CMakeLists.txt` and driving `cmake/stage_runtime_assets.cmake`. `Editor`, `PlayerDebug`, `PlayerShipping` and `AssetCooker` all `add_dependencies` on that single target, so exactly one writer owns that directory.
+Source content lives in `Editor/src/Exported/` and is staged into the runtime `Exported/` next to the built executables by the shared `runtime_assets` CMake target, defined in `Editor/CMakeLists.txt` and driving `cmake/stage_runtime_assets.cmake`. `Editor`, `PlayerDebug`, `PlayerShipping` and `AssetCooker` all `add_dependencies` on that single target. **One writer owns that directory**, and the reason — plus what happens to a scene you saved — is [the staging rule](scenes-and-shipping.md#the-staging-rule).
 
 ## Supported formats
 

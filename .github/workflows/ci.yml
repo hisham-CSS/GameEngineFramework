@@ -341,7 +341,7 @@ jobs:
           submodules: recursive
 
       - name: System packages
-        # GLFW needs the X11 development headers; see docs/BUILDING_LINUX.md.
+        # GLFW needs the X11 development headers; see docs/manual/getting-started.md.
         run: |
           # The runner ships third-party apt sources (packages.microsoft.com,
           # azure-cli) that this project never installs from, and `apt-get

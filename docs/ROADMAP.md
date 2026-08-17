@@ -31,7 +31,7 @@ without it. Details, tests and proofs of the four properties:
 
 | In flight | Owner | Since |
 |---|---|---|
-| *(nothing — next is M0.5b)* | | |
+| *(nothing — next is M0.5c)* | | |
 
 One work package in flight at a time. The next unblocked one is always the top
 `[ ]` in milestone order below.
@@ -127,7 +127,7 @@ M0.5 split in two, at the seam between *what the manual says* and *whether
 anyone has re-read it*. The stamp is a claim — "I read this page against the
 code" — and batching it behind the prose work is how a stamp becomes decoration.
 
-- `[x]` **M0.5a The shipped-but-undocumented, and the stalest page.** *(M)*
+- `[x] e1f6194` **M0.5a The shipped-but-undocumented, and the stalest page.** *(M)*
   Fix the paths in `docs/manual/fighting-core.md`, delete its "Not there yet"
   (this file is that list now) and its restated rules (link `DETERMINISM.md`);
   add the Game layer (`FightSession`, input sources, replay, combo watcher) and
@@ -136,14 +136,24 @@ code" — and batching it behind the prose work is how a stamp becomes decoratio
   **Done when:** `check_docs.py` reports no path finding anywhere, and the ~8,500
   shipped lines of `Games/UntitledFighter/Game/` and `Games/UntitledFighter/Modes/`
   have a manual page.
-- `[ ]` **M0.5b The rest of the manual, and the stamps.** *(M)* De-duplicate the
+- `[x]` **M0.5b One home per fact, across the manual.** *(M)* De-duplicate the
   four repeated blocks to one canonical page each (isolation note + frame order →
   `architecture.md`; staging rule + packaging + scene JSON →
   `scenes-and-shipping.md`); merge `lua-scripting.md` into
   `gameplay-scripting.md` as a "presentation and tooling only (D7)" section;
   fold `BUILDING_LINUX.md` into `getting-started.md`; `performance.md` gains the
-  laptop section from the archived audit. Then stamp every page — **after**
-  reading it against the code, one page at a time.
+  laptop section from the archived audit.
+  **Done when:** `docs/manual/` has no second copy of the four blocks, and
+  `docs/` holds no page that another page now owns.
+- `[ ]` **M0.5c The read-through, then the stamps.** *(M)* Fourteen pages under
+  `docs/manual/`, one at a time: read the page against the code it cites, fix what
+  it gets wrong, and only then write `Verified: <date> @ <sha>`. **The stamp is
+  the claim**, so it cannot be applied in the same pass that wrote the prose — a
+  page stamped by its own author on the day it was written says nothing. M0.5a's
+  four stale `ARCHITECTURE.md` citations are the shape of what this finds: a live
+  link into a section that no longer means what it meant, which no gate can see.
+  Start with the pages nothing else in M0 touched — `ui.md` (1,994 lines),
+  `rendering.md`, `physics.md`, `assets.md`.
   **Done when:** `check_docs.py` reports no stamp finding under `docs/manual/`.
 - `[ ]` **M0.6 Entry points, and make it required.** *(S)* `README.md`: pitch,
   one roadmap paragraph + link, docs table for the new tree, build/run/ship;
@@ -502,6 +512,12 @@ this is the list, so nobody re-proposes them by accident.
   beyond skinning — ARCHITECTURE §2 conditions.
 - Two open rows carried from the archived 2026-07 ledger: `EventBus` (deleted in
   M1.8) and gamepad verification on physical hardware (do it during M2.5).
+- **Shipping a Linux binary** — an `$ORIGIN` rpath so executables launch without
+  `LD_LIBRARY_PATH`, a Linux install layout in place of the Windows applocal
+  deploy, and hiding the editor's redundant title-bar strip where the borderless
+  install is a no-op. Carried from the folded `BUILDING_LINUX.md`. Comes back when
+  something has to *run* on Linux rather than compile and test there; CI covers
+  compile-and-test today, which is what the determinism gate needs.
 
 ---
 

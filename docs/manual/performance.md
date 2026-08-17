@@ -400,6 +400,39 @@ stop measuring and fix the adapter selection before drawing any conclusion.
 
 ---
 
+## Working on the development laptop
+
+Measured 2026-07-09 on the machine this engine is developed on — an ASUS laptop
+with an i5-11400H, an RTX 3050 Laptop (4 GB), 8 GB of RAM and an NVMe SSD, under
+Windows 11. Numbers this old are kept because the *shapes* they describe have not
+changed; re-measure before quoting any of them as current.
+
+- **RAM is the pinch.** 0.9 GB free was measured while developing: Visual Studio,
+  the editor and a browser saturate 8 GB between them. If the machine has a free
+  SODIMM slot, another 8 GB is the single best hardware change for this workflow.
+- **Keep the repository out of OneDrive**, or at least exclude `out/`. Build
+  output churns thousands of files; sync adds I/O and can lock a file mid-build.
+  Git is the backup.
+- **Budget for 60 FPS at 1080p on the 3050** — 16.6 ms. Keep 4×2048 CSM as the
+  "High" preset and default to 3×1536 (~28 MB) on 4 GB-class GPUs.
+- **An MSVC update invalidates the vcpkg binary cache.** About six minutes of
+  rebuild, once. Expected; do not go looking for a cause.
+- **Do not reach for the Max Shadow Distance slider on a wide shot.** A per-pass
+  A/B on 2026-07-20 refuted that intuition outright: disabling CSM entirely,
+  lowering shadow resolution, cascades and distance, zeroing the PCF kernel, and
+  rendering at quarter resolution each moved the median by roughly **0 ms**. A
+  wide view is **vertex- and instance-count bound**, and the only lever that
+  helps is drawing fewer objects — the LOD system (on by default) and the opt-in
+  screen-space small-object cull. On a low oblique shot, a 48-pixel floor took
+  39.3k instances to 16.2k and 16.6 ms to 7.1 ms.
+- **If the editor is far slower than the headless harness, suspect the iGPU
+  before the code.** A hybrid laptop silently running on integrated graphics
+  measured 129 ms on a wide shot that the discrete GPU renders in a fraction of
+  that. The Rendering Stats panel prints `GPU: <GL_RENDERER>` for exactly this
+  reason.
+
+---
+
 ## Quick checklist
 
 1. Read the `GPU` line. Wrong adapter → everything below is meaningless.

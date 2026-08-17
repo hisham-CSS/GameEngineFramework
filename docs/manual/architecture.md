@@ -410,7 +410,10 @@ Consumers include a single umbrella header:
 
 **Important:** the concrete physics backends are deliberately *not* exported. `Engine.h` exposes `PhysicsTypes`, `PhysicsComponents`, `IPhysicsBackend`, `PhysicsBackendRegistry`, `PhysicsWorld`, and `PhysicsInstall` only — callers select a backend *by name* through the registry, so no consumer ever includes an SDK header.
 
-### Physics backends and the `_HAS_EXCEPTIONS` landmine
+### The SDK isolation rule
+
+This is the one home for the `_HAS_EXCEPTIONS` landmine; the physics and
+getting-started pages link here rather than keeping a copy.
 
 `Engine/CMakeLists.txt` never links a physics SDK directly into `Engine`. Each backend goes into its own **STATIC** library via `cse_add_isolated_backend`, which links the SDK `PRIVATE`. The helper is shared with the scripting seam rather than physics-specific: the isolation problem is identical (Jolt exports `_HAS_EXCEPTIONS=0`, vcpkg's Lua exports `LUA_BUILD_AS_DLL`), so the fix is written once. Trailing arguments are the SDK targets to link, since a backend may need more than one — the Lua backend passes both `sol2` and `lua-cpp`.
 

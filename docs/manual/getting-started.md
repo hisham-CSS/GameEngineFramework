@@ -37,7 +37,7 @@ Unit tests are built by default; `option(ENABLE_TESTS "Build unit tests" ON)` tu
 1. **A C++17 compiler.** On Windows, **Visual Studio 2022** with the C++ desktop workload is
    the primary path (the build has MSVC-specific pieces like `/Zi` and
    `/ENTRY:mainCRTStartup`, all guarded behind `if(MSVC)`). The engine also builds on
-   **Linux** (gcc ≥ 11 / clang ≥ 14) — see **[Building on Linux](../BUILDING_LINUX.md)**.
+   **Linux** (gcc ≥ 11 / clang ≥ 14) — see [Building on Linux](#building-on-linux) below.
 2. **CMake 3.21 or newer.** The root `CMakeLists.txt` only requires 3.20
    (`cmake_minimum_required(VERSION 3.20)`), but `CMakePresets.json` is a version-3 preset
    file declaring `"cmakeMinimumRequired": { "major": 3, "minor": 21 }` — so the preset
@@ -81,20 +81,12 @@ everyone resolves the same package versions.
 
 A build with neither still works — the dependency-free "Simple" backend is always registered.
 
-> **Important — do not link an SDK straight into `Engine`.** Each SDK is linked into its own
-> `STATIC` library by the `cse_add_isolated_backend` function in `Engine/CMakeLists.txt`,
-> never directly into `Engine`. The same helper isolates the Lua scripting backend (vcpkg's
-> `lua-cpp` exports `LUA_BUILD_AS_DLL`), which is why it is named for isolation rather than
-> for physics; trailing arguments are the SDK targets to link, since a backend may need more
-> than one — the Lua backend needs `sol2` *and* `lua-cpp`. The reason is recorded in the
-> comment there: these imported targets propagate `INTERFACE` compile definitions to every
-> consumer source file, and Jolt's include defines `_HAS_EXCEPTIONS=0`. Linking Jolt directly
-> into `Engine` rebuilt the *entire* engine without exception support, which turned the
-> `std::filesystem` throw that `AssetIndex` relies on (non-codepage filenames) into a
-> `0xC0000409` fast-fail and would have silently broken every other `try`/`catch` in the
-> engine. `STATIC` rather than `OBJECT` is load-bearing: for a static library CMake records
-> `PRIVATE` deps as `$<LINK_ONLY:...>`, so `Engine` inherits the SDK's `.lib` for linking but
-> not its compile definitions or include directories.
+> **Important — do not link an SDK straight into `Engine`.** Each SDK goes into its own
+> `STATIC` library via `cse_add_isolated_backend`, never directly into `Engine`, because
+> an imported target's INTERFACE compile definitions reach every consumer source file —
+> and Jolt's include defines `_HAS_EXCEPTIONS=0`. If you are about to change that, read
+> [the SDK isolation rule](architecture.md#the-sdk-isolation-rule) first: it records what
+> broke last time and why `STATIC` rather than `OBJECT` is the load-bearing half.
 
 ## Configuring and building
 
@@ -193,6 +185,70 @@ physics bugs.
 > explicitly, and that is deliberate. Without them this configuration falls back to each
 > target's own binary directory, which scatters `Engine.dll` away from the executables that
 > need to load it.
+
+## Building on Linux
+
+The engine targets **Windows and Linux**. Windows is the primary path; Linux is
+kept deliberately separate so it never disturbs the Visual Studio workflow, and
+it is the only compiler that ever sees this code that is not MSVC — the Linux CI
+job builds *and runs the suite*, which is what makes the cross-toolchain
+determinism gate mean anything.
+
+**Prerequisites** beyond the ones above: gcc ≥ 11 or clang ≥ 14, Ninja, and
+GLFW's X11 development packages, which vcpkg builds glfw3 against and cannot
+install itself:
+
+```bash
+sudo apt install libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev   # Debian/Ubuntu
+sudo dnf install libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel   # Fedora
+```
+
+X11 is the default and XWayland runs it fine under a Wayland session; a native
+Wayland backend would additionally need `libxkbcommon`/`wayland` and glfw3's
+`wayland` feature.
+
+**Export `VCPKG_ROOT`, not `CSE_VCPKG_ROOT`.** The presets are
+`hostSystemName == Windows` only, and `scripts/linux-build.sh` takes plain
+`VCPKG_ROOT`:
+
+```bash
+export VCPKG_ROOT=$HOME/vcpkg
+scripts/linux-build.sh              # RelWithDebInfo; also accepts Debug or Release
+```
+
+The script configures with Ninja, the vcpkg toolchain and the
+`x64-linux-dynamic` triplet — the engine is a shared library, and the default
+static triplet's non-PIC archives will not link into `libEngine.so`. Output lands
+in `out/build/linux-<BuildType>/build/bin/<BuildType>/`.
+
+### What differs from the Windows build
+
+- **PhysX is Windows-only.** `vcpkg.json` platform-qualifies `physx` to
+  `windows`, because the vcpkg omniverse-physx-sdk port has fragile x64-linux
+  support and CMake already treats the backend as optional. Linux physics runs on
+  the **Jolt** and **Simple** backends.
+- **No borderless window.** `EditorTitleBar::Install` is a no-op outside `_WIN32`,
+  so Linux keeps the native window-manager title bar *and* the editor's own
+  title-bar strip, which is drawn unconditionally. You get both.
+- **The editor's AssetCooker validation** runs through a portable subprocess seam
+  (`Editor/src/Subprocess.cpp` — `posix_spawn` + `pipe` on Linux).
+- **No DLL staging.** `tests/CMakeLists.txt` guards its third-party copy behind
+  `if(WIN32)`: those names do not exist next to `libEngine.so`, and
+  `cmake -E copy_if_different` fails on a missing source — which once aborted the
+  whole build, Editor and Player included, because every test target depends on
+  that one staging target. The loader resolves `libEngine.so` through the build
+  RPATH instead. Only the `Exported/` assets are copied on both platforms.
+- **Discrete-GPU selection is not an export symbol.** On a hybrid-GPU laptop,
+  ask for the dGPU at launch — it matters for the same reason it does on Windows:
+
+  ```bash
+  __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia ./Editor   # NVIDIA PRIME
+  DRI_PRIME=1 ./Editor                                                    # Mesa / AMD
+  ```
+
+Freshly built binaries may still need `LD_LIBRARY_PATH`: an `$ORIGIN` rpath and a
+Linux install layout are not built yet, and neither is scheduled — see
+[ROADMAP.md](../ROADMAP.md)'s "Not scheduled, on purpose".
 
 ## Where the binaries land
 

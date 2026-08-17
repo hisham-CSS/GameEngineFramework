@@ -136,7 +136,7 @@ Maps a mesh's material slot index to an override. `MaterialHandle` is `std::shar
 | `enabled` | `bool` | `true` | a disabled script still loads (so errors surface) but never runs — no update, no fixed update, and no collisions |
 
 Each entity gets its own instance with isolated globals, even when several
-entities share one file. See [Lua Scripting](lua-scripting.md).
+entities share one file. See [Lua scripting](gameplay-scripting.md#lua-presentation-and-tooling-only-never-the-simulation).
 
 The checkbox is live during Play. Ticking it mid-session runs `OnStart` before
 the first hook that instance receives, so `OnStart` keeps its promise ("once,

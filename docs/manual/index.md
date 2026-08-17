@@ -25,7 +25,6 @@ generated [API Reference](../api-index.md).
 |---|---|
 | [Entities and Components](entities-and-components.md) | The ECS, the transform hierarchy, and every component the engine ships |
 | [Writing Gameplay](gameplay-scripting.md) | Update hooks, the fixed tick, input, and reacting to collisions |
-| [Lua Scripting](lua-scripting.md) | Attaching scripts to entities, the script API, and adding another language |
 | [Physics](physics.md) | Rigid bodies, colliders, triggers, collision events, and swapping backends |
 | [Scenes and Shipping a Build](scenes-and-shipping.md) | Saving scenes, changing scene at runtime, the startup scene, and packaging a standalone game |
 | [The Fighting-Game Core](fighting-core.md) | The integer gameplay kernel, character files and their load assertions, `MatchBuilder` and its loss table, the rollback session seam, and the combo prover panel |
@@ -39,7 +38,6 @@ generated [API Reference](../api-index.md).
 | [In-game UI & the 2D layer](ui.md) | `.cxml` markup, `.cstyle` stylesheets, flexbox, events, data binding, hot reload, and `Renderer2D` for 2D games |
 | [Assets](assets.md) | Model and texture loading, async requests, import settings, the cooker |
 | [Performance](performance.md) | Measuring frames, reading the stats panel, and what actually costs time |
-| [Building on Linux](../BUILDING_LINUX.md) | The Linux build path (the engine targets Windows and Linux) |
 
 ## Design principles
 
