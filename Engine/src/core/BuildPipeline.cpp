@@ -2039,6 +2039,65 @@ namespace MyCoreEngine {
                 R.config + " configuration.");
         }
 
+        // 1b. AND IT HAS THE LIBRARIES IT NEEDS TO START.
+        //
+        //     THIS CHECK EXISTS BECAUSE ITS ABSENCE SHIPPED A BROKEN BUILD. The
+        //     bundle held Engine.dll and lua-c++.dll -- the only two with explicit
+        //     install() rules -- and none of the other fifteen. Check 1 passed,
+        //     every scene check passed, the panel said the build succeeded, and
+        //     double-clicking the result produced a Windows loader dialog:
+        //     "The code execution cannot proceed because glfw3.dll was not found."
+        //
+        //     The cause was vcpkg's install-time applocal hook shelling out to
+        //     `dumpbin`, which is on PATH only inside a Visual Studio developer
+        //     environment -- and the editor spawns `cmake --install` from a GUI
+        //     process that has none. applocal reported the problem with a
+        //     PowerShell Write-Error, which does not fail an install, so every
+        //     layer above it reported success.
+        //
+        //     THE SOURCE OF TRUTH IS THE BUILD TREE'S OWN BIN DIRECTORY, not a
+        //     list of names. app_runtime_deps stages it with everything the engine
+        //     needs to run, INCLUDING the DLLs that appear in no import table --
+        //     PhysXCommon_64 is loaded by PhysX_64 at runtime, which is why a
+        //     dependency-graph walk cannot find it and why a hand-written list was
+        //     already measured wrong by four entries
+        //     (cmake/stage_runtime_dlls.cmake). Asking "did every one of those
+        //     reach the bundle" needs no list and cannot drift.
+        {
+            const fs::path staged = R.binaryDir / "build" / "bin" / R.config;
+            std::error_code ec;
+            std::vector<std::string> missing;
+            if (fs::is_directory(staged, ec)) {
+                for (const auto& e : fs::directory_iterator(staged, ec)) {
+                    if (ec) break;
+                    if (!e.is_regular_file(ec)) continue;
+                    const fs::path& p = e.path();
+                    if (p.extension() != ".dll" && p.extension() != ".DLL") continue;
+                    if (!IsFile(R.outputDir / p.filename())) {
+                        missing.push_back(p.filename().string());
+                    }
+                }
+            }
+            if (!missing.empty()) {
+                std::string names;
+                for (std::size_t i = 0; i < missing.size() && i < 6; ++i) {
+                    if (!names.empty()) names += ", ";
+                    names += missing[i];
+                }
+                if (missing.size() > 6) {
+                    names += " (and " + std::to_string(missing.size() - 6) + " more)";
+                }
+                failures.push_back(
+                    "the bundle is missing " + std::to_string(missing.size()) +
+                    " runtime librar" + (missing.size() == 1 ? "y" : "ies") +
+                    " that the build tree has beside the engine: " + names +
+                    ". This bundle would fail in the Windows loader before main() "
+                    "runs, with a dialog naming one of them. The rule that should "
+                    "have copied them is the runtime-DLL install(CODE) in "
+                    "Player/CMakeLists.txt.");
+            }
+        }
+
         // 2. EVERY LISTED SCENE IS PRESENT AND LOADS, IN THE BUNDLE.
         for (std::size_t i = 0; i < settings.scenes.size(); ++i) {
             if (Cancelled()) { cancelled("while checking the bundle"); return false; }

@@ -108,6 +108,51 @@ install(TARGETS PlayerShipping RUNTIME DESTINATION .
 install(TARGETS PlayerDebug RUNTIME DESTINATION .
         CONFIGURATIONS Debug RelWithDebInfo)
 
+# EVERY DLL THE GAME NEEDS, copied from the directory that already has them.
+#
+# This replaces vcpkg's install-time applocal hook, which the root CMakeLists.txt
+# now turns OFF and says why at length: it shells out to `dumpbin`, dumpbin is
+# only on PATH in a VS developer environment, the editor spawns `cmake --install`
+# from a GUI process that has no such environment, and applocal's failure is a
+# Write-Error that does not fail the install. The result was a bundle holding
+# Engine.dll, lua-c++.dll and nothing else, reported as a successful build, which
+# died on launch with "glfw3.dll was not found".
+#
+# THE SOURCE IS build/bin/<CONFIG>, NOT vcpkg's bin, and that is the whole point.
+# app_runtime_deps has already staged that directory with everything the engine
+# needs to RUN -- including the DLLs no import table mentions, which is the
+# PhysXCommon_64 lesson from cmake/stage_runtime_dlls.cmake. Copying it is the
+# same rule stated a third time rather than a fourth mechanism.
+#
+# Resolved at INSTALL time via CMAKE_INSTALL_CONFIG_NAME for the same reason the
+# authored-content block below does it: install(DIRECTORY) fixes its source at
+# configure time and cannot see $<CONFIG>, and getting that wrong is how the
+# bundle silently ships the wrong configuration's files.
+#
+# GLOB IS CORRECT HERE and is not the usual CMake glob hazard. That hazard is
+# about globbing SOURCES at configure time and missing files added later; this
+# runs during install, long after the staging target has populated the directory,
+# and its whole purpose is to copy whatever is there rather than a list that can
+# drift. A hand-written list is what stage_runtime_dlls.cmake already records
+# being wrong by four DLLs.
+install(CODE "
+  set(_dlldir \"${CMAKE_BINARY_DIR}/build/bin/\${CMAKE_INSTALL_CONFIG_NAME}\")
+  file(GLOB _runtime_dlls \"\${_dlldir}/*.dll\")
+  if(_runtime_dlls)
+    list(LENGTH _runtime_dlls _n)
+    message(STATUS \"Bundling \${_n} runtime DLL(s) from \${_dlldir}\")
+    file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}\" TYPE SHARED_LIBRARY
+         FILES \${_runtime_dlls})
+  else()
+    message(FATAL_ERROR
+      \"No runtime DLLs in \${_dlldir}, so this bundle would not start: the \"
+      \"loader would fail on glfw3.dll or assimp before main() runs. That \"
+      \"directory is populated by the app_runtime_deps target, so the usual \"
+      \"cause is installing a configuration that was never built. Build \"
+      \"configuration '\${CMAKE_INSTALL_CONFIG_NAME}' first.\")
+  endif()
+")
+
 # The CONTENT rules stay unconditional: every profile's bundle needs the same
 # assets, and only the executable differs between them.
 #

@@ -1,9 +1,41 @@
 cmake_minimum_required(VERSION 3.20)
 
-# Have the vcpkg toolchain deploy each installed target's DLL dependency
-# closure (assimp, glfw, zlib, ...) during `cmake --install` as it already
-# does at build time. Must be set before project().
-set(X_VCPKG_APPLOCAL_DEPS_INSTALL ON)
+# DO NOT have the vcpkg toolchain deploy DLLs during `cmake --install`.
+#
+# This was ON, and it SHIPPED A GAME THAT COULD NOT START: a bundle built from
+# the editor contained Engine.dll and lua-c++.dll -- the only two with explicit
+# install() rules -- and none of the twelve others. Double-clicking it produced
+# "The code execution cannot proceed because glfw3.dll was not found."
+#
+# THE CAUSE, MEASURED. vcpkg's applocal.ps1 reads a binary's import table with
+# an external tool, and its very first choice is `dumpbin`:
+#
+#     if (Get-Command "dumpbin") { ... }
+#     elseif (Get-Command "llvm-objdump") { ... }
+#     elseif (Get-Command "objdump") { ... }
+#     else { Write-Error "Neither dumpbin, llvm-objdump nor objdump ..." }
+#
+# `dumpbin.exe` ships with MSVC and is on PATH only inside a Visual Studio
+# developer environment. The editor spawns `cmake --install` as a child of
+# ITSELF, and the editor is a GUI process with an ordinary environment -- so
+# there is no dumpbin, applocal takes the else branch, and `Write-Error` does
+# NOT fail the install. cmake reports success, the Build panel reports success,
+# and the bundle is missing every dependency. Running the same command from a
+# developer prompt deploys all twelve, which is why this survived: it works
+# everywhere it was tested and fails everywhere it is used.
+#
+# AND WALKING THE IMPORT TABLE WOULD NOT BE ENOUGH EVEN WITH dumpbin PRESENT.
+# cmake/stage_runtime_dlls.cmake already records why: PhysXCommon_64.dll appears
+# in no import table because PhysX_64 loads it at runtime, so a dependency-graph
+# walk cannot see it. That file's conclusion -- "the tests need whatever the
+# engine needs to run", stated once, as a directory copy -- is the rule, and the
+# install path is now the third consumer of it after tests/ and build/bin/.
+#
+# So: ONE COPIER, the same conclusion the line below reaches for the build tree,
+# and Player/CMakeLists.txt owns the install-side copy. Two mechanisms that can
+# disagree about a bundle's contents is exactly what this repository keeps
+# getting caught by.
+set(X_VCPKG_APPLOCAL_DEPS_INSTALL OFF)
 
 # Turn OFF vcpkg's per-executable BUILD-TIME DLL deployment, project-wide.
 #
