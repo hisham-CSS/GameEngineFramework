@@ -42,19 +42,24 @@
 // copy inside GameState would only have moved the proof, not removed it.
 //
 // ---------------------------------------------------------------------------
-// WHAT IS DELIBERATELY NOT HERE
+// WHAT USED TO BE DELIBERATELY NOT HERE, AND NOW IS
 // ---------------------------------------------------------------------------
-// Hitstop/freeze is OUT OF SCOPE and is not half-implemented here. It is not a
-// box question at all -- it is a rule about which fighters advance on which
-// ticks, it needs its own counter in GameState, and it changes the meaning of
-// every frame number in the character data. Doing a piece of it would leave the
-// kernel in a state where a designer's "startup 5" means five ticks sometimes.
+// This block used to list hitstop, blocking, blockstun, pushback, juggle,
+// proration, priority and hitstun decay as out of scope, each "Phase 3". They
+// are ADR-005 section 4's P2, they landed as ONE state expansion for the reason
+// that document gives -- GameState is a wire contract and seven separate passes
+// pay for seven re-goldens -- and the fields for them are below.
 //
-// Also absent, and each for the same reason -- it is Phase 3 in
-// ARCHITECTURE.md's build order and does not fit in "one hit": blocking and
-// blockstun, pushback, juggle and proration, per-frame (rather than per-move)
-// boxes, throw boxes, push boxes, priority and trade resolution beyond the
-// symmetric rule below, and hitstun decay.
+// The old text's reasoning is preserved where it still binds. On hitstop it said
+// it "is not a box question at all -- it is a rule about which fighters advance
+// on which ticks, and it changes the meaning of every frame number in the
+// character data". That is exactly right and it is why Fighter::hitstop is a
+// FREEZE and not a subtraction: startup 5 is still five ticks OF THE MOVE.
+//
+// STILL NOT HERE, and each is still Phase 3+: throw boxes, push boxes, per-FRAME
+// (rather than per-move) boxes, and projectiles. Per-move hurtbox overrides ARE
+// here -- Combat.h predicted their shape before anyone asked for them, and
+// ADR-006 section 3.3 took it up.
 //
 // ---------------------------------------------------------------------------
 // CANCELS, AND THE ONE THING THEY ARE NOT ALLOWED TO COST
@@ -189,6 +194,101 @@ bool BoxesOverlap(const Box& a, const Box& b);
 
 // --- The read-only character data a tick may look at ------------------------
 
+// --- The vocabularies ADR-006 decided ---------------------------------------
+
+// MoveDef::stance -- what the ATTACKER must be in to START this move.
+//
+// APPEND-ONLY, and ADR-006 section 3.1 says why in one sentence: these integers
+// become wire-visible under the connect handshake's hash, so inserting a value
+// beside the one it reads better next to silently re-labels every move in every
+// replay and on every peer.
+//
+// kStanceGround continues to mean GROUNDED, STANCE UNSPECIFIED -- an honest
+// description of the MUGEN corpus, whose importer collapsed S and C into one
+// value (ADR-006 section 1.3). A NEW character uses standing or crouching and
+// never ground.
+inline constexpr std::uint8_t kStanceAny       = 0;  // zero-init = no restriction
+inline constexpr std::uint8_t kStanceGround    = 1;
+inline constexpr std::uint8_t kStanceStanding  = 2;
+inline constexpr std::uint8_t kStanceCrouching = 3;
+inline constexpr std::uint8_t kStanceAir       = 4;
+
+// MoveDef::blockedAs -- which block stops it.
+//
+//     a HIGH block (standing)  stops { high, mid }
+//     a LOW  block (crouching) stops { low,  mid }
+//
+// So a high attack goes through a low block (an OVERHEAD) and a low attack goes
+// through a high block. kBlockedAsMid is ZERO because it is the default, and the
+// default has to be the value that changes nothing: every move in the Phase-0
+// corpus was authored before this field existed.
+//
+// It is `blockedAs` and never `guard`. ADR-006 section 1.5: `move.guard` already
+// exists in the schema and is a RESOURCE MINIMUM ("this super costs a bar"),
+// with nothing whatever to do with blocking, and it got there first.
+inline constexpr std::uint8_t kBlockedAsMid  = 0;
+inline constexpr std::uint8_t kBlockedAsHigh = 1;
+inline constexpr std::uint8_t kBlockedAsLow  = 2;
+
+// InvincibilityWindow::kinds -- what an attack COUNTS AS, for the purpose of
+// deciding what cannot be hit by it.
+//
+// THE LIST SPANS TWO AXES ON PURPOSE, and ADR-006 section 3.7 insists this be
+// written down rather than inferred from the names: high/mid/low come from the
+// incoming attack's `blockedAs`, while `aerial` comes from the incoming
+// ATTACKER's `stance`. They sit in one list because "what can I not be hit by"
+// is the sentence a designer writes, and it does not respect field boundaries.
+//
+// THE MATCH IS AN INTERSECTION, NOT A CONTAINMENT, and that is the whole reason
+// an anti-air works. An incoming attack carries one token from EACH axis: an
+// aerial medium punch arrives as {aerial, high}, and a window naming {aerial}
+// stops it because ONE token matches. Under a containment rule an anti-air would
+// have to enumerate all three guard heights as well, and the field would be
+// useless for the case it was added for.
+//
+// APPEND-ONLY, same reason as kStance*.
+inline constexpr std::uint16_t kAttackHigh       = 1u << 0;
+inline constexpr std::uint16_t kAttackMid        = 1u << 1;
+inline constexpr std::uint16_t kAttackLow        = 1u << 2;
+inline constexpr std::uint16_t kAttackAerial     = 1u << 3;
+// RESERVED: legal to author, inert today. The kernel can produce neither a throw
+// nor a projectile, so a window naming only these is inert rather than wrong and
+// nothing warns about it -- a warning there would fire on correct forward-looking
+// data. Reserving them costs one bit each now; adding them later costs a bit
+// position inside a struct the connect handshake hashes.
+inline constexpr std::uint16_t kAttackThrow      = 1u << 4;
+inline constexpr std::uint16_t kAttackProjectile = 1u << 5;
+
+// One span of ticks during which a move cannot be hit by certain kinds.
+//
+// AN EMPTY `kinds` MEANS INVINCIBLE TO EVERYTHING, because this list only ever
+// NARROWS a window and the identity element of a narrowing is everything. That
+// is also why there is no whitelist form and must never be one: windows may
+// overlap, the meaning of an overlap is the UNION, and union is commutative and
+// idempotent only while every window subtracts. Two overlapping whitelists have
+// no order-independent reading. See ADR-006 section 3.6.
+struct InvincibilityWindow {
+    // Ticks from the start of the move, in MoveDef::startup's own base.
+    std::int32_t fromTick;
+
+    // Length. A zero-tick window is not a short window, it is the empty set --
+    // it sits in the file looking like protection while providing none -- so the
+    // LOADER refuses it. The kernel treats it as inert rather than trusting that.
+    std::int32_t ticks;
+
+    // Bitwise OR of kAttack*. Zero means everything (see above).
+    std::uint16_t kinds;
+
+    // Explicit, for MoveDef::pad_'s reason.
+    std::uint16_t pad_;
+};
+
+// Four windows per move. The motivating case from ADR-006 section 3.6 --
+// "invincible 1-6, then throw-invincible through recovery" -- is two, so this is
+// comfortable headroom, and it is a fixed bound because D4 forbids unbounded
+// growth in anything the simulation reads.
+inline constexpr std::int32_t kMaxInvulnWindows = 4;
+
 // One attack. Frame numbers are ticks from the start of the move, where the tick
 // the move starts is frame 0. The hitbox is live on frames
 // [startup, startup + active) and the move ends after
@@ -213,18 +313,124 @@ struct MoveDef {
     // the other way, never by scaling it.
     Box hitbox;
 
+    // The attacker's body WHILE THIS MOVE RUNS, replacing FighterData::hurtbox,
+    // and used only when hasHurtboxOverride is set.
+    //
+    // THIS IS WHY THERE IS NO `low_profiles` BOOLEAN, and ADR-006 section 3.3
+    // makes the argument: a crouching attack ducks a high attack because ITS BODY
+    // IS SHORTER for those frames, not because somebody wrote a flag. Not every
+    // crouching attack low-profiles, and a file that states a SHAPE never has to
+    // claim that it does. A boolean answers exactly one question -- the one its
+    // author happened to think of. A box answers all of them: which specific
+    // attacks clear it, whether a sweep still catches it, how much is exposed.
+    Box hurtboxOverride;
+
+    // Ticks of blockstun inflicted when this is blocked. Distinct from hitstun
+    // because it always is in real frame data -- blockstun being shorter than
+    // hitstun is what makes a blocked string punishable and a connected one not.
+    std::int16_t blockstun;
+
+    // Damage dealt THROUGH a block, in Fighter::health units.
+    std::int16_t chipDamage;
+
+    // Pushback applied to the defender, in sub-units per tick, AWAY from the
+    // attacker. Signed for authoring convenience (a negative value pulls, which
+    // is a real move) rather than because the sign encodes direction -- direction
+    // comes from the position difference at contact, never from facing
+    // multiplied into a coordinate.
+    std::int16_t pushbackHit;
+    std::int16_t pushbackBlock;
+
+    // Who wins when both attacks land on the same tick. HIGHER WINS OUTRIGHT and
+    // the loser takes nothing; EQUAL IS A TRADE and both land.
+    //
+    // THE DEFAULT IS THE GAME THAT WAS ALREADY RUNNING. Every character authored
+    // before this field leaves it absent, so every move compares 0 against 0, so
+    // every meeting is a tie, so every meeting is a trade -- which is precisely
+    // what ResolveHits did before priority existed. A file that does not author
+    // this field describes the shipped game exactly, and
+    // test_combat.cpp's ASimultaneousTradeIsSymmetric is the test that proves it.
+    //
+    // SIGNED, because "this move loses to everything" is a real thing to author
+    // -- a committal heavy, a taunt -- and it is naturally -1; with an unsigned
+    // type the only way to say "below the default" is to renumber the whole cast.
+    //
+    // SCOPE, stated narrowly because the word invites more: it is not a measure
+    // of how good a move is, it does not gate STARTING a move, it interrupts
+    // nothing, and it is consulted only in the one instant two hitboxes both
+    // connect. A move that never meets another on that tick never reads it.
+    std::int16_t priority;
+
+    // Juggle budget this move spends from the DEFENDER when it connects. A hit
+    // that would take the defender's remaining budget below zero does not land.
+    std::int16_t juggleCost;
+
+    // The tick on which a GROUNDED move leaves the floor. Only meaningful when
+    // hasAirborneFrom is set -- see that field, which exists because ZERO IS A
+    // LEGAL VALUE HERE and therefore cannot also be the sentinel.
+    //
+    // This is the other half of ADR-006 section 3.3: a hop kick passes over a low
+    // for as long as it is off the ground. In startup's tick base, so a move can
+    // leave the ground BEFORE its hitbox appears, which is what a hop kick
+    // actually does. Note that v2 already modelled the END of an airborne phase
+    // (transition.kind "on_land") and not its start.
+    std::int16_t airborneFromTick;
+
     // The input bits that start this move. ALL of them must be held, and zero
-    // means "not startable from a button" (a move only reachable from a cancel,
-    // once cancels exist). Held, not pressed: edge detection needs the previous
-    // tick's buttons inside GameState, because a rollback restores state and
-    // hands Simulate only the current tick's input -- that field is a deliberate
-    // omission, not an oversight. See the note in Combat.cpp.
+    // means "not startable from a button" (a move only reachable from a cancel).
+    // Held, not pressed: edge detection needs the previous tick's buttons inside
+    // GameState, because a rollback restores state and hands Simulate only the
+    // current tick's input -- that field is a deliberate omission, not an
+    // oversight. See the note in Combat.cpp.
     std::uint16_t button;
 
-    // Explicit, for the same reason Fighter has no implicit padding: §4.8 says
-    // the connect handshake hashes the LOADED POD ARRAYS, and hashing a struct
-    // with indeterminate padding compares two machines' uninitialised bytes.
-    std::uint16_t pad_;
+    // Ticks BOTH fighters freeze for when this connects. A freeze, not a
+    // subtraction: see Fighter::hitstop.
+    std::uint16_t hitstop;
+
+    // Ticks the defender spends on the floor when this connects, or 0 for no
+    // knockdown. ADR-006 section 9 records that this fact is already authored
+    // three times in the shipping character (a tag, an engine.reaction field and
+    // an English label) and read by nothing. This is the field that reads it.
+    std::uint16_t knockdownTicks;
+
+    // How much this move REDUCES the defender's damage scaling by, in percent,
+    // applied multiplicatively: 0 takes nothing off, 100 makes everything after
+    // it worthless.
+    //
+    // IT IS A REDUCTION AND NOT THE RESULTING SCALE, and that inversion is the
+    // whole point. The rule this struct obeys everywhere -- kStanceAny is 0,
+    // kBlockedAsMid is 0 -- is that THE ZERO VALUE MUST BE THE ONE THAT CHANGES
+    // NOTHING, because zero is what every character authored before the field
+    // existed has and what every value-initialised MoveDef in a test has.
+    // Storing the resulting scale instead would make an unauthored move prorate
+    // the combo to 0%, so the first hit lands and every hit after it deals no
+    // damage -- which is not a hypothesis: it is what this field did on its first
+    // build, and five behavioural tests caught it.
+    std::uint16_t scalingReduction;
+
+    std::uint8_t stance;     // kStance*
+    std::uint8_t blockedAs;  // kBlockedAs*
+    std::uint8_t hasHurtboxOverride;
+    std::uint8_t invulnCount;  // used entries in invuln[]
+
+    // Whether airborneFromTick means anything.
+    //
+    // A SEPARATE FLAG RATHER THAN A -1 SENTINEL, for the reason above: a move
+    // that leaves the ground on frame 0 is a real move, so 0 cannot also mean
+    // "never". With a sentinel, a value-initialised MoveDef would claim EVERY
+    // move goes airborne on its first frame, which classifies every attack in
+    // the game as aerial and hands every anti-air a free win. Same shape as
+    // hasHurtboxOverride, deliberately, so there is one idiom here and not two.
+    std::uint8_t hasAirborneFrom;
+
+    // Explicit, for the same reason Fighter has no implicit padding: section 4.8
+    // says the connect handshake hashes the LOADED POD ARRAYS, and hashing a
+    // struct with indeterminate padding compares two machines' uninitialised
+    // bytes.
+    std::uint8_t pad_;
+
+    InvincibilityWindow invuln[kMaxInvulnWindows];
 };
 
 // 32 moves per fighter. A hard cap, deliberately: D4 forbids unbounded growth in
@@ -294,10 +500,50 @@ inline constexpr std::int32_t kMaxCancelsPerFighter = 256;
 
 // Everything one fighter's simulation reads and never writes.
 struct FighterData {
-    // The body, authored facing +X. One box for the whole character today;
-    // per-frame hurtboxes (a crouch is a different shape) are Phase 3, and they
-    // land as a per-move override here, not as a field of GameState.
+    // The body, authored facing +X. This is the DEFAULT body; a move may replace
+    // it for the ticks it runs via MoveDef::hurtboxOverride, which is the
+    // per-move override this comment used to predict as Phase 3 and which
+    // ADR-006 section 3.3 took up. Per-FRAME boxes are still later.
     Box hurtbox;
+
+    // Starting and maximum health for this fighter in THIS match.
+    //
+    // IT LIVES HERE AND NOT IN Fighter BECAUSE A TICK ONLY READS IT, which is
+    // the rule quoted at the top of this file. It is also the right side of the
+    // wire on the merits: two peers fighting a World Tour battle against an
+    // opponent with 1400 health must AGREE that it has 1400 health, and the
+    // connect handshake hashing this array is what proves it. A per-fighter
+    // maximum is what makes RPG-style progression expressible at all -- see
+    // ADR-009 section 5.
+    std::int32_t maxHealth;
+
+    // Juggle budget this fighter starts every combo with, as a DEFENDER.
+    //
+    // Per-character rather than a kernel constant because it is a balance number
+    // and the kernel holds none of those -- Simulate.cpp's own tuning block calls
+    // its contents "the SHAPE, not the balance". The prover's ranking certificate
+    // for fighter_a is written against a starting budget of 4
+    // (docs/manual/fighting-core.md), so that is what the loader defaults to when
+    // a file does not say; a zero here would mean no move with a juggle cost can
+    // ever connect, which is a legal but almost certainly unintended character.
+    std::int32_t juggleMax;
+
+    // Hitstun decay, as suffered BY THIS FIGHTER as a defender: each hit already
+    // taken in the current combo shortens the next one's hitstun by `step` ticks,
+    // never below `floor`.
+    //
+    // STEP 0 IS NO DECAY AND IS THE DEFAULT, which is the same rule every field
+    // in MoveDef follows: the zero value must be the one that changes nothing.
+    //
+    // THE FLOOR IS NOT DECORATION AND THE NUMBERS ARE NOT PICKED. ADR-005 P2
+    // item 6 records that this project's own draft rule -- linear, step 2, floor
+    // 10 -- FABRICATED AN INFINITE on Kung Fu Girl: decay that bottoms out too
+    // low turns a string the character cannot actually loop into one it can, and
+    // the analysis then certifies a combo that does not exist. That is why the
+    // rule is per-character authored data rather than a constant in this kernel,
+    // and why assertion A01 guards it at load.
+    std::int32_t hitstunDecayStep;
+    std::int32_t hitstunDecayFloor;
 
     // Number of USED slots in moves[], INCLUDING the reserved idle slot 0.
     // A moveId names a real move if and only if 0 < moveId && moveId < moveCount.
@@ -324,11 +570,18 @@ struct FighterData {
     CancelEdge cancels[kMaxCancelsPerFighter];
 };
 
-// The read-only data for both sides of a match, indexed by the same slot as
-// GameState::p. Passing both halves as one object keeps the tick from having to
-// be told which fighter it is looking at data for.
+// The read-only data for every slot in a match, indexed by the same slot as
+// GameState::p. Passing them as one object keeps the tick from having to be told
+// which fighter it is looking at data for.
+//
+// SIZE, STATED BECAUSE IT IS NOT SMALL: kMaxFighters entries of ~8 KB each is
+// about 64 KB. That is fine and it is fine for a specific reason -- unlike
+// GameState this is NOT snapshotted, not memcpy'd 128 times a second, and not in
+// the rollback ring. It is built once at match start and hashed once by the
+// connect handshake. What it should NOT be is a casually copied local; prefer a
+// reference or a single owned instance.
 struct MatchData {
-    FighterData p[2];
+    FighterData p[kMaxFighters];
 };
 
 // A match with no moves and no bodies: nothing can start, nothing can be live,
@@ -341,10 +594,18 @@ inline constexpr MatchData kNoMoves{};
 // disciplined as GameState's.
 static_assert(std::is_trivially_copyable_v<MoveDef>, "MatchData is hashed and compared as bytes");
 static_assert(std::is_standard_layout_v<MatchData>, "MatchData is hashed and compared as bytes");
-static_assert(sizeof(MoveDef) == 40,
+static_assert(std::is_trivially_copyable_v<InvincibilityWindow>,
+              "MatchData is hashed and compared as bytes");
+static_assert(sizeof(InvincibilityWindow) == 12,
+              "InvincibilityWindow grew, shrank, or acquired implicit padding. "
+              "Same handshake, same hazard as MoveDef below.");
+static_assert(sizeof(MoveDef) == 128,
               "MoveDef grew, shrank, or acquired implicit padding. The connect "
               "handshake hashes these bytes (ARCHITECTURE.md 4.8), so a padding "
-              "hole would make two peers with identical characters disagree.");
+              "hole would make two peers with identical characters disagree. "
+              "This was 40 before ADR-005 P2; the growth is priority, blockstun, "
+              "chip, pushback, juggle, hitstop, knockdown, scaling, stance, "
+              "blockedAs, the hurtbox override and the invincibility windows.");
 static_assert(std::is_trivially_copyable_v<CancelEdge>, "MatchData is hashed and compared as bytes");
 static_assert(sizeof(CancelEdge) == 16,
               "CancelEdge grew, shrank, or acquired implicit padding. Same "
@@ -378,7 +639,56 @@ bool ActiveHitbox(const FighterData& data, const Fighter& f, Box& out);
 
 // The fighter's body in stage coordinates. Always exists; a character whose
 // hurtbox is degenerate simply cannot be hit, which is what kNoMoves relies on.
+//
+// Uses the CURRENT move's hurtboxOverride when it has one, which is what makes a
+// crouching attack low-profile a high one without any move naming any other move.
 Box Hurtbox(const FighterData& data, const Fighter& f);
+
+// --- Stance, guard, priority and invincibility (ADR-006) ---------------------
+
+// Whether this fighter is off the ground RIGHT NOW, accounting both for the
+// physical jump (Fighter::airborne) and for a grounded move that takes off
+// partway through (MoveDef::airborneFromTick).
+//
+// The second is what makes a hop kick pass over a low, and it is a mid-move
+// state change rather than an entry condition -- ADR-006 section 3.3: "a
+// standing move that goes airborne on frame 9 is still a standing move, because
+// stance says what you must be in to START it."
+bool AirborneNow(const FighterData& data, const Fighter& f);
+
+// Whether a fighter in this state may START this move.
+//
+// kStanceAny permits everything, which is what every character authored before
+// the field existed gets from a zero-init. kStanceGround means grounded with the
+// standing/crouching distinction unstated, so it permits both.
+bool StanceAllows(const MoveDef& m, const Fighter& f);
+
+// What an incoming attack COUNTS AS: a bitwise OR of kAttack*, drawn from the
+// move's blockedAs and from the attacker's current airborne-ness.
+//
+// One token from each axis, which is what makes the intersection rule in
+// InvincibilityWindow work.
+std::uint16_t AttackKinds(const FighterData& attackerData, const Fighter& attacker,
+                          const MoveDef& m);
+
+// Whether the defender's held guard stops an attack blocked as `blockedAs`.
+//
+//     high guard stops { high, mid };  low guard stops { low, mid }
+//
+// kGuardNone stops nothing. Note this asks ONLY about height -- whether the
+// defender is guarding at all, and is facing the right way, and is not in
+// hitstun, are decided by the caller.
+bool GuardStops(std::uint8_t guard, std::uint8_t blockedAs);
+
+// Whether the defender's CURRENT move makes it immune to an attack of these
+// kinds, this tick.
+//
+// The match is an INTERSECTION: the attack's kinds and the window's kinds need
+// share only one bit. A window with no kinds at all is immune to everything,
+// because the list only narrows and the identity of a narrowing is everything.
+// Overlapping windows are a union, which needs no arbitration because union is
+// commutative and idempotent.
+bool InvulnerableTo(const FighterData& data, const Fighter& f, std::uint16_t kinds);
 
 // --- Cancels, read out of the state -----------------------------------------
 
@@ -430,10 +740,13 @@ const CancelEdge* FindCancel(const FighterData& data, const Fighter& f, Input in
 // same tick it started, which is worse.
 void StepAttack(Fighter& f, const FighterData& data, Input in, bool actionable);
 
-// Test both fighters' live hitboxes against the other's body and apply at most
-// one hit each way. Called once per tick, after both fighters have moved and
-// after facing has been resolved -- boxes are mirrored by facing, so facing must
-// be settled before any box is built.
+// Test every active fighter's live hitbox against every ACTIVE OPPOSING
+// fighter's body, and apply at most one hit per attacker. Called once per tick,
+// after every fighter has moved and after facing has been resolved -- boxes are
+// mirrored by facing, so facing must be settled before any box is built.
+//
+// "Opposing" is `a.team != d.team`, an inequality rather than `1 - a`; ADR-009
+// section 3 says why that shape was chosen over the arithmetic one.
 void ResolveHits(GameState& state, const MatchData& data);
 
 } // namespace cse::kernel

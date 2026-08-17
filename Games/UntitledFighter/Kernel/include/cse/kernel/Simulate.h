@@ -39,6 +39,23 @@ void Simulate(GameState& state, const InputPair& inputs);
 // GameState must stay an aggregate with no user-provided constructors -- that is
 // what keeps it trivially copyable, and trivially copyable is what makes the
 // snapshot a memcpy.
+//
+// The setup form is the general one: per-slot team, active flag, start position
+// and start health, plus round length and set length. It is what makes a fight
+// startable from something other than "both fighters at +/-100 pixels with 1000
+// health", which every fight in this game was, because the only way to start one
+// said so. See docs/ADR-009 section 5.
+void ResetMatch(GameState& state, const MatchSetup& setup);
+
+// The 1v1 opening this project shipped with, as data. Exposed rather than hidden
+// inside ResetMatch so a caller can take it and change one field -- a handicap, a
+// cornered story fight, a longer round -- without restating the parts it does not
+// care about.
+MatchSetup DefaultMatchSetup(std::uint32_t seed);
+
+// The seed-only form, kept because most callers and nearly every test want
+// exactly the default match. It is IMPLEMENTED in terms of the setup form, so
+// the default and the general path cannot drift apart.
 void ResetMatch(GameState& state, std::uint32_t seed);
 
 // FNV-1a over the raw bytes. This is the desync checksum from

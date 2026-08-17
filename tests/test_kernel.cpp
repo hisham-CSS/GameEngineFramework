@@ -44,7 +44,14 @@ static_assert(std::is_trivially_default_constructible_v<GameState>,
 // No hidden indirection. A pointer inside the state would survive the memcpy as
 // a dangling address, which is the worst possible failure: it works locally and
 // corrupts on the remote peer.
-static_assert(sizeof(GameState) == sizeof(std::uint32_t) * 2 + sizeof(Fighter) * 2,
+// The header is tick, rng and roundTimer (uint32); roundNumber (uint16); and six
+// bytes -- roundState, fighterCount, roundsWon[2], roundsToWin and one explicit
+// pad. Written as a sum of the members rather than as a byte count so it keeps
+// asking "did padding appear" rather than "is this the number I last wrote down".
+static_assert(sizeof(GameState) == sizeof(std::uint32_t) * 3 +
+                                       sizeof(std::uint16_t) +
+                                       sizeof(std::uint8_t) * 6 +
+                                       sizeof(Fighter) * kMaxFighters,
               "GameState has grown a member that is not accounted for, or the "
               "compiler inserted padding between the header and the fighters. "
               "Either way the byte layout changed and the checksum is no longer "

@@ -3745,13 +3745,32 @@ TEST(GameComboWatcher, ASelfCancelLoopIsCountedRepetitionByRepetition) {
         << "even if the counts agree, this run is too short to distinguish a "
            "working watcher from one that stopped after the first repetition";
 
-    // Fighter::comboHits IS DEAD STATE: nothing in the kernel writes it, so a
-    // watcher that read it would report zero forever and look like it worked.
-    EXPECT_EQ(log.Final().p[0].comboHits, 0u);
-    EXPECT_EQ(log.Final().p[1].comboHits, 0u);
-    EXPECT_NE(report.hits, static_cast<std::int32_t>(log.Final().p[1].comboHits))
-        << "the watcher's hit count equals Fighter::comboHits, which NOTHING in "
-           "the kernel writes. It is reading dead state.";
+    // Fighter::comboHits USED TO BE DEAD STATE, and this block used to assert
+    // that: nothing wrote it, so a watcher reading it would report zero forever
+    // and look like it worked, and an EXPECT_NE caught exactly that.
+    //
+    // ADR-005 P2 brought the field to life -- ResolveHits increments it and the
+    // hitstun-decay rule reads it. THE OLD GUARD IS RETIRED BECAUSE ITS PREMISE
+    // WAS REMOVED ON PURPOSE, not because it became inconvenient: a test that
+    // asserts a field is dead has to go when the field is deliberately given a
+    // writer, or it forbids the feature.
+    //
+    // What replaces it is stronger, because the two numbers are now derived
+    // separately and can be compared. The attacker is never hit, so ITS counter
+    // must stay at zero -- which is what catches a watcher that reads the field
+    // off the wrong slot, or one that counts its own swings.
+    EXPECT_EQ(log.Final().p[0].comboHits, 0u)
+        << "the ATTACKER accumulated combo hits. Either ResolveHits credited the "
+           "wrong slot, or something is counting swings rather than connections.";
+    EXPECT_EQ(static_cast<std::int32_t>(log.Final().p[1].comboHits), report.hits)
+        << "the kernel's own combo counter and the watcher's independently "
+           "derived count disagree. They are computed from different signals -- "
+           "the kernel from ResolveHits, the watcher from alreadyHitBits plus a "
+           "health delta -- so a disagreement means one of them is wrong, and "
+           "this is the assertion that can tell.\n"
+           "(They are the same number only for a combo short of comboHits' uint8 "
+           "saturation, which this one is: " << report.hits << " hits.)"
+        << DescribeReport(report, rig.build.moves[0]);
 
     // The string, its shape, and its arithmetic.
     EXPECT_TRUE(report.open)

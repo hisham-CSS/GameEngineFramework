@@ -135,6 +135,19 @@ add_executable(test_combat test_combat.cpp)
 target_link_libraries(test_combat PRIVATE CseKernel GTest::gtest_main)
 add_test(NAME test_combat COMMAND $<TARGET_FILE:test_combat>)
 
+# The ADR-005 P2 systems: blocking, hitstop, pushback, juggle, proration, hitstun
+# decay, priority, typed invincibility, and a fighter count that is no longer two.
+#
+# A SEPARATE BINARY FROM test_combat ON PURPOSE. Every P2 field zero-initialises
+# to "changes nothing" so that pre-P2 characters play identically -- which is
+# also what would let all nine systems be broken without test_combat noticing a
+# thing. This file authors each field and asserts the difference it makes; that
+# is a different question from "does one hit resolve correctly", and mixing them
+# would let the older file's passing hide the newer one's absence.
+add_executable(test_p2_mechanics test_p2_mechanics.cpp)
+target_link_libraries(test_p2_mechanics PRIVATE CseKernel GTest::gtest_main)
+add_test(NAME test_p2_mechanics COMMAND $<TARGET_FILE:test_p2_mechanics>)
+
 # The projection to the combo prover, run over the three real transcribed
 # characters. This is the test behind research contribution #9: the artifact
 # analysed is the artifact that ships.

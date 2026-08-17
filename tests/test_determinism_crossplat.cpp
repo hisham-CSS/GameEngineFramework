@@ -92,24 +92,37 @@ constexpr std::uint32_t kMatchSeed = 0xA5EED17Eu;
 // unrecorded forever, and the fix is to change kMatchSeed, not to weaken this.
 constexpr std::uint32_t kGoldenUnrecorded = 0u;
 
-// RECORDED 2026-08-13 from MSVC 19.44 / x64 / RelWithDebInfo.
+// RE-RECORDED 2026-08-16 from MSVC 19.44 / x64 / RelWithDebInfo, for the
+// ADR-005 P2 state expansion.
 //
-// Three independent derivations agree on these, which is worth recording because
-// a golden constant is only as good as its provenance: the run that produced
-// them, a from-scratch Python reimplementation of the kernel written against
-// GameState.h's field list without reference to the C++ output, and a second
-// clean run here. If those had disagreed the right response would have been to
-// find out why, not to pick one.
+// WHY THEY MOVED, WHICH IS THE ONLY THING THAT MAKES A RE-RECORD LEGITIMATE.
+// GameState changed shape: Fighter went from 36 bytes to 52 and GameState from
+// 80 to 436, because the P2 batch added the state those systems need AND because
+// the state stopped holding exactly two fighters (docs/ADR-009). The hash is a
+// hash of those bytes, so it is stale BY CONSTRUCTION -- which is the case this
+// file's own "WHEN YOU MAY CHANGE THEM" paragraph names as the legitimate one.
 //
-// gcc has NOT yet checked them. Until the Linux CI leg runs this test, these
-// numbers prove that this toolchain is self-consistent and nothing more — the
-// crossplay claim needs the second toolchain to agree, and that is the whole
-// point of the file.
-constexpr std::uint32_t kGoldenRollingHash = 0x7A43C47Bu;
+// The layout half is what proves that reading rather than the hash half: the
+// sizes, alignments and per-field offsets above were updated to the new shape
+// and PASS, so what moved is the byte string and not the arithmetic. The
+// scripted match here still never reaches hit detection, so nothing in this
+// file's run exercises the new mechanics -- see the note at kMatchTicks.
+//
+// THE PREVIOUS RECORD HAD THREE INDEPENDENT DERIVATIONS AND THIS ONE HAS ONE.
+// That is a real loss and it is stated rather than glossed: the 2026-08-13
+// values were confirmed by the run, by a from-scratch Python reimplementation of
+// the kernel written against GameState.h's field list, and by a second clean
+// run. Re-deriving the Python model against a 436-byte state was not done here.
+// What still holds is the property this file exists for -- two toolchains must
+// agree -- and that is checked by CI rather than asserted by me.
+//
+// gcc has NOT yet checked these. Until the Linux CI leg runs this test, they
+// prove that this toolchain is self-consistent and nothing more.
+constexpr std::uint32_t kGoldenRollingHash = 0x6D8A7334u;
 constexpr std::uint32_t kGoldenCheckpoint[kCheckpointCount] = {
-    0x63914DE3u,  // tick 1000
-    0x93C12275u,  // tick 2000
-    0x612A335Fu,  // tick 3000
+    0xF55B64EBu,  // tick 1000
+    0xB1CD00EAu,  // tick 2000
+    0x47E49F19u,  // tick 3000
 };
 
 // ============================================================================
@@ -125,13 +138,15 @@ constexpr std::uint32_t kGoldenCheckpoint[kCheckpointCount] = {
 // apart, and they are checked BEFORE the hash so the specific failure lands
 // first.
 //
-// The arithmetic, from GameState.h's field list:
-//   Fighter   = 6 x int32 (24) + 4 x uint16 (8) + 4 x uint8 (4)   = 36 bytes
-//   GameState = 2 x uint32 (8) + 2 x Fighter (72)                 = 80 bytes
+// The arithmetic, from GameState.h's field list. These moved once, in the
+// ADR-005 P2 expansion, which is also when GameState stopped holding exactly two
+// fighters (docs/ADR-009):
+//   Fighter   = 7 x int32 (28) + 8 x 16-bit (16) + 8 x uint8 (8)  = 52 bytes
+//   GameState = 20-byte header + 8 x Fighter (416)                = 436 bytes
 // Both are multiples of 4, which is the alignment of their widest member, so a
 // conforming implementation inserts no tail padding either.
-constexpr std::size_t kGoldenSizeofFighter   = 36;
-constexpr std::size_t kGoldenSizeofGameState = 80;
+constexpr std::size_t kGoldenSizeofFighter   = 52;
+constexpr std::size_t kGoldenSizeofGameState = 436;
 constexpr std::size_t kGoldenAlignofFighter   = 4;
 constexpr std::size_t kGoldenAlignofGameState = 4;
 
@@ -557,30 +572,44 @@ void assertLayoutMatchesTheGolden() {
     ASSERT_EQ(std::size_t{12}, offsetof(Fighter, velY));
     ASSERT_EQ(std::size_t{16}, offsetof(Fighter, health));
     ASSERT_EQ(std::size_t{20}, offsetof(Fighter, meter));
-    ASSERT_EQ(std::size_t{24}, offsetof(Fighter, moveId));
-    ASSERT_EQ(std::size_t{26}, offsetof(Fighter, moveFrame));
-    ASSERT_EQ(std::size_t{28}, offsetof(Fighter, hitstun));
-    ASSERT_EQ(std::size_t{30}, offsetof(Fighter, blockstun));
-    ASSERT_EQ(std::size_t{32}, offsetof(Fighter, facing));
-    ASSERT_EQ(std::size_t{33}, offsetof(Fighter, airborne));
-    ASSERT_EQ(std::size_t{34}, offsetof(Fighter, comboHits));
-    // Byte 35 was Fighter::pad_ until hitboxes landed; it is now
-    // alreadyHitBits, the multi-hit guard. Same offset, same size, so the hashed
-    // byte string is unchanged and the goldens below still hold — which is the
-    // point of asserting offsets rather than only sizeof: this substitution is
-    // exactly the kind of change that could have silently altered the layout,
-    // and this line is where we would have found out.
-    //
-    // pad_ existed so the struct had no INDETERMINATE padding, which is what
-    // makes hashing the object representation sound. Replacing it with a real
-    // field that ResetMatch zeroes preserves that property rather than removing
-    // it. A FIFTH uint8 here would not: it would need three more explicit bytes
-    // or the compiler inserts tail padding nobody initialises.
-    ASSERT_EQ(std::size_t{35}, offsetof(Fighter, alreadyHitBits));
+    // Pushback rides its own int32 rather than velX, because a fighter who
+    // cannot act has velX zeroed every tick and being hit is exactly that.
+    ASSERT_EQ(std::size_t{24}, offsetof(Fighter, pushX));
 
-    ASSERT_EQ(std::size_t{0}, offsetof(GameState, tick));
-    ASSERT_EQ(std::size_t{4}, offsetof(GameState, rng));
-    ASSERT_EQ(std::size_t{8}, offsetof(GameState, p))
+    ASSERT_EQ(std::size_t{28}, offsetof(Fighter, moveId));
+    ASSERT_EQ(std::size_t{30}, offsetof(Fighter, moveFrame));
+    ASSERT_EQ(std::size_t{32}, offsetof(Fighter, hitstun));
+    ASSERT_EQ(std::size_t{34}, offsetof(Fighter, blockstun));
+    ASSERT_EQ(std::size_t{36}, offsetof(Fighter, hitstop));
+    ASSERT_EQ(std::size_t{38}, offsetof(Fighter, knockdown));
+    ASSERT_EQ(std::size_t{40}, offsetof(Fighter, juggle));
+    ASSERT_EQ(std::size_t{42}, offsetof(Fighter, scaling));
+
+    ASSERT_EQ(std::size_t{44}, offsetof(Fighter, facing));
+    ASSERT_EQ(std::size_t{45}, offsetof(Fighter, airborne));
+    ASSERT_EQ(std::size_t{46}, offsetof(Fighter, comboHits));
+    ASSERT_EQ(std::size_t{47}, offsetof(Fighter, alreadyHitBits));
+
+    // THE EIGHT-BYTE GROUP IS THE POINT OF THIS BLOCK. GameState.h used to warn
+    // that a FIFTH uint8 would need three more explicit bytes or the compiler
+    // would insert tail padding nobody initialises. The P2 expansion took that
+    // warning at its word and added exactly four -- team, active, crouching,
+    // guard -- which fills the group and keeps the struct a multiple of its
+    // 4-byte alignment. A NINTH uint8 here reopens the same hazard.
+    ASSERT_EQ(std::size_t{48}, offsetof(Fighter, team));
+    ASSERT_EQ(std::size_t{49}, offsetof(Fighter, active));
+    ASSERT_EQ(std::size_t{50}, offsetof(Fighter, crouching));
+    ASSERT_EQ(std::size_t{51}, offsetof(Fighter, guard));
+
+    ASSERT_EQ(std::size_t{0},  offsetof(GameState, tick));
+    ASSERT_EQ(std::size_t{4},  offsetof(GameState, rng));
+    ASSERT_EQ(std::size_t{8},  offsetof(GameState, roundTimer));
+    ASSERT_EQ(std::size_t{12}, offsetof(GameState, roundNumber));
+    ASSERT_EQ(std::size_t{14}, offsetof(GameState, roundState));
+    ASSERT_EQ(std::size_t{15}, offsetof(GameState, fighterCount));
+    ASSERT_EQ(std::size_t{16}, offsetof(GameState, roundsWon));
+    ASSERT_EQ(std::size_t{18}, offsetof(GameState, roundsToWin));
+    ASSERT_EQ(std::size_t{20}, offsetof(GameState, p))
         << "The compiler inserted padding between GameState's header and its "
            "fighters, or a member was added. Either way the hashed byte string "
            "is no longer the one the golden was recorded from.";

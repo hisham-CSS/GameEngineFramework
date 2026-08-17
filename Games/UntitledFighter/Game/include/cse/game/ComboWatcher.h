@@ -123,13 +123,25 @@
 // at nothing.
 //
 // ---------------------------------------------------------------------------
-// 4. Fighter::comboHits IS DEAD STATE. DO NOT READ IT.
+// 4. Fighter::comboHits IS LIVE NOW. STILL DO NOT READ IT.
 // ---------------------------------------------------------------------------
-// GameState.h describes it as "drives hitstun decay", and NOTHING IN THE KERNEL
-// WRITES IT -- not Simulate.cpp, not Combat.cpp. A watcher that reads it reports
-// zero hits forever and looks like it is working. The hit count in this file is
-// counted here, from signal 3, and the field is left alone until the kernel
-// grows the decay rule that would own it.
+// It used to say "drives hitstun decay" while nothing in the kernel wrote it, so
+// a watcher that read it reported zero hits forever and looked like it was
+// working. ADR-005 P2 ended that: ResolveHits increments it and the decay rule it
+// was named for now reads it.
+//
+// THE INSTRUCTION IS UNCHANGED AND THE REASON IS STRONGER THAN IT WAS. Two
+// independent counts of the same thing are worth having precisely because they
+// can be compared -- test_game_core asserts they agree, which is a real check
+// only while they are derived separately. A watcher that read the field would
+// turn that assertion into a tautology, and the tautology would still pass on the
+// day the kernel's counter was wrong.
+//
+// They are also not the same quantity. Fighter::comboHits is a uint8 that
+// SATURATES at 255 and resets the moment the defender leaves hitstun; this file's
+// count is an int32 belonging to a STRING, which outlives the combo and moves to
+// `previous` when it ends. They coincide on a short combo and are not the same
+// number in general.
 //
 // ---------------------------------------------------------------------------
 // 5. A CANCEL AND A LINK ARE DIFFERENT THINGS AND THE ANALYSIS ONLY KNOWS ONE

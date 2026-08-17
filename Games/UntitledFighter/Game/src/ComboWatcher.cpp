@@ -664,9 +664,10 @@ void ComboWatcher::OnTick(const TickView& view) {
         // then both are cleared, so a hit traded on the same tick is invisible
         // here and contributes neither a hit nor its damage. The two numbers stay
         // consistent with each other, which is the property worth keeping.
-        // Fighter::comboHits is where the kernel could say otherwise and NOTHING
-        // IN THE KERNEL WRITES IT -- reading it reports 0 forever, so it is left
-        // alone until the kernel grows the decay rule that would own it.
+        // Fighter::comboHits is where the kernel could say otherwise, and since
+        // ADR-005 P2 it does say something -- but it is still not read here, and
+        // the header's section 4 gives the reason: two counts derived separately
+        // can be cross-checked, and one derived from the other cannot.
         const std::uint16_t connecting = atk.moveId;
 
         if (current_.sequence.size() < kMaxComboSequence)

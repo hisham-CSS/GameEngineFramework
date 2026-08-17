@@ -241,17 +241,22 @@ inline constexpr std::uint32_t kDefaultCheckpointInterval = 60;
 // question would eventually disagree.
 std::uint32_t HashMatchData(const cse::kernel::MatchData& data);
 
+// The six int32s are maxHealth, juggleMax, hitstunDecayStep, hitstunDecayFloor,
+// moveCount and cancelCount. Written as a sum of the members rather than as a
+// byte count so this keeps checking for PADDING after the P2 expansion rather
+// than becoming a number to update.
 static_assert(sizeof(cse::kernel::FighterData) ==
-                  sizeof(cse::kernel::Box) + 2 * sizeof(std::int32_t) +
+                  sizeof(cse::kernel::Box) + 6 * sizeof(std::int32_t) +
                       cse::kernel::kMaxMovesPerFighter * sizeof(cse::kernel::MoveDef) +
                       cse::kernel::kMaxCancelsPerFighter * sizeof(cse::kernel::CancelEdge),
               "FighterData has acquired padding. HashMatchData reads its object "
               "representation, so a padding hole would make two machines with "
               "identical characters compute different hashes and refuse each "
               "other's replays.");
-static_assert(sizeof(cse::kernel::MatchData) == 2 * sizeof(cse::kernel::FighterData),
-              "MatchData has acquired padding between its two fighters. Same "
-              "hazard as above.");
+static_assert(sizeof(cse::kernel::MatchData) ==
+                  cse::kernel::kMaxFighters * sizeof(cse::kernel::FighterData),
+              "MatchData has acquired padding between its fighters. Same hazard "
+              "as above.");
 static_assert(sizeof(cse::kernel::GameState) <= 0xFFFFu,
               "GameState no longer fits the replay header's uint16 stateBytes "
               "field. That is a format change: bump kReplayVersion.");

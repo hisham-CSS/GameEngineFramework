@@ -30,6 +30,39 @@ std::uint8_t bitForSlot(int slot) {
     return static_cast<std::uint8_t>(1u << slot);
 }
 
+// Whether this defender's guard stops this attack.
+//
+// It asks ONLY about height, because every other condition on being able to
+// block at all -- not in hitstun, not on the floor, not airborne, not
+// mid-move, and actually holding away from the attacker -- is decided in ONE
+// place, where Fighter::guard is computed each tick. Splitting those conditions
+// across two files is how one of them ends up enforced and the other does not.
+bool defenderBlocks(const Fighter& def, const MoveDef& m) {
+    if (def.guard == kGuardNone) return false;
+    return GuardStops(def.guard, m.blockedAs);
+}
+
+// Pushback for a defender, signed in stage coordinates.
+//
+// THE DIRECTION COMES FROM THE SIGN OF A POSITION DIFFERENCE and never from
+// `facing` multiplied into a coordinate. GameState.h says why facing is not a
+// sign multiplier, and ADR-006 section 3.4 names this as precisely the place
+// somebody reaches for `pos * facing`.
+std::int32_t pushAwayFrom(const Fighter& atk, const Fighter& def,
+                          std::int16_t amount) {
+    if (amount == 0) return 0;
+    const std::int32_t v = static_cast<std::int32_t>(amount);
+
+    if (def.posX < atk.posX) return -v;
+    if (def.posX > atk.posX) return  v;
+
+    // Exactly co-located, which a cross-up passing through zero reaches. The
+    // attacker's facing is the only information left and it is a rule both peers
+    // compute identically from bytes they both hold -- which is the property that
+    // matters here, rather than which way is prettier.
+    return atk.facing == 0 ? v : -v;
+}
+
 } // namespace
 
 // --- Boxes ------------------------------------------------------------------
@@ -122,7 +155,103 @@ bool ActiveHitbox(const FighterData& data, const Fighter& f, Box& out) {
 }
 
 Box Hurtbox(const FighterData& data, const Fighter& f) {
-    return PlaceBox(data.hurtbox, f.posX, f.posY, f.facing);
+    // A move may replace the body for the ticks it runs. That is the whole
+    // low-profile mechanism: a crouching attack ducks a high one because its body
+    // is SHORTER for those frames, and no move ever names another move.
+    const MoveDef* m = MoveAt(data, f.moveId);
+    const Box& local = (m != nullptr && m->hasHurtboxOverride != 0)
+                           ? m->hurtboxOverride
+                           : data.hurtbox;
+    return PlaceBox(local, f.posX, f.posY, f.facing);
+}
+
+// --- Stance, guard, priority and invincibility -------------------------------
+
+bool AirborneNow(const FighterData& data, const Fighter& f) {
+    if (f.airborne != 0) return true;
+
+    // A grounded move that takes off partway through. This is what lets a hop
+    // kick pass over a low without either move knowing the other exists.
+    const MoveDef* m = MoveAt(data, f.moveId);
+    if (m == nullptr) return false;
+    if (m->hasAirborneFrom == 0) return false;
+    return static_cast<std::int32_t>(f.moveFrame) >= m->airborneFromTick;
+}
+
+bool StanceAllows(const MoveDef& m, const Fighter& f) {
+    switch (m.stance) {
+        case kStanceAny:       return true;
+        case kStanceGround:    return f.airborne == 0;
+        case kStanceStanding:  return f.airborne == 0 && f.crouching == 0;
+        case kStanceCrouching: return f.airborne == 0 && f.crouching != 0;
+        case kStanceAir:       return f.airborne != 0;
+        default: break;
+    }
+    // A value this kernel does not recognise is PERMISSIVE, which is the same
+    // choice MoveAt makes for a moveId the table does not describe: inert rather
+    // than an error. It is also the compatible direction -- an unenforced stance
+    // is exactly the kernel that shipped before this field existed -- and the
+    // loader is where a bad value is supposed to be refused.
+    return true;
+}
+
+std::uint16_t AttackKinds(const FighterData& attackerData, const Fighter& attacker,
+                          const MoveDef& m) {
+    std::uint16_t kinds = 0;
+
+    // One token from the guard-height axis. Anything unrecognised reads as mid,
+    // which is both the authored default and the safe reading: mid is the value
+    // BOTH guards stop, so a corrupt byte cannot invent an unblockable attack.
+    if (m.blockedAs == kBlockedAsHigh)     kinds |= kAttackHigh;
+    else if (m.blockedAs == kBlockedAsLow) kinds |= kAttackLow;
+    else                                   kinds |= kAttackMid;
+
+    // One token from the attacker-state axis.
+    if (AirborneNow(attackerData, attacker)) kinds |= kAttackAerial;
+
+    return kinds;
+}
+
+bool GuardStops(std::uint8_t guard, std::uint8_t blockedAs) {
+    const bool isHigh = (blockedAs == kBlockedAsHigh);
+    const bool isLow  = (blockedAs == kBlockedAsLow);
+
+    // high guard stops { high, mid } == everything that is not low
+    // low  guard stops { low,  mid } == everything that is not high
+    if (guard == kGuardHigh) return !isLow;
+    if (guard == kGuardLow)  return !isHigh;
+    return false;
+}
+
+bool InvulnerableTo(const FighterData& data, const Fighter& f, std::uint16_t kinds) {
+    const MoveDef* m = MoveAt(data, f.moveId);
+    if (m == nullptr) return false;
+
+    const std::int32_t frame = static_cast<std::int32_t>(f.moveFrame);
+    const std::int32_t n = m->invulnCount < kMaxInvulnWindows
+                               ? static_cast<std::int32_t>(m->invulnCount)
+                               : kMaxInvulnWindows;
+
+    for (std::int32_t i = 0; i < n; ++i) {
+        const InvincibilityWindow& w = m->invuln[i];
+
+        // A zero-tick window is the empty set, not a short window. The loader
+        // refuses one; this is the kernel declining to trust that it did.
+        if (w.ticks <= 0) continue;
+        if (frame < w.fromTick) continue;
+        if (frame >= w.fromTick + w.ticks) continue;
+
+        // Naming no kinds narrows nothing, and the identity of a narrowing is
+        // everything.
+        if (w.kinds == 0) return true;
+
+        // INTERSECTION, not containment. An aerial medium arrives as
+        // {aerial, high} and a window naming {aerial} stops it on one shared bit.
+        // Under containment an anti-air would have to enumerate all three guard
+        // heights, and the field would be useless for its motivating case.
+        if ((w.kinds & kinds) != 0) return true;
+    }
+    return false;
 }
 
 // --- Cancels ----------------------------------------------------------------
@@ -169,6 +298,12 @@ const CancelEdge* FindCancel(const FighterData& data, const Fighter& f, Input in
         // second thing prevButtons would fix.
         if (target->button == 0) continue;
         if ((in.bits & target->button) != target->button) continue;
+
+        // The follow-up's own stance condition applies to a cancel exactly as it
+        // does to a fresh start. Without this a grounded chain could cancel into
+        // an air-only move from the floor, which is one of the two routes
+        // test_gap_extent measured keeping 32 of the 33 runaway cycles alive.
+        if (!StanceAllows(*target, f)) continue;
 
         return &e;
     }
@@ -251,6 +386,7 @@ void StepAttack(Fighter& f, const FighterData& data, Input in, bool actionable) 
         const MoveDef& m = data.moves[i];
         if (m.button == 0) continue;
         if ((in.bits & m.button) != m.button) continue;
+        if (!StanceAllows(m, f)) continue;
 
         f.moveId         = static_cast<std::uint16_t>(i);
         f.moveFrame      = 0;
@@ -277,51 +413,209 @@ void ResolveHits(GameState& state, const MatchData& data) {
     // either. Priority and trade resolution proper -- a move that beats another
     // outright, clashes, counter-hits -- are Phase 3; the rule here is the
     // symmetric one, and both fighters land.
-    bool lands[2] = { false, false };
+    // WHAT CHANGED WHEN THIS STOPPED BEING TWO FIGHTERS. The three loops survive
+    // intact and for the same reason. What is gone is `const int d = 1 - a`: the
+    // opponent is now any ACTIVE fighter on a DIFFERENT TEAM, tested as an
+    // inequality so a third side would be a constant change rather than a logic
+    // one (ADR-009 section 3). An attacker still lands at most ONE hit per tick,
+    // and it lands it on the lowest-numbered defender it overlaps -- a fixed
+    // order over a dense array, which is the same tie-break rule the button scan
+    // and the cancel scan already use, chosen for the same reason.
+    const int n = state.fighterCount < kMaxFighters
+                      ? static_cast<int>(state.fighterCount)
+                      : kMaxFighters;
 
-    for (int a = 0; a < 2; ++a) {
-        const int d = 1 - a;
-        // The multi-hit guard. An active window that has already connected on
-        // this defender cannot connect again, however many frames it stays live
-        // -- without this, a 3-frame jab deals its damage three times and every
-        // combo in the game is an infinite for a reason that has nothing to do
-        // with the character.
-        if ((state.p[a].alreadyHitBits & bitForSlot(d)) != 0) continue;
-
-        Box hit{};
-        if (!ActiveHitbox(data.p[a], state.p[a], hit)) continue;
-
-        const Box hurt = Hurtbox(data.p[d], state.p[d]);
-        lands[a] = BoxesOverlap(hit, hurt);
+    int  target[kMaxFighters];
+    bool blocked[kMaxFighters];
+    for (int i = 0; i < kMaxFighters; ++i) {
+        target[i]  = -1;
+        blocked[i] = false;
     }
 
-    for (int a = 0; a < 2; ++a) {
-        if (!lands[a]) continue;
-        const int d = 1 - a;
+    // --- DECIDE -------------------------------------------------------------
+    // Every overlap is read out of the same pre-hit state. Nothing is written.
+    for (int a = 0; a < n; ++a) {
+        const Fighter& atk = state.p[a];
+        if (atk.active == 0) continue;
 
-        // Non-null: ActiveHitbox already said so, on this same unmodified state.
+        // A frozen fighter's hitbox is frozen with it. Without this the attacker
+        // would keep connecting during its own hitstop and a heavy hit would
+        // multi-hit for exactly as long as it felt good.
+        if (atk.hitstop > 0) continue;
+
+        Box hit{};
+        if (!ActiveHitbox(data.p[a], atk, hit)) continue;
+
+        const MoveDef* m = MoveAt(data.p[a], atk.moveId);
+        if (m == nullptr) continue;
+
+        const std::uint16_t kinds = AttackKinds(data.p[a], atk, *m);
+
+        for (int d = 0; d < n; ++d) {
+            if (d == a) continue;
+            const Fighter& def = state.p[d];
+            if (def.active == 0) continue;
+            if (def.team == atk.team) continue;
+
+            // The multi-hit guard. An active window that has already connected on
+            // this defender cannot connect again, however many frames it stays
+            // live -- without this, a 3-frame jab deals its damage three times and
+            // every combo in the game is an infinite for a reason that has nothing
+            // to do with the character.
+            if ((atk.alreadyHitBits & bitForSlot(d)) != 0) continue;
+
+            if (!BoxesOverlap(hit, Hurtbox(data.p[d], def))) continue;
+
+            // INVINCIBILITY GOES HERE, IN THE BODY OF THE DECIDE LOOP, and that
+            // placement is the point: it is one more reason the hit does not land,
+            // resolved BEFORE priority is consulted at all. ADR-006 section 2 --
+            // "a reversal beats a meaty because it is invincible, not because it
+            // out-prioritises, and those are different games."
+            if (InvulnerableTo(data.p[d], def, kinds)) continue;
+
+            // The juggle budget refuses the hit that would overspend it. This is
+            // the mechanism the prover's ranking certificate is written in: its
+            // `nonNegative` condition is what ends all 41 of fighter_a's cycles in
+            // the model, and its absence here is what let 33 of them run forever.
+            if (m->juggleCost > 0 && def.juggle < m->juggleCost) continue;
+
+            target[a]  = d;
+            blocked[a] = defenderBlocks(def, *m);
+            break;
+        }
+    }
+
+    // --- PRIORITY -----------------------------------------------------------
+    // The tail of the decide loop: every overlap is known and nothing has been
+    // applied. Only a MUTUAL hit is arbitrated -- if a hits b and b hits a on the
+    // same tick, the higher priority wins outright and the loser takes nothing.
+    // EQUAL IS A TRADE and both land, which is what this function did before the
+    // field existed and is why every character authored without it plays
+    // identically. test_combat.cpp's ASimultaneousTradeIsSymmetric is that claim
+    // as a test, and it must not move.
+    //
+    // Pairs are visited with a < b so each is arbitrated exactly once, in an
+    // order two peers agree on without having to share anything but the state.
+    for (int a = 0; a < n; ++a) {
+        for (int b = a + 1; b < n; ++b) {
+            if (target[a] != b || target[b] != a) continue;
+
+            const MoveDef* ma = MoveAt(data.p[a], state.p[a].moveId);
+            const MoveDef* mb = MoveAt(data.p[b], state.p[b].moveId);
+            if (ma == nullptr || mb == nullptr) continue;
+
+            if (ma->priority > mb->priority)      target[b] = -1;
+            else if (mb->priority > ma->priority) target[a] = -1;
+            // else: equal, and a trade is what equal means.
+        }
+    }
+
+    // --- APPLY --------------------------------------------------------------
+    // Each iteration's writes are disjoint from every iteration's reads of the
+    // pre-hit state, because the only thing read here is the attacker's own move
+    // and the defender's own accumulators.
+    for (int a = 0; a < n; ++a) {
+        const int d = target[a];
+        if (d < 0) continue;
+
         const MoveDef* m = MoveAt(data.p[a], state.p[a].moveId);
         if (m == nullptr) continue;
 
-        state.p[a].alreadyHitBits =
-            static_cast<std::uint8_t>(state.p[a].alreadyHitBits | bitForSlot(d));
+        Fighter& atk = state.p[a];
+        Fighter& def = state.p[d];
+
+        atk.alreadyHitBits =
+            static_cast<std::uint8_t>(atk.alreadyHitBits | bitForSlot(d));
+
+        // Hitstop freezes BOTH fighters, which is what makes it read as impact
+        // rather than as the defender lagging.
+        if (m->hitstop > 0) {
+            atk.hitstop = m->hitstop;
+            def.hitstop = m->hitstop;
+        }
+
+        if (blocked[a]) {
+            std::int32_t stun = m->blockstun;
+            if (stun < 0) stun = 0;
+            if (stun > kMaxStunTicks) stun = kMaxStunTicks;
+            def.blockstun = static_cast<std::uint16_t>(stun);
+
+            std::int32_t chip = m->chipDamage;
+            if (chip < 0) chip = 0;
+            // Chip does not kill. A block that finishes a round makes defence a
+            // losing option in exactly the situation defence exists for.
+            if (def.health > chip) def.health -= chip;
+            else if (def.health > 0) def.health = 1;
+
+            def.pushX += pushAwayFrom(atk, def, m->pushbackBlock);
+            continue;
+        }
 
         std::int32_t stun = m->hitstun;
         if (stun < 0) stun = 0;
+
+        // HITSTUN DECAY, and it reads def.comboHits BEFORE this hit increments it
+        // -- so the first hit of a combo decays by nothing, which is the only
+        // reading under which "the third hit stuns less than the first" is what
+        // the sentence means. The rule belongs to the DEFENDER, because it
+        // describes how much stun this body suffers.
+        const FighterData& dd = data.p[d];
+        if (dd.hitstunDecayStep > 0) {
+            stun -= dd.hitstunDecayStep * static_cast<std::int32_t>(def.comboHits);
+            if (stun < dd.hitstunDecayFloor) stun = dd.hitstunDecayFloor;
+            if (stun < 0) stun = 0;
+        }
+
         if (stun > kMaxStunTicks) stun = kMaxStunTicks;
         // Set, not add. A fresh hit REFRESHES stun rather than stacking it;
         // stacking is how a two-hit string becomes an unescapable loop, and it is
         // not what any of the Phase-0 characters' frame data describes.
-        state.p[d].hitstun = static_cast<std::uint16_t>(stun);
+        def.hitstun = static_cast<std::uint16_t>(stun);
 
+        // Damage, scaled by the combo already received. The multiply is done in
+        // 32 bits against a percent, and the division truncates toward zero --
+        // stated once here rather than at each site, which is D8's rule about
+        // having exactly one documented quantization.
         std::int32_t dmg = m->damage;
         if (dmg < 0) dmg = 0;          // a negative damage value does not heal
-        state.p[d].health = state.p[d].health > dmg ? state.p[d].health - dmg : 0;
+        dmg = (dmg * static_cast<std::int32_t>(def.scaling)) / kScalingFull;
+        def.health = def.health > dmg ? def.health - dmg : 0;
+
+        // Proration compounds: each connected move multiplies what the NEXT one
+        // will be worth. The reduction is clamped rather than trusted, because a
+        // value above 100 would make the remaining scale negative and a uint16
+        // would wrap it into an enormous damage multiplier -- the loader refuses
+        // one, and this is the kernel declining to depend on that.
+        std::int32_t cut = static_cast<std::int32_t>(m->scalingReduction);
+        if (cut < 0)             cut = 0;
+        if (cut > kScalingFull)  cut = kScalingFull;
+        def.scaling = static_cast<std::uint16_t>(
+            (static_cast<std::int32_t>(def.scaling) * (kScalingFull - cut)) /
+            kScalingFull);
+
+        if (m->juggleCost > 0) {
+            def.juggle = static_cast<std::int16_t>(def.juggle - m->juggleCost);
+        }
+
+        if (def.comboHits < 0xFF) ++def.comboHits;
+
+        if (m->knockdownTicks > 0) {
+            def.knockdown = m->knockdownTicks;
+            // A knocked-down fighter is on the floor, not crouching and not
+            // guarding. Leaving `guard` set would let a body on the ground block.
+            def.crouching = 0;
+            def.guard     = kGuardNone;
+        }
+
+        def.pushX += pushAwayFrom(atk, def, m->pushbackHit);
     }
 
-    for (int d = 0; d < 2; ++d) {
-        const int a = 1 - d;
-        if (!lands[a]) continue;
+    // --- INTERRUPT ----------------------------------------------------------
+    for (int a = 0; a < n; ++a) {
+        const int d = target[a];
+        if (d < 0) continue;
+        if (blocked[a]) continue;   // blocking does not interrupt; blockstun does
+
         // Being hit interrupts whatever the defender was doing. Without this a
         // fighter in hitstun keeps a live hitbox, because hitstun gates STARTING
         // a move and nothing else -- so it would go on swinging while it was
