@@ -31,7 +31,7 @@ without it. Details, tests and proofs of the four properties:
 
 | In flight | Owner | Since |
 |---|---|---|
-| *(nothing — next is M0.2)* | | |
+| *(nothing — next is M0.3)* | | |
 
 One work package in flight at a time. The next unblocked one is always the top
 `[ ]` in milestone order below.
@@ -56,7 +56,7 @@ WP will be read by someone (or something) that starts from these files. The
 full mapping is [ADR-010 §5–§7](ADR-010-one-roadmap-one-rule.md); this is the
 work list.
 
-- `[x]` **M0.1 Archive the originals.** *(S)* Copy `NORTHSTAR.md`,
+- `[x] 5f756c6` **M0.1 Archive the originals.** *(S)* Copy `NORTHSTAR.md`,
   `ARCHITECTURE.md`, `AUDIT_FINDINGS.md`, `ENGINE_AUDIT_2026-07.md` verbatim to
   `docs/archive/<NAME>-<date>.md`; add `docs/archive/README.md` ("history;
   nothing here is current; frozen ADRs' line citations resolve here").
@@ -66,7 +66,7 @@ work list.
   — two spot checks show they never did — only that they are read against the
   archived copy, which stops the gap growing. Byte-identity becomes a
   `check_docs.py` check in M0.3.
-- `[ ]` **M0.2 `docs/DETERMINISM.md`.** *(S–M)* One table: rule · enforced by ·
+- `[x]` **M0.2 `docs/DETERMINISM.md`.** *(S–M)* One table: rule · enforced by ·
   where. Sources: `ARCHITECTURE.md` §4 (the contract), `NORTHSTAR.md` appendix,
   `MAINTENANCE.md` "Never add a fast-math flag", the rules restated in
   `docs/manual/fighting-core.md`. Every rule names its enforcement — CI script,
@@ -74,6 +74,12 @@ work list.
   is "review only" but *could* be mechanical becomes a WP here (M1.1(d) is one).
   **Done when:** every rule in ADR-010's inventory has one row, and
   `docs/manual/fighting-core.md` links instead of restating.
+  **Deviations, all from reading the tree rather than the contract:**
+  ARCHITECTURE §4.7's `cse_fp_strict` target does not exist and cannot — linking
+  it would trip the kernel's own "links nothing" guard (B5); §4.7's claimed
+  `workerThreads == 0` startup assert and `JPH_VERSION_ID` `static_assert` do not
+  exist (B6); §4.1's `Phase` parameter and §4.2's reflection table do not exist
+  (K11, S8). Four review-only rules that could be mechanical became **M1.0**.
 - `[ ]` **M0.3 `scripts/check_docs.py` + CI step, advisory.** *(S)* Checks:
   relative links resolve; backticked repo paths exist (`:line` stripped;
   `docs-ok` escape); living docs carry `Verified: <date> @ <sha>` in the first ten
@@ -133,6 +139,25 @@ all of M1's state changes land as **one** expansion with one re-golden
 (`tests/test_determinism_crossplat.cpp`), reviewed once — including the fields
 M1.3 and M3.1 will need (M1.1 reserves them).
 
+- `[ ]` **M1.0 Close the determinism gate's own gaps.** *(S)* Written by M0.2's
+  inventory, which found four rules that are review-only today and need not be
+  ([DETERMINISM.md](DETERMINISM.md) §3). (a) An **include allowlist** for
+  `Games/UntitledFighter/Kernel/` in `scripts/check_determinism_flags.py`: that
+  module's entire include list is `<cstdint>`, `<type_traits>`, `<cstring>`, so a
+  whitelist is exact and cheap, and it closes "never allocates" and "never
+  iterates an associative container" (K4, K5) in one check. Scope it to
+  `Kernel/` — `Game/` uses `<string>` and `<vector>` legitimately, which is why
+  the existing purity globs cover both modules and this one must not.
+  (b) `/arch:`, `-march=`, `-mavx` into `FORBIDDEN` (B3): none is present today
+  and none would be caught; `/arch:AVX2` licenses FMA contraction, which is the
+  same rounding change `-ffp-contract=fast` buys.  (c) `Engine/src/ui/UIWorld.cpp`'s
+  tie-break sorts on `entt::to_integral` — the raw handle, version bits included
+  — while its own comment claims stability "across a save/reload", which is
+  exactly what version bits destroy (I3). The other two ordering sites already
+  use `entt::to_entity`.
+  **Done when:** `python scripts/check_determinism_flags.py --self-test` covers
+  each new pattern *and* proves the allowlist fires on a `#include <vector>` laid
+  down in `Kernel/`; `UIWorld.DocumentsAtOneSortOrderKeepTheirOrderAcrossAReload`.
 - `[ ]` **M1.1 Resources, movement parameters, and the one state expansion.** *(M)*
   Today `Fighter::meter` exists and no file in `Games/UntitledFighter/Kernel/src/`
   writes it; juggle has bespoke rules; walk speed and jump impulse are

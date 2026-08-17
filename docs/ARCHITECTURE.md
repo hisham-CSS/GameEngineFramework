@@ -491,7 +491,7 @@ Mod folder loading through `PathIsContained` (`ScriptWorld.cpp:246`); run `analy
 
 # 4. THE DETERMINISM CONTRACT
 
-> **Destination: `docs/DETERMINISM.md`.** This is the most durable artifact in this document. Apply it in code review. Every line is checkable by reading a diff.
+> **This contract now lives in [`docs/DETERMINISM.md`](DETERMINISM.md)**, which carries every rule below plus a column naming what actually enforces it — and corrects the four this document asserts that the tree does not implement (`cse_fp_strict`, the `workerThreads` startup assert, the `JPH_VERSION_ID` `static_assert`, and `Simulate`'s `Phase` parameter). Read the rules there. What follows is the record of what was decided, kept until this document is rewritten.
 
 ## 4.1 What the simulation is
 

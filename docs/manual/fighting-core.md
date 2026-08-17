@@ -11,6 +11,8 @@ Cat Splat Engine is being built toward a deterministic, rollback-capable fightin
 
 This page explains how to use them. It is not the design rationale — that lives in [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md) (decisions D1–D9 and the build order) and in the ADRs, and this page links to them rather than restating them.
 
+It is also not the rules. What may not appear inside a tick, what the build refuses, what an authored file must promise and — for each — what actually stops you breaking it, is [DETERMINISM.md](../DETERMINISM.md). Rules are cited below by id (`K2`, `T1`) so you can read the enforcement rather than take this page's word for it.
+
 ---
 
 ## Status: read this before you build on it
@@ -38,7 +40,7 @@ Stated plainly, because a manual that oversells is worse than no manual. This ta
 | A trigger expression language. | Phase 5 |
 | Presentation. Nothing renders a fighter. The kernel produces integers; no reconciler turns them into entities yet. | Phase 3/6 |
 
-The kernel is also **not** wired into `Application`'s fixed tick, deliberately and permanently: `FixedTimestep::advance` caps at 8 steps and then zeroes the accumulator, dropping the backlog, and a dropped tick in lockstep is an unrecoverable desync. See the note at `Kernel/include/cse/kernel/GameState.h:38-43`. You drive the kernel from a session, or from a loop you own.
+The kernel is also **not** wired into `Application`'s fixed tick, deliberately and permanently — [DETERMINISM.md](../DETERMINISM.md) T1 and T2, and the note at the top of `Kernel/include/cse/kernel/GameState.h` that says why. You drive the kernel from a session, or from a loop you own.
 
 ---
 
@@ -46,7 +48,7 @@ The kernel is also **not** wired into `Application`'s fixed tick, deliberately a
 
 ### Why it links nothing
 
-`Kernel/CMakeLists.txt` calls `target_link_libraries` exactly **zero** times, and ends with a configure-time `FATAL_ERROR` that fires if `CseKernel` ever acquires a link dependency — including an interface one. That is ARCHITECTURE.md D2 turned from a paragraph into a build failure (ADR-002 CHOICE D).
+This is [DETERMINISM.md](../DETERMINISM.md) K2, and it is a configure-time build failure rather than a convention — read the rule and its enforcement there.
 
 The practical consequence for you: **you cannot reach the physics world, the ECS, GLM, or the standard library's floating-point machinery from inside a tick.** If you try, the build stops at configure time with a message explaining what you are about to break. That is the intended experience. The plan itself names "just ask the physics world for the hitbox" as the standing temptation, and against a separate target it is an unresolved symbol rather than a bad idea somebody has to talk you out of.
 
@@ -61,7 +63,7 @@ The same discipline shows up inside the source: `Kernel/src/Simulate.cpp` includ
 
 256 was chosen so halving a velocity is exact — friction and knockback are authored as halvings, and a rounding difference is a desync.
 
-There is **no general fixed-point type** and no fixed-point multiply. D2 rejects one explicitly: a 2D fighter adds velocity to position and compares rectangles, and an operator-overloaded `Fixed` buys an overflow surface plus a mirror-asymmetry bug (`>>` rounds toward −∞ while `/` truncates toward zero) for nothing.
+There is **no general fixed-point type** and no fixed-point multiply: a 2D fighter adds velocity to position and compares rectangles, and an operator-overloaded `Fixed` buys an overflow surface for nothing. What you scale by, you scale through the one rounding rule — [DETERMINISM.md](../DETERMINISM.md) K8, which names the rule, the tests that pin it, and why `>>` is not division here.
 
 ### The state
 
@@ -103,7 +105,7 @@ struct InputPair { Input p[2]; };          // GameState.h:122
 
 Ten bits, declared at `GameState.h:111-120`: `kInputUp`, `kInputDown`, `kInputLeft`, `kInputRight`, `kInputLP`, `kInputMP`, `kInputHP`, `kInputLK`, `kInputMK`, `kInputHK`.
 
-Input is a **value parameter**. `Simulate` never queries `InputMap`. D6 is the reason and the [gameplay page](gameplay-scripting.md)'s `consumePressed` latch is the hazard it is avoiding: that latch is hidden, order-dependent, consuming state living outside the snapshot.
+Input is a **value parameter**; `Simulate` never queries `InputMap` ([DETERMINISM.md](../DETERMINISM.md) N1–N2). D6 is the reason and the [gameplay page](gameplay-scripting.md)'s `consumePressed` latch is the hazard it is avoiding: that latch is hidden, order-dependent, consuming state living outside the snapshot.
 
 ### Running a tick
 
@@ -548,9 +550,9 @@ DestroySession(session);                              // ISession.h:148
 
 ### Three rules the seam enforces
 
-1. **No `GameState`, anywhere.** Not in a parameter, not in a template argument, not behind a typedef. The session moves **bytes and a length**. The snapshot is a `memcpy` of a POD, so bytes is all it needs — and letting the state's *type* into the session layer is how game #2 ends up forking the netcode.
+1. **No `GameState`, anywhere.** Not in a parameter, not in a template argument, not behind a typedef. The session moves **bytes and a length** ([DETERMINISM.md](../DETERMINISM.md) N3). The snapshot is a `memcpy` of a POD, so bytes is all it needs — and letting the state's *type* into the session layer is how game #2 ends up forking the netcode.
 2. **No float crosses the boundary.** `FramesAhead()` (`ISession.h:127`) returns an `int`. GekkoNet computes a frame-advantage average in `f32`; the adapter rounds it with `std::lround` (a cast would truncate toward zero, so a client that is 0.6 frames behind would be told it is level). Positive means you are ahead and should slow down slightly. Ignoring it still works; you just drift into deeper rollbacks.
-3. **Desyncs are reported, never corrected.** `PollDesync` (`ISession.h:131`) fills a `DesyncReport` (`ISession.h:88`) with the frame, both checksums and the remote player. Once it returns true the match is over. In 2-player P2P there is no authority to resync from, and a silently corrected position is worse than a stop because the player cannot tell it from a lost interaction.
+3. **Desyncs are reported, never corrected** ([DETERMINISM.md](../DETERMINISM.md) T6). `PollDesync` (`ISession.h:131`) fills a `DesyncReport` (`ISession.h:88`) with the frame, both checksums and the remote player. Once it returns true the match is over. In 2-player P2P there is no authority to resync from, and a silently corrected position is worse than a stop because the player cannot tell it from a lost interaction.
 
 ### The two factories, and what has not happened yet
 
@@ -561,7 +563,7 @@ DestroySession(session);                              // ISession.h:148
 
 > **No transport has ever sent a packet.** Both factories add only `GekkoLocalPlayer` actors (`Net/src/GekkoSession.cpp:133`), and no network adapter is configured anywhere. `CreateGekkoStressSession` is the useful one today: `tests/test_session.cpp:159` drives hundreds of real rollbacks through it and compares byte-for-byte against a straight run, and `:139` asserts a local session reproduces the kernel running alone. The connect handshake, the remote actor, and everything that follows from them are Phase 4.
 
-When that handshake is built it must hash the **loaded POD arrays** — the `MatchData`, not the canonicalized text. A `GameState` alone no longer describes a match: it is meaningless without the `MatchData` it was simulated against, and proving both peers hold the same one is the handshake's job. A content mismatch has to surface as a lobby error, never as "desync at tick 3".
+When that handshake is built it must hash the **loaded POD arrays** — the `MatchData`, not the canonicalized text — and a content mismatch has to surface as a lobby error, never as "desync at tick 3" ([DETERMINISM.md](../DETERMINISM.md) A4–A5). The reason it is the `MatchData` and not the state: a `GameState` alone no longer describes a match. It is meaningless without the data it was simulated against, and proving both peers hold the same one is the handshake's job.
 
 ---
 

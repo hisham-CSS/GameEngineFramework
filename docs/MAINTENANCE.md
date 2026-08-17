@@ -138,6 +138,12 @@ Update, in the same commit:
 These are the ones that have cost real time. Each is enforced somewhere, but the
 enforcement is easy to route around.
 
+The ones that protect **bit-identical simulation** now have a single home with a
+column saying what stops each being broken: [DETERMINISM.md](DETERMINISM.md).
+Read it there — the fast-math section and the ordering-key rule below are the
+practitioner's version of B1 and I3, and where the two ever disagree,
+`DETERMINISM.md` is the one kept current.
+
 ### Closed lists that must be updated together
 
 `EntitySnapshot` is a **closed list**. A new ECS component must be wired into:
