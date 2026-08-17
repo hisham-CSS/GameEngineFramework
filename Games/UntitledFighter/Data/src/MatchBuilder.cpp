@@ -489,6 +489,34 @@ bool buildCancels(const CharacterData& c, const std::string& who,
     return true;
 }
 
+// Data stance -> kernel stance.
+//
+// WRITTEN AS A SWITCH AND NOT A CAST, and the reason is that the two enums do
+// NOT agree and a cast would be silently wrong:
+//
+//     cse::data::Stance     Any, Ground, Air, Standing, Crouching
+//     cse::kernel::kStance  Any, Ground, Standing, Crouching, Air
+//
+// Both were appended to rather than reordered, for the reason ADR-006 section
+// 3.1 gives -- the kernel's integers are wire-visible under the connect
+// handshake -- and they were appended to at different times, so they diverged.
+// `static_cast<std::uint8_t>(src.stance)` compiles, and would turn every AIR
+// move in every character into a STANDING one: air_mp would become startable
+// from the floor, which is the exact bug this mapping exists to end.
+std::uint8_t kernelStanceOf(Stance s) {
+    switch (s) {
+        case Stance::Any:       return cse::kernel::kStanceAny;
+        case Stance::Ground:    return cse::kernel::kStanceGround;
+        case Stance::Air:       return cse::kernel::kStanceAir;
+        case Stance::Standing:  return cse::kernel::kStanceStanding;
+        case Stance::Crouching: return cse::kernel::kStanceCrouching;
+    }
+    // Unreachable for a loaded file -- CharacterData.cpp refuses an unknown
+    // spelling -- and permissive if it ever is, which is what the kernel does
+    // with a value it does not recognise.
+    return cse::kernel::kStanceAny;
+}
+
 } // namespace
 
 // --- MoveIndexMap ------------------------------------------------------------
@@ -659,6 +687,7 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
         m.hitstun  = src.hitstun;
         m.damage   = damagePointsFromHundredths(src.damageHundredths);
         m.button   = button[i];
+        m.stance   = kernelStanceOf(src.stance);
         m.pad_     = 0;   // explicit: these bytes are hashed by the handshake
 
         if (src.hitstun > 0xFFFF) {

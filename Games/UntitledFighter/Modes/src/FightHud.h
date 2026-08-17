@@ -88,7 +88,12 @@ namespace untitledfighter {
 // --- One row of the binding table, as the playtester sees it ------------------
 
 struct BindingRow {
-    const char*   keyLabel = "";   // what to press
+    // OWNED, not borrowed. It used to be a `const char*` into the mode's static
+    // key table, which was correct while one key meant one move. A key now means
+    // three moves chosen by stance, so the label has to say WHICH -- "U stand",
+    // "U crouch", "U air" -- and that string is built per row rather than living
+    // in a literal.
+    std::string   keyLabel;        // what to press
     const char*   moveId   = "";   // the id in the character file
     std::uint16_t button   = 0;    // the cse::kernel::kInput* bits this holds
     std::uint16_t slot     = 0;    // kernel move id; 0 when this character has no

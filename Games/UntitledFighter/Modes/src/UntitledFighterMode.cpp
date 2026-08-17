@@ -92,42 +92,80 @@ namespace {
     //              `move.stance` as a KernelPermits loss). Holding this one key
     //              is the shortest route a playtester has to a combo that does
     //              not stop on a character the tool certifies TERMINATING.
+    // SIX BUTTONS, EIGHTEEN MOVES. Each key is one attack button, and which of
+    // the three variants it starts is decided by the fighter's STATE rather than
+    // by a different key -- airborne gives the air normal, holding down on the
+    // ground gives the crouching one, otherwise the standing one.
+    //
+    // THIS IS ONLY POSSIBLE BECAUSE THE KERNEL NOW ENFORCES STANCE, and the
+    // shape of the old table is the evidence for what it was like before. It
+    // bound six keys to six moves, one of which was `air_mp` on the O key,
+    // startable from the floor -- and the comment beside it said so, calling it
+    // "the shortest route a playtester has to a combo". It was also the shortest
+    // route to a nonsense one: holding O on the ground looped air_mp into itself
+    // for 76 hits against a character the prover certifies TERMINATING with a
+    // worst case of 21, which is the analysis and the game disagreeing in the
+    // most visible way available.
+    //
+    // The old table also could not have been written this way. Its comment
+    // explains at length why "punch" and "down plus punch" cannot work: StepAttack
+    // scans in FILE ORDER and takes the first move whose bits are all held, so an
+    // earlier plain mask always beats a later direction-modified superset, and
+    // fighter_a authors every standing normal before its crouching counterpart.
+    // That reasoning was correct and is now moot, because the disambiguation is
+    // not a bigger mask -- it is StanceAllows refusing the two variants that do
+    // not match, leaving exactly one. No most-specific-wins matcher was needed
+    // after all; ADR-006 section 8 expected one.
+    //
+    // A character missing a variant simply gets no binding for it (Find returns
+    // its documented 0 sentinel) rather than a wrong one.
     struct MoveKey {
         const char*   action;
         int           key;
         int           padButton;   // -1 for none
         const char*   label;
-        const char*   moveId;
+        const char*   name;        // what the button IS, for the HUD
         std::uint16_t button;
+        const char*   standing;
+        const char*   crouching;
+        const char*   air;
     };
 
     const MoveKey kMoveKeys[] = {
-        { "Fight.Attack1", GLFW_KEY_J, GLFW_GAMEPAD_BUTTON_X,
-          "J", "stand_lp", cse::kernel::kInputLP },
-        { "Fight.Attack2", GLFW_KEY_K, GLFW_GAMEPAD_BUTTON_Y,
-          "K", "stand_mp", cse::kernel::kInputMP },
-        { "Fight.Attack3", GLFW_KEY_L, GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER,
-          "L", "stand_hp", cse::kernel::kInputHP },
-        { "Fight.Attack4", GLFW_KEY_U, GLFW_GAMEPAD_BUTTON_A,
-          "U", "stand_lk", cse::kernel::kInputLK },
-        { "Fight.Attack5", GLFW_KEY_I, GLFW_GAMEPAD_BUTTON_B,
-          "I", "stand_hk", cse::kernel::kInputMK },
-        { "Fight.Attack6", GLFW_KEY_O, GLFW_GAMEPAD_BUTTON_LEFT_BUMPER,
-          "O", "air_mp",   cse::kernel::kInputHK },
+        { "Fight.LP", GLFW_KEY_U, GLFW_GAMEPAD_BUTTON_X,
+          "U", "LP", cse::kernel::kInputLP, "stand_lp", "crouch_lp", "air_lp" },
+        { "Fight.MP", GLFW_KEY_I, GLFW_GAMEPAD_BUTTON_Y,
+          "I", "MP", cse::kernel::kInputMP, "stand_mp", "crouch_mp", "air_mp" },
+        { "Fight.HP", GLFW_KEY_O, GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER,
+          "O", "HP", cse::kernel::kInputHP, "stand_hp", "crouch_hp", "air_hp" },
+        { "Fight.LK", GLFW_KEY_J, GLFW_GAMEPAD_BUTTON_A,
+          "J", "LK", cse::kernel::kInputLK, "stand_lk", "crouch_lk", "air_lk" },
+        { "Fight.MK", GLFW_KEY_K, GLFW_GAMEPAD_BUTTON_B,
+          "K", "MK", cse::kernel::kInputMK, "stand_mk", "crouch_mk", "air_mk" },
+        { "Fight.HK", GLFW_KEY_L, GLFW_GAMEPAD_BUTTON_LEFT_BUMPER,
+          "L", "HK", cse::kernel::kInputHK, "stand_hk", "crouch_hk", "air_hk" },
     };
 
-    // The three direction bits stepFighter actually reads: kInputLeft and
-    // kInputRight set velX, kInputUp jumps (Simulate.cpp). kInputDown is
-    // DELIBERATELY UNBOUND -- nothing in the kernel reads it and no move in
-    // either shipped character asks for it, so a key for it would be a key that
-    // does nothing, which is the failure mode this project keeps naming.
+    // The FOUR direction bits stepFighter reads. kInputLeft and kInputRight set
+    // velX and kInputUp jumps (Simulate.cpp), as they always did.
+    //
+    // kInputDown USED TO BE DELIBERATELY UNBOUND, and the comment here said why:
+    // "nothing in the kernel reads it and no move in either shipped character
+    // asks for it, so a key for it would be a key that does nothing, which is the
+    // failure mode this project keeps naming." That was true and is no longer.
+    // The P2 expansion made Down do two things a player can see -- it sets
+    // Fighter::crouching, which selects the crouching variant of every attack
+    // button, and combined with holding back it makes the guard LOW, which is the
+    // only way to block a sweep. Binding it is now required rather than allowed.
     const MoveKey kDirectionKeys[] = {
         { "Fight.Left",  GLFW_KEY_A, GLFW_GAMEPAD_BUTTON_DPAD_LEFT,
-          "A", "", cse::kernel::kInputLeft },
+          "A", "", cse::kernel::kInputLeft,  "", "", "" },
         { "Fight.Right", GLFW_KEY_D, GLFW_GAMEPAD_BUTTON_DPAD_RIGHT,
-          "D", "", cse::kernel::kInputRight },
+          "D", "", cse::kernel::kInputRight, "", "", "" },
         { "Fight.Up",    GLFW_KEY_W, GLFW_GAMEPAD_BUTTON_DPAD_UP,
-          "W", "", cse::kernel::kInputUp },
+          "W", "", cse::kernel::kInputUp,    "", "", "" },
+        { "Fight.Down",  GLFW_KEY_S, GLFW_GAMEPAD_BUTTON_DPAD_DOWN,
+          "S", "", cse::kernel::kInputDown,  "", "", "" },
     };
 
     // --- The training controls -----------------------------------------------
@@ -206,15 +244,45 @@ namespace {
     // one's wins every time this one's bits are held. The move remains reachable
     // by a CANCEL -- FindCancel scans the cancel table, not the move table -- so
     // "shadowed" means cancel-only and not unreachable, and BindingRow says so.
+    // The fighter states a stance condition admits, as a 3-bit set.
+    //
+    // This exists because shadowing is no longer a question about buttons alone.
+    // Since the P2 expansion the kernel enforces stance (Combat.cpp StanceAllows),
+    // so `stand_lp` and `crouch_lp` can share one button WITHOUT either shadowing
+    // the other -- a fighter is in exactly one stance and only one of them can
+    // ever match. Comparing masks alone would report six false shadows on a
+    // correctly authored 6/6/6 character, and a diagnostic that fires on correct
+    // data is how a diagnostic gets deleted; this repository has already recorded
+    // that happening once, to assertion A04.
+    constexpr std::uint8_t kStateStanding  = 1u << 0;
+    constexpr std::uint8_t kStateCrouching = 1u << 1;
+    constexpr std::uint8_t kStateAir       = 1u << 2;
+
+    std::uint8_t statesAdmittedBy(std::uint8_t stance) {
+        switch (stance) {
+            case cse::kernel::kStanceStanding:  return kStateStanding;
+            case cse::kernel::kStanceCrouching: return kStateCrouching;
+            case cse::kernel::kStanceAir:       return kStateAir;
+            case cse::kernel::kStanceGround:    return kStateStanding | kStateCrouching;
+            default: break;   // kStanceAny, and anything unrecognised
+        }
+        return kStateStanding | kStateCrouching | kStateAir;
+    }
+
     bool shadowedFromNeutral(const cse::kernel::FighterData& data,
                              std::uint16_t slot) {
         const std::int32_t index = static_cast<std::int32_t>(slot);
         if (index <= 0 || index >= data.moveCount) return false;
         const std::uint16_t mine = data.moves[index].button;
         if (mine == 0) return false;
+        const std::uint8_t mineStates = statesAdmittedBy(data.moves[index].stance);
         for (std::int32_t i = 1; i < index; ++i) {
-            const std::uint16_t other = data.moves[i].button;
-            if (other != 0 && (mine & other) == other) return true;
+            const cse::kernel::MoveDef& other = data.moves[i];
+            if (other.button == 0) continue;
+            if ((mine & other.button) != other.button) continue;
+            // A subset mask earlier in the file only wins where BOTH moves could
+            // start, which is where their stances overlap.
+            if ((statesAdmittedBy(other.stance) & mineStates) != 0) return true;
         }
         return false;
     }
@@ -355,10 +423,14 @@ bool UntitledFighterMode::startCharacter_(int index) {
     options.body.halfWidthSub = cse::data::kDefaultBodyHalfWidthSub;
     options.body.heightSub    = cse::data::kDefaultBodyHeightSub;
     for (const MoveKey& key : kMoveKeys) {
-        cse::data::MoveBinding binding{};
-        binding.moveId = key.moveId;
-        binding.button = key.button;
-        options.bindings.push_back(binding);
+        // All three variants get the SAME bit. StanceAllows is what picks one at
+        // tick time; a character that has only some of them binds only those.
+        for (const char* moveId : { key.standing, key.crouching, key.air }) {
+            cse::data::MoveBinding binding{};
+            binding.moveId = moveId;
+            binding.button = key.button;
+            options.bindings.push_back(binding);
+        }
     }
     // BOTH SIDES GET THE SAME TABLE. A mirror match is the setup in which nothing
     // that happens can be blamed on the two sides having different data, and the
@@ -380,14 +452,25 @@ bool UntitledFighterMode::startCharacter_(int index) {
     // for: a move this character does not have got no slot (Find returns 0, its
     // documented sentinel), and a mask an earlier slot shadows can never start
     // from neutral. Both are computed here, once, and drawn.
+    // ONE ROW PER VARIANT, not per key, because `slot` and `shadowed` are facts
+    // about a MOVE. Collapsing the three into one row would have to pick which
+    // move's slot to show, and the one it did not pick is the one that would fail
+    // silently. A variant the character does not have is skipped rather than
+    // listed as slot 0, which reads as "idle".
     for (const MoveKey& key : kMoveKeys) {
-        BindingRow row{};
-        row.keyLabel = key.label;
-        row.moveId   = key.moveId;
-        row.button   = key.button;
-        row.slot     = build_.moves[kPlayerSlot].Find(key.moveId);
-        row.shadowed = shadowedFromNeutral(build_.data.p[kPlayerSlot], row.slot);
-        bindings_.push_back(row);
+        const char* const ids[3]    = { key.standing, key.crouching, key.air };
+        const char* const states[3] = { "stand", "crouch", "air" };
+        for (int v = 0; v < 3; ++v) {
+            const std::uint16_t slot = build_.moves[kPlayerSlot].Find(ids[v]);
+            if (slot == 0) continue;
+            BindingRow row{};
+            row.keyLabel = std::string(key.label) + " " + states[v];
+            row.moveId   = ids[v];
+            row.button   = key.button;
+            row.slot     = slot;
+            row.shadowed = shadowedFromNeutral(build_.data.p[kPlayerSlot], slot);
+            bindings_.push_back(row);
+        }
     }
 
     // --- analyse -------------------------------------------------------------
