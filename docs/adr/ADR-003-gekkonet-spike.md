@@ -1,6 +1,6 @@
 # ADR-003 — GekkoNet: the spike
 
-**Status:** **BUILDING SPIKE COMPLETE. All three gates PASS.** Amends `ADR-002` CHOICE A.
+**Status:** Accepted 2026-08-12 · **Implemented.** The building spike ran and all three gates passed, so the standing verdict is **adopt GekkoNet, and vendor it** -- it is not in vcpkg, so adopting means a pinned submodule. Amends `ADR-002` CHOICE A.
 **Date:** 2026-08-12. **Pinned commit:** `5924b5c7abb5b1156c3c5609c9c36e9bede58c1c` (2026-08-04).
 
 > ## The building spike ran. Here is what it did and what it found.

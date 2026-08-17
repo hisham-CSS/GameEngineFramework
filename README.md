@@ -53,7 +53,7 @@ combo.
 | **[API Reference](docs/api-index.md)** | Generated per-class reference. Build it with the `docs` CMake target (requires Doxygen) |
 | **[Architecture Decisions](docs/ARCHITECTURE.md)** | The fighting-game direction: D1–D9, the build order, the determinism contract, and a table of rejected ideas with the condition each comes back under |
 | **[North Star](docs/NORTHSTAR.md)** | What the engine is today, made testable, and what blocks the target |
-| **ADRs** | [001 — does the declarative model fit?](docs/ADR-001-fighting-core.md) (measured, on three real characters) · [002 — the eleven open decisions](docs/ADR-002-open-decisions.md) · [003 — the GekkoNet spike](docs/ADR-003-gekkonet-spike.md) · [004 — Choronos considered](docs/ADR-004-choronos-considered.md) |
+| **ADRs** | [001 — does the declarative model fit?](docs/adr/ADR-001-fighting-core.md) (measured, on three real characters) · [002 — the eleven open decisions](docs/adr/ADR-002-open-decisions.md) · [003 — the GekkoNet spike](docs/adr/ADR-003-gekkonet-spike.md) · [004 — Choronos considered](docs/adr/ADR-004-choronos-considered.md) |
 | **[Engine Audit & Roadmap](docs/ENGINE_AUDIT_2026-07.md)** | The phased roadmap ledger and its status |
 | **[Maintenance Guide](docs/MAINTENANCE.md)** | Working on the engine itself: the change loop, the documentation audit, and the invariants that keep biting |
 | **[Style Guide](docs/STYLE.md)** | How code is written here — comments, tests, diagnostics and API shape |

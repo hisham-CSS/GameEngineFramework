@@ -58,7 +58,7 @@ presentation, and its only determinism obligation is §7.
 | S6 | Every integer field is explicitly sized (`std::int32_t`, never `int`) | review | — |
 | S7 | No `float` or `double` in `GameState` or anything `Simulate` calls | CI | `scripts/check_determinism_flags.py`'s `KERNEL_FORBIDDEN`, over `KERNEL_GLOBS` |
 | S8 | Every field added to `GameState` is added to the reflection table in the same commit | **not yet** | there is no reflection table. ROADMAP E6 / M2.3 builds it and owns this rule |
-| S9 | `GameState` is a wire contract: changes are batched into one planned expansion, re-goldened once, reviewed once | review | `tests/test_determinism_crossplat.cpp` holds the golden hash; the process is [ADR-005](ADR-005-playable-priority.md) §3 |
+| S9 | `GameState` is a wire contract: changes are batched into one planned expansion, re-goldened once, reviewed once | review | `tests/test_determinism_crossplat.cpp` holds the golden hash; the process is [ADR-005](adr/ADR-005-playable-priority.md) §3 |
 
 ### `Simulate` (K)
 
@@ -82,7 +82,7 @@ presentation, and its only determinism obligation is §7.
 | Id | Rule | Enforced by | Where |
 |---|---|---|---|
 | I1 | `entt::entity` never appears in the simulation | configure | K2 — EnTT is not linkable from `CseKernel` |
-| I2 | A fighter's identity is its **slot index**, fixed for the match. No runtime spawn, no id allocator, no generation counter | structural | `GameState::p[kMaxFighters]` with an `active` flag. `SimId` and a snapshot ring are deliberately not built — [ADR-010](ADR-010-one-roadmap-one-rule.md) §3.4 |
+| I2 | A fighter's identity is its **slot index**, fixed for the match. No runtime spawn, no id allocator, no generation counter | structural | `GameState::p[kMaxFighters]` with an `active` flag. `SimId` and a snapshot ring are deliberately not built — [ADR-010](adr/ADR-010-one-roadmap-one-rule.md) §3.4 |
 | I3 | Presentation ordering ties break on the **entity index**, never the raw handle: version bits sit above the index and reset on load, so raw-handle order flips across a save/reload | review | obeyed at `Engine/src/core/CameraDirector.cpp` and `Engine/src/script/ScriptWorld.cpp`; **still broken** at `Engine/src/ui/UIWorld.cpp` (`entt::to_integral`), whose own comment claims the stability it does not deliver. ROADMAP M1.0 |
 
 ### Input (N)
@@ -91,7 +91,7 @@ presentation, and its only determinism obligation is §7.
 |---|---|---|---|
 | N1 | Input is a value parameter. The simulation never queries hardware | structural | `Simulate`'s signature takes `const InputPair&` |
 | N2 | No analog value reaches the simulation. Directions are quantized at the sampling boundary | structural | `Input` is ten digital bits (`GameState.h`). A stick has to be reduced to those bits before it can be expressed at all |
-| N3 | Once written, a tick's input is immutable; re-simulation reads the same bytes | structural | GekkoNet owns the input ring ([ADR-003](ADR-003-gekkonet-spike.md)); `CseNet` moves bytes and a length, never a `GameState` |
+| N3 | Once written, a tick's input is immutable; re-simulation reads the same bytes | structural | GekkoNet owns the input ring ([ADR-003](adr/ADR-003-gekkonet-spike.md)); `CseNet` moves bytes and a length, never a `GameState` |
 | N4 | Producer-side sticky state — the between-tick "pressed since last tick" accumulator — is never read during re-simulation and never networked | **not yet** | ROADMAP M2.4 |
 | N5 | UI focus never suppresses gameplay input while a session is live | **not yet** | ROADMAP M2.4 |
 
@@ -105,7 +105,7 @@ presentation, and its only determinism obligation is §7.
 | T4 | Every tick can produce a checksum; a session exchanges one periodically and stops the match on mismatch | test (half) | `Checksum()` and `KernelRollback.ChecksumDetectsASingleBitOfDivergence`; the exchange arrives with the transport, ROADMAP M2.1–M2.3 |
 | T5 | Snapshot → restore → re-simulate is byte-identical at every rollback depth | test | `KernelRollback.ResimulatingFromASnapshotReproducesTheStraightRun`, `.EightTickRewindIsExactAtEveryDepth`, `Session.SurvivesHundredsOfRealRollbacks` |
 | T6 | A desync is reported and the match stops. It is never silently corrected | review | `ISession::PollDesync`; there is no correction path to disable |
-| T7 | A full input or snapshot ring **stalls**. It never drops a tick and never truncates | structural | GekkoNet owns both rings ([ADR-003](ADR-003-gekkonet-spike.md)); we do not implement one, which is why we cannot get this wrong |
+| T7 | A full input or snapshot ring **stalls**. It never drops a tick and never truncates | structural | GekkoNet owns both rings ([ADR-003](adr/ADR-003-gekkonet-spike.md)); we do not implement one, which is why we cannot get this wrong |
 
 ### The build (B)
 
@@ -116,7 +116,7 @@ presentation, and its only determinism obligation is §7.
 | B3 | No instruction-set flag that enables FMA contraction (`/arch:AVX2`, `-march=`, `-mavx`), and no `GLM_FORCE_*` that changes float behaviour | review | none is present today and none is in the gate's table. ROADMAP M1.0 |
 | B4 | No LTO / IPO on simulation targets — it can legally reassociate across translation units | review | none is configured anywhere in the tree |
 | B5 | The simulation links nothing, so there is no such thing as a simulation-wide compile-option target | configure | K2. ARCHITECTURE §4.7 asked for a `cse_fp_strict` INTERFACE target linked by simulation targets; that target does not exist and **cannot**, because linking it would trip the kernel's own guard. The link guard is the stronger rule and it is the one that shipped |
-| B6 | Physics never runs on worker threads | review | `PhysicsSettings::workerThreads` defaults to `0` (`Engine/src/physics/PhysicsTypes.h`) and both backends honour it; nothing asserts it at startup. Physics is presentation-only ([ADR-002](ADR-002-open-decisions.md) CHOICE D) so this cannot desync a match — it can desync a *replay's cosmetics* |
+| B6 | Physics never runs on worker threads | review | `PhysicsSettings::workerThreads` defaults to `0` (`Engine/src/physics/PhysicsTypes.h`) and both backends honour it; nothing asserts it at startup. Physics is presentation-only ([ADR-002](adr/ADR-002-open-decisions.md) CHOICE D) so this cannot desync a match — it can desync a *replay's cosmetics* |
 | B7 | Cross-toolchain agreement is checked, not assumed | test | `CrossPlatformDeterminism.TheScriptedMatchHashesToTheRecordedValue` — a golden hash recorded under MSVC and re-checked by gcc 13 on the Linux CI leg. A hash checked by one compiler proves only that the compiler agrees with itself |
 | B8 | Jolt's version id is not trusted to describe Jolt's arithmetic | — | ARCHITECTURE §4.7 asked for `JPH_VERSION_ID` to be `static_assert`ed and logged; it is neither. Read at Jolt 5.1.0, the id encodes `JPH_DOUBLE_PRECISION`, `JPH_CROSS_PLATFORM_DETERMINISTIC` and nine other build switches — but **not** the instruction set (`JPH_USE_AVX2` and friends) and not the compiler's FP model, so it can confirm the switch and never the arithmetic. B5 is why that is survivable: physics cannot reach a tick |
 
@@ -126,7 +126,7 @@ presentation, and its only determinism obligation is §7.
 |---|---|---|---|
 | A1 | Float → integer quantization happens **once, at load**, by one documented rule, identically on every peer | test | `Games/UntitledFighter/Data/src/CharacterData.cpp`; `OneFrameAnchor.ARoundTripThroughJsonWithNoMutationChangesNothing`, `OneFrameMutation.NothingBesidesThatOneIntegerMoved` |
 | A2 | An unknown key in a character file is a load error, not a default | test | the load assertions A01–A20 in `Games/UntitledFighter/Data/src/CharacterData.cpp`; `tests/test_character_data.cpp` |
-| A3 | A schema field is **appended**, never inserted or reordered | review | [ADR-006](ADR-006-stance-and-guard.md)'s wire rule; the golden hash (B7) catches the consequence, not the cause |
+| A3 | A schema field is **appended**, never inserted or reordered | review | [ADR-006](adr/ADR-006-stance-and-guard.md)'s wire rule; the golden hash (B7) catches the consequence, not the cause |
 | A4 | The handshake hashes the **loaded POD arrays**, never the source text — canonicalising text is where float-repr and key-order bugs live | **not yet** | `HashMatchData` exists in `Games/UntitledFighter/Game/include/cse/game/Replay.h`, written for exactly this. ROADMAP M2.2 wires it |
 | A5 | A content mismatch is a lobby error naming the reason, never a gameplay bug | **not yet** | ROADMAP M2.2 |
 
@@ -181,7 +181,7 @@ well-meaning commit from stopping being free.
 | P1 | Asset load order never reaches the simulation | structural + review | physics bodies are built from authored collider components (`Engine/src/physics/PhysicsWorld.cpp`), never from a loaded mesh's AABB, so what a model importer did last cannot change a body |
 | P2 | The physics components carry no runtime handles | review | `Engine/src/physics/PhysicsComponents.h` — which is exactly the property a POD snapshot needs, and the reason to keep it |
 | P3 | Worker threads never touch GL, the EnTT registry or ImGui; `onComplete` runs on the main thread | review | `Engine/src/core/JobSystem.h`, written up in [STYLE.md](STYLE.md#threading). It is a threading rule that also keeps rendering from feeding the simulation |
-| P4 | Pose is a pure function of `(moveId, moveFrame, posX, posY, facing, stance, the stun fields, tick)`. A return-to-idle tail is presentation only, is interrupted the tick the simulation acts, and can never delay a move, move a box or hold a fighter in place | **not yet** | there is no pose yet — the box overlay is all that draws a fighter. [ADR-011](ADR-011-mechanics-are-fields.md) decision 6 is the rule; ROADMAP M3.2–M3.4 build it and own the acceptance tests |
+| P4 | Pose is a pure function of `(moveId, moveFrame, posX, posY, facing, stance, the stun fields, tick)`. A return-to-idle tail is presentation only, is interrupted the tick the simulation acts, and can never delay a move, move a box or hold a fighter in place | **not yet** | there is no pose yet — the box overlay is all that draws a fighter. [ADR-011](adr/ADR-011-mechanics-are-fields.md) decision 6 is the rule; ROADMAP M3.2–M3.4 build it and own the acceptance tests |
 
 ## 6. Changing a rule
 

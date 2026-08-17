@@ -17,7 +17,7 @@ The engine's job is to make that proof visible and convincing.
    reverting it, build all four configurations) and the invariants that bite.
 4. `docs/STYLE.md` — comments say WHY and name the bug they prevent; tests are
    named as properties; diagnostics list what exists.
-5. `docs/ARCHITECTURE.md` and `docs/adr/` (or `docs/ADR-*.md` before M0.4) — why
+5. `docs/ARCHITECTURE.md` and `docs/adr/` (or `docs/adr/ADR-*.md` before M0.4) — why
    things are the way they are. ADRs are frozen records. **ADR-011** (mechanics
    are fields, not rules; visuals are a pure function of frame data) constrains
    every kernel, data and presentation change.

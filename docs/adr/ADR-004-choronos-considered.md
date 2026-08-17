@@ -1,6 +1,6 @@
 # ADR-004 — Choronos considered as the session layer, and not taken
 
-**Status:** Accepted. **Date:** 2026-08-12. **Decides:** whether to port the author's own C#/MonoGame
+**Status:** Accepted 2026-08-12 · stands. **Date:** 2026-08-12. **Decides:** whether to port the author's own C#/MonoGame
 rollback library instead of adopting GekkoNet. **Relates to:** `ADR-002` CHOICE A, `ADR-003`.
 
 **Answer: adopt GekkoNet. Keep Choronos, and use it as the fallback's specification.**

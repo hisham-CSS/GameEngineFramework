@@ -138,7 +138,7 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
-          # ThirdParty/GekkoNet is a pinned submodule (docs/ADR-003).
+          # ThirdParty/GekkoNet is a pinned submodule (docs/adr/ADR-003).
           # Without this the build fails at configure with the
           # "is empty" message in ThirdParty/CMakeLists.txt.
           submodules: recursive
@@ -246,7 +246,7 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
-          # ThirdParty/GekkoNet is a pinned submodule (docs/ADR-003).
+          # ThirdParty/GekkoNet is a pinned submodule (docs/adr/ADR-003).
           # Without this the build fails at configure with the
           # "is empty" message in ThirdParty/CMakeLists.txt.
           submodules: recursive
@@ -335,7 +335,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # ThirdParty/GekkoNet is a pinned submodule (docs/ADR-003).
+          # ThirdParty/GekkoNet is a pinned submodule (docs/adr/ADR-003).
           # Without this the build fails at configure with the
           # "is empty" message in ThirdParty/CMakeLists.txt.
           submodules: recursive

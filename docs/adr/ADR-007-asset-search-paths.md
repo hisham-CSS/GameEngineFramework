@@ -1,6 +1,7 @@
 # ADR-007 — Asset search paths: what a merge at copy time cannot express
 
-**Status.** Direction **accepted** 2026-08-16, **unscheduled**. The split is deliberate and is
+**Status.** Direction **accepted** 2026-08-16, **unscheduled** — its trigger 3 has since fired
+(`ADR-008`), so the work lands after [ROADMAP.md](../ROADMAP.md) M2. The split is deliberate and is
 §7: the author decided the destination in the same sentence that accepted the interim, and
 what is genuinely open is only *when*. Records the design so the interim cannot quietly
 become the answer. Amends **`ADR-005` §1**, whose three-goal table has no row for the thing

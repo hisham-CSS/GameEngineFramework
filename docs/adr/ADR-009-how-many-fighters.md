@@ -1,7 +1,8 @@
 # ADR-009 — How many fighters a match has, and who "the opponent" is
 
-**Status.** Proposed 2026-08-16. Constrains the `ADR-005` §4 **P2** state expansion, which has not
-yet been written, and must be settled *before* it rather than after. Changes no behaviour on its own.
+**Status.** Accepted 2026-08-16 · **Implemented** @ `41ea6e5`. It constrained the `ADR-005` §4 **P2**
+state expansion and was settled before it, which is the point: eight slots is what
+`Fighter::alreadyHitBits` already had.
 
 **The question**, from the author, arriving with the instruction to do the P2 expansion:
 

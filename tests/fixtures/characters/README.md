@@ -1,12 +1,12 @@
 # Phase 0 corpus — test fixtures, not game content
 
 Three characters transcribed from open MUGEN/Ikemen `.cns` sources during Phase 0
-(see [`docs/ADR-001-fighting-core.md`](../../../docs/ADR-001-fighting-core.md)).
+(see [`docs/adr/ADR-001-fighting-core.md`](../../../docs/adr/ADR-001-fighting-core.md)).
 They exist to answer one question, and they answered it: **can a real
 fighting-game character be expressed in the declarative fragment the combo prover
 decides over?** 59 moves, 247 cancels, and the measured answer is in the ADR.
 
-## Why they live here and not in `Editor/src/Exported/Characters/`
+## Why they live here and not in `Games/UntitledFighter/Assets/Characters/`
 
 **They are not ours to ship.** The frame data was derived from third-party MUGEN
 characters, and this project holds no licence to them. Frame numbers may well be
@@ -36,6 +36,6 @@ copies `Editor/src/Exported`, and this directory is deliberately outside it.
 ## `schema.v1.json`
 
 Kept beside them because it is what they were authored against. The shipping
-schema is v2, in `Editor/src/Exported/Characters/`. ADR-001 records that a v1 file
+schema is v2, in `Games/UntitledFighter/Assets/Characters/`. ADR-001 records that a v1 file
 is already a valid v2 file, so the corpus validates against either — which is
 itself one of the things the fixtures are here to keep true.

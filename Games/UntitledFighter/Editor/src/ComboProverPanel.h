@@ -12,7 +12,7 @@
 // was designed to have: an extension point you have to rewrite a panel to fit is
 // not an extension point.
 //
-// docs/ARCHITECTURE.md section 5.3 specifies this panel and docs/ADR-001 amends
+// docs/ARCHITECTURE.md section 5.3 specifies this panel and docs/adr/ADR-001 amends
 // it. Everything below is why the panel is shaped the way it is, because almost
 // every shape here is a correction of a draft that was wrong in a way you would
 // not notice by looking at it.

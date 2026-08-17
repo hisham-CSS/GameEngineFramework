@@ -797,9 +797,9 @@ if (!AnalyseCharacter(character, options, result, report)) {
 | Document | What it decides |
 |---|---|
 | [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md) | D1–D9, the determinism contract, the phased build order, and the table of rejected ideas with the condition under which each comes back |
-| [`docs/ADR-001-fighting-core.md`](../ADR-001-fighting-core.md) | Phase 0's measured result: three transcribed characters, the nine missing schema fields, and the two instructions ARCHITECTURE.md originally gave that would have fabricated an infinite combo |
-| [`docs/ADR-002-open-decisions.md`](../ADR-002-open-decisions.md) | CHOICES A–D: adopt GekkoNet, data-only first, abort-and-name-the-frame on desync, and make the D2 boundary a link error |
-| [`docs/ADR-003-gekkonet-spike.md`](../ADR-003-gekkonet-spike.md) | The building spike, all three gates, and the event-pump shape the plan had missed |
-| [`docs/ADR-004-choronos-considered.md`](../ADR-004-choronos-considered.md) | The alternative weighed against GekkoNet, and not taken |
+| [`docs/adr/ADR-001-fighting-core.md`](../adr/ADR-001-fighting-core.md) | Phase 0's measured result: three transcribed characters, the nine missing schema fields, and the two instructions ARCHITECTURE.md originally gave that would have fabricated an infinite combo |
+| [`docs/adr/ADR-002-open-decisions.md`](../adr/ADR-002-open-decisions.md) | CHOICES A–D: adopt GekkoNet, data-only first, abort-and-name-the-frame on desync, and make the D2 boundary a link error |
+| [`docs/adr/ADR-003-gekkonet-spike.md`](../adr/ADR-003-gekkonet-spike.md) | The building spike, all three gates, and the event-pump shape the plan had missed |
+| [`docs/adr/ADR-004-choronos-considered.md`](../adr/ADR-004-choronos-considered.md) | The alternative weighed against GekkoNet, and not taken |
 | [`docs/NORTHSTAR.md`](../NORTHSTAR.md) | What the game is for and what crossplay has to mean |
 | [`docs/MAINTENANCE.md`](../MAINTENANCE.md) | How this repository audits its own documentation for drift — including the drift a page of stale line numbers is |

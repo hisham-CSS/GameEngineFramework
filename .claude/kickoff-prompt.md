@@ -10,7 +10,7 @@
 You are continuing autonomous development of **GameEngineFramework** — Cat Splat
 Engine and its first title, **Untitled Fighting Game** — in this repository.
 `CLAUDE.md` is binding; read it first, then `docs/ROADMAP.md`, then
-`docs/ADR-011-mechanics-are-fields.md` and `docs/ADR-010-one-roadmap-one-rule.md`,
+`docs/adr/ADR-011-mechanics-are-fields.md` and `docs/adr/ADR-010-one-roadmap-one-rule.md`,
 then `docs/MAINTENANCE.md` and `docs/STYLE.md`. Until `docs/DETERMINISM.md`
 exists, the determinism contract is `docs/ARCHITECTURE.md` §4.
 

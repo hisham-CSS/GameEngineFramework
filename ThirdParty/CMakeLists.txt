@@ -1,7 +1,7 @@
 # Third-party code we vendor rather than consume from vcpkg.
 #
-# GekkoNet is the rollback session layer (docs/ADR-002 CHOICE A, proved in
-# docs/ADR-003). It is not in vcpkg in any form, so it is a git submodule pinned
+# GekkoNet is the rollback session layer (docs/adr/ADR-002 CHOICE A, proved in
+# docs/adr/ADR-003). It is not in vcpkg in any form, so it is a git submodule pinned
 # to a commit, and we are its maintainer at that pin from day one -- ADR-003 says
 # so explicitly and it is not a reason against, only a reason to pin deliberately.
 #
@@ -38,7 +38,7 @@
 # "someone else's".
 #
 # It is the reason the fighting game is a case study rather than only a game:
-# docs/ADR-001 calls the engine-side integration research contribution #9,
+# docs/adr/ADR-001 calls the engine-side integration research contribution #9,
 # because the artifact the prover analyses is then the artifact that ships, with
 # no export step in between.
 #

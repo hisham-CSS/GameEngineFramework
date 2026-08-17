@@ -22,7 +22,7 @@ UntitledFighter/UI/         its markup, stylesheet and art
 ### `Characters/` deliberately shares the engine's namespace
 
 It stages to `Exported/Characters/`, which is exactly where it staged from when
-it lived in `Editor/src/Exported/Characters/`. That is the point: the source
+it lived in `Editor/src/Exported/Characters/` <!-- docs-ok: names where it used to be, on purpose -->. That is the point: the source
 moved, the **staged path did not**, and so seven readers went on working with no
 edit at all — `UntitledFighterMode.cpp`, `ComboProverPanel.h`, and the
 `Exported/Characters` roots in `tests/test_game_core.cpp`,

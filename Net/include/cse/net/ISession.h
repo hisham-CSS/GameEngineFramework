@@ -2,8 +2,8 @@
 //
 // WHAT THIS IS FOR. A rollback session owns the hard, undifferentiating half of
 // netcode: input delay, prediction, confirmation, frame-advantage adjustment,
-// packet loss, disconnect, desync detection. docs/ADR-002 CHOICE A decided to
-// adopt an implementation rather than write one, and docs/ADR-003 established
+// packet loss, disconnect, desync detection. docs/adr/ADR-002 CHOICE A decided to
+// adopt an implementation rather than write one, and docs/adr/ADR-003 established
 // GekkoNet clears every gate. This interface is what keeps that decision
 // reversible.
 //

@@ -533,7 +533,7 @@ TEST(P2HitstunDecay, IsOffByDefault) {
            "leaves this field absent and must play exactly as it did.";
 }
 
-// --- More than two fighters (docs/ADR-009) ----------------------------------
+// --- More than two fighters (docs/adr/ADR-009) ----------------------------------
 
 namespace {
 

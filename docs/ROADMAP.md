@@ -6,7 +6,7 @@ This is the **only** roadmap. `README.md` carries one paragraph and a link;
 `docs/manual/` never lists gaps; ADRs record why, not what is next. If a fact
 about status is anywhere else, that copy is wrong. How this file is maintained
 is at the bottom (§ How to update this file); the decision behind it is
-[ADR-010](ADR-010-one-roadmap-one-rule.md).
+[ADR-010](adr/ADR-010-one-roadmap-one-rule.md).
 
 ## The goal, in one paragraph
 
@@ -20,7 +20,7 @@ tool-assisted player, as a replay anyone can watch — and the **same fighter,
 loaded with different frame data, must show different infinites** (microwalk,
 jump cancels, wall bounces, counter-hit links, meter loops), because every
 mechanic is an opt-in field on a move, never a rule in the kernel
-([ADR-011](ADR-011-mechanics-are-fields.md)). Visuals are a pure function of
+([ADR-011](adr/ADR-011-mechanics-are-fields.md)). Visuals are a pure function of
 frame data; return-to-idle tails are always cancelable. Everything is provable
 and showcased **before** any real art is made; placeholder rigs (Mixamo) come
 first, SF6-tier art last, and only after the showcase already sells the paper
@@ -31,7 +31,7 @@ without it. Details, tests and proofs of the four properties:
 
 | In flight | Owner | Since |
 |---|---|---|
-| *(nothing — next is M0.4)* | | |
+| *(nothing — next is M0.5)* | | |
 
 One work package in flight at a time. The next unblocked one is always the top
 `[ ]` in milestone order below.
@@ -53,7 +53,7 @@ it, runs in CI, and the manual page it touched says the new truth.
 
 Consolidate the documentation and install the gate, first, because every later
 WP will be read by someone (or something) that starts from these files. The
-full mapping is [ADR-010 §5–§7](ADR-010-one-roadmap-one-rule.md); this is the
+full mapping is [ADR-010 §5–§7](adr/ADR-010-one-roadmap-one-rule.md); this is the
 work list.
 
 - `[x] 5f756c6` **M0.1 Archive the originals.** *(S)* Copy `NORTHSTAR.md`,
@@ -80,7 +80,7 @@ work list.
   `workerThreads == 0` startup assert and `JPH_VERSION_ID` `static_assert` do not
   exist (B6); §4.1's `Phase` parameter and §4.2's reflection table do not exist
   (K11, S8). Four review-only rules that could be mechanical became **M1.0**.
-- `[x]` **M0.3 `scripts/check_docs.py` + CI step, advisory.** *(S)* Checks:
+- `[x] 9b7d26c` **M0.3 `scripts/check_docs.py` + CI step, advisory.** *(S)* Checks:
   relative links resolve; backticked repo paths exist (`:line` stripped;
   `docs-ok` escape); living docs carry `Verified: <date> @ <sha>` in the first ten
   lines; ADRs carry a `Status` line; no `AMENDED`/`STRUCK`/`~~`/`Correction (`
@@ -93,7 +93,7 @@ work list.
   **First run: 78 findings** — 41 cited paths that do not resolve, 25 living docs
   with no stamp, 12 annotation markers, 0 dead links. Re-read it any time with
   `python scripts/check_docs.py`; the leaders are
-  `Editor/src/Exported/Characters/` ×9 (moved) and `Engine/src/gameplay/` ×8
+  `Editor/src/Exported/Characters/` ×9 (moved) and `Engine/src/gameplay/` ×8 <!-- docs-ok: named here as paths that do NOT resolve -->
   (never existed). **Additions:** a sixth check verifies `docs/archive/` still
   holds its frozen bytes, by git blob hash recomputed in Python — CI checks out
   with no history, so `git rev-parse 99669cc:…` is not available there. The
@@ -102,18 +102,27 @@ work list.
   deliberately unchanged — it is what branch protection was configured against,
   so renaming it is a repository-settings change for the human, not a workflow
   edit (M0.6).
-- `[ ]` **M0.4 Rewrite the top level.** *(M)* `NORTHSTAR.md` → one screen (goal,
+- `[x]` **M0.4 Rewrite the top level.** *(M)* `NORTHSTAR.md` → one screen (goal,
   four properties, done-tests, proofs — ADR-010 §2). `ARCHITECTURE.md` → D1–D9
   with every amendment folded into the prose, D9 as the four answers, §2
   rejection table plus `NORTHSTAR.md` §6's rows, the research plug-point in five
   paragraphs; **remove** the build order, the contract, the first week and the
-  appendix. Fix `Engine/src/gameplay/` → `Games/UntitledFighter/Kernel/`.
+  appendix. Fix `Engine/src/gameplay/` → `Games/UntitledFighter/Kernel/`. <!-- docs-ok: names the wrong path in order to replace it -->
   `git mv` `ADR-001`…`ADR-010` to `docs/adr/`; add/normalise one Status line
   each (005 Implemented P0–P2, 006 Implemented, 007 "trigger 3 fired — ADR-008",
   008 Implemented @ `1aaa2d1`, 009 Implemented @ `41ea6e5`, 002/003 name the
   standing verdict); `docs/adr/README.md` index. Repoint every inbound link.
   **Done when:** `check_docs.py` reports no dead links or paths outside the
   manual.
+  **Met:** 0 dead links, 0 paths outside `docs/manual/`. The gate went 78 → 32
+  findings; what is left is 23 missing stamps, 4 markers and 5 manual paths,
+  which is exactly M0.5 and M0.6. **Additions:** ADR-011 moved too (ADR-010 §5
+  lists `adr/ADR-001 … ADR-011`; M0.4's own text stops at 010). Moving the ADRs
+  broke nine of their *outbound* links, repointed mechanically — no ADR's text
+  changed, only its Status line. **A seventh gate rule:** `check_docs.py` no
+  longer path-checks inside `docs/adr/`. An ADR describes the tree as it was, so
+  demanding its paths resolve forces either rewriting frozen records or never
+  going green.
 - `[ ]` **M0.5 The manual.** *(M)* Fix ~30 paths in `docs/manual/fighting-core.md`
   and delete its "Not there yet" (this file is that list now) and its restated
   rules (link `DETERMINISM.md`); add the Game layer (`FightSession`, input
@@ -143,7 +152,7 @@ work list.
 ## M1 — The graph is the game *(size L)* — the paper's central claim
 
 Close the measured gap between what the prover proves and what the kernel does,
-make every mechanic an opt-in field per move ([ADR-011](ADR-011-mechanics-are-fields.md)),
+make every mechanic an opt-in field per move ([ADR-011](adr/ADR-011-mechanics-are-fields.md)),
 make the authoring loop live, and build the tool-assisted showcase that turns
 every verdict — for one fighter under many frame-data patches — into a
 watchable, verified replay. **`GameState` is a wire contract** (ADR-005 §3):
@@ -255,7 +264,7 @@ M1.3 and M3.1 will need (M1.1 reserves them).
   (clock injected, no sleep) and `UIHotReload.*` still pass unchanged.
 - `[ ]` **M1.6 The showcase: one fighter, many patches, a replay per verdict.** *(M)*
   Variants are JSON merge patches (RFC 7386, `nlohmann::json::merge_patch`)
-  under `Games/UntitledFighter/Assets/Characters/fighter_a/variants/`;
+  under `Games/UntitledFighter/Assets/Characters/fighter_a/variants/`; <!-- docs-ok: this WP creates it -->
   `fighter_a_infinite.json` becomes `base + variants/infinite.json`. The eleven
   patches and what each shows are ADR-011 §4; ship them in the order their
   *Needs* column comes true. `BuildDemonstration`
@@ -312,7 +321,7 @@ kernel.
   behind a `CreateGekkoRemoteSession(config, localPort, remoteEndpoint)`
   factory — Winsock/BSD sockets behind one `#ifdef`, no new dependency. Spend at
   most one day comparing with vendoring asio; write the answer as
-  `docs/adr/ADR-012-transport.md`. Two configure-time guards in
+  `docs/adr/ADR-012-transport.md`. <!-- docs-ok: this WP writes it --> Two configure-time guards in
   `Net/CMakeLists.txt` stay: no interface leak, no `gekkonet.h` reachable.
   **Done when:** `SessionUdp.TwoSessionsOnLoopbackAgreeForATenMinuteMatch`
   (3,600+ ticks) with injected 100 ms / 5 % loss.
@@ -363,7 +372,7 @@ eight ticks.
 
 Mixamo rigs and clips are **placeholders** that make the showcase look like a
 fighting game; they are not the art. Every rule of the frame-indexed design
-(ADR-005 §4, made precise by [ADR-011](ADR-011-mechanics-are-fields.md)
+(ADR-005 §4, made precise by [ADR-011](adr/ADR-011-mechanics-are-fields.md)
 decision 6) holds and is the acceptance test for M3.2–M3.4: **pose is a pure
 function of the state the sim already produces** — `f(moveId, moveFrame, posX,
 posY, facing, stance/airborne, stun fields, tick)`; the authoritative window is
@@ -384,7 +393,7 @@ showcase needs it.
   never plays a sound or spawns a spark from inside a tick.
   **Done when:** `Events.ARollbackReplaysTicksButFiresEachEventOnce`.
 - `[ ]` **M3.2 Frame-indexed clip player + skinning (engine).** *(L)*
-  `Engine/src/anim/` (new): `Skeleton`, `AnimationClip` (poses **sampled per
+  `Engine/src/anim/` (new) <!-- docs-ok: this WP creates it -->: `Skeleton`, `AnimationClip` (poses **sampled per
   60 Hz frame at import**, so runtime sampling is an integer index — no dt, no
   interpolation on the authoritative window), `SkinnedMeshComponent`
   (serialised, inspectable, in the component registry). `Model.h`'s `Vertex`
@@ -471,7 +480,7 @@ each is attached to the WP that first needs it.
 
 ## Not scheduled, on purpose
 
-Reasons and come-back triggers are in [ADR-010 §3.4](ADR-010-one-roadmap-one-rule.md);
+Reasons and come-back triggers are in [ADR-010 §3.4](adr/ADR-010-one-roadmap-one-rule.md);
 this is the list, so nobody re-proposes them by accident.
 
 - The trigger expression language (Phase 5) — typed schema nouns instead.

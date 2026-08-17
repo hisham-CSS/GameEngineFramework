@@ -4,7 +4,7 @@
 WHY THIS EXISTS
 ---------------
 Before this script, zero documents were checked by anything. The drift that
-produced was measured rather than guessed (docs/ADR-010 section 1.2): six places
+produced was measured rather than guessed (docs/adr/ADR-010 section 1.2): six places
 claimed to hold the roadmap, four claimed to hold the rules, seven of twelve
 heavily-cited source paths did not resolve, and one of them -- `Engine/src/gameplay/`
 -- had never existed at all while five documents cited it. None of that came from
@@ -258,13 +258,22 @@ def check_file(path: Path, repo: Path) -> list[tuple[str, int, str, str]]:
                                  "strike-through: rewrite the sentence instead"))
 
     # --- cited paths: code spans are exactly where these live -------------
-    for n, span in code_spans(text):
-        if exempt(n):
-            continue
-        for token in span.split():
-            target = looks_like_path(token)
-            if target and not (repo / target).exists():
-                findings.append((rel, n, "path", f"`{target}` does not exist"))
+    #
+    # Skipped in an ADR, for the same reason markers are: an ADR is a record of
+    # a decision at a moment, and its paths are a description of the tree AS IT
+    # WAS. ADR-001 cites `Editor/src/Exported/Characters/`, which was where the
+    # characters lived when it was written and is not where they live now.
+    # Demanding that it resolve leaves exactly two options -- rewrite a frozen
+    # document, or never let this gate go green -- and both are worse than
+    # accepting that history describes history.
+    if not is_adr(rel):
+        for n, span in code_spans(text):
+            if exempt(n):
+                continue
+            for token in span.split():
+                target = looks_like_path(token)
+                if target and not (repo / target).exists():
+                    findings.append((rel, n, "path", f"`{target}` does not exist"))
 
     # --- stamps ------------------------------------------------------------
     head = "\n".join(raw[:STAMP_LINES])
@@ -360,13 +369,13 @@ def self_test() -> int:
 
     expect("no stamp here\n", "stamp", "a living doc with no stamp")
     expect(stamp + "fine\n", None, "a living doc with a stamp")
-    expect("**Status.** Accepted\n~~struck~~\n", None,
-           "a frozen ADR: no stamp needed, markers allowed",
+    expect("**Status.** Accepted\n~~struck~~\n`Engine/src/gone/` was here\n", None,
+           "a frozen ADR: no stamp needed, markers and historical paths allowed",
            rel="docs/adr/ADR-001-x.md")
     expect("no status line\n", "stamp", "an ADR with no Status line",
            rel="docs/adr/ADR-001-x.md")
     expect("**Status.** Accepted\n", None, "an ADR named in the old location",
-           rel="docs/ADR-001-x.md")
+           rel="docs/adr/ADR-001-x.md")
 
     # The archive check, both ways. Hand-built rather than reusing the real
     # manifest, because the point is that an EDIT is caught.
@@ -459,7 +468,7 @@ def main() -> int:
         by_kind[kind] = by_kind.get(kind, 0) + 1
     print()
     print("FAILED: " + ", ".join(f"{n} {k}" for k, n in sorted(by_kind.items())))
-    print("The rule is docs/ADR-010-one-roadmap-one-rule.md section 8.1: one home "
+    print("The rule is docs/adr/ADR-010-one-roadmap-one-rule.md section 8.1: one home "
           "per fact, fixed in the same commit, living docs rewritten and ADRs "
           "frozen, cited by anchor, stamped.")
     print()
