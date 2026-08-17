@@ -31,7 +31,7 @@ without it. Details, tests and proofs of the four properties:
 
 | In flight | Owner | Since |
 |---|---|---|
-| *(nothing — next is M0.5)* | | |
+| *(nothing — next is M0.5b)* | | |
 
 One work package in flight at a time. The next unblocked one is always the top
 `[ ]` in milestone order below.
@@ -102,7 +102,7 @@ work list.
   deliberately unchanged — it is what branch protection was configured against,
   so renaming it is a repository-settings change for the human, not a workflow
   edit (M0.6).
-- `[x]` **M0.4 Rewrite the top level.** *(M)* `NORTHSTAR.md` → one screen (goal,
+- `[x] 2daa884` **M0.4 Rewrite the top level.** *(M)* `NORTHSTAR.md` → one screen (goal,
   four properties, done-tests, proofs — ADR-010 §2). `ARCHITECTURE.md` → D1–D9
   with every amendment folded into the prose, D9 as the four answers, §2
   rejection table plus `NORTHSTAR.md` §6's rows, the research plug-point in five
@@ -123,18 +123,28 @@ work list.
   longer path-checks inside `docs/adr/`. An ADR describes the tree as it was, so
   demanding its paths resolve forces either rewriting frozen records or never
   going green.
-- `[ ]` **M0.5 The manual.** *(M)* Fix ~30 paths in `docs/manual/fighting-core.md`
-  and delete its "Not there yet" (this file is that list now) and its restated
-  rules (link `DETERMINISM.md`); add the Game layer (`FightSession`, input
-  sources, replay, combo watcher) and the Modes (training, frame step, HUD).
-  `docs/manual/editor.md`: Build Settings, Combo Prover, modes in the Game view.
-  De-duplicate the four repeated blocks to one canonical page each (isolation
-  note + frame order → `architecture.md`; staging rule + packaging + scene JSON →
+M0.5 split in two, at the seam between *what the manual says* and *whether
+anyone has re-read it*. The stamp is a claim — "I read this page against the
+code" — and batching it behind the prose work is how a stamp becomes decoration.
+
+- `[x]` **M0.5a The shipped-but-undocumented, and the stalest page.** *(M)*
+  Fix the paths in `docs/manual/fighting-core.md`, delete its "Not there yet"
+  (this file is that list now) and its restated rules (link `DETERMINISM.md`);
+  add the Game layer (`FightSession`, input sources, replay, combo watcher) and
+  the Modes (training, frame step, HUD). `docs/manual/editor.md`: Build Settings,
+  Combo Prover, modes in the Game view.
+  **Done when:** `check_docs.py` reports no path finding anywhere, and the ~8,500
+  shipped lines of `Games/UntitledFighter/Game/` and `Games/UntitledFighter/Modes/`
+  have a manual page.
+- `[ ]` **M0.5b The rest of the manual, and the stamps.** *(M)* De-duplicate the
+  four repeated blocks to one canonical page each (isolation note + frame order →
+  `architecture.md`; staging rule + packaging + scene JSON →
   `scenes-and-shipping.md`); merge `lua-scripting.md` into
   `gameplay-scripting.md` as a "presentation and tooling only (D7)" section;
   fold `BUILDING_LINUX.md` into `getting-started.md`; `performance.md` gains the
-  laptop section from the archived audit. Stamp every page after a read-through.
-  **Done when:** `check_docs.py` is fully green.
+  laptop section from the archived audit. Then stamp every page — **after**
+  reading it against the code, one page at a time.
+  **Done when:** `check_docs.py` reports no stamp finding under `docs/manual/`.
 - `[ ]` **M0.6 Entry points, and make it required.** *(S)* `README.md`: pitch,
   one roadmap paragraph + link, docs table for the new tree, build/run/ship;
   delete the feature matrix, "Not Yet Built" and the scale line; fix Project

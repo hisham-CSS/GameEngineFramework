@@ -32,6 +32,76 @@ The panels are:
 | **Information** | Rendering statistics and the per-frame CPU breakdown. |
 | **Edit** | Undo/redo buttons and the clickable command history. |
 | **Asset Validation** | Output of an `AssetCooker validate` run (opens on demand). |
+| **Build Settings** | Produces the shipped player from what is open. See below. |
+| **Combo Prover** | The title's own panel: the combo-termination verdict for a character file. Registered by the game, not the editor. |
+
+### Two of those panels are not the editor's
+
+`Build Settings` is the editor's. **`Combo Prover` belongs to the title**, and the
+mechanism matters more than the panel: `editor::RegisterTitlePanels` is a seam the
+*game* pushes itself through (`Games/UntitledFighter/Editor/src/UntitledFighterPanels.cpp`),
+so `Editor/` contains no mention of a fighting game and the boundary is a
+configure-time error rather than a habit. A second title adds its panels the same
+way, and neither title needs the other.
+
+---
+
+## Build Settings — the editor produces the player
+
+Shipping used to be a separate executable and a dropdown, which made no sense:
+the thing that knows what a build contains is the thing you authored it in. So
+the editor produces the player ([ADR-008](../adr/ADR-008-editor-produces-the-player.md)).
+
+Open it from the title bar (**Build Settings**). It writes a build from the
+current project: the startup scene, the staged assets beside it, and the player
+executable, into a chosen output directory. The settings themselves live in
+`Engine/src/core/BuildSettings.h` and the mechanism in
+`Engine/src/core/BuildPipeline.h`, so the Player and the editor agree about what a
+build *is* rather than each having an opinion.
+
+Two behaviours worth knowing before you ship something:
+
+- **A build that cannot start is a failed build.** The pipeline verifies the
+  bundle it just produced rather than reporting success on a successful copy —
+  the absence of that check is what once shipped a bundle that could not boot.
+- **A camera-less scene is a real hazard.** The shipped player must mirror the
+  Game view; a saved scene with no camera entity silently falls back to free-fly,
+  which looks like a working build and is not the one you authored.
+
+---
+
+## Combo Prover — the decision procedure, in the editor
+
+The panel that makes the research visible: it loads a character file, runs the
+*published* prover over it unmodified, and shows the verdict beside the things a
+designer uses daily — dead cancels, unreachable moves, the settling index.
+
+It is documented in full on the [fighting-core page](fighting-core.md#the-combo-prover-panel),
+including the four different reasons a ranking certificate can be missing and the
+projection-loss table that says what the verdict cannot see. Three things are
+worth repeating here because they change how you read the panel:
+
+- **The verdict answers the CORNER**, whatever the file says. A combo that dies
+  there dies everywhere; one that loops there need not loop midscreen. The panel
+  says so on its face, because a green tick it cannot back is worse than no tick.
+- **`UNRESOLVED` is a budget statement, not an error.** It means the search hit
+  its cap, and it never becomes a verdict.
+- **The panel re-runs on data changes, not on frames.** Editing a character file
+  is what makes it think; scrubbing the timeline is not.
+
+---
+
+## Game modes in the Game view
+
+The Game panel does not only render the scene's cameras. A title can register
+**game modes** through `MyCoreEngine::RegisterTitleGameModes`, and the editor
+enters the same mode object the shipped Player does — which is the "Play ==
+Player" property stated as a mechanism rather than a hope.
+
+For this repository that means the fighting game's **training mode** runs inside
+the editor: box overlay, frame-data HUD, pause, slow motion and frame step. How
+it works, and why frame step costs about six lines, is on the
+[fighting-core page](fighting-core.md#the-modes-training-frame-step-hud).
 
 ---
 

@@ -1,46 +1,35 @@
 # The Fighting-Game Core
 
-Cat Splat Engine is being built toward a deterministic, rollback-capable fighting game. That work does not live in `Engine/`. It lives in three new top-level libraries that the rest of the engine does not depend on, plus one editor panel:
+Cat Splat Engine is being built toward a deterministic, rollback-capable fighting game. That work does not live in `Engine/`. It is a **title** — `Games/UntitledFighter/` — and the engine does not depend on any of it. The link direction is a configure-time error, not a convention.
+
+Six libraries, and the order of this table is the dependency order:
 
 | Piece | Directory | Links | What it does |
 |---|---|---|---|
-| **`CseKernel`** | `Kernel/` | **nothing at all** | The authoritative simulation. One function advances one tick. |
-| **`CseData`** | `Data/` | nlohmann_json, comboprover, `PathSandbox.cpp` | Loads a character file; projects it into the combo prover; bridges it into the kernel. |
-| **`CseNet`** | `Net/` | GekkoNet (`PRIVATE`) | The rollback session seam. |
-| **Combo Prover panel** | `Editor/src/panels/` | `CseData` + ImGui | Puts the decision procedure's verdict in front of a designer. |
+| **`CseKernel`** | `Games/UntitledFighter/Kernel/` | **nothing at all** | The authoritative simulation. One function advances one tick. |
+| **`CseData`** | `Games/UntitledFighter/Data/` | nlohmann_json, comboprover | Loads a character file; projects it into the combo prover; bridges it into the kernel. |
+| **`CseGame`** | `Games/UntitledFighter/Game/` | `CseKernel`, `CseData` — and nothing else, by an exact whitelist | The headless game layer: the session, tick-indexed input sources, the replay format and its verifier, and the live combo judge. No GL, no window, so its claims are testable without a context. |
+| **`CseNet`** | `Net/` | GekkoNet (`PRIVATE`) | The rollback session seam. General-purpose, so it sits outside the title. |
+| **`UntitledFighterModes`** | `Games/UntitledFighter/Modes/` | `Engine`, `CseGame` | The game modes the Player and the editor's Game view both run: training mode, the box overlay, the HUD. |
+| **`UntitledFighterEditor`** | `Games/UntitledFighter/Editor/` | `CseData`, ImGui | The Combo Prover panel — the decision procedure's verdict in front of a designer. |
 
-This page explains how to use them. It is not the design rationale — that lives in [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md) (decisions D1–D9 and the build order) and in the ADRs, and this page links to them rather than restating them.
+This page explains how to use them. It is not the design rationale — that lives in [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md) (decisions D1–D9) and in the [ADRs](../adr/README.md), and this page links to them rather than restating them.
 
 It is also not the rules. What may not appear inside a tick, what the build refuses, what an authored file must promise and — for each — what actually stops you breaking it, is [DETERMINISM.md](../DETERMINISM.md). Rules are cited below by id (`K2`, `T1`) so you can read the enforcement rather than take this page's word for it.
 
 ---
 
-## Status: read this before you build on it
+## Before you build on it
 
-This is a young subsystem and the manual would be doing you harm if it read like a finished feature. What exists today:
+**What is built, what is in flight and what is missing is [ROADMAP.md](../ROADMAP.md), and only there.** This page used to keep its own "Not there yet" table; two lists of gaps disagree within a week, and the one nobody edits is the one people read. If a mechanism you need is absent, the roadmap says which work package adds it and what test will prove it.
 
-- The kernel simulates two fighters: movement, jumping, stage clamps, stun countdown, hitboxes, hurtboxes, one hit each way per tick, a multi-hit guard, and **cancels**.
-- Cross-toolchain bit-identity is **proven**, not argued: a golden state hash recorded on MSVC/Windows is reproduced exactly by GCC/Linux over 3000 ticks (`tests/test_determinism_crossplat.cpp:667`).
-- Two of this project's own characters ship in `Editor/src/Exported/Characters/` (staged as `Exported/Characters` beside the executables). The three transcribed MUGEN characters are evidence rather than content and live in `tests/fixtures/characters/`, deliberately unstaged; one of them drives 400 deterministic ticks with snapshot/restore round-trips (`MatchBridgeSimulation.ARealCharacterDrivesTheKernelDeterministically` and `MatchBridgeSimulation.SnapshotRestoreAndResimulateReproducesTheStraightRun`, in `tests/test_match_bridge.cpp`).
-- The combo prover reads those files and reproduces the ADR-001 corner verdicts.
-- **A printed loop has been executed.** The prover's witness for `fighter_a_infinite`, turned into an input trace by walking `ProverResult::loop` rather than by hand, performs 26 hits in 160 ticks in the kernel with the defender out of hitstun on 0 of them (`tests/test_ground_truth.cpp`). That is ARCHITECTURE.md section 5.5 item 4, and it returned **both** of the outcomes that section predicts — see [What a verdict promises](#what-a-verdict-promises-and-what-it-does-not).
+What this page can usefully tell you is the shape of the evidence, because it decides how much of the manual to trust:
 
-### Not there yet
+- Cross-toolchain bit-identity is **proven**, not argued: a golden state hash recorded under MSVC on Windows is reproduced exactly by gcc on Linux (`tests/test_determinism_crossplat.cpp`), on every CI run.
+- Two of this project's own characters ship in `Games/UntitledFighter/Assets/Characters/`, staged as `Exported/Characters` beside the executables — the source moved and the staged path did not. The three transcribed MUGEN characters are *evidence* rather than content: they live in `tests/fixtures/characters/` and are deliberately unstaged, because this project holds no licence to ship them. One of them drives 400 deterministic ticks with snapshot/restore round-trips (`MatchBridgeSimulation.ARealCharacterDrivesTheKernelDeterministically` and `.SnapshotRestoreAndResimulateReproducesTheStraightRun`, `tests/test_match_bridge.cpp`).
+- **A printed loop has been executed.** The prover's witness for `fighter_a_infinite`, turned into an input trace by walking `ProverResult::loop` rather than by hand, performs 26 hits in 160 ticks with the defender out of hitstun on none of them (`tests/test_ground_truth.cpp`). It returned **both** of the outcomes that experiment could return — see [What a verdict promises](#what-a-verdict-promises-and-what-it-does-not), which is the most important section on this page.
 
-Stated plainly, because a manual that oversells is worse than no manual. This table is also the thing [MAINTENANCE.md](../MAINTENANCE.md)'s *"When you add a feature"* rule points at: a gap you close must stop being listed here **in the same commit**, and a gap your change creates must start being.
-
-| Not built | Where it is planned |
-|---|---|
-| **Any transport. No packet has ever been sent.** Both session factories add only local actors (`Net/src/GekkoSession.cpp:133`), so what runs today is a local session and a stress session. | ARCHITECTURE.md Phase 4 |
-| Cancels: the **per-edge** parts. The system itself landed — `cse::kernel::CancelEdge`, the rule in `StepAttack`, and all 134 of Kung Fu Girl's edges carried — but an edge crosses as a plain window, so the authored contact frame, `on: block` / `on: whiff`, `certain: false` and an edge's resource guard are approximated, every one of them `KernelPermits`. The single `cancels ×134` loss became the eight rows [in the table below](#reading-buildreport--the-part-that-matters-most). | Phase 3/5 |
-| Blocking. `Fighter::blockstun` exists and counts down (`Kernel/src/Simulate.cpp:48`); **nothing ever sets it**. | Phase 3 |
-| **Resources.** `Fighter::meter` is declared (`GameState.h:54`) and appears nowhere in `Kernel/src/`; there is no juggle field at all and no ceiling logic. Same for `comboHits`. **This is the gap that has been measured rather than argued** — [What a verdict promises](#what-a-verdict-promises-and-what-it-does-not). | Phase 3 |
-| Throws, push boxes, per-frame boxes, hitstop/freeze, pushback, juggle, proration, priority and trade resolution beyond the symmetric rule. | the "what is deliberately not here" note at the top of `Kernel/include/cse/kernel/Combat.h` names each one and why it is absent |
-| Projectiles. D4 designs 32 projectile slots; `GameState` today is `{tick, rng, Fighter p[2]}` and nothing else. | Phase 3 |
-| A trigger expression language. | Phase 5 |
-| Presentation. Nothing renders a fighter. The kernel produces integers; no reconciler turns them into entities yet. | Phase 3/6 |
-
-The kernel is also **not** wired into `Application`'s fixed tick, deliberately and permanently — [DETERMINISM.md](../DETERMINISM.md) T1 and T2, and the note at the top of `Kernel/include/cse/kernel/GameState.h` that says why. You drive the kernel from a session, or from a loop you own.
+The kernel is **not** wired into `Application`'s fixed tick, deliberately and permanently — [DETERMINISM.md](../DETERMINISM.md) T1 and T2, and the note at the top of `Games/UntitledFighter/Kernel/include/cse/kernel/GameState.h` that says why. You drive the kernel from a session, or from a loop you own.
 
 ---
 
@@ -180,7 +169,7 @@ Half-open removes the off-by-one that inclusive bounds smuggle into every width 
 
 If p0's hit were applied before p1's overlap were tested, a trade would stop being a trade — p1 would already be in hitstun, and whether it landed its own blow would depend on which slot was checked first. That is worse than a rounding bug, because it is *stable*: it never looks like nondeterminism locally, it just makes player 1 lose trades.
 
-The rule today is the **symmetric** one: both fighters land. Priority, clash and counter-hit are Phase 3.
+The rule today is the **symmetric** one: both fighters land. Counter-hit is an opt-in per-move field, not a kernel rule -- [ROADMAP.md](../ROADMAP.md) M1.3.
 
 Three behaviours to design against:
 
@@ -221,7 +210,7 @@ Properties the suite pins down, so you know what you may rely on:
 
 ### Where the files live
 
-`Editor/src/Exported/Characters/` — inside the asset root, so it is staged
+`Games/UntitledFighter/Assets/Characters/` — inside the title's asset root, so it is staged
 next to every executable — holds:
 
 | File | What it is |
@@ -251,7 +240,7 @@ next to every executable — holds:
 
 **Every field is an integer.** The authored files carry damage, reach, pushback, walk speed and the scaling table as JSON floats; the loader converts once, at load. Distances are sub-units (1 px = 256), durations are ticks, damage is **hundredths** of a point, meter is in units of 10 MUGEN power, and scaling/decay tables are permille (`CharacterData.h:35-41`). Where a file ships a pre-quantized integer beside the float — `engine.quantized_sources` — the **integer wins**, because it is the number the author actually derived.
 
-Two things are deliberately **not** loaded (`CharacterData.h:301-316`): the structured predicate form of `hit_condition` / `engine.condition` (every file in the tree authors prose instead, and evaluating one needs the opponent namespace Phase 5 owns), and nine `engine.*` sub-objects with no data behind them yet — including `engine.constants`, which is why you have to supply a body to the bridge yourself.
+Two things are deliberately **not** loaded (`CharacterData.h:301-316`): the structured predicate form of `hit_condition` / `engine.condition` (every file in the tree authors prose instead, and evaluating one needs an opponent namespace that the trigger expression language would have owned -- and that language is deliberately not being built; see [ARCHITECTURE.md](../ARCHITECTURE.md) section 2), and nine `engine.*` sub-objects with no data behind them yet — including `engine.constants`, which is why you have to supply a body to the bridge yourself.
 
 ### Loading one
 
@@ -561,9 +550,102 @@ DestroySession(session);                              // ISession.h:148
 | `CreateGekkoLocalSession` | `ISession.h:141` | An ordinary local session. |
 | `CreateGekkoStressSession` | `ISession.h:146` | Rolls back **continuously** to hunt state divergence. This is how you test a simulation's determinism with no network at all. |
 
-> **No transport has ever sent a packet.** Both factories add only `GekkoLocalPlayer` actors (`Net/src/GekkoSession.cpp:133`), and no network adapter is configured anywhere. `CreateGekkoStressSession` is the useful one today: `tests/test_session.cpp:159` drives hundreds of real rollbacks through it and compares byte-for-byte against a straight run, and `:139` asserts a local session reproduces the kernel running alone. The connect handshake, the remote actor, and everything that follows from them are Phase 4.
+> **No transport has ever sent a packet.** Both factories add only `GekkoLocalPlayer` actors, and no network adapter is configured anywhere. `CreateGekkoStressSession` is the useful one today: `Session.SurvivesHundredsOfRealRollbacks` in `tests/test_session.cpp` drives hundreds of real rollbacks through it and compares byte-for-byte against a straight run, and `Session.LocalSessionMatchesTheKernelRunningAlone` asserts a local session reproduces the kernel running alone. The connect handshake, the remote actor and everything that follows are [ROADMAP.md](../ROADMAP.md) M2.
 
 When that handshake is built it must hash the **loaded POD arrays** — the `MatchData`, not the canonicalized text — and a content mismatch has to surface as a lobby error, never as "desync at tick 3" ([DETERMINISM.md](../DETERMINISM.md) A4–A5). The reason it is the `MatchData` and not the state: a `GameState` alone no longer describes a match. It is meaningless without the data it was simulated against, and proving both peers hold the same one is the handshake's job.
+
+---
+
+## The game layer: `CseGame`
+
+Between the kernel (which advances one tick) and a host (which owns a window)
+sits `Games/UntitledFighter/Game/` — a **headless** library that links `CseKernel`
+and `CseData` and nothing else. That whitelist is a configure-time error, and it
+is what makes this layer's claims cheap to prove: every test over it runs with no
+GL context, no window and no engine.
+
+### `FightSession` — the thing that owns a match
+
+`FightSession` (`Games/UntitledFighter/Game/include/cse/game/FightSession.h`)
+holds the `GameState`, the `MatchData` it was built against, and the tick count.
+It owns **no clock**: `Tick()` advances exactly one tick, and deciding how many
+ticks to run is the caller's job, which is the whole of
+[DETERMINISM.md](../DETERMINISM.md) T1.
+
+- `Begin(const FightSetup&, std::string& error)` — validate and start. `ValidateSetup` is separately callable, so a host can reject a bad setup before it has committed to anything.
+- `Tick()` pulls each player's input from its **input source**; `Tick(const InputPair&)` takes the inputs directly, which is what a network session does.
+- `State()`, `Data()`, `CurrentTick()`, `Checksum()` for reading; `Snapshot(GameState&)` and `Restore(const GameState&)` for rolling back. `HighWaterTick()` is the furthest tick ever reached, which is how a rolled-back session knows it has been here before.
+- `SetInputSource(int player, const IInputSource*)` — the seam that makes a human, a script and a replay interchangeable.
+- `AddObserver(ITickObserver*)` — up to `kMaxTickObservers` (8). An observer sees every tick after it happens. The recorder, the verifier and the combo judge are all observers, which is why none of them can influence a tick.
+
+### Input sources — "what did the player press on tick T" is a pure function of T
+
+`InputSource.h` has three implementations and the difference between them is the
+whole design:
+
+| Source | What it is | Why it exists |
+|---|---|---|
+| `ScriptedInputSource` | a tick-indexed, immutable list of `InputSample` | a tool-assisted player. Frame-perfect timing is free, because nothing about it is live |
+| `LatchedInputSource` | the local pad, **made pure by writing it down** — `Latch(tick, input)` records what was pressed, and every later read of that tick returns the same bytes | re-simulation must see the same input it saw the first time. A source that asked the pad again would answer differently |
+| `FallbackInputSource` | a primary with a secondary behind it | how a scripted demonstration hands control back to the human when it runs out |
+
+`kMaxMatchTicks` is one hour at 60 Hz, and a source that would run past it is
+truncated rather than trusted.
+
+### Replay — `CSRP`, and a verifier that refuses to be optimistic
+
+`Replay.h` is a file format and three classes.
+
+- `ReplayRecorder` is an observer. It records the input stream as runs, plus a **state checksum every `kDefaultCheckpointInterval` (60) ticks**, and the hash of the `MatchData` the match was built from (`HashMatchData`) so a replay cannot be played back against different frame data by accident.
+- `ReplayInputSource` turns a recorded replay back into an input source. Playing a replay is therefore *the same code path* as playing the match, not a second implementation.
+- `ReplayVerifier` is an observer that re-runs a replay and compares every checkpoint. It reports a `ReplayDivergence` naming the **first** tick that disagreed — not the last, and not "the end states differ", which is the failure mode a final-state hash has.
+
+A replay that cannot be read is refused **by name**: `ReplayRefusal` distinguishes a wrong magic number from a wrong version from a content-hash mismatch, and `ReplayRefusalName` turns it into a sentence. A silently-empty replay is the bug this exists to prevent.
+
+### `ComboWatcher` — the live judge
+
+An observer that watches the state and reports what actually happened: which
+cancel edges were *performed*, how long the combo ran, and whether the sequence
+repeated. `ComboReport` carries the performed edges up to `kMaxComboSequence`
+(256), and `Describe()` renders it for a HUD. Its arithmetic never reaches
+`GameState` — which is exactly why the determinism gate holds this module to the
+same integer rules as the kernel ([DETERMINISM.md](../DETERMINISM.md) §1): a float
+here would leave the simulation bit-identical and make the *verdict* drift.
+
+### `BuildDemonstration` — the tool-assisted attacker, headless
+
+`BuildDemonstration(const DemonstrationRequest&, Demonstration&)` takes a move
+sequence — typically the prover's own printed loop — and rehearses it against the
+real kernel until it finds the frame-perfect input trace that performs it, or
+reports that it cannot. It runs with no window and no host. This is the mechanism
+the showcase catalogue is built on ([ROADMAP.md](../ROADMAP.md) M1.6): a verdict
+becomes a replay anyone can watch, and the replay is verified bit-identical
+before it is written.
+
+---
+
+## The modes: training, frame step, HUD
+
+`Games/UntitledFighter/Modes/` is the title's presentation, and it is a
+`MyCoreEngine::IGameMode` — so the **shipped Player and the editor's Game view
+enter the same object**, which is the "Play == Player" property in one sentence.
+`RegisterTitleGameModes` is the seam: the engine never names a title, the title
+pushes itself in.
+
+**Training mode** (`UntitledFighterMode`) loads a character, starts a
+`FightSession`, binds the local pad through a `LatchedInputSource`, and draws the
+box overlay (`FightView`) and the frame-data HUD (`FightHud`).
+
+**Pause, slow motion and frame step cost about six lines between them**, and the
+reason is the session's design rather than cleverness: the mode decides how many
+times to call `Tick()`. Paused is "do not call it", slow motion is "call it every
+Nth step", frame step is "call it exactly once". Nothing about time is stored
+inside the simulation, so there is nothing to keep consistent.
+
+**Demonstrate** runs the prover's verdict. The mode asks for the analysis, hands
+the printed loop to `BuildDemonstration`, and swaps the attacker's input source
+for the resulting script through a `FallbackInputSource` — so when the
+demonstration ends, the pad takes over mid-match with no seam.
 
 ---
 
@@ -585,11 +667,11 @@ Neither of those is the question a designer is actually asking. That question is
 
 > **The kernel has no resources.** `Fighter::meter` is declared at `Kernel/include/cse/kernel/GameState.h:54` and appears nowhere in `Kernel/src/` — no rule reads it, no rule writes it. There is no juggle field at all, and no ceiling logic. **So a character whose termination depends on a resource running down has no such limit in the game: the bound the verdict rests on does not exist there.**
 
-That is not a prediction. It was executed on 2026-08-13, on this project's own character, and it is the second half of what ARCHITECTURE.md section 5.5 item 4 asked for (ADR-001 section 6.1 records both halves).
+That is not a prediction. It was executed on 2026-08-13, on this project's own character, and it is the second half of the ground-truth validation [ARCHITECTURE.md](../ARCHITECTURE.md)'s research section asks for (ADR-001 section 6.1 records both halves).
 
 #### The worked example: `fighter_a`
 
-**What the file says**, all of it checkable in `Editor/src/Exported/Characters/fighter_a.json`:
+**What the file says**, all of it checkable in `Games/UntitledFighter/Assets/Characters/fighter_a.json`:
 
 | | |
 |---|---|
@@ -665,7 +747,7 @@ How to read the corner answer: it is the attacker's best case. **A combo that di
 
 ### The three verdicts
 
-`ProverStatus` (`ProverAdapter.h:48`) has three members, and the panel gives them equal weight (`Editor/src/panels/ComboProverPanel.cpp:629`):
+`ProverStatus` (`ProverAdapter.h:48`) has three members, and the panel gives them equal weight (`Games/UntitledFighter/Editor/src/ComboProverPanel.cpp`):
 
 | Verdict | What it means | What to do |
 |---|---|---|
@@ -729,7 +811,7 @@ What it says instead of guessing:
 - If the bridge **refuses** the character (over 31 moves), that is reported in its own right: a verdict about a character that can never reach a tick is worth less than the refusal.
 - If **none** of the five loss entries is found by name, the panel says the check is *broken*, not clear. Reading a renamed field as "nothing was dropped" would put a green light on the most dangerous claim on the page.
 
-The cost is a second `AnalyseCharacter` plus a bridge build, and it runs only when the fingerprint moves. The footer reports it **beside** the run figures rather than inside them (`+ 0.0xx ms resource check`), because those four numbers are the `analyse` latency ARCHITECTURE.md section 5.5 item 2 asks for and have to stay comparable with every other measurement of that call.
+The cost is a second `AnalyseCharacter` plus a bridge build, and it runs only when the fingerprint moves. The footer reports it **beside** the run figures rather than inside them (`+ 0.0xx ms resource check`), because those four numbers are the `analyse` latency distribution [ARCHITECTURE.md](../ARCHITECTURE.md)'s research section asks the paper to harvest and have to stay comparable with every other measurement of that call.
 
 ### The projection-loss table and the soundness alarm
 
@@ -759,7 +841,7 @@ The footer (`ComboProverPanel.cpp:1078`) shows run count, last / worst / mean mi
 
 The editor calls `comboProver_.Draw(nullptr, &panels_.comboProver)` (`Editor/src/EditorApplication.cpp:281`) and does not call `SetContentRoot` or `SetExpectedResources`. Two consequences today:
 
-- **The default content root is `"Exported"`** (`ComboProverPanel.h:269`), resolved relative to the process working directory, and the default path is `Characters/fighter_a.json` (`:282`) — this project's own character, chosen because a default path is a promise that something is there and the MUGEN corpus stopped being staged. The characters live in `Editor/src/Exported/Characters`, which the asset staging copies next to the executable, so the default finds them with no configuration. A `..` in the path field is refused lexically before anything opens a file, so you cannot climb out. A wrong root is visible rather than silent — the panel prints the loader's own error, which names the file.
+- **The default content root is `"Exported"`** (`ComboProverPanel.h:269`), resolved relative to the process working directory, and the default path is `Characters/fighter_a.json` (`:282`) — this project's own character, chosen because a default path is a promise that something is there and the MUGEN corpus stopped being staged. The characters live in `Games/UntitledFighter/Assets/Characters`, which the asset staging copies next to the executable as `Exported/Characters`, so the default finds them with no configuration. A `..` in the path field is refused lexically before anything opens a file, so you cannot climb out. A wrong root is visible rather than silent — the panel prints the loader's own error, which names the file.
 - **A03 is skipped**, not passed. With no expected resource order supplied, the loader records a warning and the panel shows it in the same colour as everything else that could make the verdict meaningless. Call `SetExpectedResources({"meter", "juggle"})` (`ComboProverPanel.h:211`) if you wire this up yourself.
 
 ### Running the analysis outside the editor
