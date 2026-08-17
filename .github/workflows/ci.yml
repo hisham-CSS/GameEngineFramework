@@ -6,7 +6,13 @@
 #
 #   determinism-flags (required)  seconds, no toolchain: proves no fast-math flag
 #                         has crept into the build. Runs first because it is the
-#                         property everything else rests on.
+#                         property everything else rests on. It also carries the
+#                         DOCUMENTATION gate (scripts/check_docs.py) for the same
+#                         reason -- no toolchain, reports before the long jobs
+#                         have finished restoring their caches. The job's name is
+#                         left alone deliberately: it is the identity branch
+#                         protection was configured against, and renaming it is a
+#                         repository-settings change, not a workflow edit.
 #   windows  (required)   all four configurations build, the same flag gate runs
 #                         again over the GENERATED compile lines, then the 42
 #                         CTest entries that need no GPU.
@@ -89,6 +95,31 @@ jobs:
         # compile lines -- that is where a dependency's INTERFACE option would
         # show up.
         run: python scripts/check_determinism_flags.py
+
+      - name: Self-test the documentation gate
+        # REQUIRED even while the scan below is advisory, and the split is the
+        # point: a detector that has stopped detecting reports a clean
+        # documentation tree, which is worse than no gate at all. The scan's
+        # verdict is provisional; the claim that it can still see is not.
+        run: python scripts/check_docs.py --self-test
+
+      - name: Documentation — dead links, dead paths, missing stamps
+        # ADVISORY UNTIL ROADMAP M0.6, AND NOT ONE COMMIT LONGER.
+        #
+        # Its first run reported 78 findings: 41 cited paths that do not resolve
+        # (`Editor/src/Exported/Characters/` x9 and `Engine/src/gameplay/` x8 lead
+        # the list, the second of which has never existed), 25 living documents
+        # with no `Verified:` stamp, and 12 amendment markers bolted onto living
+        # text. That list is not a bug in this job -- it is the work M0.4, M0.5
+        # and M0.6 exist to do, and it is why the step cannot be required today.
+        #
+        # This repository's own history says why the advisory state is dangerous:
+        # gl-tests failed five consecutive runs while advisory and nobody
+        # noticed, because advisory failures do not announce themselves. M0.6
+        # deletes this line; if you are reading it after M0.6 landed, that is the
+        # bug.
+        continue-on-error: true
+        run: python scripts/check_docs.py
 
   windows:
     name: Windows · build + test

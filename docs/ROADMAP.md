@@ -31,7 +31,7 @@ without it. Details, tests and proofs of the four properties:
 
 | In flight | Owner | Since |
 |---|---|---|
-| *(nothing — next is M0.3)* | | |
+| *(nothing — next is M0.4)* | | |
 
 One work package in flight at a time. The next unblocked one is always the top
 `[ ]` in milestone order below.
@@ -66,7 +66,7 @@ work list.
   — two spot checks show they never did — only that they are read against the
   archived copy, which stops the gap growing. Byte-identity becomes a
   `check_docs.py` check in M0.3.
-- `[x]` **M0.2 `docs/DETERMINISM.md`.** *(S–M)* One table: rule · enforced by ·
+- `[x] 26b9b1e` **M0.2 `docs/DETERMINISM.md`.** *(S–M)* One table: rule · enforced by ·
   where. Sources: `ARCHITECTURE.md` §4 (the contract), `NORTHSTAR.md` appendix,
   `MAINTENANCE.md` "Never add a fast-math flag", the rules restated in
   `docs/manual/fighting-core.md`. Every rule names its enforcement — CI script,
@@ -80,7 +80,7 @@ work list.
   `workerThreads == 0` startup assert and `JPH_VERSION_ID` `static_assert` do not
   exist (B6); §4.1's `Phase` parameter and §4.2's reflection table do not exist
   (K11, S8). Four review-only rules that could be mechanical became **M1.0**.
-- `[ ]` **M0.3 `scripts/check_docs.py` + CI step, advisory.** *(S)* Checks:
+- `[x]` **M0.3 `scripts/check_docs.py` + CI step, advisory.** *(S)* Checks:
   relative links resolve; backticked repo paths exist (`:line` stripped;
   `docs-ok` escape); living docs carry `Verified: <date> @ <sha>` in the first ten
   lines; ADRs carry a `Status` line; no `AMENDED`/`STRUCK`/`~~`/`Correction (`
@@ -90,6 +90,18 @@ work list.
   the checklist for M0.4–M0.6.
   **Done when:** `python scripts/check_docs.py --self-test` passes and the step
   is in CI.
+  **First run: 78 findings** — 41 cited paths that do not resolve, 25 living docs
+  with no stamp, 12 annotation markers, 0 dead links. Re-read it any time with
+  `python scripts/check_docs.py`; the leaders are
+  `Editor/src/Exported/Characters/` ×9 (moved) and `Engine/src/gameplay/` ×8
+  (never existed). **Additions:** a sixth check verifies `docs/archive/` still
+  holds its frozen bytes, by git blob hash recomputed in Python — CI checks out
+  with no history, so `git rev-parse 99669cc:…` is not available there. The
+  `--self-test` step is **required** while the scan is advisory: a detector that
+  has stopped detecting reports a clean tree. The job's display name is
+  deliberately unchanged — it is what branch protection was configured against,
+  so renaming it is a repository-settings change for the human, not a workflow
+  edit (M0.6).
 - `[ ]` **M0.4 Rewrite the top level.** *(M)* `NORTHSTAR.md` → one screen (goal,
   four properties, done-tests, proofs — ADR-010 §2). `ARCHITECTURE.md` → D1–D9
   with every amendment folded into the prose, D9 as the four answers, §2
