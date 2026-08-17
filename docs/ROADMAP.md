@@ -31,7 +31,7 @@ without it. Details, tests and proofs of the four properties:
 
 | In flight | Owner | Since |
 |---|---|---|
-| *(nothing — start with M0.1)* | | |
+| *(nothing — next is M0.2)* | | |
 
 One work package in flight at a time. The next unblocked one is always the top
 `[ ]` in milestone order below.
@@ -56,12 +56,16 @@ WP will be read by someone (or something) that starts from these files. The
 full mapping is [ADR-010 §5–§7](ADR-010-one-roadmap-one-rule.md); this is the
 work list.
 
-- `[ ]` **M0.1 Archive the originals.** *(S)* Copy `NORTHSTAR.md`,
+- `[x]` **M0.1 Archive the originals.** *(S)* Copy `NORTHSTAR.md`,
   `ARCHITECTURE.md`, `AUDIT_FINDINGS.md`, `ENGINE_AUDIT_2026-07.md` verbatim to
   `docs/archive/<NAME>-<date>.md`; add `docs/archive/README.md` ("history;
   nothing here is current; frozen ADRs' line citations resolve here").
   **Done when:** the four files exist under `docs/archive/`, byte-identical to
   their originals at `99669cc`.
+  **Deviation:** the README does not claim frozen ADRs' line citations *resolve*
+  — two spot checks show they never did — only that they are read against the
+  archived copy, which stops the gap growing. Byte-identity becomes a
+  `check_docs.py` check in M0.3.
 - `[ ]` **M0.2 `docs/DETERMINISM.md`.** *(S–M)* One table: rule · enforced by ·
   where. Sources: `ARCHITECTURE.md` §4 (the contract), `NORTHSTAR.md` appendix,
   `MAINTENANCE.md` "Never add a fast-math flag", the rules restated in
