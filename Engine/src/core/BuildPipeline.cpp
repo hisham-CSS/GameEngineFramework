@@ -57,6 +57,46 @@
 
 namespace MyCoreEngine {
 
+    // Defined ahead of the anonymous namespace so it is plainly part of the
+    // public surface rather than an implementation detail that happens to be
+    // reachable. BuildPipeline.h argues why it is a free function.
+    ENGINE_API std::vector<std::string> MissingRuntimeLibraries(
+        const std::string& bundleDir, const std::string& stagedDir) {
+        namespace fsx = std::filesystem;
+        std::vector<std::string> missing;
+        std::error_code ec;
+
+        const fsx::path staged(stagedDir);
+        if (!fsx::is_directory(staged, ec)) return missing;
+
+        for (const auto& entry : fsx::directory_iterator(staged, ec)) {
+            if (ec) break;
+            if (!entry.is_regular_file(ec)) continue;
+
+            const fsx::path& p = entry.path();
+            // Compared case-insensitively via a lowercase copy, because Windows
+            // ships both `.dll` and `.DLL` in the wild and a case-sensitive test
+            // would quietly stop checking half of them.
+            std::string ext = p.extension().string();
+            for (char& c : ext) {
+                if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+            }
+            if (ext != ".dll") continue;
+
+            std::error_code ec2;
+            const fsx::path inBundle = fsx::path(bundleDir) / p.filename();
+            if (!fsx::is_regular_file(inBundle, ec2)) {
+                missing.push_back(p.filename().string());
+            }
+        }
+
+        // Sorted so a failure message reads the same on two machines. A directory
+        // iteration order is not specified, and a diagnostic whose text depends on
+        // it is one nobody can diff against a colleague's.
+        std::sort(missing.begin(), missing.end());
+        return missing;
+    }
+
     namespace {
 
         namespace fs = std::filesystem;
@@ -2065,19 +2105,8 @@ namespace MyCoreEngine {
         //     reach the bundle" needs no list and cannot drift.
         {
             const fs::path staged = R.binaryDir / "build" / "bin" / R.config;
-            std::error_code ec;
-            std::vector<std::string> missing;
-            if (fs::is_directory(staged, ec)) {
-                for (const auto& e : fs::directory_iterator(staged, ec)) {
-                    if (ec) break;
-                    if (!e.is_regular_file(ec)) continue;
-                    const fs::path& p = e.path();
-                    if (p.extension() != ".dll" && p.extension() != ".DLL") continue;
-                    if (!IsFile(R.outputDir / p.filename())) {
-                        missing.push_back(p.filename().string());
-                    }
-                }
-            }
+            const std::vector<std::string> missing = MissingRuntimeLibraries(
+                R.outputDir.string(), staged.string());
             if (!missing.empty()) {
                 std::string names;
                 for (std::size_t i = 0; i < missing.size() && i < 6; ++i) {

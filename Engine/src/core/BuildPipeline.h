@@ -155,6 +155,36 @@
 namespace MyCoreEngine {
 
     // -------------------------------------------------------------------
+    // Can the thing we just assembled actually start?
+    // -------------------------------------------------------------------
+    // Names every *.dll present beside the engine in the BUILD TREE that did not
+    // reach the BUNDLE. Empty means the bundle has everything the build tree
+    // thinks the game needs.
+    //
+    // WHY THIS IS A FREE FUNCTION AND NOT A PRIVATE STEP OF THE VALIDATE PHASE.
+    // It exists because a bundle holding two of seventeen DLLs was reported as a
+    // successful build, and the reason nobody noticed is that no layer above the
+    // failure asked the question. A check written to catch a silent failure has
+    // to be PROVABLE, and a private method inside a class that owns a thread and
+    // spawns child processes is not reachable from a test. This is: pure, two
+    // paths in, a list of names out.
+    //
+    // NEITHER DIRECTORY HAS TO EXIST. A missing bundle directory reports
+    // everything as missing, which is the truth; a missing staged directory
+    // reports nothing, because with no source of truth there is nothing this
+    // function can honestly claim.
+    //
+    // THE STAGED DIRECTORY IS THE SOURCE OF TRUTH RATHER THAN A LIST OF NAMES,
+    // and that is the whole design. app_runtime_deps populates it with everything
+    // the engine needs to RUN, including DLLs that appear in no import table --
+    // PhysXCommon_64 is loaded by PhysX_64 at runtime, which is why a dependency
+    // walk cannot find it and why a hand-written list was already measured wrong
+    // by four entries (cmake/stage_runtime_dlls.cmake). A comparison against a
+    // directory cannot drift; a list can.
+    ENGINE_API std::vector<std::string> MissingRuntimeLibraries(
+        const std::string& bundleDir, const std::string& stagedDir);
+
+    // -------------------------------------------------------------------
     // The process seam: declared here, implemented by the host
     // -------------------------------------------------------------------
     // Deliberately the same four operations `editor::Subprocess` already

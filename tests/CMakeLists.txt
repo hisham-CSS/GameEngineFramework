@@ -263,6 +263,17 @@ add_executable(test_build_settings test_build_settings.cpp)
 target_link_libraries(test_build_settings PRIVATE Engine GTest::gtest_main)
 add_test(NAME test_build_settings COMMAND $<TARGET_FILE:test_build_settings>)
 
+# The backstop that asks whether an assembled bundle can actually start.
+#
+# A SEPARATE BINARY FROM test_build_settings, which states in its own header
+# that it deliberately touches nothing in BuildPipeline: it is about the settings
+# FILE, and what the pipeline DOES with those settings belongs to its own test.
+# This is that test, for the one part of the pipeline that is a pure function
+# over two directories -- no toolchain, no child process, no build tree.
+add_executable(test_bundle_validate test_bundle_validate.cpp)
+target_link_libraries(test_bundle_validate PRIVATE Engine GTest::gtest_main)
+add_test(NAME test_bundle_validate COMMAND $<TARGET_FILE:test_bundle_validate>)
+
 engine_test(test_event_bus)        # EventBus publish/subscribe
 engine_test(test_input_map)        # actions/axes/deadzone via scripted-input fake
 engine_test(test_render_passes)    # GL-headless CSM/forward/tonemap wiring
