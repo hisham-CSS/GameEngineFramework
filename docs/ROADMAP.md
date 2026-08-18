@@ -461,6 +461,37 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   **Changes what the search searches:** M1.4's macro-actions gain "press" as
   distinct from "hold", and buffering widens the window in which a link is
   performable — so this lands *before* M1.4 measures anything.
+  **Attempted 2026-08-18 and reverted; the whole thing works and the fallout is
+  the finding.** All five tests exist and pass, the kernel change is small, and
+  the reverted kernel makes the headline test report *"the move started 5 times
+  while the button was merely HELD"*. `Fighter` grows to 76 bytes
+  (`prevButtons`, `bufferedButtons`, `bufferAge`, `pad_[3]`),
+  `FighterData::inputBufferFrames` is the authored window, and `negativeEdge`
+  took `MoveDef`'s spare pad byte — so `sizeof(MoveDef)` stays 128 and no
+  `MatchData` layout moved for it.
+  **The blocker is seven test files, and the reason they fail is worth more than
+  the slice.** Every test that drives the kernel by *holding* a bit across ticks
+  now gets one move where it expected several — which is the bug being fixed,
+  seen from the other side. Most are mechanical, but `test_ground_truth` and
+  `test_gap_extent` are not: they turn the **prover's printed loop** into an
+  input trace, and its `Driver::Bits()` holds `buttons_[cursor_]` until the move
+  starts. Under edge detection a repeat of the *same* button never fires a second
+  press — and `air_mp → air_mp`, the self-loop those tests exist to execute, is
+  exactly that case.
+  **So a derived input trace must insert a release frame between repeats of the
+  same button.** That is a change to how a verdict becomes a performance, it
+  belongs in the trace builder rather than in each test, and it lands on
+  `BuildDemonstration` too — which means it reaches **M1.6's showcase**, where
+  every replay is a derived trace. Do that first, in one place, and the seven
+  files follow.
+  **Also learned, from reverting:** the first version of
+  `HoldingAButtonStartsTheMoveOnceNotEveryRecovery` passed against the bug,
+  because it counted `moveId` transitions and a move that restarts the instant it
+  recovers never leaves its slot. It counts `moveFrame == 0` now. A test that
+  cannot fail is worse than no test, and only reverting finds them.
+  **Two `static_assert`s earned themselves during the attempt**, both at compile
+  time: `has_unique_object_representations_v` caught a one-byte pad where three
+  were needed, and `Replay.h`'s `FighterData` sum caught the new `int32`.
 - `[ ]` **M1.2 Push boxes and the corner.** *(S–M)* Body separation between
   fighters and the stage edge as a wall; resolution order per NORTHSTAR Phase 2:
   pushbox separation → strikes (throws when they exist). Authored `pushbox`
