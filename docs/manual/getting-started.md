@@ -1,5 +1,7 @@
 # Getting Started
 
+Verified: 2026-08-17 @ e2f08bd
+
 This page takes you from a fresh clone to a running editor and a running game. It covers the
 prerequisites, the three build configurations and when to use each, where the binaries and
 assets end up, and the asset-staging rule that decides whether a build can overwrite a scene
@@ -417,18 +419,31 @@ The corollary: if you actually *want* the checked-in seed scene back, delete
 
 ## Tests
 
+Only the `-tests` preset builds them — the three app presets set `ENABLE_TESTS=OFF`, so
+`ctest` in one of those directories finds nothing:
+
 ```bash
-ctest --test-dir out/build/x64-Release
+ctest --preset x64-relwithdebinfo-tests --output-on-failure
 ```
+
+```bash
+ctest --preset x64-relwithdebinfo-tests -LE "perf|gl"
+```
+
+The second line is **what CI gates on**, and the exclusions are not arbitrary. `gl` marks the
+tests that create an OpenGL context, which a bare CI runner does not have (a separate job runs
+them under Mesa's llvmpipe); `perf` marks a timing budget, which means nothing on a shared
+vCPU. Run both locally — the `gl` suites cover the render passes, the post chain, IBL and the
+UI pass, which is to say the places where failures are silent.
 
 Test executables live in the `tests/` subdirectory of the binary tree, with their runtime
 dependencies staged by the single `test_runtime_deps` target (`tests/CMakeLists.txt`) —
-`Engine.dll`, its third-party DLLs, and a copy of `Exported/`. Again, one target rather than
-per-test copies, because parallel copies of the same file raced under Ninja.
+`Engine.dll`, its third-party DLLs, and a copy of `Exported/`. One target rather than per-test
+copies, because parallel copies of the same file raced under Ninja.
 
-`test_perf_render` is the render performance harness. It carries the label `perf`, is marked
-`RUN_SERIAL TRUE` (a timing test must not share the machine), and has a 300-second timeout.
-Run only it with `ctest -L perf`, or exclude it with `ctest -LE perf`.
+`test_perf_render` is the render performance harness. It carries **both** labels (`perf;gl`),
+is `RUN_SERIAL TRUE` (a timing test must not share the machine), and has a 300-second
+timeout.
 
 > **Gotcha — hybrid-GPU laptops.** New GL contexts are routed to the power-saving integrated
 > GPU by default. Any executable doing real GL work must export `NvOptimusEnablement` and

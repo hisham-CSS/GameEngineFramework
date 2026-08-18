@@ -1,5 +1,7 @@
 # Performance
 
+Verified: 2026-08-17 @ e2f08bd
+
 Cat Splat Engine gives you two ways to answer "why is this frame slow?": a live
 counter panel in the editor, and an automated benchmark suite that fails `ctest`
 when a frame-time budget regresses. This page explains both, then lists what
