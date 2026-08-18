@@ -299,6 +299,20 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   opposite. **Traps:** D8 quantisation once at load; `decay.floor` ≤ min hitstun
   (A01); the shipped `walk_speed` must equal today's `kWalkSpeed` or this is a
   behaviour change and the golden moves again — check before writing the field.
+  **Checked 2026-08-18, and it does not. The trap fired.** `fighter_a.json`
+  authors `walk_speed: 0.03` with `quantized_sources.walk_speed_px_per_tick: 3`;
+  at the default 100 px per reach unit that quantizes to **768 sub-units,
+  3 px/tick**. `Simulate.cpp`'s `kWalkSpeed` is **512 sub-units, 2 px/tick**. So
+  honouring the file makes `fighter_a` walk **50% faster** and every position in
+  the scripted match moves. **M1.1b therefore re-goldens, and that is correct
+  rather than a defect** — the hash moves because the *game* changed, which is
+  what a golden is for. It is a different category from M1.1a's re-golden, which
+  moved bytes and no behaviour, and the commit message must say which it is.
+  Two consequences to carry: the microwalk variant's premise (ADR-011 §4) is
+  `walk_speed` +1 px/tick **from whatever the base is**, so measure from 3 and
+  not from 2; and `quantized_sources` carries `walk_speed_px_per_tick` while the
+  loader reads `walk_speed_sub_per_tick` — a key that reads as authoritative and
+  is not consulted. Confirm which one wins before trusting either.
 - `[-]` **M1.1 Resources, movement parameters, and the one state expansion.** *(M)* — split into M1.1a and M1.1b above.
   Today `Fighter::meter` exists and no file in `Games/UntitledFighter/Kernel/src/`
   writes it; juggle has bespoke rules; walk speed and jump impulse are
