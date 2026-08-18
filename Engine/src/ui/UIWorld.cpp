@@ -180,13 +180,28 @@ void UIWorld::Update(entt::registry& reg, int widthPx, int heightPx, float dt) {
     }
     // Back to front. The entity is the tie-break rather than nothing at all, so
     // two documents at the same sortOrder keep a STABLE order across frames and
-    // across a save/reload — otherwise which one painted on top would depend on
+    // across a save/reload -- otherwise which one painted on top would depend on
     // hash iteration order.
+    //
+    // ENTITY INDEX, never the raw handle. This read `entt::to_integral` and the
+    // comment above already claimed the save/reload half, which to_integral does
+    // not deliver: the handle carries the VERSION in its high bits, EnTT bumps
+    // the version when it recycles an index, and one destroy-and-recreate during
+    // an editing session therefore lifts that document above every entity with a
+    // lower version. Load the same file again and every entity is created fresh
+    // at version 0, so the order reverts -- which document swallowed the click
+    // depended on the editing history of whoever saved the scene.
+    //
+    // to_entity strips the version and compares the index, which is assigned in
+    // creation order and so in file order after a load. Same rule as the
+    // renderer's sort keys and ScriptWorld's execution order
+    // (docs/DETERMINISM.md I3). Pinned by
+    // UIWorld.DocumentsAtOneSortOrderKeepTheirOrderAcrossAReload.
     std::sort(order_.begin(), order_.end(), [this](entt::entity a, entt::entity b) {
         const Live& la = live_[a];
         const Live& lb = live_[b];
         if (la.sortOrder != lb.sortOrder) return la.sortOrder < lb.sortOrder;
-        return entt::to_integral(a) < entt::to_integral(b);
+        return entt::to_entity(a) < entt::to_entity(b);
     });
 
     // Input goes to ONE document: the topmost interactive one under the

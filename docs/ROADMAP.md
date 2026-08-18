@@ -31,7 +31,7 @@ without it. Details, tests and proofs of the four properties:
 
 | In flight | Owner | Since |
 |---|---|---|
-| *(nothing — M0 is closed; next is M1.0)* | | |
+| *(nothing — next is M1.1)* | | |
 
 One work package in flight at a time. The next unblocked one is always the top
 `[ ]` in milestone order below.
@@ -203,7 +203,7 @@ all of M1's state changes land as **one** expansion with one re-golden
 (`tests/test_determinism_crossplat.cpp`), reviewed once — including the fields
 M1.3 and M3.1 will need (M1.1 reserves them).
 
-- `[ ]` **M1.0 Close the determinism gate's own gaps.** *(S)* Written by M0.2's
+- `[x]` **M1.0 Close the determinism gate's own gaps.** *(S)* Written by M0.2's
   inventory, which found four rules that are review-only today and need not be
   ([DETERMINISM.md](DETERMINISM.md) §3). (a) An **include allowlist** for
   `Games/UntitledFighter/Kernel/` in `scripts/check_determinism_flags.py`: that
@@ -223,6 +223,17 @@ M1.3 and M3.1 will need (M1.1 reserves them).
   **Done when:** `python scripts/check_determinism_flags.py --self-test` covers
   each new pattern *and* proves the allowlist fires on a `#include <vector>` laid
   down in `Games/UntitledFighter/Kernel/`; `UIWorld.DocumentsAtOneSortOrderKeepTheirOrderAcrossAReload`.
+  **Met.** The self-test reports 14 flag patterns (was 11) and six
+  include-allowlist probes; proved by reverting three ways — widening the
+  allowlist, dropping a flag pattern, and adding `#include <vector>` to the real
+  `GameState.h`, which the gate named by file, line and header. **(c) was a live
+  bug, not a tidy-up:** the test failed before the fix with *"'first' painted
+  last in the session that saved the scene and 'second' does after loading it"*.
+  **Addition:** the failure message now fits the finding — an include hit no
+  longer tells its author to "use sub-units: 1 pixel = 256", which is the same
+  class of wrong signpost `module_of()` exists to prevent.
+  [DETERMINISM.md](DETERMINISM.md) K4, K5, B3 and I3 move from *review* to *CI*
+  and *test*.
 - `[ ]` **M1.1 Resources, movement parameters, and the one state expansion.** *(M)*
   Today `Fighter::meter` exists and no file in `Games/UntitledFighter/Kernel/src/`
   writes it; juggle has bespoke rules; walk speed and jump impulse are

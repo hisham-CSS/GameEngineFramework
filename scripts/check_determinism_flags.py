@@ -59,6 +59,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -77,6 +78,20 @@ FORBIDDEN = [
     ("-ffinite-math-only",           "assumes no NaN/Inf; a NaN then behaves differently per target"),
     ("/Qfast_transcendentals",       "MSVC: swaps in approximate sin/cos/exp"),
     ("-mfma",                        "enables FMA contraction; see ARCHITECTURE.md D3 on Jolt and NEON"),
+    # INSTRUCTION SET, not arithmetic mode -- and that is exactly why these were
+    # missing. None of them says "reassociate"; each says "you may use FMA", and
+    # a compiler that MAY contract a*b+c into one rounding will. /arch:AVX2 is
+    # the MSVC spelling of the licence -mfma grants, which was already here, so
+    # the table was forbidding one door and leaving the other open.
+    #
+    # Prefix-matched on purpose. `/arch:` and `-march=` take a dozen values and
+    # the safe subset is not worth enumerating: the honest default for a project
+    # whose whole claim is bit-identity across machines is that the baseline is
+    # the baseline. If one is genuinely wanted, `det-ok` with the reason makes
+    # the exemption visible.
+    ("/arch:",                       "MSVC instruction-set baseline: AVX2 and up license FMA contraction"),
+    ("-march=",                      "GCC/Clang instruction-set baseline: anything with FMA licenses contraction"),
+    ("-mavx",                        "enables AVX/AVX2/AVX512, and with them FMA"),
 ]
 
 # Paths whose contents are NOT ours to control. Kept as a mechanism with a
@@ -146,6 +161,35 @@ KERNEL_MODULE_ROOTS = [
 # string literals, and the test file quotes these very words in failure messages
 # ("double-count every hit"), so adding it would report a false positive on the
 # first run and teach everyone to ignore this gate.
+# WHAT THE SIMULATION MAY INCLUDE, as a whitelist rather than a blacklist.
+#
+# KERNEL_FORBIDDEN above is a list of the mistakes somebody thought of. This
+# fires on the one nobody thought of, which is the only kind that gets made --
+# the same argument Games/UntitledFighter/Game/CMakeLists.txt makes for holding
+# CseGame to an exact link whitelist.
+#
+# It is cheap because the module is honest: the ENTIRE include list of
+# Games/UntitledFighter/Kernel/ is these three headers plus its own quoted ones.
+# So "no allocation" and "no associative container iteration" -- two rules that
+# were review-only because grepping for `new` or `unordered_` is hopeless -- are
+# closed by the fact that <memory>, <vector> and <unordered_map> cannot get in.
+#
+# SCOPED TO THE KERNEL, deliberately. Games/UntitledFighter/Game/ is held to the
+# arithmetic rules (KERNEL_GLOBS covers it) but not to this one: it computes the
+# bits handed to Simulate and writes replay files, and <string> and <vector> are
+# legitimate there. Applying this to it would produce a wall of false positives
+# on the first run, which is how a gate gets ignored.
+KERNEL_INCLUDE_ALLOWLIST = {
+    "cstdint",      # explicitly-sized integers: the whole state is int32_t
+    "type_traits",  # the static_asserts that keep the state memcpy-able
+    "cstring",      # memcpy, for the snapshot itself
+}
+
+KERNEL_PURITY_GLOBS = [
+    "Games/UntitledFighter/Kernel/include/cse/kernel/*.h",
+    "Games/UntitledFighter/Kernel/src/*.cpp",
+]
+
 KERNEL_GLOBS = [
     "Games/UntitledFighter/Kernel/include/cse/kernel/*.h",
     "Games/UntitledFighter/Kernel/src/*.cpp",
@@ -262,6 +306,35 @@ def scan_kernel(path: Path, repo: Path) -> list[tuple[str, int, str, str]]:
     return hits
 
 
+ANGLE_INCLUDE = re.compile(r'^\s*#\s*include\s*<([^>]+)>')
+
+
+def scan_kernel_includes(path: Path, repo: Path) -> list[tuple[str, int, str, str]]:
+    """Return a hit for every angle-bracket include outside the allowlist.
+
+    Quoted includes are the module's own headers and are not checked -- the
+    guarantee is about what comes in from OUTSIDE, and a kernel header including
+    a kernel header adds nothing new.
+    """
+    rel = rel_of(path, repo)
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+
+    hits = []
+    raw_lines = text.splitlines()
+    for n, code in enumerate(strip_comments(text), 1):
+        if "det-ok" in raw_lines[n - 1]:
+            continue
+        m = ANGLE_INCLUDE.match(code)
+        if m and m.group(1) not in KERNEL_INCLUDE_ALLOWLIST:
+            hits.append((rel, n, f"#include <{m.group(1)}>",
+                         "not on the simulation's include allowlist "
+                         f"({', '.join(sorted(KERNEL_INCLUDE_ALLOWLIST))})"))
+    return hits
+
+
 def collect(repo: Path, globs: list[str]) -> list[Path]:
     out: list[Path] = []
     for g in globs:
@@ -362,6 +435,64 @@ def self_test() -> int:
                   f"(reported {hits[0][1]}, expected 2)")
             failures += 1
 
+        # --- THE INCLUDE ALLOWLIST ----------------------------------------
+        #
+        # The half that closes "never allocates" and "never iterates an
+        # associative container": neither is greppable, and both are unreachable
+        # if <memory>, <vector> and <unordered_map> cannot get in.
+        k.write_text("#include <vector>\nint x = 1;\n", encoding="utf-8")
+        if not scan_kernel_includes(k, repo):
+            print("SELF-TEST FAILED: `#include <vector>` in the simulation was "
+                  "not flagged by the include allowlist")
+            failures += 1
+
+        allowed = "".join(f"#include <{h}>\n" for h in sorted(KERNEL_INCLUDE_ALLOWLIST))
+        k.write_text(allowed + "int y = 2;\n", encoding="utf-8")
+        if scan_kernel_includes(k, repo):
+            print(f"SELF-TEST FAILED: the allowlist flagged its own members "
+                  f"({sorted(KERNEL_INCLUDE_ALLOWLIST)}), so the kernel could not "
+                  f"compile without an exemption on every file")
+            failures += 1
+
+        # A quoted include is the module's own header. Checking it would report
+        # every file in the kernel for including the kernel.
+        k.write_text('#include \"cse/kernel/GameState.h\"\nint z = 3;\n', encoding="utf-8")
+        if scan_kernel_includes(k, repo):
+            print("SELF-TEST FAILED: a quoted include of the kernel's own header "
+                  "was flagged")
+            failures += 1
+
+        k.write_text("#include <vector>  // det-ok: explained\n", encoding="utf-8")
+        if scan_kernel_includes(k, repo):
+            print("SELF-TEST FAILED: det-ok did not suppress an include hit")
+            failures += 1
+
+        # ...and that the globs the allowlist runs over name files that can
+        # exist, for the same reason KERNEL_GLOBS is probed below: a typo makes
+        # this check scan nothing and report OK.
+        for g in KERNEL_PURITY_GLOBS:
+            parts = g.split("/")
+            probe = repo.joinpath(*parts[:-1], parts[-1].replace("*", "probe"))
+            probe.parent.mkdir(parents=True, exist_ok=True)
+            probe.write_text("#include <unordered_map>\n", encoding="utf-8")
+            found = collect(repo, [g])
+            if not found:
+                print(f"SELF-TEST FAILED: include-allowlist glob {g!r} matched "
+                      f"nothing with a file laid down at exactly that path")
+                failures += 1
+            elif not any(scan_kernel_includes(f, repo) for f in found):
+                print(f"SELF-TEST FAILED: an <unordered_map> at {g!r} was scanned "
+                      f"and not flagged")
+                failures += 1
+
+        # The allowlist is scoped to the kernel; the game core is NOT held to it.
+        for g in KERNEL_PURITY_GLOBS:
+            if not g.startswith(KERNEL_MODULE_ROOTS[0]):
+                print(f"SELF-TEST FAILED: include-allowlist glob {g!r} reaches "
+                      f"outside {KERNEL_MODULE_ROOTS[0]}, where <string> and "
+                      f"<vector> are legitimate")
+                failures += 1
+
         # --- WHICH FILES THE PURITY LAYER ACTUALLY REACHES -----------------
         #
         # A typo in a glob is the failure this file is most exposed to: it scans
@@ -453,9 +584,10 @@ def self_test() -> int:
     print(f"self-test OK: all {len(FORBIDDEN)} flag patterns and "
           f"{len(KERNEL_FORBIDDEN)} kernel patterns detect, all "
           f"{len(KERNEL_GLOBS)} purity globs match, are scanned and name one of "
-          f"the {len(KERNEL_MODULE_ROOTS)} modules, each hit gets the advice for "
-          f"its own file, det-ok suppresses, comments are not flagged, clean "
-          f"files pass")
+          f"the {len(KERNEL_MODULE_ROOTS)} modules, the include allowlist flags "
+          f"an outside header and passes its {len(KERNEL_INCLUDE_ALLOWLIST)} "
+          f"members and a quoted include, each hit gets the advice for its own "
+          f"file, det-ok suppresses, comments are not flagged, clean files pass")
     return 0
 
 
@@ -476,15 +608,22 @@ def main() -> int:
     generated = collect(repo, GENERATED_GLOBS)
 
     kernel = collect(repo, KERNEL_GLOBS)
+    purity = collect(repo, KERNEL_PURITY_GLOBS)
 
     hits: list[tuple[str, int, str, str]] = []
     for p in authored + generated:
         hits.extend(scan_file(p, repo))
     for p in kernel:
         hits.extend(scan_kernel(p, repo))
+    for p in purity:
+        hits.extend(scan_kernel_includes(p, repo))
 
     print(f"determinism gate: {len(authored)} authored + {len(generated)} generated "
-          f"build file(s), {len(kernel)} simulation source file(s) scanned")
+          f"build file(s), {len(kernel)} simulation source file(s) scanned, "
+          f"{len(purity)} of them against the include allowlist")
+    if not purity:
+        print("  WARNING: the include allowlist matched no files. If the kernel")
+        print("  moved, update KERNEL_PURITY_GLOBS or that rule checks nothing.")
     if not kernel:
         print("  WARNING: no simulation sources found. If the gameplay kernel has")
         print("  moved, update KERNEL_GLOBS or this half checks nothing.")
@@ -524,7 +663,8 @@ def main() -> int:
     # Two different failures land here and they want different words. Saying
     # "flag" at someone who wrote `float x` sends them to look at CMakeLists,
     # which is the wrong file.
-    kernel_hits, flag_hits = split_hits(hits, {rel_of(p, repo) for p in kernel})
+    kernel_hits, flag_hits = split_hits(
+        hits, {rel_of(p, repo) for p in kernel} | {rel_of(p, repo) for p in purity})
     if flag_hits and kernel_hits:
         print("FAILED: a fast-math build flag AND non-integer code in the simulation.")
     elif kernel_hits:
@@ -532,9 +672,23 @@ def main() -> int:
         # says the game core on a game-core hit instead of sending its author to
         # the kernel. See module_of() for why that is not a split("/")[0].
         modules = sorted({module_of(h[0]) for h in kernel_hits})
-        print(f"FAILED: {', '.join(modules)} is supposed to be integer-only, and is not.")
-        print("Cross-platform bit-identity is a property of integer arithmetic")
-        print("(ARCHITECTURE.md D2). Use sub-units: 1 pixel = 256.")
+        # And the ADVICE is chosen by what was actually found. An include hit is
+        # not about integers, and "use sub-units: 1 pixel = 256" is useless to
+        # somebody who wrote `#include <vector>` -- the same class of wrong
+        # signpost module_of() exists to prevent.
+        includes = [h for h in kernel_hits if h[2].startswith("#include")]
+        arithmetic = [h for h in kernel_hits if not h[2].startswith("#include")]
+        if arithmetic:
+            print(f"FAILED: {', '.join(modules)} is supposed to be integer-only, and is not.")
+            print("Cross-platform bit-identity is a property of integer arithmetic")
+            print("(ARCHITECTURE.md D2). Use sub-units: 1 pixel = 256.")
+        if includes:
+            print(f"FAILED: the simulation included a header that is not on its "
+                  f"allowlist.")
+            print("The allowlist is how 'never allocates' and 'never iterates an")
+            print("associative container' are enforced at all -- neither is")
+            print("greppable, and both are unreachable while <memory>, <vector>")
+            print("and <unordered_map> cannot get in (DETERMINISM.md K4, K5).")
     else:
         print("FAILED: a floating-point flag that breaks bit-identical simulation is present.")
     print("See docs/ARCHITECTURE.md D2/D3 and docs/MAINTENANCE.md.")
