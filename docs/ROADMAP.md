@@ -405,6 +405,18 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   field, not this WP's, and easy to mistake for a selection bug while testing.
   **Blocks M1.3**, which adds movement moves and cancel edges targeting them — a
   jump cancel means little while a button can only ever start one move.
+  **(a), (b) and (d) landed; (c) did not, and the reason is worth keeping.** The
+  binding table now maps six buttons to eighteen moves and `Down` is bound, so
+  every normal `fighter_a` authors is reachable and the HUD names one row per
+  stance variant. (c) — teaching the shadow check that two moves sharing a bit
+  with *disjoint* stances are not shadows — was written, worked, and was
+  **removed again because nothing proved it**: a shadow is a warning, no test
+  counts warnings, and reverting the check to "every stance overlaps" left all 58
+  tests green. The test that would prove it has to use a character whose variants
+  are `standing` vs `crouching`; the first attempt used Kung Fu Girl, who authors
+  `stance: ground` on everything — and `Ground` overlaps both, so her warning is
+  **correct** and the assertion was false. Write it against `fighter_a` or a
+  synthetic `FighterData`, then restore the check.
 - `[ ]` **M1.2 Push boxes and the corner.** *(S–M)* Body separation between
   fighters and the stage edge as a wall; resolution order per NORTHSTAR Phase 2:
   pushbox separation → strikes (throws when they exist). Authored `pushbox`
