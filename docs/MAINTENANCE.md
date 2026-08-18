@@ -1,5 +1,7 @@
 # Maintenance guide
 
+Verified: 2026-08-17 @ 9f518c2
+
 How to change this engine without breaking it, and how to keep its documentation
 true. Everything here is a practice the repository already follows — it was
 written by reading the code, not by deciding what would be nice.
@@ -79,9 +81,38 @@ what they instantiate.
 `docs/manual/` is a promise. A manual that is 90% right is worse than none,
 because the 10% costs a debugging session each time somebody trusts it.
 
-### The audit is adversarial, and that is the point
+### The five-line rule
 
-The process that works here, and has now found drift twice at scale:
+This is the daily one. It is
+[ADR-010 §8.1](adr/ADR-010-one-roadmap-one-rule.md) verbatim, and
+`scripts/check_docs.py` enforces the mechanical half of it in CI.
+
+1. **One home per fact.** To repeat is to fork; link instead.
+2. **Same commit.** A change that makes a sentence false fixes the sentence.
+   Search for the *old* path or behaviour, not the new name — the new name is
+   not in the stale text.
+3. **Rewrite living docs; freeze ADRs.** No `AMENDED` / `STRUCK` / `Correction`
+   block and no strike-through in a living document: edit the sentence. An
+   accepted ADR is never edited except its `Status` line; a correction is a new
+   ADR.
+4. **Cite docs by anchor, code by path** (line numbers optional). Numbers live
+   only where a test asserts them, or in [ROADMAP.md](ROADMAP.md) with a date.
+5. **Stamp and check.** Every living doc opens with `Verified: YYYY-MM-DD @ sha`,
+   bumped **only after re-reading the page against the code** — a stamp applied
+   in the same pass that wrote the prose is decoration.
+
+What the gate can and cannot see is worth knowing before you trust a green run.
+It detects the mechanical residue of a stale claim — a dead link, a path that no
+longer exists, a missing stamp, an annotation marker. It cannot detect a stale
+*claim*: "the kernel simulates two fighters" became false when the state grew
+eight slots, and no script will ever notice. That is what the audit below is
+for, and what rule 5's read-through is for.
+
+### The audit is the periodic check
+
+Run it before a release, before publishing a claim, or quarterly — not daily.
+It is adversarial, and that is the point. The process that works here, and has
+now found drift three times at scale:
 
 1. **Fan out readers**, one per manual page or subsystem, each told to report
    only statements the source *contradicts* — not missing sections, not style.
@@ -89,13 +120,14 @@ The process that works here, and has now found drift twice at scale:
    to refuted when uncertain, or when the claimed "reality" is itself wrong.
 3. **Spot-check the survivors yourself** against source before acting on them.
 
-The most recent run is preserved verbatim in
-[AUDIT_FINDINGS.md](AUDIT_FINDINGS.md) -- 12 readers, 85 agents, 52 findings
-that survived refutation, all since fixed. Keep it: the WHY sections are the
-best record this repository has of what actually goes wrong here, and several
-of the invariants below were written from them. If you run the process again,
-file the results the same way -- one entry per finding, the verifier's
-reasoning intact, a marker added when it is closed.
+The 2026-08 run is preserved verbatim in
+[`docs/archive/`](archive/README.md) -- 12 readers, 85 agents, 52 findings that
+survived refutation, all since fixed. Read it for the WHY sections: they are the
+best record this repository has of what actually goes wrong here, and several of
+the invariants below were written from them. If you run the process again, file
+the results the same way -- one entry per finding, the verifier's reasoning
+intact, a marker added when it is closed -- and archive it when it is closed out
+rather than leaving it in `docs/`.
 
 Step 2 is what makes it worth doing. Reviewers are confidently wrong often
 enough that an unfiltered list wastes more time than it saves; a refutation pass
@@ -126,8 +158,10 @@ Update, in the same commit:
 
 - the manual page that now says something false — search for the *old*
   behaviour, not the new feature name;
-- **"Not there yet"** on that page. A gap you just closed must stop being
-  listed, and any gap your change *created* must start being;
+- **[ROADMAP.md](ROADMAP.md)** — a gap you just closed stops being listed there,
+  and any gap your change *created* starts being. Manual pages no longer keep
+  their own "not there yet" lists: two lists of gaps disagree within a week, and
+  the one nobody edits is the one people read;
 - the file inventory table, if you added a header;
 - the header comment of anything whose contract you changed.
 

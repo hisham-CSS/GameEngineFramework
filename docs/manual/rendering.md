@@ -927,7 +927,7 @@ These are measured results from a per-pass A/B harness
 (`tests/test_perf_render.cpp`, headless, RTX 3050 @ 1080p, 2026-07-20), run
 across static bird's-eye, moving bird's-eye and low oblique wide shots. Every
 configuration agreed. The findings are recorded in
-`docs/ENGINE_AUDIT_2026-07.md`.
+the [performance page](performance.md).
 
 **Wide and bird's-eye frames are vertex/instance-count bound. They are not
 shadow-bound, not PCF-bound, and not fill-bound.**

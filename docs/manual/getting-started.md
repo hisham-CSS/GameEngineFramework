@@ -165,7 +165,7 @@ isolated repro — a serializer round-trip, a container bug, a unit test.
 > debug CRT enables iterator debugging (`_ITERATOR_DEBUG_LEVEL=2`), which adds checking to
 > every container access in the cull/sort/submit loop. A scene that runs comfortably in
 > Release can feel broken in Debug. Every perf number in this repo — the baselines and budgets
-> in `tests/test_perf_render.cpp`, the measurements in `docs/ENGINE_AUDIT_2026-07.md` — is a
+> in `tests/test_perf_render.cpp`, the measurements on the [performance page](performance.md) — is a
 > Release number, and none of them mean anything in Debug.
 
 ### Release (`x64-release`)

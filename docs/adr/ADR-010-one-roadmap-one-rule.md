@@ -1,11 +1,18 @@
 # ADR-010 — One roadmap, one rule
 
-**Status.** Proposed 2026-08-17. Nothing below has been executed except the two
-files this proposal creates alongside itself — [`ROADMAP.md`](../ROADMAP.md) (the
-detailed, living work list) and the root [`CLAUDE.md`](../../CLAUDE.md) (the
-operating protocol for an autonomous session) — both uncommitted. **Verified
-against** `master` @ `99669cc`, 2026-08-17 — every path cited exists at that
-commit unless marked *(new)*.
+**Status.** Accepted 2026-08-17 · **Implemented** — ROADMAP M0.1 through M0.6.
+`docs/` is six living documents, `adr/`, `manual/` and `archive/`; every living
+document carries a `Verified:` stamp; and `scripts/check_docs.py` is a
+**required** CI step reporting zero findings, down from 78 on its first run.
+Three things below were not executed as written, and the ROADMAP entry for each
+says why: the rewritten [`NORTHSTAR.md`](../NORTHSTAR.md) carries no status
+column (§2 sketched one, but [`CLAUDE.md`](../../CLAUDE.md) forbids a status
+table outside `ROADMAP.md` and §5's own table agrees); the gate gained two checks
+§8.2 does not list (archive integrity, and no path-checking inside `docs/adr/`);
+and §4's `cse_fp_strict` turned out to be unimplementable — see
+[`DETERMINISM.md`](../DETERMINISM.md) B5. **Verified against** `master` @
+`99669cc`, 2026-08-17 — every path cited exists at that commit unless marked
+*(new)*.
 
 **Decides.** What the roadmap is and where it lives; the order of the work and
 why; the shape of the documentation; and the rule that keeps it true. It edits

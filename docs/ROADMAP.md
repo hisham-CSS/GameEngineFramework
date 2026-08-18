@@ -1,6 +1,6 @@
 # ROADMAP — the one place status lives
 
-Verified: 2026-08-17 @ 99669cc
+Verified: 2026-08-17 @ 9f518c2
 
 This is the **only** roadmap. `README.md` carries one paragraph and a link;
 `docs/manual/` never lists gaps; ADRs record why, not what is next. If a fact
@@ -31,7 +31,7 @@ without it. Details, tests and proofs of the four properties:
 
 | In flight | Owner | Since |
 |---|---|---|
-| *(nothing — next is M0.6)* | | |
+| *(nothing — M0 is closed; next is M1.0)* | | |
 
 One work package in flight at a time. The next unblocked one is always the top
 `[ ]` in milestone order below.
@@ -57,7 +57,7 @@ full mapping is [ADR-010 §5–§7](adr/ADR-010-one-roadmap-one-rule.md); this i
 work list.
 
 - `[x] 5f756c6` **M0.1 Archive the originals.** *(S)* Copy `NORTHSTAR.md`,
-  `ARCHITECTURE.md`, `AUDIT_FINDINGS.md`, `ENGINE_AUDIT_2026-07.md` verbatim to
+  `ARCHITECTURE.md`, the audit findings and the July 2026 engine audit verbatim to
   `docs/archive/<NAME>-<date>.md`; add `docs/archive/README.md` ("history;
   nothing here is current; frozen ADRs' line citations resolve here").
   **Done when:** the four files exist under `docs/archive/`, byte-identical to
@@ -145,7 +145,7 @@ code" — and batching it behind the prose work is how a stamp becomes decoratio
   laptop section from the archived audit.
   **Done when:** `docs/manual/` has no second copy of the four blocks, and
   `docs/` holds no page that another page now owns.
-- `[x]` **M0.5c The read-through, then the stamps.** *(M)* Fourteen pages under
+- `[x] 9f518c2` **M0.5c The read-through, then the stamps.** *(M)* Fourteen pages under
   `docs/manual/`, one at a time: read the page against the code it cites, fix what
   it gets wrong, and only then write `Verified: <date> @ <sha>`. **The stamp is
   the claim**, so it cannot be applied in the same pass that wrote the prose — a
@@ -167,20 +167,28 @@ code" — and batching it behind the prose work is how a stamp becomes decoratio
   four gap lists, which belong here and nowhere else; (6) `getting-started.md` and
   `performance.md` both called `test_perf_render`'s label `perf` when it is
   `perf;gl`, so `-LE perf` does not exclude it from a `gl` run.
-  **Gate addition:** `Kernel/` and `Modes/` joined `PATH_PREFIXES`. A prefix list
+  **Gate addition:** the two moved top-level directories joined `PATH_PREFIXES`. A prefix list
   of directories that *exist* is blind to the citation that went stale — fourteen
-  lines still said `Kernel/src/Combat.cpp` and the gate walked past every one.
-- `[ ]` **M0.6 Entry points, and make it required.** *(S)* `README.md`: pitch,
+  lines still cited the kernel at its old top-level path, and the gate walked past every one.
+- `[x]` **M0.6 Entry points, and make it required.** *(S)* `README.md`: pitch,
   one roadmap paragraph + link, docs table for the new tree, build/run/ship;
   delete the feature matrix, "Not Yet Built" and the scale line; fix Project
   Structure. `MAINTENANCE.md`: "Keeping the documentation true" → the five-line
   rule (ADR-010 §8.1) + the adversarial audit as the periodic check; determinism
-  invariants → pointer to `DETERMINISM.md`. Delete `docs/api-index.md`,
-  `docs/CMakeLists.txt`, `docs/Doxyfile.in` and the root
+  invariants → pointer to `DETERMINISM.md`. Delete `docs/api-index.md`, <!-- docs-ok: names the files this WP deletes -->
+  `docs/CMakeLists.txt`, `docs/Doxyfile.in` and the root <!-- docs-ok: names the files this WP deletes -->
   `add_subdirectory(docs)` (ADR-010 §9.1 default). Remove
   `continue-on-error`. Set ADR-010 Status → Implemented.
   **Done when:** CI is green with the docs step required; `docs/` is six living
   files + `adr/` + `manual/` + `archive/`.
+  **Met.** `docs/` is exactly `ARCHITECTURE` · `DETERMINISM` · `MAINTENANCE` ·
+  `NORTHSTAR` · `ROADMAP` · `STYLE` + `adr/` + `manual/` + `archive/`; the gate
+  reports **0 findings** over 39 files and is required. `AUDIT_FINDINGS.md` and
+  `ENGINE_AUDIT_2026-07.md` were deleted too — their archived copies are the
+  record, which is what M0.1 froze them for. **One thing for the human:** the
+  `determinism-flags` job now carries the docs gate as well, and its display name
+  still says *FP flag gate*. Renaming it means re-pointing branch protection,
+  which is a repository-settings change, not a workflow edit.
 
 ---
 

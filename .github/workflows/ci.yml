@@ -97,28 +97,28 @@ jobs:
         run: python scripts/check_determinism_flags.py
 
       - name: Self-test the documentation gate
-        # REQUIRED even while the scan below is advisory, and the split is the
-        # point: a detector that has stopped detecting reports a clean
-        # documentation tree, which is worse than no gate at all. The scan's
-        # verdict is provisional; the claim that it can still see is not.
+        # Kept as its own step now that the scan below is required too. A
+        # detector that has stopped detecting reports a clean documentation
+        # tree, and a green scan is only worth what this step says it is --
+        # so when both fail, read this one first: it names the probe.
         run: python scripts/check_docs.py --self-test
 
       - name: Documentation — dead links, dead paths, missing stamps
-        # ADVISORY UNTIL ROADMAP M0.6, AND NOT ONE COMMIT LONGER.
+        # REQUIRED as of M0.6. It was advisory for exactly four commits, which is
+        # the whole of its intended life: its first run reported 78 findings and
+        # that list WAS the work M0.4-M0.6 did. It reports zero now.
         #
-        # Its first run reported 78 findings: 41 cited paths that do not resolve
-        # (`Editor/src/Exported/Characters/` x9 and `Engine/src/gameplay/` x8 lead
-        # the list, the second of which has never existed), 25 living documents
-        # with no `Verified:` stamp, and 12 amendment markers bolted onto living
-        # text. That list is not a bug in this job -- it is the work M0.4, M0.5
-        # and M0.6 exist to do, and it is why the step cannot be required today.
+        # It stayed advisory no longer than that on purpose. This repository has
+        # already paid for the alternative -- gl-tests failed five consecutive
+        # runs while advisory and nobody noticed, because advisory failures do
+        # not announce themselves.
         #
-        # This repository's own history says why the advisory state is dangerous:
-        # gl-tests failed five consecutive runs while advisory and nobody
-        # noticed, because advisory failures do not announce themselves. M0.6
-        # deletes this line; if you are reading it after M0.6 landed, that is the
-        # bug.
-        continue-on-error: true
+        # If this fails: it does not detect a stale CLAIM, only the mechanical
+        # residue of one. A dead link, a path that no longer exists, a missing
+        # `Verified:` stamp, an AMENDED block bolted onto a living document. Each
+        # is a fact about the filesystem, so each has a fix rather than an
+        # opinion. `docs-ok` in a comment on the line, with a reason, is the
+        # escape for the deliberately absent.
         run: python scripts/check_docs.py
 
   windows:

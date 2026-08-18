@@ -197,7 +197,11 @@ add_subdirectory(Player)
 add_subdirectory(Cooker)
 # API reference (optional): defines a 'docs' target when Doxygen is installed,
 # and quietly skips it otherwise. Never a build dependency.
-add_subdirectory(docs)
+# NO add_subdirectory(docs). There was one, for an optional Doxygen target that
+# CI never ran, covering only Engine/, behind a README row advertising a
+# "generated reference ... produced from the headers themselves". The reference
+# was 57 hand-written lines and nothing generated it (docs/adr/ADR-010 section 9.1).
+# The public surface is one facade header and its comments; that is the reference.
 unset(CMAKE_FOLDER)
 
 # The editor invokes AssetCooker.exe at runtime (Validate button): building

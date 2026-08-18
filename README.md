@@ -1,5 +1,7 @@
 # Cat Splat Engine
 
+Verified: 2026-08-17 @ 9f518c2
+
 A working C++17 / OpenGL 3.3 **game engine, editor, and runtime** — not just a renderer.
 It ships a separate **Engine** (DLL), a dockable ImGui **Editor** with its own borderless
 title bar and theme, a standalone **Player**, and a headless **AssetCooker**, on a
@@ -20,125 +22,73 @@ single subsystem.
 
 ## Where this is going
 
-The engine's showcase is a **deterministic, rollback-netcode fighting game** — SF6-like,
-data-driven, cross-platform — which doubles as the case study for a combo-termination proof.
-That target is what now drives the architecture, and it has already changed the shape of
-the engine:
+The engine's showcase is a **deterministic, rollback-netcode fighting game** —
+SF6-like, data-driven, cross-platform — which doubles as the case study for a
+combo-termination proof, and that target now drives the architecture. It has
+already changed the engine's shape: a gameplay kernel
+(`Games/UntitledFighter/Kernel/`) that is a fixed-size POD of integers advanced by
+a pure function and snapshotted by `memcpy`, which **links nothing** — not Jolt,
+not EnTT, not Lua — enforced at configure time rather than by convention, because
+bit-identical cross-platform arithmetic is a property of what the kernel *cannot
+reach*; a rollback session seam (`Net/`) over a vendored GekkoNet; and character
+behaviour as data, in a schema the published combo prover reads **unmodified**, so
+the thing analysed is the thing shipped with no export step.
 
-- A **gameplay kernel** (`Kernel/`) that is a fixed-size POD of integers, simulated by a pure
-  function, snapshotted by `memcpy`. It links **nothing** — not Jolt, not EnTT, not Lua — and
-  that is enforced by a configure-time assertion rather than by a convention, because
-  bit-identical cross-platform arithmetic is a property of what the kernel *cannot reach*.
-- A **rollback session seam** (`Net/`) over a vendored GekkoNet. Under a stress session it
-  rolls the kernel back 231 times and re-simulates 1617 ticks, byte-identical to a
-  straight run.
-- **Character behaviour as data**, in a schema the combo prover reads *unmodified* — so the
-  thing analysed is the thing shipped, with no export step.
-
-The plan and the decisions behind it are in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-and the ADRs. They are unusually candid: ADR-001 leads with a result that is half negative,
-and records two instructions the plan originally gave that would have fabricated an infinite
-combo.
-
-**Scale:** 261 first-party C++ files / 74.7k lines · 26 GLSL shaders ·
-1,118 tests in 58 executables (61 CTest entries) · 300 commits since October 2024.
+**What is built, what is in flight and what is next is
+[`docs/ROADMAP.md`](docs/ROADMAP.md), and only there.** This file deliberately
+keeps no second copy — two lists of status disagree within a week, and the one
+nobody edits is the one people read.
 
 ## Documentation
 
+Six living documents, a frozen decision record, a manual, and an archive.
+
 | | |
 |---|---|
-| **[Manual](docs/manual/index.md)** | How the engine works and how to build things with it — architecture, editor, components, physics, scripting, rendering, shipping a build |
-| **[Getting Started](docs/manual/getting-started.md)** | Prerequisites, build configurations, running the editor and player |
-| **[API Reference](docs/api-index.md)** | Generated per-class reference. Build it with the `docs` CMake target (requires Doxygen) |
-| **[Architecture Decisions](docs/ARCHITECTURE.md)** | The fighting-game direction: D1–D9, the build order, the determinism contract, and a table of rejected ideas with the condition each comes back under |
-| **[North Star](docs/NORTHSTAR.md)** | What the engine is today, made testable, and what blocks the target |
-| **ADRs** | [001 — does the declarative model fit?](docs/adr/ADR-001-fighting-core.md) (measured, on three real characters) · [002 — the eleven open decisions](docs/adr/ADR-002-open-decisions.md) · [003 — the GekkoNet spike](docs/adr/ADR-003-gekkonet-spike.md) · [004 — Choronos considered](docs/adr/ADR-004-choronos-considered.md) |
-| **[Engine Audit & Roadmap](docs/ENGINE_AUDIT_2026-07.md)** | The phased roadmap ledger and its status |
-| **[Maintenance Guide](docs/MAINTENANCE.md)** | Working on the engine itself: the change loop, the documentation audit, and the invariants that keep biting |
-| **[Style Guide](docs/STYLE.md)** | How code is written here — comments, tests, diagnostics and API shape |
+| **[Roadmap](docs/ROADMAP.md)** | What is done, in flight, next, and deliberately not scheduled. The only place status lives |
+| **[North Star](docs/NORTHSTAR.md)** | What the engine is for, and the test that decides whether each of its four properties is done |
+| **[Architecture](docs/ARCHITECTURE.md)** | Why it is shaped this way: decisions D1–D9, and a table of rejected ideas with the condition each comes back under |
+| **[Determinism](docs/DETERMINISM.md)** | Every rule the simulation, the build and the authored data must obey — and, for each, what actually stops you breaking it |
+| **[Maintenance](docs/MAINTENANCE.md)** | Working on the engine itself: the change loop, the documentation rule, and the invariants that keep biting |
+| **[Style](docs/STYLE.md)** | How code is written here — comments, tests, diagnostics and API shape |
+| **[Manual](docs/manual/index.md)** | How to *use* each subsystem: editor, components, physics, scripting, rendering, UI, assets, shipping a build |
+| **[Decision records](docs/adr/README.md)** | Eleven ADRs, frozen the day each was accepted. ADR-001 leads with a half-negative result and records two instructions the original plan gave that would have fabricated an infinite combo |
+| **[Archive](docs/archive/README.md)** | Superseded documents, kept verbatim. Nothing there is current |
 
 New here? Read [Getting Started](docs/manual/getting-started.md), then
 [Engine Architecture](docs/manual/architecture.md). Changing the engine rather
-than using it? Start with the [Maintenance Guide](docs/MAINTENANCE.md).
-
-## Feature Matrix
-
-Legend: ✅ working · 🟡 partial · 🔲 planned
-
-| Area | Status | Notes |
-|---|:---:|---|
-| **Render pipeline** | ✅ | 11 passes over `IRenderPass`/`RenderPipeline`: CSM → forward PBR → skybox → sorted transparent → bloom → tonemap → ink outline → colour grade → vignette → FXAA → UI overlay |
-| **Shadows** | ✅ | Cascaded shadow maps (≤4), texel-snap stabilization, split blending, PCF, per-cascade update budgeting |
-| **Lighting** | ✅ | Directional sun (shadowed) + up to 16 point/spot lights (unshadowed); Cook-Torrance GGX PBR |
-| **IBL / Sky** | ✅ | Split-sum IBL (irradiance / prefiltered / BRDF LUT) baked from an `.hdr` **or** a procedural sky; drawn skybox |
-| **Transparency** | ✅ | glTF-style `Opaque` / `Mask` (cutout) / `Blend`, sorted back-to-front with a depth pre-pass |
-| **Post-processing** | ✅ | Chainable LDR ping-pong stack: bloom (HDR), depth-edge ink outline, procedural colour grade, vignette, FXAA |
-| **Materials** | ✅ | Per-material PBR + textures, alpha mode, double-sided, per-entity overrides, and **cel/toon shading** with per-material controls |
-| **Quality tiers** | ✅ | HDRP-lite `Low` / `Medium` / `High` / `Custom` presets fanned out across LOD, culling, shadows, bloom, AA |
-| **ECS / components** | ✅ | EnTT registry: Transform (hierarchy), Model, Material overrides, Camera, Light, RigidBody/Collider, Script, Audio source/listener, Name, Parent, NoShadow |
-| **Editor** | ✅ | Dockable ImGui workspace, custom title bar + theme + File/Edit/Window menus + panel visibility, gizmos, click-picking, hierarchy, inspector, asset browser, deep render settings |
-| **Play-in-editor** | ✅ | Play/Stop with a scene snapshot + restore; gameplay input focus-gated to the Game view |
-| **Undo / redo** | ✅ | Command history with clickable entries |
-| **Physics** | ✅ | `IPhysicsBackend` seam — **Jolt**, **PhysX**, or a **Simple** built-in, one backend per world; fixed-tick; collision/trigger events |
-| **Scripting** | ✅ | `IScriptBackend` seam — sandboxed **Lua** (sol2), per-entity isolated environments; a Null backend |
-| **Audio** | ✅ | `IAudioBackend` seam — **miniaudio** (cross-platform, no link deps) or a Null backend; 2D/3D positional sources, a listener, master volume; authorable + serialized |
-| **Assets** | 🟡 | Assimp import + texture caching + by-path dedup; async worker-pool loading; **AssetCooker validates** (no binary cooked format yet) |
-| **Serialization** | ✅ | Versioned JSON: entities, components, material overrides, lighting, environment, post-FX, quality tier |
-| **Project system** | ✅ | `project.json` with a startup scene the Player boots |
-| **Player** | ✅ | `Player.exe [scene.json]` runs a saved scene with no editor deps |
-| **Packaging** | ✅ | `cpack -G ZIP` → self-contained Windows game bundle |
-| **Job system** | ✅ | Worker-pool `JobSystem` backing async asset loads |
-| **Platform** | ✅ | Windows (primary) + **Linux** — gcc 13 **builds AND runs the full test suite** on every push, including the cross-toolchain determinism check. PhysX is Windows-only there |
-| **Tests** | ✅ | 1,118 GoogleTest cases in 58 executables (61 CTest entries): CSM math, shadow stability, render passes, post-process chain, serialization, physics conformance across all three backends, scripting, audio, IBL/FXAA, input, 25 executables covering the UI toolkit, and the kernel + rollback-session suites. `ctest -LE "perf\|gl"` → 50/50 in ~4 s |
-| **CI** | ✅ | GitHub Actions: **four required jobs** — a determinism flag gate that fails the build on any fast-math flag (10 s, runs first), all four Windows configurations + the GPU-free tests, the 11 GL tests under Mesa llvmpipe, and the Linux build. Nothing is advisory |
-| **Gameplay kernel** | 🟡 | `Kernel/` — integer-only POD state, pure `Simulate`, `memcpy` snapshot, FNV-1a checksum. Links nothing, enforced at configure time. Hitboxes, hit resolution and cancels work; no blocking, throws or meter spending yet |
-| **Rollback netcode** | 🟡 | `Net/` — `ISession` over a vendored GekkoNet (pinned commit, built with our flags). Save/load/re-simulate proven byte-identical under a stress session. No socket has been opened yet |
-| **Skeletal animation** | 🔲 | Static meshes only today |
-| **In-game / runtime UI** | ✅ | Retained-mode toolkit, separate from ImGui: `.cxml` markup + `.cstyle` stylesheets (selectors, cascade, pseudo-classes), yoga flexbox layout, two-way data binding, hot reload, focus/keyboard/gamepad navigation, scrolling and clipping, and widgets (Button, Label, Image, TextField, Slider, TabView, `repeat=` collections). Authored as a scene component |
-| **2D renderer & text** | ✅ | Batched `Renderer2D` (quads/sprites, screen + world camera modes, rounded rects, borders, gradients, 9-slice) with `stb_truetype` glyph-atlas text, word wrap, hyphenation and paragraph fitting |
-| **Networking (transport)** | 🔲 | The rollback *session* exists (above); the transport under it does not. GekkoNet is built with `GEKKONET_NO_ASIO`, so nothing has sent a packet |
-
-## Not Yet Built
-
-Honest gaps, roughly in impact order:
-
-- **Skeletal / skinned animation** — the renderer draws static meshes only. The vertex format
-  carries no bone IDs or weights, and there is no animation system of any kind.
-- **Networked play** — the rollback session layer is in and proven against the kernel, but no
-  transport is built and no two machines have ever exchanged a frame. Everything verified so
-  far is one process with two local players.
-- **Combat systems** — the kernel simulates walking, jumping and stun. Hitboxes, hit
-  detection, cancels and character data driving any of it are not built. The character
-  *schema* and three transcribed characters exist; nothing reads them into the kernel yet.
-- **Shadowed punctual lights** — the 16 point/spot lights are unshadowed and use a bounded uniform array (not a UBO).
-- **Binary cooked-asset pipeline** — the AssetCooker only *validates*; models are still Assimp-imported at load time.
-- **Scripting breadth** — Lua only, a thin API (transform / input / raycast / time), and no hot
-  reload (`IScriptBackend::supportsHotReload()` returns `false` for every backend). The Lua
-  backend is a working proof of the `IScriptBackend` seam rather than a finished scripting
-  story, and is expected to be revisited.
+than using it? Start with [CLAUDE.md](CLAUDE.md) and the
+[Maintenance Guide](docs/MAINTENANCE.md).
 
 ## Project Structure
 
 ```
 GameEngineFramework/
-├── Kernel/          # The authoritative fighting-game simulation. Integer POD state,
-│                   #   pure Simulate(), memcpy snapshot. Links NOTHING, on purpose.
-├── Net/             # ISession: the rollback session seam. GekkoNet is PRIVATE to it,
-│                   #   so exactly one .cpp includes gekkonet.h
-├── Data/            # Character data loading (schema v2 -> memory)
-├── ThirdParty/      # Vendored: GekkoNet as a pinned submodule, built with our flags
 ├── Engine/          # Core engine (DLL): core systems, render passes, 2D renderer,
 │                   #   in-game UI toolkit, physics + script + audio backends
 ├── Editor/          # Editor application (ImGui) + Exported/ shaders & sample assets
 ├── Player/          # Standalone player (loads a scene.json, no editor UI)
 ├── Cooker/          # Headless AssetCooker (asset validation)
-├── docs/            # Manual (docs/manual/), architecture + ADRs, maintenance + style guides
+├── Net/             # ISession: the rollback session seam. GekkoNet is PRIVATE to it,
+│                   #   so exactly one .cpp includes gekkonet.h
+├── Games/
+│   └── UntitledFighter/   # THE TITLE. A title may depend on the engine, never the
+│       ├── Kernel/        #   reverse -- a configure-time boundary check enforces it.
+│       ├── Data/          # Kernel: integer POD state, pure Simulate(), links NOTHING
+│       ├── Game/          # Data: character files -> memory. Game: session, input
+│       ├── Modes/         #   sources, replay, combo judge. Modes: training mode.
+│       ├── Editor/        # Editor: the Combo Prover panel, pushed in through a seam
+│       └── Assets/        # Assets: the shipped characters
+├── ThirdParty/      # Vendored: GekkoNet as a pinned submodule, and comboprover.hpp
+├── docs/            # Six living documents + adr/ + manual/ + archive/
 ├── tests/           # GoogleTest unit tests
 ├── cmake/           # Build helpers (runtime-asset staging, etc.)
 ├── resources/       # App icon (.ico + shared .rc; regenerate via scripts/make_icon.py)
-├── scripts/         # Build scripts (linux-build.sh, make_icon.py)
+├── scripts/         # Build + gate scripts (linux-build.sh, check_determinism_flags.py,
+│                   #   check_docs.py, make_icon.py)
 ├── tools/           # Small dev tools
 ├── CMakeLists.txt
+├── CLAUDE.md        # How to work in this repository
 ├── vcpkg.json
 └── vcpkg-configuration.json
 ```
@@ -222,13 +172,19 @@ Tests: `ctest --preset x64-relwithdebinfo-tests` (or `ctest --test-dir <build>`,
 
 ### Shipping a build
 
-```bash
-cd build && cpack -G ZIP
-```
+**The editor produces the player**: *File > Build Settings > Build*, in the same
+configuration you authored in. It is the only entry point, and it refuses a build
+whose scene list is empty, whose startup scene fails validation, or whose
+configuration is not the one this tree was generated for
+([ADR-008](docs/adr/ADR-008-editor-produces-the-player.md)). There is no `cpack`
+and no `package` target; both existed, both skipped those checks, and `cpack` on a
+tree the editor had never saved in shipped the wrong content and exited 0.
 
-Produces `CatSplatGame-<version>-win64.zip` containing `Player.exe`, `Engine.dll`, the
-third-party DLLs, and the `Exported/` assets + startup scene — a self-contained game bundle.
-(`cmake --install build --prefix <dir>` stages the same layout.)
+A headless release job is one line, because it is what the Build action runs:
+
+```bash
+cmake --install out/build/x64-release --config Release --prefix dist/
+```
 
 ## Contributing
 
