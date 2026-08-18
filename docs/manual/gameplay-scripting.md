@@ -1,5 +1,7 @@
 # Writing Gameplay
 
+Verified: 2026-08-17 @ e2f08bd
+
 This page is about gameplay written in **C++**: logic installed into the running
 `Application` through callbacks — one variable-rate `Update`, and a fixed-rate
 tick that also drives physics. It covers the update model, how to install your
