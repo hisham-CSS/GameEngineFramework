@@ -490,7 +490,8 @@ TEST(CombatMirror, AMirroredScenarioProducesExactlyMirroredState) {
             ASSERT_EQ(n.posY, m.posY)             << "tick " << t << " f" << i;
             ASSERT_EQ(n.velY, m.velY)             << "tick " << t << " f" << i;
             ASSERT_EQ(n.health, m.health)         << "tick " << t << " f" << i;
-            ASSERT_EQ(n.meter, m.meter)           << "tick " << t << " f" << i;
+            for (int r = 0; r < cse::kernel::kMaxResources; ++r)
+                ASSERT_EQ(n.res[r], m.res[r])     << "tick " << t << " f" << i << " res" << r;
             ASSERT_EQ(n.moveId, m.moveId)         << "tick " << t << " f" << i;
             ASSERT_EQ(n.moveFrame, m.moveFrame)   << "tick " << t << " f" << i;
             ASSERT_EQ(n.hitstun, m.hitstun)       << "tick " << t << " f" << i;

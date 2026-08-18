@@ -456,7 +456,7 @@ namespace {
         }
 
         pen.row("health", std::to_string(f.health) +
-                              (f.meter != 0 ? "   meter " + std::to_string(f.meter)
+                              (f.res[0] != 0 ? "   res0 " + std::to_string(f.res[0])
                                             : std::string()));
         if (isPlayer)
             pen.row("pos", pixelsOf(f.posX) + (f.airborne ? "   airborne" : ""),

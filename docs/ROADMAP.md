@@ -31,7 +31,7 @@ without it. Details, tests and proofs of the four properties:
 
 | In flight | Owner | Since |
 |---|---|---|
-| *(nothing — next is M1.1a)* | | |
+| *(nothing — next is M1.1b)* | | |
 
 One work package in flight at a time. The next unblocked one is always the top
 `[ ]` in milestone order below.
@@ -253,7 +253,7 @@ second time. `meter`, which no file in `Games/UntitledFighter/Kernel/src/` ever
 writes, is removed outright in M1.1a — it is dead, and `res[]` is what replaces
 it. Safe and reversible, so proceeding under it (CLAUDE.md).
 
-- `[ ]` **M1.1a The one state expansion, and nothing else.** *(M)* Layout only,
+- `[x]` **M1.1a The one state expansion, and nothing else.** *(M)* Layout only,
   no behaviour change, so the golden is re-recorded exactly once. (a) `Fighter`
   gains `std::int32_t res[kMaxResources]` (`kMaxResources = 4`) and loses the
   dead `meter`; it gains M1.3's reaction fields — `std::uint8_t reaction`,
@@ -273,6 +273,15 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   `kMaxFighters` is 8 — the assert tying them together must survive; the
   crossplat script drives jumps by input bits, so it must still reach the same
   ticks.
+  **Met.** `Fighter` 52 → **68 bytes**, `GameState` 436 → **664**. Goldens
+  re-recorded once: rolling `6D8A7334` → `F2001926`, checkpoints `F55B64EB` →
+  `5904B505`, `B1CD00EA` → `A580ECA8`, `47E49F19` → `A49479EB`. 58/58 pass.
+  **The padding assertion earned itself immediately** — deleting `pad2_[3]`
+  makes the build fail with the sentence that names the fix, which is what the
+  old arrangement (a `sizeof` sum in a test file) could only have told you after
+  linking. `Fighter::meter` turned out to be five C++ sites; the other 88
+  mentions were `juggle`, the data layer's resource *names*, or the prover's own
+  record.
 - `[ ]` **M1.1b The data path onto the fields M1.1a reserved.** *(M)* No layout
   change. `ResourceDef {initial, floor, ceiling, refill}` per slot in
   `FighterData`; `effect[]` on moves and cancel edges (applied per authored
@@ -290,6 +299,43 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   opposite. **Traps:** D8 quantisation once at load; `decay.floor` ≤ min hitstun
   (A01); the shipped `walk_speed` must equal today's `kWalkSpeed` or this is a
   behaviour change and the golden moves again — check before writing the field.
+  **Checked 2026-08-18, and it does not. The trap fired.** `fighter_a.json`
+  authors `walk_speed: 0.03` with `quantized_sources.walk_speed_px_per_tick: 3`;
+  at the default 100 px per reach unit that quantizes to **768 sub-units,
+  3 px/tick**. `Simulate.cpp`'s `kWalkSpeed` is **512 sub-units, 2 px/tick**. So
+  honouring the file makes `fighter_a` walk **50% faster** and every position in
+  the scripted match moves. **M1.1b therefore re-goldens, and that is correct
+  rather than a defect** — the hash moves because the *game* changed, which is
+  what a golden is for. It is a different category from M1.1a's re-golden, which
+  moved bytes and no behaviour, and the commit message must say which it is.
+  Two consequences to carry: the microwalk variant's premise (ADR-011 §4) is
+  `walk_speed` +1 px/tick **from whatever the base is**, so measure from 3 and
+  not from 2; and `quantized_sources` carries `walk_speed_px_per_tick` while the
+  loader reads `walk_speed_sub_per_tick` — a key that reads as authoritative and
+  is not consulted. Confirm which one wins before trusting either.
+  **Attempted 2026-08-18 and reverted, with the blocker measured.** The vertical
+  slice works: `FighterData::walkSpeedSub`, `MatchBuilder` carrying it, the
+  kernel reading it with a zero-means-unauthored fallback, and
+  `P3Movement.WalkSpeedComesFromTheFile` passing — and failing, with both
+  distances named, when the constant is put back. **The golden does not move**:
+  the crossplat scripted match builds a synthetic `MatchData` authoring no walk
+  speed, so the fallback keeps it byte-identical. That is worth knowing before
+  the next attempt, because it means M1.1b's re-golden comes from resources, not
+  from walking.
+  **The blocker is arithmetic, not effort.**
+  `TrainingModeReadout.WalkingClosesTheGapAndOnlyTheIntervalRuleSurvivesContact`
+  opens the fighters 34 px apart and requires the walk to land **exactly** on
+  both the touch tick and the coincident tick: `interval / walkStep` and
+  `dx / walkStep` must both come out whole. That needs `dx` and `dx − 26 px` —
+  the two body half-widths — to both be multiples of the step, and at 3 px/tick
+  it is **impossible**, because 26 is not a multiple of 3. The test's premise is
+  tied to a 2 px/tick walk. Two ways out, and the choice should be argued rather
+  than assumed: give that bench character an explicit 2 px/tick and say why (it
+  is a HUD-arithmetic test, not a walk-speed test), or restate it in terms of
+  *crossing* zero instead of landing on it — which loses "the one tick this test
+  is really about". The other failure is mechanical: `character.walk_speed`
+  becomes `Exact` in two expectation tables, and the training-mode test's
+  gap-pinning assertion inverts, which its own message already asks for.
 - `[-]` **M1.1 Resources, movement parameters, and the one state expansion.** *(M)* — split into M1.1a and M1.1b above.
   Today `Fighter::meter` exists and no file in `Games/UntitledFighter/Kernel/src/`
   writes it; juggle has bespoke rules; walk speed and jump impulse are
@@ -589,6 +635,112 @@ each is attached to the WP that first needs it.
 
 ---
 
+## Review points — what the author checks, with their own eyes
+
+Every WP's **Done when** is a test, which answers *"is it correct"* and not
+*"is it right"*. Those are different questions and only one of them can be
+automated. This section is the other one: at each point below the simulation can
+be **looked at**, and each says what to run, what should happen, and — the part
+that matters — **what would mean it is wrong**. A green suite and a wrong game is
+the outcome this whole plan exists to prevent.
+
+A review point is not a gate. Nothing waits for it. It is a place where an hour
+of the author's attention is worth more than an hour of anyone's code.
+
+**Where things run.** Executables land in
+`out/build/<preset>/build/bin/<Config>/`. The editor's Game view and the shipped
+Player enter the *same* game mode, so either one works; the editor also has the
+Combo Prover panel. Assets stage from `Games/UntitledFighter/Assets/` — edit the
+source copy, and check which copy you are running before believing anything.
+
+### R0 — Available now, before any of M1
+
+| | |
+|---|---|
+| **Run** | `Editor.exe`, Game view. Or `Player.exe`. |
+| **Do** | Move and attack. Toggle the box overlay. Pause, then frame-step through a hit. Open the **Combo Prover** panel and load `Exported/Characters/fighter_a.json`. Press **Demonstrate**. |
+| **Should** | Boxes track the fighters; frame step advances exactly one tick; the panel prints a verdict with dead cancels and the settling index; Demonstrate plays the prover's own printed loop, frame-perfectly, with no human timing. |
+| **Wrong if** | Frame step advances more than one tick, or the demonstration drops a link. Either means the mode is deciding tick counts rather than the session ([DETERMINISM.md](DETERMINISM.md) T1). |
+
+### R1 — After M1.1b: the file is the game
+
+The first point where **frame data visibly beats a constant**.
+
+| | |
+|---|---|
+| **Do** | Walk `fighter_a` across the stage and time it. Then edit `walk_speed` in the character file, rebuild the match, and walk again. Land a hit and watch a resource move. |
+| **Should** | The fighter is **50% faster than it was in R0** before you change anything, because the file has always said 3 px/tick while the kernel used 2. After an edit, speed tracks the file. A hit changes `res[]`; a move with a resource guard refuses below its minimum. |
+| **Wrong if** | Speed does not change with the file — the kernel is still reading a constant, which is the whole thing M1.1b removes. |
+
+### R2 — After M1.2: the corner is real
+
+| | |
+|---|---|
+| **Do** | Walk both fighters into each other. Walk one into the wall and keep pushing. Do it in both directions. |
+| **Should** | They separate rather than overlap; the wall stops them; and the separation is a **mirror** — the same distances left and right, to the sub-unit. |
+| **Wrong if** | Left and right differ by even one sub-unit. That is a rounding asymmetry, and it means a mirrored character loses reach its twin keeps ([DETERMINISM.md](DETERMINISM.md) K8). |
+
+### R3 — After M1.3: every mechanic is a field
+
+The point where the **paper's central claim becomes visible**: the same fighter,
+different frame data, different game.
+
+| | |
+|---|---|
+| **Do** | Load `fighter_a` unpatched, then each variant in turn. Try a kara cancel, a jump cancel, a counter-hit, a wall bounce. |
+| **Should** | Unpatched `fighter_a` behaves **exactly as it did in R2** — every mechanic is off by default. Each variant turns on exactly one thing, and the diff between the files is one field. |
+| **Wrong if** | Unpatched behaviour changed. A mechanic that alters a character which does not author it is a kernel rule wearing a field's clothes ([ADR-011](adr/ADR-011-mechanics-are-fields.md) decision 1). |
+
+### R4 — After M1.4: the two provers, honestly labelled
+
+| | |
+|---|---|
+| **Do** | Run the analysis on every shipped character and patch. Read where the graph prover and the kernel search **disagree**. |
+| **Should** | Every disagreement is **named by a loss-ledger row** — microwalk is `walk_speed`/`gap_actions`, dropped by the corner-only model. A search that runs out of budget says `UNRESOLVED`, never a verdict. |
+| **Wrong if** | A disagreement has no named reason, or a capped search prints a verdict. Either is the model quietly claiming more than it knows. |
+
+### R5 — After M1.5: the authoring loop
+
+| | |
+|---|---|
+| **Do** | With a match running in training mode, edit a move's `startup` in the character file and save. |
+| **Should** | The change lands **within a quarter second**, between ticks, without restarting the match. A broken edit keeps the last good data and shows a load report naming the key. |
+| **Wrong if** | You have to restart, or a typo empties the character. |
+
+### R6 — After M1.6: **the showcase — the one to judge the project on**
+
+| | |
+|---|---|
+| **Do** | `Player --replay Exported/Showcase/fighter_a/microwalk.csrp`, and every other entry. Watch with the input display on. |
+| **Should** | One fighter, eleven patches, a different infinite in each — a link that becomes a loop from one extra frame of hitstun, a microwalk loop the corner-only prover cannot see, a jump-cancel air loop, a wall-bounce corner loop, a counter-hit-only link, a meter loop. Every replay verified bit-identical before it was written, and the on-screen input display shows timing no human could hit. |
+| **Wrong if** | It does not *read* as a fighting game doing something remarkable. That is a judgement only the author can make, and it is the point of the milestone: if the catalogue does not sell the paper here, more art will not fix it. |
+
+### R7 — After M2.5: two people, one match
+
+| | |
+|---|---|
+| **Do** | Two Players on one machine, then two processes on loopback, then two machines — one Windows, one Linux. |
+| **Should** | A ten-minute match with **zero checksum mismatches**. A deliberately corrupted peer stops the match and names the tick **and the field** within eight ticks. |
+| **Wrong if** | A desync is silently corrected. In 2-player peer-to-peer there is no authority to correct from, and a silent correction is worse than a stop ([DETERMINISM.md](DETERMINISM.md) T6). |
+
+### R8 — After M3.4 and M3.5: it looks like a fighting game
+
+| | |
+|---|---|
+| **Do** | Re-watch the R6 catalogue with skinned placeholder characters. Interrupt a return-to-idle animation with an attack, repeatedly. |
+| **Should** | Boxes sit on the mesh. A tail is interrupted **the tick** the simulation acts — never a frame later, never with the box lagging the pose. |
+| **Wrong if** | An animation delays a move, holds a fighter in place, or moves a box. Pose is a pure function of state, and any of those means presentation has acquired state of its own ([DETERMINISM.md](DETERMINISM.md) P4). |
+
+### R9 — After M4.1: the reel
+
+| | |
+|---|---|
+| **Do** | Watch the rendered reel as an outsider would. |
+| **Should** | Someone who has never seen this repository understands what was proved and why it is hard. |
+| **Wrong if** | It needs you to narrate it. |
+
+---
+
 ## Not scheduled, on purpose
 
 Reasons and come-back triggers are in [ADR-010 §3.4](adr/ADR-010-one-roadmap-one-rule.md);
@@ -601,6 +753,14 @@ this is the list, so nobody re-proposes them by accident.
 - Engine install/export (G4) — after M2.
 - Cook/pack pipeline, Lua hardening, Jolt determinism, new renderer features
   beyond skinning — ARCHITECTURE §2 conditions.
+- **A required job that HANGS rather than fails.** Recorded 2026-08-18: the
+  Linux job's `apt-get` step sat in progress for 2h05m and would have consumed
+  the job's whole 150-minute budget, while the other three jobs had long since
+  gone green. Fixed at the source — `timeout-minutes: 10`, apt retries and a
+  per-connection timeout, `DEBIAN_FRONTEND=noninteractive`. Kept on this list
+  because the *class* is not closed: only one step is bounded, and any other
+  network step could do the same. Comes back if a second step ever hangs; then
+  every step gets a deadline rather than one at a time.
 - Two open rows carried from the archived 2026-07 ledger: `EventBus` (deleted in
   M1.8) and gamepad verification on physical hardware (do it during M2.5).
 - **Shipping a Linux binary** — an `$ORIGIN` rpath so executables launch without
