@@ -118,11 +118,11 @@ constexpr std::uint32_t kGoldenUnrecorded = 0u;
 //
 // gcc has NOT yet checked these. Until the Linux CI leg runs this test, they
 // prove that this toolchain is self-consistent and nothing more.
-constexpr std::uint32_t kGoldenRollingHash = 0x6D8A7334u;
+constexpr std::uint32_t kGoldenRollingHash = 0xF2001926u;
 constexpr std::uint32_t kGoldenCheckpoint[kCheckpointCount] = {
-    0xF55B64EBu,  // tick 1000
-    0xB1CD00EAu,  // tick 2000
-    0x47E49F19u,  // tick 3000
+    0x5904B505u,  // tick 1000
+    0xA580ECA8u,  // tick 2000
+    0xA49479EBu,  // tick 3000
 };
 
 // ============================================================================
@@ -145,8 +145,8 @@ constexpr std::uint32_t kGoldenCheckpoint[kCheckpointCount] = {
 //   GameState = 20-byte header + 8 x Fighter (416)                = 436 bytes
 // Both are multiples of 4, which is the alignment of their widest member, so a
 // conforming implementation inserts no tail padding either.
-constexpr std::size_t kGoldenSizeofFighter   = 52;
-constexpr std::size_t kGoldenSizeofGameState = 436;
+constexpr std::size_t kGoldenSizeofFighter   = 68;
+constexpr std::size_t kGoldenSizeofGameState = 664;
 constexpr std::size_t kGoldenAlignofFighter   = 4;
 constexpr std::size_t kGoldenAlignofGameState = 4;
 
@@ -359,7 +359,7 @@ void scriptedEvents(GameState& s, int t) {
             s.p[0].hitstun   = 21;
             s.p[0].comboHits = static_cast<std::uint8_t>(s.p[0].comboHits + 1);
             s.p[0].health    = s.p[0].health > 40 ? s.p[0].health - 40 : 0;
-            s.p[1].meter    += 12;
+            s.p[1].res[0]   += 12;
         }
         if (k % 90 == 20) {
             // A blocked hit on p1: shorter, and it is the blockstun counter
@@ -367,7 +367,7 @@ void scriptedEvents(GameState& s, int t) {
             // one-line edit that checks only hitstun would pass every other
             // test in the suite.
             s.p[1].blockstun = 9;
-            s.p[1].meter    += 3;
+            s.p[1].res[0]   += 3;
         }
         if (k % 90 == 45) {
             // p0 landed at k==38, so this one is taken on the ground, and it is
@@ -380,7 +380,7 @@ void scriptedEvents(GameState& s, int t) {
             s.p[1].hitstun   = 30;
             s.p[1].comboHits = static_cast<std::uint8_t>(s.p[1].comboHits + 1);
             s.p[1].health    = s.p[1].health > 55 ? s.p[1].health - 55 : 0;
-            s.p[0].meter    += 9;
+            s.p[0].res[0]   += 9;
         }
         if (k % 90 == 89) {
             s.p[0].comboHits = 0;      // the combo drops between cycles
@@ -571,24 +571,26 @@ void assertLayoutMatchesTheGolden() {
     ASSERT_EQ(std::size_t{8},  offsetof(Fighter, velX));
     ASSERT_EQ(std::size_t{12}, offsetof(Fighter, velY));
     ASSERT_EQ(std::size_t{16}, offsetof(Fighter, health));
-    ASSERT_EQ(std::size_t{20}, offsetof(Fighter, meter));
+    // res[] replaced a named `meter` at this offset and is four times as wide,
+    // which is why every offset below moved and the goldens were re-recorded.
+    ASSERT_EQ(std::size_t{20}, offsetof(Fighter, res));
     // Pushback rides its own int32 rather than velX, because a fighter who
     // cannot act has velX zeroed every tick and being hit is exactly that.
-    ASSERT_EQ(std::size_t{24}, offsetof(Fighter, pushX));
+    ASSERT_EQ(std::size_t{36}, offsetof(Fighter, pushX));
 
-    ASSERT_EQ(std::size_t{28}, offsetof(Fighter, moveId));
-    ASSERT_EQ(std::size_t{30}, offsetof(Fighter, moveFrame));
-    ASSERT_EQ(std::size_t{32}, offsetof(Fighter, hitstun));
-    ASSERT_EQ(std::size_t{34}, offsetof(Fighter, blockstun));
-    ASSERT_EQ(std::size_t{36}, offsetof(Fighter, hitstop));
-    ASSERT_EQ(std::size_t{38}, offsetof(Fighter, knockdown));
-    ASSERT_EQ(std::size_t{40}, offsetof(Fighter, juggle));
-    ASSERT_EQ(std::size_t{42}, offsetof(Fighter, scaling));
+    ASSERT_EQ(std::size_t{40}, offsetof(Fighter, moveId));
+    ASSERT_EQ(std::size_t{42}, offsetof(Fighter, moveFrame));
+    ASSERT_EQ(std::size_t{44}, offsetof(Fighter, hitstun));
+    ASSERT_EQ(std::size_t{46}, offsetof(Fighter, blockstun));
+    ASSERT_EQ(std::size_t{48}, offsetof(Fighter, hitstop));
+    ASSERT_EQ(std::size_t{50}, offsetof(Fighter, knockdown));
+    ASSERT_EQ(std::size_t{52}, offsetof(Fighter, juggle));
+    ASSERT_EQ(std::size_t{54}, offsetof(Fighter, scaling));
 
-    ASSERT_EQ(std::size_t{44}, offsetof(Fighter, facing));
-    ASSERT_EQ(std::size_t{45}, offsetof(Fighter, airborne));
-    ASSERT_EQ(std::size_t{46}, offsetof(Fighter, comboHits));
-    ASSERT_EQ(std::size_t{47}, offsetof(Fighter, alreadyHitBits));
+    ASSERT_EQ(std::size_t{56}, offsetof(Fighter, facing));
+    ASSERT_EQ(std::size_t{57}, offsetof(Fighter, airborne));
+    ASSERT_EQ(std::size_t{58}, offsetof(Fighter, comboHits));
+    ASSERT_EQ(std::size_t{59}, offsetof(Fighter, alreadyHitBits));
 
     // THE EIGHT-BYTE GROUP IS THE POINT OF THIS BLOCK. GameState.h used to warn
     // that a FIFTH uint8 would need three more explicit bytes or the compiler
@@ -596,10 +598,19 @@ void assertLayoutMatchesTheGolden() {
     // warning at its word and added exactly four -- team, active, crouching,
     // guard -- which fills the group and keeps the struct a multiple of its
     // 4-byte alignment. A NINTH uint8 here reopens the same hazard.
-    ASSERT_EQ(std::size_t{48}, offsetof(Fighter, team));
-    ASSERT_EQ(std::size_t{49}, offsetof(Fighter, active));
-    ASSERT_EQ(std::size_t{50}, offsetof(Fighter, crouching));
-    ASSERT_EQ(std::size_t{51}, offsetof(Fighter, guard));
+    ASSERT_EQ(std::size_t{60}, offsetof(Fighter, team));
+    ASSERT_EQ(std::size_t{61}, offsetof(Fighter, active));
+    ASSERT_EQ(std::size_t{62}, offsetof(Fighter, crouching));
+    ASSERT_EQ(std::size_t{63}, offsetof(Fighter, guard));
+
+    // M1.3's reaction fields, reserved by M1.1a and written by nothing yet.
+    // reaction and bounces take the group to TEN uint8s, and flags follows on a
+    // 2-aligned offset, so the struct still ends on a multiple of 4 with no
+    // tail padding -- which has_unique_object_representations_v in GameState.h
+    // now checks rather than leaving to this arithmetic.
+    ASSERT_EQ(std::size_t{64}, offsetof(Fighter, reaction));
+    ASSERT_EQ(std::size_t{65}, offsetof(Fighter, bounces));
+    ASSERT_EQ(std::size_t{66}, offsetof(Fighter, flags));
 
     ASSERT_EQ(std::size_t{0},  offsetof(GameState, tick));
     ASSERT_EQ(std::size_t{4},  offsetof(GameState, rng));
@@ -609,7 +620,11 @@ void assertLayoutMatchesTheGolden() {
     ASSERT_EQ(std::size_t{15}, offsetof(GameState, fighterCount));
     ASSERT_EQ(std::size_t{16}, offsetof(GameState, roundsWon));
     ASSERT_EQ(std::size_t{18}, offsetof(GameState, roundsToWin));
-    ASSERT_EQ(std::size_t{20}, offsetof(GameState, p))
+    // The event ring sits between the header and the fighters, so p moved by
+    // its 96 bytes plus evCount and three explicit pad bytes.
+    ASSERT_EQ(std::size_t{20},  offsetof(GameState, ev));
+    ASSERT_EQ(std::size_t{116}, offsetof(GameState, evCount));
+    ASSERT_EQ(std::size_t{120}, offsetof(GameState, p))
         << "The compiler inserted padding between GameState's header and its "
            "fighters, or a member was added. Either way the hashed byte string "
            "is no longer the one the golden was recorded from.";

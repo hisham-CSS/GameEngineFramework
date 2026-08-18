@@ -1,6 +1,6 @@
 # The determinism contract
 
-Verified: 2026-08-18 @ 5cb3256
+Verified: 2026-08-18 @ ef05046
 
 Every rule the simulation, the build and the authored data must obey, and — for
 each one — what stops it being broken. This is the only home for these rules;
@@ -50,9 +50,9 @@ presentation, and its only determinism obligation is §7.
 
 | Id | Rule | Enforced by | Where |
 |---|---|---|---|
-| S1 | `GameState` is trivially copyable — the snapshot is a `memcpy` | static_assert | `tests/test_kernel.cpp` (M1.1(d) moves it into `GameState.h`, where a change to the struct meets it) |
+| S1 | `GameState` is trivially copyable — the snapshot is a `memcpy` | static_assert | `Games/UntitledFighter/Kernel/include/cse/kernel/GameState.h`, beside the struct, so editing `Fighter` meets it rather than a test run doing so |
 | S2 | No pointer, reference, virtual, `std::string`, `std::vector`, `std::map`, `std::function`, or any type carrying an address | static_assert (partial) + review | S1 rejects every one of those except a **raw pointer**, which is trivially copyable and would pass. Raw pointers are review-only |
-| S3 | No padding: byte-wise hashing is only valid over a struct with a unique object representation | **not yet** | nobody asserts it today. `static_assert(std::has_unique_object_representations_v<GameState>)` is ROADMAP M1.1(d) |
+| S3 | No padding: byte-wise hashing is only valid over a struct with a unique object representation | static_assert | `static_assert(std::has_unique_object_representations_v<GameState>)` in `GameState.h`. Deleting an explicit `padN_` member fails the build with the sentence naming the fix |
 | S4 | Every array is fixed-capacity with an explicit count; no unbounded growth | structural + test | `kMaxFighters`, `kMaxTeams` in `Games/UntitledFighter/Kernel/include/cse/kernel/GameState.h`; `kMaxMovesPerFighter`, `kMaxCancelsPerFighter`, `kMaxInvulnWindows` in `Games/UntitledFighter/Kernel/include/cse/kernel/Combat.h`; `KernelLayout.StateIsSmallEnoughToSnapshotEveryTick` |
 | S5 | Capacities and the code that indexes them move together | static_assert | `kMaxFighters == 8` is tied to `Fighter::alreadyHitBits`' eight bits in `GameState.h`; `sizeof(MoveDef) == 128` and `sizeof(CancelEdge) == 16` in `Combat.h` |
 | S6 | Every integer field is explicitly sized (`std::int32_t`, never `int`) | review | — |
@@ -74,7 +74,7 @@ presentation, and its only determinism obligation is §7.
 | K8 | One rounding rule for scaling, applied identically everywhere: round half **away from zero**, never `>>` for division | test + review | `SubUnitArithmetic.IntegerDivisionTruncatesTowardZeroForBothSigns`, `.RoundingTowardMinusInfinityWouldBreakTheMirror`, `.WalkingLeftAndRightAreExactMirrorsThroughSimulate`. The rule is written inline in `Games/UntitledFighter/Data/src/MatchBuilder.cpp`; ROADMAP M1.8 makes it one `constexpr scaleBy` helper |
 | K9 | 1 pixel = 256 sub-units, 60 ticks per second; positions, velocities and boxes are `int32` sub-units | test | `SubUnitArithmetic.OnePixelIsExactlyTwoHundredAndFiftySixSubUnits`; `kSubUnitsPerPixel` and `kTicksPerSecond` in `GameState.h` |
 | K10 | Signed overflow is impossible by range analysis, or goes through a checked helper | review | positions are clamped to stage limits; nothing asserts the bound |
-| K11 | Nothing leaves the simulation from inside a tick — no sound, no particle, no print, no camera shake. Effects are events in the state, drained by phase | **not yet** | `Simulate` has no `Phase` parameter and `GameState` has no event ring today. ROADMAP M1.1(c) reserves the fields; M3.1 fills and drains them |
+| K11 | Nothing leaves the simulation from inside a tick — no sound, no particle, no print, no camera shake. Effects are events in the state, drained by phase | **not yet** | the ring is **reserved**: `Event ev[kMaxEventsPerTick]` and `evCount` are in `GameState` as of M1.1a, and nothing writes them. `Simulate` still has no `Phase` parameter; M3.1 fills and drains |
 | K12 | No RNG outside the state. The only randomness is `GameState::rng`, which rolls back with everything else | CI | `<random>` and `rand(` in K3 |
 
 ### Identity (I)

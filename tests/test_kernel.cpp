@@ -25,37 +25,10 @@ using namespace cse::kernel;
 
 // --- The properties the memcpy snapshot rests on ---------------------------
 
-static_assert(std::is_trivially_copyable_v<GameState>,
-              "GameState must be trivially copyable: the rollback snapshot is a "
-              "memcpy (ARCHITECTURE.md D4). Adding a std::string, std::vector, "
-              "or any type with a user-provided copy constructor breaks rollback "
-              "without breaking the build anywhere else.");
-
-static_assert(std::is_standard_layout_v<GameState>,
-              "GameState must be standard-layout: Checksum() hashes its object "
-              "representation, and the desync detector compares those hashes "
-              "across two machines built by two different compilers.");
-
-static_assert(std::is_trivially_copyable_v<Fighter>, "see GameState");
-static_assert(std::is_trivially_default_constructible_v<GameState>,
-              "GameState must stay an aggregate -- adding a constructor is what "
-              "would make it non-trivially-copyable.");
-
-// No hidden indirection. A pointer inside the state would survive the memcpy as
-// a dangling address, which is the worst possible failure: it works locally and
-// corrupts on the remote peer.
-// The header is tick, rng and roundTimer (uint32); roundNumber (uint16); and six
-// bytes -- roundState, fighterCount, roundsWon[2], roundsToWin and one explicit
-// pad. Written as a sum of the members rather than as a byte count so it keeps
-// asking "did padding appear" rather than "is this the number I last wrote down".
-static_assert(sizeof(GameState) == sizeof(std::uint32_t) * 3 +
-                                       sizeof(std::uint16_t) +
-                                       sizeof(std::uint8_t) * 6 +
-                                       sizeof(Fighter) * kMaxFighters,
-              "GameState has grown a member that is not accounted for, or the "
-              "compiler inserted padding between the header and the fighters. "
-              "Either way the byte layout changed and the checksum is no longer "
-              "comparable to a peer built before the change.");
+// The layout contract -- trivially copyable, standard layout, no padding, and
+// the two sizeof sums -- now lives in GameState.h, next to the struct it is
+// about, where editing Fighter meets it instead of a test run doing so.
+// docs/DETERMINISM.md S1-S5.
 
 TEST(KernelLayout, StateIsSmallEnoughToSnapshotEveryTick) {
     // ARCHITECTURE.md D4 sizes the ring at 128 slots. The absolute number matters

@@ -31,7 +31,7 @@ without it. Details, tests and proofs of the four properties:
 
 | In flight | Owner | Since |
 |---|---|---|
-| *(nothing — next is M1.1a)* | | |
+| *(nothing — next is M1.1b)* | | |
 
 One work package in flight at a time. The next unblocked one is always the top
 `[ ]` in milestone order below.
@@ -253,7 +253,7 @@ second time. `meter`, which no file in `Games/UntitledFighter/Kernel/src/` ever
 writes, is removed outright in M1.1a — it is dead, and `res[]` is what replaces
 it. Safe and reversible, so proceeding under it (CLAUDE.md).
 
-- `[ ]` **M1.1a The one state expansion, and nothing else.** *(M)* Layout only,
+- `[x]` **M1.1a The one state expansion, and nothing else.** *(M)* Layout only,
   no behaviour change, so the golden is re-recorded exactly once. (a) `Fighter`
   gains `std::int32_t res[kMaxResources]` (`kMaxResources = 4`) and loses the
   dead `meter`; it gains M1.3's reaction fields — `std::uint8_t reaction`,
@@ -273,6 +273,15 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   `kMaxFighters` is 8 — the assert tying them together must survive; the
   crossplat script drives jumps by input bits, so it must still reach the same
   ticks.
+  **Met.** `Fighter` 52 → **68 bytes**, `GameState` 436 → **664**. Goldens
+  re-recorded once: rolling `6D8A7334` → `F2001926`, checkpoints `F55B64EB` →
+  `5904B505`, `B1CD00EA` → `A580ECA8`, `47E49F19` → `A49479EB`. 58/58 pass.
+  **The padding assertion earned itself immediately** — deleting `pad2_[3]`
+  makes the build fail with the sentence that names the fix, which is what the
+  old arrangement (a `sizeof` sum in a test file) could only have told you after
+  linking. `Fighter::meter` turned out to be five C++ sites; the other 88
+  mentions were `juggle`, the data layer's resource *names*, or the prover's own
+  record.
 - `[ ]` **M1.1b The data path onto the fields M1.1a reserved.** *(M)* No layout
   change. `ResourceDef {initial, floor, ceiling, refill}` per slot in
   `FighterData`; `effect[]` on moves and cancel edges (applied per authored

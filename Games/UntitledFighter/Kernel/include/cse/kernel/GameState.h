@@ -27,6 +27,7 @@
 #pragma once
 
 #include <cstdint>
+#include <type_traits>   // the layout assertions at the bottom of this file
 
 namespace cse::kernel {
 
@@ -72,6 +73,43 @@ inline constexpr std::int32_t kMaxFighters = 8;
 // entire allowance made for one. See ADR-009 §3.
 inline constexpr std::int32_t kMaxTeams = 2;
 
+// --- Resources, positionally (docs/adr/ADR-011 decision 1) ------------------
+
+// HOW MANY RESOURCE SLOTS A FIGHTER HAS. Meter, juggle, and whatever else a
+// character file declares -- all one array, indexed, never named.
+//
+// POSITIONAL IS THE WHOLE POINT, and it is a contract across three programs.
+// comboprover's ResourceVec is indexed and nothing in it names a resource, so
+// index i in the character file must be index i here and index i in the prover
+// or the analysis compares meter against juggle points and says nothing about
+// either. Load assertion A03 checks it; this array is what makes it true by
+// construction rather than by agreement.
+//
+// FOUR because that is what the shipped files need (meter, juggle) with room
+// for two a character invents. Widening it is a GameState expansion -- batch it
+// with the next one (ADR-005 section 3) rather than spending a re-golden on it.
+inline constexpr std::int32_t kMaxResources = 4;
+
+// --- The per-tick event ring (ROADMAP M3.1) --------------------------------
+
+// One thing the simulation wants to tell presentation about. RESERVED HERE AND
+// NOT YET WRITTEN: M3.1 fills it, and it lands in this expansion so the wire
+// format changes once rather than twice.
+//
+// It is IN THE STATE, which is the whole design. A callback fired from inside a
+// tick fires again on every re-simulation, so a seven-frame rollback plays the
+// hit sound eight times. An event appended to the state rolls back with the
+// state, and presentation drains only confirmed ticks (docs/DETERMINISM.md K11).
+struct Event {
+    std::uint8_t slot;   // which fighter it happened to
+    std::uint8_t kind;   // hit, block, land, ... -- M3.1 names them
+    std::int16_t a;      // kind-specific payload
+    std::int16_t b;
+};
+
+// Per TICK, not per second: the ring is drained every tick it is written.
+inline constexpr std::int32_t kMaxEventsPerTick = 16;
+
 // What a fighter is currently guarding, in Fighter::guard.
 //
 // A LEVEL rather than an edge: it is recomputed from held input every tick, the
@@ -104,7 +142,12 @@ struct Fighter {
     std::int32_t velX;      // sub-units per tick
     std::int32_t velY;      // sub-units per tick
     std::int32_t health;
-    std::int32_t meter;     // 1 unit = 10 MUGEN power (ADR-001 section 3, gate 2)
+    // Positional resources. res[i] is whatever slot i of the character file
+    // declares -- see kMaxResources. This replaced a named `meter` field that
+    // no file in Games/UntitledFighter/Kernel/src/ ever wrote: it was declared,
+    // hashed, and dead, which is worse than absent because it read as support
+    // for a mechanic the kernel did not have. ROADMAP M1.1b writes it.
+    std::int32_t res[kMaxResources];
 
     // Pushback velocity, in sub-units per tick, decaying toward zero.
     //
@@ -214,6 +257,17 @@ struct Fighter {
 
     // kGuardNone / kGuardHigh / kGuardLow, recomputed from held input each tick.
     std::uint8_t guard;
+
+    // --- Reserved for the pass-1 mechanics (ROADMAP M1.3) ------------------
+    //
+    // Nothing writes these yet, and they are here anyway: M1.3 adds wall
+    // bounce, wall splat, ground bounce and counter-hit as per-hit reactions,
+    // and every one of them needs state on the DEFENDER. Reserving them costs
+    // three bytes now; adding them later costs a second wire-format change and
+    // a second cross-toolchain re-golden (ADR-005 section 3).
+    std::uint8_t reaction;   // which on_hit reaction is playing out; 0 = none
+    std::uint8_t bounces;    // bounces spent, so a loop cannot bounce forever
+    std::uint16_t flags;     // per-fighter reaction bits, defined by M1.3
 };
 
 // The complete authoritative state. Everything the simulation may read.
@@ -256,6 +310,19 @@ struct GameState {
     // test_determinism_crossplat.cpp says it does.
     std::uint8_t pad_;
 
+    // The per-tick event ring, reserved by ROADMAP M1.1a and filled by M3.1.
+    // Sized and counted rather than terminated: a fixed-capacity array with an
+    // explicit count is the only shape a memcpy snapshot can carry
+    // (docs/DETERMINISM.md S4).
+    Event ev[kMaxEventsPerTick];
+    std::uint8_t evCount;
+
+    // Three bytes, explicit, for the reason pad_ above is explicit: ev is
+    // 2-aligned and Fighter is 4-aligned, so without these the compiler would
+    // insert padding here and two machines would hash their uninitialised
+    // bytes. has_unique_object_representations_v below is what catches it.
+    std::uint8_t pad2_[3];
+
     Fighter p[kMaxFighters];
 };
 
@@ -273,6 +340,66 @@ static_assert(kMaxFighters <= static_cast<std::int32_t>(sizeof(std::uint8_t) * 8
               "Fighter::alreadyHitBits cannot address every fighter slot. "
               "bitForSlot() would shift out of range and an attack that had "
               "already connected would read as one that had not.");
+
+// --- THE LAYOUT CONTRACT ---------------------------------------------------
+//
+// These lived in tests/test_kernel.cpp, which is the wrong place for them by
+// one link in the chain: a test asserts a property of a build that already
+// compiled, and these are properties a change to the struct above should not be
+// able to compile past. Here, editing Fighter or GameState meets them.
+//
+// The one that was MISSING is has_unique_object_representations_v, and it is
+// the one the whole scheme rests on. Checksum() hashes the object
+// representation -- the raw bytes -- so a byte the compiler inserted and never
+// wrote is compared between two machines that never agreed on it. Nothing else
+// in this repository would notice: the build succeeds, every local test passes,
+// and two peers desync. docs/DETERMINISM.md S3.
+
+static_assert(std::is_trivially_copyable_v<GameState>,
+              "GameState must be trivially copyable: the rollback snapshot is a "
+              "memcpy (docs/ARCHITECTURE.md D4). Adding a std::string, a "
+              "std::vector, or any type with a user-provided copy constructor "
+              "breaks rollback without breaking the build anywhere else.");
+
+static_assert(std::is_standard_layout_v<GameState>,
+              "GameState must be standard-layout: Checksum() hashes its object "
+              "representation, and the desync detector compares those hashes "
+              "across two machines built by two different compilers.");
+
+static_assert(std::is_trivially_default_constructible_v<GameState>,
+              "GameState must stay an aggregate -- adding a constructor is what "
+              "would make it non-trivially-copyable.");
+
+static_assert(std::is_trivially_copyable_v<Fighter>, "see GameState");
+
+static_assert(std::has_unique_object_representations_v<GameState>,
+              "GameState has padding, so two bytes of it are indeterminate and "
+              "Checksum() is hashing whatever the compiler happened to leave "
+              "there. Add an explicit padN_ member where the hole is -- see "
+              "pad_ and pad2_ -- rather than reordering fields, which changes "
+              "the wire format for every peer.");
+
+// Written as a SUM OF THE MEMBERS rather than a byte count, so it keeps asking
+// "did padding appear" instead of "is this the number I last wrote down".
+static_assert(sizeof(Fighter) == sizeof(std::int32_t) * (6 + kMaxResources) +
+                                     sizeof(std::uint16_t) * 9 +
+                                     sizeof(std::uint8_t) * 10,
+              "Fighter has grown a member that is not accounted for, or the "
+              "compiler inserted padding into it.");
+
+// The header is tick, rng and roundTimer (uint32); roundNumber (uint16); six
+// bytes -- roundState, fighterCount, roundsWon[2], roundsToWin, pad_; then the
+// event ring, evCount and three bytes of pad2_.
+static_assert(sizeof(GameState) == sizeof(std::uint32_t) * 3 +
+                                       sizeof(std::uint16_t) +
+                                       sizeof(std::uint8_t) * 6 +
+                                       sizeof(Event) * kMaxEventsPerTick +
+                                       sizeof(std::uint8_t) * 4 +
+                                       sizeof(Fighter) * kMaxFighters,
+              "GameState has grown a member that is not accounted for, or the "
+              "compiler inserted padding between the header and the fighters. "
+              "Either way the byte layout changed and the checksum is no longer "
+              "comparable to a peer built before the change.");
 
 // One player's inputs for one tick. A bitfield rather than an enum set, because
 // this is the thing sent over the wire every tick and re-read on every rollback.
