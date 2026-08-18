@@ -1,5 +1,7 @@
 # Engine Architecture
 
+Verified: 2026-08-17 @ e2f08bd
+
 Cat Splat Engine is a C++17 / OpenGL 3.3 engine built as a shared library (`Engine.dll`) with several thin executables linked against it. This page explains what those executables are, how the engine splits responsibilities between `Application` and `Renderer`, exactly what happens in one frame, how the render passes are chained, where EnTT fits, and how the DLL boundary is drawn.
 
 Read this before you write your own `Application` subclass or add a render pass.
@@ -8,7 +10,9 @@ Read this before you write your own `Application` subclass or add a render pass.
 
 ## The four executables
 
-Everything is declared in the top-level `CMakeLists.txt`, which adds `Engine`, `Editor`, `Player`, and `Cooker`. The `Player` directory builds **two** executables from one source file, so there are four programs in total.
+Everything is declared in the top-level `CMakeLists.txt`. It adds seven subdirectories in dependency order — `ThirdParty`, `Net`, `Games/UntitledFighter`, `Engine`, `Editor`, `Player`, `Cooker` (plus `docs`, and `tests` when `ENABLE_TESTS` is on) — of which four produce programs. The `Player` directory builds **two** executables from one source file, so there are four programs in total.
+
+`Games/UntitledFighter` is a **title**, not part of the engine: a title may depend on the engine and never the reverse, and the root file enforces that direction with a configure-time boundary check over every general-purpose target. Delete that one `add_subdirectory` line and what is left is a general engine. See [The Fighting-Game Core](fighting-core.md).
 
 | Target | Output | Subsystem | Purpose |
 |---|---|---|---|
@@ -433,7 +437,7 @@ A single `runtime_assets` custom target (defined in `Editor/CMakeLists.txt`) sta
 
 ### Packaging
 
-`cpack -G ZIP` (or the `package` target) bundles `Player.exe` + `Engine.dll` + third-party DLLs + `Exported/`. `X_VCPKG_APPLOCAL_DEPS_INSTALL ON` is set before `project()` so vcpkg deploys `Engine.dll`'s DLL closure (assimp, glfw, zlib, …) at install time.
+The install rules in `Player/CMakeLists.txt` assemble `Player.exe` + `Engine.dll` + the third-party DLLs + `Exported/`, and **the editor is the only thing that calls them** — *File > Build Settings > Build* ([ADR-008](../adr/ADR-008-editor-produces-the-player.md)). There is no `cpack` and no `package` target: both existed, both skipped every validation the Build action performs, and `cpack` on a tree the editor had never saved in shipped the source-tree defaults and exited 0. `X_VCPKG_APPLOCAL_DEPS_INSTALL` is **OFF**, because a dependency-graph walk cannot see `PhysXCommon_64.dll` — PhysX loads it at runtime — so the DLLs are copied as a directory instead. Details on the [scenes and shipping page](scenes-and-shipping.md#producing-a-bundle-the-editor-and-nothing-else).
 
 **Gotcha:** `.import` sidecars are editor-only metadata (like Unity's `.meta`). They are excluded from the shipped bundle — the player never reads them.
 

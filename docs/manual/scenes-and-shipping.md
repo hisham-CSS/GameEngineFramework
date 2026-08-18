@@ -1,6 +1,8 @@
 # Scenes and Shipping a Build
 
-A scene is a JSON file describing every entity in your level plus the scene-level lighting and shading settings. The editor writes it, the player reads it, and the packaging step copies it into the shipped bundle. This page covers the file format, saving and loading, choosing the startup scene, what the standalone player does at boot, and how to produce a distributable ZIP with CPack.
+Verified: 2026-08-17 @ e2f08bd
+
+A scene is a JSON file describing every entity in your level plus the scene-level lighting and shading settings. The editor writes it, the player reads it, and the packaging step copies it into the shipped bundle. This page covers the file format, saving and loading, choosing the startup scene, what the standalone player does at boot, and how a distributable bundle is produced.
 
 Three traps in this pipeline have each cost real debugging time. They are called out as **Gotcha** notes below — read them before you ship anything.
 
@@ -307,26 +309,46 @@ There is exactly one staging target, `runtime_assets`, defined in `Editor/CMakeL
 >
 > The consequence to remember: **an existing build directory keeps its current `Exported/scene.json` and `Exported/project.json` forever.** Rebuilding will not pull in changes you made to the checked-in `Editor/src/Exported/*.json`. If you want the source-tree copy back, delete the staged file (for example `build/bin/Release/Exported/scene.json`) and rebuild — or just re-save from the editor, which is what you usually want.
 
-## Packaging with CPack
+## Producing a bundle: the editor, and nothing else
 
-Packaging is configured in the root `CMakeLists.txt`:
+**The editor produces the player.** *File > Build Settings > Build* is the one
+entry point, and it is the one that asks the questions that matter
+([ADR-008](../adr/ADR-008-editor-produces-the-player.md)).
 
-```cmake
-set(CPACK_GENERATOR "ZIP")
-set(CPACK_PACKAGE_NAME "CatSplatGame")
-set(CPACK_PACKAGE_VERSION "0.1.0")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Standalone game build (player + assets)")
-set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY OFF)
-include(CPack)
+There used to be a second door: five `CPACK_*` variables and `include(CPack)` in
+the root `CMakeLists.txt` gave the build a `package` target and `cpack -G ZIP`.
+Both routes went through the *same* install rules and therefore agreed about the
+file list — they disagreed about everything that happens before it. The Build
+action refuses a build whose configuration is not the one this tree was generated
+for, whose scene list is empty or names a scene that fails
+`SceneSerializer::Validate` or sits outside the asset root, whose output
+directory is inside the build tree, or whose first scene is not the one it says
+the game boots into. `cpack` asked none of that: run it on a tree the editor had
+never saved in and it printed a warning, shipped the source-tree defaults instead
+of your scenes, and **exited 0**. A game with the wrong level in it and a green
+exit code is the failure this pipeline exists to make impossible, so CPack is
+gone and there is deliberately no replacement `package` target.
+
+`cpack` and `--target package` now fail for themselves — there is no
+`CPackConfig.cmake` in the build tree and no such target — which needs no
+signpost.
+
+**The mechanism is untouched.** The install rules in `Player/CMakeLists.txt` are
+still the only thing in this tree that assembles a bundle, and the editor calls
+them. A headless release job is therefore one line, because it is literally the
+command `BuildPipeline.cpp` runs:
+
+```
+cmake --install <build-tree> --config Release --prefix <output-dir>
 ```
 
-`X_VCPKG_APPLOCAL_DEPS_INSTALL` is set to `ON` before `project()`, which makes the vcpkg toolchain deploy each installed target's DLL dependency closure during `cmake --install`, exactly as it already does at build time.
-
-Build the package with the `package` target, or:
-
-```
-cpack -G ZIP -C Release
-```
+Two vcpkg knobs sit either side of it, and they are independent:
+`X_VCPKG_APPLOCAL_DEPS_INSTALL` is **OFF** and so is the build-time one, because
+a dependency-graph walk cannot see `PhysXCommon_64.dll` (PhysX loads it at
+runtime). `cmake/stage_runtime_dlls.cmake` states the rule once — the bundle
+needs whatever the engine needs to run — and `Player/CMakeLists.txt` owns the
+install-side copy. Two mechanisms that can disagree about a bundle's contents is
+exactly what this repository keeps getting caught by.
 
 ### What lands in the bundle
 
@@ -334,7 +356,7 @@ cpack -G ZIP -C Release
 | --- | --- |
 | `Player.exe` (the shipping player) | `install(TARGETS PlayerShipping RUNTIME DESTINATION .)` in `Player/CMakeLists.txt` |
 | `Engine.dll` | `install(TARGETS Engine RUNTIME DESTINATION .)` in `Engine/CMakeLists.txt` |
-| Third-party DLLs (assimp, glfw3, zlib, …) | Deployed by vcpkg applocal-on-install — with one exception, below |
+| Third-party DLLs (assimp, glfw3, zlib, …) | Copied as a directory by `Player/CMakeLists.txt`, not by a dependency-graph walk — see above |
 | `lua-c++.dll` (only when the Lua backend is built: `CSE_ENABLE_LUA=ON` and sol2/lua-cpp were found) | `install(FILES "$<TARGET_FILE:lua-cpp>" DESTINATION .)` in `Engine/CMakeLists.txt` — vcpkg's applocal matching does not pick this one up, because the `+` characters in the filename defeat it, so it is installed explicitly. A matching `POST_BUILD` `copy_if_different` in the same block stages it beside `Engine.dll` in the build tree for the same reason. |
 | `Exported/` source-tree defaults (Model, Shaders, seed JSON) | `install(DIRECTORY Editor/src/Exported/ DESTINATION Exported)` |
 | Editor-authored `Exported/` (your saved scenes and `project.json`) | `install(CODE ...)`, layered on top |
@@ -365,15 +387,15 @@ The Editor and the Cooker have no install rules — the bundle is the game, not 
 > Run the editor in this configuration and save first.
 > ```
 >
-> If you see that warning, the ZIP is not the game you authored. Run the editor in that configuration, save the scene, and package again.
+> If you see that warning, the bundle is not the game you authored. Run the editor in that configuration, save the scene, and build again.
 
 ## Checklist before shipping
 
 1. Open the scene in the editor and confirm the **Game** view renders (not "No camera in the scene.").
 2. **File > Save Scene**, then **File > Set Current Scene as Player Startup** if it is not already.
 3. Run `PlayerDebug.exe` from the same output directory and confirm the console prints `PLAYER: rendering from scene camera.`
-4. `cpack -G ZIP -C <the configuration you just authored in>`, and check the output for `Bundling editor-authored content from ...` rather than the `No editor-authored Exported/` warning.
-5. Unzip elsewhere and run `Player.exe`.
+4. **File > Build Settings > Build**, in the same configuration you just authored in, and check the output for `Bundling editor-authored content from ...` rather than the `No editor-authored Exported/` warning.
+5. Run `Player.exe` from the output directory — on a machine that has never had this tree on it, if you can.
 
 ## Source reference
 
@@ -391,4 +413,5 @@ The Editor and the Cooker have no install rules — the bundle is the game, not 
 | `Player/CMakeLists.txt` | Player targets and the bundle's install rules |
 | `Editor/CMakeLists.txt` | `runtime_assets` staging target |
 | `cmake/stage_runtime_assets.cmake` | Static-vs-authored staging policy |
-| `CMakeLists.txt` | CPack configuration |
+| `Player/CMakeLists.txt` | The install rules -- the only thing in the tree that assembles a bundle |
+| `Engine/src/core/BuildPipeline.h`, `.cpp` | What File > Build Settings > Build actually runs |

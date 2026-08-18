@@ -10,7 +10,9 @@ that are easy to misdiagnose as engine bugs.
 
 ## What gets built
 
-The top-level `CMakeLists.txt` adds four subprojects:
+The top-level `CMakeLists.txt` adds seven subdirectories — `ThirdParty`, `Net`,
+`Games/UntitledFighter`, `Engine`, `Editor`, `Player`, `Cooker`, plus `docs` and (with
+`ENABLE_TESTS`) `tests`. Five of them produce the targets you run:
 
 | Target | Kind | Purpose |
 |---|---|---|
@@ -441,28 +443,37 @@ If a perf budget fails on a machine slower than the reference (i5-11400H + RTX 3
 `2.0`. If a failure is an intentional cost from a new feature, re-measure and update both the
 budget constants and the baseline comment block in `tests/test_perf_render.cpp`.
 
-## Packaging a build
+## Producing a shippable build
+
+**The editor produces the player**: *File > Build Settings > Build*, in the same
+configuration you authored in. That is the only entry point, and it is the one
+that refuses a build whose scene list is empty, whose startup scene fails
+validation or sits outside the asset root, whose output directory is inside the
+build tree, or whose configuration is not the one this tree was generated for
+([ADR-008](../adr/ADR-008-editor-produces-the-player.md)).
+
+There is no `cpack` and no `package` target. Both existed once and both asked
+none of those questions: run `cpack` on a tree the editor had never saved in and
+it warned, shipped the source-tree defaults instead of your scenes, and exited 0.
+The install rules stayed; the door that skipped the questions closed. The whole
+story is on the [scenes and shipping page](scenes-and-shipping.md#producing-a-bundle-the-editor-and-nothing-else).
+
+A headless release job is one line, because it is what the Build action runs:
 
 ```bash
-cd out/build/x64-Release
-cpack -G ZIP
+cmake --install out/build/x64-release --config Release --prefix dist/
 ```
 
-This produces `CatSplatGame-<version>-win64.zip` containing `Player.exe` (the shipping
-player), `Engine.dll`, the third-party DLL closure, and the `Exported/` assets. Setting
-`X_VCPKG_APPLOCAL_DEPS_INSTALL ON` before `project()` in the root `CMakeLists.txt` is what
-makes vcpkg deploy that DLL closure at install time as well as at build time.
-`cmake --install <binary-dir> --prefix <dir>` stages the same layout to a directory.
+The bundle is `Player.exe`, `Engine.dll`, the third-party DLLs, and `Exported/`
+with your editor-authored scenes layered over the source-tree defaults.
+`.import` sidecars are excluded — they are editor-only metadata, like Unity's
+`.meta` files, and the player never reads them.
 
-The package layers the **runtime** `Exported/` (your editor-authored scenes and
-`project.json`) on top of the source-tree defaults, and `.import` sidecars are excluded —
-they are editor-only metadata, like Unity's `.meta` files, and the player never reads them.
-
-> **Gotcha:** the install step resolves the authored directory using the configuration being
-> installed. This path was once hardcoded to `.../bin/Release/Exported`, so installing any
-> other configuration — notably `RelWithDebInfo` — found nothing and silently shipped the
-> source-tree defaults instead of your saved scene: a packaged game that ignored your
-> authoring, with no error to explain it. It now warns loudly instead:
+> **Gotcha — install the configuration you authored in.** The authored-content
+> step resolves its source from the configuration being installed. That path was
+> once hardcoded to `.../bin/Release/Exported`, so installing any other
+> configuration found nothing and silently shipped the source-tree defaults
+> instead of your saved scene. It warns loudly now:
 >
 > ```
 > No editor-authored Exported/ for configuration 'RelWithDebInfo' ...
@@ -470,8 +481,7 @@ they are editor-only metadata, like Unity's `.meta` files, and the player never 
 > Run the editor in this configuration and save first.
 > ```
 >
-> If you see that warning, run the editor in the configuration you are packaging and save your
-> scene before running `cpack`.
+> If you see that, the bundle is not the game you authored.
 
 ## A first-run checklist
 
