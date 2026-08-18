@@ -313,6 +313,29 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   not from 2; and `quantized_sources` carries `walk_speed_px_per_tick` while the
   loader reads `walk_speed_sub_per_tick` — a key that reads as authoritative and
   is not consulted. Confirm which one wins before trusting either.
+  **Attempted 2026-08-18 and reverted, with the blocker measured.** The vertical
+  slice works: `FighterData::walkSpeedSub`, `MatchBuilder` carrying it, the
+  kernel reading it with a zero-means-unauthored fallback, and
+  `P3Movement.WalkSpeedComesFromTheFile` passing — and failing, with both
+  distances named, when the constant is put back. **The golden does not move**:
+  the crossplat scripted match builds a synthetic `MatchData` authoring no walk
+  speed, so the fallback keeps it byte-identical. That is worth knowing before
+  the next attempt, because it means M1.1b's re-golden comes from resources, not
+  from walking.
+  **The blocker is arithmetic, not effort.**
+  `TrainingModeReadout.WalkingClosesTheGapAndOnlyTheIntervalRuleSurvivesContact`
+  opens the fighters 34 px apart and requires the walk to land **exactly** on
+  both the touch tick and the coincident tick: `interval / walkStep` and
+  `dx / walkStep` must both come out whole. That needs `dx` and `dx − 26 px` —
+  the two body half-widths — to both be multiples of the step, and at 3 px/tick
+  it is **impossible**, because 26 is not a multiple of 3. The test's premise is
+  tied to a 2 px/tick walk. Two ways out, and the choice should be argued rather
+  than assumed: give that bench character an explicit 2 px/tick and say why (it
+  is a HUD-arithmetic test, not a walk-speed test), or restate it in terms of
+  *crossing* zero instead of landing on it — which loses "the one tick this test
+  is really about". The other failure is mechanical: `character.walk_speed`
+  becomes `Exact` in two expectation tables, and the training-mode test's
+  gap-pinning assertion inverts, which its own message already asks for.
 - `[-]` **M1.1 Resources, movement parameters, and the one state expansion.** *(M)* — split into M1.1a and M1.1b above.
   Today `Fighter::meter` exists and no file in `Games/UntitledFighter/Kernel/src/`
   writes it; juggle has bespoke rules; walk speed and jump impulse are
