@@ -11,7 +11,10 @@ The engine's job is to make that proof visible and convincing.
 ## Read these first, in this order
 
 1. `docs/ROADMAP.md` — the ONLY roadmap. What is done, what is in flight, what is
-   next. Start every session here; end every session by updating it.
+   next. Start every session here; end every session by updating it. Its
+   **review points** (R0–R9) are the human's half of the same list: where the
+   simulation is worth looking at, and what would mean it is wrong. A WP that
+   reaches one says so in its commit message.
 2. `docs/DETERMINISM.md` — the rules the simulation, build and data must obey,
    each with how it is enforced. *(Created by ROADMAP M0.2; until then the
    contract is `docs/ARCHITECTURE.md` §4.)*

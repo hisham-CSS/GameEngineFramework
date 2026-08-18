@@ -59,3 +59,7 @@ Two consequences that are easy to lose and expensive to recover:
   ([DETERMINISM.md](DETERMINISM.md) P4).
 - **A claim goes out no earlier than the test under it.** Nothing in the README,
   on a website, or in the paper outruns something CI asserts.
+- **A test answers "is it correct", not "is it right".** The second question
+  needs a person, so [ROADMAP.md](ROADMAP.md)'s *review points* say when the
+  simulation is worth looking at, what should happen, and what would mean it
+  is wrong. R6 — the showcase catalogue — is the one to judge the project on.

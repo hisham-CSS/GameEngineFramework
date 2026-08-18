@@ -612,6 +612,112 @@ each is attached to the WP that first needs it.
 
 ---
 
+## Review points — what the author checks, with their own eyes
+
+Every WP's **Done when** is a test, which answers *"is it correct"* and not
+*"is it right"*. Those are different questions and only one of them can be
+automated. This section is the other one: at each point below the simulation can
+be **looked at**, and each says what to run, what should happen, and — the part
+that matters — **what would mean it is wrong**. A green suite and a wrong game is
+the outcome this whole plan exists to prevent.
+
+A review point is not a gate. Nothing waits for it. It is a place where an hour
+of the author's attention is worth more than an hour of anyone's code.
+
+**Where things run.** Executables land in
+`out/build/<preset>/build/bin/<Config>/`. The editor's Game view and the shipped
+Player enter the *same* game mode, so either one works; the editor also has the
+Combo Prover panel. Assets stage from `Games/UntitledFighter/Assets/` — edit the
+source copy, and check which copy you are running before believing anything.
+
+### R0 — Available now, before any of M1
+
+| | |
+|---|---|
+| **Run** | `Editor.exe`, Game view. Or `Player.exe`. |
+| **Do** | Move and attack. Toggle the box overlay. Pause, then frame-step through a hit. Open the **Combo Prover** panel and load `Exported/Characters/fighter_a.json`. Press **Demonstrate**. |
+| **Should** | Boxes track the fighters; frame step advances exactly one tick; the panel prints a verdict with dead cancels and the settling index; Demonstrate plays the prover's own printed loop, frame-perfectly, with no human timing. |
+| **Wrong if** | Frame step advances more than one tick, or the demonstration drops a link. Either means the mode is deciding tick counts rather than the session ([DETERMINISM.md](DETERMINISM.md) T1). |
+
+### R1 — After M1.1b: the file is the game
+
+The first point where **frame data visibly beats a constant**.
+
+| | |
+|---|---|
+| **Do** | Walk `fighter_a` across the stage and time it. Then edit `walk_speed` in the character file, rebuild the match, and walk again. Land a hit and watch a resource move. |
+| **Should** | The fighter is **50% faster than it was in R0** before you change anything, because the file has always said 3 px/tick while the kernel used 2. After an edit, speed tracks the file. A hit changes `res[]`; a move with a resource guard refuses below its minimum. |
+| **Wrong if** | Speed does not change with the file — the kernel is still reading a constant, which is the whole thing M1.1b removes. |
+
+### R2 — After M1.2: the corner is real
+
+| | |
+|---|---|
+| **Do** | Walk both fighters into each other. Walk one into the wall and keep pushing. Do it in both directions. |
+| **Should** | They separate rather than overlap; the wall stops them; and the separation is a **mirror** — the same distances left and right, to the sub-unit. |
+| **Wrong if** | Left and right differ by even one sub-unit. That is a rounding asymmetry, and it means a mirrored character loses reach its twin keeps ([DETERMINISM.md](DETERMINISM.md) K8). |
+
+### R3 — After M1.3: every mechanic is a field
+
+The point where the **paper's central claim becomes visible**: the same fighter,
+different frame data, different game.
+
+| | |
+|---|---|
+| **Do** | Load `fighter_a` unpatched, then each variant in turn. Try a kara cancel, a jump cancel, a counter-hit, a wall bounce. |
+| **Should** | Unpatched `fighter_a` behaves **exactly as it did in R2** — every mechanic is off by default. Each variant turns on exactly one thing, and the diff between the files is one field. |
+| **Wrong if** | Unpatched behaviour changed. A mechanic that alters a character which does not author it is a kernel rule wearing a field's clothes ([ADR-011](adr/ADR-011-mechanics-are-fields.md) decision 1). |
+
+### R4 — After M1.4: the two provers, honestly labelled
+
+| | |
+|---|---|
+| **Do** | Run the analysis on every shipped character and patch. Read where the graph prover and the kernel search **disagree**. |
+| **Should** | Every disagreement is **named by a loss-ledger row** — microwalk is `walk_speed`/`gap_actions`, dropped by the corner-only model. A search that runs out of budget says `UNRESOLVED`, never a verdict. |
+| **Wrong if** | A disagreement has no named reason, or a capped search prints a verdict. Either is the model quietly claiming more than it knows. |
+
+### R5 — After M1.5: the authoring loop
+
+| | |
+|---|---|
+| **Do** | With a match running in training mode, edit a move's `startup` in the character file and save. |
+| **Should** | The change lands **within a quarter second**, between ticks, without restarting the match. A broken edit keeps the last good data and shows a load report naming the key. |
+| **Wrong if** | You have to restart, or a typo empties the character. |
+
+### R6 — After M1.6: **the showcase — the one to judge the project on**
+
+| | |
+|---|---|
+| **Do** | `Player --replay Exported/Showcase/fighter_a/microwalk.csrp`, and every other entry. Watch with the input display on. |
+| **Should** | One fighter, eleven patches, a different infinite in each — a link that becomes a loop from one extra frame of hitstun, a microwalk loop the corner-only prover cannot see, a jump-cancel air loop, a wall-bounce corner loop, a counter-hit-only link, a meter loop. Every replay verified bit-identical before it was written, and the on-screen input display shows timing no human could hit. |
+| **Wrong if** | It does not *read* as a fighting game doing something remarkable. That is a judgement only the author can make, and it is the point of the milestone: if the catalogue does not sell the paper here, more art will not fix it. |
+
+### R7 — After M2.5: two people, one match
+
+| | |
+|---|---|
+| **Do** | Two Players on one machine, then two processes on loopback, then two machines — one Windows, one Linux. |
+| **Should** | A ten-minute match with **zero checksum mismatches**. A deliberately corrupted peer stops the match and names the tick **and the field** within eight ticks. |
+| **Wrong if** | A desync is silently corrected. In 2-player peer-to-peer there is no authority to correct from, and a silent correction is worse than a stop ([DETERMINISM.md](DETERMINISM.md) T6). |
+
+### R8 — After M3.4 and M3.5: it looks like a fighting game
+
+| | |
+|---|---|
+| **Do** | Re-watch the R6 catalogue with skinned placeholder characters. Interrupt a return-to-idle animation with an attack, repeatedly. |
+| **Should** | Boxes sit on the mesh. A tail is interrupted **the tick** the simulation acts — never a frame later, never with the box lagging the pose. |
+| **Wrong if** | An animation delays a move, holds a fighter in place, or moves a box. Pose is a pure function of state, and any of those means presentation has acquired state of its own ([DETERMINISM.md](DETERMINISM.md) P4). |
+
+### R9 — After M4.1: the reel
+
+| | |
+|---|---|
+| **Do** | Watch the rendered reel as an outsider would. |
+| **Should** | Someone who has never seen this repository understands what was proved and why it is hard. |
+| **Wrong if** | It needs you to narrate it. |
+
+---
+
 ## Not scheduled, on purpose
 
 Reasons and come-back triggers are in [ADR-010 §3.4](adr/ADR-010-one-roadmap-one-rule.md);
