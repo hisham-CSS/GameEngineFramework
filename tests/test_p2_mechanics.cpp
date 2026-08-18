@@ -690,3 +690,99 @@ TEST(P2Rounds, AKnockoutEndsTheRoundAndCreditsTheOtherTeam) {
     EXPECT_NE(s.roundState, kMatchOver)
         << "one round of a best-of-three ended the whole match.";
 }
+
+// --- One button, many moves, chosen by stance (ROADMAP M1.1c) ---------------
+
+// THE BUG THIS PINS was found by playing the game, not by a test: training mode
+// gave `air_mp` its own dedicated key and bound `stand_hk` to the MK bit, so the
+// button you pressed had no relationship to the strength you got. Six buttons
+// were spent on six MOVES, which left no button for a crouching normal and no
+// way to express "the same strength, in the air".
+//
+// The kernel was never the problem. MoveDef::stance and StanceAllows have been
+// here since ADR-006, and fighter_a.json already authors air_mp as `stance:
+// air`. This test states the property the binding table has to stop breaking:
+// ONE BIT, and the fighter's state picks which move it starts.
+TEST(P3Attacks, OneButtonPicksTheMoveForTheStanceYouAreIn) {
+    auto data = twoFighters();
+    FighterData& d = data->p[0];
+
+    // Two moves, one button, disjoint stances -- the shape every strength has
+    // once bindings stop being one-per-move.
+    d.moves[1]        = attack();
+    d.moves[1].button = kInputMP;
+    d.moves[1].stance = kStanceGround;
+
+    d.moves[2]        = attack();
+    d.moves[2].button = kInputMP;
+    d.moves[2].stance = kStanceAir;
+    d.moveCount       = 3;
+
+    InputPair in{};
+    in.p[0].bits = kInputMP;
+
+    {
+        GameState s{};
+        ResetMatch(s, 0x5A17u);
+        s.p[0].airborne = 0;
+        Simulate(s, in, *data);
+        EXPECT_EQ(1u, s.p[0].moveId)
+            << "MP on the ground started move " << s.p[0].moveId
+            << " rather than the grounded one. A button that ignores stance is a "
+               "button spent on exactly one move.";
+    }
+    {
+        GameState s{};
+        ResetMatch(s, 0x5A17u);
+        // HEIGHT, not just the flag. stepFighter clears `airborne` the tick a
+        // fighter reaches the floor, so setting the flag at posY 0 lands them
+        // before the attack scan ever runs -- which is a real property of the
+        // kernel and a trap for anyone writing an air test.
+        s.p[0].airborne = 1;
+        s.p[0].posY     = 4 * kSubUnitsPerPixel;
+        s.p[0].velY     = kSubUnitsPerPixel;
+        Simulate(s, in, *data);
+        EXPECT_EQ(2u, s.p[0].moveId)
+            << "MP in the air started move " << s.p[0].moveId
+            << " rather than the air one. This is the air_mp bug: the air normal "
+               "needed its own dedicated key because the MP bit could only ever "
+               "mean one move.";
+    }
+}
+
+// The scan takes the FIRST slot whose button matches and whose stance allows, so
+// two moves on one button with overlapping stances is not a preference -- the
+// lower slot wins forever and the higher one can never start. That is the
+// failure `MatchBuilder` already warns about as "a binding that can never
+// start", and (a) makes it newly easy to author.
+TEST(P3Attacks, TwoMovesOnOneButtonWithOverlappingStancesShadowTheHigherSlot) {
+    auto data = twoFighters();
+    FighterData& d = data->p[0];
+
+    d.moves[1]        = attack();
+    d.moves[1].button = kInputMP;
+    d.moves[1].stance = kStanceAny;     // overlaps everything below it
+
+    d.moves[2]        = attack();
+    d.moves[2].button = kInputMP;
+    d.moves[2].stance = kStanceAir;
+    d.moveCount       = 3;
+
+    InputPair in{};
+    in.p[0].bits = kInputMP;
+
+    GameState s{};
+    ResetMatch(s, 0x5A17u);
+    s.p[0].airborne = 1;
+    s.p[0].posY     = 4 * kSubUnitsPerPixel;
+    s.p[0].velY     = kSubUnitsPerPixel;
+    Simulate(s, in, *data);
+
+    EXPECT_EQ(1u, s.p[0].moveId)
+        << "the kernel picked slot " << s.p[0].moveId
+        << ". This test documents the hazard rather than a wish: the first "
+           "matching slot wins, so an overlapping stance makes the later move "
+           "unreachable. The DATA LAYER is where this is refused -- see the "
+           "build report -- because the kernel cannot tell a shadow from a "
+           "deliberate ordering.";
+}

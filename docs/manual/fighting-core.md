@@ -357,7 +357,10 @@ Three binding diagnostics, all warnings rather than errors:
 | The same move bound twice | Warning; **first wins** (`MatchBridgeOptions.ADuplicateBindingKeepsTheFirstAndSaysSo`) | "The last one in the list" is a rule nobody reading the call site can see |
 | A binding that can never start | Warning saying `can never start` (`MatchBridgeOptions.ABindingThatCanNeverStartIsReportedAndReallyNeverStarts`) | See below |
 
-> **Gotcha — a crouching normal bound to Down+LP silently never fires.** `StepAttack` takes the first move in slot order whose buttons are *all* held. `stand_lp` is slot 1 with `{LP}` and `crouch_lp` is slot 12 with `{Down, LP}`, so holding Down+LP can only ever produce `stand_lp`. That is the natural way somebody binds crouching normals, and it does not work. The builder detects the shadowing and warns; `MatchBridgeOptions.ABindingThatCanNeverStartIsReportedAndReallyNeverStarts` checks the warning *against the kernel* rather than merely believing it.
+> **Gotcha — a crouching normal bound to Down+LP silently never fires.**
+> *(Being fixed: [ROADMAP.md](../ROADMAP.md) M1.1c makes a binding
+> `button → strength` and lets the move's `stance` disambiguate, so a
+> crouching normal is LP-while-crouching rather than a chord.)* `StepAttack` takes the first move in slot order whose buttons are *all* held. `stand_lp` is slot 1 with `{LP}` and `crouch_lp` is slot 12 with `{Down, LP}`, so holding Down+LP can only ever produce `stand_lp`. That is the natural way somebody binds crouching normals, and it does not work. The builder detects the shadowing and warns; `MatchBridgeOptions.ABindingThatCanNeverStartIsReportedAndReallyNeverStarts` checks the warning *against the kernel* rather than merely believing it.
 
 ### Capacity: a refusal, not a truncation
 
