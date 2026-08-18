@@ -1,6 +1,6 @@
 # The determinism contract
 
-Verified: 2026-08-17 @ 5f756c6
+Verified: 2026-08-18 @ 5cb3256
 
 Every rule the simulation, the build and the authored data must obey, and — for
 each one — what stops it being broken. This is the only home for these rules;
@@ -67,8 +67,8 @@ presentation, and its only determinism obligation is §7.
 | K1 | Takes all input as parameters. Reads no global, no singleton, no clock, no environment variable, no file | test | `KernelPurity.SimulationReadsNothingOutsideTheState` interleaves two matches in one process and compares byte-for-byte |
 | K2 | Cannot reach the renderer, audio, UI, physics, EnTT, Lua or the engine at all | configure | `Games/UntitledFighter/Kernel/CMakeLists.txt` fails if `CseKernel` acquires **any** link dependency, interface ones included. `Games/UntitledFighter/Game/CMakeLists.txt` holds `CseGame` to an exact whitelist (`CseKernel;CseData`) |
 | K3 | No `<cmath>`, `<math.h>`, `<random>`, `<chrono>`, `rand()`, `float` or `double` | CI | `KERNEL_FORBIDDEN`; comments are stripped first, so a header may explain the rule without tripping it. `det-ok` on a line exempts it, visibly |
-| K4 | Never allocates. No `new`, no `malloc`, no container growth | review | the kernel's entire include list is `<cstdint>`, `<type_traits>`, `<cstring>` — but nothing checks that it stays that way (§3) |
-| K5 | Never iterates an associative container. Dense arrays indexed by slot, always | review | as K4 |
+| K4 | Never allocates. No `new`, no `malloc`, no container growth | CI | an **include allowlist** over `Games/UntitledFighter/Kernel/`: the module may include `<cstdint>`, `<type_traits>` and `<cstring>` and nothing else, so `<memory>`, `<vector>` and friends cannot get in. Neither `new` nor container growth is greppable; both are unreachable |
+| K5 | Never iterates an associative container. Dense arrays indexed by slot, always | CI | as K4 — `<map>` and `<unordered_map>` are off the allowlist |
 | K6 | Game time is `GameState::tick`. No wall clock, no frame time, no delta time | CI + test | `<chrono>` in K3; K1's test would catch a static counter |
 | K7 | Never branches on a pointer value, an address, `sizeof`, or an EnTT handle | structural + review | EnTT is unreachable (K2); the rest is review |
 | K8 | One rounding rule for scaling, applied identically everywhere: round half **away from zero**, never `>>` for division | test + review | `SubUnitArithmetic.IntegerDivisionTruncatesTowardZeroForBothSigns`, `.RoundingTowardMinusInfinityWouldBreakTheMirror`, `.WalkingLeftAndRightAreExactMirrorsThroughSimulate`. The rule is written inline in `Games/UntitledFighter/Data/src/MatchBuilder.cpp`; ROADMAP M1.8 makes it one `constexpr scaleBy` helper |
@@ -83,7 +83,7 @@ presentation, and its only determinism obligation is §7.
 |---|---|---|---|
 | I1 | `entt::entity` never appears in the simulation | configure | K2 — EnTT is not linkable from `CseKernel` |
 | I2 | A fighter's identity is its **slot index**, fixed for the match. No runtime spawn, no id allocator, no generation counter | structural | `GameState::p[kMaxFighters]` with an `active` flag. `SimId` and a snapshot ring are deliberately not built — [ADR-010](adr/ADR-010-one-roadmap-one-rule.md) §3.4 |
-| I3 | Presentation ordering ties break on the **entity index**, never the raw handle: version bits sit above the index and reset on load, so raw-handle order flips across a save/reload | review | obeyed at `Engine/src/core/CameraDirector.cpp` and `Engine/src/script/ScriptWorld.cpp`; **still broken** at `Engine/src/ui/UIWorld.cpp` (`entt::to_integral`), whose own comment claims the stability it does not deliver. ROADMAP M1.0 |
+| I3 | Presentation ordering ties break on the **entity index**, never the raw handle: version bits sit above the index and reset on load, so raw-handle order flips across a save/reload | test + review | obeyed at `Engine/src/core/CameraDirector.cpp`, `Engine/src/script/ScriptWorld.cpp` and `Engine/src/ui/UIWorld.cpp`; the last is pinned by `UIWorld.DocumentsAtOneSortOrderKeepTheirOrderAcrossAReload` (`tests/test_ui_component.cpp`). New ordering sites are review-only |
 
 ### Input (N)
 
@@ -113,7 +113,7 @@ presentation, and its only determinism obligation is §7.
 |---|---|---|---|
 | B1 | No `/fp:fast`, `-ffast-math`, `-Ofast`, `-ffp-contract=fast`, `-mfma` or their relatives — in what we author **or** in what a dependency exports into our compile lines | CI | `scripts/check_determinism_flags.py`, twice: over `CMakeLists.txt`/`cmake/`/`CMakePresets.json`/`scripts/linux-build.sh`, and again after configuring over `build.ninja` and `compile_commands.json`. `--self-test` runs first, because a gate nobody has watched fail is not a gate |
 | B2 | The gate proves the **absence** of those flags, not the presence of `/fp:precise`. MSVC defaults to precise and emits no flag, so there is nothing to assert positively | — | stated by the gate's own output, so a green result is not read as more than it is |
-| B3 | No instruction-set flag that enables FMA contraction (`/arch:AVX2`, `-march=`, `-mavx`), and no `GLM_FORCE_*` that changes float behaviour | review | none is present today and none is in the gate's table. ROADMAP M1.0 |
+| B3 | No instruction-set flag that enables FMA contraction (`/arch:`, `-march=`, `-mavx`) | CI | prefix-matched in `FORBIDDEN`. None of them *says* reassociate; each says "you may use FMA", which is the same rounding change `-ffp-contract=fast` buys. `GLM_FORCE_*` is still review-only: GLM is unreachable from the simulation (K2) |
 | B4 | No LTO / IPO on simulation targets — it can legally reassociate across translation units | review | none is configured anywhere in the tree |
 | B5 | The simulation links nothing, so there is no such thing as a simulation-wide compile-option target | configure | K2. ARCHITECTURE §4.7 asked for a `cse_fp_strict` INTERFACE target linked by simulation targets; that target does not exist and **cannot**, because linking it would trip the kernel's own guard. The link guard is the stronger rule and it is the one that shipped |
 | B6 | Physics never runs on worker threads | review | `PhysicsSettings::workerThreads` defaults to `0` (`Engine/src/physics/PhysicsTypes.h`) and both backends honour it; nothing asserts it at startup. Physics is presentation-only ([ADR-002](adr/ADR-002-open-decisions.md) CHOICE D) so this cannot desync a match — it can desync a *replay's cosmetics* |
@@ -138,10 +138,12 @@ enough to act on rather than spread through the tables.
 | Rules | What would close them | WP |
 |---|---|---|
 | S3 | `static_assert(std::has_unique_object_representations_v<GameState>)` beside the struct | M1.1(d) |
-| K4, K5 | An **include allowlist** for `Games/UntitledFighter/Kernel/` — today the whole module includes three standard headers, so a whitelist is both cheap and exact. A blacklist is a list of the mistakes somebody thought of; this fires on the one nobody thought of. Scope it to `Games/UntitledFighter/Kernel/` only: `Games/UntitledFighter/Game/` uses `<string>` and `<vector>` legitimately | M1.0 |
-| B3 | `/arch:`, `-march=`, `-mavx` added to the gate's `FORBIDDEN` table, with `--self-test` coverage | M1.0 |
-| I3 | The one remaining raw-handle sort key, in `Engine/src/ui/UIWorld.cpp` | M1.0 |
 | S6, K7, K10, A3 | Nothing cheap. They stay review-only and are named here so that is a decision rather than an oversight | — |
+
+Four rows left this table in M1.0. K4 and K5 became the include allowlist, B3
+became three more patterns in the flag gate, and I3 became a test — and I3 was
+not a hypothetical: `UIWorld.cpp` really was sorting on the raw handle while its
+own comment claimed stability across a save/reload.
 
 ## 4. Hazards outside the simulation
 

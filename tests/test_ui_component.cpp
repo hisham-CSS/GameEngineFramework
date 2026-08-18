@@ -572,3 +572,86 @@ TEST(UIComponent, RegionRoundTripsAndIsUndoable) {
     undo.undo(scene.registry, nullptr);
     EXPECT_FLOAT_EQ(scene.registry.get<UIDocumentComponent>(e).regionW, 1.0f);
 }
+
+// Two documents at the SAME sortOrder must paint in the same relative order
+// before and after a scene is saved and loaded again.
+//
+// WHY THIS IS NOT PEDANTRY, and why the obvious tie-break is the wrong one.
+// The tie-break used to be `entt::to_integral`, the RAW HANDLE -- index in the
+// low bits, version in the high ones. EnTT recycles an index with a bumped
+// version, so one destroy-and-recreate during an editing session (delete a HUD
+// entity, add it back) moves that handle ABOVE every entity with a lower
+// version, whatever its index. Reload the same file and every entity is created
+// fresh at version 0, so the order reverts. Which document painted on top --
+// and therefore which one swallowed the click -- depended on the editing
+// history of the session that saved the file.
+//
+// `entt::to_entity` strips the version and compares the INDEX, which is
+// assigned in creation order and therefore in file order after a load. That is
+// the same rule the renderer's sort keys and the script world's execution order
+// already follow (docs/DETERMINISM.md I3).
+//
+// The test drives the property through INPUT rather than reading the private
+// order_, because "topmost interactive document gets the click" is the
+// behaviour a user would notice breaking.
+TEST(UIWorld, DocumentsAtOneSortOrderKeepTheirOrderAcrossAReload) {
+    const std::string first  = "test_uiworld_order_first.cxml";
+    const std::string second = "test_uiworld_order_second.cxml";
+    writeFile(first,  R"(<UI><Element name="first" focusable="true"
+                           style="width: 400px; height: 400px"/></UI>)");
+    writeFile(second, R"(<UI><Element name="second" focusable="true"
+                           style="width: 400px; height: 400px"/></UI>)");
+
+    // Returns the name of the element that took the click, i.e. which document
+    // was on top. Both documents are at sortOrder 0, so ONLY the tie-break
+    // decides it.
+    auto topmostAfterAClick = [&](bool churnFirstEntity) {
+        Scene scene;
+        UIWorld world;
+
+        auto a = scene.registry.create();
+        auto b = scene.registry.create();
+        if (churnFirstEntity) {
+            // What an editing session does: delete an entity and add it back.
+            // Same index, version + 1.
+            scene.registry.destroy(a);
+            a = scene.registry.create();
+        }
+        { UIDocumentComponent u; u.markup = first;  u.sortOrder = 0;
+          scene.registry.emplace<UIDocumentComponent>(a, u); }
+        { UIDocumentComponent u; u.markup = second; u.sortOrder = 0;
+          scene.registry.emplace<UIDocumentComponent>(b, u); }
+
+        ui::UIPointerState p;
+        p.inside = true;
+        p.position = { 50.f, 50.f };
+        p.buttonDown = true;
+        world.SetPointer(p);
+        world.Update(scene.registry, 400, 400, 0.016f);
+        p.buttonDown = false;
+        world.SetPointer(p);
+        world.Update(scene.registry, 400, 400, 0.016f);
+
+        std::string winner = "(nobody)";
+        for (auto e : { a, b }) {
+            auto* live = world.document(e);
+            if (live && live->document().focused()) {
+                winner = live->document().focused()->name();
+            }
+        }
+        return winner;
+    };
+
+    const std::string authored = topmostAfterAClick(/*churnFirstEntity*/ true);
+    const std::string reloaded = topmostAfterAClick(/*churnFirstEntity*/ false);
+
+    EXPECT_NE(authored, "(nobody)") << "neither document took the click";
+    EXPECT_EQ(authored, reloaded)
+        << "the document on top changed across a reload: '" << authored
+        << "' painted last in the session that saved the scene and '" << reloaded
+        << "' does after loading it. A tie-break that reads the entity's VERSION "
+           "bits is a tie-break on editing history.";
+
+    std::remove(first.c_str());
+    std::remove(second.c_str());
+}

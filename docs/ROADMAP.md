@@ -31,7 +31,7 @@ without it. Details, tests and proofs of the four properties:
 
 | In flight | Owner | Since |
 |---|---|---|
-| *(nothing — M0 is closed; next is M1.0)* | | |
+| *(nothing — next is M1.1a)* | | |
 
 One work package in flight at a time. The next unblocked one is always the top
 `[ ]` in milestone order below.
@@ -203,7 +203,7 @@ all of M1's state changes land as **one** expansion with one re-golden
 (`tests/test_determinism_crossplat.cpp`), reviewed once — including the fields
 M1.3 and M3.1 will need (M1.1 reserves them).
 
-- `[ ]` **M1.0 Close the determinism gate's own gaps.** *(S)* Written by M0.2's
+- `[x] e042415` **M1.0 Close the determinism gate's own gaps.** *(S)* Written by M0.2's
   inventory, which found four rules that are review-only today and need not be
   ([DETERMINISM.md](DETERMINISM.md) §3). (a) An **include allowlist** for
   `Games/UntitledFighter/Kernel/` in `scripts/check_determinism_flags.py`: that
@@ -223,7 +223,74 @@ M1.3 and M3.1 will need (M1.1 reserves them).
   **Done when:** `python scripts/check_determinism_flags.py --self-test` covers
   each new pattern *and* proves the allowlist fires on a `#include <vector>` laid
   down in `Games/UntitledFighter/Kernel/`; `UIWorld.DocumentsAtOneSortOrderKeepTheirOrderAcrossAReload`.
-- `[ ]` **M1.1 Resources, movement parameters, and the one state expansion.** *(M)*
+  **Met.** The self-test reports 14 flag patterns (was 11) and six
+  include-allowlist probes; proved by reverting three ways — widening the
+  allowlist, dropping a flag pattern, and adding `#include <vector>` to the real
+  `GameState.h`, which the gate named by file, line and header. **(c) was a live
+  bug, not a tidy-up:** the test failed before the fix with *"'first' painted
+  last in the session that saved the scene and 'second' does after loading it"*.
+  **Addition:** the failure message now fits the finding — an include hit no
+  longer tells its author to "use sub-units: 1 pixel = 256", which is the same
+  class of wrong signpost `module_of()` exists to prevent.
+  [DETERMINISM.md](DETERMINISM.md) K4, K5, B3 and I3 move from *review* to *CI*
+  and *test*.
+M1.1 splits in two, at the seam between **layout** and **behaviour** — and *only*
+there, because ADR-005 §3's requirement is one wire change, one re-golden,
+reviewed once. M1.1b adds no field, so it needs no second re-golden.
+
+**Measured 2026-08-18 before starting, because the numbers decide the split:**
+`Fighter` is 52 bytes (7×`int32`, 8×16-bit, 8×`uint8`, no padding) and
+`GameState` is a 20-byte header plus `Fighter p[8]`. `meter` and `juggle` are
+named in **93 places across 27 files** — kernel, data, prover adapter, the HUD
+and twelve test files. That is the cost of the layout change, and it is why it
+is not sharing a commit with new behaviour.
+
+**A decision the split forces, taken here so M1.1b cannot be tempted into a
+second expansion:** `Fighter::juggle` is **kept**, and M1.1b makes it the
+kernel's mirror of whichever resource slot the file declares as juggle rather
+than deleting it. Deleting it would be tidier and would change the wire format a
+second time. `meter`, which no file in `Games/UntitledFighter/Kernel/src/` ever
+writes, is removed outright in M1.1a — it is dead, and `res[]` is what replaces
+it. Safe and reversible, so proceeding under it (CLAUDE.md).
+
+- `[ ]` **M1.1a The one state expansion, and nothing else.** *(M)* Layout only,
+  no behaviour change, so the golden is re-recorded exactly once. (a) `Fighter`
+  gains `std::int32_t res[kMaxResources]` (`kMaxResources = 4`) and loses the
+  dead `meter`; it gains M1.3's reaction fields — `std::uint8_t reaction`,
+  `std::uint8_t bounces`, `std::uint16_t flags` — reserved now so M1.3 adds no
+  field. (b) `GameState` gains M3.1's event ring: `Event ev[kMaxEventsPerTick]`
+  where `Event` is `{uint8 slot, uint8 kind, int16 a, int16 b}`, plus
+  `std::uint8_t evCount`, and whatever explicit `pad_` keeps both structs free of
+  compiler padding. (c) The type assertions move from `tests/test_kernel.cpp`
+  into `GameState.h`, where a change to the struct meets them, and gain
+  `static_assert(std::has_unique_object_representations_v<GameState>)` — nobody
+  asserts padding today and hashing raw bytes depends on it
+  ([DETERMINISM.md](DETERMINISM.md) S3).
+  **Done when:** `GameState.h` carries all five assertions and the two `sizeof`
+  sums; `tests/test_determinism_crossplat.cpp`'s golden and its three checkpoints
+  are re-recorded in **one** commit with the old values quoted in the message;
+  the whole suite passes. **Traps:** `alreadyHitBits` is `uint8` and
+  `kMaxFighters` is 8 — the assert tying them together must survive; the
+  crossplat script drives jumps by input bits, so it must still reach the same
+  ticks.
+- `[ ]` **M1.1b The data path onto the fields M1.1a reserved.** *(M)* No layout
+  change. `ResourceDef {initial, floor, ceiling, refill}` per slot in
+  `FighterData`; `effect[]` on moves and cancel edges (applied per authored
+  contact) and `guard[]` (a minimum, checked before the move starts); index *i*
+  in the file = index *i* in the kernel = index *i* in the prover, the A03
+  contract true by construction. `walk_speed`, jump arc, gravity, default
+  pushback and hitstop move out of `Simulate.cpp`'s `constexpr`s into
+  `FighterData`, defaulted by the schema ([ADR-011](adr/ADR-011-mechanics-are-fields.md)
+  decision 1). The resource-guard rows in
+  `Games/UntitledFighter/Data/src/MatchBuilder.cpp`'s loss ledger become `Exact`.
+  **Done when:** `P3Resources.MeterGainsOnHitAndSpendsOnGuard`,
+  `.AGuardedCancelRefusesBelowTheMinimum`, `.IndexOrderIsTheFilesOrder`,
+  `P3Movement.WalkSpeedComesFromTheFile`; `tests/test_gap_extent.cpp`'s
+  `EveryCycleIsEndedByJuggleAndNoCycleTouchesMeter` rewritten to assert the
+  opposite. **Traps:** D8 quantisation once at load; `decay.floor` ≤ min hitstun
+  (A01); the shipped `walk_speed` must equal today's `kWalkSpeed` or this is a
+  behaviour change and the golden moves again — check before writing the field.
+- `[-]` **M1.1 Resources, movement parameters, and the one state expansion.** *(M)* — split into M1.1a and M1.1b above.
   Today `Fighter::meter` exists and no file in `Games/UntitledFighter/Kernel/src/`
   writes it; juggle has bespoke rules; walk speed and jump impulse are
   `constexpr` in `Simulate.cpp` while `walk_speed` is authored and ignored.
