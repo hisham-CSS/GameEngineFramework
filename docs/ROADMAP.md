@@ -610,6 +610,14 @@ this is the list, so nobody re-proposes them by accident.
 - Engine install/export (G4) — after M2.
 - Cook/pack pipeline, Lua hardening, Jolt determinism, new renderer features
   beyond skinning — ARCHITECTURE §2 conditions.
+- **A required job that HANGS rather than fails.** Recorded 2026-08-18: the
+  Linux job's `apt-get` step sat in progress for 2h05m and would have consumed
+  the job's whole 150-minute budget, while the other three jobs had long since
+  gone green. Fixed at the source — `timeout-minutes: 10`, apt retries and a
+  per-connection timeout, `DEBIAN_FRONTEND=noninteractive`. Kept on this list
+  because the *class* is not closed: only one step is bounded, and any other
+  network step could do the same. Comes back if a second step ever hangs; then
+  every step gets a deadline rather than one at a time.
 - Two open rows carried from the archived 2026-07 ledger: `EventBus` (deleted in
   M1.8) and gamepad verification on physical hardware (do it during M2.5).
 - **Shipping a Linux binary** — an `$ORIGIN` rpath so executables launch without

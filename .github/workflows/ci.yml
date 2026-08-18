@@ -342,6 +342,20 @@ jobs:
 
       - name: System packages
         # GLFW needs the X11 development headers; see docs/manual/getting-started.md.
+        #
+        # TIMED, RETRIED AND NON-INTERACTIVE, because all three have now cost a
+        # run. This step hung for 2h05m on 2026-08-18 and would have burned the
+        # job's whole 150-minute budget: apt was waiting on something -- a
+        # stalled mirror, a dpkg lock, a prompt -- with no deadline of its own,
+        # so a REQUIRED job sat "in progress" while the other three had long
+        # since gone green. A hang is worse than a failure: red says look at me,
+        # and a hang says nothing at all.
+        #
+        # Ten minutes is roughly 10x the normal cost of this step, so the
+        # deadline only fires on a genuine stall.
+        timeout-minutes: 10
+        env:
+          DEBIAN_FRONTEND: noninteractive   # never wait for a prompt nobody can answer
         run: |
           # The runner ships third-party apt sources (packages.microsoft.com,
           # azure-cli) that this project never installs from, and `apt-get
@@ -352,8 +366,11 @@ jobs:
           # code. Dropping them removes that class of flake without weakening
           # the check: an Ubuntu archive failure still fails the step loudly.
           sudo rm -f /etc/apt/sources.list.d/*microsoft* /etc/apt/sources.list.d/*azure*
-          sudo apt-get update
-          sudo apt-get install -y ninja-build xorg-dev libgl1-mesa-dev \
+          # Retries and a per-connection timeout: apt's own default is to wait,
+          # which is the behaviour being corrected here.
+          APT_OPTS='-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30'
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y ninja-build xorg-dev libgl1-mesa-dev \
             libxinerama-dev libxcursor-dev libxi-dev libxrandr-dev \
             autoconf automake libtool pkg-config
 
