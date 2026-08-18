@@ -1,5 +1,7 @@
 # The Fighting-Game Core
 
+Verified: 2026-08-17 @ e2f08bd
+
 Cat Splat Engine is being built toward a deterministic, rollback-capable fighting game. That work does not live in `Engine/`. It is a **title** — `Games/UntitledFighter/` — and the engine does not depend on any of it. The link direction is a configure-time error, not a convention.
 
 Six libraries, and the order of this table is the dependency order:
@@ -41,7 +43,7 @@ This is [DETERMINISM.md](../DETERMINISM.md) K2, and it is a configure-time build
 
 The practical consequence for you: **you cannot reach the physics world, the ECS, GLM, or the standard library's floating-point machinery from inside a tick.** If you try, the build stops at configure time with a message explaining what you are about to break. That is the intended experience. The plan itself names "just ask the physics world for the hitbox" as the standing temptation, and against a separate target it is an unresolved symbol rather than a bad idea somebody has to talk you out of.
 
-The same discipline shows up inside the source: `Kernel/src/Simulate.cpp` includes `<cstring>` and nothing else, and it does not use `std::clamp` or `std::max` — because reaching for either is how a `double` overload gets selected by accident (`Kernel/src/Simulate.cpp:25-32`).
+The same discipline shows up inside the source: `Games/UntitledFighter/Kernel/src/Simulate.cpp` includes `<cstring>` and nothing else, and it does not use `std::clamp` or `std::max` — because reaching for either is how a `double` overload gets selected by accident (`Games/UntitledFighter/Kernel/src/Simulate.cpp:25-32`).
 
 ### Units and rates
 
@@ -128,19 +130,19 @@ There are two overloads:
 
 ### What one tick actually does
 
-In order, from `Kernel/src/Simulate.cpp:93`:
+In order, from `Games/UntitledFighter/Kernel/src/Simulate.cpp:93`:
 
 1. **`stepFighter(p[0])` then `stepFighter(p[1])`**, in fixed slot order (`:98-99`). Never over a container whose order can vary — that is the hash-ordering hazard that has already bitten `SimplePhysicsBackend` and `ScriptWorld` in this repository. Each fighter, in `stepFighter` (`:45`):
    - `hitstun` and `blockstun` burn down first, and while they do the player has no agency.
    - If actionable: left/right set `velX`; up sets `velY` and `airborne` when grounded.
    - Gravity applies while airborne; position integrates; `posX` clamps to the stage; landing at `posY <= 0` zeroes `posY`, `velY` and `airborne`.
-   - **`StepAttack`** (declared in `Combat.h`, implemented in `Kernel/src/Combat.cpp`) ends a move that has run out and starts one the fighter is asking for. It runs *after* movement so a move started this tick sees the position the fighter reached.
+   - **`StepAttack`** (declared in `Combat.h`, implemented in `Games/UntitledFighter/Kernel/src/Combat.cpp`) ends a move that has run out and starts one the fighter is asking for. It runs *after* movement so a move started this tick sees the position the fighter reached.
 2. **Facing is derived** from relative position (`:103-109`), evaluated after both have moved so it cannot depend on which player was stepped first.
-3. **`ResolveHits`** (`:115`, implemented in `Kernel/src/Combat.cpp`).
+3. **`ResolveHits`** (`:115`, implemented in `Games/UntitledFighter/Kernel/src/Combat.cpp`).
 4. **The RNG advances every tick** whether or not anything consumed it (`:121`), so its position is a function of the tick count alone.
 5. `++state.tick` (`:123`).
 
-The movement numbers are **placeholders**, not character data. `Kernel/src/Simulate.cpp:15-18` declares walk speed 2 px/tick, gravity 0.25 px/tick², jump impulse 5 px/tick and a stage half-width of 480 px, with a comment saying so. `CharacterData` carries a `walkSpeedSub` and the bridge reports it as a loss (see the loss table below) — the kernel does not read it yet.
+The movement numbers are **placeholders**, not character data. `Games/UntitledFighter/Kernel/src/Simulate.cpp:15-18` declares walk speed 2 px/tick, gravity 0.25 px/tick², jump impulse 5 px/tick and a stage half-width of 480 px, with a comment saying so. `CharacterData` carries a `walkSpeedSub` and the bridge reports it as a loss (see the loss table below) — the kernel does not read it yet.
 
 ### Boxes
 
@@ -161,7 +163,7 @@ Half-open removes the off-by-one that inclusive bounds smuggle into every width 
 
 ### Hit resolution
 
-`ResolveHits` (`Kernel/src/Combat.cpp`) is **three loops**, and the shape matters:
+`ResolveHits` (`Games/UntitledFighter/Kernel/src/Combat.cpp`) is **three loops**, and the shape matters:
 
 1. Decide every overlap from the same pre-hit state.
 2. Apply damage and hitstun.
@@ -173,11 +175,11 @@ The rule today is the **symmetric** one: both fighters land. Counter-hit is an o
 
 Three behaviours to design against:
 
-- **The multi-hit guard.** `Fighter::alreadyHitBits` records which slots this active window has already connected on. Without it a 3-frame jab deals its damage three times and every string in the game is an infinite for a reason that has nothing to do with the character. It is cleared when a move starts and when it ends (`StepAttack`, in `Kernel/src/Combat.cpp`) — the bug on the other side of that line is a jab that connects once per match. `tests/test_combat.cpp:349` and `:378` are the pair.
+- **The multi-hit guard.** `Fighter::alreadyHitBits` records which slots this active window has already connected on. Without it a 3-frame jab deals its damage three times and every string in the game is an infinite for a reason that has nothing to do with the character. It is cleared when a move starts and when it ends (`StepAttack`, in `Games/UntitledFighter/Kernel/src/Combat.cpp`) — the bug on the other side of that line is a jab that connects once per match. `tests/test_combat.cpp:349` and `:378` are the pair.
 - **Hitstun is set, not added.** A fresh hit refreshes stun rather than stacking it. Stacking is how a two-hit string becomes inescapable.
 - **Being hit interrupts the defender's move** (`moveId = 0`). Hitstun gates *starting* a move and nothing else, so without this a fighter would go on swinging while being hit.
 
-> **Gotcha — moves start on buttons being HELD, not pressed.** `StepAttack` (`Kernel/src/Combat.cpp`) scans move slots in ascending order and takes the first whose `button` mask is entirely held. So holding a button repeats a move as soon as the previous one recovers. Honest edge detection needs the previous tick's buttons *inside* `GameState`, which is a deliberate omission with its own consequences, spelled out in the "HELD, not pressed" comment above that scan. Two knock-on effects: a move whose mask is a superset of an earlier slot's can **never start** (see the binding warning below), and a test that wants a single hit must press for exactly one tick.
+> **Gotcha — moves start on buttons being HELD, not pressed.** `StepAttack` (`Games/UntitledFighter/Kernel/src/Combat.cpp`) scans move slots in ascending order and takes the first whose `button` mask is entirely held. So holding a button repeats a move as soon as the previous one recovers. Honest edge detection needs the previous tick's buttons *inside* `GameState`, which is a deliberate omission with its own consequences, spelled out in the "HELD, not pressed" comment above that scan. Two knock-on effects: a move whose mask is a superset of an earlier slot's can **never start** (see the binding warning below), and a test that wants a single hit must press for exactly one tick.
 
 ### Snapshot, restore, checksum
 
@@ -225,7 +227,7 @@ next to every executable — holds:
 
 ### What is in a character
 
-`Data/include/cse/data/CharacterData.h` is the whole in-memory model. It is a plain vector-of-struct: no hash containers anywhere, because this repository has twice had iteration order over a hash container leak into a simulation.
+`Games/UntitledFighter/Data/include/cse/data/CharacterData.h` is the whole in-memory model. It is a plain vector-of-struct: no hash containers anywhere, because this repository has twice had iteration order over a hash container leak into a simulation.
 
 | Type | Header | Carries |
 |---|---|---|
@@ -272,8 +274,8 @@ for (const std::string& w : report.warnings) log(w);    // non-fatal
 
 Three untrusted-content rules apply to every load:
 
-- `relPath` goes through `MyCoreEngine::PathIsContained` **before** the file is opened (`Data/src/CharacterData.cpp:1050`). Absolute paths, drive/UNC roots and any `..` component are refused lexically, before any filesystem access.
-- The file is refused above `LoadOptions::maxFileBytes` before it is read (`Data/src/CharacterData.cpp:1063`). A 4 GB "character" costs nothing to author.
+- `relPath` goes through `MyCoreEngine::PathIsContained` **before** the file is opened (`Games/UntitledFighter/Data/src/CharacterData.cpp:1050`). Absolute paths, drive/UNC roots and any `..` component are refused lexically, before any filesystem access.
+- The file is refused above `LoadOptions::maxFileBytes` before it is read (`Games/UntitledFighter/Data/src/CharacterData.cpp:1063`). A 4 GB "character" costs nothing to author.
 - The JSON is parsed with exceptions off, and every field is type-checked before it is read.
 
 ### The load assertions, and what each one prevents
@@ -308,9 +310,9 @@ If you assemble a `CharacterData` by hand rather than loading one, call `Rebuild
 
 ## MatchBuilder: two characters into one `MatchData`
 
-`Data/include/cse/data/MatchBuilder.h` is the bridge. On one side is a loaded `CharacterData` with `std::string` and `std::vector` in it; on the other are the bytes a tick reads.
+`Games/UntitledFighter/Data/include/cse/data/MatchBuilder.h` is the bridge. On one side is a loaded `CharacterData` with `std::string` and `std::vector` in it; on the other are the bytes a tick reads.
 
-The dependency runs **one way only**. `CseData` includes `cse/kernel/Combat.h` for the struct definitions and calls no function declared in it — not even `BoxIsValid`, which would be the natural thing to reuse, because calling it would put `CseKernel` into `CseData`'s link line and `Data/CMakeLists.txt` asserts that never happens. The one bound check the bridge needs is written out again against the kernel's own constant.
+The dependency runs **one way only**. `CseData` includes `cse/kernel/Combat.h` for the struct definitions and calls no function declared in it — not even `BoxIsValid`, which would be the natural thing to reuse, because calling it would put `CseKernel` into `CseData`'s link line and `Games/UntitledFighter/Data/CMakeLists.txt` asserts that never happens. The one bound check the bridge needs is written out again against the kernel's own constant.
 
 ### Building
 
@@ -665,7 +667,7 @@ Neither of those is the question a designer is actually asking. That question is
 
 ### The gap that has been measured rather than suspected: resources
 
-> **The kernel has no resources.** `Fighter::meter` is declared at `Kernel/include/cse/kernel/GameState.h:54` and appears nowhere in `Kernel/src/` — no rule reads it, no rule writes it. There is no juggle field at all, and no ceiling logic. **So a character whose termination depends on a resource running down has no such limit in the game: the bound the verdict rests on does not exist there.**
+> **The kernel has no resources.** `Fighter::meter` is declared at `Games/UntitledFighter/Kernel/include/cse/kernel/GameState.h:54` and appears nowhere in `Games/UntitledFighter/Kernel/src/` — no rule reads it, no rule writes it. There is no juggle field at all, and no ceiling logic. **So a character whose termination depends on a resource running down has no such limit in the game: the bound the verdict rests on does not exist there.**
 
 That is not a prediction. It was executed on 2026-08-13, on this project's own character, and it is the second half of the ground-truth validation [ARCHITECTURE.md](../ARCHITECTURE.md)'s research section asks for (ADR-001 section 6.1 records both halves).
 

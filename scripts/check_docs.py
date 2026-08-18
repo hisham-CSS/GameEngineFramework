@@ -95,6 +95,12 @@ ADR_NAME = re.compile(r"^ADR-\d+.*\.md$")
 PATH_PREFIXES = (
     "Engine/", "Editor/", "Player/", "Games/", "Net/", "Cooker/",
     "docs/", "tests/", "scripts/", "cmake/", "tools/", "ThirdParty/",
+    # Directories that USED to be at the top level and are now under
+    # Games/UntitledFighter/. Listed because a prefix list of directories that
+    # exist is blind to exactly the citation that went stale: fourteen lines in
+    # docs/manual/fighting-core.md still said `Kernel/src/Combat.cpp`, and this
+    # gate walked past every one of them while reporting the tree clean.
+    "Kernel/", "Modes/",
 )
 
 # Annotation markers. Each one is a way of correcting a document without

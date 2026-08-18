@@ -138,7 +138,7 @@ enough to act on rather than spread through the tables.
 | Rules | What would close them | WP |
 |---|---|---|
 | S3 | `static_assert(std::has_unique_object_representations_v<GameState>)` beside the struct | M1.1(d) |
-| K4, K5 | An **include allowlist** for `Games/UntitledFighter/Kernel/` — today the whole module includes three standard headers, so a whitelist is both cheap and exact. A blacklist is a list of the mistakes somebody thought of; this fires on the one nobody thought of. Scope it to `Kernel/` only: `Game/` uses `<string>` and `<vector>` legitimately | M1.0 |
+| K4, K5 | An **include allowlist** for `Games/UntitledFighter/Kernel/` — today the whole module includes three standard headers, so a whitelist is both cheap and exact. A blacklist is a list of the mistakes somebody thought of; this fires on the one nobody thought of. Scope it to `Games/UntitledFighter/Kernel/` only: `Games/UntitledFighter/Game/` uses `<string>` and `<vector>` legitimately | M1.0 |
 | B3 | `/arch:`, `-march=`, `-mavx` added to the gate's `FORBIDDEN` table, with `--self-test` coverage | M1.0 |
 | I3 | The one remaining raw-handle sort key, in `Engine/src/ui/UIWorld.cpp` | M1.0 |
 | S6, K7, K10, A3 | Nothing cheap. They stay review-only and are named here so that is a decision rather than an oversight | — |

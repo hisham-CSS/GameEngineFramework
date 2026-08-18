@@ -31,7 +31,7 @@ without it. Details, tests and proofs of the four properties:
 
 | In flight | Owner | Since |
 |---|---|---|
-| *(nothing — next is M0.5c)* | | |
+| *(nothing — next is M0.6)* | | |
 
 One work package in flight at a time. The next unblocked one is always the top
 `[ ]` in milestone order below.
@@ -136,7 +136,7 @@ code" — and batching it behind the prose work is how a stamp becomes decoratio
   **Done when:** `check_docs.py` reports no path finding anywhere, and the ~8,500
   shipped lines of `Games/UntitledFighter/Game/` and `Games/UntitledFighter/Modes/`
   have a manual page.
-- `[x]` **M0.5b One home per fact, across the manual.** *(M)* De-duplicate the
+- `[x] e2f08bd` **M0.5b One home per fact, across the manual.** *(M)* De-duplicate the
   four repeated blocks to one canonical page each (isolation note + frame order →
   `architecture.md`; staging rule + packaging + scene JSON →
   `scenes-and-shipping.md`); merge `lua-scripting.md` into
@@ -145,7 +145,7 @@ code" — and batching it behind the prose work is how a stamp becomes decoratio
   laptop section from the archived audit.
   **Done when:** `docs/manual/` has no second copy of the four blocks, and
   `docs/` holds no page that another page now owns.
-- `[ ]` **M0.5c The read-through, then the stamps.** *(M)* Fourteen pages under
+- `[x]` **M0.5c The read-through, then the stamps.** *(M)* Fourteen pages under
   `docs/manual/`, one at a time: read the page against the code it cites, fix what
   it gets wrong, and only then write `Verified: <date> @ <sha>`. **The stamp is
   the claim**, so it cannot be applied in the same pass that wrote the prose — a
@@ -155,6 +155,21 @@ code" — and batching it behind the prose work is how a stamp becomes decoratio
   Start with the pages nothing else in M0 touched — `ui.md` (1,994 lines),
   `rendering.md`, `physics.md`, `assets.md`.
   **Done when:** `check_docs.py` reports no stamp finding under `docs/manual/`.
+  **Met**, and the read found six things no gate could:
+  (1) three pages told you to ship with `cpack -G ZIP`, which was **deliberately
+  removed** — it skipped every validation the Build action performs and exited 0
+  on a tree the editor had never saved in; (2) `entities-and-components.md`'s
+  `uiDocument` row listed six serialized keys where the serializer writes nine,
+  omitting the whole UI-scaling feature; (3) `editor.md` did not mention that Stop
+  **reloads from file** rather than restoring the snapshot when the game swapped
+  scenes mid-play; (4) `index.md` advertised a "generated API Reference" that is
+  57 hand-written lines nothing generates; (5) `rendering.md` and `ui.md` kept
+  four gap lists, which belong here and nowhere else; (6) `getting-started.md` and
+  `performance.md` both called `test_perf_render`'s label `perf` when it is
+  `perf;gl`, so `-LE perf` does not exclude it from a `gl` run.
+  **Gate addition:** `Kernel/` and `Modes/` joined `PATH_PREFIXES`. A prefix list
+  of directories that *exist* is blind to the citation that went stale — fourteen
+  lines still said `Kernel/src/Combat.cpp` and the gate walked past every one.
 - `[ ]` **M0.6 Entry points, and make it required.** *(S)* `README.md`: pitch,
   one roadmap paragraph + link, docs table for the new tree, build/run/ship;
   delete the feature matrix, "Not Yet Built" and the scale line; fix Project
@@ -187,7 +202,8 @@ M1.3 and M3.1 will need (M1.1 reserves them).
   module's entire include list is `<cstdint>`, `<type_traits>`, `<cstring>`, so a
   whitelist is exact and cheap, and it closes "never allocates" and "never
   iterates an associative container" (K4, K5) in one check. Scope it to
-  `Kernel/` — `Game/` uses `<string>` and `<vector>` legitimately, which is why
+  `Games/UntitledFighter/Kernel/` — `Games/UntitledFighter/Game/` uses `<string>`
+  and `<vector>` legitimately, which is why
   the existing purity globs cover both modules and this one must not.
   (b) `/arch:`, `-march=`, `-mavx` into `FORBIDDEN` (B3): none is present today
   and none would be caught; `/arch:AVX2` licenses FMA contraction, which is the
@@ -198,7 +214,7 @@ M1.3 and M3.1 will need (M1.1 reserves them).
   use `entt::to_entity`.
   **Done when:** `python scripts/check_determinism_flags.py --self-test` covers
   each new pattern *and* proves the allowlist fires on a `#include <vector>` laid
-  down in `Kernel/`; `UIWorld.DocumentsAtOneSortOrderKeepTheirOrderAcrossAReload`.
+  down in `Games/UntitledFighter/Kernel/`; `UIWorld.DocumentsAtOneSortOrderKeepTheirOrderAcrossAReload`.
 - `[ ]` **M1.1 Resources, movement parameters, and the one state expansion.** *(M)*
   Today `Fighter::meter` exists and no file in `Games/UntitledFighter/Kernel/src/`
   writes it; juggle has bespoke rules; walk speed and jump impulse are
