@@ -31,7 +31,7 @@ without it. Details, tests and proofs of the four properties:
 
 | In flight | Owner | Since |
 |---|---|---|
-| *(nothing — next is M1.1c)* | | |
+| *(nothing — next is M1.1d)* | | |
 
 One work package in flight at a time. The next unblocked one is always the top
 `[ ]` in milestone order below.
@@ -417,6 +417,50 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   `stance: ground` on everything — and `Ground` overlaps both, so her warning is
   **correct** and the assertion was false. Write it against `fighter_a` or a
   synthetic `FighterData`, then restore the check.
+- `[ ]` **M1.1d Input edges and buffering — the second state expansion, batched.** *(M)*
+  **Found at review point R0**: holding an attack button rapid-fires it. The
+  kernel says so itself — `StepAttack`'s scan is *HELD, not pressed*, and the
+  comment above it has been asking for this field since it was written: "honest
+  edge detection needs a `prevButtons` field inside GameState … that is a real
+  gap, named rather than papered over, and it is the next field this file will
+  want." Rapid-fire-on-hold is not a fighting-game mechanic; it also makes any
+  "combo" the showcase records suspect, because holding one key is not a link.
+  **This costs a SECOND `GameState` expansion, and that is worth saying plainly.**
+  M1.1a called itself "the one state expansion" and reserved M1.3's reaction
+  fields and M3.1's event ring so the format would change once. It did not
+  reserve anything for input, because nobody had noticed the gap yet — it was
+  found by playing, not by planning. So the honest move is not to pretend, it is
+  to make this expansion the last one: **batch all three input needs together**,
+  and check before writing whether anything else in M1–M3 wants state.
+  (a) **Positive edge.** `std::uint16_t prevButtons` per fighter. A move starts
+  on a rising edge — `bits & ~prev` — not on a level. This is the whole of the
+  reported bug.
+  (b) **Buffer.** A press that arrives while the fighter cannot act is remembered
+  for a few frames and consumed the tick they become actionable, which is what
+  makes a link feel like timing rather than a coin flip. `std::uint16_t
+  bufferedBits` and `std::uint8_t bufferAge` per fighter, with the window a
+  **per-character field** (`input_buffer_frames`) defaulted by the schema and not
+  by a `constexpr` — [ADR-011](adr/ADR-011-mechanics-are-fields.md) decision 1.
+  (c) **Negative edge.** A move may opt in to firing on button *release*
+  (`~bits & prev`) — the SF-lineage mechanic where holding a button, inputting a
+  motion and releasing performs the special. Opt-in **per move**, off by default,
+  so a character that authors nothing behaves as (a) alone.
+  `prevButtons` gives (a) and (c) from the same field, which is why they belong
+  in one commit rather than three.
+  **Done when:** `P3Input.HoldingAButtonStartsTheMoveOnceNotEveryRecovery`;
+  `P3Input.APressDuringRecoveryFiresTheTickTheFighterCanAct`;
+  `P3Input.ANegativeEdgeMoveFiresOnReleaseAndOnlyWhenAuthored`; the golden
+  re-recorded **once**, for behaviour; and `tests/test_determinism_crossplat.cpp`'s
+  scripted match still reaches the same coverage (it drives jumps by *held* bits,
+  so it will need edges — that is the point, not an obstacle).
+  **Traps:** `prevButtons` must live in `GameState`, not in the input producer —
+  D6 puts the input ring outside the state on purpose, and a rollback hands
+  `Simulate` only the current tick, so an edge computed anywhere else is wrong on
+  every re-simulation. The buffer is state for the same reason. And a buffered
+  press must be **consumed**, not merely aged out, or one press starts two moves.
+  **Changes what the search searches:** M1.4's macro-actions gain "press" as
+  distinct from "hold", and buffering widens the window in which a link is
+  performable — so this lands *before* M1.4 measures anything.
 - `[ ]` **M1.2 Push boxes and the corner.** *(S–M)* Body separation between
   fighters and the stage edge as a wall; resolution order per NORTHSTAR Phase 2:
   pushbox separation → strikes (throws when they exist). Authored `pushbox`
@@ -719,6 +763,11 @@ what found that attacks are labelled wrong — `air_mp` has its own dedicated
 button instead of being *MP while airborne*. No test could have caught it: every
 one of them passes, because the kernel does exactly what the binding table tells
 it to, and the binding table is where the mistake is. That is **M1.1c**.
+
+It then found a second, on the next play: **holding an attack button rapid-fires
+it**. The kernel's own comment had been asking for the missing field for months
+— *"the next field this file will want"* — and no test could report it, because
+"held" is exactly what the code says it does. That is **M1.1d**.
 
 ### R1 — After M1.1b: the file is the game
 
