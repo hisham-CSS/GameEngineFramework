@@ -1,15 +1,24 @@
 # Cat Splat Engine — Manual
 
-A C++17 / OpenGL 3.3 game engine with an editor, a standalone player, and a
-headless asset cooker.
+Verified: 2026-08-17 @ e2f08bd
 
-This manual explains how the engine works and how to build things with it.
-For exhaustive per-class detail — every signature, field and overload — see the
-generated [API Reference](../api-index.md).
+A C++17 / OpenGL 3.3 game engine with an editor, a standalone player, a headless
+asset cooker, and one title — a deterministic rollback fighting game — under
+`Games/`.
 
-> **Which do I want?**
-> The manual answers *"how do I do X?"* and *"why does it work this way?"*.
-> The API reference answers *"what exactly does this function take?"*.
+This manual explains how the engine works and how to build things with it. There
+is no per-class API reference: the public surface is one façade header
+(`Engine/include/Engine.h`), and the header comments are where the contracts and
+the reasons live. Read those.
+
+Four documents outside this manual answer questions it deliberately does not:
+
+| Document | Answers |
+|---|---|
+| [ROADMAP.md](../ROADMAP.md) | What is built, what is in flight, what is next. **The only place status lives** — no page here lists gaps |
+| [NORTHSTAR.md](../NORTHSTAR.md) | What the engine is for, and the test that decides whether each property is done |
+| [DETERMINISM.md](../DETERMINISM.md) | Every rule the simulation, the build and the authored data must obey, and what enforces each |
+| [adr/](../adr/README.md) | Why a decision was made, frozen the day it was accepted |
 
 ## Start here
 
@@ -84,8 +93,9 @@ These pages describe how to USE the engine. Two more describe how to change it:
   the bug they prevent, tests named as properties, diagnostics that list what
   exists, and the API shapes the engine relies on.
 
-## Status
+## What this manual does not say
 
-The engine is under active development and this manual describes what exists
-today, not what is planned. The roadmap and audit live in
-[ENGINE_AUDIT_2026-07.md](../ENGINE_AUDIT_2026-07.md).
+**What is built and what is not.** That is [ROADMAP.md](../ROADMAP.md), and
+keeping a second copy here is how the two came to disagree. Every page describes
+what exists today; if something is missing from a page, the roadmap says which
+work package adds it and what test will prove it.

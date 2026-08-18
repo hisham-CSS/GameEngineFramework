@@ -1,5 +1,7 @@
 # Physics
 
+Verified: 2026-08-17 @ e2f08bd
+
 Cat Splat Engine simulates rigid bodies through a **backend-agnostic seam**. You author physics with a small set of ECS components (`RigidBody` plus one collider), and the actual solving is done by whichever physics library the build selected — Jolt, PhysX, or the built-in dependency-free "Simple" backend. Your scene data, your gameplay code, and the editor UI never mention a library type, so you can switch engines at runtime and compare results.
 
 This page covers how the seam works, how to set up simulated objects, how to react to collisions and triggers, how to query the world with raycasts, and how to plug in a new physics library.

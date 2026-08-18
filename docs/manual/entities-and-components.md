@@ -1,5 +1,7 @@
 # Entities and Components
 
+Verified: 2026-08-17 @ e2f08bd
+
 Everything in a Cat Splat scene is an **entity**: an id with a bag of **components** attached to it. There is no `GameObject` base class — an entity *is* its components, and systems (rendering, physics, scripting, camera selection, serialization) find work by asking for entities that have a particular combination of them.
 
 The ECS is [EnTT](https://github.com/skypjack/entt). `MyCoreEngine::Scene` owns the registry directly:
@@ -398,7 +400,7 @@ serializer.Load("scenes/level1.scene");
 | `planeCollider` | `PlaneCollider` | `offset` |
 | `audioSource` | `AudioSourceComponent` | `clip`, `volume`, `pitch`, `loop`, `spatial`, `playOnStart`, `minDistance`, `maxDistance` |
 | `audioListener` | `AudioListenerComponent` | `true` (an empty tag — presence is the whole state, like `noShadow`) |
-| `uiDocument` | `UIDocumentComponent` | `markup`, `stylesheet`, `sortOrder`, `enabled`, `interactive`, `region` (a 4-element `[x, y, w, h]` array of surface fractions in `0..1`; an absent key means the whole surface, so an older scene loads unchanged); both paths are containment-checked on load |
+| `uiDocument` | `UIDocumentComponent` | `markup`, `stylesheet`, `sortOrder`, `enabled`, `interactive`, `region` (a 4-element `[x, y, w, h]` array of surface fractions in `0..1`), and the three scale keys `uiScaleMode` (`0` Constant, `1` ScaleWithScreen), `uiScaleReference` (a 2-element `[w, h]`, default `1920x1080`) and `uiScaleMatch` (`0` follow width, `1` follow height, between = a **log-space** blend; default `0`). Every one of these keys is read with a default, so an absent key means "as before" and an older scene loads unchanged. Both paths are containment-checked on load |
 | `materialOverrides` | `MaterialOverrides` | array of `{ slot, baseColor, emissive, metallic, roughness, ao, alphaMode, opacity, alphaCutoff, doubleSided, shadingModel, toonBands, toonSpecStrength, toonSpecSize, toonRimStrength }`; slots whose override is null are skipped, and the key is omitted entirely when nothing survives |
 
 `AABB` is **not** serialized. It is derived data, regenerated from the model on load — and skipped entirely for models that loaded with zero meshes, whose bounds would be garbage.

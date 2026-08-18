@@ -1,5 +1,7 @@
 # Post-processing & Quality Tiers
 
+Verified: 2026-08-17 @ e2f08bd
+
 After the scene is shaded, the renderer runs a chain of screen-space effects.
 They fall into two groups by the colour space they work in:
 

@@ -1,5 +1,7 @@
 # Assets
 
+Verified: 2026-08-17 @ e2f08bd
+
 Assets are the files your game loads at runtime: models, their textures, shaders and saved scenes. This page covers where they live, how the engine loads them (synchronously and asynchronously), how the editor sees them, and how to validate them before you ship.
 
 Everything here is CPU/GPU plumbing you can drive from code, plus two user-facing surfaces: the editor's **Assets** panel and the headless `AssetCooker` executable.
