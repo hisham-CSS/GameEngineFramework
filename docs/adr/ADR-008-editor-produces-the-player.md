@@ -1,6 +1,6 @@
 # ADR-008 — The editor produces the player, and a dropdown is not a workflow
 
-**Status.** Accepted 2026-08-16. It is a **correction**, not a proposal: the author read the
+**Status.** Accepted 2026-08-16 · **Implemented** @ `1aaa2d1`. It is a **correction**, not a proposal: the author read the
 three-executable arrangement back and said it made no sense, and they are right. Amends
 [`ADR-007`](ADR-007-asset-search-paths.md) §7 — a build profile is that document's trigger 3
 arriving early — and adds the first item that scores on the **G4** row `ADR-007` §7 added to

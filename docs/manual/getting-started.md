@@ -1,5 +1,7 @@
 # Getting Started
 
+Verified: 2026-08-17 @ e2f08bd
+
 This page takes you from a fresh clone to a running editor and a running game. It covers the
 prerequisites, the three build configurations and when to use each, where the binaries and
 assets end up, and the asset-staging rule that decides whether a build can overwrite a scene
@@ -10,7 +12,9 @@ that are easy to misdiagnose as engine bugs.
 
 ## What gets built
 
-The top-level `CMakeLists.txt` adds four subprojects:
+The top-level `CMakeLists.txt` adds seven subdirectories — `ThirdParty`, `Net`,
+`Games/UntitledFighter`, `Engine`, `Editor`, `Player`, `Cooker`, plus `docs` and (with
+`ENABLE_TESTS`) `tests`. Five of them produce the targets you run:
 
 | Target | Kind | Purpose |
 |---|---|---|
@@ -37,7 +41,7 @@ Unit tests are built by default; `option(ENABLE_TESTS "Build unit tests" ON)` tu
 1. **A C++17 compiler.** On Windows, **Visual Studio 2022** with the C++ desktop workload is
    the primary path (the build has MSVC-specific pieces like `/Zi` and
    `/ENTRY:mainCRTStartup`, all guarded behind `if(MSVC)`). The engine also builds on
-   **Linux** (gcc ≥ 11 / clang ≥ 14) — see **[Building on Linux](../BUILDING_LINUX.md)**.
+   **Linux** (gcc ≥ 11 / clang ≥ 14) — see [Building on Linux](#building-on-linux) below.
 2. **CMake 3.21 or newer.** The root `CMakeLists.txt` only requires 3.20
    (`cmake_minimum_required(VERSION 3.20)`), but `CMakePresets.json` is a version-3 preset
    file declaring `"cmakeMinimumRequired": { "major": 3, "minor": 21 }` — so the preset
@@ -81,20 +85,12 @@ everyone resolves the same package versions.
 
 A build with neither still works — the dependency-free "Simple" backend is always registered.
 
-> **Important — do not link an SDK straight into `Engine`.** Each SDK is linked into its own
-> `STATIC` library by the `cse_add_isolated_backend` function in `Engine/CMakeLists.txt`,
-> never directly into `Engine`. The same helper isolates the Lua scripting backend (vcpkg's
-> `lua-cpp` exports `LUA_BUILD_AS_DLL`), which is why it is named for isolation rather than
-> for physics; trailing arguments are the SDK targets to link, since a backend may need more
-> than one — the Lua backend needs `sol2` *and* `lua-cpp`. The reason is recorded in the
-> comment there: these imported targets propagate `INTERFACE` compile definitions to every
-> consumer source file, and Jolt's include defines `_HAS_EXCEPTIONS=0`. Linking Jolt directly
-> into `Engine` rebuilt the *entire* engine without exception support, which turned the
-> `std::filesystem` throw that `AssetIndex` relies on (non-codepage filenames) into a
-> `0xC0000409` fast-fail and would have silently broken every other `try`/`catch` in the
-> engine. `STATIC` rather than `OBJECT` is load-bearing: for a static library CMake records
-> `PRIVATE` deps as `$<LINK_ONLY:...>`, so `Engine` inherits the SDK's `.lib` for linking but
-> not its compile definitions or include directories.
+> **Important — do not link an SDK straight into `Engine`.** Each SDK goes into its own
+> `STATIC` library via `cse_add_isolated_backend`, never directly into `Engine`, because
+> an imported target's INTERFACE compile definitions reach every consumer source file —
+> and Jolt's include defines `_HAS_EXCEPTIONS=0`. If you are about to change that, read
+> [the SDK isolation rule](architecture.md#the-sdk-isolation-rule) first: it records what
+> broke last time and why `STATIC` rather than `OBJECT` is the load-bearing half.
 
 ## Configuring and building
 
@@ -169,7 +165,7 @@ isolated repro — a serializer round-trip, a container bug, a unit test.
 > debug CRT enables iterator debugging (`_ITERATOR_DEBUG_LEVEL=2`), which adds checking to
 > every container access in the cull/sort/submit loop. A scene that runs comfortably in
 > Release can feel broken in Debug. Every perf number in this repo — the baselines and budgets
-> in `tests/test_perf_render.cpp`, the measurements in `docs/ENGINE_AUDIT_2026-07.md` — is a
+> in `tests/test_perf_render.cpp`, the measurements on the [performance page](performance.md) — is a
 > Release number, and none of them mean anything in Debug.
 
 ### Release (`x64-release`)
@@ -193,6 +189,70 @@ physics bugs.
 > explicitly, and that is deliberate. Without them this configuration falls back to each
 > target's own binary directory, which scatters `Engine.dll` away from the executables that
 > need to load it.
+
+## Building on Linux
+
+The engine targets **Windows and Linux**. Windows is the primary path; Linux is
+kept deliberately separate so it never disturbs the Visual Studio workflow, and
+it is the only compiler that ever sees this code that is not MSVC — the Linux CI
+job builds *and runs the suite*, which is what makes the cross-toolchain
+determinism gate mean anything.
+
+**Prerequisites** beyond the ones above: gcc ≥ 11 or clang ≥ 14, Ninja, and
+GLFW's X11 development packages, which vcpkg builds glfw3 against and cannot
+install itself:
+
+```bash
+sudo apt install libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev   # Debian/Ubuntu
+sudo dnf install libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel   # Fedora
+```
+
+X11 is the default and XWayland runs it fine under a Wayland session; a native
+Wayland backend would additionally need `libxkbcommon`/`wayland` and glfw3's
+`wayland` feature.
+
+**Export `VCPKG_ROOT`, not `CSE_VCPKG_ROOT`.** The presets are
+`hostSystemName == Windows` only, and `scripts/linux-build.sh` takes plain
+`VCPKG_ROOT`:
+
+```bash
+export VCPKG_ROOT=$HOME/vcpkg
+scripts/linux-build.sh              # RelWithDebInfo; also accepts Debug or Release
+```
+
+The script configures with Ninja, the vcpkg toolchain and the
+`x64-linux-dynamic` triplet — the engine is a shared library, and the default
+static triplet's non-PIC archives will not link into `libEngine.so`. Output lands
+in `out/build/linux-<BuildType>/build/bin/<BuildType>/`.
+
+### What differs from the Windows build
+
+- **PhysX is Windows-only.** `vcpkg.json` platform-qualifies `physx` to
+  `windows`, because the vcpkg omniverse-physx-sdk port has fragile x64-linux
+  support and CMake already treats the backend as optional. Linux physics runs on
+  the **Jolt** and **Simple** backends.
+- **No borderless window.** `EditorTitleBar::Install` is a no-op outside `_WIN32`,
+  so Linux keeps the native window-manager title bar *and* the editor's own
+  title-bar strip, which is drawn unconditionally. You get both.
+- **The editor's AssetCooker validation** runs through a portable subprocess seam
+  (`Editor/src/Subprocess.cpp` — `posix_spawn` + `pipe` on Linux).
+- **No DLL staging.** `tests/CMakeLists.txt` guards its third-party copy behind
+  `if(WIN32)`: those names do not exist next to `libEngine.so`, and
+  `cmake -E copy_if_different` fails on a missing source — which once aborted the
+  whole build, Editor and Player included, because every test target depends on
+  that one staging target. The loader resolves `libEngine.so` through the build
+  RPATH instead. Only the `Exported/` assets are copied on both platforms.
+- **Discrete-GPU selection is not an export symbol.** On a hybrid-GPU laptop,
+  ask for the dGPU at launch — it matters for the same reason it does on Windows:
+
+  ```bash
+  __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia ./Editor   # NVIDIA PRIME
+  DRI_PRIME=1 ./Editor                                                    # Mesa / AMD
+  ```
+
+Freshly built binaries may still need `LD_LIBRARY_PATH`: an `$ORIGIN` rpath and a
+Linux install layout are not built yet, and neither is scheduled — see
+[ROADMAP.md](../ROADMAP.md)'s "Not scheduled, on purpose".
 
 ## Where the binaries land
 
@@ -359,18 +419,31 @@ The corollary: if you actually *want* the checked-in seed scene back, delete
 
 ## Tests
 
+Only the `-tests` preset builds them — the three app presets set `ENABLE_TESTS=OFF`, so
+`ctest` in one of those directories finds nothing:
+
 ```bash
-ctest --test-dir out/build/x64-Release
+ctest --preset x64-relwithdebinfo-tests --output-on-failure
 ```
+
+```bash
+ctest --preset x64-relwithdebinfo-tests -LE "perf|gl"
+```
+
+The second line is **what CI gates on**, and the exclusions are not arbitrary. `gl` marks the
+tests that create an OpenGL context, which a bare CI runner does not have (a separate job runs
+them under Mesa's llvmpipe); `perf` marks a timing budget, which means nothing on a shared
+vCPU. Run both locally — the `gl` suites cover the render passes, the post chain, IBL and the
+UI pass, which is to say the places where failures are silent.
 
 Test executables live in the `tests/` subdirectory of the binary tree, with their runtime
 dependencies staged by the single `test_runtime_deps` target (`tests/CMakeLists.txt`) —
-`Engine.dll`, its third-party DLLs, and a copy of `Exported/`. Again, one target rather than
-per-test copies, because parallel copies of the same file raced under Ninja.
+`Engine.dll`, its third-party DLLs, and a copy of `Exported/`. One target rather than per-test
+copies, because parallel copies of the same file raced under Ninja.
 
-`test_perf_render` is the render performance harness. It carries the label `perf`, is marked
-`RUN_SERIAL TRUE` (a timing test must not share the machine), and has a 300-second timeout.
-Run only it with `ctest -L perf`, or exclude it with `ctest -LE perf`.
+`test_perf_render` is the render performance harness. It carries **both** labels (`perf;gl`),
+is `RUN_SERIAL TRUE` (a timing test must not share the machine), and has a 300-second
+timeout.
 
 > **Gotcha — hybrid-GPU laptops.** New GL contexts are routed to the power-saving integrated
 > GPU by default. Any executable doing real GL work must export `NvOptimusEnablement` and
@@ -385,28 +458,37 @@ If a perf budget fails on a machine slower than the reference (i5-11400H + RTX 3
 `2.0`. If a failure is an intentional cost from a new feature, re-measure and update both the
 budget constants and the baseline comment block in `tests/test_perf_render.cpp`.
 
-## Packaging a build
+## Producing a shippable build
+
+**The editor produces the player**: *File > Build Settings > Build*, in the same
+configuration you authored in. That is the only entry point, and it is the one
+that refuses a build whose scene list is empty, whose startup scene fails
+validation or sits outside the asset root, whose output directory is inside the
+build tree, or whose configuration is not the one this tree was generated for
+([ADR-008](../adr/ADR-008-editor-produces-the-player.md)).
+
+There is no `cpack` and no `package` target. Both existed once and both asked
+none of those questions: run `cpack` on a tree the editor had never saved in and
+it warned, shipped the source-tree defaults instead of your scenes, and exited 0.
+The install rules stayed; the door that skipped the questions closed. The whole
+story is on the [scenes and shipping page](scenes-and-shipping.md#producing-a-bundle-the-editor-and-nothing-else).
+
+A headless release job is one line, because it is what the Build action runs:
 
 ```bash
-cd out/build/x64-Release
-cpack -G ZIP
+cmake --install out/build/x64-release --config Release --prefix dist/
 ```
 
-This produces `CatSplatGame-<version>-win64.zip` containing `Player.exe` (the shipping
-player), `Engine.dll`, the third-party DLL closure, and the `Exported/` assets. Setting
-`X_VCPKG_APPLOCAL_DEPS_INSTALL ON` before `project()` in the root `CMakeLists.txt` is what
-makes vcpkg deploy that DLL closure at install time as well as at build time.
-`cmake --install <binary-dir> --prefix <dir>` stages the same layout to a directory.
+The bundle is `Player.exe`, `Engine.dll`, the third-party DLLs, and `Exported/`
+with your editor-authored scenes layered over the source-tree defaults.
+`.import` sidecars are excluded — they are editor-only metadata, like Unity's
+`.meta` files, and the player never reads them.
 
-The package layers the **runtime** `Exported/` (your editor-authored scenes and
-`project.json`) on top of the source-tree defaults, and `.import` sidecars are excluded —
-they are editor-only metadata, like Unity's `.meta` files, and the player never reads them.
-
-> **Gotcha:** the install step resolves the authored directory using the configuration being
-> installed. This path was once hardcoded to `.../bin/Release/Exported`, so installing any
-> other configuration — notably `RelWithDebInfo` — found nothing and silently shipped the
-> source-tree defaults instead of your saved scene: a packaged game that ignored your
-> authoring, with no error to explain it. It now warns loudly instead:
+> **Gotcha — install the configuration you authored in.** The authored-content
+> step resolves its source from the configuration being installed. That path was
+> once hardcoded to `.../bin/Release/Exported`, so installing any other
+> configuration found nothing and silently shipped the source-tree defaults
+> instead of your saved scene. It warns loudly now:
 >
 > ```
 > No editor-authored Exported/ for configuration 'RelWithDebInfo' ...
@@ -414,8 +496,7 @@ they are editor-only metadata, like Unity's `.meta` files, and the player never 
 > Run the editor in this configuration and save first.
 > ```
 >
-> If you see that warning, run the editor in the configuration you are packaging and save your
-> scene before running `cpack`.
+> If you see that, the bundle is not the game you authored.
 
 ## A first-run checklist
 

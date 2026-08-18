@@ -4,7 +4,7 @@
 # target_link_libraries exactly once, with nothing, and the assertion at the
 # bottom makes that a build failure to change rather than a convention to
 # remember. docs/ARCHITECTURE.md D2 says the gameplay core contains no Jolt, no
-# EnTT, no Lua and no libm; docs/ADR-002-open-decisions.md CHOICE D says to make
+# EnTT, no Lua and no libm; docs/adr/ADR-002-open-decisions.md CHOICE D says to make
 # that structural, because the plan itself names "the standing temptation" to
 # reach into the physics world for a hitbox and a rule the build enforces beats
 # a rule in a document. This repository has the evidence: the fast-math gate

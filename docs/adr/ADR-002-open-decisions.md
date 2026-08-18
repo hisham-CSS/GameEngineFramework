@@ -1,6 +1,6 @@
 # ADR-002 — The eleven open decisions, answered
 
-**Status:** Accepted. **Date:** 2026-08-12. **Decides:** `ARCHITECTURE.md` D9 CHOICE A–D, `NORTHSTAR.md` Q1–Q7.
+**Status:** Accepted 2026-08-12 · **Implemented.** The standing verdicts: **A** adopt GekkoNet, **B** data-only before a trigger language, **C** abort and name the frame, **D** keep Jolt for cosmetics and make the kernel boundary a link error. **Date:** 2026-08-12. **Decides:** `ARCHITECTURE.md` D9 CHOICE A–D, `NORTHSTAR.md` Q1–Q7.
 **Supersedes:** the "genuinely torn" framing of D9 and the "only the author can decide" framing of §7.
 
 Three of these were already settled by evidence and are recorded here for completeness. Eight were

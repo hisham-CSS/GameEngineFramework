@@ -193,7 +193,7 @@ namespace MyCoreEngine {
         // That is the same spelling `ProjectSettings::startupScene` already
         // carries, which is what makes ApplyTo a copy rather than a translation,
         // and it is the first convention in the table at
-        // docs/ADR-007-asset-search-paths.md §3.2. When the asset search path
+        // docs/adr/ADR-007-asset-search-paths.md §3.2. When the asset search path
         // lands and that prefix comes out of content, it comes out of here the
         // same way and by the same one-release rule.
         std::vector<std::string> scenes;

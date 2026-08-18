@@ -54,7 +54,7 @@
 # The authoritative fighting-game simulation. It links NOTHING, and its own
 # CMakeLists.txt makes that a configure-time failure rather than a convention
 # somebody remembers (docs/ARCHITECTURE.md D2, made structural by
-# docs/ADR-002-open-decisions.md CHOICE D). That is also why it has never been
+# docs/adr/ADR-002-open-decisions.md CHOICE D). That is also why it has never been
 # a directory inside Engine/: there it would inherit Engine's entire link
 # interface and the guarantee would be worth nothing.
 add_subdirectory(Kernel)

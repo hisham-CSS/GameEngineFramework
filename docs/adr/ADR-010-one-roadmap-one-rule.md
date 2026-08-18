@@ -1,11 +1,18 @@
 # ADR-010 — One roadmap, one rule
 
-**Status.** Proposed 2026-08-17. Nothing below has been executed except the two
-files this proposal creates alongside itself — [`ROADMAP.md`](ROADMAP.md) (the
-detailed, living work list) and the root [`CLAUDE.md`](../CLAUDE.md) (the
-operating protocol for an autonomous session) — both uncommitted. **Verified
-against** `master` @ `99669cc`, 2026-08-17 — every path cited exists at that
-commit unless marked *(new)*.
+**Status.** Accepted 2026-08-17 · **Implemented** — ROADMAP M0.1 through M0.6.
+`docs/` is six living documents, `adr/`, `manual/` and `archive/`; every living
+document carries a `Verified:` stamp; and `scripts/check_docs.py` is a
+**required** CI step reporting zero findings, down from 78 on its first run.
+Three things below were not executed as written, and the ROADMAP entry for each
+says why: the rewritten [`NORTHSTAR.md`](../NORTHSTAR.md) carries no status
+column (§2 sketched one, but [`CLAUDE.md`](../../CLAUDE.md) forbids a status
+table outside `ROADMAP.md` and §5's own table agrees); the gate gained two checks
+§8.2 does not list (archive integrity, and no path-checking inside `docs/adr/`);
+and §4's `cse_fp_strict` turned out to be unimplementable — see
+[`DETERMINISM.md`](../DETERMINISM.md) B5. **Verified against** `master` @
+`99669cc`, 2026-08-17 — every path cited exists at that commit unless marked
+*(new)*.
 
 **Decides.** What the roadmap is and where it lives; the order of the work and
 why; the shape of the documentation; and the rule that keeps it true. It edits
@@ -27,9 +34,9 @@ games work); every 2.5D mechanic is opt-in per move per character; visuals are
 driven by the frame data, and return-to-idle tails are always cancelable — that
 is [ADR-011](ADR-011-mechanics-are-fields.md), which constrains M1 and M3.
 
-**Reads.** [NORTHSTAR.md](NORTHSTAR.md) §2 — the four properties and their
+**Reads.** [NORTHSTAR.md](../NORTHSTAR.md) §2 — the four properties and their
 testable definitions of done — is the spine and is not changed. Everything else
-in that file, and in [ARCHITECTURE.md](ARCHITECTURE.md), is either done,
+in that file, and in [ARCHITECTURE.md](../ARCHITECTURE.md), is either done,
 superseded, or a rule that belongs in a smaller file.
 
 ---
@@ -95,7 +102,7 @@ neglect.
 
 ## 2. The north star, on one screen
 
-Unchanged from [NORTHSTAR.md](NORTHSTAR.md) §2; only the status column is new.
+Unchanged from [NORTHSTAR.md](../NORTHSTAR.md) §2; only the status column is new.
 This becomes the rewritten `NORTHSTAR.md` in M0.4.
 
 **Goal.** An SF6-like fighting game — 3D on a 2D plane, two players, 60 Hz,
@@ -116,7 +123,7 @@ prover on the *shipped* files, and shows every verdict running.
 ## 3. The roadmap's shape, and why
 
 The work list — every package with its *where*, *do* and *done when* — is
-[`ROADMAP.md`](ROADMAP.md). This section records the shape and the reasons, so
+[`ROADMAP.md`](../ROADMAP.md). This section records the shape and the reasons, so
 they are not re-litigated.
 
 **Five milestones, one in flight at a time, each ending in a demo and a CI
@@ -247,7 +254,7 @@ of rot; the living `ARCHITECTURE.md` is then free to be rewritten. From here on,
 | `README.md` | Keep pitch, "Where this is going" as one paragraph + link to `ROADMAP.md`, Documentation table (rewritten for the new tree), Building / Running / Shipping, License. **Delete** the feature matrix, "Not Yet Built" and the scale line (all → `ROADMAP.md`). Fix Project Structure (`Kernel/`, `Data/` live under `Games/UntitledFighter/`) |
 | `docs/NORTHSTAR.md` | §2 → the new one-screen file (this ADR §2). §1 inventory (stale counts), §3 blockers (all resolved by design), §7 (answered in ADR-002) → archive only. §4 roadmap → `ROADMAP.md`. §5 research integration → the delivered parts into `manual/fighting-core.md`, the undelivered into `ROADMAP.md` M1. §6 "what not to do" → merged as rows into `ARCHITECTURE.md` §2. Appendix invariants → `DETERMINISM.md`. Original → `archive/NORTHSTAR-2026-08-12.md` |
 | `docs/ARCHITECTURE.md` | Rewrite: §0, D1–D9 with ADR-001/002 amendments folded into the prose (no blockquotes, no strike-through; D9 becomes the four answers), §2 rejection table (+ NORTHSTAR §6), §5 plug-point in five paragraphs. **Remove** §3 build order (→ `ROADMAP.md`), §4 contract (→ `DETERMINISM.md`), §6 first week (done), appendix (→ archive). Fix `Engine/src/gameplay/` → `Games/UntitledFighter/Kernel/`. Original → `archive/ARCHITECTURE-2026-08-12.md` |
-| the nine ADRs, `docs/ADR-*.md` | `git mv` to `docs/adr/`. Frozen. Add or normalise the first line: `**Status.** Accepted <date> · Implemented @ <sha>` / `· Superseded by ADR-N`. Specifically: 005 → Implemented P0–P2, P3–P5 tracked in ROADMAP; 006 → Implemented; 007 → "trigger 3 fired (ADR-008)"; 008 → Implemented @ `1aaa2d1`; 009 → Implemented @ `41ea6e5`; 002/003 → the header states which verdict stands (adopt + vendor). Nothing else in them is edited |
+| the nine ADRs, `docs/adr/ADR-*.md` | `git mv` to `docs/adr/`. Frozen. Add or normalise the first line: `**Status.** Accepted <date> · Implemented @ <sha>` / `· Superseded by ADR-N`. Specifically: 005 → Implemented P0–P2, P3–P5 tracked in ROADMAP; 006 → Implemented; 007 → "trigger 3 fired (ADR-008)"; 008 → Implemented @ `1aaa2d1`; 009 → Implemented @ `41ea6e5`; 002/003 → the header states which verdict stands (adopt + vendor). Nothing else in them is edited |
 | this ADR | → `docs/adr/`, Status → Implemented when M0 is done |
 | `docs/ROADMAP.md`, `CLAUDE.md` | Exist (created with this ADR). Maintained per their own rules |
 | `docs/AUDIT_FINDINGS.md` | → `archive/` (52/52 fixed; one inbound link, from MAINTENANCE — repointed) |

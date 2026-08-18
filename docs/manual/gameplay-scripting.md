@@ -1,5 +1,7 @@
 # Writing Gameplay
 
+Verified: 2026-08-17 @ e2f08bd
+
 This page is about gameplay written in **C++**: logic installed into the running
 `Application` through callbacks — one variable-rate `Update`, and a fixed-rate
 tick that also drives physics. It covers the update model, how to install your
@@ -13,8 +15,8 @@ sol2 backend driving `OnStart` / `OnUpdate` / `OnFixedUpdate` / `OnCollision` /
 `ScriptWorld`, and is installed into both hosts by `InstallScripting`
 (`ScriptInstall.h`) exactly the way physics is. Use scripts when one entity
 needs behaviour authored as data; use the C++ hooks below when you are writing a
-system that runs for the whole scene. See **[Lua Scripting](lua-scripting.md)**
-for the scripting side.
+system that runs for the whole scene. The Lua half of that seam is documented at the bottom of this page:
+**[Lua: presentation and tooling only](#lua-presentation-and-tooling-only-never-the-simulation)**.
 
 Everything here is available from the single umbrella header
 (`Engine/include/Engine.h`), which pulls in `Application.h`, `Scene.h`,
@@ -564,3 +566,232 @@ keyboard — not merely the panel, and not one of its toolbar widgets — and
 5. Set `dirty = true` on every `Transform` you write.
 6. Call the same install function from both `PlayerMain.cpp` and
    `EditorApplication.cpp` so Play and the shipped build cannot diverge.
+
+---
+
+# Lua: presentation and tooling only, never the simulation
+
+A script runs **per entity** and is edited as a data file, where the C++ hooks
+above run for the whole scene. Two examples ship in `Editor/src/Exported/Scripts`:
+`spinner.lua` (rotation) and `bouncer.lua` (collisions and input).
+
+**Nothing authoritative is ever authored in Lua**, and that is a decision with
+teeth rather than a style preference ([ARCHITECTURE.md](../ARCHITECTURE.md) D7).
+Non-string table keys in Lua 5.4 hash by **address**, so the most natural line a
+modder can write — `for e, box in pairs(t)` — enumerates in heap-address order,
+and Windows and Linux will never agree. There is no compile error, no runtime
+error, and no way for the host to detect it. Use Lua for presentation, editor
+tooling and asset pipelines; the simulation is authored data executed by an
+integer kernel ([DETERMINISM.md](../DETERMINISM.md) §1).
+
+### Attaching a script
+
+1. Select an entity.
+2. **Add Component → Script**.
+3. Set **File** to a path relative to `Exported/Scripts`, e.g. `spinner.lua`.
+4. Press **Play**.
+
+Two examples ship in `Editor/src/Exported/Scripts`: `spinner.lua` (rotation)
+and `bouncer.lua` (collisions and input).
+
+Scripts load when Play starts and are destroyed on Stop, so a script can never
+disturb the edit-mode scene you are looking at. The **Enabled** checkbox stops
+a script running while still loading it — so syntax errors surface in the
+Inspector immediately, rather than the first time you remember to tick the box.
+
+### Lifecycle hooks
+
+Define any subset; a missing hook costs nothing.
+
+| Hook | When |
+|------|------|
+| `OnStart()` | Once, before the first update |
+| `OnUpdate(dt)` | Every rendered frame |
+| `OnFixedUpdate(dt)` | Every fixed physics tick, after the simulation step |
+| `OnCollision(c)` | A contact involving this entity |
+| `OnDestroy()` | Scene teardown or Stop |
+
+Put physics work in `OnFixedUpdate`. Applying an impulse in `OnUpdate` makes
+the force depend on framerate.
+
+### The script API
+
+`self` is the entity the script is attached to.
+
+```lua
+function OnUpdate(dt)
+    local p = self:position()
+    self:setPosition(vec3.new(p.x, p.y + dt, p.z))
+end
+```
+
+**Entity** — `valid()`, `name()`, `position()`, `rotation()`, `scale()`,
+`setPosition(v)`, `setRotation(v)`, `setScale(v)`, `translate(v)`, `rotate(v)`,
+`applyImpulse(v)`, `setVelocity(v)`.
+
+Rotation is Euler degrees. `applyImpulse` and `setVelocity` need a RigidBody
+and wake a sleeping body; without one they do nothing.
+
+**Globals** — `vec3.new(x,y,z)` (with `+`, `-`, `*`, `length()`,
+`normalized()`), `find(name)`, `raycast(origin, dir, maxDistance)`,
+`time()`, `log/logWarn/logError(msg)`, and `print` (routed to the engine log,
+since a shipped game has no console).
+
+`input.down(action)` and `input.pressed(action)` read **actions**;
+`input.axis(axis)` reads **axes**. Both take names from the InputMap rather
+than key codes, so scripts survive rebinding — but the two are separate name
+spaces. Bound by default: the actions `Jump` (Space / gamepad A) and `Quit`
+(Escape / gamepad Back), and the axes `MoveForward` and `MoveRight` (W/S,
+A/D, the arrow keys, left stick) plus `LookX`/`LookY` (right stick — gamepad
+only; mouse look is handled by the Application, not the InputMap). The same
+call also installs ten UI-navigation names — the actions `UIConfirm`,
+`UIBack`, `UIPagePrev`, `UIPageNext` and `UINavUp`/`Down`/`Left`/`Right`
+(d-pad **and** W/S/A/D), plus the axes `UINavX`/`UINavY` (left stick) — which
+are there for the in-game UI but are perfectly ordinary names a script may
+read. See [Default bindings](#default-bindings) for the
+full table. Anything
+else you must bind yourself, and a name in the wrong space counts as unbound:
+`input.down("MoveForward")` warns once and reads false.
+
+`input.pressed()` is safe to call from `OnFixedUpdate`. It reports a latched
+press rather than a frame-scoped edge, so one physical press fires **exactly
+once** even though the fixed tick runs zero times on some frames and several
+times on others — and every entity reacting in that tick sees it, so putting
+the same jump script on ten objects jumps all ten. Do not read the same action
+from both `OnUpdate` and `OnFixedUpdate`; whichever runs first claims it.
+
+Querying an action nobody bound warns **once** and reads as false, rather than
+silently doing nothing forever.
+
+> **In the editor, gameplay reads input only while the game *surface* has the
+> keyboard** — click inside the rendered image, and a highlight border is drawn
+> around it. Clicking the panel's own widgets (the camera picker, the `Blend`
+> field) hands the keyboard back to the editor even though the panel stays
+> focused, and the toolbar's `Input: game` label reports **surface** focus too —
+> the same flag the border and the gameplay gate read, so the label and the
+> border now agree. This is what lets you fly
+> the Scene view with the same keys while a scene is playing. The shipped
+> player always has input. See
+> [Who owns the keyboard](editor.md#who-owns-the-keyboard).
+
+`raycast` returns `nil` on a miss, or a table with `entity`, `point`,
+`normal`, `distance`.
+
+`OnCollision(c)` receives `c.other`, `c.phase` (`"begin"`/`"end"`),
+`c.isTrigger`, `c.point`, `c.normal`, `c.impulse`.
+
+Calling anything on an entity that no longer exists is a safe no-op, not a
+crash — scripts hold entity references across frames and objects get destroyed.
+
+### When a script breaks
+
+A script is user content and will be broken regularly, so a failure never
+takes down the editor:
+
+- The error is logged **once**, with the file and line.
+- That script instance is disabled and never called again.
+- Every other script keeps running.
+- The message appears in the Inspector next to the file that caused it.
+
+Runaway loops are handled too. Each callback runs under an instruction budget
+(`ScriptSettings::instructionLimit`, default 2,000,000) and a wall-clock budget
+(`ScriptSettings::callbackDeadlineMs`, default 1,000 ms); `while true do end`
+is aborted and the script disabled instead of freezing the editor — even when
+the loop is wrapped in `pcall`. See [Security](#security) for the full set of
+sandbox limits.
+
+### Isolation
+
+Every entity gets its **own** global environment, even when two entities share
+a file. This is deliberate — `counter = 0` at file scope is per-object state,
+not shared state.
+
+### Security
+
+The sandbox is the trust boundary for the "run scripts you did not author" case
+(mods, workshop content). In the default (untrusted) configuration:
+
+- **`io`, `os`, `package`, `debug` are not loaded** — no filesystem or process
+  control.
+- **`load`, `loadstring`, `loadfile`, `dofile` are removed.** `load` accepts
+  *unverified binary bytecode*, which Lua 5.4 explicitly does not validate — a
+  single `load(bytes)()` is a memory-corruption primitive. `loadfile`/`dofile`
+  additionally read and run arbitrary files. Withholding `io` means nothing
+  while these remain, so they go too.
+- **`coroutine` is not loaded.** The instruction-limit hook is per-thread and a
+  new coroutine starts unhooked, so a loop inside one would run unbounded.
+- **Memory is capped** (`ScriptSettings::memoryLimitBytes`, default 256 MB). A
+  single `string.rep("x", 2^31)` allocates in one C call the instruction hook
+  cannot see; the cap turns that from a host crash into a script error.
+- **Instruction budget** (`instructionLimit`, default 2,000,000) aborts runaway
+  loops. The abort survives being wrapped in a single `pcall`.
+- **Wall-clock budget** (`callbackDeadlineMs`, default 1,000 ms) bounds the one
+  case the instruction budget cannot: a runaway loop wrapped in `pcall` *and*
+  looped around. A Lua error cannot cross a `pcall`, so the inner `pcall`
+  swallows every instruction-limit abort and the outer loop retries forever.
+  Once the time budget is blown, the sandbox's `pcall`/`xpcall` re-raise
+  instead of returning, so the abort climbs out past every `pcall` level and
+  the callback ends. Generous by design — the instruction budget already caps a
+  callback at ~1–2 ms of work, so only a true runaway reaches it.
+- **Asset paths from a scene file are containment-checked** — absolute paths,
+  drive/UNC roots, and `..` are rejected, so a hostile scene cannot point outside
+  the project. This covers script paths, model paths, the environment's HDRi
+  path, a UI document's `.cxml`/`.cstyle` paths, and **audio clip paths** (a clip
+  flows straight into miniaudio's WAV/MP3/FLAC/OGG decoders, which parse
+  attacker-controlled binary). Model, audio-clip and UI paths are checked at scene
+  load: a rejected path is cleared and logged, leaving the component in place, so
+  the asset degrades gracefully rather than failing the load. A script path is
+  checked later, when the source is resolved — the path is kept and only that one
+  script instance fails, with `could not read script '<path>'` shown in the
+  Inspector. The HDRi path is checked at bake time: rejection is logged, the path
+  is kept, and the environment falls back to the procedural sky.
+
+`ScriptSettings::allowUnsafeLibraries` opts back into the full language
+(io/os/package/debug, the loaders, coroutines, and `require` from the script
+directory) for **trusted** content. Nothing ships with it on: the editor and the
+player both build `ScriptSettings` with only `scriptDirectory` set, so the editor
+runs the same untrusted sandbox a shipped game does — a host that knows its
+scripts are trusted has to turn it on itself.
+
+The wall-clock budget assumes `pcall`/`xpcall` are the only error boundaries a
+script can reach, which holds in the default sandbox (no coroutines, no `load`,
+no `debug`) — the configuration both hosts actually run. Turning on
+`allowUnsafeLibraries` reopens `debug` and coroutines, so trusted content can
+defeat the guards — by design; the budget is a limit for *untrusted* scripts,
+which is what both hosts (the editor and the shipped Player) run today.
+
+### Adding another language
+
+The seam is the same shape as [physics](physics.md):
+
+- `IScriptBackend` — the engine calls into scripts (load, lifecycle hooks).
+- `IScriptHost` — scripts call into the engine (transform, physics, input).
+- `ScriptBackendRegistry` — name → factory, with explicit registration.
+- `ScriptWorld` — the only place the ECS meets scripting.
+
+A new language implements `IScriptBackend` and reuses the existing host, so
+the capability set is written once. Each backend is compiled into its own
+**static** library by the `cse_add_isolated_backend` helper, which links the SDK
+into that library privately and then links the library into `Engine` (that is how
+the registry reaches `LuaScriptBackend`). Because it is `STATIC` rather than
+`OBJECT`, CMake records the private SDK dep as `$<LINK_ONLY:...>`, so `Engine`
+inherits the SDK's `.lib` for linking but none of its INTERFACE compile
+definitions or include directories — which is what keeps them from leaking
+engine-wide.
+
+A dependency-free `Null` backend is always registered, so a build without any
+language runtime still loads and plays scenes — scripted entities simply do
+nothing.
+
+### The limits are the design
+
+Scripts cannot add or remove components, spawn or destroy entities, or read
+materials and lights; there is no hot reload (editing a `.lua` requires
+Stop/Play); the default sandbox has no coroutines; and each instance recompiles
+its chunk, which is fine for dozens of scripted objects and would want a shared
+cache for thousands. None of these is scheduled, and that is deliberate — Lua is
+not on the path to the fighting game, so growing it costs the thing that is.
+
+Isolation prevents accidental collisions between scripts, not deliberate ones.
+The sandbox boundary is between *the host and untrusted content*, not between
+one script and another.

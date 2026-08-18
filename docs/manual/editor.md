@@ -1,5 +1,7 @@
 # Using the Editor
 
+Verified: 2026-08-17 @ e2f08bd
+
 The Cat Splat Engine editor is the authoring tool for scenes: you place and parent entities, add components, tune rendering and physics, and press Play to run the game inside the editor. It is a Dear ImGui application built on top of the same `MyCoreEngine::Application` the shipped player uses, so what you see in the **Game** panel is what the player renders.
 
 Source of truth for everything on this page: `Editor/src/EditorApplication.h`, `Editor/src/EditorApplication.cpp`, `Editor/src/EditorImGuiLayer.cpp`, `Editor/src/ImGuiInputMap.h`, `Editor/src/UndoHistory.h`, and `Editor/src/panels/`.
@@ -32,6 +34,76 @@ The panels are:
 | **Information** | Rendering statistics and the per-frame CPU breakdown. |
 | **Edit** | Undo/redo buttons and the clickable command history. |
 | **Asset Validation** | Output of an `AssetCooker validate` run (opens on demand). |
+| **Build Settings** | Produces the shipped player from what is open. See below. |
+| **Combo Prover** | The title's own panel: the combo-termination verdict for a character file. Registered by the game, not the editor. |
+
+### Two of those panels are not the editor's
+
+`Build Settings` is the editor's. **`Combo Prover` belongs to the title**, and the
+mechanism matters more than the panel: `editor::RegisterTitlePanels` is a seam the
+*game* pushes itself through (`Games/UntitledFighter/Editor/src/UntitledFighterPanels.cpp`),
+so `Editor/` contains no mention of a fighting game and the boundary is a
+configure-time error rather than a habit. A second title adds its panels the same
+way, and neither title needs the other.
+
+---
+
+## Build Settings — the editor produces the player
+
+Shipping used to be a separate executable and a dropdown, which made no sense:
+the thing that knows what a build contains is the thing you authored it in. So
+the editor produces the player ([ADR-008](../adr/ADR-008-editor-produces-the-player.md)).
+
+Open it from the title bar (**Build Settings**). It writes a build from the
+current project: the startup scene, the staged assets beside it, and the player
+executable, into a chosen output directory. The settings themselves live in
+`Engine/src/core/BuildSettings.h` and the mechanism in
+`Engine/src/core/BuildPipeline.h`, so the Player and the editor agree about what a
+build *is* rather than each having an opinion.
+
+Two behaviours worth knowing before you ship something:
+
+- **A build that cannot start is a failed build.** The pipeline verifies the
+  bundle it just produced rather than reporting success on a successful copy —
+  the absence of that check is what once shipped a bundle that could not boot.
+- **A camera-less scene is a real hazard.** The shipped player must mirror the
+  Game view; a saved scene with no camera entity silently falls back to free-fly,
+  which looks like a working build and is not the one you authored.
+
+---
+
+## Combo Prover — the decision procedure, in the editor
+
+The panel that makes the research visible: it loads a character file, runs the
+*published* prover over it unmodified, and shows the verdict beside the things a
+designer uses daily — dead cancels, unreachable moves, the settling index.
+
+It is documented in full on the [fighting-core page](fighting-core.md#the-combo-prover-panel),
+including the four different reasons a ranking certificate can be missing and the
+projection-loss table that says what the verdict cannot see. Three things are
+worth repeating here because they change how you read the panel:
+
+- **The verdict answers the CORNER**, whatever the file says. A combo that dies
+  there dies everywhere; one that loops there need not loop midscreen. The panel
+  says so on its face, because a green tick it cannot back is worse than no tick.
+- **`UNRESOLVED` is a budget statement, not an error.** It means the search hit
+  its cap, and it never becomes a verdict.
+- **The panel re-runs on data changes, not on frames.** Editing a character file
+  is what makes it think; scrubbing the timeline is not.
+
+---
+
+## Game modes in the Game view
+
+The Game panel does not only render the scene's cameras. A title can register
+**game modes** through `MyCoreEngine::RegisterTitleGameModes`, and the editor
+enters the same mode object the shipped Player does — which is the "Play ==
+Player" property stated as a mechanism rather than a hope.
+
+For this repository that means the fighting game's **training mode** runs inside
+the editor: box overlay, frame-data HUD, pause, slow motion and frame step. How
+it works, and why frame step costs about six lines, is on the
+[fighting-core page](fighting-core.md#the-modes-training-frame-step-hud).
 
 ---
 
@@ -504,7 +576,9 @@ What Play does (`startPlay_`):
 6. compiles and starts the scripts — the script world is handed the editor's input map, then `Rebuild` compiles (a broken file is reported here, and a failed script is skipped) and `Start` runs `OnStart` — and starts the audio voices (`playOnStart` sources begin now),
 7. enables the gameplay hooks (`FixedUpdate` / `Update`), which are off in edit mode.
 
-What Stop does (`stopPlay_`): disables gameplay and gameplay input, then — *before* the restore — destroys every physics body, clears the scripts (which fires `OnDestroy` while the entities still exist), and stops every audio voice; then restores the snapshot, re-enables undo recording, cuts the Game view's director back to the edit-mode camera, drops play-requested asset ops, and forces a CSM rebuild.
+What Stop does (`stopPlay_`), in this order: **leaves the active game mode** (`modes_.Leave()` runs first, so a mode's `Exit` sees a live scene), disables gameplay and gameplay input, re-enables undo recording, then — *before* the restore — destroys every physics body, clears the scripts (which fires `OnDestroy` while the entities still exist), and stops every audio voice; then restores the snapshot, cuts the Game view's director back to the edit-mode camera, drops play-requested asset ops, and forces a CSM rebuild.
+
+> **If the game swapped scenes while playing**, Stop does not restore the snapshot at all — it reloads the scene you pressed Play in, from its file. The snapshot describes a scene that is no longer in the registry, so restoring it would resurrect entities from a different level. If that reload fails, the editor says so in the scene status line rather than leaving you in the played scene silently.
 
 > ### IMPORTANT — Play snapshots, Stop restores
 >

@@ -5,7 +5,7 @@
 // That is docs/ARCHITECTURE.md D2 made structural: the standing temptation the
 // plan names is "just ask the physics world for the hitbox", and against a
 // separate target that is not a bad idea someone has to talk you out of, it is
-// an unresolved symbol. See docs/ADR-002-open-decisions.md CHOICE D. The same
+// an unresolved symbol. See docs/adr/ADR-002-open-decisions.md CHOICE D. The same
 // trick is why the fast-math CI gate works: a violation is a build failure
 // rather than a review miss.
 //
@@ -42,7 +42,7 @@ inline constexpr std::int32_t kSubUnitsPerPixel = 256;
 // unrecoverable desync).
 inline constexpr std::int32_t kTicksPerSecond = 60;
 
-// --- How many fighters a match has (docs/ADR-009) ---------------------------
+// --- How many fighters a match has (docs/adr/ADR-009) ---------------------------
 
 // EIGHT, AND THE NUMBER IS MEASURED RATHER THAN CHOSEN.
 //
@@ -266,7 +266,7 @@ static_assert(kMaxFighters == 8,
               "kMaxFighters is pinned to the width of Fighter::alreadyHitBits. "
               "Changing it means changing that field's type, re-deriving "
               "Fighter's padding, and re-recording the cross-toolchain golden -- "
-              "see docs/ADR-009 section 7's 'Reversed if'.");
+              "see docs/adr/ADR-009 section 7's 'Reversed if'.");
 // Written without naming std::size_t, because this header includes <cstdint> and
 // not <cstddef> -- and the kernel's include list is short on purpose.
 static_assert(kMaxFighters <= static_cast<std::int32_t>(sizeof(std::uint8_t) * 8u),
@@ -299,7 +299,7 @@ struct InputPair {
     Input p[kMaxFighters];
 };
 
-// --- Starting a match (docs/ADR-009 section 5) ------------------------------
+// --- Starting a match (docs/adr/ADR-009 section 5) ------------------------------
 
 // One slot's opening conditions.
 //

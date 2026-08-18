@@ -1,8 +1,10 @@
 # ADR-005 — What to build first for a playable game, and why art is not it
 
-**Status.** Accepted 2026-08-15. Amends the build order in
-[`ARCHITECTURE.md`](ARCHITECTURE.md) §6 Phase 3 in light of what Phases 0–2 actually
-delivered, and answers the question "what does the playable game need, in what order,
+**Status.** Accepted 2026-08-15 · **P0–P2 implemented** (P2 @ `41ea6e5`); P3–P5 are tracked as
+[ROADMAP.md](../ROADMAP.md) M1–M3. Amended the build order in the then-current
+`ARCHITECTURE.md` §6 Phase 3 — since rewritten, so read that section in
+[`docs/archive/ARCHITECTURE-2026-08-12.md`](../archive/ARCHITECTURE-2026-08-12.md) — in light of
+what Phases 0–2 actually delivered, and answers the question "what does the playable game need, in what order,
 including 3D animation and placeholder assets".
 
 **Context.** The user's ask: *"having the actual game so that playtesters can validate

@@ -1,5 +1,7 @@
 # Physics
 
+Verified: 2026-08-17 @ e2f08bd
+
 Cat Splat Engine simulates rigid bodies through a **backend-agnostic seam**. You author physics with a small set of ECS components (`RigidBody` plus one collider), and the actual solving is done by whichever physics library the build selected — Jolt, PhysX, or the built-in dependency-free "Simple" backend. Your scene data, your gameplay code, and the editor UI never mention a library type, so you can switch engines at runtime and compare results.
 
 This page covers how the seam works, how to set up simulated objects, how to react to collisions and triggers, how to query the world with raycasts, and how to plug in a new physics library.
@@ -345,7 +347,7 @@ size_t    BodyCount() const;
 const std::vector<entt::entity>& SkippedEntities() const;
 ```
 
-`ApplyImpulse` and `SetLinearVelocity` return `false` when the world has no backend or the entity has no body, and both **wake the body** afterwards — a sleeping body ignores an impulse, so without the wake a script that nudges a settled object appears to do nothing. This pair is what `ScriptWorld` bridges to the scripting host, and it surfaces in Lua as `applyImpulse(v)` / `setVelocity(v)` (see [Lua scripting](lua-scripting.md)).
+`ApplyImpulse` and `SetLinearVelocity` return `false` when the world has no backend or the entity has no body, and both **wake the body** afterwards — a sleeping body ignores an impulse, so without the wake a script that nudges a settled object appears to do nothing. This pair is what `ScriptWorld` bridges to the scripting host, and it surfaces in Lua as `applyImpulse(v)` / `setVelocity(v)` (see [Lua scripting](gameplay-scripting.md#lua-presentation-and-tooling-only-never-the-simulation)).
 
 `SetGravity` updates the stored settings even when no backend is active, so the value is kept while the world has no backend. It does **not** survive a backend switch: `SetBackend` replaces the stored settings with the ones passed to it (default gravity when omitted), so re-apply your gravity afterwards. `Gravity()` reads from the backend when there is one, otherwise from the stored settings.
 
@@ -460,6 +462,6 @@ endif()
 
 The helper is `cse_add_isolated_backend(<target>, <source file>, <compile define>, <SDK targets...>)` — the define is the third positional argument and the SDK targets are trailing and variadic, because a backend may need more than one (the Lua backend passes `sol2 lua-cpp`). It is shared with the scripting seam, which is why it is no longer named after physics.
 
-> **Important — use the `cse_add_isolated_backend` helper; do not link an SDK straight into `Engine`.** The same helper builds the scripting backends, because the isolation problem is identical — Jolt exports `_HAS_EXCEPTIONS=0` and vcpkg's Lua exports `LUA_BUILD_AS_DLL`, so the fix is written once. Each backend gets its own **STATIC** library with the SDK linked `PRIVATE`. Imported SDK targets propagate INTERFACE compile definitions to every consumer source file, and Jolt's include `_HAS_EXCEPTIONS=0`. Linking Jolt directly into `Engine` rebuilt the *entire engine* without exception support, which turned the `std::filesystem` throw that `AssetIndex` relies on (non-codepage filenames) into a `0xC0000409` fast-fail and would have silently broken every other `try`/`catch` in the engine. `STATIC` rather than `OBJECT` is load-bearing: for a static library CMake records PRIVATE deps as `$<LINK_ONLY:...>`, so `Engine` inherits the SDK's `.lib` for linking but not its INTERFACE compile definitions or include directories.
+> **Important — use the `cse_add_isolated_backend` helper; do not link an SDK straight into `Engine`.** Each backend gets its own **STATIC** library with the SDK linked `PRIVATE`, and that isolation is load-bearing rather than stylistic: Jolt's imported target propagates `_HAS_EXCEPTIONS=0` as an INTERFACE compile definition, which once rebuilt the entire engine without exception support. The full account — what it broke, and why `STATIC` rather than `OBJECT` is the part that matters — is on the [architecture page](architecture.md#the-sdk-isolation-rule), which is its one home.
 
 Once your backend is registered it appears in the editor's picker automatically, and `tests/test_physics.cpp` runs the whole conformance suite against it — backends are discovered at runtime via `PhysicsBackendRegistry::Available()`. If your library disagrees with the others about what "a 1 kg box dropped onto a ground plane" does, that suite says so.

@@ -1,7 +1,7 @@
 # ADR-011 — Mechanics are fields, not rules
 
 **Status.** Proposed 2026-08-17. Constrains every kernel, data and presentation
-work package in [ROADMAP.md](ROADMAP.md) M1 and M3. Changes no behaviour on its
+work package in [ROADMAP.md](../ROADMAP.md) M1 and M3. Changes no behaviour on its
 own. Verified against `master` @ `99669cc`.
 
 **Decides.** How a fighting-game mechanic enters the engine (as authored data on
@@ -110,7 +110,7 @@ nouns, not a grammar"). This ADR makes that the rule rather than the habit.
    models distance, pushback, walk, corner and every opt-in mechanic. Agreement
    validates the model; disagreement is *named* by the projection-loss row that
    explains it (microwalk lives in `walk_speed`/`gap_actions`, which the C++
-   header drops — [ARCHITECTURE.md](ARCHITECTURE.md) §5.2); a search that hits
+   header drops — [ARCHITECTURE.md](../ARCHITECTURE.md) §5.2); a search that hits
    its budget is **UNRESOLVED**, never a verdict, exactly as the prover's
    `capped` is.
 

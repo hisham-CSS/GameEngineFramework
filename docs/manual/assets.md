@@ -1,5 +1,7 @@
 # Assets
 
+Verified: 2026-08-17 @ e2f08bd
+
 Assets are the files your game loads at runtime: models, their textures, shaders and saved scenes. This page covers where they live, how the engine loads them (synchronously and asynchronously), how the editor sees them, and how to validate them before you ship.
 
 Everything here is CPU/GPU plumbing you can drive from code, plus two user-facing surfaces: the editor's **Assets** panel and the headless `AssetCooker` executable.
@@ -14,7 +16,7 @@ explicit AssetIndex(std::string root = "Exported");
 
 Paths used throughout the engine are *engine-style*: forward slashes, rooted at the asset root, e.g. `Exported/Model/backpack.obj`.
 
-Source content lives in `Editor/src/Exported/` and is staged into the runtime `Exported/` next to the built executables by the shared `runtime_assets` CMake target, defined in `Editor/CMakeLists.txt` and driving `cmake/stage_runtime_assets.cmake`. `Editor`, `PlayerDebug`, `PlayerShipping` and `AssetCooker` all `add_dependencies` on that single target, so exactly one writer owns that directory.
+Source content lives in `Editor/src/Exported/` and is staged into the runtime `Exported/` next to the built executables by the shared `runtime_assets` CMake target, defined in `Editor/CMakeLists.txt` and driving `cmake/stage_runtime_assets.cmake`. `Editor`, `PlayerDebug`, `PlayerShipping` and `AssetCooker` all `add_dependencies` on that single target. **One writer owns that directory**, and the reason — plus what happens to a scene you saved — is [the staging rule](scenes-and-shipping.md#the-staging-rule).
 
 ## Supported formats
 

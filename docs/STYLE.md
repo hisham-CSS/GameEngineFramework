@@ -1,5 +1,7 @@
 # Style guide
 
+Verified: 2026-08-17 @ 9f518c2
+
 How code is written in this engine. Every rule below is descriptive — it was
 read out of the existing source, not invented — so following it makes new code
 look like it belongs, and breaking it should be a deliberate decision you can

@@ -1,5 +1,7 @@
 # Rendering
 
+Verified: 2026-08-17 @ e2f08bd
+
 The renderer draws one frame as a fixed sequence of passes: cascaded shadow
 maps, a forward PBR pass into an HDR target, the sky, sorted transparency,
 bloom, a tonemap, and then a chain of LDR post effects (ink outline, colour
@@ -195,16 +197,20 @@ and just discards cut-out fragments in the shader.
 The **opaque path is unchanged**: a scene with no transparent materials sorts,
 batches, and performs exactly as before, and the transparent pass early-outs.
 
-### Limitations (not built yet)
+### What sorted blending cannot do
 
-- **Sort is per-object, not per-mesh-centroid**, and uses the object origin, so
-  overlapping transparents with off-centre pivots can mis-order.
-- **Sorted blending only** — no order-independent transparency, so heavily
-  overlapping translucent surfaces can still show sort artefacts.
+These are properties of the approach, not a queue. A renderer feature arrives
+only when the showcase needs it ([ARCHITECTURE.md](../ARCHITECTURE.md) section 2),
+so read these as the shape of the tool rather than as a list of things coming:
+
+- **The sort is per-object and keyed on the object origin**, not a mesh
+  centroid, so overlapping transparents with off-centre pivots can mis-order.
+- **Sorted blending is the whole mechanism** — there is no order-independent
+  transparency, so heavily overlapping translucent surfaces can still show sort
+  artefacts.
 - The shared forward shader's Mask `discard` can cost early-Z on some GPUs when
-  the (opt-in, off-by-default) depth prepass is enabled; a discard-free opaque
-  shader variant is tracked.
-- No refraction / distortion behind glass.
+  the (opt-in, off-by-default) depth prepass is enabled.
+- Nothing refracts. Glass tints and blends; it does not bend what is behind it.
 
 ## Anti-aliasing (FXAA)
 
@@ -248,9 +254,10 @@ are rejected by an early-out, which is both why it is cheap and why the image
 does not go soft; `test_fxaa.cpp` asserts both halves of that contract, because
 "the image changed" alone would pass for a filter that blurs everything.
 
-### Not built
+### FXAA is the only option
 
-No MSAA option, no TAA, and no sharpening pass to offset FXAA's slight softness.
+There is no MSAA path, no TAA, and no sharpening pass to offset FXAA's slight
+softness — one anti-aliasing implementation, chosen for the reasons above.
 
 ## Environment lighting (skybox + IBL)
 
@@ -336,11 +343,12 @@ mip. Off by one and rough metal samples a sharp mip and sparkles.
 About 0.3 ms/frame at 1080p (the skybox pass plus real IBL sampling in the
 fragment shader). The bake itself is one-off per change, not per frame.
 
-### Not built yet
+### One global environment, re-baked every run
 
-No cubemap disk cache (every run re-bakes), no reflection probes or parallax-
-corrected boxes (one global environment for the whole scene), and the HDRi path
-is typed rather than browsed.
+There is no cubemap disk cache, so every run bakes; there are no reflection
+probes and no parallax-corrected boxes, so the whole scene shares one
+environment; and the HDRi path is typed rather than browsed. The bake is cheap
+enough (see above) that caching it has not been worth a format.
 
 ## PBR material inputs
 
@@ -919,7 +927,7 @@ These are measured results from a per-pass A/B harness
 (`tests/test_perf_render.cpp`, headless, RTX 3050 @ 1080p, 2026-07-20), run
 across static bird's-eye, moving bird's-eye and low oblique wide shots. Every
 configuration agreed. The findings are recorded in
-`docs/ENGINE_AUDIT_2026-07.md`.
+the [performance page](performance.md).
 
 **Wide and bird's-eye frames are vertex/instance-count bound. They are not
 shadow-bound, not PCF-bound, and not fill-bound.**

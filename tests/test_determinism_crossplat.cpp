@@ -98,7 +98,7 @@ constexpr std::uint32_t kGoldenUnrecorded = 0u;
 // WHY THEY MOVED, WHICH IS THE ONLY THING THAT MAKES A RE-RECORD LEGITIMATE.
 // GameState changed shape: Fighter went from 36 bytes to 52 and GameState from
 // 80 to 436, because the P2 batch added the state those systems need AND because
-// the state stopped holding exactly two fighters (docs/ADR-009). The hash is a
+// the state stopped holding exactly two fighters (docs/adr/ADR-009). The hash is a
 // hash of those bytes, so it is stale BY CONSTRUCTION -- which is the case this
 // file's own "WHEN YOU MAY CHANGE THEM" paragraph names as the legitimate one.
 //
@@ -140,7 +140,7 @@ constexpr std::uint32_t kGoldenCheckpoint[kCheckpointCount] = {
 //
 // The arithmetic, from GameState.h's field list. These moved once, in the
 // ADR-005 P2 expansion, which is also when GameState stopped holding exactly two
-// fighters (docs/ADR-009):
+// fighters (docs/adr/ADR-009):
 //   Fighter   = 7 x int32 (28) + 8 x 16-bit (16) + 8 x uint8 (8)  = 52 bytes
 //   GameState = 20-byte header + 8 x Fighter (416)                = 436 bytes
 // Both are multiples of 4, which is the alignment of their widest member, so a

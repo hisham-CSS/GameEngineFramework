@@ -1,6 +1,6 @@
 # ADR-001 — Does the declarative fragment fit a real fighting-game character?
 
-**Status:** Accepted, with two amendments to `docs/ARCHITECTURE.md` and one blocking item.
+**Status:** Accepted 2026-08-12 · **Implemented.** Both amendments are folded into [`ARCHITECTURE.md`](../ARCHITECTURE.md)'s D8 and its research section, and the blocking item — nine schema fields before Phase 3 — landed as `schema.v2.json`.
 **Phase:** 0 (`ARCHITECTURE.md:282-294`). Zero engine code written: no C++ under `Engine/`, no CMake change.
 **Date:** 2026-08-12
 **Decides:** D2, D7, D8, §5.2, §5.3, and the Phase 5 scope.

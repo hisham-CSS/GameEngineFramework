@@ -1,6 +1,6 @@
 # ADR-006 — Stance, guard height, priority and invincibility: six concepts wearing one and a half fields
 
-**Status.** Accepted 2026-08-15 (§§1–10), **extended 2026-08-16** with `move.priority` and
+**Status.** Accepted 2026-08-15 (§§1–10) · **Implemented**, **extended 2026-08-16** with `move.priority` and
 `move.invincibility[]` after the author asked for ArcSys-style priority over aerials. The extension
 lands in §1.6, §2, §3.5–3.7, §4, §6, §9 and §10 items 10–14, and reverses nothing already decided.
 Grows `schema.v2.json` to v3 by **five new fields and one widened enum**, none of the five `[P]`.

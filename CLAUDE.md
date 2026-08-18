@@ -1,5 +1,7 @@
 # GameEngineFramework — how to work here
 
+Verified: 2026-08-17 @ 9f518c2
+
 Cat Splat Engine: a C++17 / OpenGL 3.3 engine (EnTT ECS, 11-pass renderer,
 in-game UI toolkit, three physics backends behind one seam) whose first title,
 **Untitled Fighting Game** under `Games/UntitledFighter/`, is a deterministic
@@ -17,7 +19,7 @@ The engine's job is to make that proof visible and convincing.
    reverting it, build all four configurations) and the invariants that bite.
 4. `docs/STYLE.md` — comments say WHY and name the bug they prevent; tests are
    named as properties; diagnostics list what exists.
-5. `docs/ARCHITECTURE.md` and `docs/adr/` (or `docs/ADR-*.md` before M0.4) — why
+5. `docs/ARCHITECTURE.md` and `docs/adr/` (or `docs/adr/ADR-*.md` before M0.4) — why
    things are the way they are. ADRs are frozen records. **ADR-011** (mechanics
    are fields, not rules; visuals are a pure function of frame data) constrains
    every kernel, data and presentation change.
@@ -79,7 +81,7 @@ written into ROADMAP, not folded in.
 - Use `FixedTimestep`, `paused_` or `timeScale_` to decide how many simulation
   ticks run while a session is live; the session decides, zero is legal,
   dropping is not.
-- Annotate a living doc with AMENDED / STRUCK / strike-through — rewrite the
+- Annotate a living doc with AMENDED / STRUCK / strike-through — rewrite the <!-- docs-ok: names the markers in order to forbid them -->
   sentence. Edit an accepted ADR beyond its Status line — write a new ADR.
 - Add a status table, feature matrix or "not yet built" list anywhere but
   `docs/ROADMAP.md`. Restate a rule instead of linking `docs/DETERMINISM.md`.

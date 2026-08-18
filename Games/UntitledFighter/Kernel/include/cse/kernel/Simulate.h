@@ -44,7 +44,7 @@ void Simulate(GameState& state, const InputPair& inputs);
 // and start health, plus round length and set length. It is what makes a fight
 // startable from something other than "both fighters at +/-100 pixels with 1000
 // health", which every fight in this game was, because the only way to start one
-// said so. See docs/ADR-009 section 5.
+// said so. See docs/adr/ADR-009 section 5.
 void ResetMatch(GameState& state, const MatchSetup& setup);
 
 // The 1v1 opening this project shipped with, as data. Exposed rather than hidden

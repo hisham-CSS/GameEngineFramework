@@ -1,5 +1,7 @@
 # In-game UI and the 2D layer
 
+Verified: 2026-08-17 @ e2f08bd
+
 The engine ships two related things:
 
 - **`Renderer2D`** — a general-purpose batched 2D renderer. It knows nothing
@@ -1964,31 +1966,38 @@ reset, so a leaked blend or depth state would corrupt the next pass.
 | `Engine/src/ui/MenuUIContent.h` | The sample menu's verbs, and the host hooks they need |
 | `Engine/src/render/passes/UIPass.h` | The render pass and the `UIDrawFn` hook |
 
-## Not there yet
+## What this UI deliberately does not do
 
-IME composition (dead keys and layouts work, because text arrives already
-decoded, but there is no composition window). Automatic hyphenation, which needs
-per-language pattern data — soft hyphens are supported and are exact. Justified
-text, which needs variable inter-word spacing the renderer does not have. And
-line-breaking for scripts that do not use spaces: break opportunities are ASCII
-spaces and soft hyphens only. A checkbox, which is why `:checked` is still refused.
-Transitions and animation. `position: fixed`, `position: sticky`, and portals.
+Not a backlog. Almost every item here is missing because something it depends on
+is missing, or because the simpler behaviour is the one that was wanted — and
+where that is not true, the reason is named. What *is* planned lives in
+[ROADMAP.md](../ROADMAP.md), and exactly one item below appears there.
 
+**Text.** No IME composition window (dead keys and layouts work, because text
+arrives already decoded). No automatic hyphenation, which needs per-language
+pattern data — soft hyphens are supported and are exact. No justified text, which
+needs variable inter-word spacing the renderer does not have. And break
+opportunities are ASCII spaces and soft hyphens only, so scripts that do not use
+spaces do not line-break.
+
+**Widgets and style.** No checkbox, which is why `:checked` is still refused. No
+transitions or animation. No `position: fixed`, `position: sticky` or portals.
 Gradients are two stops, corner to corner — no three-stop ramps, no radials, no
 arbitrary angle. Borders are a single uniform width and are **paint only**: no
 per-side widths, and a border does not inset the content box.
 
-On input: no touch, so no kinetic scrolling and no on-screen keyboard; no
+**Input.** No touch, so no kinetic scrolling and no on-screen keyboard. No
 rebinding UI from inside the UI, though `InputMap` is rebindable at runtime and
-that is where it would go; and one nav focus per document, so two players cannot
-drive two cursors through one menu.
+that is where it would go. And **one nav focus per document**, so two players
+cannot drive two cursors through one menu — this is the one item with a schedule:
+character select needs per-player nav scopes, which is an engine change worth its
+own short ADR ([ROADMAP.md](../ROADMAP.md) M3.6).
 
-Within scrolling specifically: kinetic/touch momentum, which needs touch input
-this engine does not have; a reserved scrollbar gutter — CSS invented
-`scrollbar-gutter` to break a reflow loop that overlay bars do not have, so
-`padding-right` is the answer here; hold-to-repeat on a track press; and
-built-in virtualisation — a scroller lays out every row it contains, and a
-`repeat=` inside one describes the POOL rather than the list, though
-`SetContentExtent` lets you window either by hand (see
-[Scrolling](#scrolling-and-clipping)). Drawing off-screen rows is already
-culled; laying them out is not.
+**Scrolling.** No kinetic or touch momentum, which needs touch input this engine
+does not have. No reserved scrollbar gutter — CSS invented `scrollbar-gutter` to
+break a reflow loop that overlay bars do not have, so `padding-right` is the
+answer here. No hold-to-repeat on a track press. And no built-in virtualisation:
+a scroller lays out every row it contains, and a `repeat=` inside one describes
+the **pool** rather than the list, though `SetContentExtent` lets you window
+either by hand (see [Scrolling](#scrolling-and-clipping)). Drawing off-screen
+rows is already culled; laying them out is not.
