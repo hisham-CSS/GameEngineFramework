@@ -31,7 +31,7 @@ without it. Details, tests and proofs of the four properties:
 
 | In flight | Owner | Since |
 |---|---|---|
-| *(nothing — next is M1.1b)* | | |
+| *(nothing — next is M1.1c)* | | |
 
 One work package in flight at a time. The next unblocked one is always the top
 `[ ]` in milestone order below.
@@ -365,6 +365,46 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   `decay.floor` ≤ min hitstun (A01); ADR-009's `alreadyHitBits` width assert;
   explicit `pad_` bytes; the crossplat test scripts jumps by input bits — keep
   that working through the character's jump move.
+- `[ ]` **M1.1c Attack selection is (button × stance), not a button per move.** *(S–M)*
+  **Found at review point R0**, by playing training mode and reading the HUD:
+  the labels are wrong because the bindings are. `air_mp` has its own dedicated
+  key (`O` → `kInputHK`), and `stand_hk` is bound to `kInputMK`
+  (`Games/UntitledFighter/Modes/src/UntitledFighterMode.cpp`). Six attack buttons
+  exist and six *moves* are bound, one each, so the button you press has no
+  relationship to the strength you get, and no move outside that list of six can
+  ever start.
+  **The kernel is already right; the binding table is the wrong layer.**
+  `MoveDef::stance` exists ([ADR-006](adr/ADR-006-stance-and-guard.md)),
+  `StanceAllows` is applied in both the button scan and the cancel scan
+  (`Games/UntitledFighter/Kernel/src/Combat.cpp`), and `fighter_a.json` already
+  authors `air_mp` with `"stance": "air"`. Nothing in the simulation has to
+  change for MP-while-airborne to select `air_mp`; the mode has to stop
+  allocating a button per move.
+  (a) Bind the six attack buttons **once each** — LP, MP, HP, LK, MK, HK — and
+  let the character file's `stance` decide which move each starts. A binding
+  becomes `button → strength`, never `button → move`.
+  (b) Stop encoding stance in the button MASK. The manual's own gotcha is that
+  `crouch_lp` bound to `{Down, LP}` can never fire, because `stand_lp` sits at a
+  lower slot and its `{LP}` is a subset of what is held. Crouching is a **state**
+  the fighter is in, not a chord — which is exactly what `kStanceCrouching` says.
+  (c) A load or build assertion, because (a) makes shadowing possible in a new
+  way: **two moves sharing a button must have disjoint stances**, or the lower
+  slot wins forever and the higher one is dead on arrival. `MatchBuilder`'s
+  existing `can never start` warning becomes this check, stated positively.
+  (d) The HUD reads whichever move the kernel actually started, so the label
+  follows from (a) rather than being corrected separately.
+  **Done when:** `P3Attacks.OneButtonPicksTheMoveForTheStanceYouAreIn` — the same
+  MP bit starts `stand_mp` grounded and `air_mp` airborne;
+  `P3Attacks.TwoMovesOnOneButtonWithOverlappingStancesIsRefused`; and training
+  mode binds six buttons rather than six moves.
+  **Traps:** `kInputDown` is deliberately unbound today because nothing read it —
+  (b) is what gives a crouch state something to read, so bind it in the same
+  change or `kStanceCrouching` stays unreachable. The scan takes the **first**
+  matching slot, which is what makes (c) the difference between a rule and a
+  lottery. And moves start on buttons **HELD**, not pressed: a separate missing
+  field, not this WP's, and easy to mistake for a selection bug while testing.
+  **Blocks M1.3**, which adds movement moves and cancel edges targeting them — a
+  jump cancel means little while a button can only ever start one move.
 - `[ ]` **M1.2 Push boxes and the corner.** *(S–M)* Body separation between
   fighters and the stage edge as a wall; resolution order per NORTHSTAR Phase 2:
   pushbox separation → strikes (throws when they exist). Authored `pushbox`
@@ -661,6 +701,12 @@ source copy, and check which copy you are running before believing anything.
 | **Do** | Move and attack. Toggle the box overlay. Pause, then frame-step through a hit. Open the **Combo Prover** panel and load `Exported/Characters/fighter_a.json`. Press **Demonstrate**. |
 | **Should** | Boxes track the fighters; frame step advances exactly one tick; the panel prints a verdict with dead cancels and the settling index; Demonstrate plays the prover's own printed loop, frame-perfectly, with no human timing. |
 | **Wrong if** | Frame step advances more than one tick, or the demonstration drops a link. Either means the mode is deciding tick counts rather than the session ([DETERMINISM.md](DETERMINISM.md) T1). |
+
+**R0 has already earned itself.** Playing training mode and reading the HUD is
+what found that attacks are labelled wrong — `air_mp` has its own dedicated
+button instead of being *MP while airborne*. No test could have caught it: every
+one of them passes, because the kernel does exactly what the binding table tells
+it to, and the binding table is where the mistake is. That is **M1.1c**.
 
 ### R1 — After M1.1b: the file is the game
 
