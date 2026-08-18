@@ -112,8 +112,10 @@ failing `ctest` run instead of a manual A/B session.
 
 ### Running it
 
-The test is registered in `tests/CMakeLists.txt` with the label `perf`,
-`RUN_SERIAL TRUE`, and a 300 s timeout:
+The test is registered in `tests/CMakeLists.txt` with the labels **`perf;gl`**,
+`RUN_SERIAL TRUE`, and a 300 s timeout. Both labels, because it needs a real
+context as well as a quiet machine — so `-LE perf` alone does not exclude it from
+a `gl` run:
 
 ```
 ctest -L perf -V

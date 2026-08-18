@@ -1,5 +1,7 @@
 # Using the Editor
 
+Verified: 2026-08-17 @ e2f08bd
+
 The Cat Splat Engine editor is the authoring tool for scenes: you place and parent entities, add components, tune rendering and physics, and press Play to run the game inside the editor. It is a Dear ImGui application built on top of the same `MyCoreEngine::Application` the shipped player uses, so what you see in the **Game** panel is what the player renders.
 
 Source of truth for everything on this page: `Editor/src/EditorApplication.h`, `Editor/src/EditorApplication.cpp`, `Editor/src/EditorImGuiLayer.cpp`, `Editor/src/ImGuiInputMap.h`, `Editor/src/UndoHistory.h`, and `Editor/src/panels/`.
@@ -574,7 +576,9 @@ What Play does (`startPlay_`):
 6. compiles and starts the scripts — the script world is handed the editor's input map, then `Rebuild` compiles (a broken file is reported here, and a failed script is skipped) and `Start` runs `OnStart` — and starts the audio voices (`playOnStart` sources begin now),
 7. enables the gameplay hooks (`FixedUpdate` / `Update`), which are off in edit mode.
 
-What Stop does (`stopPlay_`): disables gameplay and gameplay input, then — *before* the restore — destroys every physics body, clears the scripts (which fires `OnDestroy` while the entities still exist), and stops every audio voice; then restores the snapshot, re-enables undo recording, cuts the Game view's director back to the edit-mode camera, drops play-requested asset ops, and forces a CSM rebuild.
+What Stop does (`stopPlay_`), in this order: **leaves the active game mode** (`modes_.Leave()` runs first, so a mode's `Exit` sees a live scene), disables gameplay and gameplay input, re-enables undo recording, then — *before* the restore — destroys every physics body, clears the scripts (which fires `OnDestroy` while the entities still exist), and stops every audio voice; then restores the snapshot, cuts the Game view's director back to the edit-mode camera, drops play-requested asset ops, and forces a CSM rebuild.
+
+> **If the game swapped scenes while playing**, Stop does not restore the snapshot at all — it reloads the scene you pressed Play in, from its file. The snapshot describes a scene that is no longer in the registry, so restoring it would resurrect entities from a different level. If that reload fails, the editor says so in the scene status line rather than leaving you in the played scene silently.
 
 > ### IMPORTANT — Play snapshots, Stop restores
 >
