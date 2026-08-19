@@ -1909,10 +1909,16 @@ TEST(TrainingModeVerdict, ACertifiedAwayCycleOutrunsTheAnalysisOwnWorstCase) {
         ASSERT_NE(effects, nullptr)
             << "the build no longer reports what happens to `move.effect`, so "
                "nothing here can claim the kernel omits it";
-        EXPECT_EQ(effects->direction, BuildLossDirection::KernelOmits)
-            << "`move.effect` is no longer omitted by the kernel. If resources "
-               "landed, THE GAP THIS TEST MEASURES HAS CLOSED and the assertions "
-               "below should be inverted rather than relaxed: " << effects->note;
+        // Resources LANDED in ROADMAP M1.1b and this row is `exact` now. The gap
+        // this test measures has NOT closed, and the distinction is the finding:
+        // the kernel applies the delta and then clamps it at the authored floor,
+        // so a cost the defender cannot pay is forgiven instead of ending the
+        // combo. `playsAsAnalysed` below is still false, and it is false for a
+        // narrower reason than when this test was written.
+        EXPECT_EQ(effects->direction, BuildLossDirection::Exact)
+            << "`move.effect` is recorded as "
+            << BuildLossDirectionName(effects->direction)
+            << ", and this test now needs it to be Exact: " << effects->note;
         EXPECT_GT(effects->count, 0);
         EXPECT_FALSE(rig.build.report[0].playsAsAnalysed)
             << "the build claims the kernel plays this character exactly as the "

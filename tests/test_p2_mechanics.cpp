@@ -1136,3 +1136,212 @@ TEST(P3Movement, ACharacterThatAuthorsNoWalkSpeedKeepsThePlaceholder) {
            "cross-toolchain scripted match, whose golden hash is recorded "
            "against these positions -- expects the old number.";
 }
+
+// --- Resources ---------------------------------------------------------------
+//
+// A resource is whatever the character file says it is: meter, juggle, a stock
+// of one-per-round reversals. The kernel holds four integer slots and no names
+// at all, because the loader resolved every authored name to an INDEX once and
+// index i means the same resource in every file a build loads. That is the
+// contract the prover keys on positionally (ADR-001 section 8 item 7, A03), and
+// the third test below is the one that would notice it being broken.
+namespace {
+
+constexpr std::int32_t kMeterSlot  = 0;
+constexpr std::int32_t kSecondSlot = 1;
+
+// One resource, meter-shaped: starts empty, cannot go below zero, caps at 100.
+// The move on slot 1 gains 25 of it per contact.
+std::unique_ptr<MatchData> meterBench() {
+    auto d = twoFighters();
+    for (int p = 0; p < 2; ++p) {
+        FighterData& fd = d->p[p];
+        fd.resourceCount              = 1;
+        fd.resources[kMeterSlot]      = ResourceDef{ 0, 0, 100, 1u, {0, 0, 0} };
+        fd.moves[1].effect[kMeterSlot] = 25;
+    }
+    return d;
+}
+
+}  // namespace
+
+TEST(P3Resources, MeterGainsOnHitAndSpendsOnGuard) {
+    auto data = meterBench();
+    GameState s = facingOff();
+
+    ASSERT_EQ(s.p[0].res[kMeterSlot], 0)
+        << "the bench opened with meter already in it, so a gain cannot be told "
+           "from the starting value";
+
+    ResolveHits(s, *data);
+
+    EXPECT_EQ(s.p[0].res[kMeterSlot], 25)
+        << "the attacker's move authored +25 meter and landed, and the fighter "
+           "holds " << s.p[0].res[kMeterSlot]
+        << ". A resource nothing writes is a resource no move can cost.";
+
+    // AND IT STOPS AT THE CEILING. Asserted by driving past it rather than by
+    // reading the field back, because a clamp that is written but never reached
+    // is a clamp nobody has tested.
+    //
+    // The move is RE-ARMED each time: a hit interrupts the defender's move, and
+    // this bench is symmetric, so the first exchange leaves neither fighter
+    // holding an active hitbox. Clearing alreadyHitBits alone gains nothing --
+    // which is how the first draft of this loop measured one hit and called it
+    // ten.
+    for (int i = 0; i < 5; ++i) {
+        for (int q = 0; q < 2; ++q) {
+            s.p[q].moveId         = 1;
+            s.p[q].moveFrame      = 1;
+            s.p[q].alreadyHitBits = 0;
+        }
+        ResolveHits(s, *data);
+    }
+    EXPECT_EQ(s.p[0].res[kMeterSlot], 100)
+        << "meter reached " << s.p[0].res[kMeterSlot]
+        << " against an authored ceiling of 100. A resource that runs past its "
+           "ceiling makes every guard below it meaningless.";
+}
+
+// A guarded move is one the fighter may not START below the minimum -- on
+// EITHER route into it, because a cancel and a button press are two doors into
+// the same room and a door left open is the whole cost avoided.
+//
+// The refusal is a FALL-THROUGH and not a swallowed press: slot order still
+// decides, so an unaffordable super lets the next slot sharing that button
+// answer instead. That is how a super and a heavy normal live on one button in
+// the genre, and it is the half a test that only checked "the super did not come
+// out" would miss.
+TEST(P3Resources, AGuardedCancelRefusesBelowTheMinimum) {
+    auto data = meterBench();
+    FighterData& fd = data->p[0];
+
+    // Slot 2: the expensive follow-up. Same button as nothing else, so the only
+    // question about it is whether it can be afforded.
+    fd.moves[2]                   = fd.moves[1];
+    fd.moves[2].button            = kInputMP;
+    fd.moves[2].effect[kMeterSlot] = 0;
+    fd.moves[2].guard[kMeterSlot]  = 50;
+    fd.moves[2].guardMask          = 1u << kMeterSlot;
+    fd.moveCount                   = 3;
+
+    // And a cancel into it from slot 1, so both routes are exercised.
+    CancelEdge& e   = fd.cancels[0];
+    e.from          = 1;
+    e.to            = 2;
+    e.earliestFrame = 1;
+    e.latestFrame   = 6;
+    e.onHit         = 0;
+    fd.cancelCount  = 1;
+
+    // --- the button route, broke ---------------------------------------------
+    {
+        GameState s{};
+        ResetMatch(s, 0x1D7u);
+        InputPair mp{};
+        mp.p[0].bits = kInputMP;
+        Simulate(s, mp, *data);
+
+        EXPECT_EQ(s.p[0].moveId, 0u)
+            << "the expensive move started with " << s.p[0].res[kMeterSlot]
+            << " meter against a minimum of 50. A guard that does not refuse is "
+               "a cost the character never pays.";
+    }
+
+    // --- the button route, paid ----------------------------------------------
+    {
+        GameState s{};
+        ResetMatch(s, 0x1D7u);
+        Simulate(s, InputPair{}, *data);      // tick 0 primes; then afford it
+        s.p[0].res[kMeterSlot] = 50;
+
+        InputPair mp{};
+        mp.p[0].bits = kInputMP;
+        Simulate(s, mp, *data);
+
+        EXPECT_EQ(s.p[0].moveId, 2u)
+            << "the fighter holds exactly the minimum and the move still did not "
+               "start. The guard is a MINIMUM, so equal must pass -- an "
+               "off-by-one here makes every cost one higher than the file says.";
+    }
+
+    // --- the cancel route, broke ---------------------------------------------
+    {
+        GameState s{};
+        ResetMatch(s, 0x1D7u);
+        InputPair lp{}, mp{};
+        lp.p[0].bits = kInputLP;
+        mp.p[0].bits = kInputMP;
+
+        Simulate(s, lp, *data);
+        ASSERT_EQ(s.p[0].moveId, 1u) << "the source move did not start";
+        s.p[0].res[kMeterSlot] = 0;           // undo the source's own gain
+
+        Simulate(s, mp, *data);
+        EXPECT_EQ(s.p[0].moveId, 1u)
+            << "the cancel into the expensive move was taken with "
+            << s.p[0].res[kMeterSlot]
+            << " meter. A guard checked on one route into a move and not the "
+               "other is not a guard.";
+    }
+
+    // --- the cancel route, paid ----------------------------------------------
+    {
+        GameState s{};
+        ResetMatch(s, 0x1D7u);
+        InputPair lp{}, mp{};
+        lp.p[0].bits = kInputLP;
+        mp.p[0].bits = kInputMP;
+
+        Simulate(s, lp, *data);
+        ASSERT_EQ(s.p[0].moveId, 1u);
+        s.p[0].res[kMeterSlot] = 50;
+
+        Simulate(s, mp, *data);
+        EXPECT_EQ(s.p[0].moveId, 2u)
+            << "the cancel was refused although the minimum was met.";
+    }
+}
+
+// THE CONTRACT ITSELF: index i in the file is index i in the kernel.
+//
+// Not a restatement of the loader's own assertion. The loader proves it resolved
+// NAMES to indices consistently; this proves the BRIDGE did not reorder them on
+// the way through, which is the step where a sort or a map would be invisible.
+// Two resources with different numbers is the smallest arrangement in which a
+// swap is detectable at all -- with one slot every ordering is the same
+// ordering.
+TEST(P3Resources, IndexOrderIsTheFilesOrder) {
+    auto data = twoFighters();
+    FighterData& fd = data->p[0];
+    fd.resourceCount           = 2;
+    fd.resources[kMeterSlot]   = ResourceDef{ 7,  0, 100, 1u, {0, 0, 0} };
+    fd.resources[kSecondSlot]  = ResourceDef{ 3, -5,  50, 1u, {0, 0, 0} };
+
+    // Distinct deltas, so a swap shows up as the wrong slot moving rather than
+    // as no change at all.
+    fd.moves[1].effect[kMeterSlot]  = 10;
+    fd.moves[1].effect[kSecondSlot] = -1;
+
+    GameState s = facingOff();
+    ASSERT_EQ(s.p[0].res[kMeterSlot], 0)
+        << "facingOff() does not run a tick, so nothing has primed yet";
+
+    // One tick to prime, then the hit.
+    GameState primed{};
+    ResetMatch(primed, 0xC0FFEEu);
+    Simulate(primed, InputPair{}, *data);
+    EXPECT_EQ(primed.p[0].res[kMeterSlot],  7)
+        << "slot 0 primed to " << primed.p[0].res[kMeterSlot]
+        << " and the file declares 7 first. If this is 3 the two declarations "
+           "were swapped between the file and the kernel, and every effect, "
+           "guard and prover comparison in this build is off by one slot.";
+    EXPECT_EQ(primed.p[0].res[kSecondSlot], 3);
+
+    s.p[0].res[kMeterSlot]  = 7;
+    s.p[0].res[kSecondSlot] = 3;
+    ResolveHits(s, *data);
+
+    EXPECT_EQ(s.p[0].res[kMeterSlot],  17) << "slot 0 took slot 1's delta";
+    EXPECT_EQ(s.p[0].res[kSecondSlot],  2) << "slot 1 took slot 0's delta";
+}

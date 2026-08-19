@@ -218,20 +218,26 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
             "ground-only move is startable in the air. More is possible in the "
             "game than in the file.");
 
-    addLoss(report, "move.guard", BuildLossDirection::KernelPermits, withGuard,
-            "The resource minimum a move requires -- meter, for the shipped "
-            "characters. Fighter::meter exists but nothing reads it, so a super "
-            "that costs a full bar is startable on an empty one.");
+    addLoss(report, "move.guard", BuildLossDirection::Exact, withGuard,
+            "The resource minimum a move requires. MoveDef::guard carries it and "
+            "both start routes -- the button scan and the cancel scan -- refuse "
+            "a move the fighter cannot afford, so a super that costs a full bar "
+            "is no longer startable on an empty one. A refused slot falls "
+            "through to the next one sharing the button rather than eating the "
+            "press.");
 
-    addLoss(report, "move.effect", BuildLossDirection::KernelOmits, withEffect,
-            "The resource delta a move applies. Fighter::meter exists but nothing "
-            "writes it, so meter is never gained either. The two halves cancel "
-            "into 'resources are not simulated' rather than into 'no difference'.");
+    addLoss(report, "move.effect", BuildLossDirection::Exact, withEffect,
+            "The resource delta a move applies. MoveDef::effect carries it and "
+            "ResolveHits applies it on contact -- on block as well as on hit, "
+            "which is the genre norm for meter -- clamped to each resource's "
+            "authored floor and ceiling.");
 
-    addLoss(report, "resources", BuildLossDirection::KernelOmits,
+    addLoss(report, "resources", BuildLossDirection::Exact,
             static_cast<std::int32_t>(c.resources.size()),
-            "Declared resources and their initial/floor/ceiling. The kernel has "
-            "one integer called meter and no ceiling logic at all.");
+            "Declared resources with their initial, floor and ceiling. "
+            "FighterData::resources carries them in FILE ORDER, which is the "
+            "positional contract the prover keys on, and Fighter::res is primed "
+            "from `initial` on the match's first tick.");
 
     addLoss(report, "move.hit_condition", BuildLossDirection::KernelPermits, withHitCondition,
             "A predicate over the DEFENDER gating whether the move connects -- "
@@ -598,6 +604,30 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
     // arrives here as zero and the kernel keeps its placeholder.
     out.walkSpeedSub = character.walkSpeedSub;
 
+    // The resource declarations, in FILE ORDER, which is the whole contract:
+    // slot i here is slot i of Fighter::res, of MoveDef::effect and of the
+    // prover's own vector (ADR-001 section 8 item 7, assertion A03). Nothing
+    // sorts or renames on the way through, because any reordering here would be
+    // invisible and would make two builds of the same file disagree.
+    const std::size_t declared = character.resources.size();
+    out.resourceCount = static_cast<std::int32_t>(
+        declared < static_cast<std::size_t>(cse::kernel::kMaxResources)
+            ? declared
+            : static_cast<std::size_t>(cse::kernel::kMaxResources));
+    for (std::int32_t i = 0; i < out.resourceCount; ++i) {
+        const cse::data::ResourceDef& r = character.resources[static_cast<std::size_t>(i)];
+        out.resources[i].initial    = r.initial;
+        out.resources[i].floor      = r.floor;
+        out.resources[i].ceiling    = r.ceiling;
+        out.resources[i].hasCeiling = r.hasCeiling ? 1u : 0u;
+    }
+    if (declared > static_cast<std::size_t>(cse::kernel::kMaxResources))
+        report.warnings.push_back(
+            "this character declares " + num(static_cast<std::int32_t>(declared)) +
+            " resources and the kernel holds " + num(cse::kernel::kMaxResources) +
+            "; the extra declarations are dropped, and every effect or guard "
+            "naming one of them is dropped with it.");
+
     // --- Bindings -----------------------------------------------------------
     const std::size_t moveCount = character.moves.size();
     std::vector<std::uint16_t> button(moveCount, 0u);
@@ -672,6 +702,27 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
         // only", which is the behaviour every shipped move has today. Still
         // written explicitly, because the handshake hashes these bytes.
         m.negativeEdge = 0;
+
+        // RESOURCES, SPARSE IN THE FILE AND DENSE IN THE KERNEL. The authored
+        // form is a sorted list of (index, value) because a character may
+        // declare four resources and a move may touch one; the kernel form is a
+        // fixed array because D4 forbids unbounded growth in anything the
+        // simulation reads and because an array indexed by the contract needs no
+        // search at tick time. Scattering happens here, once.
+        //
+        // Out-of-range indices are dropped rather than clamped: index 3 landing
+        // on slot 0 would silently spend the wrong resource, and A03 already
+        // guarantees the loader resolved every name against this character's own
+        // declaration. A count that exceeded kMaxResources is a load error.
+        for (const cse::data::ResourceAmount& e : src.effect)
+            if (e.resource < cse::kernel::kMaxResources)
+                m.effect[e.resource] = e.value;
+        for (const cse::data::ResourceAmount& g : src.guard)
+            if (g.resource < cse::kernel::kMaxResources) {
+                m.guard[g.resource] = g.value;
+                m.guardMask = static_cast<std::uint8_t>(
+                    m.guardMask | (1u << g.resource));
+            }
 
         if (src.hitstun > 0xFFFF) {
             report.warnings.push_back(

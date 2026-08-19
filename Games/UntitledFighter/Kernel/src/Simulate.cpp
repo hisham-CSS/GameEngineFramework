@@ -363,6 +363,32 @@ void Simulate(GameState& state, const InputPair& inputs, const MatchData& data) 
     // rule's simplest possible form, and it is why widening from two fighters to
     // eight changed nothing about determinism.
     const int n = liveCount(state);
+
+    // RESOURCES ARE PRIMED ON THE FIRST TICK, not in ResetMatch, and the reason
+    // is the one already written beside the juggle restore below it: ResetMatch
+    // does not take the character data, and "restored from the character data on
+    // the first tick, before anything can read it" is where that rule already
+    // lives. Doing it here rather than in stepFighter keeps it in ONE visible
+    // place instead of eight copies of a first-tick condition.
+    //
+    // It cannot join the per-combo restore beside juggle, and that is the whole
+    // design point. Juggle is spent within one combo and restored when the
+    // defender leaves hitstun; METER IS NOT -- `fighter_a` opens with 300 of it
+    // and spends it across a round. A restore-every-idle-tick would hand the
+    // meter back the instant the defender recovered, which is not a balance
+    // choice, it is a resource that cannot be spent.
+    //
+    // Tick zero rather than a "primed" flag because GameState may not grow here
+    // (this WP is the data path onto M1.1a's fields, not a second expansion) and
+    // because a flag would be a byte two peers could disagree about. Re-running
+    // tick zero after a rollback re-primes to exactly the same numbers, which is
+    // what makes a tick-index condition safe in a re-simulating kernel at all.
+    if (state.tick == 0) {
+        for (int i = 0; i < n; ++i)
+            for (std::int32_t r = 0; r < kMaxResources; ++r)
+                state.p[i].res[r] = data.p[i].resources[r].initial;
+    }
+
     for (int i = 0; i < n; ++i) {
         stepFighter(state.p[i], inputs.p[i], data.p[i]);
     }

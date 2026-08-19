@@ -407,6 +407,45 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   `const MatchData*` parameter defaulting to null, where null means "this reset
   does not know the characters, so resources stay zero" — additive, no ripple,
   and the real paths (`FightSession`, `FightView`) pass it.
+  **Slice 3 landed: resources are simulated — and it did NOT close the gap, which
+  is the finding.** Priming happens on the match's first tick rather than in
+  `ResetMatch` (the kernel already sited the juggle restore that way and says
+  why); `MatchBuilder` scatters the authored sparse `(index, value)` lists into
+  dense arrays in FILE ORDER; `ResolveHits` applies `effect[]` on contact, on
+  block as well as on hit, clamped to each resource's floor and ceiling; and
+  BOTH start routes — the button scan and the cancel scan — refuse a move whose
+  `guard[]` minimum is unmet, falling through to the next slot rather than
+  eating the press. `move.effect`, `move.guard` and `resources` are all `exact`
+  in the loss ledger now. Proved by `P3Resources.MeterGainsOnHitAndSpendsOnGuard`,
+  `.AGuardedCancelRefusesBelowTheMinimum` and `.IndexOrderIsTheFilesOrder`; all
+  three fail with the kernel change reverted.
+  **THE HEADLINE COUNT DID NOT MOVE, and the reason is a decision nobody has
+  taken yet.** Three tests asserted their premise as *"the kernel does not
+  simulate resources"* and went red on the loss row alone; their outcome
+  assertions never moved. `GapExtentKernel.NinetySevenOfThe121RunForever` still
+  counts 97. The gap is now narrower and exactly locatable: **`ApplyEffects`
+  CLAMPS at the authored floor.** The model ends these cycles when juggle runs
+  out; the kernel tracks the same juggle, arrives at the same zero, and carries
+  on, because nothing refuses a move whose effect would breach a floor. A guard
+  would refuse it — but no shipped move authors a guard on juggle, and juggle is
+  spent through `effect`, not `guard`.
+  **THE DECISION, AND IT IS THE AUTHOR'S BECAUSE IT MOVES THE PAPER'S NUMBER.**
+  Should a move whose `effect` would take a resource below its floor be refused
+  rather than clamped? Yes is what the model assumes, and it would close most of
+  the measured model/game gap in one line — and change 97-of-121 to something
+  else. No keeps the clamp and leaves the gap as a documented, quantified
+  finding. **Not taken here**, because "safe and reversible" is not the test when
+  the output is a research measurement: the number is the contribution, and it
+  may not move because an agent found a tidy line. Also note
+  `MatchBuilder` has never set `MoveDef::juggleCost` — the kernel's juggle gate
+  has been inert for every built character since it was written, which is a
+  second, independent half of the same gap and should be decided with the first.
+  **Also still open:** `effect[]`/`guard[]` on CANCEL EDGES (only moves carry
+  them; `cancel.effect` and `cancel.guard` are untouched in the ledger), and
+  mirroring whichever slot the file calls juggle into `Fighter::juggle`.
+  `GapExtentModel.EveryCycleIsEndedByJuggleAndNoCycleTouchesMeter` was expected
+  to invert here and did not need to: it reads the MODEL (`CharacterData`), not
+  the kernel, so it says nothing about what the kernel now does.
 - `[-]` **M1.1 Resources, movement parameters, and the one state expansion.** *(M)* — split into M1.1a and M1.1b above.
   Today `Fighter::meter` exists and no file in `Games/UntitledFighter/Kernel/src/`
   writes it; juggle has bespoke rules; walk speed and jump impulse are

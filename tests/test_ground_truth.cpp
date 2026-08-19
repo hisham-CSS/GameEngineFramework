@@ -1550,15 +1550,32 @@ TEST(GroundTruthGap, TheKernelPerformsItForeverBecauseItHasNoResources) {
     // WHY, in the loss table's own words. Both of these are already recorded by
     // MatchBuilder as things the kernel does not do; what this test adds is that
     // one of them is load-bearing for a TERMINATING verdict.
+    // WHY, and the answer moved under this test in ROADMAP M1.1b without the
+    // OUTCOME moving at all -- which is worth more than either half alone.
+    //
+    // The kernel now carries this character's resource effects and applies them
+    // on contact, so `move.effect` reads `exact` and the old sentence here --
+    // "the kernel does not simulate resources" -- is no longer true. The loop
+    // still runs forever, and the reason is narrower and more interesting:
+    // ApplyEffects CLAMPS at the authored floor. A juggle cost the defender
+    // cannot pay is silently forgiven rather than ending the combo, because
+    // nothing in the kernel refuses a move whose effect would breach a floor.
+    //
+    // The model terminates these cycles by juggle running out. The kernel
+    // tracks the same juggle, arrives at the same zero, and carries on. That is
+    // the whole of the remaining gap, and closing it is a decision that moves
+    // this file's headline count -- see ROADMAP M1.1b.
     const BuildLoss* effects = findLoss(build.report[0], "move.effect");
     ASSERT_NE(effects, nullptr);
     EXPECT_GT(effects->count, 0)
-        << "the kernel is supposed to be dropping this character's resource "
-           "effects, and the loss table says it drops none";
-    EXPECT_EQ(effects->direction, BuildLossDirection::KernelOmits)
+        << "this character authors no resource effects at all, so neither the "
+           "old argument nor the new one has anything to bite on";
+    EXPECT_EQ(effects->direction, BuildLossDirection::Exact)
         << "`move.effect` is recorded as "
         << BuildLossDirectionName(effects->direction)
-        << " and the argument in this test needs it to be KernelOmits";
+        << " and this test's argument now needs it to be Exact: the effects ARE "
+           "applied, and what keeps the loop alive is the floor clamp rather "
+           "than the delta being dropped.";
 
     const BuildLoss* stance = findLoss(build.report[0], "move.stance");
     ASSERT_NE(stance, nullptr);

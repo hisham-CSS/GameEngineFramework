@@ -1794,10 +1794,15 @@ TEST(GapExtentKernel, NinetySevenOfThe121RunForever) {
     const BuildLoss* stance  = findLoss(probe.report[0], "move.stance");
     ASSERT_NE(effects, nullptr);
     ASSERT_NE(stance, nullptr);
-    EXPECT_EQ(effects->direction, BuildLossDirection::KernelOmits);
+    // `exact` since ROADMAP M1.1b: the kernel carries these effects and applies
+    // them. What still separates it from the model is that ApplyEffects CLAMPS
+    // at the authored floor, so a juggle cost that cannot be paid is forgiven
+    // rather than ending the combo -- the count below is unchanged for exactly
+    // that reason.
+    EXPECT_EQ(effects->direction, BuildLossDirection::Exact);
     EXPECT_GT(effects->count, 0)
-        << "the kernel is supposed to be dropping this character's resource "
-           "effects, and the loss table says it drops none";
+        << "this character authors no resource effects at all, so the gap this "
+           "file measures has nothing to bite on";
     EXPECT_EQ(stance->direction, BuildLossDirection::KernelPermits);
     EXPECT_GT(stance->count, 0)
         << "`air_mp` is an AIR move and the kernel is supposed to have no stance "

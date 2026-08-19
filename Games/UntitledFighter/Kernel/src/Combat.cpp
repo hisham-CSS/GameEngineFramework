@@ -272,6 +272,11 @@ bool CancelIsOpen(const Fighter& f, const CancelEdge& edge) {
     return frame >= edge.earliestFrame && frame <= edge.latestFrame;
 }
 
+// Declared here and defined beside ApplyEffects further down, because both the
+// cancel scan and the button scan below need it and both come before the place
+// resources are otherwise dealt with.
+bool GuardsMet(const Fighter& f, const MoveDef& m);
+
 const CancelEdge* FindCancel(const FighterData& data, const Fighter& f, Input in) {
     // A fighter with no move in progress has nothing to cancel, and a moveId this
     // character's table does not describe is INERT here for the same reason it is
@@ -311,6 +316,13 @@ const CancelEdge* FindCancel(const FighterData& data, const Fighter& f, Input in
         const bool heldNow  = (in.bits & target->button) == target->button;
         const bool buffered = (f.bufferedButtons & target->button) == target->button;
         if (!heldNow && !buffered) continue;
+
+        // AND IT HAS TO BE AFFORDABLE. A cancel into a super the fighter cannot
+        // pay for is not a cancel that fails halfway -- it is an edge that is
+        // not available, so the scan keeps looking and a cheaper edge later in
+        // file order can still take the input. Checked here rather than after
+        // the loop for exactly that reason.
+        if (!GuardsMet(f, *target)) continue;
 
         // The follow-up's own stance condition applies to a cancel exactly as it
         // does to a fresh start. Without this a grounded chain could cancel into
@@ -438,6 +450,12 @@ void StepAttack(Fighter& f, const FighterData& data, Input in, bool actionable) 
 
         if (!byPress && !byBuffer && !byRelease) continue;
 
+        // Affordable, or this slot is not the one this press starts. Slot order
+        // still decides, so a guarded move that cannot be paid for falls through
+        // to the next slot sharing the button -- which is how a super and a
+        // heavy normal live on one button in the genre.
+        if (!GuardsMet(f, m)) continue;
+
         // CONSUMED, not merely aged. A buffered press that only expired would
         // start this move now and start it again on the next actionable tick,
         // which is the rapid-fire bug wearing a different hat.
@@ -452,6 +470,39 @@ void StepAttack(Fighter& f, const FighterData& data, Input in, bool actionable) 
 }
 
 // --- Hit resolution ---------------------------------------------------------
+
+// --- Resources ---------------------------------------------------------------
+
+// Every guard this move declares is satisfied by what the fighter currently
+// holds. A guard is a MINIMUM, checked before the move starts, which is how a
+// super refuses at zero meter rather than starting and going negative.
+//
+// The mask and not a zero test: zero is a legal minimum for a resource whose
+// floor is negative, so "guard[i] == 0" cannot mean "no guard on i".
+bool GuardsMet(const Fighter& f, const MoveDef& m) {
+    if (m.guardMask == 0) return true;      // the common case, and free
+    for (std::int32_t r = 0; r < kMaxResources; ++r)
+        if ((m.guardMask & (1u << r)) != 0 && f.res[r] < m.guard[r]) return false;
+    return true;
+}
+
+// Apply this move's deltas, clamped to each resource's authored range.
+//
+// CLAMPED RATHER THAN REFUSED, because the guard is where refusal lives: by the
+// time this runs the move has already connected, and a gain that would exceed
+// the ceiling is a full meter rather than a hit that did not happen. The floor
+// does the same at the bottom, which is what stops a cost the guard let through
+// -- a resource with no guard at all -- driving a counter negative forever.
+void ApplyEffects(const FighterData& d, Fighter& f, const MoveDef& m) {
+    for (std::int32_t r = 0; r < kMaxResources; ++r) {
+        if (m.effect[r] == 0) continue;
+        const ResourceDef& def = d.resources[r];
+        std::int32_t v = f.res[r] + m.effect[r];
+        if (v < def.floor) v = def.floor;
+        if (def.hasCeiling != 0 && v > def.ceiling) v = def.ceiling;
+        f.res[r] = v;
+    }
+}
 
 void ResolveHits(GameState& state, const MatchData& data) {
     // THE ORDER PROBLEM, AND WHY THIS IS THREE LOOPS.
@@ -582,6 +633,13 @@ void ResolveHits(GameState& state, const MatchData& data) {
 
         atk.alreadyHitBits =
             static_cast<std::uint8_t>(atk.alreadyHitBits | bitForSlot(d));
+
+        // ON CONTACT, AND ON THE ATTACKER. A block is still contact -- a blocked
+        // special that builds meter is the genre norm -- so this sits above the
+        // blocked/hit fork rather than inside either arm. If a character ever
+        // needs to pay differently for a block, that is a second authored field
+        // and not a branch here.
+        ApplyEffects(data.p[a], atk, *m);
 
         // Hitstop freezes BOTH fighters, which is what makes it read as impact
         // rather than as the defender lagging.
