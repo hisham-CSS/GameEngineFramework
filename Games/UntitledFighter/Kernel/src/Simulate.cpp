@@ -103,7 +103,7 @@ void stepFighter(Fighter& f, Input in, const FighterData& data) {
         f.velX = wish;
 
         if ((in.bits & kInputUp) && !f.airborne) {
-            f.velY    = kJumpImpulse;
+            f.velY = data.jumpImpulseSub != 0 ? data.jumpImpulseSub : kJumpImpulse;
             f.airborne = 1;
         }
     } else {
@@ -116,7 +116,10 @@ void stepFighter(Fighter& f, Input in, const FighterData& data) {
     f.crouching = (canAct && !f.airborne && (in.bits & kInputDown)) ? 1u : 0u;
 
     if (f.airborne) {
-        f.velY -= kGravity;
+        // The file's number when there is one; zero means unauthored and the
+        // placeholder above stands. No schema key sets this yet -- see
+        // FighterData::gravitySub for why the field exists ahead of its author.
+        f.velY -= data.gravitySub != 0 ? data.gravitySub : kGravity;
     }
 
     // Pushback rides its own field precisely so that this line survives the `else`

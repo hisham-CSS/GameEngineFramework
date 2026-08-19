@@ -358,6 +358,55 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   **Still open in M1.1b:** `ResourceDef` per slot, `effect[]` on moves and cancel
   edges, `guard[]` minimums, and the remaining movement constants (gravity, jump
   impulse, pushback, hitstop) out of `Simulate.cpp`.
+  **A batching decision the next slice forces, taken 2026-08-19 under a safe
+  default.** Resources need fields on `FighterData`, `MoveDef` and `CancelEdge`;
+  the movement constants need fields on `FighterData`. All three are hashed by
+  the connect handshake, and `sizeof(MoveDef) == 128` is asserted with its
+  growth history written into the message. [ADR-005](adr/ADR-005-playable-priority.md)
+  §3's rule — batch changes, re-golden once, review once — therefore applies to
+  `MatchData` exactly as it does to `GameState`, so growing these structs twice
+  is the thing to avoid.
+  **The complication is that the two halves are not equally ready.** Resources
+  are already loaded: `CharacterData` carries `ResourceDef`, `ResourceAmount`
+  and per-move `effect`/`guard`, and the schema declares them. Gravity and jump
+  are NOT: `schema.v2.json` has no key for either, `CharacterData` has no field,
+  and the only authored number anywhere is an undeclared
+  `quantized_sources.gravity_sub_per_tick2` in `fighter_a_infinite.json` that
+  nothing reads. Adding those keys is a change to the file the *published prover*
+  reads, which is the same contract concern that split M1.1e out.
+  **Default taken: expand the kernel structs ONCE, for resources and movement
+  together, with movement zero-means-unauthored.** The kernel fields cost
+  nothing until something sets them — a zero gravity falls back to
+  `Simulate.cpp`'s placeholder exactly as `walkSpeedSub` does — so the struct
+  moves once now and authoring gravity in a file later is a purely additive
+  schema change that does not move it again. Safe (no behaviour change on any
+  existing character) and reversible (delete the fields), so per CLAUDE.md this
+  proceeds without stopping for a human, and is recorded here because it is a
+  decision rather than a detail.
+  **Slice 2 landed: the batched contract change, layout only.** `MoveDef` gains
+  `effect[kMaxResources]`, `guard[kMaxResources]` and a `guardMask` (a mask and
+  not a sentinel, because zero is a legal minimum for a resource with a negative
+  floor); `FighterData` gains `ResourceDef resources[kMaxResources]`,
+  `resourceCount`, `gravitySub` and `jumpImpulseSub`; a kernel-side
+  `ResourceDef` with no name in it, because the loader resolved names to indices
+  once and the index is the contract. `MoveDef` moves 128 → 164 and the assert is
+  written as *old size plus the new members* so it still asks "did padding
+  appear". `Simulate` reads gravity and jump with the same zero-means-unauthored
+  fallback as walk speed. **No behaviour changed and no test moved**: 58/58 with
+  the expansion in, and the crossplat golden untouched, because nothing authors
+  any of these yet.
+  **Next, and it is the behaviour half:** priming `Fighter::res[]` from
+  `ResourceDef::initial`, applying `effect[]` on contact, checking `guard[]`
+  before a move starts, and mirroring whichever slot the file calls juggle into
+  `Fighter::juggle`. **The one open design point** is where priming happens.
+  `fighter_a` authors `meter` with `initial: 300`, and meter PERSISTS across
+  combos, so it cannot join the per-combo restore beside juggle — that block
+  would wipe accumulated meter every time the defender left hitstun. It belongs
+  at match start, but `ResetMatch` does not take the `MatchData` and has **71
+  call sites across 16 files**. The intended shape is an optional
+  `const MatchData*` parameter defaulting to null, where null means "this reset
+  does not know the characters, so resources stay zero" — additive, no ripple,
+  and the real paths (`FightSession`, `FightView`) pass it.
 - `[-]` **M1.1 Resources, movement parameters, and the one state expansion.** *(M)* — split into M1.1a and M1.1b above.
   Today `Fighter::meter` exists and no file in `Games/UntitledFighter/Kernel/src/`
   writes it; juggle has bespoke rules; walk speed and jump impulse are

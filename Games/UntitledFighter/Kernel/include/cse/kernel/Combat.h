@@ -436,6 +436,31 @@ struct MoveDef {
     std::uint8_t negativeEdge;
 
     InvincibilityWindow invuln[kMaxInvulnWindows];
+
+    // --- Resources (ROADMAP M1.1b) ------------------------------------------
+    //
+    // POSITIONAL, and that is a build-wide contract rather than a convenience.
+    // The prover keys its resource vector by index (ADR-001 section 8 item 7),
+    // so slot i means the same resource in every file a build loads; the loader
+    // resolves each authored name to an index once, and from here down there are
+    // no names at all. Assertion A03 is where the contract is enforced.
+    //
+    // `effect` is a DELTA applied when this move connects: +1 juggle spent, +25
+    // meter gained. Zero is no effect, which is what an unauthored slot holds
+    // and what every character built before this field had.
+    std::int32_t effect[kMaxResources];
+
+    // `guard` is a MINIMUM checked before the move starts: a super that costs
+    // meter refuses below its cost. Guarded slots are named by the mask rather
+    // than by a sentinel, because ZERO IS A LEGAL MINIMUM -- a resource with a
+    // negative floor can be guarded at zero, and a sentinel would silently make
+    // that mean "unguarded" and hand the move away for free.
+    std::int32_t guard[kMaxResources];
+    std::uint8_t guardMask;      // bit i set = guard[i] is checked
+
+    // Explicit, because a hashed POD may not carry indeterminate bytes: the
+    // connect handshake compares these bytes across two machines.
+    std::uint8_t pad2_[3];
 };
 
 // 32 moves per fighter. A hard cap, deliberately: D4 forbids unbounded growth in
@@ -504,6 +529,29 @@ struct CancelEdge {
 inline constexpr std::int32_t kMaxCancelsPerFighter = 256;
 
 // Everything one fighter's simulation reads and never writes.
+// One resource slot, as the kernel sees it. NO NAME: the loader resolved every
+// authored name to an index once, and the index is the contract from there down
+// (ADR-001 section 8 item 7, assertion A03). A name here would be a second
+// spelling of the same fact and the first thing to drift.
+//
+// `hasCeiling` is a flag rather than a sentinel for the reason MoveDef's
+// hasAirborneFrom is: zero is a legal ceiling -- a resource that may never rise
+// above its starting value is a real design -- so no single int can mean both
+// "capped at zero" and "uncapped".
+struct ResourceDef {
+    std::int32_t initial;
+    std::int32_t floor;
+    std::int32_t ceiling;
+    std::uint8_t hasCeiling;
+    std::uint8_t pad_[3];
+};
+
+static_assert(std::is_trivially_copyable_v<ResourceDef>,
+              "MatchData is hashed and compared as bytes");
+static_assert(sizeof(ResourceDef) == 3 * sizeof(std::int32_t) + 4,
+              "ResourceDef grew, shrank, or acquired implicit padding. Same "
+              "connect handshake, same hazard as MoveDef.");
+
 struct FighterData {
     // The body, authored facing +X. This is the DEFAULT body; a move may replace
     // it for the ticks it runs via MoveDef::hurtboxOverride, which is the
@@ -560,6 +608,14 @@ struct FighterData {
     std::int32_t hitstunDecayStep;
     std::int32_t hitstunDecayFloor;
 
+    // --- Resources (ROADMAP M1.1b) ------------------------------------------
+    //
+    // Slot i here is slot i of Fighter::res, of MoveDef::effect and of the
+    // prover's own resource vector. `resourceCount` is how many the file
+    // declared; slots past it are zeroed and never read.
+    ResourceDef  resources[kMaxResources];
+    std::int32_t resourceCount;
+
     // Ground walk speed in sub-units per tick. ZERO MEANS UNAUTHORED, and the
     // kernel then uses the placeholder it used before this field existed --
     // which is what keeps every harness that builds a synthetic FighterData
@@ -577,6 +633,20 @@ struct FighterData {
     // placeholder is 2, so honouring the file is a BEHAVIOUR change and not a
     // no-op -- see ROADMAP M1.1b, which measured it before writing the field.
     std::int32_t walkSpeedSub;
+
+    // Downward acceleration and jump impulse, sub-units. ZERO MEANS UNAUTHORED
+    // on both, exactly as above.
+    //
+    // THESE ARRIVE AHEAD OF ANYTHING THAT CAN SET THEM, and that is deliberate.
+    // `schema.v2.json` has no key for either, so no character can author one
+    // yet and every fighter takes Simulate.cpp's placeholders -- these two
+    // fields change no behaviour today. They are here because MatchData is
+    // hashed by the connect handshake and ADR-005 section 3's rule is to batch
+    // a contract change and review it once: the alternative was to grow this
+    // struct for resources now and again for movement later. Authoring the
+    // schema keys afterwards is then purely additive and moves no bytes.
+    std::int32_t gravitySub;
+    std::int32_t jumpImpulseSub;
 
     // Number of USED slots in moves[], INCLUDING the reserved idle slot 0.
     // A moveId names a real move if and only if 0 < moveId && moveId < moveCount.
@@ -632,13 +702,17 @@ static_assert(std::is_trivially_copyable_v<InvincibilityWindow>,
 static_assert(sizeof(InvincibilityWindow) == 12,
               "InvincibilityWindow grew, shrank, or acquired implicit padding. "
               "Same handshake, same hazard as MoveDef below.");
-static_assert(sizeof(MoveDef) == 128,
+static_assert(sizeof(MoveDef) == 128 + 2 * kMaxResources * sizeof(std::int32_t) + 4,
               "MoveDef grew, shrank, or acquired implicit padding. The connect "
               "handshake hashes these bytes (ARCHITECTURE.md 4.8), so a padding "
               "hole would make two peers with identical characters disagree. "
-              "This was 40 before ADR-005 P2; the growth is priority, blockstun, "
-              "chip, pushback, juggle, hitstop, knockdown, scaling, stance, "
-              "blockedAs, the hurtbox override and the invincibility windows.");
+              "This was 40 before ADR-005 P2 and 128 before M1.1b; the growth is "
+              "priority, blockstun, chip, pushback, juggle, hitstop, knockdown, "
+              "scaling, stance, blockedAs, the hurtbox override, the "
+              "invincibility windows, and then the resource effect and guard "
+              "vectors with their mask. Written as the OLD SIZE PLUS THE NEW "
+              "MEMBERS rather than as a fresh round number, so it still asks "
+              "'did padding appear' and not 'is this what I last wrote down'.");
 static_assert(std::is_trivially_copyable_v<CancelEdge>, "MatchData is hashed and compared as bytes");
 static_assert(sizeof(CancelEdge) == 16,
               "CancelEdge grew, shrank, or acquired implicit padding. Same "
