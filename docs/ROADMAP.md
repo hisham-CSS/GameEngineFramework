@@ -487,6 +487,23 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   `BuildDemonstration` too — which means it reaches **M1.6's showcase**, where
   every replay is a derived trace. Do that first, in one place, and the seven
   files follow.
+  **THE FINDING, and it is about the project's headline number.** With the trace
+  release landed and edge detection applied, the two ground-truth halves separate
+  cleanly and the measured gap moves a long way. `GroundTruthPayoff` still
+  executes the printed witness in full — **26 hits in 160 ticks, defender free on
+  0 of them** — because `fighter_a_infinite`'s self-cancel is a *real cancel
+  edge*. But `GroundTruthControl`, the same trace against the SAFE character,
+  drops from **12 hits to 1**, and `GapExtentKernel.NinetySevenOfThe121RunForever`
+  collapses outright: cycles that "ran forever" manage **1 turn instead of 3**.
+  **Because most of that was the hold-repeat, not the cancel graph.**
+  `docs/manual/fighting-core.md` has said so in a gotcha all along — *holding a
+  button repeats a move the tick it recovers, which is a chain the cancel table
+  never had to contain* — and it turns out to be most of what the 97-of-121
+  figure was counting. So the kernel is **far less permissive than recorded**
+  once input is honest, and the model/game gap M1 exists to close is much smaller
+  than the headline says. That is the right direction for the paper, and it is
+  still a correction to a number this repository publishes about itself:
+  re-measure before quoting it anywhere.
   **Also learned, from reverting:** the first version of
   `HoldingAButtonStartsTheMoveOnceNotEveryRecovery` passed against the bug,
   because it counted `moveId` transitions and a move that restarts the instant it
@@ -537,7 +554,12 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   performable combo exceeds `maxHits` (search to `maxHits + k`), **or** the
   kernel search's counter-example is explained by a named loss-ledger row
   (microwalk → `walk_speed`/`gap_actions`); (c) every reported dead cancel never
-  connects. Delete `NinetySevenOfThe121RunForever` when it is false.
+  connects. Delete `NinetySevenOfThe121RunForever` when it is false — **and it is
+  already false for a reason that is not on this list.** M1.1d's edge detection
+  collapses it from 97 cycles running forever to cycles managing one turn,
+  because most of that permissiveness was the held-button repeat rather than the
+  cancel graph. Re-derive the figure after M1.1d lands; do not adjust the old
+  one.
   **Done when:** those tests pass on every shipped character and patch and on
   the three MUGEN fixtures in `tests/fixtures/characters/`; the search's cost
   per macro-action is measured and recorded here with a date.
