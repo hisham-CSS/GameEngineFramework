@@ -418,7 +418,7 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   `stance: ground` on everything — and `Ground` overlaps both, so her warning is
   **correct** and the assertion was false. Write it against `fighter_a` or a
   synthetic `FighterData`, then restore the check.
-- `[x]` **M1.1d Input edges and buffering — the second state expansion, batched.** *(M)* — `PENDING_SHA`
+- `[x]` **M1.1d Input edges and buffering — the second state expansion, batched.** *(M)* — `8795a46`
   **Found at review point R0**: holding an attack button rapid-fires it. The
   kernel says so itself — `StepAttack`'s scan is *HELD, not pressed*, and the
   comment above it has been asking for this field since it was written: "honest
