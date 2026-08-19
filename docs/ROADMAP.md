@@ -441,6 +441,18 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   bufferedBits` and `std::uint8_t bufferAge` per fighter, with the window a
   **per-character field** (`input_buffer_frames`) defaulted by the schema and not
   by a `constexpr` — [ADR-011](adr/ADR-011-mechanics-are-fields.md) decision 1.
+  **(a) and (c) are the fix the author asked for; (b) is the one they said comes
+  later.** Stated 2026-08-19: *"the way normal attacks behave is they only
+  activate when you press the button — and negative edge helps activate special
+  moves on button up (but no normal attack)"*. So the rule is **press starts a
+  normal; release starts a special that asked for it**, and holding a button is
+  reserved for mechanics that do not exist yet (charge, held specials).
+  **Enforced by being opt-in, not by inspecting the move.** The schema has no
+  move *kind* — a special is distinguished only by its id, and reading semantics
+  out of an id string is the heuristic import
+  [ARCHITECTURE.md](ARCHITECTURE.md) D7 rejects. `negativeEdge` defaults off, so
+  "no normal fires on release" is true by construction unless a file opts a move
+  in, and a normal that opts in is an authoring error rather than a kernel one.
   (c) **Negative edge.** A move may opt in to firing on button *release*
   (`~bits & prev`) — the SF-lineage mechanic where holding a button, inputting a
   motion and releasing performs the special. Opt-in **per move**, off by default,
@@ -512,6 +524,26 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   **The lesson worth more than either:** "the measurement collapsed" is a claim
   about the harness until the harness has been ruled out, and it was published
   before it had been.
+  **Second attempt (2026-08-19) got 7 failing files down to 4, and found the
+  design question that blocks the rest.** Landed in the stash: the four drivers
+  re-press while waiting instead of stalling on a hold; `test_cancels`'s hold
+  became a *buffered press*; `test_combat`'s "two cycles" became two presses;
+  the defender's *mash* became repeated presses, which is what mashing is.
+  Two real bugs found in the kernel half, both mine, both from reverting or
+  instrumenting rather than reading: the buffer captured a press the fighter
+  **could** act on, so the press that started a move started the next one too a
+  window later; and the guard that fixed it (`!canAct`) was itself wrong, because
+  **`canAct` means "not stunned", not "not busy"** — a fighter mid-move is
+  actionable by that measure, so almost nothing was buffered. The condition is
+  "no move started this tick" (`moveId != 0 && moveFrame == 0`), the same signal
+  the demonstration cursor and every driver key on.
+  **THE OPEN QUESTION, and it is a game-feel decision rather than a mechanical
+  one: does a buffered press trigger and consume a CANCEL?** Today
+  `StepAttack`'s cancel branch returns before the button loop, so a buffered
+  press survives a cancel and fires again later — which is what leaves
+  `GapExtentKernel`'s timing account a few frames out per cycle. In most
+  fighting games the answer is yes: the buffered input is exactly what triggers
+  the cancel. Deciding it is the next step, and it is the author's.
   **Also learned, from reverting:** the first version of
   `HoldingAButtonStartsTheMoveOnceNotEveryRecovery` passed against the bug,
   because it counted `moveId` transitions and a move that restarts the instant it
