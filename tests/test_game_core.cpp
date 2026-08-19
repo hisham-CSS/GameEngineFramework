@@ -373,12 +373,25 @@ public:
         return !slots_.empty();
     }
 
-    std::uint16_t Bits() const { return buttons_.empty() ? 0 : buttons_[cursor_]; }
+    // Zero on a release tick -- see BuildDemonstration, which this is the
+    // reference for. A witness that cancels a move into ITSELF asks for the same
+    // button twice running, and a held bit is ONE press however long it lasts.
+    //
+    // THIS IS THE THIRD COPY OF THIS RULE (here, test_ground_truth.cpp, and
+    // FightSession.cpp) and the duplication is why the seam test exists. It is
+    // recorded as work rather than left as a comment -- ROADMAP M1.6.
+    std::uint16_t Bits() const {
+        if (release_ || buttons_.empty()) return 0;
+        return buttons_[cursor_];
+    }
 
     void Observe(std::uint16_t attackerMove, std::uint16_t attackerFrame) {
         if (slots_.empty()) return;
+        if (release_) { release_ = false; return; }
         if (attackerMove != slots_[cursor_] || attackerFrame != 0) return;
+        const std::uint16_t justUsed = buttons_[cursor_];
         cursor_ = (cursor_ + 1 < slots_.size()) ? cursor_ + 1 : loopStart_;
+        release_ = (buttons_[cursor_] == justUsed);
     }
 
     const std::vector<std::uint16_t>& Slots() const { return slots_; }
@@ -390,6 +403,7 @@ private:
     std::vector<std::string>   ids_;
     std::size_t                loopStart_ = 0;
     std::size_t                cursor_    = 0;
+    bool                       release_   = false;
 };
 
 // ============================================================================
@@ -2015,17 +2029,25 @@ TEST(GameReplayFormat, TheEncodedBytesAreExactlyWhatTheHeaderTableSays) {
                   kReplayCheckpointBytes * checkpointCount)
         << "the encoded size does not match the header's own counts";
 
-    // THE RLE CLAIM, MEASURED. The tool-assisted player's trace for a self-cancel
-    // loop is literally one button held for the whole demonstration, and the
-    // header says that is ONE six-byte run. A flat log of the same fight would be
-    // four bytes a tick.
-    EXPECT_EQ(runCount, 1u)
-        << "a demonstration that holds one button for " << trace.size()
-        << " ticks encoded as " << runCount << " runs; the run-length encoding is "
-           "not doing the one thing it exists for.";
+    // THE RLE CLAIM, MEASURED -- and it is no longer "one run".
+    //
+    // This asserted runCount == 1, on the premise that a self-cancel loop's trace
+    // is one button held for the whole demonstration. That stopped being true
+    // when the trace builder started RELEASING between repeats of the same
+    // button: a witness that cancels a move into itself asks for the same bit
+    // twice running, and a held bit is one press however long it lasts. The old
+    // number was measuring a trace that could not perform its own loop.
+    //
+    // What the encoding actually has to do is unchanged, so that is what is
+    // asserted now: far fewer runs than ticks, and a smaller file than a flat
+    // log. Both survive the trace's shape changing again.
+    EXPECT_LT(runCount, trace.size() / 2)
+        << "a " << trace.size() << "-tick demonstration encoded as " << runCount
+        << " runs. Press/release alternation still leaves long stretches of held "
+           "bits between moves, so an encoding near one run per tick is not doing "
+           "the one thing it exists for.";
     EXPECT_EQ(readU16(bytes, runOffset(0) + 0), trace.front().bits);
     EXPECT_EQ(readU16(bytes, runOffset(0) + 2), 0u) << "the silent dummy's bits";
-    EXPECT_EQ(readU16(bytes, runOffset(0) + 4), trace.size());
     EXPECT_LT(bytes.size(), 4u * trace.size())
         << "the run-length encoded file is not smaller than a flat log would be";
 
@@ -4466,4 +4488,54 @@ TEST(GameComboWatcher, AStringThatEndsIsMovedToPreviousAndCounted) {
     EXPECT_EQ(watcher.CompletedCombos(), 0);
     EXPECT_FALSE(watcher.Current().open);
     EXPECT_EQ(watcher.Current().hits, 0);
+}
+
+// A witness that cancels a move into ITSELF -- fighter_a_infinite's whole
+// deliberate bug is `stand_lp -> stand_lp` -- asks for the same button twice in
+// a row. Emitting that bit continuously is a HOLD, and a kernel that starts
+// moves on a PRESS would never see the second one: the loop stops being
+// performable, not because the analysis was wrong but because the trace was
+// written for a kernel that could not tell a hold from a press.
+//
+// So a derived trace releases between repeats. This is pinned here, in the
+// SHIPPED builder, rather than in the tests that happen to drive loops today,
+// because the same function turns every showcase verdict into a replay
+// (ROADMAP M1.6) and every one of those is a derived trace.
+//
+// The release costs nothing: it is spent one tick after the move started, deep
+// inside startup, where the attacker cannot act whatever is held.
+TEST(GameDemonstration, ASelfCancellingWitnessReleasesBetweenRepeats) {
+    Rig rig{};
+    bringUpInfinite(rig);
+    ASSERT_FALSE(::testing::Test::HasFatalFailure());
+
+    FightSession session;
+    std::string error;
+    ASSERT_TRUE(session.Begin(rig.setup, error)) << error;
+
+    Demonstration demo{};
+    demonstrate(rig, session.State(), kDemoTurns, session.CurrentTick(), demo);
+    ASSERT_FALSE(::testing::Test::HasFatalFailure());
+    ASSERT_TRUE(demo.complete) << demo.error;
+    ASSERT_FALSE(demo.inputs.empty());
+
+    // The trace must not be one unbroken hold. Counting zero-bit ticks rather
+    // than inspecting positions keeps this about the PROPERTY -- there is a gap
+    // between repeats -- and not about where the builder chose to put it.
+    std::size_t releases = 0;
+    for (const cse::kernel::Input& in : demo.inputs)
+        if (in.bits == 0u) ++releases;
+
+    EXPECT_GT(releases, 0u)
+        << "the derived trace holds its button for all " << demo.inputs.size()
+        << " ticks without ever releasing. The witness cancels a move into "
+           "itself, so every repeat asks for the same bit -- and a held bit is "
+           "one press however long it lasts.";
+
+    // And it is still a trace that performs the witness, which is the half a
+    // release count alone cannot say.
+    EXPECT_GE(demo.turnsDone, static_cast<std::uint32_t>(kDemoTurns))
+        << "the release frames broke the demonstration: " << demo.turnsDone
+        << " of " << kDemoTurns << " turns. A gap in the wrong place delays the "
+           "next move rather than enabling it.";
 }

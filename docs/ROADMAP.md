@@ -478,6 +478,9 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   starts. Under edge detection a repeat of the *same* button never fires a second
   press — and `air_mp → air_mp`, the self-loop those tests exist to execute, is
   exactly that case.
+  **Done, ahead of the rest of this WP:** the release frame landed on its own
+  (`GameDemonstration.ASelfCancellingWitnessReleasesBetweenRepeats`), because
+  M1.6 needs it whether or not edge detection ever ships — see below.
   **So a derived input trace must insert a release frame between repeats of the
   same button.** That is a change to how a verdict becomes a performance, it
   belongs in the trace builder rather than in each test, and it lands on
@@ -547,6 +550,17 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   **Done when:** `TrainingMode.AnEditedCharacterFileTakesEffectWithinAQuarterSecond`
   (clock injected, no sleep) and `UIHotReload.*` still pass unchanged.
 - `[ ]` **M1.6 The showcase: one fighter, many patches, a replay per verdict.** *(M)*
+  **Carry in one finding from the trace work:** the witness-driving cursor now
+  exists in **three** copies — `BuildDemonstration` in
+  `Games/UntitledFighter/Game/src/FightSession.cpp`, and a `Driver` class in each
+  of `tests/test_ground_truth.cpp` and `tests/test_game_core.cpp`, the second
+  explicitly "copied out of" the first. The release-frame rule had to be written
+  three times, and only
+  `GameDemonstration.TheSeamProducesExactlyTheGroundTruthDriversTrace` kept them
+  honest — it named the disagreement at tick 1, twice, while they were being
+  aligned. MAINTENANCE.md's rule applies exactly: *if a comment says "MUST match
+  X", make it call X*. `Showcase` is the third consumer, so promote the cursor
+  into `CseGame` beside `ComboSearch` (E4) rather than writing it a fourth time.
   Variants are JSON merge patches (RFC 7386, `nlohmann::json::merge_patch`)
   under `Games/UntitledFighter/Assets/Characters/fighter_a/variants/`; <!-- docs-ok: this WP creates it -->
   `fighter_a_infinite.json` becomes `base + variants/infinite.json`. The eleven

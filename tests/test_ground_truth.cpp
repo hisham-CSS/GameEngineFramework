@@ -452,12 +452,31 @@ public:
         return !slots_.empty();
     }
 
-    std::uint16_t Bits() const { return buttons_.empty() ? 0 : buttons_[cursor_]; }
+    // Zero on a release tick. A witness that cancels a move into ITSELF asks for
+    // the same button twice running, and holding that bit is ONE press however
+    // long it lasts -- so a trace with no gap cannot perform its own loop
+    // against a kernel that starts moves on a press.
+    //
+    // Kept in step with BuildDemonstration deliberately, and there is a test
+    // that says so:
+    // GameDemonstration.TheSeamProducesExactlyTheGroundTruthDriversTrace
+    // compares the two traces tick for tick. Change one and it names the other.
+    std::uint16_t Bits() const {
+        if (release_ || buttons_.empty()) return 0;
+        return buttons_[cursor_];
+    }
 
     void Observe(std::uint16_t attackerMove, std::uint16_t attackerFrame) {
         if (slots_.empty()) return;
+        // A release tick is spent whatever happened: nothing can have started
+        // from an input of zero, so there is nothing to test for.
+        if (release_) { release_ = false; return; }
         if (attackerMove != slots_[cursor_] || attackerFrame != 0) return;
+        const std::uint16_t justUsed = buttons_[cursor_];
         cursor_ = (cursor_ + 1 < slots_.size()) ? cursor_ + 1 : loopStart_;
+        // Only between REPEATS. A different button is already an edge, and a gap
+        // there would cost a tick for nothing.
+        release_ = (buttons_[cursor_] == justUsed);
     }
 
     const std::vector<std::uint16_t>& Slots() const { return slots_; }
@@ -470,6 +489,8 @@ private:
     std::vector<std::string>   ids_;
     std::size_t                loopStart_ = 0;
     std::size_t                cursor_    = 0;
+    // True on a tick that emits nothing, so the next press is an edge.
+    bool                       release_   = false;
 };
 
 // ============================================================================
