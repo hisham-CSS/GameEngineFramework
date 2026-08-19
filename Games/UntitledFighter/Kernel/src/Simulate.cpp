@@ -91,9 +91,15 @@ void stepFighter(Fighter& f, Input in, const FighterData& data) {
     const bool canAct = actionable(f);
 
     if (canAct) {
+        // THE FILE'S NUMBER WHEN THERE IS ONE. Zero means the character authored
+        // none, and the placeholder above is then used unchanged -- see
+        // FighterData::walkSpeedSub for why walk speed cannot stay a constant.
+        const std::int32_t walk =
+            data.walkSpeedSub != 0 ? data.walkSpeedSub : kWalkSpeed;
+
         std::int32_t wish = 0;
-        if (in.bits & kInputLeft)  wish -= kWalkSpeed;
-        if (in.bits & kInputRight) wish += kWalkSpeed;
+        if (in.bits & kInputLeft)  wish -= walk;
+        if (in.bits & kInputRight) wish += walk;
         f.velX = wish;
 
         if ((in.bits & kInputUp) && !f.airborne) {

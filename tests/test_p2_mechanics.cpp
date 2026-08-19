@@ -1074,3 +1074,65 @@ TEST(P3Input, WithNoAuthoredWindowAnEarlyPressMissesTheCancelEntirely) {
            "existed -- neither the cancel route nor the button route may "
            "remember a press this character never asked to have remembered.";
 }
+
+// --- Movement parameters come from the file ---------------------------------
+//
+// The kernel's `kWalkSpeed` is one of a block of constants Simulate.cpp itself
+// labels "placeholders for values that will come from character data", and walk
+// speed is the one that decides whether a MICROWALK LOOP exists: the attacker
+// steps forward between two hits to stay in range, and a pixel per tick is the
+// difference between a string that drops and one that repeats forever. It is
+// also the loop the corner-only prover cannot see, so the engine is the only
+// thing that can show it.
+//
+// Measured as a DISTANCE OVER TICKS rather than by reading velX, because a
+// harness that reads the same field the kernel wrote proves only that the field
+// exists. Position is what a hitbox is tested against.
+namespace {
+
+std::int32_t walkedRightFor(MatchData& data, int ticks) {
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+    const std::int32_t startX = s.p[0].posX;
+
+    InputPair right{};
+    right.p[0].bits = kInputRight;
+    for (int t = 0; t < ticks; ++t) Simulate(s, right, data);
+    return s.p[0].posX - startX;
+}
+
+}  // namespace
+
+TEST(P3Movement, WalkSpeedComesFromTheFile) {
+    constexpr int          kTicks   = 10;
+    constexpr std::int32_t kAuthored = 3 * kSubUnitsPerPixel;   // fighter_a's number
+
+    auto data = twoFighters();
+    data->p[0].walkSpeedSub = kAuthored;
+
+    EXPECT_EQ(walkedRightFor(*data, kTicks), kAuthored * kTicks)
+        << "the fighter did not travel the authored speed for " << kTicks
+        << " ticks. A walk speed the kernel does not read is a balance number "
+           "the file cannot set, and the microwalk variant (ADR-011 section 4) "
+           "is authored as +1 px/tick FROM THE BASE -- so a base the file does "
+           "not own makes that variant unexpressible.";
+}
+
+// And a file that authors nothing plays exactly as it did before the field
+// existed. This is the half that says the change is opt-in rather than a
+// retuning of every character that has not been revisited.
+TEST(P3Movement, ACharacterThatAuthorsNoWalkSpeedKeepsThePlaceholder) {
+    constexpr int          kTicks       = 10;
+    constexpr std::int32_t kPlaceholder = 2 * kSubUnitsPerPixel;   // Simulate.cpp's
+
+    auto data = twoFighters();
+    ASSERT_EQ(data->p[0].walkSpeedSub, 0)
+        << "the bench authored a walk speed, so this test cannot say what an "
+           "unauthored character does.";
+
+    EXPECT_EQ(walkedRightFor(*data, kTicks), kPlaceholder * kTicks)
+        << "an unauthored character no longer walks at the kernel's placeholder. "
+           "Every harness that builds a synthetic FighterData -- including the "
+           "cross-toolchain scripted match, whose golden hash is recorded "
+           "against these positions -- expects the old number.";
+}

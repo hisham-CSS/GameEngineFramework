@@ -31,7 +31,7 @@ without it. Details, tests and proofs of the four properties:
 
 | In flight | Owner | Since |
 |---|---|---|
-| *(nothing — next is M1.1b)* | | |
+| M1.1b — the data path onto M1.1a's fields | Claude | 2026-08-19 |
 
 One work package in flight at a time. The next unblocked one is always the top
 `[ ]` in milestone order below.
@@ -282,7 +282,7 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   linking. `Fighter::meter` turned out to be five C++ sites; the other 88
   mentions were `juggle`, the data layer's resource *names*, or the prover's own
   record.
-- `[ ]` **M1.1b The data path onto the fields M1.1a reserved.** *(M)* No layout
+- `[~]` **M1.1b The data path onto the fields M1.1a reserved.** *(M)* Claude, 2026-08-19. No layout
   change. `ResourceDef {initial, floor, ceiling, refill}` per slot in
   `FighterData`; `effect[]` on moves and cancel edges (applied per authored
   contact) and `guard[]` (a minimum, checked before the move starts); index *i*
@@ -336,6 +336,28 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   is really about". The other failure is mechanical: `character.walk_speed`
   becomes `Exact` in two expectation tables, and the training-mode test's
   gap-pinning assertion inverts, which its own message already asks for.
+  **Decided 2026-08-19: the FIRST way, and the reason is that the premise was
+  already there.** The bodies open 34 px apart and are 26 px wide together, so
+  the step must divide both 8 and 34; two does and three divides neither. That
+  test has always depended on a 2 px/tick walk — it just inherited it silently
+  from `kWalkSpeed` and never said so. Authoring it on the built `FighterData`
+  makes a hidden premise an owned one, which is what this WP is for, and it is
+  reversible in one line. Restating the test in terms of crossing zero would
+  weaken the assertion it exists to make, so it was not done.
+  **Slice 1 of M1.1b landed: walk speed.** `FighterData::walkSpeedSub` (zero =
+  unauthored, kernel keeps its placeholder), `MatchBuilder` copying it with the
+  loss row now `Exact`, and `Simulate` reading it.
+  `P3Movement.WalkSpeedComesFromTheFile` and
+  `P3Movement.ACharacterThatAuthorsNoWalkSpeedKeepsThePlaceholder`; the first
+  reports 5120 sub-units instead of 7680 when the kernel's read is reverted.
+  **The golden did not move**, confirmed rather than assumed: the crossplat
+  scripted match builds a synthetic `MatchData` that authors nothing and takes
+  the fallback, so `test_determinism_crossplat` is untouched. The re-golden this
+  WP still owes therefore comes from RESOURCES, and the commit that causes it
+  must say so.
+  **Still open in M1.1b:** `ResourceDef` per slot, `effect[]` on moves and cancel
+  edges, `guard[]` minimums, and the remaining movement constants (gravity, jump
+  impulse, pushback, hitstop) out of `Simulate.cpp`.
 - `[-]` **M1.1 Resources, movement parameters, and the one state expansion.** *(M)* — split into M1.1a and M1.1b above.
   Today `Fighter::meter` exists and no file in `Games/UntitledFighter/Kernel/src/`
   writes it; juggle has bespoke rules; walk speed and jump impulse are

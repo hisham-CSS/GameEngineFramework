@@ -196,14 +196,15 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
             "recovery. Moves that DO author one get exactly it, intersected with "
             "the per-edge delay.");
 
-    addLoss(report, "character.walk_speed", BuildLossDirection::KernelOmits,
+    addLoss(report, "character.walk_speed", BuildLossDirection::Exact,
             c.walkSpeedSub != 0 ? 1 : 0,
-            "FighterData has no walk speed; Simulate.cpp walks every fighter at a "
-            "hardcoded 2 px/tick. This is not cosmetic -- walking is how a "
-            "midscreen attacker closes the gap a move's reach is measured "
-            "against, so a character with a different walk speed connects at "
-            "different times than the file says. Authored value, sub-units per "
-            "tick: " + num(c.walkSpeedSub) + ".");
+            "FighterData::walkSpeedSub carries the authored number and Simulate "
+            "walks at it. CharacterData quantized it once at load, so this build "
+            "rounds nothing and the kernel walks the character the file "
+            "describes. A file that authors none leaves this zero and the kernel "
+            "keeps its 2 px/tick placeholder, which is the pre-M1.1b behaviour "
+            "and is why a silent file plays as it always did. Authored value, "
+            "sub-units per tick: " + num(c.walkSpeedSub) + ".");
 
     addLoss(report, "move.pushback", BuildLossDirection::KernelOmits, withPushback,
             "Defender displacement on hit. ADR-001 section 6.3 records that this "
@@ -589,6 +590,13 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
     }
 
     out.hurtbox = Box{ -halfWidth, 0, halfWidth, height };
+
+    // WALK SPEED, CARRIED WHOLE. CharacterData already quantized it once at load
+    // (D8: quantise at the boundary, never in the kernel), so this is a copy and
+    // not a conversion -- there is no second rounding to lose anything to, which
+    // is what lets the loss row below say `exact`. A character that authored none
+    // arrives here as zero and the kernel keeps its placeholder.
+    out.walkSpeedSub = character.walkSpeedSub;
 
     // --- Bindings -----------------------------------------------------------
     const std::size_t moveCount = character.moves.size();

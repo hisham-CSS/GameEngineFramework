@@ -560,6 +560,24 @@ struct FighterData {
     std::int32_t hitstunDecayStep;
     std::int32_t hitstunDecayFloor;
 
+    // Ground walk speed in sub-units per tick. ZERO MEANS UNAUTHORED, and the
+    // kernel then uses the placeholder it used before this field existed --
+    // which is what keeps every harness that builds a synthetic FighterData
+    // walking at the speed its expectations were written against.
+    //
+    // A field rather than Simulate.cpp's `kWalkSpeed` because walk speed decides
+    // whether a MICROWALK LOOP exists: the attacker steps forward between two
+    // hits to stay in range, and one pixel per tick is the difference between a
+    // string that drops and one that repeats forever. ADR-011 section 4 makes
+    // the microwalk variant `walk_speed` +1 px/tick from the base, so the base
+    // has to be a number the file owns. The corner-only prover cannot see this
+    // loop at all, which is exactly why the engine has to.
+    //
+    // Note the shipped `fighter_a.json` authors 3 px/tick where this kernel's
+    // placeholder is 2, so honouring the file is a BEHAVIOUR change and not a
+    // no-op -- see ROADMAP M1.1b, which measured it before writing the field.
+    std::int32_t walkSpeedSub;
+
     // Number of USED slots in moves[], INCLUDING the reserved idle slot 0.
     // A moveId names a real move if and only if 0 < moveId && moveId < moveCount.
     //

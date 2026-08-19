@@ -2819,20 +2819,41 @@ TEST(TrainingModeReadout, WalkingClosesTheGapAndOnlyTheIntervalRuleSurvivesConta
     bringUpBench({}, bench);
     ASSERT_FALSE(::testing::Test::HasFatalFailure());
 
-    // THE BRIDGE'S HALF OF THIS, ASSERTED BEFORE THE KERNEL'S. The character
-    // authors a walk speed and FighterData has no field for one, so the fighters
-    // below move at Simulate.cpp's hardcoded rate. MatchBuilder says so in its own
-    // loss table, and that entry is what makes "the gap closes at 2 px/tick"
-    // a statement about the game rather than about the character.
+    // A WALK SPEED THIS TEST CHOOSES, and the choice is arithmetic rather than
+    // taste. The subject here is the gap chip's FORMULA across four bands, and
+    // to catch the one tick that separates the two candidate rules the walk has
+    // to land EXACTLY on the touching tick and again on the coincident tick.
+    // The bodies open 34 px apart and are 26 px wide together, so the step must
+    // divide both 8 and 34. Two does. The character's authored three divides
+    // neither -- 26 is not a multiple of 3 -- and the test would then measure
+    // whichever side of the boundary the rounding happened to fall on.
+    //
+    // Before M1.1b this was true by accident: the kernel walked everything at 2
+    // px/tick and this test inherited that without saying so. The premise is now
+    // written down and owned, which is the only thing that changed about it.
+    // ROADMAP M1.1b argues the alternative -- restating the test in terms of
+    // CROSSING zero rather than landing on it -- and rejects it, because "the
+    // one tick this test is really about" is exactly what that would lose.
+    bench.build.data.p[0].walkSpeedSub = 2 * cse::kernel::kSubUnitsPerPixel;
+    bench.build.data.p[1].walkSpeedSub = 2 * cse::kernel::kSubUnitsPerPixel;
+
+    // THE BRIDGE'S HALF OF THIS, ASSERTED BEFORE THE KERNEL'S. The kernel now
+    // carries the authored walk speed whole, so this row reads `exact` -- and
+    // that is what makes the override above a deliberate act by this test rather
+    // than the engine's own behaviour. A reader who sees 2 px/tick below must be
+    // able to find out in one hop that the file says three.
     const BuildLoss* const walkLoss =
         findLoss(bench.build.report[0], "character.walk_speed");
     ASSERT_NE(walkLoss, nullptr)
         << "the build no longer reports what happens to `character.walk_speed`";
-    EXPECT_EQ(walkLoss->direction, BuildLossDirection::KernelOmits);
+    EXPECT_EQ(walkLoss->direction, BuildLossDirection::Exact)
+        << "`character.walk_speed` is no longer carried exactly into the kernel. "
+           "If the kernel has stopped reading the field, the override above is "
+           "silently doing nothing and every tick number below is a coincidence.";
     EXPECT_GT(walkLoss->count, 0)
         << "the loss is reported with a count of zero, which would mean this "
-           "character authors no walk speed and the rate below is not a "
-           "divergence at all";
+           "character authors no walk speed and the override above is not an "
+           "override at all";
 
     const cse::kernel::Box body0 =
         cse::kernel::Hurtbox(bench.build.data.p[0], opening().p[0]);
@@ -2877,17 +2898,16 @@ TEST(TrainingModeReadout, WalkingClosesTheGapAndOnlyTheIntervalRuleSurvivesConta
                 EXPECT_EQ(walkStep, 2 * cse::kernel::kSubUnitsPerPixel)
                     << "one tick of `right` moved the fighter "
                     << subAndPx(walkStep)
-                    << ". Simulate.cpp walks every fighter at a hardcoded 2 "
-                       "px/tick; a HUD that told a playtester the gap closes at "
-                       "the character's authored rate would be wrong by "
-                    << subAndPx(bench.character.walkSpeedSub - walkStep)
-                    << " every tick.";
+                    << ", so the override at the top of this test did not take "
+                       "and the tick numbers below no longer land on the band "
+                       "boundaries this test exists to measure.";
                 EXPECT_NE(walkStep, bench.character.walkSpeedSub)
-                    << "the kernel now walks at the character's authored speed of "
-                    << subAndPx(bench.character.walkSpeedSub)
-                    << ", so `character.walk_speed` is no longer a loss and the "
-                       "assertion above about the loss table should be inverted "
-                       "rather than deleted";
+                    << "the override now matches the character's authored speed "
+                       "of " << subAndPx(bench.character.walkSpeedSub)
+                    << ", so it is no longer isolating this test from the file. "
+                       "That is not a failure of the engine -- it means the file "
+                       "was re-authored to 2 px/tick and the override should be "
+                       "deleted along with the paragraph explaining it.";
             } else if (t > 1) {
                 ASSERT_EQ(s.p[0].posX - previousP0, walkStep)
                     << "tick " << t << ": the walk rate changed mid-walk";
