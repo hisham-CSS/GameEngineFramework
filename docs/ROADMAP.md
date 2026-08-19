@@ -429,17 +429,27 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   on, because nothing refuses a move whose effect would breach a floor. A guard
   would refuse it — but no shipped move authors a guard on juggle, and juggle is
   spent through `effect`, not `guard`.
-  **THE DECISION, AND IT IS THE AUTHOR'S BECAUSE IT MOVES THE PAPER'S NUMBER.**
-  Should a move whose `effect` would take a resource below its floor be refused
-  rather than clamped? Yes is what the model assumes, and it would close most of
-  the measured model/game gap in one line — and change 97-of-121 to something
-  else. No keeps the clamp and leaves the gap as a documented, quantified
-  finding. **Not taken here**, because "safe and reversible" is not the test when
-  the output is a research measurement: the number is the contribution, and it
-  may not move because an agent found a tidy line. Also note
-  `MatchBuilder` has never set `MoveDef::juggleCost` — the kernel's juggle gate
-  has been inert for every built character since it was written, which is a
-  second, independent half of the same gap and should be decided with the first.
+  **THE DECISION, AND IT IS THE AUTHOR'S BECAUSE IT MOVES THE PAPER'S NUMBER —
+  but it is a WIRING decision, not a design one, and the first draft of this
+  paragraph got that wrong.** The refuse-on-breach semantics are already
+  designed, already documented and already implemented: `MoveDef::juggleCost`'s
+  own comment says *"a hit that would take the defender's remaining budget below
+  zero does not land"*, and `ResolveHits` enforces exactly that at the line
+  above `target[a] = d`, whose comment names the consequence outright — *"its
+  `nonNegative` condition is what ends all 41 of fighter_a's cycles in the model,
+  and its absence here is what let 33 of them run forever."*
+  **What is missing is one line in `MatchBuilder`: nothing ever populates
+  `juggleCost`.** `grep -c juggleCost MatchBuilder.cpp` is 0. The authored datum
+  is there — `effect: {juggle: -1}` on seven of `fighter_a`'s moves — and the
+  builder would derive the cost from whichever slot the file declares as juggle.
+  **So the question is not "should a floor breach refuse rather than clamp" —
+  the kernel already says yes for juggle. The question is whether to connect it
+  now, because doing so is what the `test_gap_extent` measurement is currently
+  quantifying the ABSENCE of.** Wiring it does not just change 97-of-121; it
+  changes what that file is for. Not taken here: an agent should not retire a
+  research instrument by finding its missing wire.
+  The generic form — should any resource's floor refuse rather than clamp —
+  stays open behind it, and `ApplyEffects` clamps today.
   **Also still open:** `effect[]`/`guard[]` on CANCEL EDGES (only moves carry
   them; `cancel.effect` and `cancel.guard` are untouched in the ledger), and
   mirroring whichever slot the file calls juggle into `Fighter::juggle`.
