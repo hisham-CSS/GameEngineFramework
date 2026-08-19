@@ -786,3 +786,291 @@ TEST(P3Attacks, TwoMovesOnOneButtonWithOverlappingStancesShadowTheHigherSlot) {
            "build report -- because the kernel cannot tell a shadow from a "
            "deliberate ordering.";
 }
+
+// --- Input edges and buffering (ROADMAP M1.1d) ------------------------------
+
+// Holding a button used to restart the move every time it recovered. That is
+// not a fighting-game mechanic, and it made any recorded "combo" suspect: one
+// key held is not a link, and the showcase's whole claim is that its loops are
+// performable rather than mashed.
+//
+// Found by playing (review point R0). No test could have reported it, because
+// "held" is exactly what StepAttack's scan said it did.
+TEST(P3Input, HoldingAButtonStartsTheMoveOnceNotEveryRecovery) {
+    auto data = twoFighters();
+    // startup 1 + active 2 + recovery 5 = 8 ticks, so a held button under the
+    // old rule restarted on tick 9 and every 8 ticks after it.
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+
+    InputPair in{};
+    in.p[0].bits = kInputLP;
+
+    // COUNT moveFrame == 0, not a change of moveId. A move that restarts the
+    // instant it recovers never leaves slot 1, so watching moveId transition
+    // from not-1 to 1 counts ZERO restarts and the test passes against the very
+    // bug it is named for. Found by reverting it, which is what reverting is
+    // for.
+    int starts = 0;
+    for (int t = 0; t < 40; ++t) {
+        Simulate(s, in, *data);            // held, every tick, never released
+        if (s.p[0].moveId == 1 && s.p[0].moveFrame == 0) ++starts;
+    }
+
+    EXPECT_EQ(1, starts)
+        << "the move started " << starts << " times while the button was merely "
+           "HELD. A press is an edge; holding is one press, however long it "
+           "lasts.";
+}
+
+// The other half of the same field: releasing and pressing again is two presses,
+// so edge detection must not make a button single-use.
+TEST(P3Input, ReleasingAndPressingAgainStartsItAgain) {
+    auto data = twoFighters();
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+
+    InputPair held{}, none{};
+    held.p[0].bits = kInputLP;
+
+    int starts = 0;
+    for (int cycle = 0; cycle < 3; ++cycle) {
+        const std::uint16_t before = s.p[0].moveId;
+        Simulate(s, held, *data);
+        if (s.p[0].moveId == 1 && before != 1) ++starts;
+        for (int t = 0; t < 9; ++t) Simulate(s, none, *data);  // recover, released
+    }
+
+    EXPECT_EQ(3, starts)
+        << "three separate presses produced " << starts
+        << " moves. Edge detection must distinguish a hold from a press, not "
+           "turn a button into a one-shot.";
+}
+
+// A press during recovery is kept and spent the tick the fighter can act. This
+// is what makes a link feel like timing rather than a coin flip -- and the
+// window is authored, so a character that declares none behaves as before.
+TEST(P3Input, APressDuringRecoveryFiresTheTickTheFighterCanAct) {
+    auto data = twoFighters();
+    // Generous on purpose. The property is "a press the fighter could not act on
+    // is spent the tick they can", not "it survives exactly N ticks" -- encoding
+    // the move's duration here would make this a test about the bench's frame
+    // data, and it would go red the day someone retuned it.
+    data->p[0].inputBufferFrames = 60;
+
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+
+    InputPair press{}, none{};
+    press.p[0].bits = kInputLP;
+
+    Simulate(s, press, *data);                 // starts the move
+    ASSERT_EQ(1u, s.p[0].moveId);
+    ASSERT_EQ(0u, s.p[0].moveFrame);
+
+    // Released, THEN pressed again while the move is still running -- too early,
+    // on purpose. The release matters: two presses on consecutive ticks with
+    // nothing between them is a HOLD, which is one press however long it lasts,
+    // and there would be no second edge to buffer. The first draft of this test
+    // got that wrong and reported the buffer dropping a press that was never
+    // made.
+    Simulate(s, none,  *data);
+    Simulate(s, press, *data);
+    int restarts = 0;
+    for (int t = 0; t < 30; ++t) {
+        Simulate(s, none, *data);
+        if (s.p[0].moveId == 1 && s.p[0].moveFrame == 0) ++restarts;
+    }
+
+    EXPECT_EQ(1, restarts)
+        << "the early press produced " << restarts << " restarts. Zero means the "
+           "buffer dropped it -- a buffer that never fires is not a buffer. More "
+           "than one means it was aged rather than CONSUMED, and one press "
+           "started several moves.";
+}
+
+// And with no authored window, nothing is remembered -- the pre-M1.1d kernel.
+TEST(P3Input, WithNoAuthoredWindowAPressDuringRecoveryIsForgotten) {
+    auto data = twoFighters();
+    data->p[0].inputBufferFrames = 0;          // the file authored none
+
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+
+    InputPair press{}, none{};
+    press.p[0].bits = kInputLP;
+
+    Simulate(s, press, *data);
+    ASSERT_EQ(1u, s.p[0].moveId);
+    for (int t = 0; t < 3; ++t) Simulate(s, none, *data);
+    Simulate(s, press, *data);                 // during recovery, not buffered
+    for (int t = 0; t < 6; ++t) Simulate(s, none, *data);
+
+    EXPECT_EQ(0u, s.p[0].moveId)
+        << "a press was remembered by a character that authors no buffer window. "
+           "Opt-in means a silent file gets the behaviour it had before the "
+           "field existed.";
+}
+
+// Negative edge: hold, then release, and the move comes out -- for a move that
+// asked for it, and only for that move.
+TEST(P3Input, ANegativeEdgeMoveFiresOnReleaseAndOnlyWhenAuthored) {
+    auto data = twoFighters();
+    data->p[0].moves[1].negativeEdge = 1;      // this one accepts a release
+    data->p[1].moves[1].negativeEdge = 0;      // this one does not
+
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+
+    InputPair held{}, none{};
+    held.p[0].bits = kInputLP;
+    held.p[1].bits = kInputLP;
+
+    // Both start on the press, then both finish their move while held.
+    for (int t = 0; t < 9; ++t) Simulate(s, held, *data);
+    ASSERT_EQ(0u, s.p[0].moveId) << "p0 never returned to idle";
+    ASSERT_EQ(0u, s.p[1].moveId) << "p1 never returned to idle";
+
+    Simulate(s, none, *data);                  // the release tick
+
+    EXPECT_EQ(1u, s.p[0].moveId)
+        << "releasing the button did not start the move that authored "
+           "negativeEdge. Hold, motion, release is the mechanic this field is "
+           "named for.";
+    EXPECT_EQ(0u, s.p[1].moveId)
+        << "a move that did NOT author negativeEdge fired on release. Every "
+           "mechanic is opt-in; a silent file must behave as it did before.";
+}
+
+// --- A buffered press and the cancel system ---------------------------------
+//
+// THE DECISION THIS PINS: a buffered press triggers a cancel, and the cancel
+// CONSUMES it. Both halves are choices and both are load-bearing.
+//
+// Triggering is what makes links and cancels performable by a human. A player
+// aiming at a two-frame window presses slightly early far more often than
+// slightly late, so a cancel that reads only the current tick's bits is a cancel
+// that punishes the common miss and rewards nothing. The buffered press IS the
+// input meant for the cancel; it simply arrived before the window opened.
+//
+// Consuming is what stops the fighter choosing its own timing. StepAttack's
+// cancel branch returns before the button scan, so a buffered press that
+// survived the cancel it triggered would still be sitting there for the NEXT
+// window, and a single press would walk a fighter several moves down a chain.
+namespace {
+
+// The source is slot 1 (LP), the follow-up slot 2 (MP), and one edge joins them
+// in the middle of the source's life. `onHit` is 0 so the edge is available on a
+// whiff: this file's bench has no defender in range, and requiring contact would
+// make the test depend on hit detection rather than on the buffer.
+//
+// THE WINDOW CLOSES BEFORE THE MOVE DOES, and that gap is the entire instrument.
+// `attack()` is 1 + 2 + 5 = 8 ticks, so its last frame is 7. A buffered press
+// that the CANCEL took shows up with the source interrupted somewhere in
+// [4, 6]; a buffered press the cancel ignored is still sitting in the buffer
+// when the source ends, and the BUTTON scan starts the same follow-up off frame
+// 7 instead. Both routes produce exactly one start of slot 2, so a test that
+// only counted starts -- as the first draft of this one did -- passes with the
+// change reverted and proves nothing. The frame is what tells them apart.
+constexpr std::int32_t kSourceDuration = 8;
+constexpr std::int32_t kCancelOpens    = 4;
+constexpr std::int32_t kCancelCloses   = 6;
+
+std::unique_ptr<MatchData> chainBench() {
+    auto d = twoFighters();
+    MoveDef follow = attack();
+    follow.button  = kInputMP;
+    d->p[0].moves[2]   = follow;
+    d->p[0].moveCount  = 3;
+
+    CancelEdge& e   = d->p[0].cancels[0];
+    e.from          = 1;
+    e.to            = 2;
+    e.earliestFrame = kCancelOpens;
+    e.latestFrame   = kCancelCloses;
+    e.onHit         = 0;
+    d->p[0].cancelCount = 1;
+    return d;
+}
+
+// Press LP, release, press MP too early, then go silent and watch. Returns the
+// number of ticks that started slot 2, and reports the source's frame on the
+// tick before the first of them.
+int runEarlyCancel(MatchData& data, std::int32_t& sourceFrameBefore) {
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+
+    InputPair lp{}, mp{}, none{};
+    lp.p[0].bits = kInputLP;
+    mp.p[0].bits = kInputMP;
+
+    Simulate(s, lp, data);
+    EXPECT_EQ(1u, s.p[0].moveId) << "the source move did not start";
+
+    // The release is not decoration: LP down then MP down on consecutive ticks
+    // is still an edge for MP, but going through neutral is what a human does
+    // and it keeps this test measuring the buffer rather than a chord.
+    Simulate(s, none, data);
+    Simulate(s, mp, data);
+
+    sourceFrameBefore = -1;
+    int starts = 0;
+    for (int t = 0; t < 30; ++t) {
+        const std::int32_t before = static_cast<std::int32_t>(s.p[0].moveFrame);
+        const std::uint16_t beforeId = s.p[0].moveId;
+        Simulate(s, none, data);
+        if (s.p[0].moveId == 2u && s.p[0].moveFrame == 0u) {
+            if (starts == 0 && beforeId == 1u) sourceFrameBefore = before;
+            ++starts;
+        }
+    }
+    return starts;
+}
+
+}  // namespace
+
+TEST(P3Input, ABufferedPressTakesTheCancelTheTickItsWindowOpens) {
+    auto data = chainBench();
+    data->p[0].inputBufferFrames = 60;   // generous; see the note above
+
+    std::int32_t frameBefore = -1;
+    const int starts = runEarlyCancel(*data, frameBefore);
+
+    EXPECT_EQ(1, starts)
+        << "the early MP produced " << starts << " starts of the follow-up. Zero "
+           "means a buffered press cannot take a cancel, so every link has to be "
+           "hit on its exact frame. More than one means the cancel did not "
+           "CONSUME the press, and one button push walked the fighter down the "
+           "chain more than once.";
+
+    EXPECT_GE(frameBefore, kCancelOpens - 1)
+        << "the follow-up came out with the source on frame " << frameBefore
+        << ", before the window at [" << kCancelOpens << ", " << kCancelCloses
+        << "] could have opened. A buffer may make a cancel EASIER to reach; it "
+           "may not make one available early.";
+    EXPECT_LE(frameBefore, kCancelCloses)
+        << "the follow-up came out with the source on frame " << frameBefore
+        << " and the window closes at " << kCancelCloses << ". Frame "
+        << (kSourceDuration - 1)
+        << " means the source was SPENT rather than interrupted: the cancel "
+           "ignored the buffered press and the button scan picked it up after "
+           "the move ended, which is the pre-change behaviour.";
+}
+
+// And the control: the same early press, with no authored window, is forgotten.
+// This is what says the buffer is the mechanism above rather than a coincidence
+// of the frame numbers.
+TEST(P3Input, WithNoAuthoredWindowAnEarlyPressMissesTheCancelEntirely) {
+    auto data = chainBench();
+    data->p[0].inputBufferFrames = 0;    // the file authored none
+
+    std::int32_t frameBefore = -1;
+    const int starts = runEarlyCancel(*data, frameBefore);
+
+    EXPECT_EQ(0, starts)
+        << "a press made before the cancel window opened still reached the "
+           "follow-up, for a character that authors no buffer at all. Opt-in "
+           "means a silent file behaves exactly as it did before the field "
+           "existed -- neither the cancel route nor the button route may "
+           "remember a press this character never asked to have remembered.";
+}

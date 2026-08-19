@@ -279,7 +279,8 @@ struct InvincibilityWindow {
     // Bitwise OR of kAttack*. Zero means everything (see above).
     std::uint16_t kinds;
 
-    // Explicit, for MoveDef::pad_'s reason.
+    // Explicit, for the reason MoveDef's own trailing byte was explicit before
+    // negativeEdge took it: a hashed POD may not carry indeterminate bytes.
     std::uint16_t pad_;
 };
 
@@ -424,11 +425,15 @@ struct MoveDef {
     // hasHurtboxOverride, deliberately, so there is one idiom here and not two.
     std::uint8_t hasAirborneFrom;
 
-    // Explicit, for the same reason Fighter has no implicit padding: section 4.8
-    // says the connect handshake hashes the LOADED POD ARRAYS, and hashing a
-    // struct with indeterminate padding compares two machines' uninitialised
-    // bytes.
-    std::uint8_t pad_;
+    // Fires on button RELEASE as well as on press: hold the button, input the
+    // motion, let go, and the special comes out. Zero is off, which is what a
+    // file that authors nothing gets.
+    //
+    // Per move rather than per character, because it is a property of the move
+    // in every game that has it -- a special accepts negative edge and a jab
+    // does not. It took the byte that used to be explicit padding here, so
+    // MoveDef is still 128 bytes and no MatchData layout moved for it.
+    std::uint8_t negativeEdge;
 
     InvincibilityWindow invuln[kMaxInvulnWindows];
 };
@@ -484,7 +489,7 @@ struct CancelEdge {
     // 0, and MatchBuilder counts the edges that reading moves.
     std::uint8_t onHit;
 
-    // Explicit, for MoveDef::pad_'s reason: the connect handshake hashes these
+    // Explicit, for the same reason: the connect handshake hashes these
     // bytes, and an indeterminate byte is a byte two peers can disagree about.
     std::uint8_t pad_[3];
 };
@@ -527,6 +532,16 @@ struct FighterData {
     // a file does not say; a zero here would mean no move with a juggle cost can
     // ever connect, which is a legal but almost certainly unintended character.
     std::int32_t juggleMax;
+
+    // How many ticks a press survives while this fighter cannot act, before it
+    // is discarded. ZERO MEANS NO BUFFERING, which is what a file that authors
+    // nothing gets and what the kernel did before this field existed.
+    //
+    // A field rather than a constant because buffering changes which links are
+    // performable, and "which links are performable" is the question the whole
+    // project exists to answer -- a number the kernel chose for every character
+    // would be the kernel deciding the answer (docs/adr/ADR-011 decision 1).
+    std::int32_t inputBufferFrames;
 
     // Hitstun decay, as suffered BY THIS FIGHTER as a defender: each hit already
     // taken in the current combo shortens the next one's hitstun by `step` ticks,

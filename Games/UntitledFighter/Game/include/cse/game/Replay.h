@@ -241,12 +241,12 @@ inline constexpr std::uint32_t kDefaultCheckpointInterval = 60;
 // question would eventually disagree.
 std::uint32_t HashMatchData(const cse::kernel::MatchData& data);
 
-// The six int32s are maxHealth, juggleMax, hitstunDecayStep, hitstunDecayFloor,
-// moveCount and cancelCount. Written as a sum of the members rather than as a
+// The seven int32s are maxHealth, juggleMax, inputBufferFrames,
+// hitstunDecayStep, hitstunDecayFloor, moveCount and cancelCount. Written as a sum of the members rather than as a
 // byte count so this keeps checking for PADDING after the P2 expansion rather
 // than becoming a number to update.
 static_assert(sizeof(cse::kernel::FighterData) ==
-                  sizeof(cse::kernel::Box) + 6 * sizeof(std::int32_t) +
+                  sizeof(cse::kernel::Box) + 7 * sizeof(std::int32_t) +
                       cse::kernel::kMaxMovesPerFighter * sizeof(cse::kernel::MoveDef) +
                       cse::kernel::kMaxCancelsPerFighter * sizeof(cse::kernel::CancelEdge),
               "FighterData has acquired padding. HashMatchData reads its object "

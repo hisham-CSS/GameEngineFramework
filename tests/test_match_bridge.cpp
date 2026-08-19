@@ -368,9 +368,11 @@ TEST(MatchBridgeTranscription, FrameDataMatchesTheJsonMoveForMove) {
         EXPECT_EQ(kHalfWidth + px(e.reachPx) + 1, mv.hitbox.x1);
         EXPECT_EQ(0,       mv.hitbox.y0);
         EXPECT_EQ(kHeight, mv.hitbox.y1);
-        EXPECT_EQ(0u, mv.pad_)
-            << "MoveDef::pad_ is hashed by the connect handshake; an unwritten "
-               "byte is a byte two peers can disagree about";
+        EXPECT_EQ(0u, mv.negativeEdge)
+            << "the byte that used to be MoveDef::pad_ is negativeEdge now, and "
+               "the schema does not author it yet -- so it must still be written "
+               "as zero. It is hashed by the connect handshake either way, and an "
+               "unwritten byte is a byte two peers can disagree about.";
     }
 
     // The body the caller supplied, symmetric about the origin and standing on

@@ -1,6 +1,6 @@
 # ROADMAP — the one place status lives
 
-Verified: 2026-08-17 @ 9f518c2
+Verified: 2026-08-19 @ c4539be
 
 This is the **only** roadmap. `README.md` carries one paragraph and a link;
 `docs/manual/` never lists gaps; ADRs record why, not what is next. If a fact
@@ -31,7 +31,7 @@ without it. Details, tests and proofs of the four properties:
 
 | In flight | Owner | Since |
 |---|---|---|
-| *(nothing — next is M1.1d)* | | |
+| *(nothing — next is M1.1b)* | | |
 
 One work package in flight at a time. The next unblocked one is always the top
 `[ ]` in milestone order below.
@@ -401,8 +401,9 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   (b) is what gives a crouch state something to read, so bind it in the same
   change or `kStanceCrouching` stays unreachable. The scan takes the **first**
   matching slot, which is what makes (c) the difference between a rule and a
-  lottery. And moves start on buttons **HELD**, not pressed: a separate missing
-  field, not this WP's, and easy to mistake for a selection bug while testing.
+  lottery. And moves started on buttons **HELD** while this WP was written, which
+  is a separate bug and easy to mistake for a selection one; M1.1d fixed it, so a
+  re-test of (c) now has to press rather than hold.
   **Blocks M1.3**, which adds movement moves and cancel edges targeting them — a
   jump cancel means little while a button can only ever start one move.
   **(a), (b) and (d) landed; (c) did not, and the reason is worth keeping.** The
@@ -417,7 +418,7 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   `stance: ground` on everything — and `Ground` overlaps both, so her warning is
   **correct** and the assertion was false. Write it against `fighter_a` or a
   synthetic `FighterData`, then restore the check.
-- `[ ]` **M1.1d Input edges and buffering — the second state expansion, batched.** *(M)*
+- `[x]` **M1.1d Input edges and buffering — the second state expansion, batched.** *(M)* — `PENDING_SHA`
   **Found at review point R0**: holding an attack button rapid-fires it. The
   kernel says so itself — `StepAttack`'s scan is *HELD, not pressed*, and the
   comment above it has been asking for this field since it was written: "honest
@@ -537,13 +538,16 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   actionable by that measure, so almost nothing was buffered. The condition is
   "no move started this tick" (`moveId != 0 && moveFrame == 0`), the same signal
   the demonstration cursor and every driver key on.
-  **THE OPEN QUESTION, and it is a game-feel decision rather than a mechanical
-  one: does a buffered press trigger and consume a CANCEL?** Today
-  `StepAttack`'s cancel branch returns before the button loop, so a buffered
-  press survives a cancel and fires again later — which is what leaves
-  `GapExtentKernel`'s timing account a few frames out per cycle. In most
-  fighting games the answer is yes: the buffered input is exactly what triggers
-  the cancel. Deciding it is the next step, and it is the author's.
+  **THE OPEN QUESTION, ANSWERED 2026-08-19 BY THE AUTHOR: yes.** *"buffer does
+  trigger and consume a cancel and link so that links and cancels are easier to
+  do."* `FindCancel` now accepts a buffered press alongside a held one, and the
+  cancel clears `bufferedButtons`/`bufferAge` exactly as the button scan does.
+  Triggering is what makes a link performable by a human — a player aiming at a
+  two-frame window presses early far more often than late, so a cancel reading
+  only the current tick punishes the common miss. Consuming is what stops one
+  press walking a fighter several moves down a chain, because `StepAttack`'s
+  cancel branch returns before the button scan and an unconsumed press would
+  still be waiting for the next window.
   **Also learned, from reverting:** the first version of
   `HoldingAButtonStartsTheMoveOnceNotEveryRecovery` passed against the bug,
   because it counted `moveId` transitions and a move that restarts the instant it
@@ -552,6 +556,50 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   **Two `static_assert`s earned themselves during the attempt**, both at compile
   time: `has_unique_object_representations_v` caught a one-byte pad where three
   were needed, and `Replay.h`'s `FighterData` sum caught the new `int32`.
+  **Third attempt (2026-08-19) closed it, and the last two bugs were both in the
+  harness rather than the kernel.** With the cancel answer in, the sweep's timing
+  mismatches went to **zero** — the diagnosis in the paragraph above was right —
+  but 96 of 121 cycles then failed *periodicity* instead. The cause: `Observe`
+  spent its release tick before checking whether the move had started, so a
+  driver was **blind to exactly the transitions buffering creates**. A buffered
+  press is consumed the tick the fighter can act, which is very often a tick the
+  driver is deliberately silent on; the cursor never advanced, the driver went on
+  asking for the move already running, and it restarted a duration later. That
+  read as "the loop decayed". Checking the start *before* spending the release
+  tick took `test_gap_extent` from 96 failures to green, **97 of 121 intact**.
+  The second: `test_one_frame` and `test_training_mode`'s probes hold a button to
+  ask "how soon can the attacker act", which under press-activation is one press
+  for the whole fork. They pulse and buffer now, so the answer is the frame the
+  kernel opens rather than the frame the driver happened to be pressing on.
+  **A methodological note that cost an hour.** Three parameter sweeps returned
+  byte-identical failure counts, which looked like a structural cause; the
+  binary was stale. `cmd /c "call scripts\ci\msvc_env.cmd && cmake --build ..."`
+  **hangs** under the Bash tool and silently produces no build. Build from
+  PowerShell; run from either.
+  **Done when — actually done:** the five `P3Input` tests above, plus
+  `P3Input.ABufferedPressTakesTheCancelTheTickItsWindowOpens` and
+  `P3Input.WithNoAuthoredWindowAnEarlyPressMissesTheCancelEntirely` for the
+  cancel answer. The first draft of that pair **passed with the change
+  reverted**, because the cancel window's last frame was also the move's last
+  frame and the button route produced the same single start; the window closes
+  two frames early now, so a cancel start (source interrupted, frames 3–6) is
+  distinguishable from a button start (source spent, frame 7). Reverting is what
+  found it, for the second time in this WP.
+- `[ ]` **M1.1e The buffer window as an authored character field.** *(S)*
+  `FighterData::inputBufferFrames` exists and the kernel honours it, but nothing
+  sets it from a character file — every caller that wants buffering assigns the
+  field directly, and `tests/test_one_frame.cpp` and `tests/test_gap_extent.cpp`
+  both say so in a comment pointing here. Buffering is a mechanic, so it owes
+  [ADR-011](adr/ADR-011-mechanics-are-fields.md)'s five parts: an appended
+  `input_buffer_frames` under `engine` in `schema.v2.json` (engine-only, so the
+  published prover ignores it), the load in `CharacterData.cpp` with its own
+  A-assertion, the `MatchBuilder` copy into the kernel slot, a loss-ledger row,
+  and a property test that a file authoring nothing gets zero. Split out rather
+  than folded into M1.1d because it touches the schema the prover reads, and that
+  is a contract change with its own review.
+  **Done when:** a character file that authors `input_buffer_frames` produces a
+  `FighterData` carrying it, a file that authors none produces zero, and an
+  out-of-range value is a load error naming the key.
 - `[ ]` **M1.2 Push boxes and the corner.** *(S–M)* Body separation between
   fighters and the stage edge as a wall; resolution order per NORTHSTAR Phase 2:
   pushbox separation → strikes (throws when they exist). Authored `pushbox`
@@ -873,7 +921,24 @@ it to, and the binding table is where the mistake is. That is **M1.1c**.
 It then found a second, on the next play: **holding an attack button rapid-fires
 it**. The kernel's own comment had been asking for the missing field for months
 — *"the next field this file will want"* — and no test could report it, because
-"held" is exactly what the code says it does. That is **M1.1d**.
+"held" is exactly what the code says it does. That is **M1.1d**, now closed.
+
+### R0b — After M1.1d: a press is a press
+
+Worth re-running R0 above with attention on the pad, because what changed is the
+thing a hand notices before a test does.
+
+| | |
+|---|---|
+| **Run** | `Editor.exe`, Game view, or `Player.exe`. |
+| **Do** | Hold one attack button down for several seconds. Then mash the same button. Then press a button during another move's recovery — slightly *early*, on purpose — and watch whether the follow-up comes out. |
+| **Should** | Holding gives **one** attack and then nothing. Mashing gives one attack per press. A press made a frame or two early still produces the follow-up, on the frame the window opens, rather than being dropped. |
+| **Wrong if** | Holding still repeats, which means the mode is feeding edges instead of levels and the kernel is seeing a fresh press every tick. Or an early press produces **two** moves, which means a buffered press was aged rather than consumed. Or a *normal* comes out when you let go of a button — release is for specials that opt in, and no shipped normal opts in. |
+
+Note the early-press behaviour is only visible where a buffer window is
+authored, and today **no character file authors one** — that is M1.1e. Until it
+lands, a fighter built from `fighter_a.json` has `inputBufferFrames` 0 and an
+early press is correctly forgotten.
 
 ### R1 — After M1.1b: the file is the game
 

@@ -1098,9 +1098,19 @@ TEST(TrainingModeDemonstrate, TheComboConnectsWhileTheScriptSpeaksAndThePadTakes
         << "the composition claims it runs out, though the pad behind it never "
            "does; a host would stop asking for ticks at that number";
 
+    // THE PLAYTESTER MASHES, and under press-activation that is the only way to
+    // be one. A pad that HELD MP would be a single press for the whole session:
+    // one stand_mp at the handover tick and silence after it, so the
+    // demonstration's own string would simply run on and Current() would still
+    // be holding it at the end -- which is the opposite of the trap this test
+    // exists to pin. Alternating is a person pressing about thirty times a
+    // second, and it is what makes "the playtester's string" a thing that
+    // exists at all.
     const std::uint32_t total = demoEnd + kYouTryTicks;
     for (std::uint32_t t = kPreDemoTicks; t < total; ++t) {
-        ASSERT_TRUE(pad.Latch(t, inputOf(cse::kernel::kInputMP)))
+        const std::uint16_t padBits =
+            (t % 2u == 0u) ? cse::kernel::kInputMP : std::uint16_t{0};
+        ASSERT_TRUE(pad.Latch(t, inputOf(padBits)))
             << "latching tick " << t << " was refused, which is a host sequencing "
                "bug: the pad must be latched on every tick, including the ones "
                "the demonstration is speaking for, or the input log has a hole in "
@@ -1132,9 +1142,14 @@ TEST(TrainingModeDemonstrate, TheComboConnectsWhileTheScriptSpeaksAndThePadTakes
     for (std::uint32_t t = demoEnd; t < total; ++t) {
         ASSERT_EQ(attacker.Active(t), static_cast<const IInputSource*>(&pad))
             << "control was not handed back at tick " << t;
-        ASSERT_EQ(log.samples[t].inputs.p[0].bits, cse::kernel::kInputMP)
+        ASSERT_EQ(log.samples[t].inputs.p[0].bits,
+                  (t % 2u == 0u) ? cse::kernel::kInputMP : std::uint16_t{0})
             << "tick " << t << " is past the demonstration and the pad's bits did "
-                              "not arrive";
+                              "not arrive as latched. The alternation is the "
+                              "point: the log must carry the RELEASE ticks too, "
+                              "because a press is only a press against the tick "
+                              "before it and a log that dropped them would "
+                              "replay as a held button.";
     }
 
     // What a HUD asks, and it must be a pure question with a pure answer.
@@ -1242,7 +1257,9 @@ TEST(TrainingModeDemonstrate, TheComboConnectsWhileTheScriptSpeaksAndThePadTakes
     EXPECT_LT(watcher.Current().hits, peak->hits)
         << "the string Current() holds at the end of the fight is as long as the "
            "demonstration's, so either the playtester's own attempt joined it or "
-           "the two strings were never told apart";
+           "the two strings were never told apart"
+        << "\n  completed combos " << watcher.CompletedCombos()
+        << DescribeReport(watcher.Current(), build.moves[0]);
 
     // --- AND THE FIGHT KEPT GOING ACROSS THE HANDOVER ------------------------
     //
@@ -2285,10 +2302,27 @@ Freedom measureFreedom(const MatchData& data, const GameState& from,
                        std::uint32_t budget) {
     Freedom out{};
     GameState s = from;
+
+    // PULSED, AND BUFFERED, because StepAttack reads the PRESS. Holding `bits`
+    // for the whole fork is ONE press however long the fork runs, so a fork that
+    // held them answered "the attacker never acted" for every frame where the
+    // first tick was not already actionable -- a fact about this function, not
+    // about the kernel. The question being asked is "how soon CAN the attacker
+    // act", so the fork must have a fresh press available on every tick the
+    // attacker might take one.
+    //
+    // Pulsing alone would only supply an edge every other tick and the answer
+    // could land a frame late; the two-tick buffer covers the tick between, so
+    // the press is consumed the exact frame the kernel opens. Buffer and pulse
+    // are chosen together and neither is sufficient on its own.
+    MatchData armed = data;
+    armed.p[0].inputBufferFrames = 2;
+    armed.p[1].inputBufferFrames = 2;
+
     for (std::uint32_t k = 1; k <= budget; ++k) {
         const std::uint16_t beforeId    = s.p[0].moveId;
         const std::uint16_t beforeFrame = s.p[0].moveFrame;
-        step(s, data, bits);
+        step(s, armed, (k % 2u == 1u) ? bits : std::uint16_t{0});
 
         const cse::kernel::Fighter& atk = s.p[0];
         if (atk.moveId == 0 || atk.moveId == sourceMove || atk.moveFrame != 0)
@@ -2573,16 +2607,23 @@ TEST(TrainingModeReadout, ACancelIsAThirdWayOutOfAMoveAndTheTwoTermRuleMissesIt)
 // This is the other half of the frame-advantage readout and it is independent of
 // the missing term above: even with the arithmetic granted, a value computed from
 // LIVE STATE describes the tick it was computed on and not the interaction the
-// playtester is trying to learn. The kernel makes that unavoidable rather than
-// unlikely -- StepAttack's button scan is HELD, not pressed (its own comment
-// calls that "a real gap, named rather than papered over"), so a key left down
-// restarts the move the instant it ends, and every quantity derived from
-// (moveFrame, hitstun) is periodic with the move's duration.
+// playtester is trying to learn. Any periodic drive makes that unavoidable rather
+// than unlikely, because every quantity derived from (moveFrame, hitstun) is then
+// periodic with the move's duration.
+//
+// WHAT DRIVES IT HERE IS A RE-PRESS, not a held key, and that is the one thing
+// this test had to be rewritten for. StepAttack's button scan reads the PRESS
+// -- the rising edge -- so a key left down starts `stand_lp` exactly once and
+// the fighter idles from then on. The playtester who sees the strobe is the one
+// mashing, so the drive below releases for the last tick of each repetition and
+// presses again on the tick the move ends. The period is therefore identical to
+// the one a held key used to produce, and every number below is unchanged; what
+// changed is whose behaviour it is a fact about.
 //
 // The measurement below is the reason a training HUD has to LATCH this number on
 // the contact tick rather than recompute it: not because recomputation is
 // expensive, but because there is no single tick whose reading is the answer.
-TEST(TrainingModeReadout, AHeldButtonRestartsTheMoveSoALiveAdvantageStrobesForever) {
+TEST(TrainingModeReadout, ARepeatedPressRestartsTheMoveSoALiveAdvantageStrobesForever) {
     // ONLY stand_lp IS BOUND, so no cancel is reachable at all and the period
     // below is unambiguously the move's own duration rather than a chain's.
     Bench bench{};
@@ -2612,18 +2653,25 @@ TEST(TrainingModeReadout, AHeldButtonRestartsTheMoveSoALiveAdvantageStrobesForev
         GameState s = opening();
         std::int32_t previousHealth = kStartingHealth;
         for (std::int32_t t = 0; t < total; ++t) {
-            step(s, bench.build.data, cse::kernel::kInputLP);
+            // RELEASED FOR THE LAST TICK OF EACH REPETITION so the next tick is a
+            // PRESS. Releasing cannot disturb the repetition it ends -- a move
+            // already running ignores the button entirely -- and it is what buys
+            // the rising edge that starts the next one exactly on time.
+            const bool release = (t % duration) == duration - 1;
+            step(s, bench.build.data,
+                 release ? std::uint16_t{0} : cse::kernel::kInputLP);
 
             // THE PERIOD, ASSERTED TICK BY TICK RATHER THAN INFERRED AT THE END.
-            // A held button never lets the fighter reach idle: the move ends and
-            // the button scan restarts it inside the same StepAttack call, so the
-            // frame counter is exactly the tick index modulo the duration.
+            // A re-press never lets the fighter reach idle: the move ends and the
+            // button scan finds this tick's press inside the same StepAttack
+            // call, so the frame counter is exactly the tick index modulo the
+            // duration.
             ASSERT_EQ(s.p[0].moveId, lp)
                 << "tick " << t << ": the attacker is not in `stand_lp` although "
-                   "LP has been held since tick 0";
+                   "LP has been pressed once per repetition since tick 0";
             ASSERT_EQ(static_cast<std::int32_t>(s.p[0].moveFrame), t % duration)
                 << "tick " << t << ": `stand_lp` is on frame " << s.p[0].moveFrame
-                << " and a move restarted by a held button is on frame "
+                << " and a move restarted by a re-press is on frame "
                 << (t % duration) << ". If this fails the move is NOT restarting "
                    "immediately, and the strobe below is not the shape it says.";
 
@@ -2638,7 +2686,8 @@ TEST(TrainingModeReadout, AHeldButtonRestartsTheMoveSoALiveAdvantageStrobesForev
     // One hit per repetition, on the move's first active frame every time.
     ASSERT_EQ(hitTicks.size(), static_cast<std::size_t>(3))
         << "`stand_lp` connected " << hitTicks.size() << " time(s) in " << total
-        << " ticks; a " << duration << "-tick move held down should land three.";
+        << " ticks; a " << duration << "-tick move pressed once per repetition "
+           "should land three.";
     for (std::size_t i = 0; i < hitTicks.size(); ++i)
         EXPECT_EQ(static_cast<std::int32_t>(hitTicks[i]),
                   startup + static_cast<std::int32_t>(i) * duration)

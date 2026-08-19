@@ -117,9 +117,13 @@ private:
     void bindActions_();
     void clearActions_();
 
-    // The keyboard and pad as kernel bits. A LEVEL read (isDown), never an edge:
-    // the kernel takes buttons HELD, not pressed (Combat.cpp says so and calls
-    // it a real gap, named rather than papered over).
+    // The keyboard and pad as kernel bits. A LEVEL read (isDown), never an edge
+    // -- and that is right, not a shortcut. The kernel derives the edge itself
+    // from Fighter::prevButtons, because rollback re-simulates a tick from a
+    // snapshot and hands Simulate only that tick's bits: an edge computed out
+    // here would survive one replay and not the next. What this function owes
+    // the kernel is the honest LEVEL, every tick, including the release ticks --
+    // a reader that dropped them would replay a press as a hold.
     cse::kernel::Input readPad_() const;
 
     // The training controls, read as EDGES in the fixed phase with

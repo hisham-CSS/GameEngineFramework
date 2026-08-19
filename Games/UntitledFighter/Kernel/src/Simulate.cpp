@@ -152,6 +152,56 @@ void stepFighter(Fighter& f, Input in, const FighterData& data) {
     // ResolveHits would buy that tick back and cost something much worse: a
     // fighter could then cancel a move on the very tick it started.
     StepAttack(f, data, in, canAct);
+
+    // --- Input bookkeeping, LAST, and in this order -------------------------
+    //
+    // A press this tick that StepAttack did not use is remembered, so that a
+    // link attempted a few frames early still comes out when the fighter
+    // becomes actionable. That is what makes timing feel like timing rather
+    // than a coin flip, and it is a per-character window rather than a constant
+    // here (docs/adr/ADR-011 decision 1) -- zero means no buffering, which is
+    // the kernel that shipped before this field.
+    //
+    // AFTER StepAttack, never before: the scan consumes a buffered press by
+    // zeroing it, and recording first would immediately re-buffer the press it
+    // just spent.
+    if (data.inputBufferFrames > 0) {
+        const std::uint16_t pressed =
+            static_cast<std::uint16_t>(in.bits & ~f.prevButtons);
+        // ONLY A PRESS THAT STARTED NOTHING, and the condition is subtler than
+        // it first looks. `canAct` means NOT STUNNED, not "not busy": a fighter
+        // in the middle of a move is actionable by that measure, and StepAttack
+        // handles them through the cancel path instead. So `!canAct` buffers
+        // almost nothing -- most early presses arrive mid-move, exactly when a
+        // player is trying to link -- and a first draft of this used it and
+        // reported the buffer dropping every press.
+        //
+        // A MOVE STARTED THIS TICK is `moveFrame == 0` with a move in progress,
+        // which is the same signal ComboWatcher, the demonstration cursor and
+        // the drivers all key on: a self-cancel keeps moveId the same, so a
+        // transition detector sees nothing. If nothing started, the press went
+        // unused and is worth keeping.
+        const bool startedThisTick = f.moveId != 0 && f.moveFrame == 0;
+        if (pressed != 0 && !startedThisTick) {
+            f.bufferedButtons = pressed;
+            f.bufferAge       = 0;
+        } else if (f.bufferedButtons != 0) {
+            // Aged, then dropped. A buffer that never expired would fire a move
+            // minutes after the press, which is worse than not buffering.
+            ++f.bufferAge;
+            if (static_cast<std::int32_t>(f.bufferAge) >= data.inputBufferFrames) {
+                f.bufferedButtons = 0;
+                f.bufferAge       = 0;
+            }
+        }
+    } else {
+        f.bufferedButtons = 0;
+        f.bufferAge       = 0;
+    }
+
+    // LAST of all: this tick's buttons become next tick's `previous`. Every edge
+    // above is computed against the value from before this line ran.
+    f.prevButtons = in.bits;
 }
 
 // How many slots this match uses, clamped so a corrupt byte cannot walk the

@@ -471,7 +471,20 @@ public:
         // A release tick is spent whatever happened: nothing can have started
         // from an input of zero, so there is nothing to test for.
         if (release_) { release_ = false; return; }
-        if (attackerMove != slots_[cursor_] || attackerFrame != 0) return;
+        if (attackerMove != slots_[cursor_] || attackerFrame != 0) {
+            // WAITING, so alternate rather than hold. A held button is one press,
+            // so a driver that stalls on a move which never comes stops feeding
+            // the kernel anything at all -- and "the trace landed one hit" would
+            // then mean "the driver went quiet", not "the game refused". A human
+            // in front of the same fight presses again; so does this.
+            //
+            // Only while waiting: on the tick the expected move starts, the
+            // release below handles the repeat and this never fires.
+            ++waiting_;
+            if (waiting_ >= kRepressAfter) { release_ = true; waiting_ = 0; }
+            return;
+        }
+        waiting_ = 0;
         const std::uint16_t justUsed = buttons_[cursor_];
         cursor_ = (cursor_ + 1 < slots_.size()) ? cursor_ + 1 : loopStart_;
         // Only between REPEATS. A different button is already an edge, and a gap
@@ -491,6 +504,11 @@ private:
     std::size_t                cursor_    = 0;
     // True on a tick that emits nothing, so the next press is an edge.
     bool                       release_   = false;
+    // Ticks spent waiting for the expected move; a re-press follows.
+    int                        waiting_   = 0;
+    // Long enough that a move in progress is not interrupted by a
+    // pointless re-press, short enough to catch the actionable tick.
+    static constexpr int       kRepressAfter = 2;
 };
 
 // ============================================================================
@@ -581,7 +599,13 @@ TickLog drive(const MatchData& data, Driver& driver, int ticks,
         in.p[0].bits = driver.Bits();
         if (policy == DefenderPolicy::MashesOnceHit && run.firstHitTick >= 0 &&
             t > run.firstHitTick) {
-            in.p[1].bits = defenderBits;
+            // MASHING IS REPEATED PRESSES, and this used to hold the button --
+            // which was indistinguishable from mashing only while the kernel
+            // restarted a move on a held bit. Under edge detection a hold is one
+            // press, so a "masher" who holds acts once and then never again, and
+            // the control would report that the kernel refused to let them out
+            // when in fact nothing had asked it to (ROADMAP M1.1d).
+            in.p[1].bits = (t % 2 == 0) ? defenderBits : 0u;
         }
 
         cse::kernel::Simulate(s, in, data);

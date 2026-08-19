@@ -290,14 +290,27 @@ const CancelEdge* FindCancel(const FighterData& data, const Fighter& f, Input in
         const MoveDef* target = MoveAt(data, e.to);
         if (target == nullptr) continue;
 
-        // HELD, not pressed -- the same limitation StepAttack's button scan has
-        // and for the same missing field. It bites slightly differently here: a
-        // player holding the follow-up button through the whole source move takes
-        // the cancel on the first frame of its window rather than on the frame
-        // they chose. That is a real difference from the genre and it is the
-        // second thing prevButtons would fix.
+        // A HELD BUTTON STILL TAKES A CANCEL, and unlike the button scan that is
+        // deliberate rather than a limitation. A player holding the follow-up
+        // through the whole source move takes the cancel on the first frame of
+        // its window rather than on the frame they chose -- which is what a
+        // genre player expects of a chain, and what makes holding a button a
+        // reasonable way to buffer before the buffer field existed.
         if (target->button == 0) continue;
-        if ((in.bits & target->button) != target->button) continue;
+
+        // A CANCEL TAKES A BUFFERED PRESS, and that is what makes links and
+        // cancels doable by a human. A player aiming at a two-frame link presses
+        // slightly early far more often than slightly late, so a cancel that
+        // only reads the CURRENT tick's bits is a cancel that punishes the
+        // common miss. The buffered press is exactly the input that was meant
+        // for this cancel, arriving one or two frames before the window opened.
+        //
+        // Held bits still count, because a chord is still a chord and this is
+        // the same all-bits-wanted rule the button scan uses; what the buffer
+        // adds is the press that has already been let go of.
+        const bool heldNow  = (in.bits & target->button) == target->button;
+        const bool buffered = (f.bufferedButtons & target->button) == target->button;
+        if (!heldNow && !buffered) continue;
 
         // The follow-up's own stance condition applies to a cancel exactly as it
         // does to a fresh start. Without this a grounded chain could cancel into
@@ -356,6 +369,14 @@ void StepAttack(Fighter& f, const FighterData& data, Input in, bool actionable) 
     if (f.moveId != 0) {
         const CancelEdge* edge = FindCancel(data, f, in);
         if (edge != nullptr) {
+            // CONSUMED, exactly as the button scan consumes it. A buffered press
+            // that survived the cancel it triggered would trigger the next one
+            // too, a window later, and the fighter would appear to choose its
+            // own timing -- which is what left GapExtentKernel's transitions a
+            // few frames out per cycle before this line existed.
+            f.bufferedButtons = 0;
+            f.bufferAge       = 0;
+
             f.moveId    = edge->to;
             f.moveFrame = 0;
             // A NEW ACTIVE WINDOW, so the record of who the old one hit goes with
@@ -375,18 +396,53 @@ void StepAttack(Fighter& f, const FighterData& data, Input in, bool actionable) 
     // sharing a button resolve to the same one on every machine. Slot 0 is the
     // reserved idle slot and is skipped.
     //
-    // HELD, not pressed. Distinguishing a press from a hold needs the previous
-    // tick's buttons, and a rollback hands Simulate only the current tick's input
-    // -- so honest edge detection needs a `prevButtons` field inside GameState,
-    // which is a state addition with its own consequences (D6 puts the input ring
-    // OUTSIDE the state on purpose). Holding a button therefore repeats a move as
-    // soon as the previous one recovers. That is a real gap, named rather than
-    // papered over, and it is the next field this file will want.
+    // PRESSED, not held -- and this is the field the note here used to ask for.
+    // Holding a button used to restart the move the tick it recovered, which is
+    // not a fighting-game mechanic and made any recorded "combo" suspect: one
+    // key held is not a link. Fighter::prevButtons is in the STATE because a
+    // rollback hands Simulate only the current tick's bits, so an edge computed
+    // anywhere else is recomputed wrongly on every re-simulation.
+    //
+    // Three ways a move can be asked for, and a move takes the first that
+    // applies:
+    //
+    //   press     a rising edge on every bit the move wants
+    //   buffered  a press that arrived while this fighter could not act, kept
+    //             for inputBufferFrames ticks and consumed here
+    //   release   a falling edge, for a move that authored negativeEdge
+    //
+    // `pressed` is computed against last tick's buttons; `released` is its
+    // mirror. Both come from the one field, which is why positive and negative
+    // edge landed together.
+    const std::uint16_t pressed  = static_cast<std::uint16_t>(in.bits & ~f.prevButtons);
+    const std::uint16_t released = static_cast<std::uint16_t>(~in.bits & f.prevButtons);
+
     for (std::int32_t i = 1; i < data.moveCount && i < kMaxMovesPerFighter; ++i) {
         const MoveDef& m = data.moves[i];
         if (m.button == 0) continue;
-        if ((in.bits & m.button) != m.button) continue;
         if (!StanceAllows(m, f)) continue;
+
+        // Every bit the move wants must be HELD -- a chord is still a chord --
+        // and at least one of them must have arrived this tick, or the move
+        // would start again on every subsequent tick of the same hold.
+        const bool byPress = (in.bits & m.button) == m.button &&
+                             (pressed & m.button) != 0;
+        // A buffered press is spent whether or not it starts this move; see the
+        // consume below. It carries the same all-bits-wanted rule.
+        const bool byBuffer = (f.bufferedButtons & m.button) == m.button;
+        // Release fires only for a move that asked for it, and only when the
+        // whole chord was held on the previous tick.
+        const bool byRelease = m.negativeEdge != 0 &&
+                               (released & m.button) != 0 &&
+                               (f.prevButtons & m.button) == m.button;
+
+        if (!byPress && !byBuffer && !byRelease) continue;
+
+        // CONSUMED, not merely aged. A buffered press that only expired would
+        // start this move now and start it again on the next actionable tick,
+        // which is the rapid-fire bug wearing a different hat.
+        f.bufferedButtons = 0;
+        f.bufferAge       = 0;
 
         f.moveId         = static_cast<std::uint16_t>(i);
         f.moveFrame      = 0;

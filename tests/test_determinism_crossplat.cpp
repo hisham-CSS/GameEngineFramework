@@ -92,6 +92,30 @@ constexpr std::uint32_t kMatchSeed = 0xA5EED17Eu;
 // unrecorded forever, and the fix is to change kMatchSeed, not to weaken this.
 constexpr std::uint32_t kGoldenUnrecorded = 0u;
 
+// RE-RECORDED 2026-08-19 from MSVC 19.44 / x64 / RelWithDebInfo, for the
+// ROADMAP M1.1d input-edge expansion.
+//
+// WHY THEY MOVED THIS TIME. Fighter went from 68 bytes to 76: an edge is
+// `bits & ~prevButtons`, and Simulate is handed only the CURRENT tick's bits, so
+// last tick's buttons and the buffered press have to live IN the state or a
+// rollback replays a press as a hold (GameState.h says this at length). Eight
+// bytes across kMaxFighters is 64, and GameState went 664 -> 728 to match.
+//
+// The layout half proves this is a byte-string move and not an arithmetic one:
+// CrossPlatformLayout's sizes, alignments and per-field offsets were updated to
+// the new shape and PASS. The scripted match here presses attack buttons but
+// still never reaches hit detection, so the run itself is unchanged in what it
+// exercises -- what changed is how many bytes each tick hashes over.
+//
+// ONE DERIVATION, and gcc has NOT yet checked these. The Linux CI leg is the
+// cross-toolchain half and it has not run at the time of writing; until it is
+// green these values prove that this toolchain is self-consistent and no more.
+// If it comes back red, the answer is NOT to re-record again -- it is that
+// something in the new fields reads differently on gcc, and the padding bytes
+// are the first place to look.
+//
+// ---- the previous record, kept because it is the reasoning, not the number ---
+//
 // RE-RECORDED 2026-08-16 from MSVC 19.44 / x64 / RelWithDebInfo, for the
 // ADR-005 P2 state expansion.
 //
@@ -118,11 +142,11 @@ constexpr std::uint32_t kGoldenUnrecorded = 0u;
 //
 // gcc has NOT yet checked these. Until the Linux CI leg runs this test, they
 // prove that this toolchain is self-consistent and nothing more.
-constexpr std::uint32_t kGoldenRollingHash = 0xF2001926u;
+constexpr std::uint32_t kGoldenRollingHash = 0x9429D28Bu;
 constexpr std::uint32_t kGoldenCheckpoint[kCheckpointCount] = {
-    0x5904B505u,  // tick 1000
-    0xA580ECA8u,  // tick 2000
-    0xA49479EBu,  // tick 3000
+    0xE13F9178u,  // tick 1000
+    0xDA27DC14u,  // tick 2000
+    0xCB3DDCB8u,  // tick 3000
 };
 
 // ============================================================================
@@ -145,8 +169,8 @@ constexpr std::uint32_t kGoldenCheckpoint[kCheckpointCount] = {
 //   GameState = 20-byte header + 8 x Fighter (416)                = 436 bytes
 // Both are multiples of 4, which is the alignment of their widest member, so a
 // conforming implementation inserts no tail padding either.
-constexpr std::size_t kGoldenSizeofFighter   = 68;
-constexpr std::size_t kGoldenSizeofGameState = 664;
+constexpr std::size_t kGoldenSizeofFighter   = 76;
+constexpr std::size_t kGoldenSizeofGameState = 728;
 constexpr std::size_t kGoldenAlignofFighter   = 4;
 constexpr std::size_t kGoldenAlignofGameState = 4;
 

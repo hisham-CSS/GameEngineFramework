@@ -659,7 +659,11 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
         m.hitstun  = src.hitstun;
         m.damage   = damagePointsFromHundredths(src.damageHundredths);
         m.button   = button[i];
-        m.pad_     = 0;   // explicit: these bytes are hashed by the handshake
+        // The byte that used to be pad_ here is negativeEdge now, and the
+        // schema does not author it yet (ROADMAP M1.1d): zero is "press
+        // only", which is the behaviour every shipped move has today. Still
+        // written explicitly, because the handshake hashes these bytes.
+        m.negativeEdge = 0;
 
         if (src.hitstun > 0xFFFF) {
             report.warnings.push_back(

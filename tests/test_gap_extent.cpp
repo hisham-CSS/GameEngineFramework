@@ -1,4 +1,4 @@
-// HOW BIG IS THE GAP? Every cycle in the character, not one of them.
+﻿// HOW BIG IS THE GAP? Every cycle in the character, not one of them.
 //
 // tests/test_ground_truth.cpp section 5 ends on a finding and a single
 // measurement. The finding: `fighter_a` is TERMINATING, its ranking certificate
@@ -700,12 +700,43 @@ public:
         return !slots_.empty();
     }
 
-    std::uint16_t Bits() const { return buttons_.empty() ? 0 : buttons_[cursor_]; }
+    // A FOURTH COPY of this cursor -- with FightSession.cpp, test_ground_truth.cpp
+    // and test_game_core.cpp -- and the fourth place the same two input rules had
+    // to be written. Recorded as work in ROADMAP M1.6 rather than as a comment.
+    //
+    // Zero on a release tick, because a held bit is one press however long it
+    // lasts and a witness that cancels a move into itself asks for the same bit
+    // twice running. And a re-press while WAITING, because a driver that stalls
+    // on a move which never comes otherwise stops feeding the kernel anything at
+    // all -- "the cycle managed one turn" would then mean "the driver went
+    // quiet", not "the game refused".
+    std::uint16_t Bits() const {
+        if (release_ || buttons_.empty()) return 0;
+        return buttons_[cursor_];
+    }
 
+    // THE MOVE STARTING IS CHECKED BEFORE THE RELEASE TICK IS SPENT, and that
+    // ordering is the whole of it. Buffering exists so a press that arrived
+    // early is consumed the tick the fighter can act -- which is very often a
+    // tick this driver is spending SILENT, because it pressed two ticks ago and
+    // is now releasing so the next press has an edge to be. A driver that
+    // returned early on a release tick therefore missed precisely the
+    // transitions buffering creates: the cursor never advanced, so it went on
+    // asking for the move already running, and the move restarted from frame 0
+    // one duration later. That read as "the loop decayed" when the loop was
+    // fine and the observer was blind.
     void Observe(std::uint16_t attackerMove, std::uint16_t attackerFrame) {
         if (slots_.empty()) return;
-        if (attackerMove != slots_[cursor_] || attackerFrame != 0) return;
-        cursor_ = (cursor_ + 1 < slots_.size()) ? cursor_ + 1 : 0;
+        if (attackerMove == slots_[cursor_] && attackerFrame == 0) {
+            waiting_ = 0;
+            const std::uint16_t justUsed = buttons_[cursor_];
+            cursor_ = (cursor_ + 1 < slots_.size()) ? cursor_ + 1 : 0;
+            release_ = (buttons_[cursor_] == justUsed);
+            return;
+        }
+        if (release_) { release_ = false; return; }
+        ++waiting_;
+        if (waiting_ >= kRepressAfter) { release_ = true; waiting_ = 0; }
     }
 
 private:
@@ -713,6 +744,9 @@ private:
     std::vector<std::uint16_t> buttons_;
     std::vector<std::string>   ids_;
     std::size_t                cursor_ = 0;
+    bool                       release_ = false;
+    int                        waiting_ = 0;
+    static constexpr int       kRepressAfter = 2;
 };
 
 // Silent is the recipe the character files prescribe. MashesOnceHit starts LATE
@@ -802,7 +836,9 @@ TickLog drive(const MatchData& data, Driver& driver, int ticks,
         in.p[0].bits = driver.Bits();
         if (policy == DefenderPolicy::MashesOnceHit && log.firstHitTick >= 0 &&
             t > log.firstHitTick) {
-            in.p[1].bits = defenderBits;
+            // Mashing is repeated PRESSES; holding is one. See the same change
+            // in tests/test_ground_truth.cpp.
+            in.p[1].bits = (t % 2 == 0) ? defenderBits : 0u;
         }
 
         cse::kernel::Simulate(s, in, data);
@@ -1080,6 +1116,20 @@ void runSweep(const Subject& s, Sweep& out) {
         }
 
         // --- section 4: execute it -------------------------------------------
+        // AN AUTHORED BUFFER WINDOW, and it is what keeps the timing account
+        // exact. Edge detection alone means a re-pressing driver can only land
+        // its press within a tick or two of the fighter becoming actionable, so
+        // every transition drifts and section 3's frame-by-frame account stops
+        // matching. A buffered press is consumed the EXACT tick the fighter can
+        // act -- which is what buffering is for in every fighting game that has
+        // it, and why ROADMAP M1.1d makes the window a character field rather
+        // than a constant.
+        //
+        // Set here rather than in the character file because this sweep drives
+        // 121 synthesised cycles, not a shipped character.
+        build.data.p[0].inputBufferFrames = 2;
+        build.data.p[1].inputBufferFrames = 2;
+
         Driver silentDriver(c, cycle, build.moves[0], bindings);
         std::string why;
         if (!silentDriver.Usable(why)) {

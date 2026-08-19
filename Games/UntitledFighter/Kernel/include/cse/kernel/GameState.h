@@ -268,6 +268,39 @@ struct Fighter {
     std::uint8_t reaction;   // which on_hit reaction is playing out; 0 = none
     std::uint8_t bounces;    // bounces spent, so a loop cannot bounce forever
     std::uint16_t flags;     // per-fighter reaction bits, defined by M1.3
+
+    // --- Input edges and buffering (ROADMAP M1.1d) -------------------------
+    //
+    // WHY THESE ARE IN THE STATE and not in whatever produced the input. D6 puts
+    // the input ring OUTSIDE GameState on purpose, and Simulate is handed only
+    // the CURRENT tick's bits -- so an edge computed anywhere else is recomputed
+    // wrongly on every re-simulation, and a rollback would replay a press as a
+    // hold. Anything the simulation reads lives here; that is the whole rule.
+    //
+    // Last tick's buttons, which is where both edges come from: a press is
+    // `bits & ~prevButtons` and a release is `~bits & prevButtons`. One field,
+    // two mechanics, which is why positive and negative edge are one change.
+    std::uint16_t prevButtons;
+
+    // A press that arrived while this fighter could not act, kept for a few
+    // ticks and CONSUMED -- not merely aged out -- the tick they become
+    // actionable. Consumed, because a buffered press that is only aged would
+    // start a move and then start it again on the next actionable tick.
+    //
+    // The window is a per-character field (FighterData::inputBufferFrames), not
+    // a constant here: buffering is a mechanic, and mechanics are authored
+    // (docs/adr/ADR-011 decision 1). Zero means no buffering, which is the
+    // behaviour a file that says nothing gets.
+    std::uint16_t bufferedButtons;
+    std::uint8_t  bufferAge;      // ticks the buffered press has been waiting
+
+    // THREE, not one, and the assertion is what said so. Fighter is 40 bytes of
+    // int32 plus 22 of 16-bit plus its uint8 group, and the struct has to end on
+    // a multiple of its 4-byte alignment -- one pad byte left it at 74 and the
+    // compiler quietly added two more. has_unique_object_representations_v
+    // turned that into a build error instead of two machines hashing bytes
+    // neither of them wrote.
+    std::uint8_t  pad_[3];
 };
 
 // The complete authoritative state. Everything the simulation may read.
@@ -382,8 +415,8 @@ static_assert(std::has_unique_object_representations_v<GameState>,
 // Written as a SUM OF THE MEMBERS rather than a byte count, so it keeps asking
 // "did padding appear" instead of "is this the number I last wrote down".
 static_assert(sizeof(Fighter) == sizeof(std::int32_t) * (6 + kMaxResources) +
-                                     sizeof(std::uint16_t) * 9 +
-                                     sizeof(std::uint8_t) * 10,
+                                     sizeof(std::uint16_t) * 11 +
+                                     sizeof(std::uint8_t) * 14,
               "Fighter has grown a member that is not accounted for, or the "
               "compiler inserted padding into it.");
 
