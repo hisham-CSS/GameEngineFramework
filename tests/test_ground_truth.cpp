@@ -468,8 +468,13 @@ public:
 
     void Observe(std::uint16_t attackerMove, std::uint16_t attackerFrame) {
         if (slots_.empty()) return;
-        // A release tick is spent whatever happened: nothing can have started
-        // from an input of zero, so there is nothing to test for.
+        // A release tick is spent without looking at the state, which is safe
+        // only because this driver releases exactly one tick after an advance:
+        // the fighter is one frame into a move it just started and the press
+        // that started it has already been consumed, so nothing can begin here.
+        // It stops being safe the moment a buffered press can land on a silent
+        // tick -- tests/test_gap_extent.cpp's copy checks the start FIRST for
+        // that reason, and ROADMAP M1.6 says that copy is the one to promote.
         if (release_) { release_ = false; return; }
         if (attackerMove != slots_[cursor_] || attackerFrame != 0) {
             // WAITING, so alternate rather than hold. A held button is one press,

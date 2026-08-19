@@ -672,10 +672,22 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   (clock injected, no sleep) and `UIHotReload.*` still pass unchanged.
 - `[ ]` **M1.6 The showcase: one fighter, many patches, a replay per verdict.** *(M)*
   **Carry in one finding from the trace work:** the witness-driving cursor now
-  exists in **three** copies — `BuildDemonstration` in
+  exists in **five** copies — `BuildDemonstration` in
   `Games/UntitledFighter/Game/src/FightSession.cpp`, and a `Driver` class in each
-  of `tests/test_ground_truth.cpp` and `tests/test_game_core.cpp`, the second
-  explicitly "copied out of" the first. The release-frame rule had to be written
+  of `tests/test_ground_truth.cpp`, `tests/test_game_core.cpp`,
+  `tests/test_gap_extent.cpp` and `tests/test_one_frame.cpp`; the second is
+  explicitly "copied out of" the first.
+  **PROMOTE `test_gap_extent.cpp`'s, and this is not a style preference.** It is
+  the only copy that checks whether the move has started BEFORE spending its
+  release tick. The other four return early on a release, which is safe only
+  while nothing can start on one — true today because they release exactly one
+  tick after an advance, when the press that caused it has just been consumed,
+  and because no character authors a buffer window yet (M1.1e). Set a window and
+  the ordering starts to matter: it took `test_gap_extent` from 96 failing
+  cycles to green in M1.1d, and it is the single line that differs. Whichever
+  copy survives must carry it, and the comment saying "nothing can have started
+  from an input of zero" must not survive at all — it states a conclusion whose
+  premise is now conditional. The release-frame rule had to be written
   three times, and only
   `GameDemonstration.TheSeamProducesExactlyTheGroundTruthDriversTrace` kept them
   honest — it named the disagreement at tick 1, twice, while they were being

@@ -387,6 +387,9 @@ public:
 
     void Observe(std::uint16_t attackerMove, std::uint16_t attackerFrame) {
         if (slots_.empty()) return;
+        // Spent without looking at the state, which is safe only because the
+        // release lands one tick after an advance and nothing can start there.
+        // See tests/test_ground_truth.cpp's copy of this note and ROADMAP M1.6.
         if (release_) { release_ = false; return; }
         if (attackerMove != slots_[cursor_] || attackerFrame != 0) return;
         const std::uint16_t justUsed = buttons_[cursor_];
