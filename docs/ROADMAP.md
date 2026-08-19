@@ -600,6 +600,18 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   **Done when:** a character file that authors `input_buffer_frames` produces a
   `FighterData` carrying it, a file that authors none produces zero, and an
   out-of-range value is a load error naming the key.
+  **One thing already checked, so it is not re-litigated here.** `FightSession`'s
+  `BuildDemonstration` spends a release tick and `continue`s past its cursor
+  check, which looked like the same blindness that broke the three test drivers
+  in M1.1d — a buffered press is consumed on a tick the trace is silent on. It
+  is **not** a bug, and the reason is placement rather than luck: the builder
+  releases only on the tick after an advance, when the fighter is one frame into
+  a move it just started and the press that started it has already been consumed.
+  `GameDemonstration.ABufferedPressIsSeenEvenWhenItLandsOnAReleaseTick` rehearses
+  the witness against a buffering character and asserts that no move begins on a
+  silent tick, so the invariant is checked rather than reasoned about. Written
+  expecting it to fail; it passed against the unchanged builder, and the shipped
+  code was left alone.
 - `[ ]` **M1.2 Push boxes and the corner.** *(S–M)* Body separation between
   fighters and the stage edge as a wall; resolution order per NORTHSTAR Phase 2:
   pushbox separation → strikes (throws when they exist). Authored `pushbox`

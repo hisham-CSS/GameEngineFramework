@@ -4539,3 +4539,99 @@ TEST(GameDemonstration, ASelfCancellingWitnessReleasesBetweenRepeats) {
         << " of " << kDemoTurns << " turns. A gap in the wrong place delays the "
            "next move rather than enabling it.";
 }
+
+// A REHEARSAL STILL PERFORMS THE WITNESS FOR A CHARACTER THAT BUFFERS INPUT --
+// and, more usefully, WHY the builder's release tick is safe to skip.
+//
+// BuildDemonstration spends a release tick and `continue`s, on the reasoning
+// that "nothing starts from an input of zero, so there is nothing to test for".
+// Buffering looks like it should break that: a press made two ticks ago is
+// CONSUMED the tick the fighter becomes actionable, so a move can begin on a
+// tick the trace is silent on -- and a `continue` there would leave the cursor
+// pointing at a move already running, exactly the blindness that cost most of a
+// session in the three test drivers (ROADMAP M1.1d).
+//
+// It does not break, and the reason is the PLACEMENT of the release rather than
+// the absence of a buffer. The builder releases only on the tick immediately
+// after an advance: the fighter is one frame into a move it just started, and
+// the press that started it has already been consumed, so there is nothing
+// buffered to fire. The second assertion below turns that sentence into a check,
+// because it is the invariant that makes the `continue` correct and it is not
+// obvious from the code -- move the release anywhere else and this test is what
+// says so.
+//
+// I wrote this expecting it to fail and change the builder. It passed against
+// the unchanged builder, which is the answer.
+//
+// The window is set on the built MatchData rather than authored, because no
+// character file can author one yet -- that is ROADMAP M1.1e.
+TEST(GameDemonstration, ABufferedPressIsSeenEvenWhenItLandsOnAReleaseTick) {
+    Rig rig{};
+    bringUpInfinite(rig);
+    ASSERT_FALSE(::testing::Test::HasFatalFailure());
+
+    // Wide enough that a press is pending across the release the builder emits
+    // after every advance, which is what puts a move start ON a release tick.
+    rig.build.data.p[0].inputBufferFrames = 8;
+    rig.build.data.p[1].inputBufferFrames = 8;
+
+    FightSession session;
+    std::string error;
+    ASSERT_TRUE(session.Begin(rig.setup, error)) << error;
+
+    Demonstration demo{};
+    demonstrate(rig, session.State(), kDemoTurns, session.CurrentTick(), demo);
+    ASSERT_FALSE(::testing::Test::HasFatalFailure());
+
+    EXPECT_TRUE(demo.complete)
+        << "the rehearsal did not finish for a character that buffers input, "
+           "though the same witness completes for one that does not. Buffering "
+           "makes a link EASIER, so a rehearsal it breaks is a rehearsal that "
+           "stopped watching.\n  reachedIndex "
+        << demo.reachedIndex << " of " << rig.kernelWitness.size()
+        << "\n  turnsDone    " << demo.turnsDone << " of " << kDemoTurns
+        << "\n  stalledAt    " << demo.stalledAt
+        << "\n  error        " << demo.error;
+
+    EXPECT_GE(demo.turnsDone, static_cast<std::uint32_t>(kDemoTurns))
+        << "the buffered rehearsal managed " << demo.turnsDone << " of "
+        << kDemoTurns << " turns.";
+
+    // --- and no move ever begins on a tick the trace is silent on ------------
+    //
+    // Replayed rather than inferred: BuildDemonstration reports the inputs, not
+    // the states, so the only honest way to ask "did a move start on a release
+    // tick" is to run them.
+    GameState replay = session.State();
+    std::size_t startsOnSilentTicks = 0, silentTicks = 0, startsSeen = 0;
+    for (const cse::kernel::Input& in : demo.inputs) {
+        cse::kernel::InputPair pair{};
+        pair.p[0] = in;
+        pair.p[1] = cse::kernel::Input{};   // the silent dummy, as demonstrate() asks for
+        cse::kernel::Simulate(replay, pair, rig.build.data);
+        const bool started =
+            replay.p[0].moveId != 0u && replay.p[0].moveFrame == 0u;
+        if (started) ++startsSeen;
+        if (in.bits != 0u) continue;
+        ++silentTicks;
+        if (started) ++startsOnSilentTicks;
+    }
+
+    ASSERT_GT(silentTicks, 0u)
+        << "the trace never releases, so this check saw nothing. The witness "
+           "cancels a move into itself; there must be release ticks.";
+    // NOT VACUOUS: the replay does observe move starts, so a zero below is the
+    // absence of one on a SILENT tick and not the loop failing to see any.
+    ASSERT_GT(startsSeen, 0u)
+        << "replaying the demonstration's own inputs started no move at all, so "
+           "this replay is not the run BuildDemonstration rehearsed and the "
+           "check beneath it means nothing.";
+    EXPECT_EQ(startsOnSilentTicks, 0u)
+        << startsOnSilentTicks << " of the trace's " << silentTicks
+        << " release tick(s) started a move. BuildDemonstration skips its "
+           "cursor check on a release tick, which is only safe while no move can "
+           "begin there -- and it is safe today because the release lands one "
+           "tick after a start, when the buffer has just been consumed. If this "
+           "fails, the release moved, and the `continue` has to look at the "
+           "state before spending it.";
+}
