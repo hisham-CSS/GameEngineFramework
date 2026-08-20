@@ -1296,6 +1296,20 @@ authored, and today **no character file authors one** — that is M1.1e. Until i
 lands, a fighter built from `fighter_a.json` has `inputBufferFrames` 0 and an
 early press is correctly forgotten.
 
+### R0c — After M1.3d: the dummy reacts, and you can see which posture it is in
+
+| | |
+|---|---|
+| **Run** | `Editor.exe`, Game view, or `Player.exe`. Box overlay on. |
+| **Do** | Press **V** to move out to midscreen. Hit the dummy repeatedly and watch it slide. Press **V** again to put it back in the corner and hit it there. Hold **Down** and look at the dummy's body. Land `crouch_hk` (the sweep) and keep attacking while the dummy is on the floor. |
+| **Should** | Midscreen: every hit carries the dummy back, further on heavies than on lights, and the slide decays rather than stopping dead. Corner: it does not move, and the HUD says the verdict on screen is about *this* position. Crouching: the body is visibly shorter — 34 px against 60. After a sweep: your attacks pass through the downed dummy and deal nothing until it gets up. |
+| **Wrong if** | The dummy slides in the corner (the wall clamp is not holding). Or a light knocks it as far as a heavy (pushback is not per-move). Or crouching changes nothing (`crouch_height_px` is unauthored or unread). Or you can keep hitting a knocked-down dummy — that is the one state that should hand the turn back, and if it does not, a sweep opens a loop instead of ending one. |
+
+Note the HUD line under the controls says which position you are in. **At
+midscreen the verdict drawn above the fighters does not describe where they are
+standing** — the in-engine prover is corner-only by construction — and the line
+says so in those words.
+
 ### R1 — After M1.1b: the file is the game
 
 The first point where **frame data visibly beats a constant**.

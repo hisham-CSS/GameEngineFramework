@@ -864,8 +864,27 @@ namespace {
 
         // --- what the training controls do ------------------------------------
         pen.line("SPACE pause     . step one tick     , slow motion     R reset"
-                 "     TAB demonstrate     C next character     ESC menu",
+                 "     TAB demonstrate     C next character     V corner/midscreen"
+                 "     ESC menu",
                  kDimCol);
+
+        // WHERE THE FIGHTERS ARE STANDING, and what it costs, because the
+        // verdict drawn above them is corner-only by construction.
+        //
+        // In the corner the two agree and the line is a statement of fact. At
+        // midscreen they do not, and saying so is the whole point: a player who
+        // moves the dummy out to watch knockback has to know that the TERMINATING
+        // above their head stopped applying when they pressed V.
+        if (model.stageMidscreen)
+            pen.line("MIDSCREEN -- knockback and spacing are visible here, and the "
+                     "verdict above is a CORNER verdict that does not describe "
+                     "this position. [V] returns to the corner.",
+                     kWarnCol);
+        else
+            pen.line("CORNER -- the position every verdict on this screen is "
+                     "about. Knockback has nowhere to carry the dummy here; "
+                     "[V] moves out to midscreen to watch it.",
+                     kDimCol);
 
         // --- what the colours mean --------------------------------------------
         //

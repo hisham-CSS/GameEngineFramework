@@ -133,6 +133,14 @@ private:
     // and multiplies the rest (InputMap.h).
     void readControls_();
 
+    // Corner or midscreen, and the numbers that decide it. See the long note at
+    // the opening position in the .cpp: the corner is where the in-engine
+    // verdicts mean anything and it is also the one place knockback cannot show,
+    // so the mode does both and says which.
+    void applyStagePosition_();
+    bool         stageMidscreen_   = false;
+    std::int32_t bodyHalfWidthSub_ = 0;
+
     void resetMatch_();
     void startDemonstration_();
     // Puts the current demonstration (or nothing) in front of the local pad and

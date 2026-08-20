@@ -314,6 +314,11 @@ struct FightHudModel {
     // authors this tick.
     const char*   speaking      = nullptr;
     bool          demoArmed     = false;   // the analysis has a witness to perform
+
+    // The fighters are standing MIDSCREEN rather than in the corner. The HUD
+    // says so and says what it costs, because every verdict it draws is
+    // corner-only by construction.
+    bool          stageMidscreen = false;
     std::uint32_t demoRemaining = 0;       // ticks of script left to play
 
     // The last hit's frame advantage, latched by the host on the tick it landed.
