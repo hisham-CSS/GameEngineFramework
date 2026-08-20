@@ -2,8 +2,14 @@
 //
 // tests/test_ground_truth.cpp section 5 ends on a finding and a single
 // measurement. The finding: `fighter_a` is TERMINATING, its ranking certificate
-// says so because JUGGLE RUNS DOWN, and the kernel has no juggle -- it has no
-// resources at all. The measurement: ONE cycle, `air_mp` into itself, which the
+// says so because JUGGLE RUNS DOWN, and the kernel never spends it. Since
+// ROADMAP M1.1b the kernel DOES simulate resources -- it primes them, applies
+// each move's effect on contact and refuses a move whose guard is unmet -- so
+// the sentence that used to sit here, "it has no resources at all", is no longer
+// the reason. Two narrower things are: `ApplyEffects` CLAMPS at the authored
+// floor instead of refusing, and `MatchBuilder` sets neither `juggleMax` nor
+// `juggleCost`, so the budget gate in Combat.cpp has never fired for a built
+// character. The measurement: ONE cycle, `air_mp` into itself, which the
 // model permits four repetitions of and the kernel performed eighteen.
 //
 // One cycle is an existence proof. It settles that the gap is real and settles
@@ -42,7 +48,8 @@
 //   the report's 41      CONFIRMED, including the 1 / 8 / 32 split by length
 //   ended by juggle      41 of 41. Every cycle's total juggle effect is strictly
 //                        negative and NO cycle touches meter, so juggle alone
-//                        ends all of them -- and the kernel has no juggle.
+//                        ends all of them -- and the kernel never spends juggle
+//                        (M1.1b: tracked, clamped at the floor, gate unwired).
 //   performable as the   1 of 41. The other 40 each contain exactly one edge the
 //   model describes it   kernel cannot take.
 //   EXECUTED ANYWAY      33 of 41, as loops the defender never gets one tick out
@@ -1830,7 +1837,7 @@ TEST(GapExtentKernel, NinetySevenOfThe121RunForever) {
         << "                  meter, and `move.effect` is a "
         << BuildLossDirectionName(effects->direction) << " loss over "
         << effects->count << " move(s):\n"
-        << "                  the kernel has no juggle to spend. `move.stance` is a "
+        << "                  the kernel never spends juggle. `move.stance` is a "
         << BuildLossDirectionName(stance->direction) << "\n"
         << "                  loss over " << stance->count
         << " move(s), so the air moves are startable standing.\n"

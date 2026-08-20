@@ -82,10 +82,15 @@
 // simply cannot be taken more than four times, because `air_mp` spends one point
 // of a four-point juggle budget and `nonNegative` refuses the fifth.
 //
-// THE KERNEL HAS NO JUGGLE. It has no resources at all: `Fighter::meter` exists
-// and nothing writes it, and there is no juggle field to write. MatchBuilder
-// already says so -- `move.effect` is a KernelOmits row and
-// `BuildReport::playsAsAnalysed` is false -- but "a loss table entry" and "the
+// THE KERNEL NEVER SPENDS JUGGLE, which since ROADMAP M1.1b is a narrower claim
+// than the one that used to be here. It has resources now: they are declared,
+// primed, spent by `MoveDef::effect` on contact and guarded by
+// `MoveDef::guard` on both routes into a move. What it does NOT do is end a
+// combo when one runs out -- `ApplyEffects` clamps at the authored floor rather
+// than refusing, and `MatchBuilder` populates neither `juggleMax` nor
+// `juggleCost`, so the budget gate in Combat.cpp has never fired for a built
+// character. MatchBuilder still says the outcome -- `BuildReport::playsAsAnalysed`
+// is false -- but "a loss table entry" and "the
 // character has an infinite the tool certified away" are very different
 // sentences, and section 5 turns the first into the second by executing it.
 //

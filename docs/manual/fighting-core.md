@@ -677,7 +677,7 @@ Neither of those is the question a designer is actually asking. That question is
 
 ### The gap that has been measured rather than suspected: resources
 
-> **The kernel has no resources.** `Fighter::meter` is declared at `Games/UntitledFighter/Kernel/include/cse/kernel/GameState.h:54` and appears nowhere in `Games/UntitledFighter/Kernel/src/` — no rule reads it, no rule writes it. There is no juggle field at all, and no ceiling logic. **So a character whose termination depends on a resource running down has no such limit in the game: the bound the verdict rests on does not exist there.**
+> **The kernel simulates resources, and the bound still does not bind.** Since ROADMAP M1.1b, `FighterData::resources` carries each declared slot's initial, floor and ceiling in file order; `Fighter::res` is primed on the match's first tick; `MoveDef::effect` is applied on contact and clamped; and both routes into a move refuse one whose `MoveDef::guard` minimum is unmet. `super_beam` is no longer startable on an empty bar. **What is still missing is the juggle BUDGET, and it is a wiring gap rather than a design one:** `MatchBuilder` sets neither `FighterData::juggleMax` nor `MoveDef::juggleCost`, so the gate in `Games/UntitledFighter/Kernel/src/Combat.cpp` that refuses a hit which would overspend the budget has never fired for a built character. And `ApplyEffects` clamps at the floor rather than refusing, so a cost that cannot be paid is forgiven. **So a character whose termination depends on juggle running down still has no such limit in the game: the bound the verdict rests on is tracked but never enforced.**
 
 That is not a prediction. It was executed on 2026-08-13, on this project's own character, and it is the second half of the ground-truth validation [ARCHITECTURE.md](../ARCHITECTURE.md)'s research section asks for (ADR-001 section 6.1 records both halves).
 
@@ -703,9 +703,9 @@ It names both resources, in order, `meter, juggle`. Only juggle can actually run
 
 | Mechanism | Where it went |
 |---|---|
-| `resources` ×2 | `KernelOmits` — "the kernel has one integer called meter and no ceiling logic at all" |
-| `move.effect` ×3 | `KernelOmits` — the delta is never applied, so juggle is never spent |
-| `move.guard` ×1 | `KernelPermits` — the minimum is never checked, so `super_beam` is startable on an empty bar |
+| `resources` ×2 | `Exact` since M1.1b — initial, floor and ceiling all carried, in file order |
+| `move.effect` ×3 | `Exact` since M1.1b — the delta is applied on contact and clamped. The clamp is what still forgives an unpayable juggle cost |
+| `move.guard` ×1 | `Exact` since M1.1b — the minimum is checked on both start routes, so `super_beam` is no longer startable on an empty bar |
 | `move.stance` ×18 | `KernelPermits` — every move in the file restricts its stance and the kernel gates on nothing but stun, so an *air* move is startable standing. A second and independent reason this loop runs |
 
 `tests/test_ground_truth.cpp` then handed the kernel a trace derived from the prover's own witness — nothing hardcodes a button; the trace is built by walking `ProverResult`, so the claim is that *the engine* can read the verdict, not that a human can. **The kernel performed `air_mp` into itself 18 times in 200 ticks — a cancel the model permits four of — at a fixed period, with a mashing defender out of hitstun on 0 ticks and starting a move on 0 ticks.** `BuildReport::playsAsAnalysed` is `false` for this character, and that test is what the flag costs.
