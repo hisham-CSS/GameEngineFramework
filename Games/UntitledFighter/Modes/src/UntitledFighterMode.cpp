@@ -1096,7 +1096,8 @@ void UntitledFighterMode::Draw(MyCoreEngine::Renderer2D& r2d, int widthPx,
         // captured. UIPass's closing End() therefore restores the same bits it
         // would have restored anyway. The cost is two extra flushes per frame.
         r2d.End();
-        r2d.BeginWorld(FightCamera(session_.State(), widthPx, heightPx), widthPx,
+        r2d.BeginWorld(FightCamera(session_.State(), widthPx, heightPx,
+                                   stageHalfWidthSub_), widthPx,
                        heightPx);
         DrawFightWorld(r2d, session_.State(), session_.Data(), stageHalfWidthSub_);
         r2d.End();

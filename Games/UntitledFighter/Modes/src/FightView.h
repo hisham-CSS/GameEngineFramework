@@ -167,8 +167,14 @@ std::int32_t ProbeStageHalfWidthSub();
 // width so that a FIXED number of stage pixels is visible however big the window
 // is. A camera with a fixed zoom would show twice the stage on a 4K monitor,
 // which would make "am I in range" a question about the display.
+//
+// `stageHalfWidthSub` clamps the framing so the view never passes a wall: pass 0
+// to centre on the pair unconditionally, which is what a caller with no stage
+// wants. See the note at the clamp for why an unclamped corner reads as the edge
+// of the screen rather than as a wall.
 MyCoreEngine::Camera2D FightCamera(const cse::kernel::GameState& state,
-                                   int viewportW, int viewportH);
+                                   int viewportW, int viewportH,
+                                   std::int32_t stageHalfWidthSub);
 
 // --- The picture --------------------------------------------------------------
 

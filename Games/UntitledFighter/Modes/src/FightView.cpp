@@ -51,6 +51,23 @@ namespace {
 
     const glm::vec4 kFloorCol { 0.15f, 0.16f, 0.20f, 1.0f };
     const glm::vec4 kFloorLine{ 0.30f, 0.33f, 0.40f, 1.0f };
+
+    // --- The measuring floor -------------------------------------------------
+    //
+    // A CHECKERBOARD WHOSE MAJOR DIVISION IS ONE REACH UNIT, which is what makes
+    // it a ruler rather than decoration. The loader's `px_per_reach_unit` is 100,
+    // so a move authored `reach: 0.42` reaches four squares and a bit, and a
+    // pushback of `0.13` carries the defender just past one. Reading a number off
+    // the file and counting it off the floor is the point.
+    //
+    // Asked for from play (2026-08-20): "a full sized level ... with a standard
+    // checkerboard pattern so we can gauge distance."
+    constexpr float kCellPx      = 20.0f;    // five to a reach unit
+    constexpr float kCellsPerMajor = 5;      // so a major band is 100 px
+    const glm::vec4 kCellDark { 0.13f, 0.14f, 0.18f, 1.0f };
+    const glm::vec4 kCellLight{ 0.18f, 0.19f, 0.24f, 1.0f };
+    const glm::vec4 kMajorLine{ 0.34f, 0.38f, 0.48f, 1.0f };
+    const glm::vec4 kOriginLine{ 0.55f, 0.60f, 0.72f, 1.0f };
     const glm::vec4 kCornerCol{ 0.98f, 0.58f, 0.18f, 1.0f };
     const glm::vec4 kOutOfBounds{ 0.09f, 0.07f, 0.07f, 0.85f };
     const glm::vec4 kShadowCol{ 0.00f, 0.00f, 0.00f, 0.35f };
@@ -303,7 +320,8 @@ std::int32_t ProbeStageHalfWidthSub() {
 // --- Camera -------------------------------------------------------------------
 
 MyCoreEngine::Camera2D FightCamera(const cse::kernel::GameState& state,
-                                   int viewportW, int viewportH) {
+                                   int viewportW, int viewportH,
+                                   std::int32_t stageHalfWidthSub) {
     (void)viewportH;   // the vertical extent falls out of the aspect; see below
 
     MyCoreEngine::Camera2D cam{};
@@ -318,7 +336,32 @@ MyCoreEngine::Camera2D FightCamera(const cse::kernel::GameState& state,
     // simulation integers is the habit that eventually does.
     const float p0 = WorldPx(state.p[0].posX);
     const float p1 = WorldPx(state.p[1].posX);
-    cam.position = glm::vec2((p0 + p1) * 0.5f, kCameraHeightPx);
+    float centre = (p0 + p1) * 0.5f;
+
+    // AND IT STOPS AT THE WALLS. Without this the camera keeps centring on the
+    // pair as they reach a corner, so the wall drifts into the middle of the
+    // screen and the out-of-bounds band fills half the view -- and a corner
+    // stops looking like a wall and starts looking like the edge of the picture.
+    // Clamped, the corner arrives at the side of the screen and STAYS there,
+    // which is what tells a player they have run out of stage.
+    //
+    // Asked for from play (2026-08-20): "camera follow so we can go in either
+    // corner".
+    //
+    // The clamp is skipped when the stage is narrower than the view, because
+    // there is then no framing that hides both walls and centring is the only
+    // sensible answer. A stage that small is a test fixture rather than a level.
+    if (stageHalfWidthSub > 0) {
+        const float corner = WorldPx(stageHalfWidthSub);
+        if (corner > kViewHalfWidthPx) {
+            const float limit = corner - kViewHalfWidthPx;
+            centre = centre < -limit ? -limit : (centre > limit ? limit : centre);
+        } else {
+            centre = 0.0f;
+        }
+    }
+
+    cam.position = glm::vec2(centre, kCameraHeightPx);
 
     // BeginWorld computes its half-extents as (viewport / 2) / zoom, so this is
     // the zoom that makes the visible half-width exactly kViewHalfWidthPx
@@ -342,6 +385,43 @@ void DrawFightWorld(MyCoreEngine::Renderer2D& r2d,
     // something to stand on for the picture to read at all.
     const float span = corner * 2.0f + 400.0f;
     r2d.DrawQuad({ -corner - 200.0f, -80.0f }, { span, 80.0f }, kFloorCol, kLayerFloor);
+
+    // THE RULER. Squares from the stage's own centre outward, so the pattern is
+    // symmetric about x = 0 and the two corners are the same distance from the
+    // middle in squares as they are in pixels -- a checkerboard laid from the
+    // left edge would put the seam somewhere arbitrary and make the two halves
+    // read differently.
+    //
+    // Drawn only across the stage proper. Past the corner is not stage, and
+    // tiling the out-of-bounds band would suggest there is somewhere to stand.
+    {
+        const int cells = static_cast<int>(corner / kCellPx) + 1;
+        for (int i = -cells; i < cells; ++i) {
+            const float x = static_cast<float>(i) * kCellPx;
+            const float w = (x + kCellPx > corner) ? (corner - x) : kCellPx;
+            if (x >= corner || w <= 0.0f) continue;
+            if (x < -corner) continue;
+
+            // Alternating by the cell INDEX rather than by position, so the
+            // parity does not flip when the stage width changes.
+            const bool light = ((i % 2) + 2) % 2 == 0;
+            r2d.DrawQuad({ x, -80.0f }, { w, 80.0f },
+                         light ? kCellLight : kCellDark, kLayerFloor);
+
+            // A heavier line every reach unit, which is what turns counting
+            // squares into reading a distance.
+            if (((i % static_cast<int>(kCellsPerMajor)) + static_cast<int>(kCellsPerMajor))
+                    % static_cast<int>(kCellsPerMajor) == 0)
+                r2d.DrawQuad({ x - 0.5f, -80.0f }, { 1.0f, 84.0f },
+                             kMajorLine, kLayerStage);
+        }
+
+        // CENTRE STAGE, marked once and brighter. It is the position `V` puts
+        // the pair at, and the one place a distance can be read off in both
+        // directions at once.
+        r2d.DrawQuad({ -1.0f, -80.0f }, { 2.0f, 96.0f }, kOriginLine, kLayerStage);
+    }
+
     r2d.DrawQuad({ -corner - 200.0f, -1.0f }, { span, 1.0f }, kFloorLine, kLayerFloor);
 
     // BEYOND THE CORNER IS NOT STAGE. Tinted rather than left blank so the wall

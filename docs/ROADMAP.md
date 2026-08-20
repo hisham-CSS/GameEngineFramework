@@ -944,6 +944,27 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   — see [[stale-claim-sweeps]]'s sibling lesson: after a change whose fallout you
   FIX, re-revert and check something still goes red.
 
+- `[ ]` **M1.1g The stage is a number nobody owns.** *(S)* Asked for from play
+  (2026-08-20): *"a full sized level"*. The stage is **±480 px**, which is
+  2.4 camera-widths at the current framing, and it is a `constexpr` local to
+  `Games/UntitledFighter/Kernel/src/Simulate.cpp` that clamps `posX`. Widening
+  it is one number and it is **not** a one-line change:
+  (a) it is SIMULATION state, so the cross-toolchain golden moves — a re-golden
+  for behaviour, in ADR-005's language, not for layout;
+  (b) `tests/test_gap_extent.cpp`, `tests/test_ground_truth.cpp`,
+  `tests/test_one_frame.cpp` and `tests/test_training_mode.cpp` each hardcode
+  `480 * kSubUnitsPerPixel` as their corner opening, so all four go wrong
+  silently rather than loudly;
+  (c) `Games/UntitledFighter/Modes/src/FightView.cpp`'s `ProbeStageHalfWidthSub`
+  walks a fighter into the clamp and reads where it stops — a good trick that
+  exists precisely because the constant is not exported.
+  **So do (c) first:** export the half-width from the kernel, have the probe and
+  all four test files derive it, and only then change the number. That turns a
+  four-file silent breakage into a one-line edit and a deliberate re-golden.
+  **And the real answer is that a stage is DATA**, not a kernel constant —
+  MAINTENANCE.md's rule against hard-coding what a file should set applies, and
+  M1.2 owns the corner. This WP is the enabling refactor, not the stage model.
+
 - `[ ]` **M1.2 Push boxes and the corner.** *(S–M)* Body separation between
   fighters and the stage edge as a wall; resolution order per NORTHSTAR Phase 2:
   pushbox separation → strikes (throws when they exist). Authored `pushbox`
@@ -1304,6 +1325,18 @@ early press is correctly forgotten.
 | **Do** | Press **V** to move out to midscreen. Hit the dummy repeatedly and watch it slide. Press **V** again to put it back in the corner and hit it there. Hold **Down** and look at the dummy's body. Land `crouch_hk` (the sweep) and keep attacking while the dummy is on the floor. |
 | **Should** | Midscreen: every hit carries the dummy back, further on heavies than on lights, and the slide decays rather than stopping dead. Corner: it does not move, and the HUD says the verdict on screen is about *this* position. Crouching: the body is visibly shorter — 34 px against 60. After a sweep: your attacks pass through the downed dummy and deal nothing until it gets up. |
 | **Wrong if** | The dummy slides in the corner (the wall clamp is not holding). Or a light knocks it as far as a heavy (pushback is not per-move). Or crouching changes nothing (`crouch_height_px` is unauthored or unread). Or you can keep hitting a knocked-down dummy — that is the one state that should hand the turn back, and if it does not, a sweep opens a loop instead of ending one. |
+
+**The floor is a ruler.** Squares are 20 px with a heavier line every 100 px,
+and 100 px is one REACH UNIT — the loader's `px_per_reach_unit`. So a move
+authored `reach: 0.42` reaches four squares and a bit, and `pushback: 0.13`
+carries the defender just past one major band. Read the number out of the JSON
+and count it off the floor; if they disagree, one of the two is wrong and this
+is how you find out which.
+
+**The camera stops at the walls.** Unclamped it kept centring on the pair, so a
+corner drifted into the middle of the screen and stopped reading as a wall. It
+now holds the corner at the side of the screen, which is what tells you the
+stage has run out.
 
 Note the HUD line under the controls says which position you are in. **At
 midscreen the verdict drawn above the fighters does not describe where they are
