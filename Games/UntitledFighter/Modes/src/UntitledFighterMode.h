@@ -137,6 +137,10 @@ private:
     // the opening position in the .cpp: the corner is where the in-engine
     // verdicts mean anything and it is also the one place knockback cannot show,
     // so the mode does both and says which.
+    // Where the camera was last frame, world pixels. Presentation state and
+    // nothing else reads it -- see FightCamera for why the camera has memory.
+    float        cameraCentrePx_   = 0.0f;
+
     void applyStagePosition_();
     bool         stageMidscreen_   = false;
     std::int32_t bodyHalfWidthSub_ = 0;

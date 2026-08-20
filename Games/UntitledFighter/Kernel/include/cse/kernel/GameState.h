@@ -36,6 +36,39 @@ namespace cse::kernel {
 // authored as halvings and a rounding difference is a desync.
 inline constexpr std::int32_t kSubUnitsPerPixel = 256;
 
+// --- The stage ---------------------------------------------------------------
+//
+// PUBLIC BECAUSE THREE THINGS HAVE TO AGREE ABOUT THEM, and until ROADMAP M1.1g
+// only one of the three could see them: Simulate clamped against a file-local
+// constant, the training mode WALKED A FIGHTER INTO THE CLAMP to find out where
+// it was, and four test files wrote `480` down again by hand. That is the shape
+// MAINTENANCE.md's rule is about -- if a comment says "must match X", make it
+// call X.
+//
+// Both are stage properties rather than character ones, and a stage has no data
+// model yet, so they are kernel constants for now and M1.2 is where they become
+// authored. That is a known debt, written down rather than hidden: nothing here
+// may be a number a level designer cannot set.
+inline constexpr std::int32_t kStageHalfWidthSub = 480 * kSubUnitsPerPixel;
+
+// THE INVISIBLE WALL, and it is the Street Fighter rule rather than a camera
+// convenience. Two fighters may never be more than this far apart: a player
+// backing away stops at it, and it MOVES WITH THE OPPONENT, so retreating stays
+// possible for exactly as long as the opponent keeps advancing. Once they stop,
+// so does the retreat -- and the only thing that lets anyone gain more ground
+// than this is the opponent's own forward walk, or an absolute corner behind
+// them.
+//
+// It is simulation and not presentation: it decides POSITION, so it decides
+// whether a move reaches, and a camera that merely declined to show the gap
+// would be a camera lying about a fight the kernel had already resolved.
+//
+// 374 px is 400 -- the width the view shows -- less a 13 px half-body at each
+// edge, so two fighters at maximum separation are both fully on screen rather
+// than half of each hanging off it. FightView derives its framing from THIS
+// number for that reason; see kViewHalfWidthPx.
+inline constexpr std::int32_t kMaxSeparationSub = 374 * kSubUnitsPerPixel;
+
 // Ticks per second. The simulation is tick-driven, never delta-time driven:
 // Application's FixedTimestep is explicitly NOT allowed to drive this (it caps
 // at 8 steps then ZEROES the accumulator, dropping the backlog -- see

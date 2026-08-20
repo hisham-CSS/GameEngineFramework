@@ -1470,3 +1470,118 @@ TEST(P2Crouch, AMovesOwnHurtboxOutranksTheCrouchingOne) {
            "for those frames; layering the generic crouch over it ignores half "
            "the file.";
 }
+
+// --- The invisible wall ------------------------------------------------------
+//
+// Described from play (2026-08-20): "there is a maximum distance they can be
+// away from the character before they reach an invisible wall ... if the
+// opposing character starts to move closer, the player can keep moving backwards
+// till they hit a corner or till the opposing character stops moving."
+//
+// Two claims, and they are separable, so they are two tests.
+TEST(P2Stage, RetreatStopsAtTheMaximumSeparation) {
+    auto data = twoFighters();
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+    s.p[0].posX = 0;
+    s.p[1].posX = 0;
+
+    InputPair back{};
+    back.p[1].bits = kInputRight;   // p1 walks away; p0 stands still
+
+    // Long enough to cross the limit several times over at any walk speed.
+    for (int t = 0; t < 600; ++t) Simulate(s, back, *data);
+
+    const std::int32_t gap = s.p[1].posX - s.p[0].posX;
+    EXPECT_LE(gap, kMaxSeparationSub)
+        << "the retreating fighter reached " << gap
+        << " sub-units from a stationary opponent and the limit is "
+        << kMaxSeparationSub
+        << ". Without the wall a player can simply walk out of the game.";
+    EXPECT_EQ(gap, kMaxSeparationSub)
+        << "the retreat stopped SHORT of the limit at " << gap
+        << ", so something other than the wall is holding them.";
+    EXPECT_EQ(s.p[0].posX, 0)
+        << "the stationary fighter was dragged along by the clamp. Only the one "
+           "who moved may be stopped; pulling the other is how a player gets "
+           "shoved backwards by an opponent who is running away.";
+}
+
+// AND THE WALL MOVES WITH THE CHASER, which is the half that makes it a fighting
+// game rather than a cage. A test that only checked the limit would pass on an
+// implementation that pinned the pair together forever.
+TEST(P2Stage, RetreatResumesForExactlyAsLongAsTheOpponentAdvances) {
+    auto data = twoFighters();
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+    s.p[0].posX = 0;
+    s.p[1].posX = 0;
+
+    InputPair back{};
+    back.p[1].bits = kInputRight;
+    for (int t = 0; t < 600; ++t) Simulate(s, back, *data);
+
+    const std::int32_t pinned = s.p[1].posX;
+    ASSERT_EQ(pinned - s.p[0].posX, kMaxSeparationSub) << "precondition: at the wall";
+
+    // Now the opponent chases. The retreat must resume, and the pair must stay
+    // exactly at the limit rather than the chaser closing the gap.
+    InputPair chase{};
+    chase.p[0].bits = kInputRight;   // p0 advances
+    chase.p[1].bits = kInputRight;   // p1 keeps backing away
+    for (int t = 0; t < 30; ++t) Simulate(s, chase, *data);
+
+    EXPECT_GT(s.p[1].posX, pinned)
+        << "the opponent advanced for 30 ticks and the retreating fighter did "
+           "not gain a single sub-unit. The wall is anchored to the STAGE rather "
+           "than to the opponent, so backing away is a one-way door.";
+    // ONE WALK STEP INSIDE THE LIMIT WHILE THE CHASE IS ON, and that is the
+    // pre-move anchor showing through rather than a rounding error. p1 is
+    // clamped against where p0 stood at the TOP of the tick, so while both walk
+    // at the same speed p1 ends each tick exactly one step behind the limit --
+    // a constant gap, not a growing one.
+    const std::int32_t chasing = s.p[1].posX - s.p[0].posX;
+    EXPECT_LT(chasing, kMaxSeparationSub)
+        << "the gap reached the limit DURING the chase, which would mean the "
+           "clamp is reading the opponent's post-move position and handing the "
+           "retreating player the chaser's own step in the tick they took it.";
+    EXPECT_GT(chasing, kMaxSeparationSub - 4 * kSubUnitsPerPixel)
+        << "the gap fell to " << chasing << ", far more than a walk step inside "
+        << kMaxSeparationSub << ". The chaser is closing rather than the pair "
+           "holding station, so the retreat is not keeping up.";
+
+    // AND IT SETTLES EXACTLY AT THE LIMIT WHEN THE CHASE STOPS, which is the
+    // sentence the whole rule is for: you may keep the ground you were given,
+    // and you may not take more.
+    InputPair keepGoing{};
+    keepGoing.p[1].bits = kInputRight;
+    for (int t = 0; t < 10; ++t) Simulate(s, keepGoing, *data);
+
+    EXPECT_EQ(s.p[1].posX - s.p[0].posX, kMaxSeparationSub)
+        << "the chaser stopped and the retreating fighter settled at "
+        << (s.p[1].posX - s.p[0].posX) << " rather than at the limit "
+        << kMaxSeparationSub << ".";
+}
+
+// And the absolute corner still wins: the wall is a limit on SEPARATION and the
+// stage is a limit on POSITION, and a fighter backed into a corner has run out
+// of the second one whatever the first allows.
+TEST(P2Stage, TheAbsoluteCornerStillStopsTheRetreat) {
+    auto data = twoFighters();
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+    s.p[0].posX = kStageHalfWidthSub - kMaxSeparationSub;
+    s.p[1].posX = kStageHalfWidthSub - kSubUnitsPerPixel;
+
+    InputPair back{};
+    back.p[0].bits = kInputRight;   // the chaser advances, so the wall follows
+    back.p[1].bits = kInputRight;   // and the retreating fighter keeps going
+
+    for (int t = 0; t < 600; ++t) Simulate(s, back, *data);
+
+    EXPECT_EQ(s.p[1].posX, kStageHalfWidthSub)
+        << "the retreating fighter ended at " << s.p[1].posX
+        << " and the stage edge is " << kStageHalfWidthSub
+        << ". The separation limit must never let anybody past the corner: it "
+           "only ever pulls fighters together.";
+}

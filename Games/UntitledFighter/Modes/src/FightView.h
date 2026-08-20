@@ -172,9 +172,14 @@ std::int32_t ProbeStageHalfWidthSub();
 // to centre on the pair unconditionally, which is what a caller with no stage
 // wants. See the note at the clamp for why an unclamped corner reads as the edge
 // of the screen rather than as a wall.
+// `previousCentrePx` is where the camera was last frame, in world pixels. The
+// camera HOLDS STILL unless a fighter would otherwise leave the view -- pass the
+// returned `position.x` back in next frame. A caller with no previous frame
+// should pass the pair's midpoint, which is the right framing to open on.
 MyCoreEngine::Camera2D FightCamera(const cse::kernel::GameState& state,
                                    int viewportW, int viewportH,
-                                   std::int32_t stageHalfWidthSub);
+                                   std::int32_t stageHalfWidthSub,
+                                   float previousCentrePx);
 
 // --- The picture --------------------------------------------------------------
 

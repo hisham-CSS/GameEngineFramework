@@ -15,7 +15,6 @@ namespace {
 constexpr std::int32_t kWalkSpeed   = 2 * kSubUnitsPerPixel;      //  2 px/tick
 constexpr std::int32_t kGravity     = kSubUnitsPerPixel / 4;      // .25 px/tick^2
 constexpr std::int32_t kJumpImpulse = 5 * kSubUnitsPerPixel;
-constexpr std::int32_t kStageHalfWidth = 480 * kSubUnitsPerPixel;
 
 // A player is actionable when nothing is holding them still.
 //
@@ -131,7 +130,7 @@ void stepFighter(Fighter& f, Input in, const FighterData& data) {
     // `/` truncates toward zero, so a shift would decay leftward pushback and
     // rightward pushback by different amounts and hand the mirror-asymmetry bug
     // this kernel is built to avoid a way back in.
-    f.posX = clampInt(f.posX + f.velX + f.pushX, -kStageHalfWidth, kStageHalfWidth);
+    f.posX = clampInt(f.posX + f.velX + f.pushX, -kStageHalfWidthSub, kStageHalfWidthSub);
     f.pushX /= 2;
 
     f.posY += f.velY;
@@ -389,8 +388,48 @@ void Simulate(GameState& state, const InputPair& inputs, const MatchData& data) 
                 state.p[i].res[r] = data.p[i].resources[r].initial;
     }
 
+    // WHERE EVERYONE WAS BEFORE ANYBODY MOVED. The separation clamp below reads
+    // this snapshot rather than the live positions, and that is what makes it
+    // ORDER-INDEPENDENT: clamping p0 against p1's new position and then p1
+    // against p0's newly-clamped one would give a different answer depending on
+    // which slot was stepped first, which is the exact class of bug D3 exists to
+    // keep out of this kernel.
+    std::int32_t wasAtX[kMaxFighters];
+    for (int i = 0; i < n; ++i) wasAtX[i] = state.p[i].posX;
+
     for (int i = 0; i < n; ++i) {
         stepFighter(state.p[i], inputs.p[i], data.p[i]);
+    }
+
+    // --- The invisible wall ---------------------------------------------------
+    //
+    // Neither fighter may end further than kMaxSeparationSub from where the
+    // OTHER ONE STOOD AT THE TOP OF THIS TICK. That one sentence is the whole
+    // Street Fighter behaviour the author described: a player walking backwards
+    // stops dead at the limit, and if the opponent then advances a pixel the
+    // limit follows them by a pixel and the retreat resumes. Retreat is possible
+    // for exactly as long as somebody is chasing.
+    //
+    // Reading the PRE-MOVE opponent is also what makes that true rather than
+    // approximately true. Against the post-move position a retreating player
+    // would be allowed the opponent's step in the same tick they took it, which
+    // lets two fighters walking apart drift forever at walking speed.
+    //
+    // TWO FIGHTERS ONLY. With three or more there is no "the opponent" and the
+    // rule would have to say which pair the camera belongs to -- a real question
+    // for tag modes and not one to answer by accident here. ADR-009 widened the
+    // state to eight and said the rules would arrive one at a time; this is one
+    // of them arriving for the 1v1 case.
+    //
+    // It only ever pulls INWARD, so it cannot push anyone through the stage
+    // clamp stepFighter already applied.
+    if (n == 2) {
+        for (int i = 0; i < 2; ++i) {
+            const std::int32_t anchor = wasAtX[1 - i];
+            state.p[i].posX = clampInt(state.p[i].posX,
+                                       anchor - kMaxSeparationSub,
+                                       anchor + kMaxSeparationSub);
+        }
     }
 
     // Facing is derived from relative position, evaluated AFTER everyone has

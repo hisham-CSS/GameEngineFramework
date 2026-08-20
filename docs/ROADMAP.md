@@ -944,7 +944,15 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   — see [[stale-claim-sweeps]]'s sibling lesson: after a change whose fallout you
   FIX, re-revert and check something still goes red.
 
-- `[ ]` **M1.1g The stage is a number nobody owns.** *(S)* Asked for from play
+- `[x]` **M1.1g The stage is a number nobody owns.** *(S)* — done as part of the
+  invisible wall: `kStageHalfWidthSub` and `kMaxSeparationSub` are exported from
+  `GameState.h`, `Simulate` clamps against the first, `FightView` derives its
+  framing from the second, and `test_determinism_crossplat` derives its expected
+  half-width instead of writing 480 down again. **Widening the stage is now the
+  one-line edit and deliberate re-golden it should always have been** — and a
+  stage is still DATA rather than a kernel constant, which M1.2 owns.
+  **The original scoping, kept because the three costs it named are what made
+  the order right:** asked for from play
   (2026-08-20): *"a full sized level"*. The stage is **±480 px**, which is
   2.4 camera-widths at the current framing, and it is a `constexpr` local to
   `Games/UntitledFighter/Kernel/src/Simulate.cpp` that clamps `posX`. Widening

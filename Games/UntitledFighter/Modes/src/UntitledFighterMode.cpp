@@ -498,6 +498,15 @@ bool UntitledFighterMode::startCharacter_(int index) {
     // decision nobody can find.
     session_.SetInputSource(kDummySlot, nullptr);
 
+    // The camera opens ON THE PAIR rather than holding a framing from a match
+    // that no longer exists. Without this a restart, or the [V] toggle, would
+    // leave the deadzone anchored where the last fight ended and scroll back
+    // across the stage on the first tick of the new one.
+    cameraCentrePx_ =
+        static_cast<float>((setup_.start.startPosX[kPlayerSlot] +
+                            setup_.start.startPosX[kDummySlot]) / 2) /
+        static_cast<float>(cse::kernel::kSubUnitsPerPixel);
+
     matchReady_ = true;
     refreshDemoNote_();
     return true;
@@ -1096,8 +1105,11 @@ void UntitledFighterMode::Draw(MyCoreEngine::Renderer2D& r2d, int widthPx,
         // captured. UIPass's closing End() therefore restores the same bits it
         // would have restored anyway. The cost is two extra flushes per frame.
         r2d.End();
-        r2d.BeginWorld(FightCamera(session_.State(), widthPx, heightPx,
-                                   stageHalfWidthSub_), widthPx,
+        const MyCoreEngine::Camera2D cam =
+            FightCamera(session_.State(), widthPx, heightPx,
+                        stageHalfWidthSub_, cameraCentrePx_);
+        cameraCentrePx_ = cam.position.x;   // the deadzone's memory
+        r2d.BeginWorld(cam, widthPx,
                        heightPx);
         DrawFightWorld(r2d, session_.State(), session_.Data(), stageHalfWidthSub_);
         r2d.End();

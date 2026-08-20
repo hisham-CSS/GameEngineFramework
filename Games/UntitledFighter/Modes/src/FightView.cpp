@@ -15,7 +15,22 @@ namespace {
     // the whole of the furthest attack, and enough stage past a cornered
     // defender for the corner marker to read as a wall rather than as an edge of
     // the screen.
-    constexpr float kViewHalfWidthPx = 200.0f;
+    // DERIVED FROM THE KERNEL'S SEPARATION LIMIT rather than chosen beside it.
+    // The invisible wall says two fighters are never more than kMaxSeparationSub
+    // apart; the view has to be at least that wide plus a body at each edge, or
+    // the rule and the picture disagree about what "as far as the camera width"
+    // means. Deriving it makes them the same number by construction -- if the
+    // wall moves, the framing follows.
+    constexpr float kViewHalfWidthPx =
+        static_cast<float>(cse::kernel::kMaxSeparationSub /
+                           cse::kernel::kSubUnitsPerPixel) * 0.5f + 13.0f;
+
+    // How close a fighter may get to the edge of the view before the camera
+    // scrolls. THE DEADZONE IS THE FEATURE: without it the camera is pinned to
+    // the pair's midpoint and every step either player takes drags the whole
+    // world sideways, which reads as the stage moving rather than the fighters.
+    // With it the camera holds still and moves only when it has to.
+    constexpr float kCameraMarginPx = 34.0f;
 
     // The camera sits above the floor rather than on it, so the floor line lands
     // in the lower third and there is headroom for a jump. 60 px is the authored
@@ -321,7 +336,8 @@ std::int32_t ProbeStageHalfWidthSub() {
 
 MyCoreEngine::Camera2D FightCamera(const cse::kernel::GameState& state,
                                    int viewportW, int viewportH,
-                                   std::int32_t stageHalfWidthSub) {
+                                   std::int32_t stageHalfWidthSub,
+                                   float previousCentrePx) {
     (void)viewportH;   // the vertical extent falls out of the aspect; see below
 
     MyCoreEngine::Camera2D cam{};
@@ -336,7 +352,32 @@ MyCoreEngine::Camera2D FightCamera(const cse::kernel::GameState& state,
     // simulation integers is the habit that eventually does.
     const float p0 = WorldPx(state.p[0].posX);
     const float p1 = WorldPx(state.p[1].posX);
-    float centre = (p0 + p1) * 0.5f;
+
+    // --- the deadzone ---------------------------------------------------------
+    //
+    // Start from where the camera already was and move it only as far as it must.
+    // A camera that recentred on the midpoint every tick is a camera that answers
+    // "where are they" when the question is "what do I need to show" -- and the
+    // separation limit guarantees the pair always FITS, so most ticks the honest
+    // answer is "nothing, stay put".
+    //
+    // Asked for from play (2026-08-20): "the camera should remain fixed until a
+    // player moves in a way where it needs to move ... this will prevent players
+    // from constantly moving the camera."
+    //
+    // A caller with no previous frame passes the midpoint and gets the old
+    // behaviour for one tick, which is the right answer on the first frame of a
+    // match: there is no established framing to preserve.
+    float centre = previousCentrePx;
+
+    const float lo   = (p0 < p1 ? p0 : p1) - kCameraMarginPx;
+    const float hi   = (p0 > p1 ? p0 : p1) + kCameraMarginPx;
+    const float halfW = kViewHalfWidthPx;
+
+    // Scroll the MINIMUM that brings the offender back inside. Pushing to the
+    // midpoint instead would make one step at the edge yank the view across.
+    if (lo < centre - halfW) centre = lo + halfW;
+    if (hi > centre + halfW) centre = hi - halfW;
 
     // AND IT STOPS AT THE WALLS. Without this the camera keeps centring on the
     // pair as they reach a corner, so the wall drifts into the middle of the
