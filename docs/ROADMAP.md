@@ -438,10 +438,17 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   above `target[a] = d`, whose comment names the consequence outright — *"its
   `nonNegative` condition is what ends all 41 of fighter_a's cycles in the model,
   and its absence here is what let 33 of them run forever."*
-  **What is missing is one line in `MatchBuilder`: nothing ever populates
-  `juggleCost`.** `grep -c juggleCost MatchBuilder.cpp` is 0. The authored datum
-  is there — `effect: {juggle: -1}` on seven of `fighter_a`'s moves — and the
-  builder would derive the cost from whichever slot the file declares as juggle.
+  **What is missing is the `MatchBuilder` wiring, and it is TWO fields rather
+  than one.** `grep -c` in `MatchBuilder.cpp` is **0 for both `juggleCost` and
+  `juggleMax`**, so the whole juggle path is unwired at the builder: the budget
+  is never handed out and the cost is never charged, which is why the gate reads
+  `juggleCost > 0` and never fires. Both authored data are present —
+  `fighter_a.json` declares `juggle` as resource slot 1 with `initial: 4`,
+  `floor: 0`, `ceiling: 4`, and seven of its moves author `effect: {juggle: -1}`
+  or `-2` — so wiring means `juggleMax` from `resources[juggleSlot].initial` and
+  `juggleCost` from the move's effect on that slot. A half-wiring is worse than
+  none: a budget with no cost never depletes, and a cost with no budget refuses
+  every hit.
   **So the question is not "should a floor breach refuse rather than clamp" —
   the kernel already says yes for juggle. The question is whether to connect it
   now, because doing so is what the `test_gap_extent` measurement is currently
