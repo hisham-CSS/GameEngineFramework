@@ -570,19 +570,22 @@ cse::kernel::Input UntitledFighterMode::readPad_() const {
     if (!ctx_.app) return input;
     MyCoreEngine::InputMap& map = ctx_.app->input();
 
-    // isDown, NOT consumePressed. The kernel takes buttons HELD -- StepAttack
-    // scans for a move all of whose bits are held and starts it, with no notion
-    // of an edge, because honest edge detection would need the previous tick's
-    // buttons inside GameState and a rollback hands Simulate only the current
-    // tick's (Combat.cpp). So the right read here is a LEVEL, and a level read is
-    // phase-independent: it cannot be consumed by somebody else and cannot be
-    // missed by a frame that ran no tick.
+    // isDown, NOT consumePressed -- and since ROADMAP M1.1d that is the RIGHT
+    // read rather than a concession. StepAttack derives the edge itself from
+    // Fighter::prevButtons, because rollback re-simulates a tick from a snapshot
+    // and hands Simulate only that tick's bits: an edge computed out here would
+    // survive one replay and not the next. What this function owes the kernel is
+    // the honest LEVEL every tick, INCLUDING the ticks a button is not held --
+    // a reader that dropped those would replay a press as a hold and the kernel
+    // would never see a second press.
     //
-    // Holding a button therefore REPEATS a move as soon as the last one recovers.
-    // That is the kernel's documented gap, and on this character it is also the
-    // route 32 of the 33 runaway cycles actually take (tests/test_gap_extent.cpp),
-    // so a playtester holding one key is doing the most interesting thing
-    // available to them.
+    // A level read is also phase-independent: it cannot be consumed by somebody
+    // else and cannot be missed by a frame that ran no tick, which consumePressed
+    // can be and can.
+    //
+    // Holding a button therefore starts a move ONCE. It used to repeat the move
+    // the tick the last one recovered, which is what review point R0 found by
+    // playing; holding is now reserved for mechanics that do not exist yet.
     for (const MoveKey& key : kMoveKeys)
         if (map.isDown(key.action)) input.bits |= key.button;
     for (const MoveKey& key : kDirectionKeys)

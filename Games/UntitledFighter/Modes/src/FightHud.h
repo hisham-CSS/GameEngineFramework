@@ -229,8 +229,9 @@ Advantage FrameAdvantage(const cse::kernel::MatchData& data,
 // number that MEANS SOMETHING DIFFERENT ON EVERY TICK, which the top of this
 // header forbids in so many words, and it does it twice over:
 //
-//   * The kernel takes buttons HELD, so a playtester holding one key restarts
-//     the move the instant it recovers. The attacker's clock jumps back to the
+//   * A playtester MASHING restarts the move as soon as it recovers -- which
+//     since ROADMAP M1.1d takes a fresh press rather than a held key, and is
+//     exactly what a playtester does. The attacker's clock jumps back to the
 //     top of the move while the defender's stun keeps running down, so the
 //     difference steps DOWN by a whole move on the restart tick and back UP on
 //     the next contact. On fighter_a's air_mp -- self-cancelling at frame 8 of
@@ -238,6 +239,8 @@ Advantage FrameAdvantage(const cse::kernel::MatchData& data,
 //     forever, while the judge underneath correctly reads TRUE COMBO. A row
 //     that contradicts the verdict beneath it twice a second on the one
 //     interaction the mode is built around is worse than no row.
+//     (TrainingModeReadout.ARepeatedPressRestartsTheMoveSoALiveAdvantageStrobesForever
+//     measures the strobe; it was named for a held button until M1.1d.)
 //
 //   * "Advantage" is not a property of an instant in the first place. It is a
 //     property of a HIT: the question is what that hit bought, and the answer

@@ -139,11 +139,16 @@
 // general time-series data: A HELD BUTTON IS THE COMMON CASE AND MOST TICKS
 // REPEAT THE PREVIOUS ONE. A player walks forward for forty ticks, holds down
 // for twenty, holds a punch through its whole 14-tick animation. The kernel
-// makes this even more pronounced than a real game would -- Combat.cpp takes
-// buttons HELD rather than PRESSED, so the natural way to perform anything is to
-// hold it -- and the tool-assisted player's trace for a self-cancel loop is
-// literally one button held for the entire demonstration. That is 160 ticks in
-// one 6-byte run.
+// makes this even more pronounced than a real game would -- most of a trace is
+// a direction held or nothing at all -- and even a self-cancel loop, which
+// since ROADMAP M1.1d must RELEASE between repeats to give the kernel a second
+// press, is a long run of the held button broken by single zero ticks. That is
+// still runs of tens of ticks rather than a byte per tick.
+//
+// (Before M1.1d the kernel took the button HELD, and that same demonstration
+// was literally one button held for its whole 160 ticks -- a single 6-byte run.
+// The encoding was chosen against that shape and is merely less spectacular
+// against this one.)
 //
 // The worst case is honest and small: input that changes every single tick costs
 // 6 bytes per tick against a flat log's 4, a 1.5x loss on a file that would be
