@@ -852,6 +852,27 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   corner verdicts, so each needs deciding on its own terms rather than being
   cornered by reflex. That is the next slice, and it is a day's work rather than
   an afternoon's.
+  **Second attempt on 2026-08-20, reverted again, and it left one question that
+  must be answered BEFORE the wire lands.** With the corners in, the cascade is
+  the predicted three. Two are explicable: `test_training_mode`'s demonstration
+  benches and `test_match_bridge`'s scripted mirror match are both midscreen
+  exchanges of corner-analysed content and want the corner treatment applied
+  per-TEST rather than per-file (training mode needs both — cornered
+  demonstrations, midscreen gap chip).
+  **`test_cancels` is not explicable, and that is the blocker.**
+  `StandLpIsCancelledIntoStandMpAndBothHitsLand` loses its second hit: the
+  defender ends on 977 health rather than 913, so `stand_lp`'s 23 landed and
+  `stand_mp`'s 64 did not. The arithmetic says it should connect easily. Units
+  were checked rather than assumed — `pxPerReach` 100 × 256 sub/px, so `stand_lp`
+  reaches **42 px** and pushes **5 px**, `stand_mp` reaches **58 px** and pushes
+  **9 px** — and `Fighter::pushX` halves every tick, so the total displacement is
+  about 10 px against a 58 px reach from an 8 px opening gap. A light into a
+  medium is the most ordinary chain in the genre and it must not miss.
+  **One of three things is true and none may be guessed at:** the bridge feeds
+  the wrong quantity, `pushAwayFrom` applies it in a way this arithmetic does not
+  predict, or `fighter_a`'s authored pushback really does break its own chains
+  and that is a finding about the character. Cornering the test would hide all
+  three. The wire stays out until it is measured.
 
 - `[ ]` **M1.2 Push boxes and the corner.** *(S–M)* Body separation between
   fighters and the stage edge as a wall; resolution order per NORTHSTAR Phase 2:
