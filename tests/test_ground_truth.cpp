@@ -189,8 +189,18 @@ constexpr std::int32_t kHeight    = px(60);
 // gap is therefore 8 px on every tick of every run below, and no verdict here
 // rests on the pushback estimate ADR-001 section 6.3 names as the weakest number
 // in the corpus.
-constexpr std::int32_t kP0X = -px(17);
-constexpr std::int32_t kP1X =  px(17);
+// IN THE CORNER, because that is the stage the verdict was computed for.
+// `fighter_a.json` declares `stage: corner` and its own header says the corner
+// verdict is the one the ranking certificate belongs to -- at stage corner
+// model.py drops horizontal position entirely. A sweep opening midscreen was
+// comparing a midscreen game against a corner model, which was invisible while
+// nothing moved the defender and stops being invisible the moment pushback is
+// wired (ROADMAP M1.3d). The defender's back is to the wall Simulate clamps at,
+// so pushback has nowhere to put them and the comparison is the one the model
+// licenses.
+constexpr std::int32_t kStageEdge = 480 * cse::kernel::kSubUnitsPerPixel;
+constexpr std::int32_t kP1X =  kStageEdge;
+constexpr std::int32_t kP0X =  kStageEdge - px(34);
 
 // The build-wide resource order, positional and identical in every file a build
 // loads (ADR-001 section 8 item 7). Passing it is what arms load assertion A03.

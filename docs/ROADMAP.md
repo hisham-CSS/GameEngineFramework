@@ -31,7 +31,7 @@ without it. Details, tests and proofs of the four properties:
 
 | In flight | Owner | Since |
 |---|---|---|
-| M1.1b — the data path onto M1.1a's fields | Claude | 2026-08-19 |
+| M1.3d — the bridge carries the mechanics the kernel already has | Claude | 2026-08-20 |
 
 One work package in flight at a time. The next unblocked one is always the top
 `[ ]` in milestone order below.
@@ -282,7 +282,7 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   linking. `Fighter::meter` turned out to be five C++ sites; the other 88
   mentions were `juggle`, the data layer's resource *names*, or the prover's own
   record.
-- `[~]` **M1.1b The data path onto the fields M1.1a reserved.** *(M)* Claude, 2026-08-19. No layout
+- `[x]` **M1.1b The data path onto the fields M1.1a reserved.** *(M)* — `a177ac2` `9af12c0` `01bab86` `dbd07a9`. No layout
   change. `ResourceDef {initial, floor, ceiling, refill}` per slot in
   `FighterData`; `effect[]` on moves and cancel edges (applied per authored
   contact) and `guard[]` (a minimum, checked before the move starts); index *i*
@@ -482,8 +482,13 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   That turned out not to cost anything — the measurement above says the field
   should not exist — but the argument and the action did not match, and it was
   luck rather than judgement that they agreed.
-  **Also still open:** mirroring whichever slot the file calls juggle into
-  `Fighter::juggle`.
+  **Closed 2026-08-19 with its Done-when met** (three `P3Resources`, one
+  `P3Movement`; the fifth item — inverting
+  `EveryCycleIsEndedByJuggleAndNoCycleTouchesMeter` — turned out not to apply,
+  because that test reads the MODEL and says nothing about the kernel).
+  **Moved out rather than dropped:** mirroring whichever slot the file calls
+  juggle into `Fighter::juggle` needs the juggle wiring decided first, so it
+  travels with it in M1.1f.
   `GapExtentModel.EveryCycleIsEndedByJuggleAndNoCycleTouchesMeter` was expected
   to invert here and did not need to: it reads the MODEL (`CharacterData`), not
   the kernel, so it says nothing about what the kernel now does.
@@ -763,6 +768,91 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   silent tick, so the invariant is checked rather than reasoned about. Written
   expecting it to fail; it passed against the unchanged builder, and the shipped
   code was left alone.
+- `[ ]` **M1.1f The juggle wiring, and the mirror that waits on it.** *(S)*
+  `MatchBuilder` sets neither `FighterData::juggleMax` nor `MoveDef::juggleCost`
+  (`grep -c` is 0 for both), so the budget gate in
+  `Games/UntitledFighter/Kernel/src/Combat.cpp` — which refuses a hit that would
+  overspend, and whose own comment says its absence "let 33 of them run forever"
+  — has never fired for a built character. Both fields or neither: a budget with
+  no cost never depletes, a cost with no budget refuses every hit. Then
+  `Fighter::juggle` becomes the mirror of whichever slot the file declares as
+  juggle, which is what the M1.1a split promised.
+  **Needs the author, because it retires an instrument.**
+  `tests/test_gap_extent.cpp` exists to quantify the absence of exactly this
+  wire; connecting it changes 97-of-121 and turns that file into a different
+  measurement. M1.4 already plans to rewrite it as properties, so the natural
+  order is M1.4 first, then this.
+  **Done when:** a built `fighter_a` spends juggle on the moves that author it,
+  the budget refuses the hit that would overspend, and the gap-extent file
+  asserts the new relationship rather than the old count.
+
+- `[~]` **M1.3d The bridge carries the mechanics the kernel already has.** *(M)*
+  Claude, 2026-08-20. **Found by asking why the training dummy does not react to
+  being hit.** The kernel implements impact freeze, knockdown, knockback, chip,
+  damage scaling, trade priority and guard height. The character files author all
+  of them. `MatchBuilder` populates **ten** `MoveDef` fields — `startup`,
+  `active`, `recovery`, `damage`, `hitstun`, `button`, `negativeEdge`, `effect`,
+  `guard`, `guardMask` — and leaves every other one at zero.
+  **It is two layers, not one.** `CharacterData::Move` already carries `stance`,
+  `blockedAs` and `pushbackSub` and the builder simply does not copy them; while
+  `engine.reaction` — authored on every move of `fighter_a` with
+  `hitstop_ticks`, `air_hitstun_ticks`, `causes_knockdown`, `slide_ticks`,
+  `pushback_vel_sub`, `meter_gain_units` — is not read by the loader at all
+  (`grep -c air_hitstun_ticks CharacterData.cpp` is 0).
+  **This reframes the model/game gap.** "The kernel has no juggle" was the
+  smallest true version of a much larger sentence: for a built character the
+  kernel has almost no mechanics, because the bridge carries frame data and
+  little else. Every wire below moves a measurement, which is expected — M1.4
+  already plans to rewrite the two gap files as properties — and each slice says
+  which number it moved.
+  **Order, cheapest and most visible first:** (a) `pushbackHit` from
+  `Move::pushbackSub`, so a hit visibly knocks the dummy back; (b) `stance` and
+  `blockedAs`, already loaded, so air and crouch moves stop being universal;
+  (c) load `engine.reaction` and carry `hitstop` and `knockdownTicks`;
+  (d) **launch** — the one genuinely new field, a per-move `launch_vel_sub` that
+  sets the defender airborne, which with (c)'s `air_hitstun_ticks` is what makes
+  a JUGGLE happen at all.
+  **Done when:** `P3Reactions.APushbackMoveMovesTheDefender`,
+  `P3Reactions.AStanceRestrictedMoveRefusesOutsideIt`,
+  `P3Reactions.ALauncherPutsTheDefenderInTheAir`,
+  `P3Reactions.AnAirborneDefenderTakesTheAuthoredAirHitstun`; a loss-ledger row
+  per field flips off `KernelOmits`; and R0c below can be walked by hand.
+  **Slice (a) was ATTEMPTED, MEASURED AND REVERTED, and what it found is worth
+  more than the slice.** Wiring `pushbackHit` from `Move::pushbackSub` is four
+  lines and it works: the bridge test went from "handed the kernel 0" to
+  carrying the authored 3072 sub-units, and the defender visibly slid. It also
+  broke **five test files at once**, and not on premises — on outcomes.
+  `GroundTruthPayoff.ThePrintedLoopExecutesInTheKernel` fell from **20 hits to
+  2**; `GroundTruthControl` landed exactly the 4 the model permits; **120 of 121**
+  gap-extent cycles reported too few turns.
+  **THE CAUSE IS A STAGE MISMATCH THAT PREDATES THE WIRE.** `fighter_a.json`
+  declares `stage: corner` and its own header says the corner verdict is the one
+  the ranking certificate belongs to, because at stage corner `model.py` drops
+  horizontal position entirely. Every kernel sweep opened **midscreen**, at
+  ±17 px, 460 px from the wall `Simulate` clamps at. While nothing moved the
+  defender that was invisible. The moment pushback works it means comparing a
+  sliding midscreen exchange against a corner-only analysis, and the loops die
+  of a separation the model does not model.
+  **Confirmed by fixing it:** with the sweeps opened against the wall AND
+  pushback wired, `test_gap_extent` and `test_ground_truth` both go green again
+  — the printed loop executes, 97 of 121 holds. So the measurement survives
+  pushback; it was the stage that was wrong.
+  **What landed:** the corner correction alone, in
+  `tests/test_gap_extent.cpp`, `tests/test_ground_truth.cpp`,
+  `tests/test_one_frame.cpp` and `tests/test_game_core.cpp`. It is a **no-op
+  today** — nothing moves the defender until pushback is wired — and it is
+  correct independent of pushback, because these files execute corner verdicts.
+  `tests/test_training_mode.cpp` stays midscreen ON PURPOSE and says so: its
+  subject is the HUD gap chip, which is walk arithmetic and needs room to walk.
+  **What did NOT land, and what it still needs:** the pushback wire itself. With
+  the corners fixed the cascade shrinks from five files to **three** —
+  `test_match_bridge`'s scripted mirror match (p0 is never hit once p1 slides
+  away), `test_cancels` (the second hit of a chain leaves range, damage totals
+  move) and `test_training_mode`. All three are midscreen exchanges rather than
+  corner verdicts, so each needs deciding on its own terms rather than being
+  cornered by reflex. That is the next slice, and it is a day's work rather than
+  an afternoon's.
+
 - `[ ]` **M1.2 Push boxes and the corner.** *(S–M)* Body separation between
   fighters and the stage edge as a wall; resolution order per NORTHSTAR Phase 2:
   pushbox separation → strikes (throws when they exist). Authored `pushbox`

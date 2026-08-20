@@ -333,8 +333,15 @@ constexpr std::int32_t kHeight    = px(60);
 // anyway; and the kernel applies no pushback on hit at all (MatchBuilder's
 // `move.pushback` row: "the kernel moves nobody on hit"). The gap is 8 px on
 // every tick of every run below.
-constexpr std::int32_t kP0X = -px(17);
-constexpr std::int32_t kP1X =  px(17);
+// IN THE CORNER, for the reason tests/test_gap_extent.cpp states at length:
+// the verdicts these combos come from were computed at `stage: corner`, where
+// the model drops horizontal position entirely. Opening midscreen was harmless
+// while nothing moved the defender; once ROADMAP M1.3d wired pushback it meant
+// measuring a sliding midscreen exchange against a corner-only analysis, and
+// every loop here died of separation the model does not model.
+constexpr std::int32_t kStageEdge = 480 * cse::kernel::kSubUnitsPerPixel;
+constexpr std::int32_t kP1X =  kStageEdge;
+constexpr std::int32_t kP0X =  kStageEdge - px(34);
 
 BodySpec body() {
     BodySpec b{};

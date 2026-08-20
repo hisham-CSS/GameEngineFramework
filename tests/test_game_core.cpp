@@ -127,8 +127,15 @@ constexpr std::int32_t kHeight    = px(60);
 // header says so in the comment on `startPosX` and points at test_ground_truth
 // for the number; these are that number. Origins 34 px apart, bodies 8 px apart,
 // which is inside the reach of every move any trace here uses.
-constexpr std::int32_t kP0X = -px(17);
-constexpr std::int32_t kP1X =  px(17);
+// IN THE CORNER, for the reason tests/test_gap_extent.cpp states at length:
+// the verdicts these combos come from were computed at `stage: corner`, where
+// the model drops horizontal position entirely. Opening midscreen was harmless
+// while nothing moved the defender; once ROADMAP M1.3d wired pushback it meant
+// measuring a sliding midscreen exchange against a corner-only analysis, and
+// every loop here died of separation the model does not model.
+constexpr std::int32_t kStageEdge = 480 * cse::kernel::kSubUnitsPerPixel;
+constexpr std::int32_t kP1X =  kStageEdge;
+constexpr std::int32_t kP0X =  kStageEdge - px(34);
 
 // Fixed so that a failing run is reproducible verbatim. It only feeds
 // GameState::rng, which nothing in a combat tick reads -- but it IS in the

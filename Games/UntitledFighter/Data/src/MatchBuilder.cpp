@@ -742,6 +742,7 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
         // written explicitly, because the handshake hashes these bytes.
         m.negativeEdge = 0;
 
+
         // RESOURCES, SPARSE IN THE FILE AND DENSE IN THE KERNEL. The authored
         // form is a sorted list of (index, value) because a character may
         // declare four resources and a move may touch one; the kernel form is a

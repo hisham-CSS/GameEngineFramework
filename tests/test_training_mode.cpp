@@ -214,6 +214,11 @@ constexpr std::int32_t kHeight    = px(60);
 // gap -- further than anything either character reaches, so nothing would ever
 // connect and every assertion in this file would be about an empty room. Origins
 // 34 px apart, bodies 8 px apart, inside the reach of every move used here.
+// MIDSCREEN, and unlike the combo sweeps that is correct here. The other files
+// open in the corner because the verdicts they execute were computed at
+// `stage: corner`; this file's subject is the HUD's gap chip, which is walk
+// ARITHMETIC across four bands and needs room to walk. Cornering it wedges the
+// fighter against the wall clamp and the walk step measures zero.
 constexpr std::int32_t kP0X = -px(17);
 constexpr std::int32_t kP1X =  px(17);
 
