@@ -769,6 +769,33 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
             m.pushbackHit = static_cast<std::int16_t>(push);
         }
 
+        // KNOCKDOWN, from engine.reaction. The kernel slot has existed since
+        // ADR-005 P2 and this bridge left it at zero, so a built character's
+        // sweeps knocked nobody down.
+        //
+        // HITSTOP IS READ BY THE LOADER AND DELIBERATELY NOT CARRIED YET, and
+        // the reason is measured rather than cautious. It freezes BOTH
+        // fighters, so every frame-exact prediction in tests/test_gap_extent.cpp
+        // moves by the freeze duration: 120 of 121 cycles fell short and each
+        // carried six to nine timing mismatches. That is the game becoming
+        // correct, not the bridge becoming wrong -- but the sweep's section-3
+        // account has to LEARN hitstop before its numbers mean anything again,
+        // and that is its own slice. ROADMAP M1.3d holds the measurement.
+        //
+        // Saturated at its unsigned 16-bit slot for the reason pushback is: a
+        // wrap turns a 20-tick knockdown into an 18-hour one.
+        {
+            constexpr std::int32_t kMaxTicks = 65535;
+
+            // The FILE says "this knocks down" and "getting up takes N"; the
+            // kernel counts one number down. A move that does not knock down
+            // leaves this zero however long its fall_recover is, because
+            // fall_recover describes the knockdown and not the move.
+            const std::int32_t fall = src.causesKnockdown ? src.fallRecoverTicks : 0;
+            m.knockdownTicks = static_cast<std::uint16_t>(
+                fall < 0 ? 0 : (fall > kMaxTicks ? kMaxTicks : fall));
+        }
+
 
         // RESOURCES, SPARSE IN THE FILE AND DENSE IN THE KERNEL. The authored
         // form is a sorted list of (index, value) because a character may

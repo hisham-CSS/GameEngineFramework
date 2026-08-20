@@ -1144,3 +1144,43 @@ TEST(MatchBridgeMechanics, PushbackReachesTheKernelAndMovesTheDefender) {
         << ". Pushback runs AWAY from the attacker, derived from the position "
            "difference rather than from facing.";
 }
+
+// Knockdown, from the authored `engine.reaction` block. The kernel slot has
+// existed since ADR-005 P2 and was zero for every built character.
+//
+// HITSTOP IS READ BY THE LOADER AND NOT YET CARRIED HERE, deliberately: it
+// freezes BOTH fighters, so every frame-exact prediction in
+// tests/test_gap_extent.cpp moves by the freeze duration -- 120 of 121 cycles
+// and six to nine timing mismatches each. That is correct game behaviour and it
+// needs the sweep's frame account to LEARN hitstop, which is its own slice.
+// ROADMAP M1.3d records the measurement.
+TEST(MatchBridgeMechanics, KnockdownReachesTheKernel) {
+    CharacterData c = syntheticCharacter(2);
+
+    // A knockdown is a PAIR here -- it knocks down and getting up takes time --
+    // because this engine keeps liedown time per MOVE where MUGEN keeps it per
+    // CHARACTER. A move that knocks down and gives no duration gets a warning
+    // and no knockdown; AOF2's punk_b_kick is the real file that does it.
+    c.moves[1].causesKnockdown  = true;
+    c.moves[1].fallRecoverTicks = 20;
+    c.RebuildIndices();
+
+    BuildOptions options{};
+    options.bindings = { { c.moves[0].id, cse::kernel::kInputLP },
+                         { c.moves[1].id, cse::kernel::kInputMP } };
+
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build))
+        << build.report[0].error;
+
+    EXPECT_EQ(build.data.p[0].moves[2].knockdownTicks, 20u)
+        << "the file says this move knocks down and that getting up takes 20 "
+           "ticks; the bridge handed the kernel "
+        << build.data.p[0].moves[2].knockdownTicks << ".";
+
+    // AND THE MOVE THAT DOES NOT KNOCK DOWN CARRIES NOTHING, which is the half
+    // that says `fall_recover_ticks` describes the knockdown rather than the
+    // move. Slot 1 authors no knockdown at all.
+    EXPECT_EQ(build.data.p[0].moves[1].knockdownTicks, 0u)
+        << "a move that does not knock down was given a knockdown duration.";
+}

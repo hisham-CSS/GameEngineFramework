@@ -806,12 +806,31 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   already plans to rewrite the two gap files as properties — and each slice says
   which number it moved.
   **Order, cheapest and most visible first:** (a) `pushbackHit` from
-  `Move::pushbackSub`, so a hit visibly knocks the dummy back; (b) `stance` and
-  `blockedAs`, already loaded, so air and crouch moves stop being universal;
-  (c) load `engine.reaction` and carry `hitstop` and `knockdownTicks`;
+  `Move::pushbackSub`, so a hit visibly knocks the dummy back — **landed**;
+  (b) `stance` and `blockedAs`, already loaded, so air and crouch moves stop
+  being universal; (c) load `engine.reaction` — **landed**, carrying
+  `knockdownTicks`; (c2) **`hitstop`, split out and measured, see below**;
   (d) **launch** — the one genuinely new field, a per-move `launch_vel_sub` that
-  sets the defender airborne, which with (c)'s `air_hitstun_ticks` is what makes
-  a JUGGLE happen at all.
+  sets the defender airborne, which with `air_hitstun_ticks` (now loaded) is
+  what makes a JUGGLE happen at all.
+  **Slice (c) landed and hitstop was SPLIT OUT on a measurement, not a hunch.**
+  The loader now reads `engine.reaction` — `hitstop_ticks`,
+  `air_hitstun_ticks`, `fall_recover_ticks`, `causes_knockdown` — and the bridge
+  carries the knockdown. Carrying HITSTOP as well breaks
+  `tests/test_gap_extent.cpp` in a way pushback did not: it freezes BOTH
+  fighters, so every frame-exact prediction moves by the freeze duration.
+  **120 of 121 cycles fell short and each carried six to nine timing
+  mismatches**, and `test_one_frame`'s boundary sweep went with it. That is the
+  game becoming correct rather than the bridge becoming wrong — but section 3's
+  account has to LEARN hitstop before its numbers mean anything, and that is a
+  slice of its own rather than a repair. `hitstop_ticks` is loaded and sitting
+  in `CharacterData::Move` waiting for it.
+  **A validation I wrote was wrong and a shipped fixture caught it.** The first
+  draft REFUSED a move that authors `causes_knockdown` with
+  `fall_recover_ticks: 0`. AOF2's `punk_b_kick` does exactly that, and it is not
+  a broken file: MUGEN keeps liedown time as a character-global where this
+  engine keeps it per move. It warns now, naming the loss — the kernel will not
+  knock down for such a move — rather than refusing a faithful transcription.
   **Done when:** `P3Reactions.APushbackMoveMovesTheDefender`,
   `P3Reactions.AStanceRestrictedMoveRefusesOutsideIt`,
   `P3Reactions.ALauncherPutsTheDefenderInTheAir`,

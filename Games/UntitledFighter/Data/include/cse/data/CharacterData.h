@@ -456,6 +456,21 @@ struct Move {
                                           // midscreen verdict turns on it.
     Stance       stance = Stance::Any;
 
+    // --- engine.reaction, the block that says what a HIT DOES ----------------
+    //
+    // Authored on every move of `fighter_a` since the file was written and read
+    // by nothing until ROADMAP M1.3d. These are the fields that make a defender
+    // visibly react rather than merely lose health.
+    //
+    // Zero is "the file did not say" on all three, which is what a move authored
+    // before this block existed gets and is why wiring them changes no character
+    // that does not use them.
+    std::int32_t hitstopTicks    = 0;   // impact freeze, BOTH fighters
+    std::int32_t airHitstunTicks = 0;   // hitstun when the defender is AIRBORNE;
+                                        // it is what makes a juggle last
+    std::int32_t fallRecoverTicks = 0;  // ticks on the floor after a knockdown
+    bool         causesKnockdown  = false;
+
     // WHICH BLOCK STOPS THIS MOVE. Mid by default, which is what an absent field
     // means and what every move written before this field existed is.
     //
