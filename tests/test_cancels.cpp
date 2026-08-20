@@ -244,10 +244,23 @@ void buildKfg(Kfg& out) {
     ASSERT_NE(0u, out.mp);
 }
 
-// stand_lp reaches 57 px and stand_mp reaches 54 px, so a body-to-body gap of
-// 50 px is inside both. Chosen from her file rather than tuned until it worked:
-// if either number moves, this test should fail rather than quietly test one hit.
-constexpr std::int32_t kComboGap = px(50);
+// stand_lp reaches 57 px and stand_mp reaches 54 px, and stand_lp KNOCKS THE
+// DEFENDER BACK 13 px. Those three numbers are hers, not tuned until this
+// worked, and together they say the gap has to leave room for the recoil: the
+// push decays by halves so it carries the defender about 23 px in total, and
+// stand_mp has to still be reaching when it lands.
+//
+// 20 px does it with margin -- 43 px when the follow-up connects, against a
+// 54 px reach. The 50 px this used to be had FOUR pixels of margin and was
+// calibrated when the bridge dropped pushback, so nobody was ever moved; wiring
+// it (ROADMAP M1.3d) turned that margin into a miss and the second hit of the
+// chain simply stopped landing.
+//
+// The lesson is a real one about the genre rather than about the harness: a
+// light into a medium is not confirmable at maximum range, because the light's
+// own knockback takes the defender out of the medium's. If either reach or the
+// pushback moves, this test should fail rather than quietly test one hit.
+constexpr std::int32_t kComboGap = px(20);
 std::int32_t comboDefenderAt() { return kComboGap + 2 * kHalfWidth; }
 
 // LP on tick 0, MP on tick 5, nothing else ever. One tick of each, not a hold:

@@ -742,6 +742,33 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
         // written explicitly, because the handshake hashes these bytes.
         m.negativeEdge = 0;
 
+        // KNOCKBACK, the first of ADR-005 P2's mechanics this bridge ever
+        // carried. The kernel has applied `pushbackHit` since P2 and every
+        // shipped move authors a `pushback`; until ROADMAP M1.3d nothing joined
+        // them, so a built character's hits moved nobody.
+        //
+        // SATURATED, NOT WRAPPED. MoveDef stores this as an int16 to hold its
+        // size and CharacterData stores sub-units as int32. A bare cast turns a
+        // 128-pixel pushback into a PULL, which reads as a physics bug rather
+        // than as the range error it is. A file past the limit gets the limit
+        // and a warning naming both numbers.
+        {
+            constexpr std::int32_t kMaxPushback = 32767;
+            std::int32_t push = src.pushbackSub;
+            if (push > kMaxPushback || push < -kMaxPushback) {
+                const std::int32_t clamped = push > 0 ? kMaxPushback : -kMaxPushback;
+                report.warnings.push_back(
+                    where + ": pushback " + num(push) +
+                    " sub-units exceeds MoveDef::pushbackHit's int16 range and is "
+                    "clamped to " + num(clamped) + " (" +
+                    num(clamped / cse::kernel::kSubUnitsPerPixel) +
+                    " px). A move authored past that is describing a distance no "
+                    "fighting game uses.");
+                push = clamped;
+            }
+            m.pushbackHit = static_cast<std::int16_t>(push);
+        }
+
 
         // RESOURCES, SPARSE IN THE FILE AND DENSE IN THE KERNEL. The authored
         // form is a sorted list of (index, value) because a character may

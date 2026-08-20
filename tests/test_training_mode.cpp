@@ -214,13 +214,23 @@ constexpr std::int32_t kHeight    = px(60);
 // gap -- further than anything either character reaches, so nothing would ever
 // connect and every assertion in this file would be about an empty room. Origins
 // 34 px apart, bodies 8 px apart, inside the reach of every move used here.
-// MIDSCREEN, and unlike the combo sweeps that is correct here. The other files
-// open in the corner because the verdicts they execute were computed at
-// `stage: corner`; this file's subject is the HUD's gap chip, which is walk
-// ARITHMETIC across four bands and needs room to walk. Cornering it wedges the
-// fighter against the wall clamp and the walk step measures zero.
-constexpr std::int32_t kP0X = -px(17);
-constexpr std::int32_t kP1X =  px(17);
+// IN THE CORNER, because almost everything in this file executes a verdict
+// computed at `stage: corner` -- the demonstrations rehearse `fighter_a_infinite`'s
+// printed loop, and at corner the model drops horizontal position entirely.
+// Opening midscreen was harmless while nothing moved the defender and stops
+// being harmless the moment pushback is wired (ROADMAP M1.3d): the rehearsal
+// separates and reaches index 3 of 6.
+constexpr std::int32_t kStageEdge = 480 * cse::kernel::kSubUnitsPerPixel;
+constexpr std::int32_t kP1X =  kStageEdge;
+constexpr std::int32_t kP0X =  kStageEdge - px(34);
+
+// THE ONE EXCEPTION, and it is a different subject rather than an exemption.
+// The HUD's gap chip is walk ARITHMETIC across four bands -- apart, touching,
+// overlapping, coincident -- and it needs room to walk. Cornered, the fighter is
+// against the clamp and the walk step measures zero, which is the test correctly
+// refusing to measure a walk that did not happen.
+constexpr std::int32_t kWalkP0X = -px(17);
+constexpr std::int32_t kWalkP1X =  px(17);
 
 // Fixed so a failing run reproduces verbatim. It only feeds GameState::rng,
 // which nothing in a combat tick reads -- but it IS in the checksum, so section
@@ -2224,6 +2234,14 @@ GameState opening() {
     return s;
 }
 
+// The gap chip's own opening: see kWalkP0X for why this file has two.
+GameState walkingOpening() {
+    GameState s = opening();
+    s.p[0].posX = kWalkP0X;
+    s.p[1].posX = kWalkP1X;
+    return s;
+}
+
 void step(GameState& s, const MatchData& data, std::uint16_t p0Bits,
           std::uint16_t p1Bits = 0u) {
     cse::kernel::Simulate(s, pairOf(p0Bits, p1Bits), data);
@@ -2867,9 +2885,9 @@ TEST(TrainingModeReadout, WalkingClosesTheGapAndOnlyTheIntervalRuleSurvivesConta
            "override at all";
 
     const cse::kernel::Box body0 =
-        cse::kernel::Hurtbox(bench.build.data.p[0], opening().p[0]);
+        cse::kernel::Hurtbox(bench.build.data.p[0], walkingOpening().p[0]);
     const cse::kernel::Box body1 =
-        cse::kernel::Hurtbox(bench.build.data.p[1], opening().p[1]);
+        cse::kernel::Hurtbox(bench.build.data.p[1], walkingOpening().p[1]);
     ASSERT_EQ(body0.x1 - body0.x0, kHalfWidth * 2);
     ASSERT_EQ(body1.x1 - body1.x0, kHalfWidth * 2)
         << "the two bodies are different widths, so |dx| - 2*halfWidth is no "
@@ -2896,7 +2914,7 @@ TEST(TrainingModeReadout, WalkingClosesTheGapAndOnlyTheIntervalRuleSurvivesConta
     std::int32_t apartTicks  = 0, overlapTicks = 0;
 
     {
-        GameState s = opening();
+        GameState s = walkingOpening();
         std::int32_t previousP0 = s.p[0].posX;
         for (std::int32_t t = 0; t <= 22; ++t) {
             if (t > 0) step(s, bench.build.data, cse::kernel::kInputRight);
@@ -2925,7 +2943,7 @@ TEST(TrainingModeReadout, WalkingClosesTheGapAndOnlyTheIntervalRuleSurvivesConta
             }
             previousP0 = s.p[0].posX;
 
-            ASSERT_EQ(s.p[1].posX, kP1X)
+            ASSERT_EQ(s.p[1].posX, kWalkP1X)
                 << "tick " << t << ": the defender moved. It is given no input "
                    "and the kernel has no pushboxes, so nothing may push it.";
             ASSERT_EQ(s.p[0].moveId, 0u)

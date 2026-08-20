@@ -868,11 +868,35 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   **9 px** — and `Fighter::pushX` halves every tick, so the total displacement is
   about 10 px against a 58 px reach from an 8 px opening gap. A light into a
   medium is the most ordinary chain in the genre and it must not miss.
-  **One of three things is true and none may be guessed at:** the bridge feeds
-  the wrong quantity, `pushAwayFrom` applies it in a way this arithmetic does not
-  predict, or `fighter_a`'s authored pushback really does break its own chains
-  and that is a finding about the character. Cornering the test would hide all
-  three. The wire stays out until it is measured.
+  **Measured, and it was the third: the numbers are right and the bench had four
+  pixels of margin.** The chain test runs on KUNG FU GIRL, not `fighter_a`, and
+  her numbers are `stand_lp` reach **57 px** / pushback **13 px**, `stand_mp`
+  reach **54 px**, from an authored gap of **50 px**. The push carries about
+  23 px after its halving decay, so the follow-up is reaching 54 px at a gap of
+  roughly 73. It misses by geometry.
+  **That is a fact about the genre rather than about the harness:** a light into
+  a medium is not confirmable at maximum range, because the light's own knockback
+  takes the defender out of the medium's. The bench was calibrated when the
+  bridge dropped pushback and nobody was ever moved. Closing the gap to **20 px**
+  restores 11 px of margin and the chain lands, which is where a player would
+  confirm it from.
+  **SLICE (a) LANDED.** `MoveDef::pushbackHit` from `Move::pushbackSub`,
+  saturated rather than cast (int32 sub-units into an int16 field: a bare cast
+  turns a 128 px push into a PULL) with a warning naming both numbers. The
+  three-file cascade resolved on its own terms rather than by reflex: the combo
+  bench moved closer, `test_match_bridge`'s p1 **walks back in** before answering
+  (180 ticks of taking hits pins it against the far wall, so answering from
+  there was answering into empty air), and `test_training_mode` got the split it
+  needed — cornered `opening()` for the demonstrations, a separate
+  `walkingOpening()` midscreen for the gap chip.
+  **AND THE SUITE STOPPED BEING ABLE TO SEE IT.** With all six files fixed to
+  expect pushback, reverting the four-line wire left **58/58 green**. Every fix
+  was right and collectively they blinded the suite to whether the field is
+  carried at all. `MatchBridgeMechanics.PushbackReachesTheKernelAndMovesTheDefender`
+  is the one test that fails without the wire, and it exists because that was
+  measured rather than assumed. **Third time this session** a test could not fail
+  — see [[stale-claim-sweeps]]'s sibling lesson: after a change whose fallout you
+  FIX, re-revert and check something still goes red.
 
 - `[ ]` **M1.2 Push boxes and the corner.** *(S–M)* Body separation between
   fighters and the stage edge as a wall; resolution order per NORTHSTAR Phase 2:

@@ -220,6 +220,23 @@ std::vector<InputPair> scriptedMatch(int ticks) {
             if (t % 31 == 0) a |= kInputHP;
             if (t % 53 == 0) a |= kInputUp;    // a jump and its whole arc
         } else {
+            // AND p1 WALKS BACK IN FIRST, which it did not have to do before
+            // ROADMAP M1.3d wired pushback. Act 2 is 180 ticks of p0 landing
+            // hits, and every one of them knocks p1 further away; by tick 210
+            // p1 is well outside its own reach and answering from there is
+            // answering into empty air. Twenty ticks of walking is what a
+            // player does after being pushed out, and it is what makes "p1
+            // never landed a hit" a fact about the exchange rather than about
+            // the distance the previous act left them at.
+            //
+            // LEFT, and for the whole act. p0 stands on the left, and 180 ticks
+            // of taking hits pins p1 against the RIGHT wall Simulate clamps at
+            // -- so the distance to walk back is most of the stage, not the
+            // twenty ticks the first version of this guessed at. Walking on
+            // every tick costs nothing: the attacks below still come out, and a
+            // fighter already in range simply keeps walking into an opponent it
+            // cannot pass through.
+            b |= kInputLeft;
             if (t % 7  == 0) b |= kInputLK;
             if (t % 29 == 0) b |= kInputHK;
             if (t % 61 == 0) b |= kInputUp;
@@ -1058,4 +1075,72 @@ TEST(MatchBridgeLosses, AnEdgeGuardStricterThanItsTargetIsWarnedAbout) {
     for (const std::string& w : quietBuild.report[0].warnings)
         EXPECT_EQ(w.find("permitted where the file refuses"), std::string::npos)
             << "an edge guard equal to its target's was warned about: " << w;
+}
+
+// --- The bridge carries what the kernel already implements --------------------
+//
+// ROADMAP M1.3d. The kernel has applied `pushbackHit` since ADR-005 P2 and every
+// shipped move authors a `pushback`, but MatchBuilder populated ten MoveDef
+// fields and left the rest at zero -- so a built character's hits moved nobody,
+// froze nobody and knocked nobody down, however completely the kernel
+// implemented all three.
+//
+// THIS TEST IS THE ONLY THING THAT PROVES THE WIRE, and that was measured rather
+// than assumed: reverting the four lines in MatchBuilder leaves the whole
+// 58-test suite green without it. Every other test that noticed pushback was
+// FIXED to expect it -- the combo bench moved closer, the mirror match walks
+// back in, four sweeps moved to the corner. Each of those fixes is right, and
+// collectively they are a suite that stopped being able to tell whether the
+// field is carried at all.
+//
+// Written against a CharacterData for the same reason:
+// tests/test_p2_mechanics.cpp proves the kernel's half by assigning MoveDef
+// directly, and doing that here would pass against the very gap this exists to
+// find.
+TEST(MatchBridgeMechanics, PushbackReachesTheKernelAndMovesTheDefender) {
+    constexpr std::int32_t kPushback = px(12);
+
+    CharacterData c = syntheticCharacter(1);
+    c.moves[0].pushbackSub = kPushback;
+    c.RebuildIndices();
+
+    BuildOptions options{};
+    options.bindings = { { c.moves[0].id, cse::kernel::kInputLP } };
+
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build))
+        << build.report[0].error;
+
+    const cse::kernel::MoveDef& poke = build.data.p[0].moves[1];
+    EXPECT_EQ(poke.pushbackHit, static_cast<std::int16_t>(kPushback))
+        << "the file authors " << kPushback
+        << " sub-units of pushback and the bridge handed the kernel "
+        << poke.pushbackHit
+        << ". A field the bridge drops is a mechanic the game does not have, "
+           "however well the kernel implements it.";
+
+    // AND IT MOVES SOMEBODY, which a field comparison alone cannot say.
+    cse::kernel::GameState s{};
+    cse::kernel::ResetMatch(s, 0xC0FFEEu);
+    s.p[0].posX   = -px(20);
+    s.p[1].posX   =  px(20);
+    s.p[0].facing = 0;
+    s.p[1].facing = 1;
+    for (int i = 0; i < 2; ++i) {
+        s.p[i].moveId    = 1;
+        s.p[i].moveFrame = static_cast<std::uint16_t>(c.moves[0].startup);
+    }
+
+    const std::int32_t before = s.p[1].posX;
+    cse::kernel::ResolveHits(s, build.data);
+    ASSERT_NE(s.p[1].pushX, 0)
+        << "the defender was hit and no pushback was queued, so nothing will "
+           "move them on any later tick either.";
+
+    cse::kernel::Simulate(s, cse::kernel::InputPair{}, build.data);
+    EXPECT_GT(s.p[1].posX, before)
+        << "the defender stands to the RIGHT of the attacker and ended at "
+        << s.p[1].posX << " from " << before
+        << ". Pushback runs AWAY from the attacker, derived from the position "
+           "difference rather than from facing.";
 }
