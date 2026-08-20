@@ -419,6 +419,51 @@ TEST(P2Knockdown, PreventsActingUntilItExpires) {
     EXPECT_GT(s.p[1].knockdown, 0) << "the knockdown expired early";
 }
 
+// AND A FIGHTER ON THE FLOOR CANNOT BE HIT, which is the half that makes a
+// knockdown READABLE from outside.
+//
+// Asked for from play (2026-08-20): "we can't really tell when crouching or
+// knockdowns occur". A knockdown that only stopped the defender ACTING looks
+// exactly like a long hitstun from the other side of the screen -- you keep
+// hitting them and they keep not answering. A knockdown that also refuses your
+// attacks announces itself the first time one passes through.
+//
+// It is not a new authored mechanic and gets no field of its own: the opt-in is
+// already `causes_knockdown` plus its duration, and this is what the kernel
+// MEANS by the state those two put a fighter into. A move that knocks nobody
+// down grants nobody this.
+//
+// OTG rules -- hitting a downed opponent on purpose -- are a later mechanic and
+// will be an authored per-move field when they arrive, not a loosening here.
+TEST(P2Knockdown, AFighterOnTheFloorCannotBeHit) {
+    auto data = twoFighters();
+    data->p[0].moves[1].knockdownTicks = 20;
+    data->p[0].moves[1].hitstun        = 1;
+
+    GameState s = facingOff();
+    ResolveHits(s, *data);
+    ASSERT_EQ(s.p[1].knockdown, 20) << "precondition: the defender went down";
+
+    const std::int32_t healthOnTheFloor = s.p[1].health;
+
+    // Hit them again, on the floor, from a move that is unambiguously active.
+    for (int t = 0; t < 5; ++t) {
+        s.p[0].moveId         = 1;
+        s.p[0].moveFrame      = 1;
+        s.p[0].alreadyHitBits = 0;
+        ResolveHits(s, *data);
+    }
+
+    EXPECT_EQ(s.p[1].health, healthOnTheFloor)
+        << "the defender lost " << (healthOnTheFloor - s.p[1].health)
+        << " more health while knocked down. A body on the floor is not a "
+           "target: without this a sweep becomes the opening of an unescapable "
+           "loop, because the one state that should END pressure instead "
+           "guarantees it.";
+    EXPECT_GT(s.p[1].knockdown, 0)
+        << "the knockdown expired inside the window this test measures";
+}
+
 // --- Juggle -----------------------------------------------------------------
 
 TEST(P2Juggle, RefusesTheHitThatWouldOverspendTheBudget) {

@@ -224,6 +224,26 @@ bool GuardStops(std::uint8_t guard, std::uint8_t blockedAs) {
 }
 
 bool InvulnerableTo(const FighterData& data, const Fighter& f, std::uint16_t kinds) {
+    // A BODY ON THE FLOOR IS NOT A TARGET, to every kind of attack, for as long
+    // as it takes to get up.
+    //
+    // Checked FIRST, and before the move lookup, because a knocked-down fighter
+    // has no move: `moveId` is zero, `MoveAt` returns null, and the window scan
+    // below would have answered "not invulnerable" for the one state in the game
+    // where that is most wrong.
+    //
+    // This is what the kernel MEANS by knockdown rather than a mechanic of its
+    // own, so it gets no field: the opt-in is already the authored
+    // `causes_knockdown` and its duration, and a move that knocks nobody down
+    // grants nobody this. Without it a sweep OPENS an unescapable loop instead
+    // of ending pressure, which is the exact inversion of what a knockdown is
+    // for -- and from the other side of the screen a knockdown that only stopped
+    // the defender ACTING is indistinguishable from a long hitstun.
+    //
+    // OTG -- hitting a downed opponent on purpose -- is a later mechanic and
+    // will arrive as an authored per-move field, not as a loosening here.
+    if (f.knockdown > 0) return true;
+
     const MoveDef* m = MoveAt(data, f.moveId);
     if (m == nullptr) return false;
 

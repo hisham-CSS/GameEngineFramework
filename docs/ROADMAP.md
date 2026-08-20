@@ -825,6 +825,19 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   account has to LEARN hitstop before its numbers mean anything, and that is a
   slice of its own rather than a repair. `hitstop_ticks` is loaded and sitting
   in `CharacterData::Move` waiting for it.
+  **A third unloaded block, found while looking for a crouch box:**
+  `engine.constants` on `fighter_a` authors `health`, **`juggle_budget: 4`**,
+  `walk_fwd_sub`, `walk_back_sub`, `dash_fwd_sub`, **`jump_vel_sub`**,
+  **`gravity_sub`**, `ground_friction_permille`, `air_actions`,
+  `default_pushbox_sub` and `height_px` — and the loader reads **none** of it
+  (the only two matches in `CharacterData.cpp` are comments). So `juggleMax`,
+  which M1.1f is about wiring, is authored right there; and `gravitySub` and
+  `jumpImpulseSub`, the two `FighterData` fields M1.1b added "ahead of anything
+  that can set them", have had an author all along. Neither needs a schema
+  change, only a loader that reads the block.
+  **What is NOT authored anywhere is a CROUCHING body.** `default_pushbox_sub`
+  is the standing box and there is no crouch counterpart, so the crouch hurtbox
+  the author asked for is a genuinely new field rather than another wire.
   **A validation I wrote was wrong and a shipped fixture caught it.** The first
   draft REFUSED a move that authors `causes_knockdown` with
   `fall_recover_ticks: 0`. AOF2's `punk_b_kick` does exactly that, and it is not
