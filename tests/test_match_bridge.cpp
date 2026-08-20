@@ -995,3 +995,67 @@ TEST(MatchBridgeLosses, AllThreeShippedCharactersBuild) {
         EXPECT_FALSE(build.report[0].playsAsAnalysed);
     }
 }
+
+// --- The edge guard the kernel cannot see ------------------------------------
+//
+// CancelEdge carries no `guard` of its own. ROADMAP M1.1b measured every
+// character in this tree -- fighter_a_infinite's ten and Kung Fu Girl's
+// forty-one -- and found that all fifty-one restate the TARGET move's own guard
+// exactly, which the cancel scan does enforce. So the field was not added and
+// CancelEdge stayed 16 bytes.
+//
+// That is an observation about today's data, not a property of the schema, and
+// an observation load-bearing enough to skip a struct on deserves a test that
+// fails when it stops being true. The build warns per offending edge; this is
+// the character that offends.
+TEST(MatchBridgeLosses, AnEdgeGuardStricterThanItsTargetIsWarnedAbout) {
+    CharacterData c = syntheticCharacter(2);
+    c.resources.push_back(ResourceDef{ "meter", 0, 0, 300, true });
+    c.RebuildIndices();
+
+    // The target asks for 50 and the EDGE into it asks for 100. The kernel
+    // checks the target, so at 50 meter this cancel is taken and the file says
+    // it should not be.
+    c.moves[1].guard.push_back(ResourceAmount{ 0, 50 });
+
+    Cancel e{};
+    e.from  = 0;
+    e.to    = 1;
+    e.delay = 0;
+    e.on    = Contact::Hit;
+    e.guard.push_back(ResourceAmount{ 0, 100 });
+    c.cancels.push_back(e);
+    c.RebuildIndices();
+
+    BuildOptions options{};
+    options.bindings = { { c.moves[0].id, cse::kernel::kInputLP },
+                         { c.moves[1].id, cse::kernel::kInputMP } };
+
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build))
+        << build.report[0].error;
+
+    bool warned = false;
+    for (const std::string& w : build.report[0].warnings)
+        if (w.find("permitted where the file refuses") != std::string::npos)
+            warned = true;
+
+    EXPECT_TRUE(warned)
+        << "an edge requiring 100 into a move requiring 50 built without a "
+           "word. The kernel will take that cancel at 50, so the only thing "
+           "standing between this file and a wrong simulation is this warning.";
+
+    // AND THE REDUNDANT CASE STAYS QUIET, because a warning that fires on all
+    // fifty-one authored edges is a warning nobody reads.
+    CharacterData quiet = c;
+    quiet.cancels[0].guard[0].value = 50;      // exactly the target's minimum
+    quiet.RebuildIndices();
+
+    MatchBuild quietBuild{};
+    ASSERT_TRUE(BuildMatchData(quiet, options, quiet, options, quietBuild))
+        << quietBuild.report[0].error;
+
+    for (const std::string& w : quietBuild.report[0].warnings)
+        EXPECT_EQ(w.find("permitted where the file refuses"), std::string::npos)
+            << "an edge guard equal to its target's was warned about: " << w;
+}

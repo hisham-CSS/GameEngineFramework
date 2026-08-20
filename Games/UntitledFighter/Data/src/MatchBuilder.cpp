@@ -176,16 +176,23 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
 
     addLoss(report, "cancel.guard", BuildLossDirection::KernelPermits,
             cancels.withGuard,
-            "The resource minimum an edge requires -- meter, for the shipped "
-            "characters. Fighter::meter exists but nothing reads it, so a cancel "
-            "into an EX move is free. This is the same hole as `move.guard`, "
-            "listed separately because a metered CANCEL is the thing a combo "
-            "route is usually built out of.");
+            "The resource minimum an EDGE requires. CancelEdge carries no guard "
+            "field, so this is still listed as a loss -- but the constraint is "
+            "enforced in practice: the cancel scan refuses a target move whose "
+            "own MoveDef::guard is unmet, and every authored edge guard in this "
+            "tree restates its target's guard exactly. An edge demanding MORE "
+            "than its target would be permitted where the file refuses, and the "
+            "build warns per edge when it finds one. Kept as KernelPermits "
+            "rather than promoted to Exact because that is the direction the "
+            "remaining hole runs.");
 
     addLoss(report, "cancel.effect", BuildLossDirection::KernelOmits,
             cancels.withEffect,
-            "The resource delta an edge applies. Nothing writes Fighter::meter, "
-            "so the cost is never paid and the gain is never banked.");
+            "The resource delta an EDGE applies, as distinct from the delta its "
+            "target move applies -- which the kernel does carry and does bank. "
+            "No character in this tree authors one, so this row counts zero "
+            "everywhere and CancelEdge was left at 16 bytes rather than grown "
+            "for a field nothing uses (ROADMAP M1.1b).");
 
     addLoss(report, "move.cancel_window (absent)", BuildLossDirection::KernelPermits,
             cancels.sourcesWithoutWindow,
@@ -475,6 +482,38 @@ bool buildCancels(const CharacterData& c, const std::string& who,
         if (!e.certain)      ++stats.uncertain;
         if (!e.guard.empty()) ++stats.withGuard;
         if (!e.effect.empty()) ++stats.withEffect;
+
+        // AN EDGE GUARD STRICTER THAN ITS TARGET'S IS THE ONLY ONE THE KERNEL
+        // CAN GET WRONG, so it is the only one worth a warning.
+        //
+        // CancelEdge carries no guard of its own (ROADMAP M1.1b measured every
+        // character in this tree and found all 51 authored edge guards restate
+        // the target move's own guard exactly), so the kernel enforces the
+        // constraint through MoveDef::guard on the target and the two agree.
+        // That agreement is an observation about today's data, not a property of
+        // the schema -- which is what makes it worth CHECKING rather than
+        // assuming. An edge that demanded more than its target would be
+        // permitted where the file refuses, and this is the line that says so.
+        {
+            const cse::data::Move& target = c.moves[e.to];
+            for (const cse::data::ResourceAmount& g : e.guard) {
+                std::int32_t targetMin = 0;
+                bool         found     = false;
+                for (const cse::data::ResourceAmount& t : target.guard)
+                    if (t.resource == g.resource) { targetMin = t.value; found = true; break; }
+                if (!found || targetMin < g.value)
+                    report.warnings.push_back(
+                        "cancel " + c.moves[e.from].id + " -> " + target.id +
+                        " requires " + num(g.value) + " of resource " +
+                        num(static_cast<std::int32_t>(g.resource)) +
+                        " and `" + target.id + "` itself requires " +
+                        (found ? num(targetMin) : std::string("none")) +
+                        ". The kernel checks the TARGET's guard, so this cancel "
+                        "is permitted where the file refuses it. Give the edge "
+                        "guard to the move, or CancelEdge needs a guard of its "
+                        "own (ROADMAP M1.1b).");
+            }
+        }
 
         CancelEdge edge{};
         edge.from          = MoveIndexMap::KernelMoveIdOf(e.from);

@@ -457,9 +457,33 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   research instrument by finding its missing wire.
   The generic form — should any resource's floor refuse rather than clamp —
   stays open behind it, and `ApplyEffects` clamps today.
-  **Also still open:** `effect[]`/`guard[]` on CANCEL EDGES (only moves carry
-  them; `cancel.effect` and `cancel.guard` are untouched in the ledger), and
-  mirroring whichever slot the file calls juggle into `Fighter::juggle`.
+  **Slice 4: cancel-edge effects and guards were MEASURED AND NOT BUILT, which
+  is the right outcome and worth the paragraph.** The plan said `effect[]` on
+  moves *and cancel edges*. Counting first: **`cancel.effect` is authored zero
+  times in this tree** — not by `fighter_a`, not by `fighter_a_infinite`, not by
+  any fixture — and of the **51 authored cancel guards** (ten on
+  `fighter_a_infinite`, forty-one on Kung Fu Girl), **all 51 restate the target
+  move's own guard exactly**. `super_beam` is the case in miniature: the move
+  guards `meter: 100` and every edge into it repeats `meter: 100`. Slice 3's
+  cancel scan already refuses a target whose own `MoveDef::guard` is unmet, so
+  the constraint is enforced and the edge field would carry nothing.
+  Building it would have grown `CancelEdge` 16 → ~52 bytes, which is ~74 KB more
+  `MatchData` per build, for a field no character uses.
+  **What landed instead is the check that keeps the measurement honest.** The
+  redundancy is a fact about today's data, not a property of the schema, so the
+  builder now warns per edge when an edge guard demands MORE than its target's —
+  the one direction where the kernel is permissive and the file is not.
+  `MatchBridgeLosses.AnEdgeGuardStricterThanItsTargetIsWarnedAbout` proves it
+  fires and proves the redundant case stays quiet; it fails with the check
+  reverted. The two ledger rows say all of this in their notes rather than
+  claiming a hole that is not there.
+  **A scoping miss, recorded rather than smoothed over:** slice 2 argued for
+  batching the hashed-struct change and then did not include `CancelEdge` in it.
+  That turned out not to cost anything — the measurement above says the field
+  should not exist — but the argument and the action did not match, and it was
+  luck rather than judgement that they agreed.
+  **Also still open:** mirroring whichever slot the file calls juggle into
+  `Fighter::juggle`.
   `GapExtentModel.EveryCycleIsEndedByJuggleAndNoCycleTouchesMeter` was expected
   to invert here and did not need to: it reads the MODEL (`CharacterData`), not
   the kernel, so it says nothing about what the kernel now does.
