@@ -915,6 +915,23 @@ bool parseDocument(Ctx& ctx, const json& doc, CharacterData& out) {
     (void)ticksPerSec;
     const std::int64_t reachScale = pxPerReach * subPerPixel;   // reach units -> sub-units
 
+    // engine.constants: the block that carries this character's own physical
+    // numbers. Only the crouch height is read today (ROADMAP M1.3d); the rest --
+    // juggle_budget, gravity_sub, jump_vel_sub, walk_fwd_sub, height_px --
+    // is authored and still unread, which ROADMAP records as its own wire.
+    if (const json* consts = engineNs ? member(*engineNs, "constants") : nullptr) {
+        if (!consts->is_object())
+            return ctx.fail("engine", "constants is present but is not an object");
+        std::int32_t crouchPx = 0;
+        if (!readInt(ctx, *consts, "crouch_height_px", "engine.constants", crouchPx, false))
+            return false;
+        if (crouchPx < 0)
+            return ctx.fail("engine.constants",
+                            "crouch_height_px is " + std::to_string(crouchPx) +
+                            "; a body cannot have a negative height.");
+        out.crouchHeightSub = crouchPx * cse::kernel::kSubUnitsPerPixel;
+    }
+
     const json* quant = engineNs ? member(*engineNs, "quantized_sources") : nullptr;
     if (quant && !quant->is_object())
         return ctx.fail("engine", "quantized_sources is present but is not an object");

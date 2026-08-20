@@ -703,6 +703,17 @@ struct CharacterData {
     std::vector<std::int32_t> scalingPermille;  // damage scaling by combo depth
     Decay decay;
 
+    // Crouching body height in sub-units, from `engine.constants.crouch_height_px`.
+    // ZERO MEANS UNAUTHORED and the standing body is used while crouching, which
+    // is what every character written before this field gets.
+    //
+    // A HEIGHT AND NOT A BOX, unlike the kernel's crouchHurtbox: the file already
+    // authors `height_px` beside this and the crouch shares the standing box's
+    // width, so asking a designer to restate the width would be asking them to
+    // keep two numbers in step for no gain. MatchBuilder turns the pair into the
+    // box the kernel wants.
+    std::int32_t crouchHeightSub = 0;
+
     std::vector<ResourceDef> resources;         // ORDER IS THE CONTRACT -- see ResourceDef
     std::vector<GapAction>   gapActions;
     std::vector<Move>        moves;

@@ -835,9 +835,23 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   `jumpImpulseSub`, the two `FighterData` fields M1.1b added "ahead of anything
   that can set them", have had an author all along. Neither needs a schema
   change, only a loader that reads the block.
-  **What is NOT authored anywhere is a CROUCHING body.** `default_pushbox_sub`
-  is the standing box and there is no crouch counterpart, so the crouch hurtbox
-  the author asked for is a genuinely new field rather than another wire.
+  **Slice (e), asked for from PLAY rather than from the plan: the postures had to
+  become legible.** Stated 2026-08-20 after running the build: *"we can't really
+  tell when crouching or knockdowns occur — jumping at least puts your hitbox in
+  the air ... crouching hurtbox would be different, and knockdown would be the
+  same but the person who is knocked down is invincible until they wake up."*
+  Both landed. A knocked-down fighter is now invulnerable to everything until
+  they get up — no new field, because the opt-in is already the authored
+  `causes_knockdown` and its duration, and this is what the kernel MEANS by that
+  state. `InvulnerableTo` answers it FIRST, before the move lookup, because a
+  downed fighter has no move and the window scan returned "not invulnerable" for
+  the one state where that is most wrong. And `FighterData::crouchHurtbox` gives
+  a crouch its own body, degenerate meaning unauthored, with a move's own
+  `hurtboxOverride` outranking it because the move is the more specific
+  statement. `fighter_a` authors `crouch_height_px: 34` against a 60 px stand.
+  **A crouching body was not authored anywhere** — `default_pushbox_sub` is the
+  standing box and had no crouch counterpart — so unlike everything else in this
+  WP it needed a new field and a new authored number rather than a wire.
   **A validation I wrote was wrong and a shipped fixture caught it.** The first
   draft REFUSED a move that authors `causes_knockdown` with
   `fall_recover_ticks: 0`. AOF2's `punk_b_kick` does exactly that, and it is not

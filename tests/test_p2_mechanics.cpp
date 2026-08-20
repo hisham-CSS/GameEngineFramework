@@ -1390,3 +1390,83 @@ TEST(P3Resources, IndexOrderIsTheFilesOrder) {
     EXPECT_EQ(s.p[0].res[kMeterSlot],  17) << "slot 0 took slot 1's delta";
     EXPECT_EQ(s.p[0].res[kSecondSlot],  2) << "slot 1 took slot 0's delta";
 }
+
+// --- The crouching body ------------------------------------------------------
+//
+// Asked for from play (2026-08-20): "we can't really tell when crouching or
+// knockdowns occur -- jumping at least puts your hitbox in the air". A crouch
+// that changes no box is a crouch nobody can see, and it is the posture a low
+// attack exists to catch.
+TEST(P2Crouch, ACrouchingFighterHasTheShorterBody) {
+    constexpr std::int32_t kStand  = 60 * kSubUnitsPerPixel;
+    constexpr std::int32_t kCrouch = 34 * kSubUnitsPerPixel;
+
+    auto data = twoFighters();
+    data->p[0].hurtbox       = Box{ -kSubUnitsPerPixel * 13, 0, kSubUnitsPerPixel * 13, kStand };
+    data->p[0].crouchHurtbox = Box{ -kSubUnitsPerPixel * 13, 0, kSubUnitsPerPixel * 13, kCrouch };
+
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+
+    const Box standing = Hurtbox(data->p[0], s.p[0]);
+    EXPECT_EQ(standing.y1 - standing.y0, kStand)
+        << "precondition: a fighter who is not crouching has the standing body";
+
+    s.p[0].crouching = 1;
+    const Box ducked = Hurtbox(data->p[0], s.p[0]);
+    EXPECT_EQ(ducked.y1 - ducked.y0, kCrouch)
+        << "crouching left the body " << (ducked.y1 - ducked.y0)
+        << " sub-units tall and the file authors " << kCrouch
+        << ". A crouch that does not change the body cannot duck anything, and "
+           "from outside it is a posture with no consequence at all.";
+}
+
+// And a character that authors none keeps one body for both postures, which is
+// what says this is opt-in rather than a retuning of everyone.
+TEST(P2Crouch, ACharacterWithNoCrouchBodyKeepsItsStandingOne) {
+    auto data = twoFighters();
+    ASSERT_EQ(data->p[0].crouchHurtbox.y1, data->p[0].crouchHurtbox.y0)
+        << "the bench authored a crouch body, so this test cannot say what an "
+           "unauthored character does";
+
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+    const Box standing = Hurtbox(data->p[0], s.p[0]);
+
+    s.p[0].crouching = 1;
+    const Box ducked = Hurtbox(data->p[0], s.p[0]);
+
+    EXPECT_EQ(ducked.y1 - ducked.y0, standing.y1 - standing.y0)
+        << "an unauthored character changed shape on crouching. A degenerate box "
+           "is how this field spells 'the file did not say', and reading it as a "
+           "real body gives every character a zero-height crouch that nothing "
+           "can hit.";
+}
+
+// A MOVE'S OWN BODY OUTRANKS THE POSTURE, because the move is the more specific
+// statement. Without this ordering a crouching move that authors a low profile
+// would have it silently replaced by the generic crouch.
+TEST(P2Crouch, AMovesOwnHurtboxOutranksTheCrouchingOne) {
+    constexpr std::int32_t kCrouch   = 34 * kSubUnitsPerPixel;
+    constexpr std::int32_t kOverride = 18 * kSubUnitsPerPixel;
+
+    auto data = twoFighters();
+    data->p[0].crouchHurtbox = Box{ -kSubUnitsPerPixel * 13, 0, kSubUnitsPerPixel * 13, kCrouch };
+    data->p[0].moves[1].hasHurtboxOverride = 1;
+    data->p[0].moves[1].hurtboxOverride =
+        Box{ -kSubUnitsPerPixel * 13, 0, kSubUnitsPerPixel * 13, kOverride };
+
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+    s.p[0].crouching = 1;
+    s.p[0].moveId    = 1;
+    s.p[0].moveFrame = 1;
+
+    const Box box = Hurtbox(data->p[0], s.p[0]);
+    EXPECT_EQ(box.y1 - box.y0, kOverride)
+        << "the move authors an " << kOverride << " body and got "
+        << (box.y1 - box.y0)
+        << ". A slide that ducks a fireball has said what crouching looks like "
+           "for those frames; layering the generic crouch over it ignores half "
+           "the file.";
+}

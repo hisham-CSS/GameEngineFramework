@@ -636,6 +636,27 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
 
     out.hurtbox = Box{ -halfWidth, 0, halfWidth, height };
 
+    // THE CROUCHING BODY, same width and the authored height. Left degenerate
+    // when the file authors none, which is how the kernel reads "unauthored" and
+    // is why a character written before this field keeps one box for both
+    // postures.
+    //
+    // A crouch TALLER than the stand is refused rather than clamped: it is not a
+    // near miss to be tidied, it is a file saying something impossible, and
+    // silently making it the standing height would hide the typo behind a
+    // character who cannot duck anything.
+    if (character.crouchHeightSub > 0) {
+        if (character.crouchHeightSub > height) {
+            report.error = who + ": engine.constants.crouch_height_px is " +
+                           num(character.crouchHeightSub / cse::kernel::kSubUnitsPerPixel) +
+                           " px and the standing body is " +
+                           num(height / cse::kernel::kSubUnitsPerPixel) +
+                           " px. A crouch cannot be taller than the stand.";
+            return false;
+        }
+        out.crouchHurtbox = Box{ -halfWidth, 0, halfWidth, character.crouchHeightSub };
+    }
+
     // WALK SPEED, CARRIED WHOLE. CharacterData already quantized it once at load
     // (D8: quantise at the boundary, never in the kernel), so this is a copy and
     // not a conversion -- there is no second rounding to lose anything to, which

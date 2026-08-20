@@ -4183,6 +4183,7 @@
     0
    ],
    "height_px": 60,
+   "crouch_height_px": 34,
    "attack_dist_px": 160,
    "source": "AUTHORED. Every distance is an exact integer number of sub-units at 256 per pixel: walk 3 px/tick = 768, gravity 0.5 px/tick^2 = 128, jump 11 px/tick = 2816. ADR-001:499-504 records that Kung Fu Man's 2.4 px/tick walk CANNOT be expressed as (integer px)/100 and loses 0.4 px/tick through model.py:468's int(round(v*100)). This character's 3 px/tick is 0.03 reach units and survives that quantization exactly, because an original character can choose numbers that quantize and this one does everywhere."
   },

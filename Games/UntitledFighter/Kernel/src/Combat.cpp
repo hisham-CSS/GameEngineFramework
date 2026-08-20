@@ -159,10 +159,24 @@ Box Hurtbox(const FighterData& data, const Fighter& f) {
     // low-profile mechanism: a crouching attack ducks a high one because its body
     // is SHORTER for those frames, and no move ever names another move.
     const MoveDef* m = MoveAt(data, f.moveId);
-    const Box& local = (m != nullptr && m->hasHurtboxOverride != 0)
-                           ? m->hurtboxOverride
-                           : data.hurtbox;
-    return PlaceBox(local, f.posX, f.posY, f.facing);
+    if (m != nullptr && m->hasHurtboxOverride != 0)
+        return PlaceBox(m->hurtboxOverride, f.posX, f.posY, f.facing);
+
+    // Otherwise the posture decides. A MOVE'S OVERRIDE OUTRANKS THE CROUCH,
+    // above, because the move is the more specific statement: a crouching move
+    // that authors its own body has already said what crouching looks like for
+    // those frames, and layering the generic crouch under it would silently
+    // ignore half of what the file said.
+    //
+    // Degenerate means unauthored -- see FighterData::crouchHurtbox -- so a
+    // character with no crouch body simply keeps its standing one, exactly as
+    // before this field existed.
+    const bool crouched = f.crouching != 0;
+    const Box& cb = data.crouchHurtbox;
+    const bool authored = cb.x1 > cb.x0 && cb.y1 > cb.y0;
+
+    return PlaceBox(crouched && authored ? cb : data.hurtbox,
+                    f.posX, f.posY, f.facing);
 }
 
 // --- Stance, guard, priority and invincibility -------------------------------

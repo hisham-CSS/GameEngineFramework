@@ -616,6 +616,23 @@ struct FighterData {
     ResourceDef  resources[kMaxResources];
     std::int32_t resourceCount;
 
+    // The body while CROUCHING, and it is a separate box rather than a scale
+    // factor because a crouch is not a shorter standing pose -- the head comes
+    // forward as it comes down, and a character whose crouch is merely `height *
+    // 0.6` ducks nothing a designer aimed at.
+    //
+    // A DEGENERATE BOX MEANS UNAUTHORED: x1 <= x0 or y1 <= y0 and the standing
+    // body is used, which is what every character built before this field
+    // existed gets and is why wiring it changes nobody who does not use it. A
+    // flag would be the idiom elsewhere in this header (hasHurtboxOverride,
+    // hasAirborneFrom, hasCeiling), and it is not used here for a reason: those
+    // guard SCALARS where zero is a legal value, and there is no legal
+    // zero-area body. An empty box is already the impossible value.
+    //
+    // Asked for from play (ROADMAP M1.3d): a crouch that changes no box is a
+    // crouch nobody can see, and it is the state a low attack is aimed at.
+    Box crouchHurtbox;
+
     // Ground walk speed in sub-units per tick. ZERO MEANS UNAUTHORED, and the
     // kernel then uses the placeholder it used before this field existed --
     // which is what keeps every harness that builds a synthetic FighterData
