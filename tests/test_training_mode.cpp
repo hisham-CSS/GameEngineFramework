@@ -2866,6 +2866,22 @@ TEST(TrainingModeReadout, WalkingClosesTheGapAndOnlyTheIntervalRuleSurvivesConta
     bench.build.data.p[0].walkSpeedSub = 2 * cse::kernel::kSubUnitsPerPixel;
     bench.build.data.p[1].walkSpeedSub = 2 * cse::kernel::kSubUnitsPerPixel;
 
+    // AND NO PUSHBOX, which is not a dodge -- it is the difference between the
+    // two boxes this file keeps confusing for each other.
+    //
+    // ROADMAP M1.2 stopped fighters standing in each other, so two PUSHBOXES
+    // never overlap any more. The gap chip does not measure pushboxes: it
+    // measures HURTBOXES, which still overlap freely, because a sweep's hurtbox
+    // reaches far past the body it keeps. Two of the four bands this test walks
+    // through -- overlapping and coincident -- are ordinary hurtbox states and
+    // unreachable pushbox ones, so a bench that carried a pushbox would separate
+    // the fighters before the walk ever got there and measure two bands instead
+    // of four.
+    //
+    // Degenerate is how FighterData spells "no pushbox".
+    bench.build.data.p[0].pushbox = cse::kernel::Box{};
+    bench.build.data.p[1].pushbox = cse::kernel::Box{};
+
     // THE BRIDGE'S HALF OF THIS, ASSERTED BEFORE THE KERNEL'S. The kernel now
     // carries the authored walk speed whole, so this row reads `exact` -- and
     // that is what makes the override above a deliberate act by this test rather

@@ -1585,3 +1585,125 @@ TEST(P2Stage, TheAbsoluteCornerStillStopsTheRetreat) {
         << ". The separation limit must never let anybody past the corner: it "
            "only ever pulls fighters together.";
 }
+
+// --- Push boxes --------------------------------------------------------------
+//
+// ROADMAP M1.2, asked for from play (2026-08-20): "the enemy collider should be
+// blocking collisions rather than trigger -- we don't want to move through them
+// ... this prevents players and enemies overlapping hurtboxes and missing
+// attacks because of that."
+namespace {
+
+// A bench whose fighters have a body they cannot share.
+std::unique_ptr<MatchData> pushBench() {
+    auto d = twoFighters();
+    const Box body{ -13 * kSubUnitsPerPixel, 0, 13 * kSubUnitsPerPixel, 60 * kSubUnitsPerPixel };
+    d->p[0].pushbox = body;
+    d->p[1].pushbox = body;
+    return d;
+}
+
+std::int32_t gapBetweenBodies(const GameState& s, const MatchData& d) {
+    const Box a = PlaceBox(d.p[0].pushbox, s.p[0].posX, s.p[0].posY, s.p[0].facing);
+    const Box b = PlaceBox(d.p[1].pushbox, s.p[1].posX, s.p[1].posY, s.p[1].facing);
+    return (a.x0 > b.x0 ? a.x0 : b.x0) - (a.x1 < b.x1 ? a.x1 : b.x1);
+}
+
+}  // namespace
+
+TEST(P3Pushbox, FightersNeverOverlapAfterSeparation) {
+    auto data = pushBench();
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+    s.p[0].posX = 0;
+    s.p[1].posX = 0;   // exactly coincident, the worst case
+
+    InputPair walkIn{};
+    walkIn.p[0].bits = kInputRight;   // and keep pressing into them
+
+    for (int t = 0; t < 120; ++t) {
+        Simulate(s, walkIn, *data);
+        ASSERT_GE(gapBetweenBodies(s, *data), 0)
+            << "tick " << t << ": the two bodies overlap by "
+            << -gapBetweenBodies(s, *data)
+            << " sub-units. Two fighters in the same place make every range in "
+               "the game meaningless -- attacks whiff for a reason nobody "
+               "watching can see.";
+    }
+}
+
+// AN EQUAL SPLIT IS A MIRROR, and this is what says so. The same collision
+// reflected through x = 0 must produce reflected positions; an "always push the
+// left one" rule passes the overlap test above and fails this one.
+TEST(P3Pushbox, SeparationIsAnExactMirror) {
+    auto data = pushBench();
+
+    GameState right{}, left{};
+    ResetMatch(right, 0x1D7u);
+    ResetMatch(left,  0x1D7u);
+    right.p[0].posX =  4 * kSubUnitsPerPixel;  left.p[0].posX = -4 * kSubUnitsPerPixel;
+    right.p[1].posX = -4 * kSubUnitsPerPixel;  left.p[1].posX =  4 * kSubUnitsPerPixel;
+
+    // An ODD overlap on purpose: an even one is resolved by any halving, and the
+    // rounding is exactly where a mirror breaks.
+    right.p[0].posX += 1;  left.p[0].posX -= 1;
+
+    for (int t = 0; t < 30; ++t) {
+        Simulate(right, InputPair{}, *data);
+        Simulate(left,  InputPair{}, *data);
+        ASSERT_EQ(right.p[0].posX, -left.p[0].posX)
+            << "tick " << t << ": separation stopped being a reflection. A "
+               "resolution that favours a side turns which way you are facing "
+               "into a frame advantage.";
+        ASSERT_EQ(right.p[1].posX, -left.p[1].posX) << "tick " << t;
+    }
+}
+
+// The corner is a wall on both sides: a fighter with nowhere to go absorbs none
+// of the separation and the other one takes all of it.
+TEST(P3Pushbox, TheCornerIsAWallOnBothSides) {
+    auto data = pushBench();
+
+    for (int side = 0; side < 2; ++side) {
+        const std::int32_t wall = side == 0 ? -kStageHalfWidthSub : kStageHalfWidthSub;
+
+        GameState s{};
+        ResetMatch(s, 0x1D7u);
+        s.p[0].posX = wall;
+        s.p[1].posX = wall;   // both jammed into the same corner
+
+        for (int t = 0; t < 60; ++t) Simulate(s, InputPair{}, *data);
+
+        EXPECT_GE(gapBetweenBodies(s, *data), 0)
+            << "side " << side << ": the corner swallowed the separation and the "
+               "two bodies still overlap.";
+        EXPECT_GE(s.p[0].posX, -kStageHalfWidthSub) << "side " << side;
+        EXPECT_LE(s.p[0].posX,  kStageHalfWidthSub) << "side " << side;
+        EXPECT_GE(s.p[1].posX, -kStageHalfWidthSub)
+            << "side " << side << ": separation pushed a fighter through the wall.";
+        EXPECT_LE(s.p[1].posX,  kStageHalfWidthSub)
+            << "side " << side << ": separation pushed a fighter through the wall.";
+    }
+}
+
+// AND A JUMP GOES OVER, which is what makes an airborne approach a way past
+// somebody rather than a bounce off them.
+TEST(P3Pushbox, AnAirborneFighterPassesOverAGroundedOne) {
+    auto data = pushBench();
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+    s.p[0].posX = 0;
+    s.p[1].posX = 0;
+    s.p[0].airborne = 1;
+    s.p[0].posY     = 40 * kSubUnitsPerPixel;
+
+    const std::int32_t before0 = s.p[0].posX;
+    const std::int32_t before1 = s.p[1].posX;
+    Simulate(s, InputPair{}, *data);
+
+    EXPECT_EQ(s.p[1].posX, before1)
+        << "a grounded fighter was shoved sideways by an airborne one directly "
+           "above them. Nothing may push in the air: that is what a cross-up is.";
+    EXPECT_EQ(s.p[0].posX, before0)
+        << "the airborne fighter was pushed horizontally by the body below it.";
+}

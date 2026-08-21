@@ -973,7 +973,33 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   MAINTENANCE.md's rule against hard-coding what a file should set applies, and
   M1.2 owns the corner. This WP is the enabling refactor, not the stage model.
 
-- `[ ]` **M1.2 Push boxes and the corner.** *(S–M)* Body separation between
+- `[~]` **M1.2 Push boxes and the corner.** *(S–M)* Claude, 2026-08-20 — the
+  SEPARATION half landed; the authored box has not.
+  **Asked for from play:** *"the enemy collider should be blocking collisions
+  rather than trigger — we don't want to move through them ... this prevents
+  players and enemies overlapping hurtboxes and missing attacks because of
+  that."* `FighterData::pushbox`, degenerate meaning unauthored, defaulting to
+  the body; `separatePushboxes` splits an overlap EQUALLY and rounds UP, so the
+  resolution is a mirror and an odd overlap actually resolves. Airborne fighters
+  pass over, which is what makes a jump a way past somebody. Two passes, because
+  the corner makes one fighter's share undoable and the other absorbs it.
+  `P3Pushbox.FightersNeverOverlapAfterSeparation`, `.SeparationIsAnExactMirror`,
+  `.TheCornerIsAWallOnBothSides`, `.AnAirborneFighterPassesOverAGroundedOne`.
+  **What it cost, and it is the interesting part.**
+  `TrainingModeReadout.WalkingClosesTheGapAndOnlyTheIntervalRuleSurvivesContact`
+  walks a fighter through four bands — apart, touching, overlapping, coincident
+  — and two of them stopped being reachable. That is correct and it is also a
+  distinction this codebase keeps blurring: the gap chip measures HURTBOXES,
+  which still overlap freely, and not pushboxes, which no longer do. A sweep's
+  hurtbox reaches far past the body it keeps. The bench authors no pushbox now
+  and says why.
+  **Still open:** `engine.constants.default_pushbox_sub` is authored on
+  `fighter_a` and deliberately unread — it is in MUGEN's **Y-DOWN** convention,
+  which that file warns about at length in its own
+  `the_y_axis_trap_in_this_very_file` note, and reading it without the flip
+  buries a body sixty pixels underground where nothing touches it. That wire
+  needs the conversion written down and tested. Body separation between
+
   fighters and the stage edge as a wall; resolution order per NORTHSTAR Phase 2:
   pushbox separation → strikes (throws when they exist). Authored `pushbox`
   under `engine.boxes` (schema v3, appended field per ADR-006's rule); default

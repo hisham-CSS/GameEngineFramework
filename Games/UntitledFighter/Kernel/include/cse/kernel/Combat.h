@@ -633,6 +633,20 @@ struct FighterData {
     // crouch nobody can see, and it is the state a low attack is aimed at.
     Box crouchHurtbox;
 
+    // THE BODY YOU CANNOT WALK THROUGH. Separate from the hurtbox because the
+    // two answer different questions -- the hurtbox is where you can be HIT and
+    // this is where you can BE -- and in the genre they routinely differ: a
+    // sweep's hurtbox stretches far past the pushbox it keeps.
+    //
+    // A DEGENERATE BOX MEANS UNAUTHORED and nobody is separated, which is the
+    // behaviour every character had before ROADMAP M1.2 and is why wiring this
+    // changes nobody who does not carry one.
+    //
+    // Asked for from play (2026-08-20): "the enemy collider should be blocking
+    // collisions rather than trigger ... this prevents players and enemies
+    // overlapping hurtboxes and missing attacks because of that."
+    Box pushbox;
+
     // Ground walk speed in sub-units per tick. ZERO MEANS UNAUTHORED, and the
     // kernel then uses the placeholder it used before this field existed --
     // which is what keeps every harness that builds a synthetic FighterData

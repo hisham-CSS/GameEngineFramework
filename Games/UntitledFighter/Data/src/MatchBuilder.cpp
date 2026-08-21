@@ -636,6 +636,17 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
 
     out.hurtbox = Box{ -halfWidth, 0, halfWidth, height };
 
+    // THE PUSHBOX DEFAULTS TO THE BODY, which is the roadmap's plan (M1.2:
+    // "default from MatchBuilder.h's BodySpec") and is the conservative reading
+    // of a file that does not author one: a character occupies the space it can
+    // be hit in. `engine.constants.default_pushbox_sub` exists on `fighter_a`
+    // and is deliberately NOT read yet -- it is authored in MUGEN's Y-DOWN
+    // convention, which that file warns about at length in its own
+    // `the_y_axis_trap_in_this_very_file` note, and reading it without the
+    // conversion would bury a body sixty pixels underground where nothing
+    // touches it. That wire is M1.2's, with the flip written down and tested.
+    out.pushbox = out.hurtbox;
+
     // THE CROUCHING BODY, same width and the authored height. Left degenerate
     // when the file authors none, which is how the kernel reads "unauthored" and
     // is why a character written before this field keeps one box for both

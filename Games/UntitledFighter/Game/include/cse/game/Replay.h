@@ -246,7 +246,7 @@ inline constexpr std::uint32_t kDefaultCheckpointInterval = 60;
 // question would eventually disagree.
 std::uint32_t HashMatchData(const cse::kernel::MatchData& data);
 
-// Two Boxes now: the standing body and the crouching one.
+// Three Boxes now: the standing body, the crouching one, and the pushbox.
 // The eleven int32s are maxHealth, juggleMax, inputBufferFrames,
 // hitstunDecayStep, hitstunDecayFloor, resourceCount, walkSpeedSub, gravitySub,
 // jumpImpulseSub, moveCount and cancelCount; the ResourceDef array is counted
@@ -254,7 +254,7 @@ std::uint32_t HashMatchData(const cse::kernel::MatchData& data);
 // byte count so this keeps checking for PADDING after the P2 expansion rather
 // than becoming a number to update.
 static_assert(sizeof(cse::kernel::FighterData) ==
-                  2 * sizeof(cse::kernel::Box) + 11 * sizeof(std::int32_t) +
+                  3 * sizeof(cse::kernel::Box) + 11 * sizeof(std::int32_t) +
                       cse::kernel::kMaxResources * sizeof(cse::kernel::ResourceDef) +
                       cse::kernel::kMaxMovesPerFighter * sizeof(cse::kernel::MoveDef) +
                       cse::kernel::kMaxCancelsPerFighter * sizeof(cse::kernel::CancelEdge),

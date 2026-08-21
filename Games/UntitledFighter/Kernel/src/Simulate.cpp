@@ -354,6 +354,72 @@ void stepRound(GameState& state, int n) {
 
 } // namespace
 
+// --- Push boxes ---------------------------------------------------------------
+
+// Two fighters may not stand in the same place.
+//
+// Asked for from play (2026-08-20): "the enemy collider should be blocking
+// collisions rather than trigger -- we don't want to move through them ... if
+// you just run into them you should be blocked by the character's hurtbox
+// without taking damage - this prevents players and enemies overlapping
+// hurtboxes and missing attacks because of that." That last clause is the real
+// cost of not having this: two bodies in the same place make ranges meaningless
+// and attacks whiff for reasons nobody can see.
+//
+// AIRBORNE FIGHTERS PASS OVER, which is what makes a jump a way past somebody
+// rather than a bounce off them. It is also why crossing up works at all: the
+// jump arc carries you through the space the pushbox would otherwise hold.
+// Getting past a grounded opponent on the ground is left to the moves that say
+// they can -- a teleport, a lunge -- which is a per-move field when those
+// arrive, not a hole here.
+//
+// THE SPLIT IS EQUAL AND ROUNDS UP, and both halves of that are load-bearing.
+// Equal, so the resolution is a MIRROR: the same collision reflected through
+// x = 0 must produce reflected positions, which an "always push the left one"
+// rule breaks immediately. Rounds up, so an ODD overlap is actually resolved --
+// truncating leaves the two a sub-unit inside each other forever, and "never
+// overlap" would be true only for even numbers.
+void separatePushboxes(GameState& state, const MatchData& data) {
+    Fighter& a = state.p[0];
+    Fighter& b = state.p[1];
+
+    // A degenerate box is how FighterData spells "unauthored"; a character
+    // without one is not separated from anybody.
+    const Box& ba = data.p[0].pushbox;
+    const Box& bb = data.p[1].pushbox;
+    if (ba.x1 <= ba.x0 || bb.x1 <= bb.x0) return;
+    if (a.airborne != 0 || b.airborne != 0) return;
+
+    // Two passes. The first splits the overlap evenly, which is the answer
+    // whenever both fighters have room; the second exists for the CORNER, where
+    // the stage clamp undoes one fighter's share and the other has to absorb the
+    // whole of it. Two is enough because the second pass moves only one body and
+    // the stage cannot push back twice.
+    for (int pass = 0; pass < 2; ++pass) {
+        const Box pa = PlaceBox(ba, a.posX, a.posY, a.facing);
+        const Box pb = PlaceBox(bb, b.posX, b.posY, b.facing);
+
+        const std::int32_t overlap = (pa.x1 < pb.x1 ? pa.x1 : pb.x1) -
+                                     (pa.x0 > pb.x0 ? pa.x0 : pb.x0);
+        if (overlap <= 0) return;
+
+        // Who is on the left is decided by the ORIGINS, not by the boxes: the
+        // boxes are what overlap, so asking them which is left is circular when
+        // the two are nearly coincident. Equal origins fall to slot order, which
+        // is arbitrary and has to be SOMETHING -- and it is the same fixed order
+        // Simulate uses everywhere else, so it is at least the arbitrary choice
+        // this kernel already made.
+        const bool aIsLeft = a.posX <= b.posX;
+        const std::int32_t half = (overlap + 1) / 2;
+
+        Fighter& left  = aIsLeft ? a : b;
+        Fighter& right = aIsLeft ? b : a;
+
+        left.posX  = clampInt(left.posX - half,  -kStageHalfWidthSub, kStageHalfWidthSub);
+        right.posX = clampInt(right.posX + half, -kStageHalfWidthSub, kStageHalfWidthSub);
+    }
+}
+
 void Simulate(GameState& state, const InputPair& inputs, const MatchData& data) {
     // Fixed order, always. Iterating a container whose order can vary -- the
     // hash-ordering hazard that bit SimplePhysicsBackend and ScriptWorld in this
@@ -430,6 +496,8 @@ void Simulate(GameState& state, const InputPair& inputs, const MatchData& data) 
                                        anchor - kMaxSeparationSub,
                                        anchor + kMaxSeparationSub);
         }
+
+        separatePushboxes(state, data);
     }
 
     // Facing is derived from relative position, evaluated AFTER everyone has
