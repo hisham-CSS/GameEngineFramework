@@ -1023,6 +1023,37 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   the overlap with `scaleBy`'s rounding so it is mirror-symmetric.
   **Done when:** `P3Pushbox.FightersNeverOverlapAfterSeparation`,
   `.TheCornerIsAWallOnBothSides`, `.SeparationIsAnExactMirror`.
+- `[ ]` **M1.3e Stance reaches the kernel, and the drivers learn to jump.** *(M)*
+  **This is why `crouch_hk` does not knock down**, reported from play
+  2026-08-20: *"if I do crouch hk it seems like it just goes into hitstun."*
+  Diagnosed rather than guessed. The knockdown is authored, the loader reads it
+  and the bridge carries it — `MatchBridgeMechanics.FighterAsSweepCarriesItsKnockdownIntoTheKernel`
+  proves all three on the shipped file. **What fails is SELECTION.**
+  `MatchBuilder` never populated `MoveDef::stance`, so every move arrives
+  stance-agnostic and `StepAttack` takes the first slot whose button matches:
+  Down+HK finds `stand_hk` at slot 10 and never reaches `crouch_hk` at slot 12.
+  Every mechanic authored on a crouching move is unreachable with it.
+  **The wire is ten lines and it was written, measured and reverted.** Two
+  vocabularies mapped explicitly rather than cast — `CharacterData` spells
+  `{Any, Ground, Air, Standing, Crouching}` and the kernel
+  `{Any, Ground, Standing, Crouching, Air}`, so a cast compiles, passes every
+  test that does not use Air, and puts aerials on the floor.
+  **It breaks 12 tests across three files, and the reason is worth more than the
+  fix.** Benches press a button without establishing the posture: `crouch_lp`
+  needs Down held, which is a binding change. **`air_mp` needs the fighter
+  AIRBORNE, which no driver can arrange** — and that exposes something about the
+  measurement itself. `test_game_core`'s witness is `[loop] air_mp`, an AIR
+  self-cancel, and it has only ever been performable because the kernel ignored
+  stance. **The printed air loop was being executed on the ground.** With stance
+  enforced it needs a jump, and `BuildDemonstration` and the four `Driver`
+  copies have no way to press Up, wait out an arc, and time the button.
+  **So this WP is two things:** the ten-line wire, and teaching a derived trace
+  to jump — which is M1.3(b)'s "movement is a move" arriving early because a
+  measurement depends on it.
+  **And it bears on the paper.** A witness whose stance the engine could not
+  honour is a witness the engine did not really reproduce; that belongs in the
+  write-up beside the counter-hit gap below, not only in this file.
+
 - `[ ]` **M1.3 Mechanics, pass 1 — the ones the showcase needs.** *(M–L)* Each
   with ADR-011's five parts (schema field appended · `MoveDef`/`FighterData`
   slot · loss-ledger row · kernel property test · showcase variant):
@@ -1034,7 +1065,33 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   is deleted; a **jump cancel** and a **dash cancel** are ordinary cancel edges
   whose target is a movement move; `to: idle` is a legal empty cancel;
   (c) **counter-hit** — per-move `counter_hit {hitstun_bonus, damage_bonus}`
-  applied when the defender was in startup; (d) **wall bounce / wall splat /
+  applied when the defender was in startup;
+  **and it is a SOUNDNESS QUALIFIER on every verdict, not just a mechanic.**
+  Raised from play 2026-08-20: *"we also need to consider adding things like
+  counter hits and whatnot - this might also need to update the written article
+  as I don't think counter hit combos and other things that could change frame
+  data don't seem to be considered."* That is correct and it is the sharpest
+  open question in the project. `counter_hit` appears **zero times** in
+  `schema.v2.json`; the model reads one `hitstun` per move and the prover's
+  termination argument is built on it. A counter hit ADDS hitstun, which widens
+  every link downstream of it — so a **TERMINATING** verdict computed from
+  neutral hitstun says nothing about the same string opened with a counter hit,
+  and the certificate does not currently say so.
+  **The same shape applies to anything else that moves frame data:** hitstun
+  decay already in the schema, juggle scaling, and per-hit `air_hitstun_ticks`,
+  which is loaded now and differs from ground hitstun on every one of
+  `fighter_a`'s moves. A model with one number per move cannot express "this
+  link exists only in the air".
+  **Three ways out, and the choice is the author's because it is the paper's
+  claim:** (1) qualify the verdict — "TERMINATING under neutral hit"— which is
+  honest, cheap, and weaker; (2) make the search take the WORST case over hit
+  types, which keeps a single verdict and may report INFINITE for a route only a
+  counter hit permits; (3) verdict per hit type, which is the strongest and the
+  most work. **Not chosen here.** It changes what the tool claims, and an agent
+  should not narrow or widen a research claim on its own. Whichever is taken,
+  ADR-011's five parts still apply to the field itself.
+
+ (d) **wall bounce / wall splat /
   launch vector** as per-hit `on_hit` reactions using the fields M1.1 reserved.
   Everything defaults off; `fighter_a` unpatched must hash exactly as before
   this WP except for the re-golden M1.1 already did.

@@ -97,6 +97,30 @@ std::string charactersDir() {
 #endif
 }
 
+// Where THIS PROJECT'S OWN characters live, as distinct from charactersDir()
+// above, which finds the MUGEN corpus in tests/fixtures. Two directories because
+// they are two kinds of thing: the corpus is evidence that cannot ship, and
+// `fighter_a` is game content that is staged beside the executables.
+//
+// A fifth copy of this walk -- test_gap_extent, test_ground_truth and
+// test_one_frame each carry one -- and the same debt ROADMAP M1.6 records
+// against the witness driver: the duplication is written down rather than
+// pretended away.
+std::string ownCharactersDir() {
+    namespace fs = std::filesystem;
+    fs::path here = fs::current_path();
+    for (int i = 0; i < 8; ++i) {
+        const fs::path staged = here / "Exported" / "Characters";
+        if (fs::exists(staged / "fighter_a.json")) return staged.string();
+        const fs::path source =
+            here / "Games" / "UntitledFighter" / "Assets" / "Characters";
+        if (fs::exists(source / "fighter_a.json")) return source.string();
+        if (!here.has_parent_path() || here.parent_path() == here) break;
+        here = here.parent_path();
+    }
+    return "Exported/Characters";
+}
+
 void loadShipped(const char* file, CharacterData& out) {
     LoadReport report{};
     ASSERT_TRUE(LoadCharacterFile(charactersDir(), file, loadOptions(), out, report))
@@ -1183,4 +1207,41 @@ TEST(MatchBridgeMechanics, KnockdownReachesTheKernel) {
     // move. Slot 1 authors no knockdown at all.
     EXPECT_EQ(build.data.p[0].moves[1].knockdownTicks, 0u)
         << "a move that does not knock down was given a knockdown duration.";
+}
+
+// THE SHIPPED SWEEP ACTUALLY KNOCKS DOWN.
+//
+// Reported from play (2026-08-20): "if I do crouch hk it seems like it just goes
+// into hitstun - doesn't show me the downed training dummy". Every test for this
+// so far used a synthetic character, which proves the WIRE and not the FILE --
+// and the file is where the answer turned out to be.
+TEST(MatchBridgeMechanics, FighterAsSweepCarriesItsKnockdownIntoTheKernel) {
+    CharacterData c{};
+    LoadReport report{};
+    ASSERT_TRUE(LoadCharacterFile(ownCharactersDir(), "fighter_a.json", loadOptions(), c, report))
+        << report.error;
+
+    const MoveIndex sweep = c.FindMove("crouch_hk");
+    ASSERT_NE(sweep, cse::data::kInvalidMove) << "fighter_a has no crouch_hk";
+
+    EXPECT_TRUE(c.moves[sweep].causesKnockdown)
+        << "the loader did not pick up crouch_hk's "
+           "engine.reaction.causes_knockdown, so nothing downstream can.";
+    EXPECT_GT(c.moves[sweep].fallRecoverTicks, 0)
+        << "crouch_hk knocks down and the loader read a recovery of "
+        << c.moves[sweep].fallRecoverTicks
+        << "; the kernel counts the knockdown down from that number, so zero is "
+           "no knockdown at all.";
+
+    BuildOptions options{};
+    options.bindings = { { "crouch_hk", cse::kernel::kInputHK } };
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build)) << build.report[0].error;
+
+    const std::uint16_t slot = build.moves[0].Find("crouch_hk");
+    ASSERT_NE(slot, 0u) << "crouch_hk did not reach the kernel's move table";
+    EXPECT_GT(build.data.p[0].moves[slot].knockdownTicks, 0u)
+        << "the bridge handed the kernel a knockdown of "
+        << build.data.p[0].moves[slot].knockdownTicks
+        << " for a move the file says knocks down.";
 }
