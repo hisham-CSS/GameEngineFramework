@@ -1047,9 +1047,46 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   stance. **The printed air loop was being executed on the ground.** With stance
   enforced it needs a jump, and `BuildDemonstration` and the four `Driver`
   copies have no way to press Up, wait out an arc, and time the button.
-  **So this WP is two things:** the ten-line wire, and teaching a derived trace
-  to jump — which is M1.3(b)'s "movement is a move" arriving early because a
-  measurement depends on it.
+  **IMPLEMENTED END TO END ON 2026-08-20, MEASURED, AND REVERTED AT THE LAST
+  STEP.** Everything below was built and run; the tree is green without it and
+  the numbers are what the next attempt starts from.
+  **The jump turned out not to be needed at all.** `stepFighter` sets `airborne`
+  on the jump and `crouching` from Down, and `StepAttack` runs after both inside
+  the SAME `Simulate` call — so `Up+button` starts an aerial off the ground on
+  the tick it is pressed. Establishing a stance is one extra BIT, not a scripted
+  jump timed against an arc.
+  `MatchBridgeMechanics.ADirectionEstablishesTheStanceOnTheTickItIsPressed` is
+  written and passes with the wire in.
+  **A second rule the drivers need:** THE RELEASE IS OF THE BUTTON, NOT THE
+  POSTURE. A release tick exists to give the next press an edge; dropping the
+  direction with it drops the stance, so a buffered press consumed on a silent
+  tick asks for a crouching move from a stand and is refused. The symptom is a
+  loop repeating on the move's duration instead of on its cancel window — one
+  tick late, forever. A player holds down-back and taps; so must a driver.
+  **With both rules, four of the five broken tests go green**: `test_game_core`,
+  `test_one_frame` (all 8) and `test_training_mode`'s demonstrations. The fix is
+  `cse::kernel::StanceInputBits` plus a bridge-side
+  `cse::data::StanceInputBitsFor`, used by `BuildDemonstration` and each driver.
+  **WHAT STOPPED IT IS THE HEADLINE NUMBER. `test_gap_extent` goes 97 → 77.**
+  Measured, not estimated: unescapable **97 → 77**, escapable **24 → 44**,
+  by-button **96 → 76**, by-cancel still **1**, and the free-ticks detector
+  **109 → 106**. The identities still hold (77 = 1 + 76; 77 + 44 = 121).
+  **Every one of the 41 cycles whose behaviour changed contains an air move —
+  41 of 41, and no cycle without one moved.** They "ran forever" only because
+  the attacker never had to leave the ground for them; with stance carried an
+  aerial needs a jump, a jump needs a landing, and a string that has to come
+  down has a gap in it. **The old 97 was inflated by exactly the bug being
+  fixed.**
+  **And that is not the end of it.** With the counts updated the sweep still
+  reports 41 cycles whose section-3 TIMING account is wrong (2–3 mismatches
+  each) and 20 whose two-route prediction disagrees with the run — because the
+  frame-by-frame account does not model a jump or a landing. Re-deriving it is a
+  change to the file's central argument, not a harness repair, and it is where
+  this stopped.
+  **So this WP is three things:** the ten-line wire, the two driver rules above,
+  and teaching section 3's account that an aerial cycle leaves the ground. The
+  third is the one that needs the author, because it re-derives the number the
+  paper quotes.
   **And it bears on the paper.** A witness whose stance the engine could not
   honour is a witness the engine did not really reproduce; that belongs in the
   write-up beside the counter-hit gap below, not only in this file.
