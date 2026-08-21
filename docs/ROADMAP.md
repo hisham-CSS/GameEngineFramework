@@ -993,6 +993,21 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   which still overlap freely, and not pushboxes, which no longer do. A sweep's
   hurtbox reaches far past the body it keeps. The bench authors no pushbox now
   and says why.
+  **The corner clamps the BODY, not the origin.** Asked for from play the same
+  day: *"we should calculate corner bounds from the back edge of the collider
+  rather than the middle ... we don't want the player or enemy to disappear half
+  into the corner."* `wallLimitFor` is shared by the walk clamp and the
+  separation pass, so neither can shove into the corner the half-body the other
+  refused, and it reads the PLACED box so an asymmetric body is handled by facing
+  rather than by assuming the origin is centred.
+  `P3Pushbox.TheCornerStopsTheBodyRatherThanTheOrigin`.
+  **It moved five test files and none of them loudly**, which is worth the note:
+  the corner OPENINGS added earlier that day put the defender's ORIGIN on the
+  edge, which is now outside its own limit, so the first tick shoved it inward
+  and `TheTraceDoesNotDependOnTheTickItWasPressedOn` reported "37 neutral ticks
+  changed the fighters". A fighter falling into position while the test believes
+  nothing has happened is exactly the class of thing a neutral-ticks guard is
+  for. They open on `kStageEdge - kHalfWidth` now.
   **Still open:** `engine.constants.default_pushbox_sub` is authored on
   `fighter_a` and deliberately unread — it is in MUGEN's **Y-DOWN** convention,
   which that file warns about at length in its own
@@ -1358,6 +1373,7 @@ early press is correctly forgotten.
 | **Run** | `Editor.exe`, Game view, or `Player.exe`. Box overlay on. |
 | **Do** | Press **V** to move out to midscreen. Hit the dummy repeatedly and watch it slide. Press **V** again to put it back in the corner and hit it there. Hold **Down** and look at the dummy's body. Land `crouch_hk` (the sweep) and keep attacking while the dummy is on the floor. |
 | **Should** | Midscreen: every hit carries the dummy back, further on heavies than on lights, and the slide decays rather than stopping dead. Corner: it does not move, and the HUD says the verdict on screen is about *this* position. Crouching: the body is visibly shorter — 34 px against 60. After a sweep: your attacks pass through the downed dummy and deal nothing until it gets up. |
+| **Also** | Sweep the dummy (`crouch_hk`) and watch the box turn **blue** and the panel read `knockdown N (cannot be hit)`. Walk into the dummy: you are blocked, and neither of you is half inside the other. Walk it into a corner: the BODY stops at the wall, not the middle. Jump over it. |
 | **Wrong if** | The dummy slides in the corner (the wall clamp is not holding). Or a light knocks it as far as a heavy (pushback is not per-move). Or crouching changes nothing (`crouch_height_px` is unauthored or unread). Or you can keep hitting a knocked-down dummy — that is the one state that should hand the turn back, and if it does not, a sweep opens a loop instead of ending one. |
 
 **The floor is a ruler.** Squares are 20 px with a heavier line every 100 px,

@@ -87,7 +87,12 @@ inline float WorldPx(std::int32_t subUnits) {
 // window is still live and has already used up the one hit the multi-hit guard
 // allows it against that body. It sits next to Active in this list because it is
 // the same frames of the same move seen a second time round.
-enum class Phase : std::uint8_t { Idle, Startup, Active, Spent, Recovery, Hitstun };
+//
+// `Knockdown` is last because it OUTRANKS the others: a fighter on the floor is
+// also, usually, in hitstun, and drawing them as merely stunned is what made the
+// author say "we can't really tell any knockdowns yet". It is a different state
+// -- nothing can hit them and they cannot act -- so it gets its own colour.
+enum class Phase : std::uint8_t { Idle, Startup, Active, Spent, Recovery, Hitstun, Knockdown };
 
 // Whether the fighter's CURRENT attack has already landed, i.e. whether
 // ResolveHits' multi-hit guard will refuse it before it looks for a box at all.

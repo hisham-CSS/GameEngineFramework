@@ -47,6 +47,35 @@ std::uint32_t nextRandom(std::uint32_t& s) {
     return s;
 }
 
+// How far an ORIGIN may travel before the BODY reaches the wall.
+//
+// Asked for from play (2026-08-20): "we should calculate corner bounds from the
+// back edge of the collider rather than the middle ... we don't want the player
+// or enemy to disappear half into the corner." Clamping the origin let half a
+// fighter hang past the wall, which reads as the character being eaten by the
+// edge of the stage rather than standing against it.
+//
+// The allowance is the PUSHBOX rather than the hurtbox, because the pushbox is
+// the space a fighter OCCUPIES -- it is already the box that stops two of them
+// sharing ground, and the wall is the same question asked against the stage. A
+// character with no pushbox gets the plain origin clamp, which is what everybody
+// had before.
+//
+// Read off the PLACED box, so an asymmetric body is handled by facing instead of
+// by assuming the origin sits in the middle of it. A body wider than the stage
+// cannot be contained at all; the origin clamp is then the only answer that
+// keeps posX inside the world.
+std::int32_t wallLimitFor(const FighterData& data, const Fighter& f) {
+    if (data.pushbox.x1 <= data.pushbox.x0) return kStageHalfWidthSub;
+
+    const Box placed = PlaceBox(data.pushbox, 0, 0, f.facing);
+    const std::int32_t back  = -placed.x0;
+    const std::int32_t front =  placed.x1;
+    const std::int32_t reach = back > front ? back : front;
+    if (reach >= kStageHalfWidthSub) return kStageHalfWidthSub;
+    return kStageHalfWidthSub - reach;
+}
+
 void stepFighter(Fighter& f, Input in, const FighterData& data) {
     // A benched tag partner keeps its health and its meter and does nothing else.
     // Returning before the stun counters is deliberate: a fighter tagged out
@@ -130,7 +159,23 @@ void stepFighter(Fighter& f, Input in, const FighterData& data) {
     // `/` truncates toward zero, so a shift would decay leftward pushback and
     // rightward pushback by different amounts and hand the mirror-asymmetry bug
     // this kernel is built to avoid a way back in.
-    f.posX = clampInt(f.posX + f.velX + f.pushX, -kStageHalfWidthSub, kStageHalfWidthSub);
+    // THE WALL STOPS THE BODY, NOT THE ORIGIN.
+    //
+    // Asked for from play (2026-08-20): "we should calculate corner bounds from
+    // the back edge of the collider rather than the middle ... we don't want the
+    // player or enemy to disappear half into the corner." Clamping the origin
+    // let half a fighter hang past the wall, which reads as the character being
+    // eaten by the edge of the stage rather than standing against it.
+    //
+    // The allowance is the PUSHBOX, not the hurtbox: the pushbox is the space a
+    // fighter occupies, and it is already the box that decides they cannot share
+    // ground with each other. A character with no pushbox falls back to the
+    // origin clamp, which is what everybody had before.
+    //
+    // Read off the PLACED box so an asymmetric body is handled by facing rather
+    // than by assuming the origin sits in the middle of it.
+    const std::int32_t limit = wallLimitFor(data, f);
+    f.posX = clampInt(f.posX + f.velX + f.pushX, -limit, limit);
     f.pushX /= 2;
 
     f.posY += f.velY;
@@ -415,8 +460,13 @@ void separatePushboxes(GameState& state, const MatchData& data) {
         Fighter& left  = aIsLeft ? a : b;
         Fighter& right = aIsLeft ? b : a;
 
-        left.posX  = clampInt(left.posX - half,  -kStageHalfWidthSub, kStageHalfWidthSub);
-        right.posX = clampInt(right.posX + half, -kStageHalfWidthSub, kStageHalfWidthSub);
+        // The SAME body-aware limit stepFighter uses, or separation would shove
+        // into the corner the half-body the wall clamp just refused.
+        const std::int32_t lLimit = wallLimitFor(aIsLeft ? data.p[0] : data.p[1], left);
+        const std::int32_t rLimit = wallLimitFor(aIsLeft ? data.p[1] : data.p[0], right);
+
+        left.posX  = clampInt(left.posX - half,  -lLimit, lLimit);
+        right.posX = clampInt(right.posX + half, -rLimit, rLimit);
     }
 }
 

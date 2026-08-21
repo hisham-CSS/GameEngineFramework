@@ -221,8 +221,14 @@ constexpr std::int32_t kHeight    = px(60);
 // being harmless the moment pushback is wired (ROADMAP M1.3d): the rehearsal
 // separates and reaches index 3 of 6.
 constexpr std::int32_t kStageEdge = 480 * cse::kernel::kSubUnitsPerPixel;
-constexpr std::int32_t kP1X =  kStageEdge;
-constexpr std::int32_t kP0X =  kStageEdge - px(34);
+//
+// THE DEFENDER'S BODY IS AGAINST THE WALL, not its origin. Since ROADMAP M1.2
+// the stage clamps the BODY -- a fighter may not disappear half into the corner
+// -- so an origin placed exactly on the edge is outside its own limit and the
+// first tick shoves it inward. That is not a cornered opening, it is a fighter
+// falling into position while the test believes nothing has happened.
+constexpr std::int32_t kP1X =  kStageEdge - kHalfWidth;
+constexpr std::int32_t kP0X =  kP1X - px(34);
 
 // THE ONE EXCEPTION, and it is a different subject rather than an exemption.
 // The HUD's gap chip is walk ARITHMETIC across four bands -- apart, touching,

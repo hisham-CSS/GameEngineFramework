@@ -432,6 +432,14 @@ namespace {
         pen.row("hitstun", std::to_string(f.hitstun),
                 f.hitstun > 0 ? PhaseColour(Phase::Hitstun) : kDimCol);
 
+        // KNOCKDOWN GETS ITS OWN ROW, and it says what the state MEANS rather
+        // than only how long it lasts. "Cannot be hit" is the half a tick count
+        // does not convey, and it is the half that explains why an attack just
+        // passed through somebody.
+        if (f.knockdown > 0)
+            pen.row("knockdown", std::to_string(f.knockdown) + "  (cannot be hit)",
+                    PhaseColour(Phase::Knockdown));
+
         // FRAME ADVANTAGE, LATCHED, AND ONLY ON THE PLAYER'S PANEL.
         //
         // Only on the player's because there is one attacker in this mode and one
@@ -889,10 +897,11 @@ namespace {
         // --- what the colours mean --------------------------------------------
         //
         // From the SAME table the boxes use, so the legend and the picture cannot
-        // part company -- and that is now six entries rather than five, because
-        // FightView draws a spent window in its own colour.
-        const Phase order[6] = { Phase::Idle,  Phase::Startup,  Phase::Active,
-                                 Phase::Spent, Phase::Recovery, Phase::Hitstun };
+        // part company -- and that is now seven entries, because FightView draws
+        // a spent window and a knocked-down fighter in their own colours.
+        const Phase order[7] = { Phase::Idle,  Phase::Startup,  Phase::Active,
+                                 Phase::Spent, Phase::Recovery, Phase::Hitstun,
+                                 Phase::Knockdown };
         const float swatchY = pen.y();
         const float lineH   = font.Measure("", kSmallScale).y;
         float       swatchX = x;

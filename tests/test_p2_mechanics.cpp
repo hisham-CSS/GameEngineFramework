@@ -1707,3 +1707,67 @@ TEST(P3Pushbox, AnAirborneFighterPassesOverAGroundedOne) {
     EXPECT_EQ(s.p[0].posX, before0)
         << "the airborne fighter was pushed horizontally by the body below it.";
 }
+
+// THE WALL STOPS THE BODY, NOT THE ORIGIN.
+//
+// Asked for from play (2026-08-20): "we should calculate corner bounds from the
+// back edge of the collider rather than the middle ... we don't want the player
+// or enemy to disappear half into the corner."
+TEST(P3Pushbox, TheCornerStopsTheBodyRatherThanTheOrigin) {
+    auto data = pushBench();
+    const std::int32_t halfWidth = data->p[0].pushbox.x1;
+    ASSERT_GT(halfWidth, 0) << "precondition: the bench has a body";
+
+    for (int side = 0; side < 2; ++side) {
+        GameState s{};
+        ResetMatch(s, 0x1D7u);
+        // Alone against one wall, walking into it. The partner is parked far
+        // enough away that neither the separation limit nor the pushbox has
+        // anything to say about this.
+        s.p[0].posX = 0;
+        s.p[1].posX = 0;
+
+        InputPair walk{};
+        const std::uint16_t into = side == 0 ? kInputLeft : kInputRight;
+        walk.p[0].bits = into;
+        walk.p[1].bits = into;   // travel together, or the wall is unreachable
+
+        for (int t = 0; t < 900; ++t) Simulate(s, walk, *data);
+
+        // THE LEADER, not slot 0. The two start coincident, so the pushbox
+        // separates them and one arrives at the wall a body ahead of the other;
+        // which slot leads is an accident of the separation and not the subject
+        // of this test.
+        const int lead = side == 0 ? (s.p[0].posX < s.p[1].posX ? 0 : 1)
+                                   : (s.p[0].posX > s.p[1].posX ? 0 : 1);
+        const Box body = PlaceBox(data->p[lead].pushbox, s.p[lead].posX,
+                                  s.p[lead].posY, s.p[lead].facing);
+        const std::int32_t edge = side == 0 ? body.x0 : body.x1;
+        const std::int32_t wall = side == 0 ? -kStageHalfWidthSub : kStageHalfWidthSub;
+
+        EXPECT_EQ(edge, wall)
+            << "side " << side << ": the body's edge stopped at " << edge
+            << " and the wall is at " << wall
+            << ". Clamping the ORIGIN puts half a fighter through the wall, "
+               "which reads as the stage eating them rather than as them "
+               "standing against it.";
+    }
+
+    // AND THE ORIGIN IS SHORT OF THE WALL BY EXACTLY THE BODY, which is the
+    // arithmetic that says the allowance is the pushbox and not something else
+    // that happens to be about the right size.
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+    s.p[0].posX = 0;
+    s.p[1].posX = 0;
+    InputPair right{};
+    right.p[0].bits = kInputRight;
+    right.p[1].bits = kInputRight;
+    for (int t = 0; t < 900; ++t) Simulate(s, right, *data);
+
+    const std::int32_t furthest = s.p[0].posX > s.p[1].posX ? s.p[0].posX : s.p[1].posX;
+    EXPECT_EQ(furthest, kStageHalfWidthSub - halfWidth)
+        << "the leading origin reached " << furthest << " and the wall less a "
+        << halfWidth << "-wide half-body is "
+        << (kStageHalfWidthSub - halfWidth) << ".";
+}

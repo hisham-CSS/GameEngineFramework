@@ -57,6 +57,10 @@ namespace {
     const glm::vec4 kSpentCol   { 0.55f, 0.21f, 0.24f, 1.0f };  // dull red
     const glm::vec4 kRecoveryCol{ 0.36f, 0.62f, 0.96f, 1.0f };  // blue
     const glm::vec4 kHitstunCol { 0.85f, 0.38f, 0.88f, 1.0f };  // magenta
+    // Deep blue, and far from magenta on purpose: hitstun and knockdown are the
+    // two states a playtester most needs to tell apart at a glance, because one
+    // of them can be hit again and the other cannot.
+    const glm::vec4 kKnockdownCol{ 0.30f, 0.44f, 0.92f, 1.0f };  // blue
 
     // Which BODY is which LINE in the readout. Two colours, not five: the slot
     // accent has to stay distinguishable from every phase colour above, because
@@ -253,6 +257,13 @@ Phase PhaseOf(const cse::kernel::FighterData& data, const cse::kernel::Fighter& 
     // the test anyway so that the day blocking lands this function is already
     // right rather than quietly one term short -- the same reason ComboWatcher.h
     // gives for carrying it through its own rule.
+    // KNOCKDOWN FIRST, ahead of stun, because a fighter on the floor is usually
+    // in hitstun too and the more specific state is the one worth drawing. Asked
+    // for from play (2026-08-20): "we can't really tell any knockdowns yet" --
+    // the rule landed, and with the body drawn as ordinary hitstun there was
+    // nothing on screen that said so.
+    if (f.knockdown > 0) return Phase::Knockdown;
+
     if (f.hitstun > 0 || f.blockstun > 0) return Phase::Hitstun;
 
     const cse::kernel::MoveDef* const move = cse::kernel::MoveAt(data, f.moveId);
@@ -289,6 +300,9 @@ const char* PhaseName(Phase phase) {
         // has stopped being one of them.
         case Phase::Spent:    return "spent";
         case Phase::Recovery: return "recovery";
+        // "down" rather than "knockdown", because the legend is a row of short
+        // words and the row beside it already says the count.
+        case Phase::Knockdown: return "down";
         case Phase::Hitstun:  return "hitstun";
     }
     return "?";
@@ -302,6 +316,7 @@ glm::vec4 PhaseColour(Phase phase) {
         case Phase::Spent:    return kSpentCol;
         case Phase::Recovery: return kRecoveryCol;
         case Phase::Hitstun:  return kHitstunCol;
+        case Phase::Knockdown: return kKnockdownCol;
     }
     return kIdleCol;
 }

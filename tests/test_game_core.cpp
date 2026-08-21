@@ -134,8 +134,14 @@ constexpr std::int32_t kHeight    = px(60);
 // measuring a sliding midscreen exchange against a corner-only analysis, and
 // every loop here died of separation the model does not model.
 constexpr std::int32_t kStageEdge = 480 * cse::kernel::kSubUnitsPerPixel;
-constexpr std::int32_t kP1X =  kStageEdge;
-constexpr std::int32_t kP0X =  kStageEdge - px(34);
+//
+// THE DEFENDER'S BODY IS AGAINST THE WALL, not its origin. Since ROADMAP M1.2
+// the stage clamps the BODY -- a fighter may not disappear half into the corner
+// -- so an origin placed exactly on the edge is outside its own limit and the
+// first tick shoves it inward. That is not a cornered opening, it is a fighter
+// falling into position while the test believes nothing has happened.
+constexpr std::int32_t kP1X =  kStageEdge - kHalfWidth;
+constexpr std::int32_t kP0X =  kP1X - px(34);
 
 // Fixed so that a failing run is reproducible verbatim. It only feeds
 // GameState::rng, which nothing in a combat tick reads -- but it IS in the
