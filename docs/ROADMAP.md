@@ -1087,6 +1087,31 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   and teaching section 3's account that an aerial cycle leaves the ground. The
   third is the one that needs the author, because it re-derives the number the
   paper quotes.
+  **FOUR TRAPS IN THE REVERTED PATCH, found by review and verified against the
+  code before it was reverted.** All four are line-checkable in
+  `tests/test_one_frame.cpp` today and all four would have shipped:
+  (1) **An assertion that could no longer fail.** `driveProbe` got the posture
+  folded into its defender bits; the twin at line 1691 —
+  `DefenderPolicy::MashesOnceHit, bindings[0].button` — did not. The loop is
+  `crouch_lp` and the sides are mirrors, so a defender mashing a bare LP is
+  refused for POSTURE and `EXPECT_TRUE(mashed.defenderActedTicks.empty())`
+  becomes unfalsifiable. Fourth time this session, and the same shape every time:
+  the fix landed where the phrase appeared and missed where the same claim was
+  spelled differently — see [[stale-claim-sweeps]].
+  (2) **The posture must not be pulsed.** `drive()` at line 774 does
+  `in.p[1].bits = (t % 2 == 0) ? defenderBits : 0u`, which with the direction
+  folded in drops the stance on odd ticks. The defender can then only escape on
+  even ticks and the escape count is halved while still reading > 0.
+  (3) **Folding the direction into `buttons_` breaks two things that read that
+  field.** `Usable()` at line 628 tests `buttons_[i] == 0` to catch a move
+  nothing can ask for; a surplus CROUCHING move becomes `0 | kInputDown` and
+  passes. And `Observe`'s `release_ = (buttons_[cursor_] == justUsed)` at line
+  660 compares button+direction, so `stand_mp` into `crouch_mp` — same button,
+  different posture — no longer emits the release the second press needs. Carry a
+  parallel `holds_` vector and combine only in `Bits()`.
+  (4) **Prose the change makes false**, including `kP0X`'s "the attacker holds an
+  attack button AND NO DIRECTION", which is the premise the 8 px opening gap
+  rests on.
   **And it bears on the paper.** A witness whose stance the engine could not
   honour is a witness the engine did not really reproduce; that belongs in the
   write-up beside the counter-hit gap below, not only in this file.
