@@ -97,6 +97,30 @@ std::string charactersDir() {
 #endif
 }
 
+// Where THIS PROJECT'S OWN characters live, as distinct from charactersDir()
+// above, which finds the MUGEN corpus in tests/fixtures. Two directories because
+// they are two kinds of thing: the corpus is evidence that cannot ship, and
+// `fighter_a` is game content that is staged beside the executables.
+//
+// A fifth copy of this walk -- test_gap_extent, test_ground_truth and
+// test_one_frame each carry one -- and the same debt ROADMAP M1.6 records
+// against the witness driver: the duplication is written down rather than
+// pretended away.
+std::string ownCharactersDir() {
+    namespace fs = std::filesystem;
+    fs::path here = fs::current_path();
+    for (int i = 0; i < 8; ++i) {
+        const fs::path staged = here / "Exported" / "Characters";
+        if (fs::exists(staged / "fighter_a.json")) return staged.string();
+        const fs::path source =
+            here / "Games" / "UntitledFighter" / "Assets" / "Characters";
+        if (fs::exists(source / "fighter_a.json")) return source.string();
+        if (!here.has_parent_path() || here.parent_path() == here) break;
+        here = here.parent_path();
+    }
+    return "Exported/Characters";
+}
+
 void loadShipped(const char* file, CharacterData& out) {
     LoadReport report{};
     ASSERT_TRUE(LoadCharacterFile(charactersDir(), file, loadOptions(), out, report))
@@ -220,6 +244,23 @@ std::vector<InputPair> scriptedMatch(int ticks) {
             if (t % 31 == 0) a |= kInputHP;
             if (t % 53 == 0) a |= kInputUp;    // a jump and its whole arc
         } else {
+            // AND p1 WALKS BACK IN FIRST, which it did not have to do before
+            // ROADMAP M1.3d wired pushback. Act 2 is 180 ticks of p0 landing
+            // hits, and every one of them knocks p1 further away; by tick 210
+            // p1 is well outside its own reach and answering from there is
+            // answering into empty air. Twenty ticks of walking is what a
+            // player does after being pushed out, and it is what makes "p1
+            // never landed a hit" a fact about the exchange rather than about
+            // the distance the previous act left them at.
+            //
+            // LEFT, and for the whole act. p0 stands on the left, and 180 ticks
+            // of taking hits pins p1 against the RIGHT wall Simulate clamps at
+            // -- so the distance to walk back is most of the stage, not the
+            // twenty ticks the first version of this guessed at. Walking on
+            // every tick costs nothing: the attacks below still come out, and a
+            // fighter already in range simply keeps walking into an opponent it
+            // cannot pass through.
+            b |= kInputLeft;
             if (t % 7  == 0) b |= kInputLK;
             if (t % 29 == 0) b |= kInputHK;
             if (t % 61 == 0) b |= kInputUp;
@@ -368,9 +409,11 @@ TEST(MatchBridgeTranscription, FrameDataMatchesTheJsonMoveForMove) {
         EXPECT_EQ(kHalfWidth + px(e.reachPx) + 1, mv.hitbox.x1);
         EXPECT_EQ(0,       mv.hitbox.y0);
         EXPECT_EQ(kHeight, mv.hitbox.y1);
-        EXPECT_EQ(0u, mv.pad_)
-            << "MoveDef::pad_ is hashed by the connect handshake; an unwritten "
-               "byte is a byte two peers can disagree about";
+        EXPECT_EQ(0u, mv.negativeEdge)
+            << "the byte that used to be MoveDef::pad_ is negativeEdge now, and "
+               "the schema does not author it yet -- so it must still be written "
+               "as zero. It is hashed by the connect handshake either way, and an "
+               "unwritten byte is a byte two peers can disagree about.";
     }
 
     // The body the caller supplied, symmetric about the origin and standing on
@@ -898,12 +941,12 @@ TEST(MatchBridgeLosses, EveryDropIsCountedAgainstKungFuGirlsActualFile) {
         { "cancel.guard",                 41, BuildLossDirection::KernelPermits },
         { "cancel.effect",                 0, BuildLossDirection::KernelOmits   },
         { "move.cancel_window (absent)",   8, BuildLossDirection::KernelPermits },
-        { "character.walk_speed",      1, BuildLossDirection::KernelOmits   },
+        { "character.walk_speed",      1, BuildLossDirection::Exact         },
         { "move.pushback",            24, BuildLossDirection::KernelOmits   },
         { "move.stance",              25, BuildLossDirection::KernelPermits },
-        { "move.guard",                2, BuildLossDirection::KernelPermits },
-        { "move.effect",              24, BuildLossDirection::KernelOmits   },
-        { "resources",                 2, BuildLossDirection::KernelOmits   },
+        { "move.guard",                2, BuildLossDirection::Exact         },
+        { "move.effect",              24, BuildLossDirection::Exact         },
+        { "resources",                 2, BuildLossDirection::Exact         },
         { "move.hit_condition",       17, BuildLossDirection::KernelPermits },
         { "move.escape_hatch",        15, BuildLossDirection::KernelPermits },
         { "scaling",                   6, BuildLossDirection::KernelOmits   },
@@ -992,4 +1035,213 @@ TEST(MatchBridgeLosses, AllThreeShippedCharactersBuild) {
                   build.data.p[0].moveCount);
         EXPECT_FALSE(build.report[0].playsAsAnalysed);
     }
+}
+
+// --- The edge guard the kernel cannot see ------------------------------------
+//
+// CancelEdge carries no `guard` of its own. ROADMAP M1.1b measured every
+// character in this tree -- fighter_a_infinite's ten and Kung Fu Girl's
+// forty-one -- and found that all fifty-one restate the TARGET move's own guard
+// exactly, which the cancel scan does enforce. So the field was not added and
+// CancelEdge stayed 16 bytes.
+//
+// That is an observation about today's data, not a property of the schema, and
+// an observation load-bearing enough to skip a struct on deserves a test that
+// fails when it stops being true. The build warns per offending edge; this is
+// the character that offends.
+TEST(MatchBridgeLosses, AnEdgeGuardStricterThanItsTargetIsWarnedAbout) {
+    CharacterData c = syntheticCharacter(2);
+    c.resources.push_back(ResourceDef{ "meter", 0, 0, 300, true });
+    c.RebuildIndices();
+
+    // The target asks for 50 and the EDGE into it asks for 100. The kernel
+    // checks the target, so at 50 meter this cancel is taken and the file says
+    // it should not be.
+    c.moves[1].guard.push_back(ResourceAmount{ 0, 50 });
+
+    Cancel e{};
+    e.from  = 0;
+    e.to    = 1;
+    e.delay = 0;
+    e.on    = Contact::Hit;
+    e.guard.push_back(ResourceAmount{ 0, 100 });
+    c.cancels.push_back(e);
+    c.RebuildIndices();
+
+    BuildOptions options{};
+    options.bindings = { { c.moves[0].id, cse::kernel::kInputLP },
+                         { c.moves[1].id, cse::kernel::kInputMP } };
+
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build))
+        << build.report[0].error;
+
+    bool warned = false;
+    for (const std::string& w : build.report[0].warnings)
+        if (w.find("permitted where the file refuses") != std::string::npos)
+            warned = true;
+
+    EXPECT_TRUE(warned)
+        << "an edge requiring 100 into a move requiring 50 built without a "
+           "word. The kernel will take that cancel at 50, so the only thing "
+           "standing between this file and a wrong simulation is this warning.";
+
+    // AND THE REDUNDANT CASE STAYS QUIET, because a warning that fires on all
+    // fifty-one authored edges is a warning nobody reads.
+    CharacterData quiet = c;
+    quiet.cancels[0].guard[0].value = 50;      // exactly the target's minimum
+    quiet.RebuildIndices();
+
+    MatchBuild quietBuild{};
+    ASSERT_TRUE(BuildMatchData(quiet, options, quiet, options, quietBuild))
+        << quietBuild.report[0].error;
+
+    for (const std::string& w : quietBuild.report[0].warnings)
+        EXPECT_EQ(w.find("permitted where the file refuses"), std::string::npos)
+            << "an edge guard equal to its target's was warned about: " << w;
+}
+
+// --- The bridge carries what the kernel already implements --------------------
+//
+// ROADMAP M1.3d. The kernel has applied `pushbackHit` since ADR-005 P2 and every
+// shipped move authors a `pushback`, but MatchBuilder populated ten MoveDef
+// fields and left the rest at zero -- so a built character's hits moved nobody,
+// froze nobody and knocked nobody down, however completely the kernel
+// implemented all three.
+//
+// THIS TEST IS THE ONLY THING THAT PROVES THE WIRE, and that was measured rather
+// than assumed: reverting the four lines in MatchBuilder leaves the whole
+// 58-test suite green without it. Every other test that noticed pushback was
+// FIXED to expect it -- the combo bench moved closer, the mirror match walks
+// back in, four sweeps moved to the corner. Each of those fixes is right, and
+// collectively they are a suite that stopped being able to tell whether the
+// field is carried at all.
+//
+// Written against a CharacterData for the same reason:
+// tests/test_p2_mechanics.cpp proves the kernel's half by assigning MoveDef
+// directly, and doing that here would pass against the very gap this exists to
+// find.
+TEST(MatchBridgeMechanics, PushbackReachesTheKernelAndMovesTheDefender) {
+    constexpr std::int32_t kPushback = px(12);
+
+    CharacterData c = syntheticCharacter(1);
+    c.moves[0].pushbackSub = kPushback;
+    c.RebuildIndices();
+
+    BuildOptions options{};
+    options.bindings = { { c.moves[0].id, cse::kernel::kInputLP } };
+
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build))
+        << build.report[0].error;
+
+    const cse::kernel::MoveDef& poke = build.data.p[0].moves[1];
+    EXPECT_EQ(poke.pushbackHit, static_cast<std::int16_t>(kPushback))
+        << "the file authors " << kPushback
+        << " sub-units of pushback and the bridge handed the kernel "
+        << poke.pushbackHit
+        << ". A field the bridge drops is a mechanic the game does not have, "
+           "however well the kernel implements it.";
+
+    // AND IT MOVES SOMEBODY, which a field comparison alone cannot say.
+    cse::kernel::GameState s{};
+    cse::kernel::ResetMatch(s, 0xC0FFEEu);
+    s.p[0].posX   = -px(20);
+    s.p[1].posX   =  px(20);
+    s.p[0].facing = 0;
+    s.p[1].facing = 1;
+    for (int i = 0; i < 2; ++i) {
+        s.p[i].moveId    = 1;
+        s.p[i].moveFrame = static_cast<std::uint16_t>(c.moves[0].startup);
+    }
+
+    const std::int32_t before = s.p[1].posX;
+    cse::kernel::ResolveHits(s, build.data);
+    ASSERT_NE(s.p[1].pushX, 0)
+        << "the defender was hit and no pushback was queued, so nothing will "
+           "move them on any later tick either.";
+
+    cse::kernel::Simulate(s, cse::kernel::InputPair{}, build.data);
+    EXPECT_GT(s.p[1].posX, before)
+        << "the defender stands to the RIGHT of the attacker and ended at "
+        << s.p[1].posX << " from " << before
+        << ". Pushback runs AWAY from the attacker, derived from the position "
+           "difference rather than from facing.";
+}
+
+// Knockdown, from the authored `engine.reaction` block. The kernel slot has
+// existed since ADR-005 P2 and was zero for every built character.
+//
+// HITSTOP IS READ BY THE LOADER AND NOT YET CARRIED HERE, deliberately: it
+// freezes BOTH fighters, so every frame-exact prediction in
+// tests/test_gap_extent.cpp moves by the freeze duration -- 120 of 121 cycles
+// and six to nine timing mismatches each. That is correct game behaviour and it
+// needs the sweep's frame account to LEARN hitstop, which is its own slice.
+// ROADMAP M1.3d records the measurement.
+TEST(MatchBridgeMechanics, KnockdownReachesTheKernel) {
+    CharacterData c = syntheticCharacter(2);
+
+    // A knockdown is a PAIR here -- it knocks down and getting up takes time --
+    // because this engine keeps liedown time per MOVE where MUGEN keeps it per
+    // CHARACTER. A move that knocks down and gives no duration gets a warning
+    // and no knockdown; AOF2's punk_b_kick is the real file that does it.
+    c.moves[1].causesKnockdown  = true;
+    c.moves[1].fallRecoverTicks = 20;
+    c.RebuildIndices();
+
+    BuildOptions options{};
+    options.bindings = { { c.moves[0].id, cse::kernel::kInputLP },
+                         { c.moves[1].id, cse::kernel::kInputMP } };
+
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build))
+        << build.report[0].error;
+
+    EXPECT_EQ(build.data.p[0].moves[2].knockdownTicks, 20u)
+        << "the file says this move knocks down and that getting up takes 20 "
+           "ticks; the bridge handed the kernel "
+        << build.data.p[0].moves[2].knockdownTicks << ".";
+
+    // AND THE MOVE THAT DOES NOT KNOCK DOWN CARRIES NOTHING, which is the half
+    // that says `fall_recover_ticks` describes the knockdown rather than the
+    // move. Slot 1 authors no knockdown at all.
+    EXPECT_EQ(build.data.p[0].moves[1].knockdownTicks, 0u)
+        << "a move that does not knock down was given a knockdown duration.";
+}
+
+// THE SHIPPED SWEEP ACTUALLY KNOCKS DOWN.
+//
+// Reported from play (2026-08-20): "if I do crouch hk it seems like it just goes
+// into hitstun - doesn't show me the downed training dummy". Every test for this
+// so far used a synthetic character, which proves the WIRE and not the FILE --
+// and the file is where the answer turned out to be.
+TEST(MatchBridgeMechanics, FighterAsSweepCarriesItsKnockdownIntoTheKernel) {
+    CharacterData c{};
+    LoadReport report{};
+    ASSERT_TRUE(LoadCharacterFile(ownCharactersDir(), "fighter_a.json", loadOptions(), c, report))
+        << report.error;
+
+    const MoveIndex sweep = c.FindMove("crouch_hk");
+    ASSERT_NE(sweep, cse::data::kInvalidMove) << "fighter_a has no crouch_hk";
+
+    EXPECT_TRUE(c.moves[sweep].causesKnockdown)
+        << "the loader did not pick up crouch_hk's "
+           "engine.reaction.causes_knockdown, so nothing downstream can.";
+    EXPECT_GT(c.moves[sweep].fallRecoverTicks, 0)
+        << "crouch_hk knocks down and the loader read a recovery of "
+        << c.moves[sweep].fallRecoverTicks
+        << "; the kernel counts the knockdown down from that number, so zero is "
+           "no knockdown at all.";
+
+    BuildOptions options{};
+    options.bindings = { { "crouch_hk", cse::kernel::kInputHK } };
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build)) << build.report[0].error;
+
+    const std::uint16_t slot = build.moves[0].Find("crouch_hk");
+    ASSERT_NE(slot, 0u) << "crouch_hk did not reach the kernel's move table";
+    EXPECT_GT(build.data.p[0].moves[slot].knockdownTicks, 0u)
+        << "the bridge handed the kernel a knockdown of "
+        << build.data.p[0].moves[slot].knockdownTicks
+        << " for a move the file says knocks down.";
 }

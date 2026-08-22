@@ -381,10 +381,18 @@ TEST(CombatHit, TheNextRepetitionOfTheSameMoveCanConnectAgain) {
     const MatchData data = makeMatchData();
     GameState s = openingAt(0, 40);
 
+    // TWO PRESSES, not one hold. This used to hold the button for both cycles on
+    // the stated grounds that "the move repeats" -- which it did, and that was
+    // the rapid-fire bug ROADMAP M1.1d removed: a press is an edge, so a hold is
+    // one press however long it lasts. The property under test is unchanged and
+    // is about alreadyHitBits, not about input: two cycles of the same move must
+    // land two hits, or the multi-hit guard is never cleared.
     Observed o{};
-    for (int t = 0; t < kJabDuration * 2; ++t) {   // the button stays held, so
-        const GameState before = s;                // the move repeats
-        Simulate(s, inputs(kInputLP, 0), data);
+    for (int t = 0; t < kJabDuration * 2; ++t) {
+        const GameState before = s;
+        const std::uint16_t bits =
+            (t % kJabDuration == 0) ? kInputLP : 0u;   // press, then let go
+        Simulate(s, inputs(bits, 0), data);
         observe(o, before, s, data);
     }
 
@@ -466,8 +474,13 @@ TEST(CombatMirror, AMirroredScenarioProducesExactlyMirroredState) {
         const std::int32_t healthBeforeN = normal.p[1].health;
         const std::int32_t healthBeforeM = mirrored.p[1].health;
 
-        Simulate(normal,   inputs(kInputLP | kInputRight, 0), data);
-        Simulate(mirrored, inputs(kInputLP | kInputLeft,  0), data);
+        // LP pressed rather than held, for ROADMAP M1.1d's reason: a hold is one
+        // press. The direction bit stays held on purpose -- walking IS a level,
+        // and holding it is what puts the two runs at mirrored positions, which
+        // is the thing being compared.
+        const std::uint16_t attack = (t % kJabDuration == 0) ? kInputLP : 0u;
+        Simulate(normal,   inputs(attack | kInputRight, 0), data);
+        Simulate(mirrored, inputs(attack | kInputLeft,  0), data);
 
         if (normal.p[1].health   < healthBeforeN) ++hitsNormal;
         if (mirrored.p[1].health < healthBeforeM) ++hitsMirrored;

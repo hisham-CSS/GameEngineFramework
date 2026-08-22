@@ -15,7 +15,6 @@ namespace {
 constexpr std::int32_t kWalkSpeed   = 2 * kSubUnitsPerPixel;      //  2 px/tick
 constexpr std::int32_t kGravity     = kSubUnitsPerPixel / 4;      // .25 px/tick^2
 constexpr std::int32_t kJumpImpulse = 5 * kSubUnitsPerPixel;
-constexpr std::int32_t kStageHalfWidth = 480 * kSubUnitsPerPixel;
 
 // A player is actionable when nothing is holding them still.
 //
@@ -46,6 +45,35 @@ std::uint32_t nextRandom(std::uint32_t& s) {
     s ^= s >> 17;
     s ^= s << 5;
     return s;
+}
+
+// How far an ORIGIN may travel before the BODY reaches the wall.
+//
+// Asked for from play (2026-08-20): "we should calculate corner bounds from the
+// back edge of the collider rather than the middle ... we don't want the player
+// or enemy to disappear half into the corner." Clamping the origin let half a
+// fighter hang past the wall, which reads as the character being eaten by the
+// edge of the stage rather than standing against it.
+//
+// The allowance is the PUSHBOX rather than the hurtbox, because the pushbox is
+// the space a fighter OCCUPIES -- it is already the box that stops two of them
+// sharing ground, and the wall is the same question asked against the stage. A
+// character with no pushbox gets the plain origin clamp, which is what everybody
+// had before.
+//
+// Read off the PLACED box, so an asymmetric body is handled by facing instead of
+// by assuming the origin sits in the middle of it. A body wider than the stage
+// cannot be contained at all; the origin clamp is then the only answer that
+// keeps posX inside the world.
+std::int32_t wallLimitFor(const FighterData& data, const Fighter& f) {
+    if (data.pushbox.x1 <= data.pushbox.x0) return kStageHalfWidthSub;
+
+    const Box placed = PlaceBox(data.pushbox, 0, 0, f.facing);
+    const std::int32_t back  = -placed.x0;
+    const std::int32_t front =  placed.x1;
+    const std::int32_t reach = back > front ? back : front;
+    if (reach >= kStageHalfWidthSub) return kStageHalfWidthSub;
+    return kStageHalfWidthSub - reach;
 }
 
 void stepFighter(Fighter& f, Input in, const FighterData& data) {
@@ -91,13 +119,19 @@ void stepFighter(Fighter& f, Input in, const FighterData& data) {
     const bool canAct = actionable(f);
 
     if (canAct) {
+        // THE FILE'S NUMBER WHEN THERE IS ONE. Zero means the character authored
+        // none, and the placeholder above is then used unchanged -- see
+        // FighterData::walkSpeedSub for why walk speed cannot stay a constant.
+        const std::int32_t walk =
+            data.walkSpeedSub != 0 ? data.walkSpeedSub : kWalkSpeed;
+
         std::int32_t wish = 0;
-        if (in.bits & kInputLeft)  wish -= kWalkSpeed;
-        if (in.bits & kInputRight) wish += kWalkSpeed;
+        if (in.bits & kInputLeft)  wish -= walk;
+        if (in.bits & kInputRight) wish += walk;
         f.velX = wish;
 
         if ((in.bits & kInputUp) && !f.airborne) {
-            f.velY    = kJumpImpulse;
+            f.velY = data.jumpImpulseSub != 0 ? data.jumpImpulseSub : kJumpImpulse;
             f.airborne = 1;
         }
     } else {
@@ -110,7 +144,10 @@ void stepFighter(Fighter& f, Input in, const FighterData& data) {
     f.crouching = (canAct && !f.airborne && (in.bits & kInputDown)) ? 1u : 0u;
 
     if (f.airborne) {
-        f.velY -= kGravity;
+        // The file's number when there is one; zero means unauthored and the
+        // placeholder above stands. No schema key sets this yet -- see
+        // FighterData::gravitySub for why the field exists ahead of its author.
+        f.velY -= data.gravitySub != 0 ? data.gravitySub : kGravity;
     }
 
     // Pushback rides its own field precisely so that this line survives the `else`
@@ -122,7 +159,23 @@ void stepFighter(Fighter& f, Input in, const FighterData& data) {
     // `/` truncates toward zero, so a shift would decay leftward pushback and
     // rightward pushback by different amounts and hand the mirror-asymmetry bug
     // this kernel is built to avoid a way back in.
-    f.posX = clampInt(f.posX + f.velX + f.pushX, -kStageHalfWidth, kStageHalfWidth);
+    // THE WALL STOPS THE BODY, NOT THE ORIGIN.
+    //
+    // Asked for from play (2026-08-20): "we should calculate corner bounds from
+    // the back edge of the collider rather than the middle ... we don't want the
+    // player or enemy to disappear half into the corner." Clamping the origin
+    // let half a fighter hang past the wall, which reads as the character being
+    // eaten by the edge of the stage rather than standing against it.
+    //
+    // The allowance is the PUSHBOX, not the hurtbox: the pushbox is the space a
+    // fighter occupies, and it is already the box that decides they cannot share
+    // ground with each other. A character with no pushbox falls back to the
+    // origin clamp, which is what everybody had before.
+    //
+    // Read off the PLACED box so an asymmetric body is handled by facing rather
+    // than by assuming the origin sits in the middle of it.
+    const std::int32_t limit = wallLimitFor(data, f);
+    f.posX = clampInt(f.posX + f.velX + f.pushX, -limit, limit);
     f.pushX /= 2;
 
     f.posY += f.velY;
@@ -152,6 +205,56 @@ void stepFighter(Fighter& f, Input in, const FighterData& data) {
     // ResolveHits would buy that tick back and cost something much worse: a
     // fighter could then cancel a move on the very tick it started.
     StepAttack(f, data, in, canAct);
+
+    // --- Input bookkeeping, LAST, and in this order -------------------------
+    //
+    // A press this tick that StepAttack did not use is remembered, so that a
+    // link attempted a few frames early still comes out when the fighter
+    // becomes actionable. That is what makes timing feel like timing rather
+    // than a coin flip, and it is a per-character window rather than a constant
+    // here (docs/adr/ADR-011 decision 1) -- zero means no buffering, which is
+    // the kernel that shipped before this field.
+    //
+    // AFTER StepAttack, never before: the scan consumes a buffered press by
+    // zeroing it, and recording first would immediately re-buffer the press it
+    // just spent.
+    if (data.inputBufferFrames > 0) {
+        const std::uint16_t pressed =
+            static_cast<std::uint16_t>(in.bits & ~f.prevButtons);
+        // ONLY A PRESS THAT STARTED NOTHING, and the condition is subtler than
+        // it first looks. `canAct` means NOT STUNNED, not "not busy": a fighter
+        // in the middle of a move is actionable by that measure, and StepAttack
+        // handles them through the cancel path instead. So `!canAct` buffers
+        // almost nothing -- most early presses arrive mid-move, exactly when a
+        // player is trying to link -- and a first draft of this used it and
+        // reported the buffer dropping every press.
+        //
+        // A MOVE STARTED THIS TICK is `moveFrame == 0` with a move in progress,
+        // which is the same signal ComboWatcher, the demonstration cursor and
+        // the drivers all key on: a self-cancel keeps moveId the same, so a
+        // transition detector sees nothing. If nothing started, the press went
+        // unused and is worth keeping.
+        const bool startedThisTick = f.moveId != 0 && f.moveFrame == 0;
+        if (pressed != 0 && !startedThisTick) {
+            f.bufferedButtons = pressed;
+            f.bufferAge       = 0;
+        } else if (f.bufferedButtons != 0) {
+            // Aged, then dropped. A buffer that never expired would fire a move
+            // minutes after the press, which is worse than not buffering.
+            ++f.bufferAge;
+            if (static_cast<std::int32_t>(f.bufferAge) >= data.inputBufferFrames) {
+                f.bufferedButtons = 0;
+                f.bufferAge       = 0;
+            }
+        }
+    } else {
+        f.bufferedButtons = 0;
+        f.bufferAge       = 0;
+    }
+
+    // LAST of all: this tick's buttons become next tick's `previous`. Every edge
+    // above is computed against the value from before this line ran.
+    f.prevButtons = in.bits;
 }
 
 // How many slots this match uses, clamped so a corrupt byte cannot walk the
@@ -296,6 +399,77 @@ void stepRound(GameState& state, int n) {
 
 } // namespace
 
+// --- Push boxes ---------------------------------------------------------------
+
+// Two fighters may not stand in the same place.
+//
+// Asked for from play (2026-08-20): "the enemy collider should be blocking
+// collisions rather than trigger -- we don't want to move through them ... if
+// you just run into them you should be blocked by the character's hurtbox
+// without taking damage - this prevents players and enemies overlapping
+// hurtboxes and missing attacks because of that." That last clause is the real
+// cost of not having this: two bodies in the same place make ranges meaningless
+// and attacks whiff for reasons nobody can see.
+//
+// AIRBORNE FIGHTERS PASS OVER, which is what makes a jump a way past somebody
+// rather than a bounce off them. It is also why crossing up works at all: the
+// jump arc carries you through the space the pushbox would otherwise hold.
+// Getting past a grounded opponent on the ground is left to the moves that say
+// they can -- a teleport, a lunge -- which is a per-move field when those
+// arrive, not a hole here.
+//
+// THE SPLIT IS EQUAL AND ROUNDS UP, and both halves of that are load-bearing.
+// Equal, so the resolution is a MIRROR: the same collision reflected through
+// x = 0 must produce reflected positions, which an "always push the left one"
+// rule breaks immediately. Rounds up, so an ODD overlap is actually resolved --
+// truncating leaves the two a sub-unit inside each other forever, and "never
+// overlap" would be true only for even numbers.
+void separatePushboxes(GameState& state, const MatchData& data) {
+    Fighter& a = state.p[0];
+    Fighter& b = state.p[1];
+
+    // A degenerate box is how FighterData spells "unauthored"; a character
+    // without one is not separated from anybody.
+    const Box& ba = data.p[0].pushbox;
+    const Box& bb = data.p[1].pushbox;
+    if (ba.x1 <= ba.x0 || bb.x1 <= bb.x0) return;
+    if (a.airborne != 0 || b.airborne != 0) return;
+
+    // Two passes. The first splits the overlap evenly, which is the answer
+    // whenever both fighters have room; the second exists for the CORNER, where
+    // the stage clamp undoes one fighter's share and the other has to absorb the
+    // whole of it. Two is enough because the second pass moves only one body and
+    // the stage cannot push back twice.
+    for (int pass = 0; pass < 2; ++pass) {
+        const Box pa = PlaceBox(ba, a.posX, a.posY, a.facing);
+        const Box pb = PlaceBox(bb, b.posX, b.posY, b.facing);
+
+        const std::int32_t overlap = (pa.x1 < pb.x1 ? pa.x1 : pb.x1) -
+                                     (pa.x0 > pb.x0 ? pa.x0 : pb.x0);
+        if (overlap <= 0) return;
+
+        // Who is on the left is decided by the ORIGINS, not by the boxes: the
+        // boxes are what overlap, so asking them which is left is circular when
+        // the two are nearly coincident. Equal origins fall to slot order, which
+        // is arbitrary and has to be SOMETHING -- and it is the same fixed order
+        // Simulate uses everywhere else, so it is at least the arbitrary choice
+        // this kernel already made.
+        const bool aIsLeft = a.posX <= b.posX;
+        const std::int32_t half = (overlap + 1) / 2;
+
+        Fighter& left  = aIsLeft ? a : b;
+        Fighter& right = aIsLeft ? b : a;
+
+        // The SAME body-aware limit stepFighter uses, or separation would shove
+        // into the corner the half-body the wall clamp just refused.
+        const std::int32_t lLimit = wallLimitFor(aIsLeft ? data.p[0] : data.p[1], left);
+        const std::int32_t rLimit = wallLimitFor(aIsLeft ? data.p[1] : data.p[0], right);
+
+        left.posX  = clampInt(left.posX - half,  -lLimit, lLimit);
+        right.posX = clampInt(right.posX + half, -rLimit, rLimit);
+    }
+}
+
 void Simulate(GameState& state, const InputPair& inputs, const MatchData& data) {
     // Fixed order, always. Iterating a container whose order can vary -- the
     // hash-ordering hazard that bit SimplePhysicsBackend and ScriptWorld in this
@@ -304,8 +478,76 @@ void Simulate(GameState& state, const InputPair& inputs, const MatchData& data) 
     // rule's simplest possible form, and it is why widening from two fighters to
     // eight changed nothing about determinism.
     const int n = liveCount(state);
+
+    // RESOURCES ARE PRIMED ON THE FIRST TICK, not in ResetMatch, and the reason
+    // is the one already written beside the juggle restore below it: ResetMatch
+    // does not take the character data, and "restored from the character data on
+    // the first tick, before anything can read it" is where that rule already
+    // lives. Doing it here rather than in stepFighter keeps it in ONE visible
+    // place instead of eight copies of a first-tick condition.
+    //
+    // It cannot join the per-combo restore beside juggle, and that is the whole
+    // design point. Juggle is spent within one combo and restored when the
+    // defender leaves hitstun; METER IS NOT -- `fighter_a` opens with 300 of it
+    // and spends it across a round. A restore-every-idle-tick would hand the
+    // meter back the instant the defender recovered, which is not a balance
+    // choice, it is a resource that cannot be spent.
+    //
+    // Tick zero rather than a "primed" flag because GameState may not grow here
+    // (this WP is the data path onto M1.1a's fields, not a second expansion) and
+    // because a flag would be a byte two peers could disagree about. Re-running
+    // tick zero after a rollback re-primes to exactly the same numbers, which is
+    // what makes a tick-index condition safe in a re-simulating kernel at all.
+    if (state.tick == 0) {
+        for (int i = 0; i < n; ++i)
+            for (std::int32_t r = 0; r < kMaxResources; ++r)
+                state.p[i].res[r] = data.p[i].resources[r].initial;
+    }
+
+    // WHERE EVERYONE WAS BEFORE ANYBODY MOVED. The separation clamp below reads
+    // this snapshot rather than the live positions, and that is what makes it
+    // ORDER-INDEPENDENT: clamping p0 against p1's new position and then p1
+    // against p0's newly-clamped one would give a different answer depending on
+    // which slot was stepped first, which is the exact class of bug D3 exists to
+    // keep out of this kernel.
+    std::int32_t wasAtX[kMaxFighters];
+    for (int i = 0; i < n; ++i) wasAtX[i] = state.p[i].posX;
+
     for (int i = 0; i < n; ++i) {
         stepFighter(state.p[i], inputs.p[i], data.p[i]);
+    }
+
+    // --- The invisible wall ---------------------------------------------------
+    //
+    // Neither fighter may end further than kMaxSeparationSub from where the
+    // OTHER ONE STOOD AT THE TOP OF THIS TICK. That one sentence is the whole
+    // Street Fighter behaviour the author described: a player walking backwards
+    // stops dead at the limit, and if the opponent then advances a pixel the
+    // limit follows them by a pixel and the retreat resumes. Retreat is possible
+    // for exactly as long as somebody is chasing.
+    //
+    // Reading the PRE-MOVE opponent is also what makes that true rather than
+    // approximately true. Against the post-move position a retreating player
+    // would be allowed the opponent's step in the same tick they took it, which
+    // lets two fighters walking apart drift forever at walking speed.
+    //
+    // TWO FIGHTERS ONLY. With three or more there is no "the opponent" and the
+    // rule would have to say which pair the camera belongs to -- a real question
+    // for tag modes and not one to answer by accident here. ADR-009 widened the
+    // state to eight and said the rules would arrive one at a time; this is one
+    // of them arriving for the 1v1 case.
+    //
+    // It only ever pulls INWARD, so it cannot push anyone through the stage
+    // clamp stepFighter already applied.
+    if (n == 2) {
+        for (int i = 0; i < 2; ++i) {
+            const std::int32_t anchor = wasAtX[1 - i];
+            state.p[i].posX = clampInt(state.p[i].posX,
+                                       anchor - kMaxSeparationSub,
+                                       anchor + kMaxSeparationSub);
+        }
+
+        separatePushboxes(state, data);
     }
 
     // Facing is derived from relative position, evaluated AFTER everyone has

@@ -279,7 +279,8 @@ struct InvincibilityWindow {
     // Bitwise OR of kAttack*. Zero means everything (see above).
     std::uint16_t kinds;
 
-    // Explicit, for MoveDef::pad_'s reason.
+    // Explicit, for the reason MoveDef's own trailing byte was explicit before
+    // negativeEdge took it: a hashed POD may not carry indeterminate bytes.
     std::uint16_t pad_;
 };
 
@@ -424,13 +425,42 @@ struct MoveDef {
     // hasHurtboxOverride, deliberately, so there is one idiom here and not two.
     std::uint8_t hasAirborneFrom;
 
-    // Explicit, for the same reason Fighter has no implicit padding: section 4.8
-    // says the connect handshake hashes the LOADED POD ARRAYS, and hashing a
-    // struct with indeterminate padding compares two machines' uninitialised
-    // bytes.
-    std::uint8_t pad_;
+    // Fires on button RELEASE as well as on press: hold the button, input the
+    // motion, let go, and the special comes out. Zero is off, which is what a
+    // file that authors nothing gets.
+    //
+    // Per move rather than per character, because it is a property of the move
+    // in every game that has it -- a special accepts negative edge and a jab
+    // does not. It took the byte that used to be explicit padding here, so
+    // MoveDef is still 128 bytes and no MatchData layout moved for it.
+    std::uint8_t negativeEdge;
 
     InvincibilityWindow invuln[kMaxInvulnWindows];
+
+    // --- Resources (ROADMAP M1.1b) ------------------------------------------
+    //
+    // POSITIONAL, and that is a build-wide contract rather than a convenience.
+    // The prover keys its resource vector by index (ADR-001 section 8 item 7),
+    // so slot i means the same resource in every file a build loads; the loader
+    // resolves each authored name to an index once, and from here down there are
+    // no names at all. Assertion A03 is where the contract is enforced.
+    //
+    // `effect` is a DELTA applied when this move connects: +1 juggle spent, +25
+    // meter gained. Zero is no effect, which is what an unauthored slot holds
+    // and what every character built before this field had.
+    std::int32_t effect[kMaxResources];
+
+    // `guard` is a MINIMUM checked before the move starts: a super that costs
+    // meter refuses below its cost. Guarded slots are named by the mask rather
+    // than by a sentinel, because ZERO IS A LEGAL MINIMUM -- a resource with a
+    // negative floor can be guarded at zero, and a sentinel would silently make
+    // that mean "unguarded" and hand the move away for free.
+    std::int32_t guard[kMaxResources];
+    std::uint8_t guardMask;      // bit i set = guard[i] is checked
+
+    // Explicit, because a hashed POD may not carry indeterminate bytes: the
+    // connect handshake compares these bytes across two machines.
+    std::uint8_t pad2_[3];
 };
 
 // 32 moves per fighter. A hard cap, deliberately: D4 forbids unbounded growth in
@@ -484,7 +514,7 @@ struct CancelEdge {
     // 0, and MatchBuilder counts the edges that reading moves.
     std::uint8_t onHit;
 
-    // Explicit, for MoveDef::pad_'s reason: the connect handshake hashes these
+    // Explicit, for the same reason: the connect handshake hashes these
     // bytes, and an indeterminate byte is a byte two peers can disagree about.
     std::uint8_t pad_[3];
 };
@@ -499,6 +529,29 @@ struct CancelEdge {
 inline constexpr std::int32_t kMaxCancelsPerFighter = 256;
 
 // Everything one fighter's simulation reads and never writes.
+// One resource slot, as the kernel sees it. NO NAME: the loader resolved every
+// authored name to an index once, and the index is the contract from there down
+// (ADR-001 section 8 item 7, assertion A03). A name here would be a second
+// spelling of the same fact and the first thing to drift.
+//
+// `hasCeiling` is a flag rather than a sentinel for the reason MoveDef's
+// hasAirborneFrom is: zero is a legal ceiling -- a resource that may never rise
+// above its starting value is a real design -- so no single int can mean both
+// "capped at zero" and "uncapped".
+struct ResourceDef {
+    std::int32_t initial;
+    std::int32_t floor;
+    std::int32_t ceiling;
+    std::uint8_t hasCeiling;
+    std::uint8_t pad_[3];
+};
+
+static_assert(std::is_trivially_copyable_v<ResourceDef>,
+              "MatchData is hashed and compared as bytes");
+static_assert(sizeof(ResourceDef) == 3 * sizeof(std::int32_t) + 4,
+              "ResourceDef grew, shrank, or acquired implicit padding. Same "
+              "connect handshake, same hazard as MoveDef.");
+
 struct FighterData {
     // The body, authored facing +X. This is the DEFAULT body; a move may replace
     // it for the ticks it runs via MoveDef::hurtboxOverride, which is the
@@ -528,6 +581,16 @@ struct FighterData {
     // ever connect, which is a legal but almost certainly unintended character.
     std::int32_t juggleMax;
 
+    // How many ticks a press survives while this fighter cannot act, before it
+    // is discarded. ZERO MEANS NO BUFFERING, which is what a file that authors
+    // nothing gets and what the kernel did before this field existed.
+    //
+    // A field rather than a constant because buffering changes which links are
+    // performable, and "which links are performable" is the question the whole
+    // project exists to answer -- a number the kernel chose for every character
+    // would be the kernel deciding the answer (docs/adr/ADR-011 decision 1).
+    std::int32_t inputBufferFrames;
+
     // Hitstun decay, as suffered BY THIS FIGHTER as a defender: each hit already
     // taken in the current combo shortens the next one's hitstun by `step` ticks,
     // never below `floor`.
@@ -544,6 +607,77 @@ struct FighterData {
     // and why assertion A01 guards it at load.
     std::int32_t hitstunDecayStep;
     std::int32_t hitstunDecayFloor;
+
+    // --- Resources (ROADMAP M1.1b) ------------------------------------------
+    //
+    // Slot i here is slot i of Fighter::res, of MoveDef::effect and of the
+    // prover's own resource vector. `resourceCount` is how many the file
+    // declared; slots past it are zeroed and never read.
+    ResourceDef  resources[kMaxResources];
+    std::int32_t resourceCount;
+
+    // The body while CROUCHING, and it is a separate box rather than a scale
+    // factor because a crouch is not a shorter standing pose -- the head comes
+    // forward as it comes down, and a character whose crouch is merely `height *
+    // 0.6` ducks nothing a designer aimed at.
+    //
+    // A DEGENERATE BOX MEANS UNAUTHORED: x1 <= x0 or y1 <= y0 and the standing
+    // body is used, which is what every character built before this field
+    // existed gets and is why wiring it changes nobody who does not use it. A
+    // flag would be the idiom elsewhere in this header (hasHurtboxOverride,
+    // hasAirborneFrom, hasCeiling), and it is not used here for a reason: those
+    // guard SCALARS where zero is a legal value, and there is no legal
+    // zero-area body. An empty box is already the impossible value.
+    //
+    // Asked for from play (ROADMAP M1.3d): a crouch that changes no box is a
+    // crouch nobody can see, and it is the state a low attack is aimed at.
+    Box crouchHurtbox;
+
+    // THE BODY YOU CANNOT WALK THROUGH. Separate from the hurtbox because the
+    // two answer different questions -- the hurtbox is where you can be HIT and
+    // this is where you can BE -- and in the genre they routinely differ: a
+    // sweep's hurtbox stretches far past the pushbox it keeps.
+    //
+    // A DEGENERATE BOX MEANS UNAUTHORED and nobody is separated, which is the
+    // behaviour every character had before ROADMAP M1.2 and is why wiring this
+    // changes nobody who does not carry one.
+    //
+    // Asked for from play (2026-08-20): "the enemy collider should be blocking
+    // collisions rather than trigger ... this prevents players and enemies
+    // overlapping hurtboxes and missing attacks because of that."
+    Box pushbox;
+
+    // Ground walk speed in sub-units per tick. ZERO MEANS UNAUTHORED, and the
+    // kernel then uses the placeholder it used before this field existed --
+    // which is what keeps every harness that builds a synthetic FighterData
+    // walking at the speed its expectations were written against.
+    //
+    // A field rather than Simulate.cpp's `kWalkSpeed` because walk speed decides
+    // whether a MICROWALK LOOP exists: the attacker steps forward between two
+    // hits to stay in range, and one pixel per tick is the difference between a
+    // string that drops and one that repeats forever. ADR-011 section 4 makes
+    // the microwalk variant `walk_speed` +1 px/tick from the base, so the base
+    // has to be a number the file owns. The corner-only prover cannot see this
+    // loop at all, which is exactly why the engine has to.
+    //
+    // Note the shipped `fighter_a.json` authors 3 px/tick where this kernel's
+    // placeholder is 2, so honouring the file is a BEHAVIOUR change and not a
+    // no-op -- see ROADMAP M1.1b, which measured it before writing the field.
+    std::int32_t walkSpeedSub;
+
+    // Downward acceleration and jump impulse, sub-units. ZERO MEANS UNAUTHORED
+    // on both, exactly as above.
+    //
+    // THESE ARRIVE AHEAD OF ANYTHING THAT CAN SET THEM, and that is deliberate.
+    // `schema.v2.json` has no key for either, so no character can author one
+    // yet and every fighter takes Simulate.cpp's placeholders -- these two
+    // fields change no behaviour today. They are here because MatchData is
+    // hashed by the connect handshake and ADR-005 section 3's rule is to batch
+    // a contract change and review it once: the alternative was to grow this
+    // struct for resources now and again for movement later. Authoring the
+    // schema keys afterwards is then purely additive and moves no bytes.
+    std::int32_t gravitySub;
+    std::int32_t jumpImpulseSub;
 
     // Number of USED slots in moves[], INCLUDING the reserved idle slot 0.
     // A moveId names a real move if and only if 0 < moveId && moveId < moveCount.
@@ -599,13 +733,17 @@ static_assert(std::is_trivially_copyable_v<InvincibilityWindow>,
 static_assert(sizeof(InvincibilityWindow) == 12,
               "InvincibilityWindow grew, shrank, or acquired implicit padding. "
               "Same handshake, same hazard as MoveDef below.");
-static_assert(sizeof(MoveDef) == 128,
+static_assert(sizeof(MoveDef) == 128 + 2 * kMaxResources * sizeof(std::int32_t) + 4,
               "MoveDef grew, shrank, or acquired implicit padding. The connect "
               "handshake hashes these bytes (ARCHITECTURE.md 4.8), so a padding "
               "hole would make two peers with identical characters disagree. "
-              "This was 40 before ADR-005 P2; the growth is priority, blockstun, "
-              "chip, pushback, juggle, hitstop, knockdown, scaling, stance, "
-              "blockedAs, the hurtbox override and the invincibility windows.");
+              "This was 40 before ADR-005 P2 and 128 before M1.1b; the growth is "
+              "priority, blockstun, chip, pushback, juggle, hitstop, knockdown, "
+              "scaling, stance, blockedAs, the hurtbox override, the "
+              "invincibility windows, and then the resource effect and guard "
+              "vectors with their mask. Written as the OLD SIZE PLUS THE NEW "
+              "MEMBERS rather than as a fresh round number, so it still asks "
+              "'did padding appear' and not 'is this what I last wrote down'.");
 static_assert(std::is_trivially_copyable_v<CancelEdge>, "MatchData is hashed and compared as bytes");
 static_assert(sizeof(CancelEdge) == 16,
               "CancelEdge grew, shrank, or acquired implicit padding. Same "

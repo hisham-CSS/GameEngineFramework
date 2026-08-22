@@ -87,7 +87,12 @@ inline float WorldPx(std::int32_t subUnits) {
 // window is still live and has already used up the one hit the multi-hit guard
 // allows it against that body. It sits next to Active in this list because it is
 // the same frames of the same move seen a second time round.
-enum class Phase : std::uint8_t { Idle, Startup, Active, Spent, Recovery, Hitstun };
+//
+// `Knockdown` is last because it OUTRANKS the others: a fighter on the floor is
+// also, usually, in hitstun, and drawing them as merely stunned is what made the
+// author say "we can't really tell any knockdowns yet". It is a different state
+// -- nothing can hit them and they cannot act -- so it gets its own colour.
+enum class Phase : std::uint8_t { Idle, Startup, Active, Spent, Recovery, Hitstun, Knockdown };
 
 // Whether the fighter's CURRENT attack has already landed, i.e. whether
 // ResolveHits' multi-hit guard will refuse it before it looks for a box at all.
@@ -167,8 +172,19 @@ std::int32_t ProbeStageHalfWidthSub();
 // width so that a FIXED number of stage pixels is visible however big the window
 // is. A camera with a fixed zoom would show twice the stage on a 4K monitor,
 // which would make "am I in range" a question about the display.
+//
+// `stageHalfWidthSub` clamps the framing so the view never passes a wall: pass 0
+// to centre on the pair unconditionally, which is what a caller with no stage
+// wants. See the note at the clamp for why an unclamped corner reads as the edge
+// of the screen rather than as a wall.
+// `previousCentrePx` is where the camera was last frame, in world pixels. The
+// camera HOLDS STILL unless a fighter would otherwise leave the view -- pass the
+// returned `position.x` back in next frame. A caller with no previous frame
+// should pass the pair's midpoint, which is the right framing to open on.
 MyCoreEngine::Camera2D FightCamera(const cse::kernel::GameState& state,
-                                   int viewportW, int viewportH);
+                                   int viewportW, int viewportH,
+                                   std::int32_t stageHalfWidthSub,
+                                   float previousCentrePx);
 
 // --- The picture --------------------------------------------------------------
 

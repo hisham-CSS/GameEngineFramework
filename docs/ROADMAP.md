@@ -1,6 +1,6 @@
 # ROADMAP — the one place status lives
 
-Verified: 2026-08-17 @ 9f518c2
+Verified: 2026-08-19 @ c4539be
 
 This is the **only** roadmap. `README.md` carries one paragraph and a link;
 `docs/manual/` never lists gaps; ADRs record why, not what is next. If a fact
@@ -31,7 +31,7 @@ without it. Details, tests and proofs of the four properties:
 
 | In flight | Owner | Since |
 |---|---|---|
-| *(nothing — next is M1.1d)* | | |
+| M1.3d — the bridge carries the mechanics the kernel already has | Claude | 2026-08-20 |
 
 One work package in flight at a time. The next unblocked one is always the top
 `[ ]` in milestone order below.
@@ -282,7 +282,7 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   linking. `Fighter::meter` turned out to be five C++ sites; the other 88
   mentions were `juggle`, the data layer's resource *names*, or the prover's own
   record.
-- `[ ]` **M1.1b The data path onto the fields M1.1a reserved.** *(M)* No layout
+- `[x]` **M1.1b The data path onto the fields M1.1a reserved.** *(M)* — `a177ac2` `9af12c0` `01bab86` `dbd07a9`. No layout
   change. `ResourceDef {initial, floor, ceiling, refill}` per slot in
   `FighterData`; `effect[]` on moves and cancel edges (applied per authored
   contact) and `guard[]` (a minimum, checked before the move starts); index *i*
@@ -336,6 +336,162 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   is really about". The other failure is mechanical: `character.walk_speed`
   becomes `Exact` in two expectation tables, and the training-mode test's
   gap-pinning assertion inverts, which its own message already asks for.
+  **Decided 2026-08-19: the FIRST way, and the reason is that the premise was
+  already there.** The bodies open 34 px apart and are 26 px wide together, so
+  the step must divide both 8 and 34; two does and three divides neither. That
+  test has always depended on a 2 px/tick walk — it just inherited it silently
+  from `kWalkSpeed` and never said so. Authoring it on the built `FighterData`
+  makes a hidden premise an owned one, which is what this WP is for, and it is
+  reversible in one line. Restating the test in terms of crossing zero would
+  weaken the assertion it exists to make, so it was not done.
+  **Slice 1 of M1.1b landed: walk speed.** `FighterData::walkSpeedSub` (zero =
+  unauthored, kernel keeps its placeholder), `MatchBuilder` copying it with the
+  loss row now `Exact`, and `Simulate` reading it.
+  `P3Movement.WalkSpeedComesFromTheFile` and
+  `P3Movement.ACharacterThatAuthorsNoWalkSpeedKeepsThePlaceholder`; the first
+  reports 5120 sub-units instead of 7680 when the kernel's read is reverted.
+  **The golden did not move**, confirmed rather than assumed: the crossplat
+  scripted match builds a synthetic `MatchData` that authors nothing and takes
+  the fallback, so `test_determinism_crossplat` is untouched. The re-golden this
+  WP still owes therefore comes from RESOURCES, and the commit that causes it
+  must say so.
+  **Still open in M1.1b:** `ResourceDef` per slot, `effect[]` on moves and cancel
+  edges, `guard[]` minimums, and the remaining movement constants (gravity, jump
+  impulse, pushback, hitstop) out of `Simulate.cpp`.
+  **A batching decision the next slice forces, taken 2026-08-19 under a safe
+  default.** Resources need fields on `FighterData`, `MoveDef` and `CancelEdge`;
+  the movement constants need fields on `FighterData`. All three are hashed by
+  the connect handshake, and `sizeof(MoveDef) == 128` is asserted with its
+  growth history written into the message. [ADR-005](adr/ADR-005-playable-priority.md)
+  §3's rule — batch changes, re-golden once, review once — therefore applies to
+  `MatchData` exactly as it does to `GameState`, so growing these structs twice
+  is the thing to avoid.
+  **The complication is that the two halves are not equally ready.** Resources
+  are already loaded: `CharacterData` carries `ResourceDef`, `ResourceAmount`
+  and per-move `effect`/`guard`, and the schema declares them. Gravity and jump
+  are NOT: `schema.v2.json` has no key for either, `CharacterData` has no field,
+  and the only authored number anywhere is an undeclared
+  `quantized_sources.gravity_sub_per_tick2` in `fighter_a_infinite.json` that
+  nothing reads. Adding those keys is a change to the file the *published prover*
+  reads, which is the same contract concern that split M1.1e out.
+  **Default taken: expand the kernel structs ONCE, for resources and movement
+  together, with movement zero-means-unauthored.** The kernel fields cost
+  nothing until something sets them — a zero gravity falls back to
+  `Simulate.cpp`'s placeholder exactly as `walkSpeedSub` does — so the struct
+  moves once now and authoring gravity in a file later is a purely additive
+  schema change that does not move it again. Safe (no behaviour change on any
+  existing character) and reversible (delete the fields), so per CLAUDE.md this
+  proceeds without stopping for a human, and is recorded here because it is a
+  decision rather than a detail.
+  **Slice 2 landed: the batched contract change, layout only.** `MoveDef` gains
+  `effect[kMaxResources]`, `guard[kMaxResources]` and a `guardMask` (a mask and
+  not a sentinel, because zero is a legal minimum for a resource with a negative
+  floor); `FighterData` gains `ResourceDef resources[kMaxResources]`,
+  `resourceCount`, `gravitySub` and `jumpImpulseSub`; a kernel-side
+  `ResourceDef` with no name in it, because the loader resolved names to indices
+  once and the index is the contract. `MoveDef` moves 128 → 164 and the assert is
+  written as *old size plus the new members* so it still asks "did padding
+  appear". `Simulate` reads gravity and jump with the same zero-means-unauthored
+  fallback as walk speed. **No behaviour changed and no test moved**: 58/58 with
+  the expansion in, and the crossplat golden untouched, because nothing authors
+  any of these yet.
+  **Next, and it is the behaviour half:** priming `Fighter::res[]` from
+  `ResourceDef::initial`, applying `effect[]` on contact, checking `guard[]`
+  before a move starts, and mirroring whichever slot the file calls juggle into
+  `Fighter::juggle`. **The one open design point** is where priming happens.
+  `fighter_a` authors `meter` with `initial: 300`, and meter PERSISTS across
+  combos, so it cannot join the per-combo restore beside juggle — that block
+  would wipe accumulated meter every time the defender left hitstun. It belongs
+  at match start, but `ResetMatch` does not take the `MatchData` and has **71
+  call sites across 16 files**. The intended shape is an optional
+  `const MatchData*` parameter defaulting to null, where null means "this reset
+  does not know the characters, so resources stay zero" — additive, no ripple,
+  and the real paths (`FightSession`, `FightView`) pass it.
+  **Slice 3 landed: resources are simulated — and it did NOT close the gap, which
+  is the finding.** Priming happens on the match's first tick rather than in
+  `ResetMatch` (the kernel already sited the juggle restore that way and says
+  why); `MatchBuilder` scatters the authored sparse `(index, value)` lists into
+  dense arrays in FILE ORDER; `ResolveHits` applies `effect[]` on contact, on
+  block as well as on hit, clamped to each resource's floor and ceiling; and
+  BOTH start routes — the button scan and the cancel scan — refuse a move whose
+  `guard[]` minimum is unmet, falling through to the next slot rather than
+  eating the press. `move.effect`, `move.guard` and `resources` are all `exact`
+  in the loss ledger now. Proved by `P3Resources.MeterGainsOnHitAndSpendsOnGuard`,
+  `.AGuardedCancelRefusesBelowTheMinimum` and `.IndexOrderIsTheFilesOrder`; all
+  three fail with the kernel change reverted.
+  **THE HEADLINE COUNT DID NOT MOVE, and the reason is a decision nobody has
+  taken yet.** Three tests asserted their premise as *"the kernel does not
+  simulate resources"* and went red on the loss row alone; their outcome
+  assertions never moved. `GapExtentKernel.NinetySevenOfThe121RunForever` still
+  counts 97. The gap is now narrower and exactly locatable: **`ApplyEffects`
+  CLAMPS at the authored floor.** The model ends these cycles when juggle runs
+  out; the kernel tracks the same juggle, arrives at the same zero, and carries
+  on, because nothing refuses a move whose effect would breach a floor. A guard
+  would refuse it — but no shipped move authors a guard on juggle, and juggle is
+  spent through `effect`, not `guard`.
+  **THE DECISION, AND IT IS THE AUTHOR'S BECAUSE IT MOVES THE PAPER'S NUMBER —
+  but it is a WIRING decision, not a design one, and the first draft of this
+  paragraph got that wrong.** The refuse-on-breach semantics are already
+  designed, already documented and already implemented: `MoveDef::juggleCost`'s
+  own comment says *"a hit that would take the defender's remaining budget below
+  zero does not land"*, and `ResolveHits` enforces exactly that at the line
+  above `target[a] = d`, whose comment names the consequence outright — *"its
+  `nonNegative` condition is what ends all 41 of fighter_a's cycles in the model,
+  and its absence here is what let 33 of them run forever."*
+  **What is missing is the `MatchBuilder` wiring, and it is TWO fields rather
+  than one.** `grep -c` in `MatchBuilder.cpp` is **0 for both `juggleCost` and
+  `juggleMax`**, so the whole juggle path is unwired at the builder: the budget
+  is never handed out and the cost is never charged, which is why the gate reads
+  `juggleCost > 0` and never fires. Both authored data are present —
+  `fighter_a.json` declares `juggle` as resource slot 1 with `initial: 4`,
+  `floor: 0`, `ceiling: 4`, and seven of its moves author `effect: {juggle: -1}`
+  or `-2` — so wiring means `juggleMax` from `resources[juggleSlot].initial` and
+  `juggleCost` from the move's effect on that slot. A half-wiring is worse than
+  none: a budget with no cost never depletes, and a cost with no budget refuses
+  every hit.
+  **So the question is not "should a floor breach refuse rather than clamp" —
+  the kernel already says yes for juggle. The question is whether to connect it
+  now, because doing so is what the `test_gap_extent` measurement is currently
+  quantifying the ABSENCE of.** Wiring it does not just change 97-of-121; it
+  changes what that file is for. Not taken here: an agent should not retire a
+  research instrument by finding its missing wire.
+  The generic form — should any resource's floor refuse rather than clamp —
+  stays open behind it, and `ApplyEffects` clamps today.
+  **Slice 4: cancel-edge effects and guards were MEASURED AND NOT BUILT, which
+  is the right outcome and worth the paragraph.** The plan said `effect[]` on
+  moves *and cancel edges*. Counting first: **`cancel.effect` is authored zero
+  times in this tree** — not by `fighter_a`, not by `fighter_a_infinite`, not by
+  any fixture — and of the **51 authored cancel guards** (ten on
+  `fighter_a_infinite`, forty-one on Kung Fu Girl), **all 51 restate the target
+  move's own guard exactly**. `super_beam` is the case in miniature: the move
+  guards `meter: 100` and every edge into it repeats `meter: 100`. Slice 3's
+  cancel scan already refuses a target whose own `MoveDef::guard` is unmet, so
+  the constraint is enforced and the edge field would carry nothing.
+  Building it would have grown `CancelEdge` 16 → ~52 bytes, which is ~74 KB more
+  `MatchData` per build, for a field no character uses.
+  **What landed instead is the check that keeps the measurement honest.** The
+  redundancy is a fact about today's data, not a property of the schema, so the
+  builder now warns per edge when an edge guard demands MORE than its target's —
+  the one direction where the kernel is permissive and the file is not.
+  `MatchBridgeLosses.AnEdgeGuardStricterThanItsTargetIsWarnedAbout` proves it
+  fires and proves the redundant case stays quiet; it fails with the check
+  reverted. The two ledger rows say all of this in their notes rather than
+  claiming a hole that is not there.
+  **A scoping miss, recorded rather than smoothed over:** slice 2 argued for
+  batching the hashed-struct change and then did not include `CancelEdge` in it.
+  That turned out not to cost anything — the measurement above says the field
+  should not exist — but the argument and the action did not match, and it was
+  luck rather than judgement that they agreed.
+  **Closed 2026-08-19 with its Done-when met** (three `P3Resources`, one
+  `P3Movement`; the fifth item — inverting
+  `EveryCycleIsEndedByJuggleAndNoCycleTouchesMeter` — turned out not to apply,
+  because that test reads the MODEL and says nothing about the kernel).
+  **Moved out rather than dropped:** mirroring whichever slot the file calls
+  juggle into `Fighter::juggle` needs the juggle wiring decided first, so it
+  travels with it in M1.1f.
+  `GapExtentModel.EveryCycleIsEndedByJuggleAndNoCycleTouchesMeter` was expected
+  to invert here and did not need to: it reads the MODEL (`CharacterData`), not
+  the kernel, so it says nothing about what the kernel now does.
 - `[-]` **M1.1 Resources, movement parameters, and the one state expansion.** *(M)* — split into M1.1a and M1.1b above.
   Today `Fighter::meter` exists and no file in `Games/UntitledFighter/Kernel/src/`
   writes it; juggle has bespoke rules; walk speed and jump impulse are
@@ -401,8 +557,9 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   (b) is what gives a crouch state something to read, so bind it in the same
   change or `kStanceCrouching` stays unreachable. The scan takes the **first**
   matching slot, which is what makes (c) the difference between a rule and a
-  lottery. And moves start on buttons **HELD**, not pressed: a separate missing
-  field, not this WP's, and easy to mistake for a selection bug while testing.
+  lottery. And moves started on buttons **HELD** while this WP was written, which
+  is a separate bug and easy to mistake for a selection one; M1.1d fixed it, so a
+  re-test of (c) now has to press rather than hold.
   **Blocks M1.3**, which adds movement moves and cancel edges targeting them — a
   jump cancel means little while a button can only ever start one move.
   **(a), (b) and (d) landed; (c) did not, and the reason is worth keeping.** The
@@ -417,7 +574,7 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   `stance: ground` on everything — and `Ground` overlaps both, so her warning is
   **correct** and the assertion was false. Write it against `fighter_a` or a
   synthetic `FighterData`, then restore the check.
-- `[ ]` **M1.1d Input edges and buffering — the second state expansion, batched.** *(M)*
+- `[x]` **M1.1d Input edges and buffering — the second state expansion, batched.** *(M)* — `8795a46`
   **Found at review point R0**: holding an attack button rapid-fires it. The
   kernel says so itself — `StepAttack`'s scan is *HELD, not pressed*, and the
   comment above it has been asking for this field since it was written: "honest
@@ -441,6 +598,18 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   bufferedBits` and `std::uint8_t bufferAge` per fighter, with the window a
   **per-character field** (`input_buffer_frames`) defaulted by the schema and not
   by a `constexpr` — [ADR-011](adr/ADR-011-mechanics-are-fields.md) decision 1.
+  **(a) and (c) are the fix the author asked for; (b) is the one they said comes
+  later.** Stated 2026-08-19: *"the way normal attacks behave is they only
+  activate when you press the button — and negative edge helps activate special
+  moves on button up (but no normal attack)"*. So the rule is **press starts a
+  normal; release starts a special that asked for it**, and holding a button is
+  reserved for mechanics that do not exist yet (charge, held specials).
+  **Enforced by being opt-in, not by inspecting the move.** The schema has no
+  move *kind* — a special is distinguished only by its id, and reading semantics
+  out of an id string is the heuristic import
+  [ARCHITECTURE.md](ARCHITECTURE.md) D7 rejects. `negativeEdge` defaults off, so
+  "no normal fires on release" is true by construction unless a file opts a move
+  in, and a normal that opts in is an authoring error rather than a kernel one.
   (c) **Negative edge.** A move may opt in to firing on button *release*
   (`~bits & prev`) — the SF-lineage mechanic where holding a button, inputting a
   motion and releasing performs the special. Opt-in **per move**, off by default,
@@ -478,12 +647,63 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   starts. Under edge detection a repeat of the *same* button never fires a second
   press — and `air_mp → air_mp`, the self-loop those tests exist to execute, is
   exactly that case.
+  **Done, ahead of the rest of this WP:** the release frame landed on its own
+  (`GameDemonstration.ASelfCancellingWitnessReleasesBetweenRepeats`), because
+  M1.6 needs it whether or not edge detection ever ships — see below.
   **So a derived input trace must insert a release frame between repeats of the
   same button.** That is a change to how a verdict becomes a performance, it
   belongs in the trace builder rather than in each test, and it lands on
   `BuildDemonstration` too — which means it reaches **M1.6's showcase**, where
   every replay is a derived trace. Do that first, in one place, and the seven
   files follow.
+  **A finding, and then its correction — both recorded, because the first went
+  out overstated.** The first pass reported that edge detection collapses
+  `GapExtentKernel.NinetySevenOfThe121RunForever` (cycles managing 1 turn instead
+  of 3) and drops `GroundTruthControl` from 12 hits to 1, concluding that most of
+  the measured model/game gap was the held-button repeat. **That conclusion was
+  wrong, and the cause was in the test harness rather than the kernel.**
+  Four *drivers* — one shipped, three in tests — turn a witness into inputs by
+  holding `buttons_[cursor_]` until the expected move starts. When it does not
+  start, they stall **holding**, and a held bit is one press: the driver simply
+  stops feeding the kernel anything. "The cycle managed one turn" meant "the
+  driver went quiet", not "the game refused". Teaching a waiting driver to
+  **re-press** restores `GroundTruthControl` to its original **12 hits** and puts
+  the cycles back to 3 turns, periodic, state repeating — and
+  `GroundTruthPayoff` executes the printed witness in full throughout
+  (**26 hits in 160 ticks**), because `fighter_a_infinite`'s self-cancel is a
+  real cancel edge either way.
+  **What survives of the finding** is smaller and still worth having: the
+  *timing account* moves. `NinetySevenOfThe121RunForever` checks that each
+  transition happens exactly `startFrame` ticks after the last, and a re-pressing
+  driver lands its press up to a tick late, so a few transitions per cycle
+  disagree. A buffered press should close that — it is consumed the exact tick
+  the fighter becomes actionable — and closing it is the remaining work here.
+  **The lesson worth more than either:** "the measurement collapsed" is a claim
+  about the harness until the harness has been ruled out, and it was published
+  before it had been.
+  **Second attempt (2026-08-19) got 7 failing files down to 4, and found the
+  design question that blocks the rest.** Landed in the stash: the four drivers
+  re-press while waiting instead of stalling on a hold; `test_cancels`'s hold
+  became a *buffered press*; `test_combat`'s "two cycles" became two presses;
+  the defender's *mash* became repeated presses, which is what mashing is.
+  Two real bugs found in the kernel half, both mine, both from reverting or
+  instrumenting rather than reading: the buffer captured a press the fighter
+  **could** act on, so the press that started a move started the next one too a
+  window later; and the guard that fixed it (`!canAct`) was itself wrong, because
+  **`canAct` means "not stunned", not "not busy"** — a fighter mid-move is
+  actionable by that measure, so almost nothing was buffered. The condition is
+  "no move started this tick" (`moveId != 0 && moveFrame == 0`), the same signal
+  the demonstration cursor and every driver key on.
+  **THE OPEN QUESTION, ANSWERED 2026-08-19 BY THE AUTHOR: yes.** *"buffer does
+  trigger and consume a cancel and link so that links and cancels are easier to
+  do."* `FindCancel` now accepts a buffered press alongside a held one, and the
+  cancel clears `bufferedButtons`/`bufferAge` exactly as the button scan does.
+  Triggering is what makes a link performable by a human — a player aiming at a
+  two-frame window presses early far more often than late, so a cancel reading
+  only the current tick punishes the common miss. Consuming is what stops one
+  press walking a fighter several moves down a chain, because `StepAttack`'s
+  cancel branch returns before the button scan and an unconsumed press would
+  still be waiting for the next window.
   **Also learned, from reverting:** the first version of
   `HoldingAButtonStartsTheMoveOnceNotEveryRecovery` passed against the bug,
   because it counted `moveId` transitions and a move that restarts the instant it
@@ -492,7 +712,309 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   **Two `static_assert`s earned themselves during the attempt**, both at compile
   time: `has_unique_object_representations_v` caught a one-byte pad where three
   were needed, and `Replay.h`'s `FighterData` sum caught the new `int32`.
-- `[ ]` **M1.2 Push boxes and the corner.** *(S–M)* Body separation between
+  **Third attempt (2026-08-19) closed it, and the last two bugs were both in the
+  harness rather than the kernel.** With the cancel answer in, the sweep's timing
+  mismatches went to **zero** — the diagnosis in the paragraph above was right —
+  but 96 of 121 cycles then failed *periodicity* instead. The cause: `Observe`
+  spent its release tick before checking whether the move had started, so a
+  driver was **blind to exactly the transitions buffering creates**. A buffered
+  press is consumed the tick the fighter can act, which is very often a tick the
+  driver is deliberately silent on; the cursor never advanced, the driver went on
+  asking for the move already running, and it restarted a duration later. That
+  read as "the loop decayed". Checking the start *before* spending the release
+  tick took `test_gap_extent` from 96 failures to green, **97 of 121 intact**.
+  The second: `test_one_frame` and `test_training_mode`'s probes hold a button to
+  ask "how soon can the attacker act", which under press-activation is one press
+  for the whole fork. They pulse and buffer now, so the answer is the frame the
+  kernel opens rather than the frame the driver happened to be pressing on.
+  **A methodological note that cost an hour.** Three parameter sweeps returned
+  byte-identical failure counts, which looked like a structural cause; the
+  binary was stale. `cmd /c "call scripts\ci\msvc_env.cmd && cmake --build ..."`
+  **hangs** under the Bash tool and silently produces no build. Build from
+  PowerShell; run from either.
+  **Done when — actually done:** the five `P3Input` tests above, plus
+  `P3Input.ABufferedPressTakesTheCancelTheTickItsWindowOpens` and
+  `P3Input.WithNoAuthoredWindowAnEarlyPressMissesTheCancelEntirely` for the
+  cancel answer. The first draft of that pair **passed with the change
+  reverted**, because the cancel window's last frame was also the move's last
+  frame and the button route produced the same single start; the window closes
+  two frames early now, so a cancel start (source interrupted, frames 3–6) is
+  distinguishable from a button start (source spent, frame 7). Reverting is what
+  found it, for the second time in this WP.
+- `[ ]` **M1.1e The buffer window as an authored character field.** *(S)*
+  `FighterData::inputBufferFrames` exists and the kernel honours it, but nothing
+  sets it from a character file — every caller that wants buffering assigns the
+  field directly, and `tests/test_one_frame.cpp` and `tests/test_gap_extent.cpp`
+  both say so in a comment pointing here. Buffering is a mechanic, so it owes
+  [ADR-011](adr/ADR-011-mechanics-are-fields.md)'s five parts: an appended
+  `input_buffer_frames` under `engine` in `schema.v2.json` (engine-only, so the
+  published prover ignores it), the load in `CharacterData.cpp` with its own
+  A-assertion, the `MatchBuilder` copy into the kernel slot, a loss-ledger row,
+  and a property test that a file authoring nothing gets zero. Split out rather
+  than folded into M1.1d because it touches the schema the prover reads, and that
+  is a contract change with its own review.
+  **Done when:** a character file that authors `input_buffer_frames` produces a
+  `FighterData` carrying it, a file that authors none produces zero, and an
+  out-of-range value is a load error naming the key.
+  **One thing already checked, so it is not re-litigated here.** `FightSession`'s
+  `BuildDemonstration` spends a release tick and `continue`s past its cursor
+  check, which looked like the same blindness that broke the three test drivers
+  in M1.1d — a buffered press is consumed on a tick the trace is silent on. It
+  is **not** a bug, and the reason is placement rather than luck: the builder
+  releases only on the tick after an advance, when the fighter is one frame into
+  a move it just started and the press that started it has already been consumed.
+  `GameDemonstration.ABufferedPressIsSeenEvenWhenItLandsOnAReleaseTick` rehearses
+  the witness against a buffering character and asserts that no move begins on a
+  silent tick, so the invariant is checked rather than reasoned about. Written
+  expecting it to fail; it passed against the unchanged builder, and the shipped
+  code was left alone.
+- `[ ]` **M1.1f The juggle wiring, and the mirror that waits on it.** *(S)*
+  `MatchBuilder` sets neither `FighterData::juggleMax` nor `MoveDef::juggleCost`
+  (`grep -c` is 0 for both), so the budget gate in
+  `Games/UntitledFighter/Kernel/src/Combat.cpp` — which refuses a hit that would
+  overspend, and whose own comment says its absence "let 33 of them run forever"
+  — has never fired for a built character. Both fields or neither: a budget with
+  no cost never depletes, a cost with no budget refuses every hit. Then
+  `Fighter::juggle` becomes the mirror of whichever slot the file declares as
+  juggle, which is what the M1.1a split promised.
+  **Needs the author, because it retires an instrument.**
+  `tests/test_gap_extent.cpp` exists to quantify the absence of exactly this
+  wire; connecting it changes 97-of-121 and turns that file into a different
+  measurement. M1.4 already plans to rewrite it as properties, so the natural
+  order is M1.4 first, then this.
+  **Done when:** a built `fighter_a` spends juggle on the moves that author it,
+  the budget refuses the hit that would overspend, and the gap-extent file
+  asserts the new relationship rather than the old count.
+
+- `[~]` **M1.3d The bridge carries the mechanics the kernel already has.** *(M)*
+  Claude, 2026-08-20. **Found by asking why the training dummy does not react to
+  being hit.** The kernel implements impact freeze, knockdown, knockback, chip,
+  damage scaling, trade priority and guard height. The character files author all
+  of them. `MatchBuilder` populates **ten** `MoveDef` fields — `startup`,
+  `active`, `recovery`, `damage`, `hitstun`, `button`, `negativeEdge`, `effect`,
+  `guard`, `guardMask` — and leaves every other one at zero.
+  **It is two layers, not one.** `CharacterData::Move` already carries `stance`,
+  `blockedAs` and `pushbackSub` and the builder simply does not copy them; while
+  `engine.reaction` — authored on every move of `fighter_a` with
+  `hitstop_ticks`, `air_hitstun_ticks`, `causes_knockdown`, `slide_ticks`,
+  `pushback_vel_sub`, `meter_gain_units` — is not read by the loader at all
+  (`grep -c air_hitstun_ticks CharacterData.cpp` is 0).
+  **This reframes the model/game gap.** "The kernel has no juggle" was the
+  smallest true version of a much larger sentence: for a built character the
+  kernel has almost no mechanics, because the bridge carries frame data and
+  little else. Every wire below moves a measurement, which is expected — M1.4
+  already plans to rewrite the two gap files as properties — and each slice says
+  which number it moved.
+  **Order, cheapest and most visible first:** (a) `pushbackHit` from
+  `Move::pushbackSub`, so a hit visibly knocks the dummy back — **landed**;
+  (b) `stance` and `blockedAs`, already loaded, so air and crouch moves stop
+  being universal; (c) load `engine.reaction` — **landed**, carrying
+  `knockdownTicks`; (c2) **`hitstop`, split out and measured, see below**;
+  (d) **launch** — the one genuinely new field, a per-move `launch_vel_sub` that
+  sets the defender airborne, which with `air_hitstun_ticks` (now loaded) is
+  what makes a JUGGLE happen at all.
+  **Slice (c) landed and hitstop was SPLIT OUT on a measurement, not a hunch.**
+  The loader now reads `engine.reaction` — `hitstop_ticks`,
+  `air_hitstun_ticks`, `fall_recover_ticks`, `causes_knockdown` — and the bridge
+  carries the knockdown. Carrying HITSTOP as well breaks
+  `tests/test_gap_extent.cpp` in a way pushback did not: it freezes BOTH
+  fighters, so every frame-exact prediction moves by the freeze duration.
+  **120 of 121 cycles fell short and each carried six to nine timing
+  mismatches**, and `test_one_frame`'s boundary sweep went with it. That is the
+  game becoming correct rather than the bridge becoming wrong — but section 3's
+  account has to LEARN hitstop before its numbers mean anything, and that is a
+  slice of its own rather than a repair. `hitstop_ticks` is loaded and sitting
+  in `CharacterData::Move` waiting for it.
+  **A third unloaded block, found while looking for a crouch box:**
+  `engine.constants` on `fighter_a` authors `health`, **`juggle_budget: 4`**,
+  `walk_fwd_sub`, `walk_back_sub`, `dash_fwd_sub`, **`jump_vel_sub`**,
+  **`gravity_sub`**, `ground_friction_permille`, `air_actions`,
+  `default_pushbox_sub` and `height_px` — and the loader reads **none** of it
+  (the only two matches in `CharacterData.cpp` are comments). So `juggleMax`,
+  which M1.1f is about wiring, is authored right there; and `gravitySub` and
+  `jumpImpulseSub`, the two `FighterData` fields M1.1b added "ahead of anything
+  that can set them", have had an author all along. Neither needs a schema
+  change, only a loader that reads the block.
+  **Slice (e), asked for from PLAY rather than from the plan: the postures had to
+  become legible.** Stated 2026-08-20 after running the build: *"we can't really
+  tell when crouching or knockdowns occur — jumping at least puts your hitbox in
+  the air ... crouching hurtbox would be different, and knockdown would be the
+  same but the person who is knocked down is invincible until they wake up."*
+  Both landed. A knocked-down fighter is now invulnerable to everything until
+  they get up — no new field, because the opt-in is already the authored
+  `causes_knockdown` and its duration, and this is what the kernel MEANS by that
+  state. `InvulnerableTo` answers it FIRST, before the move lookup, because a
+  downed fighter has no move and the window scan returned "not invulnerable" for
+  the one state where that is most wrong. And `FighterData::crouchHurtbox` gives
+  a crouch its own body, degenerate meaning unauthored, with a move's own
+  `hurtboxOverride` outranking it because the move is the more specific
+  statement. `fighter_a` authors `crouch_height_px: 34` against a 60 px stand.
+  **A crouching body was not authored anywhere** — `default_pushbox_sub` is the
+  standing box and had no crouch counterpart — so unlike everything else in this
+  WP it needed a new field and a new authored number rather than a wire.
+  **A validation I wrote was wrong and a shipped fixture caught it.** The first
+  draft REFUSED a move that authors `causes_knockdown` with
+  `fall_recover_ticks: 0`. AOF2's `punk_b_kick` does exactly that, and it is not
+  a broken file: MUGEN keeps liedown time as a character-global where this
+  engine keeps it per move. It warns now, naming the loss — the kernel will not
+  knock down for such a move — rather than refusing a faithful transcription.
+  **Done when:** `P3Reactions.APushbackMoveMovesTheDefender`,
+  `P3Reactions.AStanceRestrictedMoveRefusesOutsideIt`,
+  `P3Reactions.ALauncherPutsTheDefenderInTheAir`,
+  `P3Reactions.AnAirborneDefenderTakesTheAuthoredAirHitstun`; a loss-ledger row
+  per field flips off `KernelOmits`; and R0c below can be walked by hand.
+  **Slice (a) was ATTEMPTED, MEASURED AND REVERTED, and what it found is worth
+  more than the slice.** Wiring `pushbackHit` from `Move::pushbackSub` is four
+  lines and it works: the bridge test went from "handed the kernel 0" to
+  carrying the authored 3072 sub-units, and the defender visibly slid. It also
+  broke **five test files at once**, and not on premises — on outcomes.
+  `GroundTruthPayoff.ThePrintedLoopExecutesInTheKernel` fell from **20 hits to
+  2**; `GroundTruthControl` landed exactly the 4 the model permits; **120 of 121**
+  gap-extent cycles reported too few turns.
+  **THE CAUSE IS A STAGE MISMATCH THAT PREDATES THE WIRE.** `fighter_a.json`
+  declares `stage: corner` and its own header says the corner verdict is the one
+  the ranking certificate belongs to, because at stage corner `model.py` drops
+  horizontal position entirely. Every kernel sweep opened **midscreen**, at
+  ±17 px, 460 px from the wall `Simulate` clamps at. While nothing moved the
+  defender that was invisible. The moment pushback works it means comparing a
+  sliding midscreen exchange against a corner-only analysis, and the loops die
+  of a separation the model does not model.
+  **Confirmed by fixing it:** with the sweeps opened against the wall AND
+  pushback wired, `test_gap_extent` and `test_ground_truth` both go green again
+  — the printed loop executes, 97 of 121 holds. So the measurement survives
+  pushback; it was the stage that was wrong.
+  **What landed:** the corner correction alone, in
+  `tests/test_gap_extent.cpp`, `tests/test_ground_truth.cpp`,
+  `tests/test_one_frame.cpp` and `tests/test_game_core.cpp`. It is a **no-op
+  today** — nothing moves the defender until pushback is wired — and it is
+  correct independent of pushback, because these files execute corner verdicts.
+  `tests/test_training_mode.cpp` stays midscreen ON PURPOSE and says so: its
+  subject is the HUD gap chip, which is walk arithmetic and needs room to walk.
+  **What did NOT land, and what it still needs:** the pushback wire itself. With
+  the corners fixed the cascade shrinks from five files to **three** —
+  `test_match_bridge`'s scripted mirror match (p0 is never hit once p1 slides
+  away), `test_cancels` (the second hit of a chain leaves range, damage totals
+  move) and `test_training_mode`. All three are midscreen exchanges rather than
+  corner verdicts, so each needs deciding on its own terms rather than being
+  cornered by reflex. That is the next slice, and it is a day's work rather than
+  an afternoon's.
+  **Second attempt on 2026-08-20, reverted again, and it left one question that
+  must be answered BEFORE the wire lands.** With the corners in, the cascade is
+  the predicted three. Two are explicable: `test_training_mode`'s demonstration
+  benches and `test_match_bridge`'s scripted mirror match are both midscreen
+  exchanges of corner-analysed content and want the corner treatment applied
+  per-TEST rather than per-file (training mode needs both — cornered
+  demonstrations, midscreen gap chip).
+  **`test_cancels` is not explicable, and that is the blocker.**
+  `StandLpIsCancelledIntoStandMpAndBothHitsLand` loses its second hit: the
+  defender ends on 977 health rather than 913, so `stand_lp`'s 23 landed and
+  `stand_mp`'s 64 did not. The arithmetic says it should connect easily. Units
+  were checked rather than assumed — `pxPerReach` 100 × 256 sub/px, so `stand_lp`
+  reaches **42 px** and pushes **5 px**, `stand_mp` reaches **58 px** and pushes
+  **9 px** — and `Fighter::pushX` halves every tick, so the total displacement is
+  about 10 px against a 58 px reach from an 8 px opening gap. A light into a
+  medium is the most ordinary chain in the genre and it must not miss.
+  **Measured, and it was the third: the numbers are right and the bench had four
+  pixels of margin.** The chain test runs on KUNG FU GIRL, not `fighter_a`, and
+  her numbers are `stand_lp` reach **57 px** / pushback **13 px**, `stand_mp`
+  reach **54 px**, from an authored gap of **50 px**. The push carries about
+  23 px after its halving decay, so the follow-up is reaching 54 px at a gap of
+  roughly 73. It misses by geometry.
+  **That is a fact about the genre rather than about the harness:** a light into
+  a medium is not confirmable at maximum range, because the light's own knockback
+  takes the defender out of the medium's. The bench was calibrated when the
+  bridge dropped pushback and nobody was ever moved. Closing the gap to **20 px**
+  restores 11 px of margin and the chain lands, which is where a player would
+  confirm it from.
+  **SLICE (a) LANDED.** `MoveDef::pushbackHit` from `Move::pushbackSub`,
+  saturated rather than cast (int32 sub-units into an int16 field: a bare cast
+  turns a 128 px push into a PULL) with a warning naming both numbers. The
+  three-file cascade resolved on its own terms rather than by reflex: the combo
+  bench moved closer, `test_match_bridge`'s p1 **walks back in** before answering
+  (180 ticks of taking hits pins it against the far wall, so answering from
+  there was answering into empty air), and `test_training_mode` got the split it
+  needed — cornered `opening()` for the demonstrations, a separate
+  `walkingOpening()` midscreen for the gap chip.
+  **AND THE SUITE STOPPED BEING ABLE TO SEE IT.** With all six files fixed to
+  expect pushback, reverting the four-line wire left **58/58 green**. Every fix
+  was right and collectively they blinded the suite to whether the field is
+  carried at all. `MatchBridgeMechanics.PushbackReachesTheKernelAndMovesTheDefender`
+  is the one test that fails without the wire, and it exists because that was
+  measured rather than assumed. **Third time this session** a test could not fail
+  — see [[stale-claim-sweeps]]'s sibling lesson: after a change whose fallout you
+  FIX, re-revert and check something still goes red.
+
+- `[x]` **M1.1g The stage is a number nobody owns.** *(S)* — done as part of the
+  invisible wall: `kStageHalfWidthSub` and `kMaxSeparationSub` are exported from
+  `GameState.h`, `Simulate` clamps against the first, `FightView` derives its
+  framing from the second, and `test_determinism_crossplat` derives its expected
+  half-width instead of writing 480 down again. **Widening the stage is now the
+  one-line edit and deliberate re-golden it should always have been** — and a
+  stage is still DATA rather than a kernel constant, which M1.2 owns.
+  **The original scoping, kept because the three costs it named are what made
+  the order right:** asked for from play
+  (2026-08-20): *"a full sized level"*. The stage is **±480 px**, which is
+  2.4 camera-widths at the current framing, and it is a `constexpr` local to
+  `Games/UntitledFighter/Kernel/src/Simulate.cpp` that clamps `posX`. Widening
+  it is one number and it is **not** a one-line change:
+  (a) it is SIMULATION state, so the cross-toolchain golden moves — a re-golden
+  for behaviour, in ADR-005's language, not for layout;
+  (b) `tests/test_gap_extent.cpp`, `tests/test_ground_truth.cpp`,
+  `tests/test_one_frame.cpp` and `tests/test_training_mode.cpp` each hardcode
+  `480 * kSubUnitsPerPixel` as their corner opening, so all four go wrong
+  silently rather than loudly;
+  (c) `Games/UntitledFighter/Modes/src/FightView.cpp`'s `ProbeStageHalfWidthSub`
+  walks a fighter into the clamp and reads where it stops — a good trick that
+  exists precisely because the constant is not exported.
+  **So do (c) first:** export the half-width from the kernel, have the probe and
+  all four test files derive it, and only then change the number. That turns a
+  four-file silent breakage into a one-line edit and a deliberate re-golden.
+  **And the real answer is that a stage is DATA**, not a kernel constant —
+  MAINTENANCE.md's rule against hard-coding what a file should set applies, and
+  M1.2 owns the corner. This WP is the enabling refactor, not the stage model.
+
+- `[~]` **M1.2 Push boxes and the corner.** *(S–M)* Claude, 2026-08-20 — the
+  SEPARATION half landed; the authored box has not.
+  **Asked for from play:** *"the enemy collider should be blocking collisions
+  rather than trigger — we don't want to move through them ... this prevents
+  players and enemies overlapping hurtboxes and missing attacks because of
+  that."* `FighterData::pushbox`, degenerate meaning unauthored, defaulting to
+  the body; `separatePushboxes` splits an overlap EQUALLY and rounds UP, so the
+  resolution is a mirror and an odd overlap actually resolves. Airborne fighters
+  pass over, which is what makes a jump a way past somebody. Two passes, because
+  the corner makes one fighter's share undoable and the other absorbs it.
+  `P3Pushbox.FightersNeverOverlapAfterSeparation`, `.SeparationIsAnExactMirror`,
+  `.TheCornerIsAWallOnBothSides`, `.AnAirborneFighterPassesOverAGroundedOne`.
+  **What it cost, and it is the interesting part.**
+  `TrainingModeReadout.WalkingClosesTheGapAndOnlyTheIntervalRuleSurvivesContact`
+  walks a fighter through four bands — apart, touching, overlapping, coincident
+  — and two of them stopped being reachable. That is correct and it is also a
+  distinction this codebase keeps blurring: the gap chip measures HURTBOXES,
+  which still overlap freely, and not pushboxes, which no longer do. A sweep's
+  hurtbox reaches far past the body it keeps. The bench authors no pushbox now
+  and says why.
+  **The corner clamps the BODY, not the origin.** Asked for from play the same
+  day: *"we should calculate corner bounds from the back edge of the collider
+  rather than the middle ... we don't want the player or enemy to disappear half
+  into the corner."* `wallLimitFor` is shared by the walk clamp and the
+  separation pass, so neither can shove into the corner the half-body the other
+  refused, and it reads the PLACED box so an asymmetric body is handled by facing
+  rather than by assuming the origin is centred.
+  `P3Pushbox.TheCornerStopsTheBodyRatherThanTheOrigin`.
+  **It moved five test files and none of them loudly**, which is worth the note:
+  the corner OPENINGS added earlier that day put the defender's ORIGIN on the
+  edge, which is now outside its own limit, so the first tick shoved it inward
+  and `TheTraceDoesNotDependOnTheTickItWasPressedOn` reported "37 neutral ticks
+  changed the fighters". A fighter falling into position while the test believes
+  nothing has happened is exactly the class of thing a neutral-ticks guard is
+  for. They open on `kStageEdge - kHalfWidth` now.
+  **Still open:** `engine.constants.default_pushbox_sub` is authored on
+  `fighter_a` and deliberately unread — it is in MUGEN's **Y-DOWN** convention,
+  which that file warns about at length in its own
+  `the_y_axis_trap_in_this_very_file` note, and reading it without the flip
+  buries a body sixty pixels underground where nothing touches it. That wire
+  needs the conversion written down and tested. Body separation between
+
   fighters and the stage edge as a wall; resolution order per NORTHSTAR Phase 2:
   pushbox separation → strikes (throws when they exist). Authored `pushbox`
   under `engine.boxes` (schema v3, appended field per ADR-006's rule); default
@@ -501,6 +1023,162 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   the overlap with `scaleBy`'s rounding so it is mirror-symmetric.
   **Done when:** `P3Pushbox.FightersNeverOverlapAfterSeparation`,
   `.TheCornerIsAWallOnBothSides`, `.SeparationIsAnExactMirror`.
+- `[ ]` **M1.3e Stance reaches the kernel, and the drivers learn to jump.** *(M)*
+  **This is why `crouch_hk` does not knock down**, reported from play
+  2026-08-20: *"if I do crouch hk it seems like it just goes into hitstun."*
+  Diagnosed rather than guessed. The knockdown is authored, the loader reads it
+  and the bridge carries it — `MatchBridgeMechanics.FighterAsSweepCarriesItsKnockdownIntoTheKernel`
+  proves all three on the shipped file. **What fails is SELECTION.**
+  `MatchBuilder` never populated `MoveDef::stance`, so every move arrives
+  stance-agnostic and `StepAttack` takes the first slot whose button matches:
+  Down+HK finds `stand_hk` at slot 10 and never reaches `crouch_hk` at slot 12.
+  Every mechanic authored on a crouching move is unreachable with it.
+  **The wire is ten lines and it was written, measured and reverted.** Two
+  vocabularies mapped explicitly rather than cast — `CharacterData` spells
+  `{Any, Ground, Air, Standing, Crouching}` and the kernel
+  `{Any, Ground, Standing, Crouching, Air}`, so a cast compiles, passes every
+  test that does not use Air, and puts aerials on the floor.
+  **It breaks 12 tests across three files, and the reason is worth more than the
+  fix.** Benches press a button without establishing the posture: `crouch_lp`
+  needs Down held, which is a binding change. **`air_mp` needs the fighter
+  AIRBORNE, which no driver can arrange** — and that exposes something about the
+  measurement itself. `test_game_core`'s witness is `[loop] air_mp`, an AIR
+  self-cancel, and it has only ever been performable because the kernel ignored
+  stance. **The printed air loop was being executed on the ground.** With stance
+  enforced it needs a jump, and `BuildDemonstration` and the four `Driver`
+  copies have no way to press Up, wait out an arc, and time the button.
+  **IMPLEMENTED END TO END ON 2026-08-20, MEASURED, AND REVERTED AT THE LAST
+  STEP.** Everything below was built and run; the tree is green without it and
+  the numbers are what the next attempt starts from.
+  **The jump turned out not to be needed at all.** `stepFighter` sets `airborne`
+  on the jump and `crouching` from Down, and `StepAttack` runs after both inside
+  the SAME `Simulate` call — so `Up+button` starts an aerial off the ground on
+  the tick it is pressed. Establishing a stance is one extra BIT, not a scripted
+  jump timed against an arc.
+  `MatchBridgeMechanics.ADirectionEstablishesTheStanceOnTheTickItIsPressed` is
+  written and passes with the wire in.
+  **A second rule the drivers need:** THE RELEASE IS OF THE BUTTON, NOT THE
+  POSTURE. A release tick exists to give the next press an edge; dropping the
+  direction with it drops the stance, so a buffered press consumed on a silent
+  tick asks for a crouching move from a stand and is refused. The symptom is a
+  loop repeating on the move's duration instead of on its cancel window — one
+  tick late, forever. A player holds down-back and taps; so must a driver.
+  **With both rules, four of the five broken tests go green**: `test_game_core`,
+  `test_one_frame` (all 8) and `test_training_mode`'s demonstrations. The fix is
+  `cse::kernel::StanceInputBits` plus a bridge-side
+  `cse::data::StanceInputBitsFor`, used by `BuildDemonstration` and each driver.
+  **WHAT STOPPED IT IS THE HEADLINE NUMBER. `test_gap_extent` goes 97 → 77.**
+  Measured, not estimated: unescapable **97 → 77**, escapable **24 → 44**,
+  by-button **96 → 76**, by-cancel still **1**, and the free-ticks detector
+  **109 → 106**. The identities still hold (77 = 1 + 76; 77 + 44 = 121).
+  **Every one of the 41 cycles whose behaviour changed contains an air move —
+  41 of 41, and no cycle without one moved.** They "ran forever" only because
+  the attacker never had to leave the ground for them; with stance carried an
+  aerial needs a jump, a jump needs a landing, and a string that has to come
+  down has a gap in it. **The old 97 was inflated by exactly the bug being
+  fixed.**
+  **And that is not the end of it.** With the counts updated the sweep still
+  reports 41 cycles whose section-3 TIMING account is wrong (2–3 mismatches
+  each) and 20 whose two-route prediction disagrees with the run — because the
+  frame-by-frame account does not model a jump or a landing. Re-deriving it is a
+  change to the file's central argument, not a harness repair, and it is where
+  this stopped.
+  **So this WP is three things:** the ten-line wire, the two driver rules above,
+  and teaching section 3's account that an aerial cycle leaves the ground. The
+  third is the one that needs the author, because it re-derives the number the
+  paper quotes.
+  **FOUR TRAPS IN THE REVERTED PATCH, found by review and verified against the
+  code before it was reverted.** All four are line-checkable in
+  `tests/test_one_frame.cpp` today and all four would have shipped:
+  (1) **An assertion that could no longer fail.** `driveProbe` got the posture
+  folded into its defender bits; the twin at line 1691 —
+  `DefenderPolicy::MashesOnceHit, bindings[0].button` — did not. The loop is
+  `crouch_lp` and the sides are mirrors, so a defender mashing a bare LP is
+  refused for POSTURE and `EXPECT_TRUE(mashed.defenderActedTicks.empty())`
+  becomes unfalsifiable. Fourth time this session, and the same shape every time:
+  the fix landed where the phrase appeared and missed where the same claim was
+  spelled differently — see [[stale-claim-sweeps]].
+  (2) **The posture must not be pulsed.** `drive()` at line 774 does
+  `in.p[1].bits = (t % 2 == 0) ? defenderBits : 0u`, which with the direction
+  folded in drops the stance on odd ticks. The defender can then only escape on
+  even ticks and the escape count is halved while still reading > 0.
+  (3) **Folding the direction into `buttons_` breaks two things that read that
+  field.** `Usable()` at line 628 tests `buttons_[i] == 0` to catch a move
+  nothing can ask for; a surplus CROUCHING move becomes `0 | kInputDown` and
+  passes. And `Observe`'s `release_ = (buttons_[cursor_] == justUsed)` at line
+  660 compares button+direction, so `stand_mp` into `crouch_mp` — same button,
+  different posture — no longer emits the release the second press needs. Carry a
+  parallel `holds_` vector and combine only in `Bits()`.
+  (4) **Prose the change makes false**, including `kP0X`'s "the attacker holds an
+  attack button AND NO DIRECTION", which is the premise the 8 px opening gap
+  rests on.
+  **And it bears on the paper.** A witness whose stance the engine could not
+  honour is a witness the engine did not really reproduce; that belongs in the
+  write-up beside the counter-hit gap below, not only in this file.
+
+- `[ ]` **M1.4a Gate the combo graph on MOVE STATE.** *(M)* Asked for 2026-08-20:
+  *"we need to intelligently gate the move state to find valid moves in the combo
+  graph - I believe this should be done but we should verify."*
+  **Verified: it is not done anywhere.** `tests/test_gap_extent.cpp`'s
+  `usableEdges` filters cancel edges by `Contact::Block`/`Whiff` and by the
+  prover's dead-cancel list, and by nothing else. Neither the enumeration nor
+  section 3's account ever asks what STATE the fighter is in.
+  **The kernel fact the gate rests on, verified rather than assumed:**
+  `Fighter::airborne` is cleared by POSITION alone — `Simulate.cpp` clears it at
+  `posY <= 0` with no reference to what move is running. So when an aerial ENDS
+  in the air the fighter is still airborne, and a grounded follow-up cannot
+  start until it lands. **Landing is not a cancel. It is a gap, and a gap is the
+  defender's turn.**
+  **And the arc is finite, which the graph also never asks about.**
+  `P2Movement.AJumpIsAFixedNumberOfTicksAndBoundsAnyAirLoop` measures **38 ticks**
+  of air time against `air_mp`'s **22**, so a jump holds one full repetition and
+  most of a second — the fighter lands partway through the second. **The one
+  cycle this file calls performable through the cancel system end to end,
+  `air_mp > air_mp`, is therefore not an infinite: you fall out of it after about
+  1.7 repetitions.**
+  **So the gating predicate for a hop A → B is:** B's stance must be reachable
+  from A's END state. Ground → air is free (a jump lands its stance on the same
+  tick as the press, measured in
+  `MatchBridgeMechanics.ADirectionEstablishesTheStanceOnTheTickItIsPressed`).
+  Air → ground requires a LANDING, which no cancel window can cover. Air → air is
+  free while the arc lasts and impossible after it.
+  **This is the principled version of the 97 → 77 question**, and it changes the
+  framing: the model and the kernel were BOTH missing stance, so 97 was not a
+  measurement either of them earned. Gate the graph and wire the kernel and the
+  two should agree — which is the whole point of the instrument. Do them
+  together, and the number that comes out is the one to publish.
+  **Done when:** the enumeration refuses a hop whose stance is unreachable from
+  its source's end state; the air self-loop is bounded by the arc rather than by
+  juggle; and the graph's count equals what the kernel produces with
+  `MoveDef::stance` wired (ROADMAP M1.3e).
+  **THREE CORRECTIONS TO THE ACCOUNT ABOVE, from a review pass and each verified
+  in code before being written here.**
+  (1) **`StanceAllows` reads `f.airborne` RAW, not `AirborneNow`.** The two sit
+  next to each other in `Combat.cpp` and mean different things: `AirborneNow`
+  ORs in a move's `airborne_from_tick` and is called from exactly one place
+  (`AttackKinds`). So `special_uppercut`'s `airborne_from_tick: 3` makes it count
+  as an aerial ATTACK for guard and invincibility, and does **not** let an air
+  move start out of it.
+  (2) **Ground → air costs zero ticks even MID-MOVE, because the jump is gated on
+  `canAct` and not on `moveId`.** A fighter can walk, and take off, in the middle
+  of its own attack — `stepFighter` asks only "not stunned". That is what makes
+  the launcher cancels (`stand_hk -> air_mp`, window `[16, 18]`) reachable at all:
+  the jump that satisfies `StanceAllows` happens inside the source move. It is
+  also a real statement about the GAME that nothing had pinned, and every
+  measured range in this repo assumes an attacker stands still while attacking.
+  `P2Movement.AFighterCanWalkAndJumpDuringItsOwnAttack` pins it — PINNED, NOT
+  FIXED, because "you are committed once you press a button" is a per-move design
+  decision and ADR-011 forbids hard-coding a mechanic a file cannot set. M1.3(b)
+  is where movement becomes an authored move; when it lands, that test is what
+  makes the change deliberate.
+  (3) **A crouching move cannot start on the tick you LAND**, and nobody wrote
+  that rule. `stepFighter` computes `crouching` from `airborne` BEFORE the
+  landing clamp, so on the touchdown tick `airborne` is still set and `crouching`
+  is forced to zero; `StepAttack` then sees a grounded fighter who is not
+  crouching. It costs exactly one tick and is invisible until something asks for
+  a crouching move out of a landing — which a gated graph will.
+  `P2Movement.ACrouchingMoveCannotStartOnTheTickOfLanding` pins it.
+
 - `[ ]` **M1.3 Mechanics, pass 1 — the ones the showcase needs.** *(M–L)* Each
   with ADR-011's five parts (schema field appended · `MoveDef`/`FighterData`
   slot · loss-ledger row · kernel property test · showcase variant):
@@ -512,7 +1190,33 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   is deleted; a **jump cancel** and a **dash cancel** are ordinary cancel edges
   whose target is a movement move; `to: idle` is a legal empty cancel;
   (c) **counter-hit** — per-move `counter_hit {hitstun_bonus, damage_bonus}`
-  applied when the defender was in startup; (d) **wall bounce / wall splat /
+  applied when the defender was in startup;
+  **and it is a SOUNDNESS QUALIFIER on every verdict, not just a mechanic.**
+  Raised from play 2026-08-20: *"we also need to consider adding things like
+  counter hits and whatnot - this might also need to update the written article
+  as I don't think counter hit combos and other things that could change frame
+  data don't seem to be considered."* That is correct and it is the sharpest
+  open question in the project. `counter_hit` appears **zero times** in
+  `schema.v2.json`; the model reads one `hitstun` per move and the prover's
+  termination argument is built on it. A counter hit ADDS hitstun, which widens
+  every link downstream of it — so a **TERMINATING** verdict computed from
+  neutral hitstun says nothing about the same string opened with a counter hit,
+  and the certificate does not currently say so.
+  **The same shape applies to anything else that moves frame data:** hitstun
+  decay already in the schema, juggle scaling, and per-hit `air_hitstun_ticks`,
+  which is loaded now and differs from ground hitstun on every one of
+  `fighter_a`'s moves. A model with one number per move cannot express "this
+  link exists only in the air".
+  **Three ways out, and the choice is the author's because it is the paper's
+  claim:** (1) qualify the verdict — "TERMINATING under neutral hit"— which is
+  honest, cheap, and weaker; (2) make the search take the WORST case over hit
+  types, which keeps a single verdict and may report INFINITE for a route only a
+  counter hit permits; (3) verdict per hit type, which is the strongest and the
+  most work. **Not chosen here.** It changes what the tool claims, and an agent
+  should not narrow or widen a research claim on its own. Whichever is taken,
+  ADR-011's five parts still apply to the field itself.
+
+ (d) **wall bounce / wall splat /
   launch vector** as per-hit `on_hit` reactions using the fields M1.1 reserved.
   Everything defaults off; `fighter_a` unpatched must hash exactly as before
   this WP except for the re-golden M1.1 already did.
@@ -534,7 +1238,11 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   performable combo exceeds `maxHits` (search to `maxHits + k`), **or** the
   kernel search's counter-example is explained by a named loss-ledger row
   (microwalk → `walk_speed`/`gap_actions`); (c) every reported dead cancel never
-  connects. Delete `NinetySevenOfThe121RunForever` when it is false.
+  connects. Delete `NinetySevenOfThe121RunForever` when it is false — **and check
+  M1.1d's note before trusting any restatement of it.** An earlier pass here
+  reported the figure collapsing under edge detection; that was the test harness
+  stalling, not the kernel, and the cycles still run. What genuinely moves is the
+  *timing account*, by the latency of a re-pressed input.
   **Done when:** those tests pass on every shipped character and patch and on
   the three MUGEN fixtures in `tests/fixtures/characters/`; the search's cost
   per macro-action is measured and recorded here with a date.
@@ -547,6 +1255,29 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   **Done when:** `TrainingMode.AnEditedCharacterFileTakesEffectWithinAQuarterSecond`
   (clock injected, no sleep) and `UIHotReload.*` still pass unchanged.
 - `[ ]` **M1.6 The showcase: one fighter, many patches, a replay per verdict.** *(M)*
+  **Carry in one finding from the trace work:** the witness-driving cursor now
+  exists in **five** copies — `BuildDemonstration` in
+  `Games/UntitledFighter/Game/src/FightSession.cpp`, and a `Driver` class in each
+  of `tests/test_ground_truth.cpp`, `tests/test_game_core.cpp`,
+  `tests/test_gap_extent.cpp` and `tests/test_one_frame.cpp`; the second is
+  explicitly "copied out of" the first.
+  **PROMOTE `test_gap_extent.cpp`'s, and this is not a style preference.** It is
+  the only copy that checks whether the move has started BEFORE spending its
+  release tick. The other four return early on a release, which is safe only
+  while nothing can start on one — true today because they release exactly one
+  tick after an advance, when the press that caused it has just been consumed,
+  and because no character authors a buffer window yet (M1.1e). Set a window and
+  the ordering starts to matter: it took `test_gap_extent` from 96 failing
+  cycles to green in M1.1d, and it is the single line that differs. Whichever
+  copy survives must carry it, and the comment saying "nothing can have started
+  from an input of zero" must not survive at all — it states a conclusion whose
+  premise is now conditional. The release-frame rule had to be written
+  three times, and only
+  `GameDemonstration.TheSeamProducesExactlyTheGroundTruthDriversTrace` kept them
+  honest — it named the disagreement at tick 1, twice, while they were being
+  aligned. MAINTENANCE.md's rule applies exactly: *if a comment says "MUST match
+  X", make it call X*. `Showcase` is the third consumer, so promote the cursor
+  into `CseGame` beside `ComboSearch` (E4) rather than writing it a fourth time.
   Variants are JSON merge patches (RFC 7386, `nlohmann::json::merge_patch`)
   under `Games/UntitledFighter/Assets/Characters/fighter_a/variants/`; <!-- docs-ok: this WP creates it -->
   `fighter_a_infinite.json` becomes `base + variants/infinite.json`. The eleven
@@ -798,7 +1529,51 @@ it to, and the binding table is where the mistake is. That is **M1.1c**.
 It then found a second, on the next play: **holding an attack button rapid-fires
 it**. The kernel's own comment had been asking for the missing field for months
 — *"the next field this file will want"* — and no test could report it, because
-"held" is exactly what the code says it does. That is **M1.1d**.
+"held" is exactly what the code says it does. That is **M1.1d**, now closed.
+
+### R0b — After M1.1d: a press is a press
+
+Worth re-running R0 above with attention on the pad, because what changed is the
+thing a hand notices before a test does.
+
+| | |
+|---|---|
+| **Run** | `Editor.exe`, Game view, or `Player.exe`. |
+| **Do** | Hold one attack button down for several seconds. Then mash the same button. Then press a button during another move's recovery — slightly *early*, on purpose — and watch whether the follow-up comes out. |
+| **Should** | Holding gives **one** attack and then nothing. Mashing gives one attack per press. A press made a frame or two early still produces the follow-up, on the frame the window opens, rather than being dropped. |
+| **Wrong if** | Holding still repeats, which means the mode is feeding edges instead of levels and the kernel is seeing a fresh press every tick. Or an early press produces **two** moves, which means a buffered press was aged rather than consumed. Or a *normal* comes out when you let go of a button — release is for specials that opt in, and no shipped normal opts in. |
+
+Note the early-press behaviour is only visible where a buffer window is
+authored, and today **no character file authors one** — that is M1.1e. Until it
+lands, a fighter built from `fighter_a.json` has `inputBufferFrames` 0 and an
+early press is correctly forgotten.
+
+### R0c — After M1.3d: the dummy reacts, and you can see which posture it is in
+
+| | |
+|---|---|
+| **Run** | `Editor.exe`, Game view, or `Player.exe`. Box overlay on. |
+| **Do** | Press **V** to move out to midscreen. Hit the dummy repeatedly and watch it slide. Press **V** again to put it back in the corner and hit it there. Hold **Down** and look at the dummy's body. Land `crouch_hk` (the sweep) and keep attacking while the dummy is on the floor. |
+| **Should** | Midscreen: every hit carries the dummy back, further on heavies than on lights, and the slide decays rather than stopping dead. Corner: it does not move, and the HUD says the verdict on screen is about *this* position. Crouching: the body is visibly shorter — 34 px against 60. After a sweep: your attacks pass through the downed dummy and deal nothing until it gets up. |
+| **Also** | Sweep the dummy (`crouch_hk`) and watch the box turn **blue** and the panel read `knockdown N (cannot be hit)`. Walk into the dummy: you are blocked, and neither of you is half inside the other. Walk it into a corner: the BODY stops at the wall, not the middle. Jump over it. |
+| **Wrong if** | The dummy slides in the corner (the wall clamp is not holding). Or a light knocks it as far as a heavy (pushback is not per-move). Or crouching changes nothing (`crouch_height_px` is unauthored or unread). Or you can keep hitting a knocked-down dummy — that is the one state that should hand the turn back, and if it does not, a sweep opens a loop instead of ending one. |
+
+**The floor is a ruler.** Squares are 20 px with a heavier line every 100 px,
+and 100 px is one REACH UNIT — the loader's `px_per_reach_unit`. So a move
+authored `reach: 0.42` reaches four squares and a bit, and `pushback: 0.13`
+carries the defender just past one major band. Read the number out of the JSON
+and count it off the floor; if they disagree, one of the two is wrong and this
+is how you find out which.
+
+**The camera stops at the walls.** Unclamped it kept centring on the pair, so a
+corner drifted into the middle of the screen and stopped reading as a wall. It
+now holds the corner at the side of the screen, which is what tells you the
+stage has run out.
+
+Note the HUD line under the controls says which position you are in. **At
+midscreen the verdict drawn above the fighters does not describe where they are
+standing** — the in-engine prover is corner-only by construction — and the line
+says so in those words.
 
 ### R1 — After M1.1b: the file is the game
 

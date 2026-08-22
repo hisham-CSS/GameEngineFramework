@@ -36,6 +36,39 @@ namespace cse::kernel {
 // authored as halvings and a rounding difference is a desync.
 inline constexpr std::int32_t kSubUnitsPerPixel = 256;
 
+// --- The stage ---------------------------------------------------------------
+//
+// PUBLIC BECAUSE THREE THINGS HAVE TO AGREE ABOUT THEM, and until ROADMAP M1.1g
+// only one of the three could see them: Simulate clamped against a file-local
+// constant, the training mode WALKED A FIGHTER INTO THE CLAMP to find out where
+// it was, and four test files wrote `480` down again by hand. That is the shape
+// MAINTENANCE.md's rule is about -- if a comment says "must match X", make it
+// call X.
+//
+// Both are stage properties rather than character ones, and a stage has no data
+// model yet, so they are kernel constants for now and M1.2 is where they become
+// authored. That is a known debt, written down rather than hidden: nothing here
+// may be a number a level designer cannot set.
+inline constexpr std::int32_t kStageHalfWidthSub = 480 * kSubUnitsPerPixel;
+
+// THE INVISIBLE WALL, and it is the Street Fighter rule rather than a camera
+// convenience. Two fighters may never be more than this far apart: a player
+// backing away stops at it, and it MOVES WITH THE OPPONENT, so retreating stays
+// possible for exactly as long as the opponent keeps advancing. Once they stop,
+// so does the retreat -- and the only thing that lets anyone gain more ground
+// than this is the opponent's own forward walk, or an absolute corner behind
+// them.
+//
+// It is simulation and not presentation: it decides POSITION, so it decides
+// whether a move reaches, and a camera that merely declined to show the gap
+// would be a camera lying about a fight the kernel had already resolved.
+//
+// 374 px is 400 -- the width the view shows -- less a 13 px half-body at each
+// edge, so two fighters at maximum separation are both fully on screen rather
+// than half of each hanging off it. FightView derives its framing from THIS
+// number for that reason; see kViewHalfWidthPx.
+inline constexpr std::int32_t kMaxSeparationSub = 374 * kSubUnitsPerPixel;
+
 // Ticks per second. The simulation is tick-driven, never delta-time driven:
 // Application's FixedTimestep is explicitly NOT allowed to drive this (it caps
 // at 8 steps then ZEROES the accumulator, dropping the backlog -- see
@@ -268,6 +301,39 @@ struct Fighter {
     std::uint8_t reaction;   // which on_hit reaction is playing out; 0 = none
     std::uint8_t bounces;    // bounces spent, so a loop cannot bounce forever
     std::uint16_t flags;     // per-fighter reaction bits, defined by M1.3
+
+    // --- Input edges and buffering (ROADMAP M1.1d) -------------------------
+    //
+    // WHY THESE ARE IN THE STATE and not in whatever produced the input. D6 puts
+    // the input ring OUTSIDE GameState on purpose, and Simulate is handed only
+    // the CURRENT tick's bits -- so an edge computed anywhere else is recomputed
+    // wrongly on every re-simulation, and a rollback would replay a press as a
+    // hold. Anything the simulation reads lives here; that is the whole rule.
+    //
+    // Last tick's buttons, which is where both edges come from: a press is
+    // `bits & ~prevButtons` and a release is `~bits & prevButtons`. One field,
+    // two mechanics, which is why positive and negative edge are one change.
+    std::uint16_t prevButtons;
+
+    // A press that arrived while this fighter could not act, kept for a few
+    // ticks and CONSUMED -- not merely aged out -- the tick they become
+    // actionable. Consumed, because a buffered press that is only aged would
+    // start a move and then start it again on the next actionable tick.
+    //
+    // The window is a per-character field (FighterData::inputBufferFrames), not
+    // a constant here: buffering is a mechanic, and mechanics are authored
+    // (docs/adr/ADR-011 decision 1). Zero means no buffering, which is the
+    // behaviour a file that says nothing gets.
+    std::uint16_t bufferedButtons;
+    std::uint8_t  bufferAge;      // ticks the buffered press has been waiting
+
+    // THREE, not one, and the assertion is what said so. Fighter is 40 bytes of
+    // int32 plus 22 of 16-bit plus its uint8 group, and the struct has to end on
+    // a multiple of its 4-byte alignment -- one pad byte left it at 74 and the
+    // compiler quietly added two more. has_unique_object_representations_v
+    // turned that into a build error instead of two machines hashing bytes
+    // neither of them wrote.
+    std::uint8_t  pad_[3];
 };
 
 // The complete authoritative state. Everything the simulation may read.
@@ -382,8 +448,8 @@ static_assert(std::has_unique_object_representations_v<GameState>,
 // Written as a SUM OF THE MEMBERS rather than a byte count, so it keeps asking
 // "did padding appear" instead of "is this the number I last wrote down".
 static_assert(sizeof(Fighter) == sizeof(std::int32_t) * (6 + kMaxResources) +
-                                     sizeof(std::uint16_t) * 9 +
-                                     sizeof(std::uint8_t) * 10,
+                                     sizeof(std::uint16_t) * 11 +
+                                     sizeof(std::uint8_t) * 14,
               "Fighter has grown a member that is not accounted for, or the "
               "compiler inserted padding into it.");
 

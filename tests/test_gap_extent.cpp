@@ -1,9 +1,15 @@
-// HOW BIG IS THE GAP? Every cycle in the character, not one of them.
+﻿// HOW BIG IS THE GAP? Every cycle in the character, not one of them.
 //
 // tests/test_ground_truth.cpp section 5 ends on a finding and a single
 // measurement. The finding: `fighter_a` is TERMINATING, its ranking certificate
-// says so because JUGGLE RUNS DOWN, and the kernel has no juggle -- it has no
-// resources at all. The measurement: ONE cycle, `air_mp` into itself, which the
+// says so because JUGGLE RUNS DOWN, and the kernel never spends it. Since
+// ROADMAP M1.1b the kernel DOES simulate resources -- it primes them, applies
+// each move's effect on contact and refuses a move whose guard is unmet -- so
+// the sentence that used to sit here, "it has no resources at all", is no longer
+// the reason. Two narrower things are: `ApplyEffects` CLAMPS at the authored
+// floor instead of refusing, and `MatchBuilder` sets neither `juggleMax` nor
+// `juggleCost`, so the budget gate in Combat.cpp has never fired for a built
+// character. The measurement: ONE cycle, `air_mp` into itself, which the
 // model permits four repetitions of and the kernel performed eighteen.
 //
 // One cycle is an existence proof. It settles that the gap is real and settles
@@ -42,7 +48,8 @@
 //   the report's 41      CONFIRMED, including the 1 / 8 / 32 split by length
 //   ended by juggle      41 of 41. Every cycle's total juggle effect is strictly
 //                        negative and NO cycle touches meter, so juggle alone
-//                        ends all of them -- and the kernel has no juggle.
+//                        ends all of them -- and the kernel never spends juggle
+//                        (M1.1b: tracked, clamped at the floor, gate unwired).
 //   performable as the   1 of 41. The other 40 each contain exactly one edge the
 //   model describes it   kernel cannot take.
 //   EXECUTED ANYWAY      33 of 41, as loops the defender never gets one tick out
@@ -191,8 +198,24 @@ constexpr std::int32_t kHeight    = px(60);
 // Nobody moves during any trace: the attacker holds attack buttons and no
 // direction, the defender is in hitstun, and the kernel applies no pushback on
 // hit at all. The gap is 8 px on every tick of every run below.
-constexpr std::int32_t kP0X = -px(17);
-constexpr std::int32_t kP1X =  px(17);
+// IN THE CORNER, because that is the stage the verdict was computed for.
+// `fighter_a.json` declares `stage: corner` and its own header says the corner
+// verdict is the one the ranking certificate belongs to -- at stage corner
+// model.py drops horizontal position entirely. A sweep opening midscreen was
+// comparing a midscreen game against a corner model, which was invisible while
+// nothing moved the defender and stops being invisible the moment pushback is
+// wired (ROADMAP M1.3d). The defender's back is to the wall Simulate clamps at,
+// so pushback has nowhere to put them and the comparison is the one the model
+// licenses.
+constexpr std::int32_t kStageEdge = 480 * cse::kernel::kSubUnitsPerPixel;
+//
+// THE DEFENDER'S BODY IS AGAINST THE WALL, not its origin. Since ROADMAP M1.2
+// the stage clamps the BODY -- a fighter may not disappear half into the corner
+// -- so an origin placed exactly on the edge is outside its own limit and the
+// first tick shoves it inward. That is not a cornered opening, it is a fighter
+// falling into position while the test believes nothing has happened.
+constexpr std::int32_t kP1X =  kStageEdge - kHalfWidth;
+constexpr std::int32_t kP0X =  kP1X - px(34);
 
 // The build-wide positional resource order (ADR-001 section 8 item 7).
 const std::vector<std::string> kBuildResources = { "meter", "juggle" };
@@ -700,12 +723,43 @@ public:
         return !slots_.empty();
     }
 
-    std::uint16_t Bits() const { return buttons_.empty() ? 0 : buttons_[cursor_]; }
+    // A FOURTH COPY of this cursor -- with FightSession.cpp, test_ground_truth.cpp
+    // and test_game_core.cpp -- and the fourth place the same two input rules had
+    // to be written. Recorded as work in ROADMAP M1.6 rather than as a comment.
+    //
+    // Zero on a release tick, because a held bit is one press however long it
+    // lasts and a witness that cancels a move into itself asks for the same bit
+    // twice running. And a re-press while WAITING, because a driver that stalls
+    // on a move which never comes otherwise stops feeding the kernel anything at
+    // all -- "the cycle managed one turn" would then mean "the driver went
+    // quiet", not "the game refused".
+    std::uint16_t Bits() const {
+        if (release_ || buttons_.empty()) return 0;
+        return buttons_[cursor_];
+    }
 
+    // THE MOVE STARTING IS CHECKED BEFORE THE RELEASE TICK IS SPENT, and that
+    // ordering is the whole of it. Buffering exists so a press that arrived
+    // early is consumed the tick the fighter can act -- which is very often a
+    // tick this driver is spending SILENT, because it pressed two ticks ago and
+    // is now releasing so the next press has an edge to be. A driver that
+    // returned early on a release tick therefore missed precisely the
+    // transitions buffering creates: the cursor never advanced, so it went on
+    // asking for the move already running, and the move restarted from frame 0
+    // one duration later. That read as "the loop decayed" when the loop was
+    // fine and the observer was blind.
     void Observe(std::uint16_t attackerMove, std::uint16_t attackerFrame) {
         if (slots_.empty()) return;
-        if (attackerMove != slots_[cursor_] || attackerFrame != 0) return;
-        cursor_ = (cursor_ + 1 < slots_.size()) ? cursor_ + 1 : 0;
+        if (attackerMove == slots_[cursor_] && attackerFrame == 0) {
+            waiting_ = 0;
+            const std::uint16_t justUsed = buttons_[cursor_];
+            cursor_ = (cursor_ + 1 < slots_.size()) ? cursor_ + 1 : 0;
+            release_ = (buttons_[cursor_] == justUsed);
+            return;
+        }
+        if (release_) { release_ = false; return; }
+        ++waiting_;
+        if (waiting_ >= kRepressAfter) { release_ = true; waiting_ = 0; }
     }
 
 private:
@@ -713,6 +767,9 @@ private:
     std::vector<std::uint16_t> buttons_;
     std::vector<std::string>   ids_;
     std::size_t                cursor_ = 0;
+    bool                       release_ = false;
+    int                        waiting_ = 0;
+    static constexpr int       kRepressAfter = 2;
 };
 
 // Silent is the recipe the character files prescribe. MashesOnceHit starts LATE
@@ -802,7 +859,9 @@ TickLog drive(const MatchData& data, Driver& driver, int ticks,
         in.p[0].bits = driver.Bits();
         if (policy == DefenderPolicy::MashesOnceHit && log.firstHitTick >= 0 &&
             t > log.firstHitTick) {
-            in.p[1].bits = defenderBits;
+            // Mashing is repeated PRESSES; holding is one. See the same change
+            // in tests/test_ground_truth.cpp.
+            in.p[1].bits = (t % 2 == 0) ? defenderBits : 0u;
         }
 
         cse::kernel::Simulate(s, in, data);
@@ -1080,6 +1139,20 @@ void runSweep(const Subject& s, Sweep& out) {
         }
 
         // --- section 4: execute it -------------------------------------------
+        // AN AUTHORED BUFFER WINDOW, and it is what keeps the timing account
+        // exact. Edge detection alone means a re-pressing driver can only land
+        // its press within a tick or two of the fighter becoming actionable, so
+        // every transition drifts and section 3's frame-by-frame account stops
+        // matching. A buffered press is consumed the EXACT tick the fighter can
+        // act -- which is what buffering is for in every fighting game that has
+        // it, and why ROADMAP M1.1d makes the window a character field rather
+        // than a constant.
+        //
+        // Set here rather than in the character file because this sweep drives
+        // 121 synthesised cycles, not a shipped character.
+        build.data.p[0].inputBufferFrames = 2;
+        build.data.p[1].inputBufferFrames = 2;
+
         Driver silentDriver(c, cycle, build.moves[0], bindings);
         std::string why;
         if (!silentDriver.Usable(why)) {
@@ -1744,10 +1817,15 @@ TEST(GapExtentKernel, NinetySevenOfThe121RunForever) {
     const BuildLoss* stance  = findLoss(probe.report[0], "move.stance");
     ASSERT_NE(effects, nullptr);
     ASSERT_NE(stance, nullptr);
-    EXPECT_EQ(effects->direction, BuildLossDirection::KernelOmits);
+    // `exact` since ROADMAP M1.1b: the kernel carries these effects and applies
+    // them. What still separates it from the model is that ApplyEffects CLAMPS
+    // at the authored floor, so a juggle cost that cannot be paid is forgiven
+    // rather than ending the combo -- the count below is unchanged for exactly
+    // that reason.
+    EXPECT_EQ(effects->direction, BuildLossDirection::Exact);
     EXPECT_GT(effects->count, 0)
-        << "the kernel is supposed to be dropping this character's resource "
-           "effects, and the loss table says it drops none";
+        << "this character authors no resource effects at all, so the gap this "
+           "file measures has nothing to bite on";
     EXPECT_EQ(stance->direction, BuildLossDirection::KernelPermits);
     EXPECT_GT(stance->count, 0)
         << "`air_mp` is an AIR move and the kernel is supposed to have no stance "
@@ -1775,7 +1853,7 @@ TEST(GapExtentKernel, NinetySevenOfThe121RunForever) {
         << "                  meter, and `move.effect` is a "
         << BuildLossDirectionName(effects->direction) << " loss over "
         << effects->count << " move(s):\n"
-        << "                  the kernel has no juggle to spend. `move.stance` is a "
+        << "                  the kernel never spends juggle. `move.stance` is a "
         << BuildLossDirectionName(stance->direction) << "\n"
         << "                  loss over " << stance->count
         << " move(s), so the air moves are startable standing.\n"

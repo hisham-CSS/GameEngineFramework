@@ -244,10 +244,23 @@ void buildKfg(Kfg& out) {
     ASSERT_NE(0u, out.mp);
 }
 
-// stand_lp reaches 57 px and stand_mp reaches 54 px, so a body-to-body gap of
-// 50 px is inside both. Chosen from her file rather than tuned until it worked:
-// if either number moves, this test should fail rather than quietly test one hit.
-constexpr std::int32_t kComboGap = px(50);
+// stand_lp reaches 57 px and stand_mp reaches 54 px, and stand_lp KNOCKS THE
+// DEFENDER BACK 13 px. Those three numbers are hers, not tuned until this
+// worked, and together they say the gap has to leave room for the recoil: the
+// push decays by halves so it carries the defender about 23 px in total, and
+// stand_mp has to still be reaching when it lands.
+//
+// 20 px does it with margin -- 43 px when the follow-up connects, against a
+// 54 px reach. The 50 px this used to be had FOUR pixels of margin and was
+// calibrated when the bridge dropped pushback, so nobody was ever moved; wiring
+// it (ROADMAP M1.3d) turned that margin into a miss and the second hit of the
+// chain simply stopped landing.
+//
+// The lesson is a real one about the genre rather than about the harness: a
+// light into a medium is not confirmable at maximum range, because the light's
+// own knockback takes the defender out of the medium's. If either reach or the
+// pushback moves, this test should fail rather than quietly test one hit.
+constexpr std::int32_t kComboGap = px(20);
 std::int32_t comboDefenderAt() { return kComboGap + 2 * kHalfWidth; }
 
 // LP on tick 0, MP on tick 5, nothing else ever. One tick of each, not a hold:
@@ -488,21 +501,31 @@ TEST(CancelWindow, TooEarlyAndTooLateBothFailAgainstTheTickItself) {
         << "the cancel fired one tick after its window shut";
 
     // AND THE PRESS WAS REAL. A `too late` press that is simply dropped forever
-    // is indistinguishable from a binding that does not work, so hold the button
-    // from the tick after the window shuts until the move ends and require the
-    // follow-up to arrive -- as a LINK, on the tick `a` releases the fighter.
+    // is indistinguishable from a binding that does not work, so press the button
+    // after the window shuts and require the follow-up to arrive -- as a LINK, on
+    // the tick `a` releases the fighter.
+    //
+    // THIS USED TO HOLD THE BUTTON and rely on the hold being retried every tick,
+    // which stopped being true when a press became an edge (ROADMAP M1.1d). The
+    // mechanism it needs is the one M1.1d adds for exactly this: a press that
+    // arrives while the fighter cannot act is BUFFERED and spent the tick they
+    // can. So the character authors a window long enough to span the wait, and
+    // the test now demonstrates the buffer instead of depending on rapid-fire.
+    cse::kernel::MatchData buffered = build.data;
+    buffered.p[0].inputBufferFrames = kSourceTicks;
+
     std::vector<std::uint16_t> held(kSourceTicks + 2, 0u);
     held[0] = cse::kernel::kInputLP;
-    for (std::size_t t = kWindowClose + 1; t < held.size(); ++t)
-        held[t] = cse::kernel::kInputMP;
+    held[kWindowClose + 1] = cse::kernel::kInputMP;   // one press, too late
 
-    const Replay heldRun = drive(build.data, 0, windowDefenderAt(), held);
+    const Replay heldRun = drive(buffered, 0, windowDefenderAt(), held);
     EXPECT_EQ(0, heldRun.cancelsTaken);
     EXPECT_EQ(a, heldRun.moveIdAt[kSourceTicks - 1])
-        << "`a` left early even though its window was shut for the whole hold";
+        << "`a` left early even though its window was shut when the press "
+           "arrived";
     EXPECT_EQ(b, heldRun.moveIdAt[kSourceTicks])
-        << "the held button never produced `b` at all, so `too late` above was "
-           "not the window refusing -- it was the input never arriving";
+        << "the buffered press never produced `b` at all, so `too late` above "
+           "was not the window refusing -- it was the input never arriving";
     EXPECT_EQ(0u, heldRun.moveFrameAt[kSourceTicks]);
 }
 

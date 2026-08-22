@@ -15,7 +15,22 @@ namespace {
     // the whole of the furthest attack, and enough stage past a cornered
     // defender for the corner marker to read as a wall rather than as an edge of
     // the screen.
-    constexpr float kViewHalfWidthPx = 200.0f;
+    // DERIVED FROM THE KERNEL'S SEPARATION LIMIT rather than chosen beside it.
+    // The invisible wall says two fighters are never more than kMaxSeparationSub
+    // apart; the view has to be at least that wide plus a body at each edge, or
+    // the rule and the picture disagree about what "as far as the camera width"
+    // means. Deriving it makes them the same number by construction -- if the
+    // wall moves, the framing follows.
+    constexpr float kViewHalfWidthPx =
+        static_cast<float>(cse::kernel::kMaxSeparationSub /
+                           cse::kernel::kSubUnitsPerPixel) * 0.5f + 13.0f;
+
+    // How close a fighter may get to the edge of the view before the camera
+    // scrolls. THE DEADZONE IS THE FEATURE: without it the camera is pinned to
+    // the pair's midpoint and every step either player takes drags the whole
+    // world sideways, which reads as the stage moving rather than the fighters.
+    // With it the camera holds still and moves only when it has to.
+    constexpr float kCameraMarginPx = 34.0f;
 
     // The camera sits above the floor rather than on it, so the floor line lands
     // in the lower third and there is headroom for a jump. 60 px is the authored
@@ -42,6 +57,10 @@ namespace {
     const glm::vec4 kSpentCol   { 0.55f, 0.21f, 0.24f, 1.0f };  // dull red
     const glm::vec4 kRecoveryCol{ 0.36f, 0.62f, 0.96f, 1.0f };  // blue
     const glm::vec4 kHitstunCol { 0.85f, 0.38f, 0.88f, 1.0f };  // magenta
+    // Deep blue, and far from magenta on purpose: hitstun and knockdown are the
+    // two states a playtester most needs to tell apart at a glance, because one
+    // of them can be hit again and the other cannot.
+    const glm::vec4 kKnockdownCol{ 0.30f, 0.44f, 0.92f, 1.0f };  // blue
 
     // Which BODY is which LINE in the readout. Two colours, not five: the slot
     // accent has to stay distinguishable from every phase colour above, because
@@ -51,6 +70,23 @@ namespace {
 
     const glm::vec4 kFloorCol { 0.15f, 0.16f, 0.20f, 1.0f };
     const glm::vec4 kFloorLine{ 0.30f, 0.33f, 0.40f, 1.0f };
+
+    // --- The measuring floor -------------------------------------------------
+    //
+    // A CHECKERBOARD WHOSE MAJOR DIVISION IS ONE REACH UNIT, which is what makes
+    // it a ruler rather than decoration. The loader's `px_per_reach_unit` is 100,
+    // so a move authored `reach: 0.42` reaches four squares and a bit, and a
+    // pushback of `0.13` carries the defender just past one. Reading a number off
+    // the file and counting it off the floor is the point.
+    //
+    // Asked for from play (2026-08-20): "a full sized level ... with a standard
+    // checkerboard pattern so we can gauge distance."
+    constexpr float kCellPx      = 20.0f;    // five to a reach unit
+    constexpr float kCellsPerMajor = 5;      // so a major band is 100 px
+    const glm::vec4 kCellDark { 0.13f, 0.14f, 0.18f, 1.0f };
+    const glm::vec4 kCellLight{ 0.18f, 0.19f, 0.24f, 1.0f };
+    const glm::vec4 kMajorLine{ 0.34f, 0.38f, 0.48f, 1.0f };
+    const glm::vec4 kOriginLine{ 0.55f, 0.60f, 0.72f, 1.0f };
     const glm::vec4 kCornerCol{ 0.98f, 0.58f, 0.18f, 1.0f };
     const glm::vec4 kOutOfBounds{ 0.09f, 0.07f, 0.07f, 0.85f };
     const glm::vec4 kShadowCol{ 0.00f, 0.00f, 0.00f, 0.35f };
@@ -221,6 +257,13 @@ Phase PhaseOf(const cse::kernel::FighterData& data, const cse::kernel::Fighter& 
     // the test anyway so that the day blocking lands this function is already
     // right rather than quietly one term short -- the same reason ComboWatcher.h
     // gives for carrying it through its own rule.
+    // KNOCKDOWN FIRST, ahead of stun, because a fighter on the floor is usually
+    // in hitstun too and the more specific state is the one worth drawing. Asked
+    // for from play (2026-08-20): "we can't really tell any knockdowns yet" --
+    // the rule landed, and with the body drawn as ordinary hitstun there was
+    // nothing on screen that said so.
+    if (f.knockdown > 0) return Phase::Knockdown;
+
     if (f.hitstun > 0 || f.blockstun > 0) return Phase::Hitstun;
 
     const cse::kernel::MoveDef* const move = cse::kernel::MoveAt(data, f.moveId);
@@ -257,6 +300,9 @@ const char* PhaseName(Phase phase) {
         // has stopped being one of them.
         case Phase::Spent:    return "spent";
         case Phase::Recovery: return "recovery";
+        // "down" rather than "knockdown", because the legend is a row of short
+        // words and the row beside it already says the count.
+        case Phase::Knockdown: return "down";
         case Phase::Hitstun:  return "hitstun";
     }
     return "?";
@@ -270,6 +316,7 @@ glm::vec4 PhaseColour(Phase phase) {
         case Phase::Spent:    return kSpentCol;
         case Phase::Recovery: return kRecoveryCol;
         case Phase::Hitstun:  return kHitstunCol;
+        case Phase::Knockdown: return kKnockdownCol;
     }
     return kIdleCol;
 }
@@ -303,7 +350,9 @@ std::int32_t ProbeStageHalfWidthSub() {
 // --- Camera -------------------------------------------------------------------
 
 MyCoreEngine::Camera2D FightCamera(const cse::kernel::GameState& state,
-                                   int viewportW, int viewportH) {
+                                   int viewportW, int viewportH,
+                                   std::int32_t stageHalfWidthSub,
+                                   float previousCentrePx) {
     (void)viewportH;   // the vertical extent falls out of the aspect; see below
 
     MyCoreEngine::Camera2D cam{};
@@ -318,7 +367,57 @@ MyCoreEngine::Camera2D FightCamera(const cse::kernel::GameState& state,
     // simulation integers is the habit that eventually does.
     const float p0 = WorldPx(state.p[0].posX);
     const float p1 = WorldPx(state.p[1].posX);
-    cam.position = glm::vec2((p0 + p1) * 0.5f, kCameraHeightPx);
+
+    // --- the deadzone ---------------------------------------------------------
+    //
+    // Start from where the camera already was and move it only as far as it must.
+    // A camera that recentred on the midpoint every tick is a camera that answers
+    // "where are they" when the question is "what do I need to show" -- and the
+    // separation limit guarantees the pair always FITS, so most ticks the honest
+    // answer is "nothing, stay put".
+    //
+    // Asked for from play (2026-08-20): "the camera should remain fixed until a
+    // player moves in a way where it needs to move ... this will prevent players
+    // from constantly moving the camera."
+    //
+    // A caller with no previous frame passes the midpoint and gets the old
+    // behaviour for one tick, which is the right answer on the first frame of a
+    // match: there is no established framing to preserve.
+    float centre = previousCentrePx;
+
+    const float lo   = (p0 < p1 ? p0 : p1) - kCameraMarginPx;
+    const float hi   = (p0 > p1 ? p0 : p1) + kCameraMarginPx;
+    const float halfW = kViewHalfWidthPx;
+
+    // Scroll the MINIMUM that brings the offender back inside. Pushing to the
+    // midpoint instead would make one step at the edge yank the view across.
+    if (lo < centre - halfW) centre = lo + halfW;
+    if (hi > centre + halfW) centre = hi - halfW;
+
+    // AND IT STOPS AT THE WALLS. Without this the camera keeps centring on the
+    // pair as they reach a corner, so the wall drifts into the middle of the
+    // screen and the out-of-bounds band fills half the view -- and a corner
+    // stops looking like a wall and starts looking like the edge of the picture.
+    // Clamped, the corner arrives at the side of the screen and STAYS there,
+    // which is what tells a player they have run out of stage.
+    //
+    // Asked for from play (2026-08-20): "camera follow so we can go in either
+    // corner".
+    //
+    // The clamp is skipped when the stage is narrower than the view, because
+    // there is then no framing that hides both walls and centring is the only
+    // sensible answer. A stage that small is a test fixture rather than a level.
+    if (stageHalfWidthSub > 0) {
+        const float corner = WorldPx(stageHalfWidthSub);
+        if (corner > kViewHalfWidthPx) {
+            const float limit = corner - kViewHalfWidthPx;
+            centre = centre < -limit ? -limit : (centre > limit ? limit : centre);
+        } else {
+            centre = 0.0f;
+        }
+    }
+
+    cam.position = glm::vec2(centre, kCameraHeightPx);
 
     // BeginWorld computes its half-extents as (viewport / 2) / zoom, so this is
     // the zoom that makes the visible half-width exactly kViewHalfWidthPx
@@ -342,6 +441,43 @@ void DrawFightWorld(MyCoreEngine::Renderer2D& r2d,
     // something to stand on for the picture to read at all.
     const float span = corner * 2.0f + 400.0f;
     r2d.DrawQuad({ -corner - 200.0f, -80.0f }, { span, 80.0f }, kFloorCol, kLayerFloor);
+
+    // THE RULER. Squares from the stage's own centre outward, so the pattern is
+    // symmetric about x = 0 and the two corners are the same distance from the
+    // middle in squares as they are in pixels -- a checkerboard laid from the
+    // left edge would put the seam somewhere arbitrary and make the two halves
+    // read differently.
+    //
+    // Drawn only across the stage proper. Past the corner is not stage, and
+    // tiling the out-of-bounds band would suggest there is somewhere to stand.
+    {
+        const int cells = static_cast<int>(corner / kCellPx) + 1;
+        for (int i = -cells; i < cells; ++i) {
+            const float x = static_cast<float>(i) * kCellPx;
+            const float w = (x + kCellPx > corner) ? (corner - x) : kCellPx;
+            if (x >= corner || w <= 0.0f) continue;
+            if (x < -corner) continue;
+
+            // Alternating by the cell INDEX rather than by position, so the
+            // parity does not flip when the stage width changes.
+            const bool light = ((i % 2) + 2) % 2 == 0;
+            r2d.DrawQuad({ x, -80.0f }, { w, 80.0f },
+                         light ? kCellLight : kCellDark, kLayerFloor);
+
+            // A heavier line every reach unit, which is what turns counting
+            // squares into reading a distance.
+            if (((i % static_cast<int>(kCellsPerMajor)) + static_cast<int>(kCellsPerMajor))
+                    % static_cast<int>(kCellsPerMajor) == 0)
+                r2d.DrawQuad({ x - 0.5f, -80.0f }, { 1.0f, 84.0f },
+                             kMajorLine, kLayerStage);
+        }
+
+        // CENTRE STAGE, marked once and brighter. It is the position `V` puts
+        // the pair at, and the one place a distance can be read off in both
+        // directions at once.
+        r2d.DrawQuad({ -1.0f, -80.0f }, { 2.0f, 96.0f }, kOriginLine, kLayerStage);
+    }
+
     r2d.DrawQuad({ -corner - 200.0f, -1.0f }, { span, 1.0f }, kFloorLine, kLayerFloor);
 
     // BEYOND THE CORNER IS NOT STAGE. Tinted rather than left blank so the wall

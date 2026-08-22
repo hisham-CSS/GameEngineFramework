@@ -151,6 +151,7 @@ namespace {
     constexpr const char* kActReset = "Fight.Reset";
     constexpr const char* kActDemo  = "Fight.Demonstrate";
     constexpr const char* kActSwap  = "Fight.NextCharacter";
+    constexpr const char* kActStage = "Fight.StagePosition";
 
     struct ControlKey {
         const char* action;
@@ -164,6 +165,7 @@ namespace {
         { kActReset, GLFW_KEY_R,      -1 },
         { kActDemo,  GLFW_KEY_TAB,    -1 },
         { kActSwap,  GLFW_KEY_C,      -1 },
+        { kActStage, GLFW_KEY_V,      -1 },
     };
 
     // 1 -> 1/2 -> 1/4 -> 1/8 -> 1. Integer division of the host's fixed steps,
@@ -456,7 +458,7 @@ bool UntitledFighterMode::startCharacter_(int index) {
 
     // --- the opening position -------------------------------------------------
     //
-    // THE DUMMY GOES IN THE CORNER, and that is not a flourish. The in-engine
+    // THE DUMMY OPENS IN THE CORNER, and that is not a flourish. The in-engine
     // decision procedure is corner-only by construction (ProverAdapter.h note 2):
     // it answers for a defender pinned against the wall with no room to walk
     // away. Every verdict this mode puts on screen is about that position, so the
@@ -464,15 +466,22 @@ bool UntitledFighterMode::startCharacter_(int index) {
     // quoting a corner verdict at a player standing somewhere the verdict says
     // nothing about.
     //
-    // The corner itself is MEASURED off the kernel rather than typed in here; see
-    // ProbeStageHalfWidthSub.
+    // AND [V] MOVES IT TO MIDSCREEN, which is not a softening of that argument
+    // but the other half of it. Asked for from play (2026-08-20): "the training
+    // mode seems to keep the enemy in the corner so I can't really tell if
+    // pushback or anything like that is working." Both statements are true at
+    // once -- the corner is where the verdicts mean something, and it is also
+    // the one place on the stage where knockback has nowhere to put anybody, so
+    // every spacing mechanic this engine has is invisible there.
+    //
+    // Rather than choose, the mode says which position it is in and what that
+    // costs. The HUD carries the warning: midscreen, the verdict above the
+    // fighters is about a position they are not standing in.
+    bodyHalfWidthSub_  = options.body.halfWidthSub;
     stageHalfWidthSub_ = ProbeStageHalfWidthSub();
     setup_             = cse::game::FightSetup{};
     setup_.data        = &build_.data;   // BORROWED for the session's whole life
-    setup_.start.startPosX[kDummySlot] = stageHalfWidthSub_;
-    setup_.start.startPosX[kPlayerSlot] =
-        stageHalfWidthSub_ - (2 * options.body.halfWidthSub +
-                              kTrainingGapPx * cse::kernel::kSubUnitsPerPixel);
+    applyStagePosition_();
 
     std::string beginError;
     if (!session_.Begin(setup_, beginError)) {
@@ -489,9 +498,36 @@ bool UntitledFighterMode::startCharacter_(int index) {
     // decision nobody can find.
     session_.SetInputSource(kDummySlot, nullptr);
 
+    // The camera opens ON THE PAIR rather than holding a framing from a match
+    // that no longer exists. Without this a restart, or the [V] toggle, would
+    // leave the deadzone anchored where the last fight ended and scroll back
+    // across the stage on the first tick of the new one.
+    cameraCentrePx_ =
+        static_cast<float>((setup_.start.startPosX[kPlayerSlot] +
+                            setup_.start.startPosX[kDummySlot]) / 2) /
+        static_cast<float>(cse::kernel::kSubUnitsPerPixel);
+
     matchReady_ = true;
     refreshDemoNote_();
     return true;
+}
+
+// Where the two fighters start, for whichever position the mode is in. The GAP
+// between them is the same in both, so the only thing that changes is how much
+// room the dummy has behind it -- which is exactly the variable being toggled.
+void UntitledFighterMode::applyStagePosition_() {
+    const std::int32_t gap = 2 * bodyHalfWidthSub_ +
+                             kTrainingGapPx * cse::kernel::kSubUnitsPerPixel;
+
+    if (stageMidscreen_) {
+        // Centred, so there is a full half-stage of room on both sides and a
+        // knockback has somewhere to carry the dummy.
+        setup_.start.startPosX[kDummySlot]  = gap / 2;
+        setup_.start.startPosX[kPlayerSlot] = -(gap - gap / 2);
+    } else {
+        setup_.start.startPosX[kDummySlot]  = stageHalfWidthSub_;
+        setup_.start.startPosX[kPlayerSlot] = stageHalfWidthSub_ - gap;
+    }
 }
 
 void UntitledFighterMode::resetMatch_() {
@@ -570,19 +606,22 @@ cse::kernel::Input UntitledFighterMode::readPad_() const {
     if (!ctx_.app) return input;
     MyCoreEngine::InputMap& map = ctx_.app->input();
 
-    // isDown, NOT consumePressed. The kernel takes buttons HELD -- StepAttack
-    // scans for a move all of whose bits are held and starts it, with no notion
-    // of an edge, because honest edge detection would need the previous tick's
-    // buttons inside GameState and a rollback hands Simulate only the current
-    // tick's (Combat.cpp). So the right read here is a LEVEL, and a level read is
-    // phase-independent: it cannot be consumed by somebody else and cannot be
-    // missed by a frame that ran no tick.
+    // isDown, NOT consumePressed -- and since ROADMAP M1.1d that is the RIGHT
+    // read rather than a concession. StepAttack derives the edge itself from
+    // Fighter::prevButtons, because rollback re-simulates a tick from a snapshot
+    // and hands Simulate only that tick's bits: an edge computed out here would
+    // survive one replay and not the next. What this function owes the kernel is
+    // the honest LEVEL every tick, INCLUDING the ticks a button is not held --
+    // a reader that dropped those would replay a press as a hold and the kernel
+    // would never see a second press.
     //
-    // Holding a button therefore REPEATS a move as soon as the last one recovers.
-    // That is the kernel's documented gap, and on this character it is also the
-    // route 32 of the 33 runaway cycles actually take (tests/test_gap_extent.cpp),
-    // so a playtester holding one key is doing the most interesting thing
-    // available to them.
+    // A level read is also phase-independent: it cannot be consumed by somebody
+    // else and cannot be missed by a frame that ran no tick, which consumePressed
+    // can be and can.
+    //
+    // Holding a button therefore starts a move ONCE. It used to repeat the move
+    // the tick the last one recovered, which is what review point R0 found by
+    // playing; holding is now reserved for mechanics that do not exist yet.
     for (const MoveKey& key : kMoveKeys)
         if (map.isDown(key.action)) input.bits |= key.button;
     for (const MoveKey& key : kDirectionKeys)
@@ -618,6 +657,16 @@ void UntitledFighterMode::readControls_() {
     }
 
     if (map.consumePressed(kActReset)) resetMatch_();
+
+    // A position change is a RESTART, not a teleport. Moving two fighters in a
+    // live match would be presentation writing state the simulation did not
+    // produce, which is the one thing ADR-011 forbids outright; going through
+    // the same path R does keeps every tick something the session produced.
+    if (map.consumePressed(kActStage)) {
+        stageMidscreen_ = !stageMidscreen_;
+        applyStagePosition_();
+        resetMatch_();
+    }
 
     // --- FROM HERE DOWN, EVERY CONTROL ACTS ON A MATCH THAT IS RUNNING --------
     //
@@ -992,6 +1041,7 @@ FightHudModel UntitledFighterMode::hudModel_() const {
     model.slowDivisor = slowDivisor_;
     model.playerSlot  = kPlayerSlot;
     model.demoArmed   = demoArmed_();
+    model.stageMidscreen = stageMidscreen_;
     // BY VALUE, and it is the only field here that is a measurement rather than a
     // reading. See FightHudModel::hitAdvantage and latchHitAdvantage_.
     model.hitAdvantage = hitAdvantage_;
@@ -1055,7 +1105,11 @@ void UntitledFighterMode::Draw(MyCoreEngine::Renderer2D& r2d, int widthPx,
         // captured. UIPass's closing End() therefore restores the same bits it
         // would have restored anyway. The cost is two extra flushes per frame.
         r2d.End();
-        r2d.BeginWorld(FightCamera(session_.State(), widthPx, heightPx), widthPx,
+        const MyCoreEngine::Camera2D cam =
+            FightCamera(session_.State(), widthPx, heightPx,
+                        stageHalfWidthSub_, cameraCentrePx_);
+        cameraCentrePx_ = cam.position.x;   // the deadzone's memory
+        r2d.BeginWorld(cam, widthPx,
                        heightPx);
         DrawFightWorld(r2d, session_.State(), session_.Data(), stageHalfWidthSub_);
         r2d.End();

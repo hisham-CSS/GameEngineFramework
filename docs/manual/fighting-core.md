@@ -1,6 +1,6 @@
 # The Fighting-Game Core
 
-Verified: 2026-08-17 @ e2f08bd
+Verified: 2026-08-19 @ c4539be
 
 Cat Splat Engine is being built toward a deterministic, rollback-capable fighting game. That work does not live in `Engine/`. It is a **title** — `Games/UntitledFighter/` — and the engine does not depend on any of it. The link direction is a configure-time error, not a convention.
 
@@ -179,7 +179,14 @@ Three behaviours to design against:
 - **Hitstun is set, not added.** A fresh hit refreshes stun rather than stacking it. Stacking is how a two-hit string becomes inescapable.
 - **Being hit interrupts the defender's move** (`moveId = 0`). Hitstun gates *starting* a move and nothing else, so without this a fighter would go on swinging while being hit.
 
-> **Gotcha — moves start on buttons being HELD, not pressed.** `StepAttack` (`Games/UntitledFighter/Kernel/src/Combat.cpp`) scans move slots in ascending order and takes the first whose `button` mask is entirely held. So holding a button repeats a move as soon as the previous one recovers. Honest edge detection needs the previous tick's buttons *inside* `GameState`, which is a deliberate omission with its own consequences, spelled out in the "HELD, not pressed" comment above that scan. Two knock-on effects: a move whose mask is a superset of an earlier slot's can **never start** (see the binding warning below), and a test that wants a single hit must press for exactly one tick.
+**Moves start on the PRESS, and a press is an edge.** `StepAttack` (`Games/UntitledFighter/Kernel/src/Combat.cpp`) scans move slots in ascending order and takes the first whose `button` mask is entirely down *and* newly down this tick — `bits & ~prevButtons`. `Fighter::prevButtons` is where last tick's buttons live, and it is in `GameState` rather than in the input producer because a rollback hands `Simulate` only the current tick's bits, so an edge computed anywhere else replays a press as a hold ([DETERMINISM.md](../DETERMINISM.md) D6). Holding a button therefore starts a move **once**, and holding it is reserved for mechanics that do not exist yet.
+
+Two routes reach a move besides that press, both opt-in per character or per move:
+
+- **A buffered press.** `FighterData::inputBufferFrames` — zero, and so off, unless a file asks for it — remembers a press made while the fighter could not act, and **consumes** it the tick they can. It feeds the button scan *and* the cancel scan: a buffered press takes a cancel the tick its window opens, which is what makes a two-frame link something a human can hit. Consumed rather than aged, or one press would walk a fighter down a chain.
+- **A release.** `MoveDef::negativeEdge`, off by default, lets a move fire on `~bits & prevButtons` — the SF-lineage hold-motion-release special. Nothing distinguishes a "normal" from a "special" in the schema, so the rule *no normal fires on release* holds by construction: a normal that opts in is an authoring error, not a kernel one.
+
+> **Gotcha — a move whose mask is a superset of an earlier slot's can never start.** Slot order still decides, so `{Down, LP}` in a later slot is unreachable if `{LP}` sits in an earlier one; see the binding warning below. A test that wants a single hit now simply presses, but a test that wants the *same* move twice must release between the two presses — two presses on consecutive ticks is one hold.
 
 ### Snapshot, restore, checksum
 
@@ -360,7 +367,7 @@ Three binding diagnostics, all warnings rather than errors:
 > **Gotcha — a crouching normal bound to Down+LP silently never fires.**
 > *(Being fixed: [ROADMAP.md](../ROADMAP.md) M1.1c makes a binding
 > `button → strength` and lets the move's `stance` disambiguate, so a
-> crouching normal is LP-while-crouching rather than a chord.)* `StepAttack` takes the first move in slot order whose buttons are *all* held. `stand_lp` is slot 1 with `{LP}` and `crouch_lp` is slot 12 with `{Down, LP}`, so holding Down+LP can only ever produce `stand_lp`. That is the natural way somebody binds crouching normals, and it does not work. The builder detects the shadowing and warns; `MatchBridgeOptions.ABindingThatCanNeverStartIsReportedAndReallyNeverStarts` checks the warning *against the kernel* rather than merely believing it.
+> crouching normal is LP-while-crouching rather than a chord.)* `StepAttack` takes the first move in slot order whose buttons are *all* down on the tick they are pressed. `stand_lp` is slot 1 with `{LP}` and `crouch_lp` is slot 12 with `{Down, LP}`, so holding Down+LP can only ever produce `stand_lp`. That is the natural way somebody binds crouching normals, and it does not work. The builder detects the shadowing and warns; `MatchBridgeOptions.ABindingThatCanNeverStartIsReportedAndReallyNeverStarts` checks the warning *against the kernel* rather than merely believing it.
 
 ### Capacity: a refusal, not a truncation
 
@@ -670,7 +677,7 @@ Neither of those is the question a designer is actually asking. That question is
 
 ### The gap that has been measured rather than suspected: resources
 
-> **The kernel has no resources.** `Fighter::meter` is declared at `Games/UntitledFighter/Kernel/include/cse/kernel/GameState.h:54` and appears nowhere in `Games/UntitledFighter/Kernel/src/` — no rule reads it, no rule writes it. There is no juggle field at all, and no ceiling logic. **So a character whose termination depends on a resource running down has no such limit in the game: the bound the verdict rests on does not exist there.**
+> **The kernel simulates resources, and the bound still does not bind.** Since ROADMAP M1.1b, `FighterData::resources` carries each declared slot's initial, floor and ceiling in file order; `Fighter::res` is primed on the match's first tick; `MoveDef::effect` is applied on contact and clamped; and both routes into a move refuse one whose `MoveDef::guard` minimum is unmet. `super_beam` is no longer startable on an empty bar. **What is still missing is the juggle BUDGET, and it is a wiring gap rather than a design one:** `MatchBuilder` sets neither `FighterData::juggleMax` nor `MoveDef::juggleCost`, so the gate in `Games/UntitledFighter/Kernel/src/Combat.cpp` that refuses a hit which would overspend the budget has never fired for a built character. And `ApplyEffects` clamps at the floor rather than refusing, so a cost that cannot be paid is forgiven. **So a character whose termination depends on juggle running down still has no such limit in the game: the bound the verdict rests on is tracked but never enforced.**
 
 That is not a prediction. It was executed on 2026-08-13, on this project's own character, and it is the second half of the ground-truth validation [ARCHITECTURE.md](../ARCHITECTURE.md)'s research section asks for (ADR-001 section 6.1 records both halves).
 
@@ -696,9 +703,9 @@ It names both resources, in order, `meter, juggle`. Only juggle can actually run
 
 | Mechanism | Where it went |
 |---|---|
-| `resources` ×2 | `KernelOmits` — "the kernel has one integer called meter and no ceiling logic at all" |
-| `move.effect` ×3 | `KernelOmits` — the delta is never applied, so juggle is never spent |
-| `move.guard` ×1 | `KernelPermits` — the minimum is never checked, so `super_beam` is startable on an empty bar |
+| `resources` ×2 | `Exact` since M1.1b — initial, floor and ceiling all carried, in file order |
+| `move.effect` ×3 | `Exact` since M1.1b — the delta is applied on contact and clamped. The clamp is what still forgives an unpayable juggle cost |
+| `move.guard` ×1 | `Exact` since M1.1b — the minimum is checked on both start routes, so `super_beam` is no longer startable on an empty bar |
 | `move.stance` ×18 | `KernelPermits` — every move in the file restricts its stance and the kernel gates on nothing but stun, so an *air* move is startable standing. A second and independent reason this loop runs |
 
 `tests/test_ground_truth.cpp` then handed the kernel a trace derived from the prover's own witness — nothing hardcodes a button; the trace is built by walking `ProverResult`, so the claim is that *the engine* can read the verdict, not that a human can. **The kernel performed `air_mp` into itself 18 times in 200 ticks — a cancel the model permits four of — at a fixed period, with a mashing defender out of hitstun on 0 ticks and starting a move on 0 ticks.** `BuildReport::playsAsAnalysed` is `false` for this character, and that test is what the flag costs.
@@ -713,7 +720,7 @@ The claim is precise, and overstating it would cost the page its usefulness:
 
 - **The prover is not wrong.** It is sound about the file it was given. What fails is the projection from that file to the running game — the *conservative* direction in `ProverAdapter.h`'s vocabulary, moved one layer down.
 - **It does not mean every model cycle is performable in the game.** The kernel differs in both directions at once, and the model's loop is one question while the kernel performing it is another. What is settled is that the *bound* is gone.
-- **A loop being inert in the kernel is not a safety property.** An edge whose authored delay outlives its source resolves to an empty window, so the kernel can never take it *as a cancel* — but the file's requirement was **contact**, and the ordinary button start permits the follow-up whether or not the source connected. `MatchBuilder` records that case as `cancels (link, not cancel)`, direction **`KernelPermits`**. Remember also that [moves start on buttons **held**, not pressed](#hit-resolution): holding a button repeats a move the tick it recovers, which is a chain the cancel table never had to contain.
+- **A loop being inert in the kernel is not a safety property.** An edge whose authored delay outlives its source resolves to an empty window, so the kernel can never take it *as a cancel* — but the file's requirement was **contact**, and the ordinary button start permits the follow-up whether or not the source connected. `MatchBuilder` records that case as `cancels (link, not cancel)`, direction **`KernelPermits`**. The hold-repeat chain that used to widen this gap is **gone**: [moves start on the press](#hit-resolution) since ROADMAP M1.1d, so holding a button no longer repeats a move the tick it recovers. The measured figures below survived that change — `GapExtentKernel.NinetySevenOfThe121RunForever` still counts 97 — which is worth more than the numbers themselves, because it says the gap was never an artifact of the input model. An earlier note in this spot claimed the hold-repeat was *most* of the measured gap; it was a stalled test harness rather than the kernel, and M1.1d's roadmap entry records both that correction and the second harness bug found closing it.
 - **Frame arithmetic survives the projection far better than resources do**, and for a structural reason: the kernel counts `hitstun` down every tick, so a follow-up that arrives after the defender is free meets a defender who can act. Nothing in the kernel counts a resource down. Termination that rests on frames is carried by the simulation; termination that rests on a resource is carried by nothing.
 
 #### What to do about it today

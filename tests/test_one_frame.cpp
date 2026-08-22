@@ -333,8 +333,21 @@ constexpr std::int32_t kHeight    = px(60);
 // anyway; and the kernel applies no pushback on hit at all (MatchBuilder's
 // `move.pushback` row: "the kernel moves nobody on hit"). The gap is 8 px on
 // every tick of every run below.
-constexpr std::int32_t kP0X = -px(17);
-constexpr std::int32_t kP1X =  px(17);
+// IN THE CORNER, for the reason tests/test_gap_extent.cpp states at length:
+// the verdicts these combos come from were computed at `stage: corner`, where
+// the model drops horizontal position entirely. Opening midscreen was harmless
+// while nothing moved the defender; once ROADMAP M1.3d wired pushback it meant
+// measuring a sliding midscreen exchange against a corner-only analysis, and
+// every loop here died of separation the model does not model.
+constexpr std::int32_t kStageEdge = 480 * cse::kernel::kSubUnitsPerPixel;
+//
+// THE DEFENDER'S BODY IS AGAINST THE WALL, not its origin. Since ROADMAP M1.2
+// the stage clamps the BODY -- a fighter may not disappear half into the corner
+// -- so an origin placed exactly on the edge is outside its own limit and the
+// first tick shoves it inward. That is not a cornered opening, it is a fighter
+// falling into position while the test believes nothing has happened.
+constexpr std::int32_t kP1X =  kStageEdge - kHalfWidth;
+constexpr std::int32_t kP0X =  kP1X - px(34);
 
 BodySpec body() {
     BodySpec b{};
@@ -359,7 +372,24 @@ bool buildMirror(const CharacterData& c, const std::vector<MoveBinding>& binding
     BuildOptions options{};
     options.body     = body();
     options.bindings = bindings;
-    return BuildMatchData(c, options, c, options, out);
+    if (!BuildMatchData(c, options, c, options, out)) return false;
+
+    // A BUFFER WINDOW WIDE ENOUGH THAT INPUT IS NEVER THE ANSWER, because the
+    // question this file asks is "on which frame does the KERNEL take this
+    // cancel" and a driver is only allowed to supply the press, not to decide
+    // the frame. Under press-activation a driver re-presses every third tick --
+    // it must release to have an edge to press -- so without buffering a window
+    // that opens on an odd frame is taken one or two ticks late and the
+    // measured period is the driver's period, not the window's. Four covers the
+    // re-press cycle with a tick to spare; the buffered press is then consumed
+    // the exact frame the window opens.
+    //
+    // Set here rather than in `fighter_a.json` because the character file has no
+    // such field yet: authoring one is ROADMAP M1.1e, which owes it ADR-011's
+    // five parts. Until then a probe that needs the mechanism asks for it.
+    out.data.p[0].inputBufferFrames = 4;
+    out.data.p[1].inputBufferFrames = 4;
+    return true;
 }
 
 // Returns false with a reason rather than asserting, because the sweep calls
@@ -603,12 +633,39 @@ public:
         return !slots_.empty();
     }
 
-    std::uint16_t Bits() const { return buttons_.empty() ? 0 : buttons_[cursor_]; }
+    // A FIFTH COPY of the same cursor, and the same two input rules -- see the
+    // note in tests/test_gap_extent.cpp and ROADMAP M1.6, which promotes one
+    // copy into CseGame and deletes the rest.
+    //
+    // Silent on a release tick, because a held bit is one press however long it
+    // lasts, and this file's whole subject is a move cancelled into ITSELF: the
+    // same bit, twice running, with nothing between them but a frame. Without
+    // the release the second press never happens and the string stops at one
+    // hit -- which reads as "the kernel refused the link" when nothing was ever
+    // asked of it.
+    std::uint16_t Bits() const {
+        if (release_ || buttons_.empty()) return 0;
+        return buttons_[cursor_];
+    }
 
+    // The start is checked BEFORE the release tick is spent: a buffered press is
+    // consumed the tick the fighter can act, which is very often a tick this
+    // driver is deliberately silent on.
     void Observe(std::uint16_t attackerMove, std::uint16_t attackerFrame) {
         if (slots_.empty()) return;
-        if (attackerMove != slots_[cursor_] || attackerFrame != 0) return;
-        cursor_ = (cursor_ + 1 < slots_.size()) ? cursor_ + 1 : loopStart_;
+        if (attackerMove == slots_[cursor_] && attackerFrame == 0) {
+            waiting_ = 0;
+            const std::uint16_t justUsed = buttons_[cursor_];
+            cursor_ = (cursor_ + 1 < slots_.size()) ? cursor_ + 1 : loopStart_;
+            release_ = (buttons_[cursor_] == justUsed);
+            return;
+        }
+        if (release_) { release_ = false; return; }
+        // And a re-press while WAITING, because a driver that stalls holding a
+        // button feeds the kernel nothing at all, and "the string stopped" would
+        // then mean "the driver went quiet" rather than "the game refused".
+        ++waiting_;
+        if (waiting_ >= kRepressAfter) { release_ = true; waiting_ = 0; }
     }
 
     std::size_t LoopLength() const { return slots_.size() - loopStart_; }
@@ -619,6 +676,9 @@ private:
     std::vector<std::string>   ids_;
     std::size_t                loopStart_ = 0;
     std::size_t                cursor_    = 0;
+    bool                       release_   = false;
+    int                        waiting_   = 0;
+    static constexpr int       kRepressAfter = 2;
 };
 
 // Silent is the clean measurement: the defender's escapes are read straight off
@@ -706,7 +766,12 @@ TickLog drive(const MatchData& data, Trace& trace, int ticks,
         in.p[0].bits = trace.Bits();
         if (policy == DefenderPolicy::MashesOnceHit && run.firstHitTick >= 0 &&
             t > run.firstHitTick) {
-            in.p[1].bits = defenderBits;
+            // Pulsed, not held: the defender is asking to act as often as the
+            // kernel will let it, and under press-activation that is an edge
+            // every other tick. Held bits would be one press for the whole
+            // string, so "the defender never started a move" would be a
+            // statement about this line rather than about the combo.
+            in.p[1].bits = (t % 2 == 0) ? defenderBits : 0u;
         }
 
         cse::kernel::Simulate(s, in, data);

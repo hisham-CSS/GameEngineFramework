@@ -419,6 +419,51 @@ TEST(P2Knockdown, PreventsActingUntilItExpires) {
     EXPECT_GT(s.p[1].knockdown, 0) << "the knockdown expired early";
 }
 
+// AND A FIGHTER ON THE FLOOR CANNOT BE HIT, which is the half that makes a
+// knockdown READABLE from outside.
+//
+// Asked for from play (2026-08-20): "we can't really tell when crouching or
+// knockdowns occur". A knockdown that only stopped the defender ACTING looks
+// exactly like a long hitstun from the other side of the screen -- you keep
+// hitting them and they keep not answering. A knockdown that also refuses your
+// attacks announces itself the first time one passes through.
+//
+// It is not a new authored mechanic and gets no field of its own: the opt-in is
+// already `causes_knockdown` plus its duration, and this is what the kernel
+// MEANS by the state those two put a fighter into. A move that knocks nobody
+// down grants nobody this.
+//
+// OTG rules -- hitting a downed opponent on purpose -- are a later mechanic and
+// will be an authored per-move field when they arrive, not a loosening here.
+TEST(P2Knockdown, AFighterOnTheFloorCannotBeHit) {
+    auto data = twoFighters();
+    data->p[0].moves[1].knockdownTicks = 20;
+    data->p[0].moves[1].hitstun        = 1;
+
+    GameState s = facingOff();
+    ResolveHits(s, *data);
+    ASSERT_EQ(s.p[1].knockdown, 20) << "precondition: the defender went down";
+
+    const std::int32_t healthOnTheFloor = s.p[1].health;
+
+    // Hit them again, on the floor, from a move that is unambiguously active.
+    for (int t = 0; t < 5; ++t) {
+        s.p[0].moveId         = 1;
+        s.p[0].moveFrame      = 1;
+        s.p[0].alreadyHitBits = 0;
+        ResolveHits(s, *data);
+    }
+
+    EXPECT_EQ(s.p[1].health, healthOnTheFloor)
+        << "the defender lost " << (healthOnTheFloor - s.p[1].health)
+        << " more health while knocked down. A body on the floor is not a "
+           "target: without this a sweep becomes the opening of an unescapable "
+           "loop, because the one state that should END pressure instead "
+           "guarantees it.";
+    EXPECT_GT(s.p[1].knockdown, 0)
+        << "the knockdown expired inside the window this test measures";
+}
+
 // --- Juggle -----------------------------------------------------------------
 
 TEST(P2Juggle, RefusesTheHitThatWouldOverspendTheBudget) {
@@ -785,4 +830,1112 @@ TEST(P3Attacks, TwoMovesOnOneButtonWithOverlappingStancesShadowTheHigherSlot) {
            "unreachable. The DATA LAYER is where this is refused -- see the "
            "build report -- because the kernel cannot tell a shadow from a "
            "deliberate ordering.";
+}
+
+// --- Input edges and buffering (ROADMAP M1.1d) ------------------------------
+
+// Holding a button used to restart the move every time it recovered. That is
+// not a fighting-game mechanic, and it made any recorded "combo" suspect: one
+// key held is not a link, and the showcase's whole claim is that its loops are
+// performable rather than mashed.
+//
+// Found by playing (review point R0). No test could have reported it, because
+// "held" is exactly what StepAttack's scan said it did.
+TEST(P3Input, HoldingAButtonStartsTheMoveOnceNotEveryRecovery) {
+    auto data = twoFighters();
+    // startup 1 + active 2 + recovery 5 = 8 ticks, so a held button under the
+    // old rule restarted on tick 9 and every 8 ticks after it.
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+
+    InputPair in{};
+    in.p[0].bits = kInputLP;
+
+    // COUNT moveFrame == 0, not a change of moveId. A move that restarts the
+    // instant it recovers never leaves slot 1, so watching moveId transition
+    // from not-1 to 1 counts ZERO restarts and the test passes against the very
+    // bug it is named for. Found by reverting it, which is what reverting is
+    // for.
+    int starts = 0;
+    for (int t = 0; t < 40; ++t) {
+        Simulate(s, in, *data);            // held, every tick, never released
+        if (s.p[0].moveId == 1 && s.p[0].moveFrame == 0) ++starts;
+    }
+
+    EXPECT_EQ(1, starts)
+        << "the move started " << starts << " times while the button was merely "
+           "HELD. A press is an edge; holding is one press, however long it "
+           "lasts.";
+}
+
+// The other half of the same field: releasing and pressing again is two presses,
+// so edge detection must not make a button single-use.
+TEST(P3Input, ReleasingAndPressingAgainStartsItAgain) {
+    auto data = twoFighters();
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+
+    InputPair held{}, none{};
+    held.p[0].bits = kInputLP;
+
+    int starts = 0;
+    for (int cycle = 0; cycle < 3; ++cycle) {
+        const std::uint16_t before = s.p[0].moveId;
+        Simulate(s, held, *data);
+        if (s.p[0].moveId == 1 && before != 1) ++starts;
+        for (int t = 0; t < 9; ++t) Simulate(s, none, *data);  // recover, released
+    }
+
+    EXPECT_EQ(3, starts)
+        << "three separate presses produced " << starts
+        << " moves. Edge detection must distinguish a hold from a press, not "
+           "turn a button into a one-shot.";
+}
+
+// A press during recovery is kept and spent the tick the fighter can act. This
+// is what makes a link feel like timing rather than a coin flip -- and the
+// window is authored, so a character that declares none behaves as before.
+TEST(P3Input, APressDuringRecoveryFiresTheTickTheFighterCanAct) {
+    auto data = twoFighters();
+    // Generous on purpose. The property is "a press the fighter could not act on
+    // is spent the tick they can", not "it survives exactly N ticks" -- encoding
+    // the move's duration here would make this a test about the bench's frame
+    // data, and it would go red the day someone retuned it.
+    data->p[0].inputBufferFrames = 60;
+
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+
+    InputPair press{}, none{};
+    press.p[0].bits = kInputLP;
+
+    Simulate(s, press, *data);                 // starts the move
+    ASSERT_EQ(1u, s.p[0].moveId);
+    ASSERT_EQ(0u, s.p[0].moveFrame);
+
+    // Released, THEN pressed again while the move is still running -- too early,
+    // on purpose. The release matters: two presses on consecutive ticks with
+    // nothing between them is a HOLD, which is one press however long it lasts,
+    // and there would be no second edge to buffer. The first draft of this test
+    // got that wrong and reported the buffer dropping a press that was never
+    // made.
+    Simulate(s, none,  *data);
+    Simulate(s, press, *data);
+    int restarts = 0;
+    for (int t = 0; t < 30; ++t) {
+        Simulate(s, none, *data);
+        if (s.p[0].moveId == 1 && s.p[0].moveFrame == 0) ++restarts;
+    }
+
+    EXPECT_EQ(1, restarts)
+        << "the early press produced " << restarts << " restarts. Zero means the "
+           "buffer dropped it -- a buffer that never fires is not a buffer. More "
+           "than one means it was aged rather than CONSUMED, and one press "
+           "started several moves.";
+}
+
+// And with no authored window, nothing is remembered -- the pre-M1.1d kernel.
+TEST(P3Input, WithNoAuthoredWindowAPressDuringRecoveryIsForgotten) {
+    auto data = twoFighters();
+    data->p[0].inputBufferFrames = 0;          // the file authored none
+
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+
+    InputPair press{}, none{};
+    press.p[0].bits = kInputLP;
+
+    Simulate(s, press, *data);
+    ASSERT_EQ(1u, s.p[0].moveId);
+    for (int t = 0; t < 3; ++t) Simulate(s, none, *data);
+    Simulate(s, press, *data);                 // during recovery, not buffered
+    for (int t = 0; t < 6; ++t) Simulate(s, none, *data);
+
+    EXPECT_EQ(0u, s.p[0].moveId)
+        << "a press was remembered by a character that authors no buffer window. "
+           "Opt-in means a silent file gets the behaviour it had before the "
+           "field existed.";
+}
+
+// Negative edge: hold, then release, and the move comes out -- for a move that
+// asked for it, and only for that move.
+TEST(P3Input, ANegativeEdgeMoveFiresOnReleaseAndOnlyWhenAuthored) {
+    auto data = twoFighters();
+    data->p[0].moves[1].negativeEdge = 1;      // this one accepts a release
+    data->p[1].moves[1].negativeEdge = 0;      // this one does not
+
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+
+    InputPair held{}, none{};
+    held.p[0].bits = kInputLP;
+    held.p[1].bits = kInputLP;
+
+    // Both start on the press, then both finish their move while held.
+    for (int t = 0; t < 9; ++t) Simulate(s, held, *data);
+    ASSERT_EQ(0u, s.p[0].moveId) << "p0 never returned to idle";
+    ASSERT_EQ(0u, s.p[1].moveId) << "p1 never returned to idle";
+
+    Simulate(s, none, *data);                  // the release tick
+
+    EXPECT_EQ(1u, s.p[0].moveId)
+        << "releasing the button did not start the move that authored "
+           "negativeEdge. Hold, motion, release is the mechanic this field is "
+           "named for.";
+    EXPECT_EQ(0u, s.p[1].moveId)
+        << "a move that did NOT author negativeEdge fired on release. Every "
+           "mechanic is opt-in; a silent file must behave as it did before.";
+}
+
+// --- A buffered press and the cancel system ---------------------------------
+//
+// THE DECISION THIS PINS: a buffered press triggers a cancel, and the cancel
+// CONSUMES it. Both halves are choices and both are load-bearing.
+//
+// Triggering is what makes links and cancels performable by a human. A player
+// aiming at a two-frame window presses slightly early far more often than
+// slightly late, so a cancel that reads only the current tick's bits is a cancel
+// that punishes the common miss and rewards nothing. The buffered press IS the
+// input meant for the cancel; it simply arrived before the window opened.
+//
+// Consuming is what stops the fighter choosing its own timing. StepAttack's
+// cancel branch returns before the button scan, so a buffered press that
+// survived the cancel it triggered would still be sitting there for the NEXT
+// window, and a single press would walk a fighter several moves down a chain.
+namespace {
+
+// The source is slot 1 (LP), the follow-up slot 2 (MP), and one edge joins them
+// in the middle of the source's life. `onHit` is 0 so the edge is available on a
+// whiff: this file's bench has no defender in range, and requiring contact would
+// make the test depend on hit detection rather than on the buffer.
+//
+// THE WINDOW CLOSES BEFORE THE MOVE DOES, and that gap is the entire instrument.
+// `attack()` is 1 + 2 + 5 = 8 ticks, so its last frame is 7. A buffered press
+// that the CANCEL took shows up with the source interrupted somewhere in
+// [4, 6]; a buffered press the cancel ignored is still sitting in the buffer
+// when the source ends, and the BUTTON scan starts the same follow-up off frame
+// 7 instead. Both routes produce exactly one start of slot 2, so a test that
+// only counted starts -- as the first draft of this one did -- passes with the
+// change reverted and proves nothing. The frame is what tells them apart.
+constexpr std::int32_t kSourceDuration = 8;
+constexpr std::int32_t kCancelOpens    = 4;
+constexpr std::int32_t kCancelCloses   = 6;
+
+std::unique_ptr<MatchData> chainBench() {
+    auto d = twoFighters();
+    MoveDef follow = attack();
+    follow.button  = kInputMP;
+    d->p[0].moves[2]   = follow;
+    d->p[0].moveCount  = 3;
+
+    CancelEdge& e   = d->p[0].cancels[0];
+    e.from          = 1;
+    e.to            = 2;
+    e.earliestFrame = kCancelOpens;
+    e.latestFrame   = kCancelCloses;
+    e.onHit         = 0;
+    d->p[0].cancelCount = 1;
+    return d;
+}
+
+// Press LP, release, press MP too early, then go silent and watch. Returns the
+// number of ticks that started slot 2, and reports the source's frame on the
+// tick before the first of them.
+int runEarlyCancel(MatchData& data, std::int32_t& sourceFrameBefore) {
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+
+    InputPair lp{}, mp{}, none{};
+    lp.p[0].bits = kInputLP;
+    mp.p[0].bits = kInputMP;
+
+    Simulate(s, lp, data);
+    EXPECT_EQ(1u, s.p[0].moveId) << "the source move did not start";
+
+    // The release is not decoration: LP down then MP down on consecutive ticks
+    // is still an edge for MP, but going through neutral is what a human does
+    // and it keeps this test measuring the buffer rather than a chord.
+    Simulate(s, none, data);
+    Simulate(s, mp, data);
+
+    sourceFrameBefore = -1;
+    int starts = 0;
+    for (int t = 0; t < 30; ++t) {
+        const std::int32_t before = static_cast<std::int32_t>(s.p[0].moveFrame);
+        const std::uint16_t beforeId = s.p[0].moveId;
+        Simulate(s, none, data);
+        if (s.p[0].moveId == 2u && s.p[0].moveFrame == 0u) {
+            if (starts == 0 && beforeId == 1u) sourceFrameBefore = before;
+            ++starts;
+        }
+    }
+    return starts;
+}
+
+}  // namespace
+
+TEST(P3Input, ABufferedPressTakesTheCancelTheTickItsWindowOpens) {
+    auto data = chainBench();
+    data->p[0].inputBufferFrames = 60;   // generous; see the note above
+
+    std::int32_t frameBefore = -1;
+    const int starts = runEarlyCancel(*data, frameBefore);
+
+    EXPECT_EQ(1, starts)
+        << "the early MP produced " << starts << " starts of the follow-up. Zero "
+           "means a buffered press cannot take a cancel, so every link has to be "
+           "hit on its exact frame. More than one means the cancel did not "
+           "CONSUME the press, and one button push walked the fighter down the "
+           "chain more than once.";
+
+    EXPECT_GE(frameBefore, kCancelOpens - 1)
+        << "the follow-up came out with the source on frame " << frameBefore
+        << ", before the window at [" << kCancelOpens << ", " << kCancelCloses
+        << "] could have opened. A buffer may make a cancel EASIER to reach; it "
+           "may not make one available early.";
+    EXPECT_LE(frameBefore, kCancelCloses)
+        << "the follow-up came out with the source on frame " << frameBefore
+        << " and the window closes at " << kCancelCloses << ". Frame "
+        << (kSourceDuration - 1)
+        << " means the source was SPENT rather than interrupted: the cancel "
+           "ignored the buffered press and the button scan picked it up after "
+           "the move ended, which is the pre-change behaviour.";
+}
+
+// And the control: the same early press, with no authored window, is forgotten.
+// This is what says the buffer is the mechanism above rather than a coincidence
+// of the frame numbers.
+TEST(P3Input, WithNoAuthoredWindowAnEarlyPressMissesTheCancelEntirely) {
+    auto data = chainBench();
+    data->p[0].inputBufferFrames = 0;    // the file authored none
+
+    std::int32_t frameBefore = -1;
+    const int starts = runEarlyCancel(*data, frameBefore);
+
+    EXPECT_EQ(0, starts)
+        << "a press made before the cancel window opened still reached the "
+           "follow-up, for a character that authors no buffer at all. Opt-in "
+           "means a silent file behaves exactly as it did before the field "
+           "existed -- neither the cancel route nor the button route may "
+           "remember a press this character never asked to have remembered.";
+}
+
+// --- Movement parameters come from the file ---------------------------------
+//
+// The kernel's `kWalkSpeed` is one of a block of constants Simulate.cpp itself
+// labels "placeholders for values that will come from character data", and walk
+// speed is the one that decides whether a MICROWALK LOOP exists: the attacker
+// steps forward between two hits to stay in range, and a pixel per tick is the
+// difference between a string that drops and one that repeats forever. It is
+// also the loop the corner-only prover cannot see, so the engine is the only
+// thing that can show it.
+//
+// Measured as a DISTANCE OVER TICKS rather than by reading velX, because a
+// harness that reads the same field the kernel wrote proves only that the field
+// exists. Position is what a hitbox is tested against.
+namespace {
+
+std::int32_t walkedRightFor(MatchData& data, int ticks) {
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+    const std::int32_t startX = s.p[0].posX;
+
+    InputPair right{};
+    right.p[0].bits = kInputRight;
+    for (int t = 0; t < ticks; ++t) Simulate(s, right, data);
+    return s.p[0].posX - startX;
+}
+
+}  // namespace
+
+TEST(P3Movement, WalkSpeedComesFromTheFile) {
+    constexpr int          kTicks   = 10;
+    constexpr std::int32_t kAuthored = 3 * kSubUnitsPerPixel;   // fighter_a's number
+
+    auto data = twoFighters();
+    data->p[0].walkSpeedSub = kAuthored;
+
+    EXPECT_EQ(walkedRightFor(*data, kTicks), kAuthored * kTicks)
+        << "the fighter did not travel the authored speed for " << kTicks
+        << " ticks. A walk speed the kernel does not read is a balance number "
+           "the file cannot set, and the microwalk variant (ADR-011 section 4) "
+           "is authored as +1 px/tick FROM THE BASE -- so a base the file does "
+           "not own makes that variant unexpressible.";
+}
+
+// And a file that authors nothing plays exactly as it did before the field
+// existed. This is the half that says the change is opt-in rather than a
+// retuning of every character that has not been revisited.
+TEST(P3Movement, ACharacterThatAuthorsNoWalkSpeedKeepsThePlaceholder) {
+    constexpr int          kTicks       = 10;
+    constexpr std::int32_t kPlaceholder = 2 * kSubUnitsPerPixel;   // Simulate.cpp's
+
+    auto data = twoFighters();
+    ASSERT_EQ(data->p[0].walkSpeedSub, 0)
+        << "the bench authored a walk speed, so this test cannot say what an "
+           "unauthored character does.";
+
+    EXPECT_EQ(walkedRightFor(*data, kTicks), kPlaceholder * kTicks)
+        << "an unauthored character no longer walks at the kernel's placeholder. "
+           "Every harness that builds a synthetic FighterData -- including the "
+           "cross-toolchain scripted match, whose golden hash is recorded "
+           "against these positions -- expects the old number.";
+}
+
+// --- Resources ---------------------------------------------------------------
+//
+// A resource is whatever the character file says it is: meter, juggle, a stock
+// of one-per-round reversals. The kernel holds four integer slots and no names
+// at all, because the loader resolved every authored name to an INDEX once and
+// index i means the same resource in every file a build loads. That is the
+// contract the prover keys on positionally (ADR-001 section 8 item 7, A03), and
+// the third test below is the one that would notice it being broken.
+namespace {
+
+constexpr std::int32_t kMeterSlot  = 0;
+constexpr std::int32_t kSecondSlot = 1;
+
+// One resource, meter-shaped: starts empty, cannot go below zero, caps at 100.
+// The move on slot 1 gains 25 of it per contact.
+std::unique_ptr<MatchData> meterBench() {
+    auto d = twoFighters();
+    for (int p = 0; p < 2; ++p) {
+        FighterData& fd = d->p[p];
+        fd.resourceCount              = 1;
+        fd.resources[kMeterSlot]      = ResourceDef{ 0, 0, 100, 1u, {0, 0, 0} };
+        fd.moves[1].effect[kMeterSlot] = 25;
+    }
+    return d;
+}
+
+}  // namespace
+
+TEST(P3Resources, MeterGainsOnHitAndSpendsOnGuard) {
+    auto data = meterBench();
+    GameState s = facingOff();
+
+    ASSERT_EQ(s.p[0].res[kMeterSlot], 0)
+        << "the bench opened with meter already in it, so a gain cannot be told "
+           "from the starting value";
+
+    ResolveHits(s, *data);
+
+    EXPECT_EQ(s.p[0].res[kMeterSlot], 25)
+        << "the attacker's move authored +25 meter and landed, and the fighter "
+           "holds " << s.p[0].res[kMeterSlot]
+        << ". A resource nothing writes is a resource no move can cost.";
+
+    // AND IT STOPS AT THE CEILING. Asserted by driving past it rather than by
+    // reading the field back, because a clamp that is written but never reached
+    // is a clamp nobody has tested.
+    //
+    // The move is RE-ARMED each time: a hit interrupts the defender's move, and
+    // this bench is symmetric, so the first exchange leaves neither fighter
+    // holding an active hitbox. Clearing alreadyHitBits alone gains nothing --
+    // which is how the first draft of this loop measured one hit and called it
+    // ten.
+    for (int i = 0; i < 5; ++i) {
+        for (int q = 0; q < 2; ++q) {
+            s.p[q].moveId         = 1;
+            s.p[q].moveFrame      = 1;
+            s.p[q].alreadyHitBits = 0;
+        }
+        ResolveHits(s, *data);
+    }
+    EXPECT_EQ(s.p[0].res[kMeterSlot], 100)
+        << "meter reached " << s.p[0].res[kMeterSlot]
+        << " against an authored ceiling of 100. A resource that runs past its "
+           "ceiling makes every guard below it meaningless.";
+}
+
+// A guarded move is one the fighter may not START below the minimum -- on
+// EITHER route into it, because a cancel and a button press are two doors into
+// the same room and a door left open is the whole cost avoided.
+//
+// The refusal is a FALL-THROUGH and not a swallowed press: slot order still
+// decides, so an unaffordable super lets the next slot sharing that button
+// answer instead. That is how a super and a heavy normal live on one button in
+// the genre, and it is the half a test that only checked "the super did not come
+// out" would miss.
+TEST(P3Resources, AGuardedCancelRefusesBelowTheMinimum) {
+    auto data = meterBench();
+    FighterData& fd = data->p[0];
+
+    // Slot 2: the expensive follow-up. Same button as nothing else, so the only
+    // question about it is whether it can be afforded.
+    fd.moves[2]                   = fd.moves[1];
+    fd.moves[2].button            = kInputMP;
+    fd.moves[2].effect[kMeterSlot] = 0;
+    fd.moves[2].guard[kMeterSlot]  = 50;
+    fd.moves[2].guardMask          = 1u << kMeterSlot;
+    fd.moveCount                   = 3;
+
+    // And a cancel into it from slot 1, so both routes are exercised.
+    CancelEdge& e   = fd.cancels[0];
+    e.from          = 1;
+    e.to            = 2;
+    e.earliestFrame = 1;
+    e.latestFrame   = 6;
+    e.onHit         = 0;
+    fd.cancelCount  = 1;
+
+    // --- the button route, broke ---------------------------------------------
+    {
+        GameState s{};
+        ResetMatch(s, 0x1D7u);
+        InputPair mp{};
+        mp.p[0].bits = kInputMP;
+        Simulate(s, mp, *data);
+
+        EXPECT_EQ(s.p[0].moveId, 0u)
+            << "the expensive move started with " << s.p[0].res[kMeterSlot]
+            << " meter against a minimum of 50. A guard that does not refuse is "
+               "a cost the character never pays.";
+    }
+
+    // --- the button route, paid ----------------------------------------------
+    {
+        GameState s{};
+        ResetMatch(s, 0x1D7u);
+        Simulate(s, InputPair{}, *data);      // tick 0 primes; then afford it
+        s.p[0].res[kMeterSlot] = 50;
+
+        InputPair mp{};
+        mp.p[0].bits = kInputMP;
+        Simulate(s, mp, *data);
+
+        EXPECT_EQ(s.p[0].moveId, 2u)
+            << "the fighter holds exactly the minimum and the move still did not "
+               "start. The guard is a MINIMUM, so equal must pass -- an "
+               "off-by-one here makes every cost one higher than the file says.";
+    }
+
+    // --- the cancel route, broke ---------------------------------------------
+    {
+        GameState s{};
+        ResetMatch(s, 0x1D7u);
+        InputPair lp{}, mp{};
+        lp.p[0].bits = kInputLP;
+        mp.p[0].bits = kInputMP;
+
+        Simulate(s, lp, *data);
+        ASSERT_EQ(s.p[0].moveId, 1u) << "the source move did not start";
+        s.p[0].res[kMeterSlot] = 0;           // undo the source's own gain
+
+        Simulate(s, mp, *data);
+        EXPECT_EQ(s.p[0].moveId, 1u)
+            << "the cancel into the expensive move was taken with "
+            << s.p[0].res[kMeterSlot]
+            << " meter. A guard checked on one route into a move and not the "
+               "other is not a guard.";
+    }
+
+    // --- the cancel route, paid ----------------------------------------------
+    {
+        GameState s{};
+        ResetMatch(s, 0x1D7u);
+        InputPair lp{}, mp{};
+        lp.p[0].bits = kInputLP;
+        mp.p[0].bits = kInputMP;
+
+        Simulate(s, lp, *data);
+        ASSERT_EQ(s.p[0].moveId, 1u);
+        s.p[0].res[kMeterSlot] = 50;
+
+        Simulate(s, mp, *data);
+        EXPECT_EQ(s.p[0].moveId, 2u)
+            << "the cancel was refused although the minimum was met.";
+    }
+}
+
+// THE CONTRACT ITSELF: index i in the file is index i in the kernel.
+//
+// Not a restatement of the loader's own assertion. The loader proves it resolved
+// NAMES to indices consistently; this proves the BRIDGE did not reorder them on
+// the way through, which is the step where a sort or a map would be invisible.
+// Two resources with different numbers is the smallest arrangement in which a
+// swap is detectable at all -- with one slot every ordering is the same
+// ordering.
+TEST(P3Resources, IndexOrderIsTheFilesOrder) {
+    auto data = twoFighters();
+    FighterData& fd = data->p[0];
+    fd.resourceCount           = 2;
+    fd.resources[kMeterSlot]   = ResourceDef{ 7,  0, 100, 1u, {0, 0, 0} };
+    fd.resources[kSecondSlot]  = ResourceDef{ 3, -5,  50, 1u, {0, 0, 0} };
+
+    // Distinct deltas, so a swap shows up as the wrong slot moving rather than
+    // as no change at all.
+    fd.moves[1].effect[kMeterSlot]  = 10;
+    fd.moves[1].effect[kSecondSlot] = -1;
+
+    GameState s = facingOff();
+    ASSERT_EQ(s.p[0].res[kMeterSlot], 0)
+        << "facingOff() does not run a tick, so nothing has primed yet";
+
+    // One tick to prime, then the hit.
+    GameState primed{};
+    ResetMatch(primed, 0xC0FFEEu);
+    Simulate(primed, InputPair{}, *data);
+    EXPECT_EQ(primed.p[0].res[kMeterSlot],  7)
+        << "slot 0 primed to " << primed.p[0].res[kMeterSlot]
+        << " and the file declares 7 first. If this is 3 the two declarations "
+           "were swapped between the file and the kernel, and every effect, "
+           "guard and prover comparison in this build is off by one slot.";
+    EXPECT_EQ(primed.p[0].res[kSecondSlot], 3);
+
+    s.p[0].res[kMeterSlot]  = 7;
+    s.p[0].res[kSecondSlot] = 3;
+    ResolveHits(s, *data);
+
+    EXPECT_EQ(s.p[0].res[kMeterSlot],  17) << "slot 0 took slot 1's delta";
+    EXPECT_EQ(s.p[0].res[kSecondSlot],  2) << "slot 1 took slot 0's delta";
+}
+
+// --- The crouching body ------------------------------------------------------
+//
+// Asked for from play (2026-08-20): "we can't really tell when crouching or
+// knockdowns occur -- jumping at least puts your hitbox in the air". A crouch
+// that changes no box is a crouch nobody can see, and it is the posture a low
+// attack exists to catch.
+TEST(P2Crouch, ACrouchingFighterHasTheShorterBody) {
+    constexpr std::int32_t kStand  = 60 * kSubUnitsPerPixel;
+    constexpr std::int32_t kCrouch = 34 * kSubUnitsPerPixel;
+
+    auto data = twoFighters();
+    data->p[0].hurtbox       = Box{ -kSubUnitsPerPixel * 13, 0, kSubUnitsPerPixel * 13, kStand };
+    data->p[0].crouchHurtbox = Box{ -kSubUnitsPerPixel * 13, 0, kSubUnitsPerPixel * 13, kCrouch };
+
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+
+    const Box standing = Hurtbox(data->p[0], s.p[0]);
+    EXPECT_EQ(standing.y1 - standing.y0, kStand)
+        << "precondition: a fighter who is not crouching has the standing body";
+
+    s.p[0].crouching = 1;
+    const Box ducked = Hurtbox(data->p[0], s.p[0]);
+    EXPECT_EQ(ducked.y1 - ducked.y0, kCrouch)
+        << "crouching left the body " << (ducked.y1 - ducked.y0)
+        << " sub-units tall and the file authors " << kCrouch
+        << ". A crouch that does not change the body cannot duck anything, and "
+           "from outside it is a posture with no consequence at all.";
+}
+
+// And a character that authors none keeps one body for both postures, which is
+// what says this is opt-in rather than a retuning of everyone.
+TEST(P2Crouch, ACharacterWithNoCrouchBodyKeepsItsStandingOne) {
+    auto data = twoFighters();
+    ASSERT_EQ(data->p[0].crouchHurtbox.y1, data->p[0].crouchHurtbox.y0)
+        << "the bench authored a crouch body, so this test cannot say what an "
+           "unauthored character does";
+
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+    const Box standing = Hurtbox(data->p[0], s.p[0]);
+
+    s.p[0].crouching = 1;
+    const Box ducked = Hurtbox(data->p[0], s.p[0]);
+
+    EXPECT_EQ(ducked.y1 - ducked.y0, standing.y1 - standing.y0)
+        << "an unauthored character changed shape on crouching. A degenerate box "
+           "is how this field spells 'the file did not say', and reading it as a "
+           "real body gives every character a zero-height crouch that nothing "
+           "can hit.";
+}
+
+// A MOVE'S OWN BODY OUTRANKS THE POSTURE, because the move is the more specific
+// statement. Without this ordering a crouching move that authors a low profile
+// would have it silently replaced by the generic crouch.
+TEST(P2Crouch, AMovesOwnHurtboxOutranksTheCrouchingOne) {
+    constexpr std::int32_t kCrouch   = 34 * kSubUnitsPerPixel;
+    constexpr std::int32_t kOverride = 18 * kSubUnitsPerPixel;
+
+    auto data = twoFighters();
+    data->p[0].crouchHurtbox = Box{ -kSubUnitsPerPixel * 13, 0, kSubUnitsPerPixel * 13, kCrouch };
+    data->p[0].moves[1].hasHurtboxOverride = 1;
+    data->p[0].moves[1].hurtboxOverride =
+        Box{ -kSubUnitsPerPixel * 13, 0, kSubUnitsPerPixel * 13, kOverride };
+
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+    s.p[0].crouching = 1;
+    s.p[0].moveId    = 1;
+    s.p[0].moveFrame = 1;
+
+    const Box box = Hurtbox(data->p[0], s.p[0]);
+    EXPECT_EQ(box.y1 - box.y0, kOverride)
+        << "the move authors an " << kOverride << " body and got "
+        << (box.y1 - box.y0)
+        << ". A slide that ducks a fireball has said what crouching looks like "
+           "for those frames; layering the generic crouch over it ignores half "
+           "the file.";
+}
+
+// --- The invisible wall ------------------------------------------------------
+//
+// Described from play (2026-08-20): "there is a maximum distance they can be
+// away from the character before they reach an invisible wall ... if the
+// opposing character starts to move closer, the player can keep moving backwards
+// till they hit a corner or till the opposing character stops moving."
+//
+// Two claims, and they are separable, so they are two tests.
+TEST(P2Stage, RetreatStopsAtTheMaximumSeparation) {
+    auto data = twoFighters();
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+    s.p[0].posX = 0;
+    s.p[1].posX = 0;
+
+    InputPair back{};
+    back.p[1].bits = kInputRight;   // p1 walks away; p0 stands still
+
+    // Long enough to cross the limit several times over at any walk speed.
+    for (int t = 0; t < 600; ++t) Simulate(s, back, *data);
+
+    const std::int32_t gap = s.p[1].posX - s.p[0].posX;
+    EXPECT_LE(gap, kMaxSeparationSub)
+        << "the retreating fighter reached " << gap
+        << " sub-units from a stationary opponent and the limit is "
+        << kMaxSeparationSub
+        << ". Without the wall a player can simply walk out of the game.";
+    EXPECT_EQ(gap, kMaxSeparationSub)
+        << "the retreat stopped SHORT of the limit at " << gap
+        << ", so something other than the wall is holding them.";
+    EXPECT_EQ(s.p[0].posX, 0)
+        << "the stationary fighter was dragged along by the clamp. Only the one "
+           "who moved may be stopped; pulling the other is how a player gets "
+           "shoved backwards by an opponent who is running away.";
+}
+
+// AND THE WALL MOVES WITH THE CHASER, which is the half that makes it a fighting
+// game rather than a cage. A test that only checked the limit would pass on an
+// implementation that pinned the pair together forever.
+TEST(P2Stage, RetreatResumesForExactlyAsLongAsTheOpponentAdvances) {
+    auto data = twoFighters();
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+    s.p[0].posX = 0;
+    s.p[1].posX = 0;
+
+    InputPair back{};
+    back.p[1].bits = kInputRight;
+    for (int t = 0; t < 600; ++t) Simulate(s, back, *data);
+
+    const std::int32_t pinned = s.p[1].posX;
+    ASSERT_EQ(pinned - s.p[0].posX, kMaxSeparationSub) << "precondition: at the wall";
+
+    // Now the opponent chases. The retreat must resume, and the pair must stay
+    // exactly at the limit rather than the chaser closing the gap.
+    InputPair chase{};
+    chase.p[0].bits = kInputRight;   // p0 advances
+    chase.p[1].bits = kInputRight;   // p1 keeps backing away
+    for (int t = 0; t < 30; ++t) Simulate(s, chase, *data);
+
+    EXPECT_GT(s.p[1].posX, pinned)
+        << "the opponent advanced for 30 ticks and the retreating fighter did "
+           "not gain a single sub-unit. The wall is anchored to the STAGE rather "
+           "than to the opponent, so backing away is a one-way door.";
+    // ONE WALK STEP INSIDE THE LIMIT WHILE THE CHASE IS ON, and that is the
+    // pre-move anchor showing through rather than a rounding error. p1 is
+    // clamped against where p0 stood at the TOP of the tick, so while both walk
+    // at the same speed p1 ends each tick exactly one step behind the limit --
+    // a constant gap, not a growing one.
+    const std::int32_t chasing = s.p[1].posX - s.p[0].posX;
+    EXPECT_LT(chasing, kMaxSeparationSub)
+        << "the gap reached the limit DURING the chase, which would mean the "
+           "clamp is reading the opponent's post-move position and handing the "
+           "retreating player the chaser's own step in the tick they took it.";
+    EXPECT_GT(chasing, kMaxSeparationSub - 4 * kSubUnitsPerPixel)
+        << "the gap fell to " << chasing << ", far more than a walk step inside "
+        << kMaxSeparationSub << ". The chaser is closing rather than the pair "
+           "holding station, so the retreat is not keeping up.";
+
+    // AND IT SETTLES EXACTLY AT THE LIMIT WHEN THE CHASE STOPS, which is the
+    // sentence the whole rule is for: you may keep the ground you were given,
+    // and you may not take more.
+    InputPair keepGoing{};
+    keepGoing.p[1].bits = kInputRight;
+    for (int t = 0; t < 10; ++t) Simulate(s, keepGoing, *data);
+
+    EXPECT_EQ(s.p[1].posX - s.p[0].posX, kMaxSeparationSub)
+        << "the chaser stopped and the retreating fighter settled at "
+        << (s.p[1].posX - s.p[0].posX) << " rather than at the limit "
+        << kMaxSeparationSub << ".";
+}
+
+// And the absolute corner still wins: the wall is a limit on SEPARATION and the
+// stage is a limit on POSITION, and a fighter backed into a corner has run out
+// of the second one whatever the first allows.
+TEST(P2Stage, TheAbsoluteCornerStillStopsTheRetreat) {
+    auto data = twoFighters();
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+    s.p[0].posX = kStageHalfWidthSub - kMaxSeparationSub;
+    s.p[1].posX = kStageHalfWidthSub - kSubUnitsPerPixel;
+
+    InputPair back{};
+    back.p[0].bits = kInputRight;   // the chaser advances, so the wall follows
+    back.p[1].bits = kInputRight;   // and the retreating fighter keeps going
+
+    for (int t = 0; t < 600; ++t) Simulate(s, back, *data);
+
+    EXPECT_EQ(s.p[1].posX, kStageHalfWidthSub)
+        << "the retreating fighter ended at " << s.p[1].posX
+        << " and the stage edge is " << kStageHalfWidthSub
+        << ". The separation limit must never let anybody past the corner: it "
+           "only ever pulls fighters together.";
+}
+
+// --- Push boxes --------------------------------------------------------------
+//
+// ROADMAP M1.2, asked for from play (2026-08-20): "the enemy collider should be
+// blocking collisions rather than trigger -- we don't want to move through them
+// ... this prevents players and enemies overlapping hurtboxes and missing
+// attacks because of that."
+namespace {
+
+// A bench whose fighters have a body they cannot share.
+std::unique_ptr<MatchData> pushBench() {
+    auto d = twoFighters();
+    const Box body{ -13 * kSubUnitsPerPixel, 0, 13 * kSubUnitsPerPixel, 60 * kSubUnitsPerPixel };
+    d->p[0].pushbox = body;
+    d->p[1].pushbox = body;
+    return d;
+}
+
+std::int32_t gapBetweenBodies(const GameState& s, const MatchData& d) {
+    const Box a = PlaceBox(d.p[0].pushbox, s.p[0].posX, s.p[0].posY, s.p[0].facing);
+    const Box b = PlaceBox(d.p[1].pushbox, s.p[1].posX, s.p[1].posY, s.p[1].facing);
+    return (a.x0 > b.x0 ? a.x0 : b.x0) - (a.x1 < b.x1 ? a.x1 : b.x1);
+}
+
+}  // namespace
+
+TEST(P3Pushbox, FightersNeverOverlapAfterSeparation) {
+    auto data = pushBench();
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+    s.p[0].posX = 0;
+    s.p[1].posX = 0;   // exactly coincident, the worst case
+
+    InputPair walkIn{};
+    walkIn.p[0].bits = kInputRight;   // and keep pressing into them
+
+    for (int t = 0; t < 120; ++t) {
+        Simulate(s, walkIn, *data);
+        ASSERT_GE(gapBetweenBodies(s, *data), 0)
+            << "tick " << t << ": the two bodies overlap by "
+            << -gapBetweenBodies(s, *data)
+            << " sub-units. Two fighters in the same place make every range in "
+               "the game meaningless -- attacks whiff for a reason nobody "
+               "watching can see.";
+    }
+}
+
+// AN EQUAL SPLIT IS A MIRROR, and this is what says so. The same collision
+// reflected through x = 0 must produce reflected positions; an "always push the
+// left one" rule passes the overlap test above and fails this one.
+TEST(P3Pushbox, SeparationIsAnExactMirror) {
+    auto data = pushBench();
+
+    GameState right{}, left{};
+    ResetMatch(right, 0x1D7u);
+    ResetMatch(left,  0x1D7u);
+    right.p[0].posX =  4 * kSubUnitsPerPixel;  left.p[0].posX = -4 * kSubUnitsPerPixel;
+    right.p[1].posX = -4 * kSubUnitsPerPixel;  left.p[1].posX =  4 * kSubUnitsPerPixel;
+
+    // An ODD overlap on purpose: an even one is resolved by any halving, and the
+    // rounding is exactly where a mirror breaks.
+    right.p[0].posX += 1;  left.p[0].posX -= 1;
+
+    for (int t = 0; t < 30; ++t) {
+        Simulate(right, InputPair{}, *data);
+        Simulate(left,  InputPair{}, *data);
+        ASSERT_EQ(right.p[0].posX, -left.p[0].posX)
+            << "tick " << t << ": separation stopped being a reflection. A "
+               "resolution that favours a side turns which way you are facing "
+               "into a frame advantage.";
+        ASSERT_EQ(right.p[1].posX, -left.p[1].posX) << "tick " << t;
+    }
+}
+
+// The corner is a wall on both sides: a fighter with nowhere to go absorbs none
+// of the separation and the other one takes all of it.
+TEST(P3Pushbox, TheCornerIsAWallOnBothSides) {
+    auto data = pushBench();
+
+    for (int side = 0; side < 2; ++side) {
+        const std::int32_t wall = side == 0 ? -kStageHalfWidthSub : kStageHalfWidthSub;
+
+        GameState s{};
+        ResetMatch(s, 0x1D7u);
+        s.p[0].posX = wall;
+        s.p[1].posX = wall;   // both jammed into the same corner
+
+        for (int t = 0; t < 60; ++t) Simulate(s, InputPair{}, *data);
+
+        EXPECT_GE(gapBetweenBodies(s, *data), 0)
+            << "side " << side << ": the corner swallowed the separation and the "
+               "two bodies still overlap.";
+        EXPECT_GE(s.p[0].posX, -kStageHalfWidthSub) << "side " << side;
+        EXPECT_LE(s.p[0].posX,  kStageHalfWidthSub) << "side " << side;
+        EXPECT_GE(s.p[1].posX, -kStageHalfWidthSub)
+            << "side " << side << ": separation pushed a fighter through the wall.";
+        EXPECT_LE(s.p[1].posX,  kStageHalfWidthSub)
+            << "side " << side << ": separation pushed a fighter through the wall.";
+    }
+}
+
+// AND A JUMP GOES OVER, which is what makes an airborne approach a way past
+// somebody rather than a bounce off them.
+TEST(P3Pushbox, AnAirborneFighterPassesOverAGroundedOne) {
+    auto data = pushBench();
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+    s.p[0].posX = 0;
+    s.p[1].posX = 0;
+    s.p[0].airborne = 1;
+    s.p[0].posY     = 40 * kSubUnitsPerPixel;
+
+    const std::int32_t before0 = s.p[0].posX;
+    const std::int32_t before1 = s.p[1].posX;
+    Simulate(s, InputPair{}, *data);
+
+    EXPECT_EQ(s.p[1].posX, before1)
+        << "a grounded fighter was shoved sideways by an airborne one directly "
+           "above them. Nothing may push in the air: that is what a cross-up is.";
+    EXPECT_EQ(s.p[0].posX, before0)
+        << "the airborne fighter was pushed horizontally by the body below it.";
+}
+
+// THE WALL STOPS THE BODY, NOT THE ORIGIN.
+//
+// Asked for from play (2026-08-20): "we should calculate corner bounds from the
+// back edge of the collider rather than the middle ... we don't want the player
+// or enemy to disappear half into the corner."
+TEST(P3Pushbox, TheCornerStopsTheBodyRatherThanTheOrigin) {
+    auto data = pushBench();
+    const std::int32_t halfWidth = data->p[0].pushbox.x1;
+    ASSERT_GT(halfWidth, 0) << "precondition: the bench has a body";
+
+    for (int side = 0; side < 2; ++side) {
+        GameState s{};
+        ResetMatch(s, 0x1D7u);
+        // Alone against one wall, walking into it. The partner is parked far
+        // enough away that neither the separation limit nor the pushbox has
+        // anything to say about this.
+        s.p[0].posX = 0;
+        s.p[1].posX = 0;
+
+        InputPair walk{};
+        const std::uint16_t into = side == 0 ? kInputLeft : kInputRight;
+        walk.p[0].bits = into;
+        walk.p[1].bits = into;   // travel together, or the wall is unreachable
+
+        for (int t = 0; t < 900; ++t) Simulate(s, walk, *data);
+
+        // THE LEADER, not slot 0. The two start coincident, so the pushbox
+        // separates them and one arrives at the wall a body ahead of the other;
+        // which slot leads is an accident of the separation and not the subject
+        // of this test.
+        const int lead = side == 0 ? (s.p[0].posX < s.p[1].posX ? 0 : 1)
+                                   : (s.p[0].posX > s.p[1].posX ? 0 : 1);
+        const Box body = PlaceBox(data->p[lead].pushbox, s.p[lead].posX,
+                                  s.p[lead].posY, s.p[lead].facing);
+        const std::int32_t edge = side == 0 ? body.x0 : body.x1;
+        const std::int32_t wall = side == 0 ? -kStageHalfWidthSub : kStageHalfWidthSub;
+
+        EXPECT_EQ(edge, wall)
+            << "side " << side << ": the body's edge stopped at " << edge
+            << " and the wall is at " << wall
+            << ". Clamping the ORIGIN puts half a fighter through the wall, "
+               "which reads as the stage eating them rather than as them "
+               "standing against it.";
+    }
+
+    // AND THE ORIGIN IS SHORT OF THE WALL BY EXACTLY THE BODY, which is the
+    // arithmetic that says the allowance is the pushbox and not something else
+    // that happens to be about the right size.
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+    s.p[0].posX = 0;
+    s.p[1].posX = 0;
+    InputPair right{};
+    right.p[0].bits = kInputRight;
+    right.p[1].bits = kInputRight;
+    for (int t = 0; t < 900; ++t) Simulate(s, right, *data);
+
+    const std::int32_t furthest = s.p[0].posX > s.p[1].posX ? s.p[0].posX : s.p[1].posX;
+    EXPECT_EQ(furthest, kStageHalfWidthSub - halfWidth)
+        << "the leading origin reached " << furthest << " and the wall less a "
+        << halfWidth << "-wide half-body is "
+        << (kStageHalfWidthSub - halfWidth) << ".";
+}
+
+// --- How long a jump lasts, against how long an aerial takes -----------------
+//
+// The question behind "intelligently gate the move state in the combo graph"
+// (asked 2026-08-20). An air-to-air self-cancel is the ONE cycle
+// tests/test_gap_extent.cpp finds performable through the cancel system end to
+// end -- but a fighter in the air is FALLING, and `airborne` is cleared by
+// POSITION alone (Simulate.cpp clears it at posY <= 0, with no reference to what
+// move is running). So the loop is bounded by the arc whether or not the cancel
+// window says otherwise, and the bound is arithmetic rather than opinion.
+//
+// Measured here rather than asserted from the constants, because the constants
+// are a file-local tuning block and the arc is what the integration actually
+// produces.
+TEST(P2Movement, AJumpIsAFixedNumberOfTicksAndBoundsAnyAirLoop) {
+    auto data = twoFighters();
+
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+    ASSERT_EQ(s.p[0].airborne, 0u) << "precondition: on the ground";
+
+    InputPair up{};
+    up.p[0].bits = kInputUp;
+    Simulate(s, up, *data);
+    ASSERT_NE(s.p[0].airborne, 0u) << "the jump did not start";
+
+    int airTicks = 1;
+    for (int t = 0; t < 600 && s.p[0].airborne != 0; ++t) {
+        Simulate(s, InputPair{}, *data);
+        if (s.p[0].airborne != 0) ++airTicks;
+    }
+
+    EXPECT_EQ(s.p[0].airborne, 0u)
+        << "the fighter never came down in 600 ticks, so gravity is not acting "
+           "and every 'air loop' in the analysis is unbounded for a reason that "
+           "has nothing to do with the cancel graph.";
+
+    // The number itself, recorded rather than asserted tightly: what matters is
+    // that it is FINITE and that it is the ceiling on any air-to-air loop.
+    RecordProperty("jump_air_ticks", airTicks);
+    EXPECT_GT(airTicks, 10)
+        << "the jump lasted " << airTicks
+        << " ticks, which is too short for any aerial to come out at all";
+    EXPECT_LT(airTicks, 200)
+        << "the jump lasted " << airTicks << " ticks; that is not an arc.";
+
+    // AND THAT CEILING IS WHAT THE COMBO GRAPH DOES NOT MODEL. Measured: the arc
+    // is 38 ticks and `air_mp` is 22, so a jump holds ONE full repetition and
+    // most of a second -- the fighter lands partway through the second one. The
+    // third needs a fresh jump, a jump needs a landing, and a landing is not a
+    // cancel: it is a gap, and a gap is the defender's turn.
+    //
+    // tests/test_gap_extent.cpp calls `air_mp > air_mp` the one cycle performable
+    // through the cancel system end to end, and by the graph's own reckoning it
+    // is unbounded. It is not. The graph never asks how long a fighter can stay
+    // in the air, which is what "gate the move state" (asked 2026-08-20) means
+    // and why 1.7 repetitions is the honest ceiling.
+    EXPECT_LT(airTicks, 22 * 4)
+        << "the arc holds four or more repetitions of a 22-tick aerial, which "
+           "would make the air self-loop a much better approximation of an "
+           "infinite than this test assumes. Re-derive the gating argument.";
+}
+
+// --- What a fighter can do WHILE ATTACKING -----------------------------------
+//
+// Found by review 2026-08-20 while asking what gates the combo graph, and it is
+// a fact about the GAME rather than about the analysis: `stepFighter` gates walk
+// and jump on `canAct` -- which is `hitstun == blockstun == knockdown == 0` --
+// and NOT on whether a move is running. So a fighter can walk, and take off,
+// in the middle of their own attack.
+//
+// PINNED RATHER THAN FIXED, deliberately. "You are committed once you press a
+// button" is the genre default, but it is a per-move design decision and not a
+// kernel rule -- ADR-011 forbids hard-coding a mechanic a character file cannot
+// set, and ROADMAP M1.3(b) is where movement becomes an authored move. This test
+// exists so that when that lands, the change is DELIBERATE and this file says
+// what the old behaviour was.
+//
+// It also matters to the analysis: every measured range in this repo assumes the
+// attacker stands still while attacking, and they do not have to.
+TEST(P2Movement, AFighterCanWalkAndJumpDuringItsOwnAttack) {
+    auto data = twoFighters();
+
+    // --- walking out of your own move ---------------------------------------
+    {
+        GameState s{};
+        ResetMatch(s, 0x1D7u);
+        InputPair press{};
+        press.p[0].bits = kInputLP;
+        Simulate(s, press, *data);
+        ASSERT_EQ(s.p[0].moveId, 1u) << "precondition: the move is running";
+
+        const std::int32_t before = s.p[0].posX;
+        InputPair walk{};
+        walk.p[0].bits = kInputRight;          // no attack button; the move runs on
+        Simulate(s, walk, *data);
+
+        EXPECT_EQ(s.p[0].moveId, 1u)
+            << "the move ended early, so this measures something else";
+        EXPECT_NE(s.p[0].posX, before)
+            << "the fighter did not move during its own attack. If this is now "
+               "true the kernel has gained a commitment rule -- check it is "
+               "AUTHORED per move (ADR-011) rather than hard-coded, and that "
+               "every measured range in this repo was re-derived.";
+    }
+
+    // --- taking off out of your own move -------------------------------------
+    {
+        GameState s{};
+        ResetMatch(s, 0x1D7u);
+        InputPair press{};
+        press.p[0].bits = kInputLP;
+        Simulate(s, press, *data);
+        ASSERT_EQ(s.p[0].moveId, 1u);
+        ASSERT_EQ(s.p[0].airborne, 0u);
+
+        InputPair up{};
+        up.p[0].bits = kInputUp;
+        Simulate(s, up, *data);
+
+        EXPECT_NE(s.p[0].airborne, 0u)
+            << "the fighter could not jump during its own attack. That is the "
+               "genre default and it is a CHANGE: it also removes the route by "
+               "which a launcher cancel reaches an air move, because the jump "
+               "that makes StanceAllows say yes happens mid-source-move.";
+    }
+}
+
+// AND A CROUCHING MOVE CANNOT START ON THE TICK YOU LAND, which is an ordering
+// consequence rather than a rule anybody wrote.
+//
+// stepFighter computes `crouching` from `airborne` BEFORE the landing clamp
+// runs, so on the tick the fighter touches down `airborne` is still 1 at that
+// line and `crouching` is forced to 0. StepAttack then sees a grounded fighter
+// who is not crouching. It costs exactly one tick, and it is invisible until
+// something asks for a crouching move out of a landing.
+TEST(P2Movement, ACrouchingMoveCannotStartOnTheTickOfLanding) {
+    auto data = twoFighters();
+    data->p[0].moves[1].stance = kStanceCrouching;
+
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+
+    InputPair up{};
+    up.p[0].bits = kInputUp;
+    Simulate(s, up, *data);
+    ASSERT_NE(s.p[0].airborne, 0u) << "precondition: airborne";
+
+    // Fall, holding Down and the button the whole way, so the only thing that
+    // can decide the outcome is the landing tick's own ordering.
+    InputPair downAttack{};
+    downAttack.p[0].bits = kInputDown | kInputLP;
+
+    int landedOnTick = -1;
+    for (int t = 0; t < 120 && landedOnTick < 0; ++t) {
+        Simulate(s, downAttack, *data);
+        if (s.p[0].airborne == 0) landedOnTick = t;
+    }
+    ASSERT_GE(landedOnTick, 0) << "never landed";
+
+    EXPECT_EQ(s.p[0].crouching, 0u)
+        << "the fighter was crouching on the tick it landed. If that is now "
+           "true the ordering in stepFighter changed -- `crouching` is computed "
+           "before the landing clamp, so `airborne` is still set when it runs.";
+    EXPECT_EQ(s.p[0].moveId, 0u)
+        << "a crouching move started on the landing tick. It cannot: the fighter "
+           "is not crouching yet, and StanceAllows says no.";
 }

@@ -176,16 +176,23 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
 
     addLoss(report, "cancel.guard", BuildLossDirection::KernelPermits,
             cancels.withGuard,
-            "The resource minimum an edge requires -- meter, for the shipped "
-            "characters. Fighter::meter exists but nothing reads it, so a cancel "
-            "into an EX move is free. This is the same hole as `move.guard`, "
-            "listed separately because a metered CANCEL is the thing a combo "
-            "route is usually built out of.");
+            "The resource minimum an EDGE requires. CancelEdge carries no guard "
+            "field, so this is still listed as a loss -- but the constraint is "
+            "enforced in practice: the cancel scan refuses a target move whose "
+            "own MoveDef::guard is unmet, and every authored edge guard in this "
+            "tree restates its target's guard exactly. An edge demanding MORE "
+            "than its target would be permitted where the file refuses, and the "
+            "build warns per edge when it finds one. Kept as KernelPermits "
+            "rather than promoted to Exact because that is the direction the "
+            "remaining hole runs.");
 
     addLoss(report, "cancel.effect", BuildLossDirection::KernelOmits,
             cancels.withEffect,
-            "The resource delta an edge applies. Nothing writes Fighter::meter, "
-            "so the cost is never paid and the gain is never banked.");
+            "The resource delta an EDGE applies, as distinct from the delta its "
+            "target move applies -- which the kernel does carry and does bank. "
+            "No character in this tree authors one, so this row counts zero "
+            "everywhere and CancelEdge was left at 16 bytes rather than grown "
+            "for a field nothing uses (ROADMAP M1.1b).");
 
     addLoss(report, "move.cancel_window (absent)", BuildLossDirection::KernelPermits,
             cancels.sourcesWithoutWindow,
@@ -196,14 +203,15 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
             "recovery. Moves that DO author one get exactly it, intersected with "
             "the per-edge delay.");
 
-    addLoss(report, "character.walk_speed", BuildLossDirection::KernelOmits,
+    addLoss(report, "character.walk_speed", BuildLossDirection::Exact,
             c.walkSpeedSub != 0 ? 1 : 0,
-            "FighterData has no walk speed; Simulate.cpp walks every fighter at a "
-            "hardcoded 2 px/tick. This is not cosmetic -- walking is how a "
-            "midscreen attacker closes the gap a move's reach is measured "
-            "against, so a character with a different walk speed connects at "
-            "different times than the file says. Authored value, sub-units per "
-            "tick: " + num(c.walkSpeedSub) + ".");
+            "FighterData::walkSpeedSub carries the authored number and Simulate "
+            "walks at it. CharacterData quantized it once at load, so this build "
+            "rounds nothing and the kernel walks the character the file "
+            "describes. A file that authors none leaves this zero and the kernel "
+            "keeps its 2 px/tick placeholder, which is the pre-M1.1b behaviour "
+            "and is why a silent file plays as it always did. Authored value, "
+            "sub-units per tick: " + num(c.walkSpeedSub) + ".");
 
     addLoss(report, "move.pushback", BuildLossDirection::KernelOmits, withPushback,
             "Defender displacement on hit. ADR-001 section 6.3 records that this "
@@ -217,20 +225,26 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
             "ground-only move is startable in the air. More is possible in the "
             "game than in the file.");
 
-    addLoss(report, "move.guard", BuildLossDirection::KernelPermits, withGuard,
-            "The resource minimum a move requires -- meter, for the shipped "
-            "characters. Fighter::meter exists but nothing reads it, so a super "
-            "that costs a full bar is startable on an empty one.");
+    addLoss(report, "move.guard", BuildLossDirection::Exact, withGuard,
+            "The resource minimum a move requires. MoveDef::guard carries it and "
+            "both start routes -- the button scan and the cancel scan -- refuse "
+            "a move the fighter cannot afford, so a super that costs a full bar "
+            "is no longer startable on an empty one. A refused slot falls "
+            "through to the next one sharing the button rather than eating the "
+            "press.");
 
-    addLoss(report, "move.effect", BuildLossDirection::KernelOmits, withEffect,
-            "The resource delta a move applies. Fighter::meter exists but nothing "
-            "writes it, so meter is never gained either. The two halves cancel "
-            "into 'resources are not simulated' rather than into 'no difference'.");
+    addLoss(report, "move.effect", BuildLossDirection::Exact, withEffect,
+            "The resource delta a move applies. MoveDef::effect carries it and "
+            "ResolveHits applies it on contact -- on block as well as on hit, "
+            "which is the genre norm for meter -- clamped to each resource's "
+            "authored floor and ceiling.");
 
-    addLoss(report, "resources", BuildLossDirection::KernelOmits,
+    addLoss(report, "resources", BuildLossDirection::Exact,
             static_cast<std::int32_t>(c.resources.size()),
-            "Declared resources and their initial/floor/ceiling. The kernel has "
-            "one integer called meter and no ceiling logic at all.");
+            "Declared resources with their initial, floor and ceiling. "
+            "FighterData::resources carries them in FILE ORDER, which is the "
+            "positional contract the prover keys on, and Fighter::res is primed "
+            "from `initial` on the match's first tick.");
 
     addLoss(report, "move.hit_condition", BuildLossDirection::KernelPermits, withHitCondition,
             "A predicate over the DEFENDER gating whether the move connects -- "
@@ -469,6 +483,38 @@ bool buildCancels(const CharacterData& c, const std::string& who,
         if (!e.guard.empty()) ++stats.withGuard;
         if (!e.effect.empty()) ++stats.withEffect;
 
+        // AN EDGE GUARD STRICTER THAN ITS TARGET'S IS THE ONLY ONE THE KERNEL
+        // CAN GET WRONG, so it is the only one worth a warning.
+        //
+        // CancelEdge carries no guard of its own (ROADMAP M1.1b measured every
+        // character in this tree and found all 51 authored edge guards restate
+        // the target move's own guard exactly), so the kernel enforces the
+        // constraint through MoveDef::guard on the target and the two agree.
+        // That agreement is an observation about today's data, not a property of
+        // the schema -- which is what makes it worth CHECKING rather than
+        // assuming. An edge that demanded more than its target would be
+        // permitted where the file refuses, and this is the line that says so.
+        {
+            const cse::data::Move& target = c.moves[e.to];
+            for (const cse::data::ResourceAmount& g : e.guard) {
+                std::int32_t targetMin = 0;
+                bool         found     = false;
+                for (const cse::data::ResourceAmount& t : target.guard)
+                    if (t.resource == g.resource) { targetMin = t.value; found = true; break; }
+                if (!found || targetMin < g.value)
+                    report.warnings.push_back(
+                        "cancel " + c.moves[e.from].id + " -> " + target.id +
+                        " requires " + num(g.value) + " of resource " +
+                        num(static_cast<std::int32_t>(g.resource)) +
+                        " and `" + target.id + "` itself requires " +
+                        (found ? num(targetMin) : std::string("none")) +
+                        ". The kernel checks the TARGET's guard, so this cancel "
+                        "is permitted where the file refuses it. Give the edge "
+                        "guard to the move, or CancelEdge needs a guard of its "
+                        "own (ROADMAP M1.1b).");
+            }
+        }
+
         CancelEdge edge{};
         edge.from          = MoveIndexMap::KernelMoveIdOf(e.from);
         edge.to            = MoveIndexMap::KernelMoveIdOf(e.to);
@@ -590,6 +636,69 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
 
     out.hurtbox = Box{ -halfWidth, 0, halfWidth, height };
 
+    // THE PUSHBOX DEFAULTS TO THE BODY, which is the roadmap's plan (M1.2:
+    // "default from MatchBuilder.h's BodySpec") and is the conservative reading
+    // of a file that does not author one: a character occupies the space it can
+    // be hit in. `engine.constants.default_pushbox_sub` exists on `fighter_a`
+    // and is deliberately NOT read yet -- it is authored in MUGEN's Y-DOWN
+    // convention, which that file warns about at length in its own
+    // `the_y_axis_trap_in_this_very_file` note, and reading it without the
+    // conversion would bury a body sixty pixels underground where nothing
+    // touches it. That wire is M1.2's, with the flip written down and tested.
+    out.pushbox = out.hurtbox;
+
+    // THE CROUCHING BODY, same width and the authored height. Left degenerate
+    // when the file authors none, which is how the kernel reads "unauthored" and
+    // is why a character written before this field keeps one box for both
+    // postures.
+    //
+    // A crouch TALLER than the stand is refused rather than clamped: it is not a
+    // near miss to be tidied, it is a file saying something impossible, and
+    // silently making it the standing height would hide the typo behind a
+    // character who cannot duck anything.
+    if (character.crouchHeightSub > 0) {
+        if (character.crouchHeightSub > height) {
+            report.error = who + ": engine.constants.crouch_height_px is " +
+                           num(character.crouchHeightSub / cse::kernel::kSubUnitsPerPixel) +
+                           " px and the standing body is " +
+                           num(height / cse::kernel::kSubUnitsPerPixel) +
+                           " px. A crouch cannot be taller than the stand.";
+            return false;
+        }
+        out.crouchHurtbox = Box{ -halfWidth, 0, halfWidth, character.crouchHeightSub };
+    }
+
+    // WALK SPEED, CARRIED WHOLE. CharacterData already quantized it once at load
+    // (D8: quantise at the boundary, never in the kernel), so this is a copy and
+    // not a conversion -- there is no second rounding to lose anything to, which
+    // is what lets the loss row below say `exact`. A character that authored none
+    // arrives here as zero and the kernel keeps its placeholder.
+    out.walkSpeedSub = character.walkSpeedSub;
+
+    // The resource declarations, in FILE ORDER, which is the whole contract:
+    // slot i here is slot i of Fighter::res, of MoveDef::effect and of the
+    // prover's own vector (ADR-001 section 8 item 7, assertion A03). Nothing
+    // sorts or renames on the way through, because any reordering here would be
+    // invisible and would make two builds of the same file disagree.
+    const std::size_t declared = character.resources.size();
+    out.resourceCount = static_cast<std::int32_t>(
+        declared < static_cast<std::size_t>(cse::kernel::kMaxResources)
+            ? declared
+            : static_cast<std::size_t>(cse::kernel::kMaxResources));
+    for (std::int32_t i = 0; i < out.resourceCount; ++i) {
+        const cse::data::ResourceDef& r = character.resources[static_cast<std::size_t>(i)];
+        out.resources[i].initial    = r.initial;
+        out.resources[i].floor      = r.floor;
+        out.resources[i].ceiling    = r.ceiling;
+        out.resources[i].hasCeiling = r.hasCeiling ? 1u : 0u;
+    }
+    if (declared > static_cast<std::size_t>(cse::kernel::kMaxResources))
+        report.warnings.push_back(
+            "this character declares " + num(static_cast<std::int32_t>(declared)) +
+            " resources and the kernel holds " + num(cse::kernel::kMaxResources) +
+            "; the extra declarations are dropped, and every effect or guard "
+            "naming one of them is dropped with it.");
+
     // --- Bindings -----------------------------------------------------------
     const std::size_t moveCount = character.moves.size();
     std::vector<std::uint16_t> button(moveCount, 0u);
@@ -659,7 +768,87 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
         m.hitstun  = src.hitstun;
         m.damage   = damagePointsFromHundredths(src.damageHundredths);
         m.button   = button[i];
-        m.pad_     = 0;   // explicit: these bytes are hashed by the handshake
+        // The byte that used to be pad_ here is negativeEdge now, and the
+        // schema does not author it yet (ROADMAP M1.1d): zero is "press
+        // only", which is the behaviour every shipped move has today. Still
+        // written explicitly, because the handshake hashes these bytes.
+        m.negativeEdge = 0;
+
+        // KNOCKBACK, the first of ADR-005 P2's mechanics this bridge ever
+        // carried. The kernel has applied `pushbackHit` since P2 and every
+        // shipped move authors a `pushback`; until ROADMAP M1.3d nothing joined
+        // them, so a built character's hits moved nobody.
+        //
+        // SATURATED, NOT WRAPPED. MoveDef stores this as an int16 to hold its
+        // size and CharacterData stores sub-units as int32. A bare cast turns a
+        // 128-pixel pushback into a PULL, which reads as a physics bug rather
+        // than as the range error it is. A file past the limit gets the limit
+        // and a warning naming both numbers.
+        {
+            constexpr std::int32_t kMaxPushback = 32767;
+            std::int32_t push = src.pushbackSub;
+            if (push > kMaxPushback || push < -kMaxPushback) {
+                const std::int32_t clamped = push > 0 ? kMaxPushback : -kMaxPushback;
+                report.warnings.push_back(
+                    where + ": pushback " + num(push) +
+                    " sub-units exceeds MoveDef::pushbackHit's int16 range and is "
+                    "clamped to " + num(clamped) + " (" +
+                    num(clamped / cse::kernel::kSubUnitsPerPixel) +
+                    " px). A move authored past that is describing a distance no "
+                    "fighting game uses.");
+                push = clamped;
+            }
+            m.pushbackHit = static_cast<std::int16_t>(push);
+        }
+
+        // KNOCKDOWN, from engine.reaction. The kernel slot has existed since
+        // ADR-005 P2 and this bridge left it at zero, so a built character's
+        // sweeps knocked nobody down.
+        //
+        // HITSTOP IS READ BY THE LOADER AND DELIBERATELY NOT CARRIED YET, and
+        // the reason is measured rather than cautious. It freezes BOTH
+        // fighters, so every frame-exact prediction in tests/test_gap_extent.cpp
+        // moves by the freeze duration: 120 of 121 cycles fell short and each
+        // carried six to nine timing mismatches. That is the game becoming
+        // correct, not the bridge becoming wrong -- but the sweep's section-3
+        // account has to LEARN hitstop before its numbers mean anything again,
+        // and that is its own slice. ROADMAP M1.3d holds the measurement.
+        //
+        // Saturated at its unsigned 16-bit slot for the reason pushback is: a
+        // wrap turns a 20-tick knockdown into an 18-hour one.
+        {
+            constexpr std::int32_t kMaxTicks = 65535;
+
+            // The FILE says "this knocks down" and "getting up takes N"; the
+            // kernel counts one number down. A move that does not knock down
+            // leaves this zero however long its fall_recover is, because
+            // fall_recover describes the knockdown and not the move.
+            const std::int32_t fall = src.causesKnockdown ? src.fallRecoverTicks : 0;
+            m.knockdownTicks = static_cast<std::uint16_t>(
+                fall < 0 ? 0 : (fall > kMaxTicks ? kMaxTicks : fall));
+        }
+
+
+        // RESOURCES, SPARSE IN THE FILE AND DENSE IN THE KERNEL. The authored
+        // form is a sorted list of (index, value) because a character may
+        // declare four resources and a move may touch one; the kernel form is a
+        // fixed array because D4 forbids unbounded growth in anything the
+        // simulation reads and because an array indexed by the contract needs no
+        // search at tick time. Scattering happens here, once.
+        //
+        // Out-of-range indices are dropped rather than clamped: index 3 landing
+        // on slot 0 would silently spend the wrong resource, and A03 already
+        // guarantees the loader resolved every name against this character's own
+        // declaration. A count that exceeded kMaxResources is a load error.
+        for (const cse::data::ResourceAmount& e : src.effect)
+            if (e.resource < cse::kernel::kMaxResources)
+                m.effect[e.resource] = e.value;
+        for (const cse::data::ResourceAmount& g : src.guard)
+            if (g.resource < cse::kernel::kMaxResources) {
+                m.guard[g.resource] = g.value;
+                m.guardMask = static_cast<std::uint8_t>(
+                    m.guardMask | (1u << g.resource));
+            }
 
         if (src.hitstun > 0xFFFF) {
             report.warnings.push_back(

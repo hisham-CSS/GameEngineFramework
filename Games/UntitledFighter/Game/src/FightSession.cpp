@@ -533,6 +533,8 @@ bool BuildDemonstration(const DemonstrationRequest& request, Demonstration& out)
     std::size_t   cursor          = 0;
     std::uint32_t ticksRun        = 0;
     bool          everAdvanced    = false;
+    // True when the next tick must emit nothing, so the press after it is an edge.
+    bool          releasePending  = false;
     std::uint32_t lastAdvanceTick = 0;
 
     // WHAT "DONE" MEANS, and the two sentences in the header that have to be
@@ -557,7 +559,9 @@ bool BuildDemonstration(const DemonstrationRequest& request, Demonstration& out)
         // Non-null and nonzero: every entry was checked above, and the cursor
         // only ever holds an index inside the witness.
         const std::uint16_t wanted = request.moveIds[cursor];
-        const std::uint16_t bits   = cse::kernel::MoveAt(attacker, wanted)->button;
+        // Zero on a release tick; see the flag's assignment below.
+        const std::uint16_t bits =
+            releasePending ? 0u : cse::kernel::MoveAt(attacker, wanted)->button;
 
         cse::kernel::InputPair in{};
         in.p[request.attackerSlot].bits = bits;
@@ -584,6 +588,13 @@ bool BuildDemonstration(const DemonstrationRequest& request, Demonstration& out)
         // frame counter is what resets, so it is what says a move began. This
         // trap has already been fallen into on this project; ComboWatcher.h
         // documents it a third time.
+        // A release tick is spent whatever happened: nothing starts from an input
+        // of zero, so there is nothing to test for.
+        if (releasePending) {
+            releasePending = false;
+            continue;
+        }
+
         const cse::kernel::Fighter& f = session.State().p[request.attackerSlot];
         if (f.moveId == wanted && f.moveFrame == 0) {
             // How far along the witness this got: the number of LEADING entries
@@ -604,6 +615,31 @@ bool BuildDemonstration(const DemonstrationRequest& request, Demonstration& out)
             }
             everAdvanced    = true;
             lastAdvanceTick = ticksRun - 1;
+
+            // A RELEASE FRAME BETWEEN REPEATS OF THE SAME BUTTON, and it is the
+            // difference between a trace that performs the witness and one that
+            // holds a key and hopes.
+            //
+            // The witness for an infinite is usually a move cancelling into
+            // ITSELF -- `stand_lp -> stand_lp`, `air_mp -> air_mp` -- so the next
+            // entry asks for the same bit as the one just used. Emitting that bit
+            // continuously is a HOLD, and a kernel that starts moves on a press
+            // never sees a second one: the loop stops being performable, not
+            // because the analysis was wrong but because the trace was written
+            // for a kernel that could not tell a hold from a press.
+            //
+            // Flagged rather than ticked inline, so the release lands on the NEXT
+            // iteration. tests/test_ground_truth.cpp's driver does it that way --
+            // it emits zero from Bits() on the following tick -- and the two
+            // traces are compared tick for tick by
+            // GameDemonstration.TheSeamProducesExactlyTheGroundTruthDriversTrace.
+            // The first version of this ticked immediately and that test named
+            // the disagreement at tick 1.
+            //
+            // It is free wherever it lands: the attacker is one tick into startup
+            // and cannot act whatever is held.
+            releasePending =
+                cse::kernel::MoveAt(attacker, request.moveIds[cursor])->button == bits;
         }
     }
 

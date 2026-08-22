@@ -915,6 +915,23 @@ bool parseDocument(Ctx& ctx, const json& doc, CharacterData& out) {
     (void)ticksPerSec;
     const std::int64_t reachScale = pxPerReach * subPerPixel;   // reach units -> sub-units
 
+    // engine.constants: the block that carries this character's own physical
+    // numbers. Only the crouch height is read today (ROADMAP M1.3d); the rest --
+    // juggle_budget, gravity_sub, jump_vel_sub, walk_fwd_sub, height_px --
+    // is authored and still unread, which ROADMAP records as its own wire.
+    if (const json* consts = engineNs ? member(*engineNs, "constants") : nullptr) {
+        if (!consts->is_object())
+            return ctx.fail("engine", "constants is present but is not an object");
+        std::int32_t crouchPx = 0;
+        if (!readInt(ctx, *consts, "crouch_height_px", "engine.constants", crouchPx, false))
+            return false;
+        if (crouchPx < 0)
+            return ctx.fail("engine.constants",
+                            "crouch_height_px is " + std::to_string(crouchPx) +
+                            "; a body cannot have a negative height.");
+        out.crouchHeightSub = crouchPx * cse::kernel::kSubUnitsPerPixel;
+    }
+
     const json* quant = engineNs ? member(*engineNs, "quantized_sources") : nullptr;
     if (quant && !quant->is_object())
         return ctx.fail("engine", "quantized_sources is present but is not an object");
@@ -1230,6 +1247,51 @@ bool parseDocument(Ctx& ctx, const json& doc, CharacterData& out) {
                                            "attribute classes) and it stays. The move-level "
                                            "field is the designed rule, in this schema's own "
                                            "vocabulary of blocked_as heights plus `aerial`");
+
+                // engine.reaction: what the hit DOES to the defender. Read as
+                // a block because that is how it is authored, and optional
+                // throughout -- a move that says nothing here behaves exactly as
+                // it did before ROADMAP M1.3d read any of it.
+                //
+                // `priority` inside this block is MUGEN's HitDef parameter and
+                // is deliberately NOT read here: the note above refuses it at
+                // the `engine` level for being a different vocabulary's word,
+                // and reading it one level down would reintroduce the collision
+                // that note exists to prevent.
+                if (const json* r = member(*e, "reaction")) {
+                    if (!r->is_object())
+                        return ctx.fail(where, "`engine.reaction` is not an object");
+                    if (!readInt(ctx, *r, "hitstop_ticks", where, mv.hitstopTicks, false))
+                        return false;
+                    if (!readInt(ctx, *r, "air_hitstun_ticks", where, mv.airHitstunTicks, false))
+                        return false;
+                    if (!readInt(ctx, *r, "fall_recover_ticks", where, mv.fallRecoverTicks, false))
+                        return false;
+                    if (member(*r, "causes_knockdown") &&
+                        !readBool(ctx, *r, "causes_knockdown", where, mv.causesKnockdown))
+                        return false;
+
+                    // A KNOCKDOWN WITH NO PER-MOVE RECOVERY IS ORDINARY, and
+                    // this warns rather than refuses because the first draft
+                    // refused and a shipped fixture caught it: AOF2's
+                    // `punk_b_kick` knocks down with `fall_recover_ticks` 0.
+                    // That is not a broken file. MUGEN carries liedown time as a
+                    // CHARACTER-GLOBAL rather than per-move, so a transcribed
+                    // move legitimately says "this knocks down" and leaves the
+                    // duration to the character.
+                    //
+                    // The kernel has no global liedown time, so it will not
+                    // knock down for such a move at all -- a real loss, named
+                    // here rather than left as a silent zero.
+                    if (mv.causesKnockdown && mv.fallRecoverTicks <= 0)
+                        ctx.warn(where +
+                            ": `engine.reaction.causes_knockdown` is true and "
+                            "`fall_recover_ticks` is " + std::to_string(mv.fallRecoverTicks) +
+                            ". MUGEN keeps liedown time per CHARACTER and this "
+                            "engine keeps it per MOVE, so the kernel will not "
+                            "knock down for this move. Author the duration on "
+                            "the move to get the knockdown the source had.");
+                }
 
                 if (!readInt(ctx, *e, "state_id", where, mv.stateId, false)) return false;
                 if (!readInt(ctx, *e, "anim_id",  where, mv.animId,  false)) return false;

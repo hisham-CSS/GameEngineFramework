@@ -159,10 +159,24 @@ Box Hurtbox(const FighterData& data, const Fighter& f) {
     // low-profile mechanism: a crouching attack ducks a high one because its body
     // is SHORTER for those frames, and no move ever names another move.
     const MoveDef* m = MoveAt(data, f.moveId);
-    const Box& local = (m != nullptr && m->hasHurtboxOverride != 0)
-                           ? m->hurtboxOverride
-                           : data.hurtbox;
-    return PlaceBox(local, f.posX, f.posY, f.facing);
+    if (m != nullptr && m->hasHurtboxOverride != 0)
+        return PlaceBox(m->hurtboxOverride, f.posX, f.posY, f.facing);
+
+    // Otherwise the posture decides. A MOVE'S OVERRIDE OUTRANKS THE CROUCH,
+    // above, because the move is the more specific statement: a crouching move
+    // that authors its own body has already said what crouching looks like for
+    // those frames, and layering the generic crouch under it would silently
+    // ignore half of what the file said.
+    //
+    // Degenerate means unauthored -- see FighterData::crouchHurtbox -- so a
+    // character with no crouch body simply keeps its standing one, exactly as
+    // before this field existed.
+    const bool crouched = f.crouching != 0;
+    const Box& cb = data.crouchHurtbox;
+    const bool authored = cb.x1 > cb.x0 && cb.y1 > cb.y0;
+
+    return PlaceBox(crouched && authored ? cb : data.hurtbox,
+                    f.posX, f.posY, f.facing);
 }
 
 // --- Stance, guard, priority and invincibility -------------------------------
@@ -224,6 +238,26 @@ bool GuardStops(std::uint8_t guard, std::uint8_t blockedAs) {
 }
 
 bool InvulnerableTo(const FighterData& data, const Fighter& f, std::uint16_t kinds) {
+    // A BODY ON THE FLOOR IS NOT A TARGET, to every kind of attack, for as long
+    // as it takes to get up.
+    //
+    // Checked FIRST, and before the move lookup, because a knocked-down fighter
+    // has no move: `moveId` is zero, `MoveAt` returns null, and the window scan
+    // below would have answered "not invulnerable" for the one state in the game
+    // where that is most wrong.
+    //
+    // This is what the kernel MEANS by knockdown rather than a mechanic of its
+    // own, so it gets no field: the opt-in is already the authored
+    // `causes_knockdown` and its duration, and a move that knocks nobody down
+    // grants nobody this. Without it a sweep OPENS an unescapable loop instead
+    // of ending pressure, which is the exact inversion of what a knockdown is
+    // for -- and from the other side of the screen a knockdown that only stopped
+    // the defender ACTING is indistinguishable from a long hitstun.
+    //
+    // OTG -- hitting a downed opponent on purpose -- is a later mechanic and
+    // will arrive as an authored per-move field, not as a loosening here.
+    if (f.knockdown > 0) return true;
+
     const MoveDef* m = MoveAt(data, f.moveId);
     if (m == nullptr) return false;
 
@@ -272,6 +306,11 @@ bool CancelIsOpen(const Fighter& f, const CancelEdge& edge) {
     return frame >= edge.earliestFrame && frame <= edge.latestFrame;
 }
 
+// Declared here and defined beside ApplyEffects further down, because both the
+// cancel scan and the button scan below need it and both come before the place
+// resources are otherwise dealt with.
+bool GuardsMet(const Fighter& f, const MoveDef& m);
+
 const CancelEdge* FindCancel(const FighterData& data, const Fighter& f, Input in) {
     // A fighter with no move in progress has nothing to cancel, and a moveId this
     // character's table does not describe is INERT here for the same reason it is
@@ -290,14 +329,34 @@ const CancelEdge* FindCancel(const FighterData& data, const Fighter& f, Input in
         const MoveDef* target = MoveAt(data, e.to);
         if (target == nullptr) continue;
 
-        // HELD, not pressed -- the same limitation StepAttack's button scan has
-        // and for the same missing field. It bites slightly differently here: a
-        // player holding the follow-up button through the whole source move takes
-        // the cancel on the first frame of its window rather than on the frame
-        // they chose. That is a real difference from the genre and it is the
-        // second thing prevButtons would fix.
+        // A HELD BUTTON STILL TAKES A CANCEL, and unlike the button scan that is
+        // deliberate rather than a limitation. A player holding the follow-up
+        // through the whole source move takes the cancel on the first frame of
+        // its window rather than on the frame they chose -- which is what a
+        // genre player expects of a chain, and what makes holding a button a
+        // reasonable way to buffer before the buffer field existed.
         if (target->button == 0) continue;
-        if ((in.bits & target->button) != target->button) continue;
+
+        // A CANCEL TAKES A BUFFERED PRESS, and that is what makes links and
+        // cancels doable by a human. A player aiming at a two-frame link presses
+        // slightly early far more often than slightly late, so a cancel that
+        // only reads the CURRENT tick's bits is a cancel that punishes the
+        // common miss. The buffered press is exactly the input that was meant
+        // for this cancel, arriving one or two frames before the window opened.
+        //
+        // Held bits still count, because a chord is still a chord and this is
+        // the same all-bits-wanted rule the button scan uses; what the buffer
+        // adds is the press that has already been let go of.
+        const bool heldNow  = (in.bits & target->button) == target->button;
+        const bool buffered = (f.bufferedButtons & target->button) == target->button;
+        if (!heldNow && !buffered) continue;
+
+        // AND IT HAS TO BE AFFORDABLE. A cancel into a super the fighter cannot
+        // pay for is not a cancel that fails halfway -- it is an edge that is
+        // not available, so the scan keeps looking and a cheaper edge later in
+        // file order can still take the input. Checked here rather than after
+        // the loop for exactly that reason.
+        if (!GuardsMet(f, *target)) continue;
 
         // The follow-up's own stance condition applies to a cancel exactly as it
         // does to a fresh start. Without this a grounded chain could cancel into
@@ -356,6 +415,14 @@ void StepAttack(Fighter& f, const FighterData& data, Input in, bool actionable) 
     if (f.moveId != 0) {
         const CancelEdge* edge = FindCancel(data, f, in);
         if (edge != nullptr) {
+            // CONSUMED, exactly as the button scan consumes it. A buffered press
+            // that survived the cancel it triggered would trigger the next one
+            // too, a window later, and the fighter would appear to choose its
+            // own timing -- which is what left GapExtentKernel's transitions a
+            // few frames out per cycle before this line existed.
+            f.bufferedButtons = 0;
+            f.bufferAge       = 0;
+
             f.moveId    = edge->to;
             f.moveFrame = 0;
             // A NEW ACTIVE WINDOW, so the record of who the old one hit goes with
@@ -375,18 +442,59 @@ void StepAttack(Fighter& f, const FighterData& data, Input in, bool actionable) 
     // sharing a button resolve to the same one on every machine. Slot 0 is the
     // reserved idle slot and is skipped.
     //
-    // HELD, not pressed. Distinguishing a press from a hold needs the previous
-    // tick's buttons, and a rollback hands Simulate only the current tick's input
-    // -- so honest edge detection needs a `prevButtons` field inside GameState,
-    // which is a state addition with its own consequences (D6 puts the input ring
-    // OUTSIDE the state on purpose). Holding a button therefore repeats a move as
-    // soon as the previous one recovers. That is a real gap, named rather than
-    // papered over, and it is the next field this file will want.
+    // PRESSED, not held -- and this is the field the note here used to ask for.
+    // Holding a button used to restart the move the tick it recovered, which is
+    // not a fighting-game mechanic and made any recorded "combo" suspect: one
+    // key held is not a link. Fighter::prevButtons is in the STATE because a
+    // rollback hands Simulate only the current tick's bits, so an edge computed
+    // anywhere else is recomputed wrongly on every re-simulation.
+    //
+    // Three ways a move can be asked for, and a move takes the first that
+    // applies:
+    //
+    //   press     a rising edge on every bit the move wants
+    //   buffered  a press that arrived while this fighter could not act, kept
+    //             for inputBufferFrames ticks and consumed here
+    //   release   a falling edge, for a move that authored negativeEdge
+    //
+    // `pressed` is computed against last tick's buttons; `released` is its
+    // mirror. Both come from the one field, which is why positive and negative
+    // edge landed together.
+    const std::uint16_t pressed  = static_cast<std::uint16_t>(in.bits & ~f.prevButtons);
+    const std::uint16_t released = static_cast<std::uint16_t>(~in.bits & f.prevButtons);
+
     for (std::int32_t i = 1; i < data.moveCount && i < kMaxMovesPerFighter; ++i) {
         const MoveDef& m = data.moves[i];
         if (m.button == 0) continue;
-        if ((in.bits & m.button) != m.button) continue;
         if (!StanceAllows(m, f)) continue;
+
+        // Every bit the move wants must be HELD -- a chord is still a chord --
+        // and at least one of them must have arrived this tick, or the move
+        // would start again on every subsequent tick of the same hold.
+        const bool byPress = (in.bits & m.button) == m.button &&
+                             (pressed & m.button) != 0;
+        // A buffered press is spent whether or not it starts this move; see the
+        // consume below. It carries the same all-bits-wanted rule.
+        const bool byBuffer = (f.bufferedButtons & m.button) == m.button;
+        // Release fires only for a move that asked for it, and only when the
+        // whole chord was held on the previous tick.
+        const bool byRelease = m.negativeEdge != 0 &&
+                               (released & m.button) != 0 &&
+                               (f.prevButtons & m.button) == m.button;
+
+        if (!byPress && !byBuffer && !byRelease) continue;
+
+        // Affordable, or this slot is not the one this press starts. Slot order
+        // still decides, so a guarded move that cannot be paid for falls through
+        // to the next slot sharing the button -- which is how a super and a
+        // heavy normal live on one button in the genre.
+        if (!GuardsMet(f, m)) continue;
+
+        // CONSUMED, not merely aged. A buffered press that only expired would
+        // start this move now and start it again on the next actionable tick,
+        // which is the rapid-fire bug wearing a different hat.
+        f.bufferedButtons = 0;
+        f.bufferAge       = 0;
 
         f.moveId         = static_cast<std::uint16_t>(i);
         f.moveFrame      = 0;
@@ -396,6 +504,39 @@ void StepAttack(Fighter& f, const FighterData& data, Input in, bool actionable) 
 }
 
 // --- Hit resolution ---------------------------------------------------------
+
+// --- Resources ---------------------------------------------------------------
+
+// Every guard this move declares is satisfied by what the fighter currently
+// holds. A guard is a MINIMUM, checked before the move starts, which is how a
+// super refuses at zero meter rather than starting and going negative.
+//
+// The mask and not a zero test: zero is a legal minimum for a resource whose
+// floor is negative, so "guard[i] == 0" cannot mean "no guard on i".
+bool GuardsMet(const Fighter& f, const MoveDef& m) {
+    if (m.guardMask == 0) return true;      // the common case, and free
+    for (std::int32_t r = 0; r < kMaxResources; ++r)
+        if ((m.guardMask & (1u << r)) != 0 && f.res[r] < m.guard[r]) return false;
+    return true;
+}
+
+// Apply this move's deltas, clamped to each resource's authored range.
+//
+// CLAMPED RATHER THAN REFUSED, because the guard is where refusal lives: by the
+// time this runs the move has already connected, and a gain that would exceed
+// the ceiling is a full meter rather than a hit that did not happen. The floor
+// does the same at the bottom, which is what stops a cost the guard let through
+// -- a resource with no guard at all -- driving a counter negative forever.
+void ApplyEffects(const FighterData& d, Fighter& f, const MoveDef& m) {
+    for (std::int32_t r = 0; r < kMaxResources; ++r) {
+        if (m.effect[r] == 0) continue;
+        const ResourceDef& def = d.resources[r];
+        std::int32_t v = f.res[r] + m.effect[r];
+        if (v < def.floor) v = def.floor;
+        if (def.hasCeiling != 0 && v > def.ceiling) v = def.ceiling;
+        f.res[r] = v;
+    }
+}
 
 void ResolveHits(GameState& state, const MatchData& data) {
     // THE ORDER PROBLEM, AND WHY THIS IS THREE LOOPS.
@@ -526,6 +667,13 @@ void ResolveHits(GameState& state, const MatchData& data) {
 
         atk.alreadyHitBits =
             static_cast<std::uint8_t>(atk.alreadyHitBits | bitForSlot(d));
+
+        // ON CONTACT, AND ON THE ATTACKER. A block is still contact -- a blocked
+        // special that builds meter is the genre norm -- so this sits above the
+        // blocked/hit fork rather than inside either arm. If a character ever
+        // needs to pay differently for a block, that is a second authored field
+        // and not a branch here.
+        ApplyEffects(data.p[a], atk, *m);
 
         // Hitstop freezes BOTH fighters, which is what makes it read as impact
         // rather than as the defender lagging.

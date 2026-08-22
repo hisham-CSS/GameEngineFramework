@@ -66,10 +66,15 @@ written into ROADMAP, not folded in.
   human (see below); or a decision's default is not safe — then the ADR is
   written, ROADMAP says so, and the tree is green. Never end mid-WP with a red
   tree; revert to the last green commit instead and note it in ROADMAP.
-- End every session with a short report: WPs closed (sha, the test that proved
-  each, and that it failed when reverted), docs touched, ROADMAP delta, CI
-  state, and the single next action. The commit messages carry the *why*; the
-  report carries the *what*.
+- End every session **and every delivery** with a short report AND an
+  **itemized audit list** — one line per concrete, checkable claim, marked
+  landed / reverted / outstanding, with the sha, test name or number that
+  proves it. Include the reverted and outstanding rows explicitly: a list of
+  wins only is the failure mode. The human audits specifics from that list,
+  so it must be facts they can check, not a narrative. Also cover: WPs closed
+  (sha, the test that proved each, and that it failed when reverted), docs
+  touched, ROADMAP delta, CI state, and the single next action. The commit
+  messages carry the *why*; the report carries the *what*.
 
 ## Never (each is enforced somewhere; do not route around it)
 

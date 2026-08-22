@@ -456,6 +456,21 @@ struct Move {
                                           // midscreen verdict turns on it.
     Stance       stance = Stance::Any;
 
+    // --- engine.reaction, the block that says what a HIT DOES ----------------
+    //
+    // Authored on every move of `fighter_a` since the file was written and read
+    // by nothing until ROADMAP M1.3d. These are the fields that make a defender
+    // visibly react rather than merely lose health.
+    //
+    // Zero is "the file did not say" on all three, which is what a move authored
+    // before this block existed gets and is why wiring them changes no character
+    // that does not use them.
+    std::int32_t hitstopTicks    = 0;   // impact freeze, BOTH fighters
+    std::int32_t airHitstunTicks = 0;   // hitstun when the defender is AIRBORNE;
+                                        // it is what makes a juggle last
+    std::int32_t fallRecoverTicks = 0;  // ticks on the floor after a knockdown
+    bool         causesKnockdown  = false;
+
     // WHICH BLOCK STOPS THIS MOVE. Mid by default, which is what an absent field
     // means and what every move written before this field existed is.
     //
@@ -687,6 +702,17 @@ struct CharacterData {
     std::int32_t walkSpeedSub = 0;              // sub-units per tick
     std::vector<std::int32_t> scalingPermille;  // damage scaling by combo depth
     Decay decay;
+
+    // Crouching body height in sub-units, from `engine.constants.crouch_height_px`.
+    // ZERO MEANS UNAUTHORED and the standing body is used while crouching, which
+    // is what every character written before this field gets.
+    //
+    // A HEIGHT AND NOT A BOX, unlike the kernel's crouchHurtbox: the file already
+    // authors `height_px` beside this and the crouch shares the standing box's
+    // width, so asking a designer to restate the width would be asking them to
+    // keep two numbers in step for no gain. MatchBuilder turns the pair into the
+    // box the kernel wants.
+    std::int32_t crouchHeightSub = 0;
 
     std::vector<ResourceDef> resources;         // ORDER IS THE CONTRACT -- see ResourceDef
     std::vector<GapAction>   gapActions;

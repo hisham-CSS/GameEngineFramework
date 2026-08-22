@@ -117,9 +117,13 @@ private:
     void bindActions_();
     void clearActions_();
 
-    // The keyboard and pad as kernel bits. A LEVEL read (isDown), never an edge:
-    // the kernel takes buttons HELD, not pressed (Combat.cpp says so and calls
-    // it a real gap, named rather than papered over).
+    // The keyboard and pad as kernel bits. A LEVEL read (isDown), never an edge
+    // -- and that is right, not a shortcut. The kernel derives the edge itself
+    // from Fighter::prevButtons, because rollback re-simulates a tick from a
+    // snapshot and hands Simulate only that tick's bits: an edge computed out
+    // here would survive one replay and not the next. What this function owes
+    // the kernel is the honest LEVEL, every tick, including the release ticks --
+    // a reader that dropped them would replay a press as a hold.
     cse::kernel::Input readPad_() const;
 
     // The training controls, read as EDGES in the fixed phase with
@@ -128,6 +132,18 @@ private:
     // runs several -- so a fixed-tick reader of wasPressed misses most presses
     // and multiplies the rest (InputMap.h).
     void readControls_();
+
+    // Corner or midscreen, and the numbers that decide it. See the long note at
+    // the opening position in the .cpp: the corner is where the in-engine
+    // verdicts mean anything and it is also the one place knockback cannot show,
+    // so the mode does both and says which.
+    // Where the camera was last frame, world pixels. Presentation state and
+    // nothing else reads it -- see FightCamera for why the camera has memory.
+    float        cameraCentrePx_   = 0.0f;
+
+    void applyStagePosition_();
+    bool         stageMidscreen_   = false;
+    std::int32_t bodyHalfWidthSub_ = 0;
 
     void resetMatch_();
     void startDemonstration_();
