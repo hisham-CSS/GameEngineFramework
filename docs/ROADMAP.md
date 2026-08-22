@@ -1116,6 +1116,42 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   honour is a witness the engine did not really reproduce; that belongs in the
   write-up beside the counter-hit gap below, not only in this file.
 
+- `[ ]` **M1.4a Gate the combo graph on MOVE STATE.** *(M)* Asked for 2026-08-20:
+  *"we need to intelligently gate the move state to find valid moves in the combo
+  graph - I believe this should be done but we should verify."*
+  **Verified: it is not done anywhere.** `tests/test_gap_extent.cpp`'s
+  `usableEdges` filters cancel edges by `Contact::Block`/`Whiff` and by the
+  prover's dead-cancel list, and by nothing else. Neither the enumeration nor
+  section 3's account ever asks what STATE the fighter is in.
+  **The kernel fact the gate rests on, verified rather than assumed:**
+  `Fighter::airborne` is cleared by POSITION alone — `Simulate.cpp` clears it at
+  `posY <= 0` with no reference to what move is running. So when an aerial ENDS
+  in the air the fighter is still airborne, and a grounded follow-up cannot
+  start until it lands. **Landing is not a cancel. It is a gap, and a gap is the
+  defender's turn.**
+  **And the arc is finite, which the graph also never asks about.**
+  `P2Movement.AJumpIsAFixedNumberOfTicksAndBoundsAnyAirLoop` measures **38 ticks**
+  of air time against `air_mp`'s **22**, so a jump holds one full repetition and
+  most of a second — the fighter lands partway through the second. **The one
+  cycle this file calls performable through the cancel system end to end,
+  `air_mp > air_mp`, is therefore not an infinite: you fall out of it after about
+  1.7 repetitions.**
+  **So the gating predicate for a hop A → B is:** B's stance must be reachable
+  from A's END state. Ground → air is free (a jump lands its stance on the same
+  tick as the press, measured in
+  `MatchBridgeMechanics.ADirectionEstablishesTheStanceOnTheTickItIsPressed`).
+  Air → ground requires a LANDING, which no cancel window can cover. Air → air is
+  free while the arc lasts and impossible after it.
+  **This is the principled version of the 97 → 77 question**, and it changes the
+  framing: the model and the kernel were BOTH missing stance, so 97 was not a
+  measurement either of them earned. Gate the graph and wire the kernel and the
+  two should agree — which is the whole point of the instrument. Do them
+  together, and the number that comes out is the one to publish.
+  **Done when:** the enumeration refuses a hop whose stance is unreachable from
+  its source's end state; the air self-loop is bounded by the arc rather than by
+  juggle; and the graph's count equals what the kernel produces with
+  `MoveDef::stance` wired (ROADMAP M1.3e).
+
 - `[ ]` **M1.3 Mechanics, pass 1 — the ones the showcase needs.** *(M–L)* Each
   with ADR-011's five parts (schema field appended · `MoveDef`/`FighterData`
   slot · loss-ledger row · kernel property test · showcase variant):

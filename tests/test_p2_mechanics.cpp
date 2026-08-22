@@ -1771,3 +1771,65 @@ TEST(P3Pushbox, TheCornerStopsTheBodyRatherThanTheOrigin) {
         << halfWidth << "-wide half-body is "
         << (kStageHalfWidthSub - halfWidth) << ".";
 }
+
+// --- How long a jump lasts, against how long an aerial takes -----------------
+//
+// The question behind "intelligently gate the move state in the combo graph"
+// (asked 2026-08-20). An air-to-air self-cancel is the ONE cycle
+// tests/test_gap_extent.cpp finds performable through the cancel system end to
+// end -- but a fighter in the air is FALLING, and `airborne` is cleared by
+// POSITION alone (Simulate.cpp clears it at posY <= 0, with no reference to what
+// move is running). So the loop is bounded by the arc whether or not the cancel
+// window says otherwise, and the bound is arithmetic rather than opinion.
+//
+// Measured here rather than asserted from the constants, because the constants
+// are a file-local tuning block and the arc is what the integration actually
+// produces.
+TEST(P2Movement, AJumpIsAFixedNumberOfTicksAndBoundsAnyAirLoop) {
+    auto data = twoFighters();
+
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+    ASSERT_EQ(s.p[0].airborne, 0u) << "precondition: on the ground";
+
+    InputPair up{};
+    up.p[0].bits = kInputUp;
+    Simulate(s, up, *data);
+    ASSERT_NE(s.p[0].airborne, 0u) << "the jump did not start";
+
+    int airTicks = 1;
+    for (int t = 0; t < 600 && s.p[0].airborne != 0; ++t) {
+        Simulate(s, InputPair{}, *data);
+        if (s.p[0].airborne != 0) ++airTicks;
+    }
+
+    EXPECT_EQ(s.p[0].airborne, 0u)
+        << "the fighter never came down in 600 ticks, so gravity is not acting "
+           "and every 'air loop' in the analysis is unbounded for a reason that "
+           "has nothing to do with the cancel graph.";
+
+    // The number itself, recorded rather than asserted tightly: what matters is
+    // that it is FINITE and that it is the ceiling on any air-to-air loop.
+    RecordProperty("jump_air_ticks", airTicks);
+    EXPECT_GT(airTicks, 10)
+        << "the jump lasted " << airTicks
+        << " ticks, which is too short for any aerial to come out at all";
+    EXPECT_LT(airTicks, 200)
+        << "the jump lasted " << airTicks << " ticks; that is not an arc.";
+
+    // AND THAT CEILING IS WHAT THE COMBO GRAPH DOES NOT MODEL. Measured: the arc
+    // is 38 ticks and `air_mp` is 22, so a jump holds ONE full repetition and
+    // most of a second -- the fighter lands partway through the second one. The
+    // third needs a fresh jump, a jump needs a landing, and a landing is not a
+    // cancel: it is a gap, and a gap is the defender's turn.
+    //
+    // tests/test_gap_extent.cpp calls `air_mp > air_mp` the one cycle performable
+    // through the cancel system end to end, and by the graph's own reckoning it
+    // is unbounded. It is not. The graph never asks how long a fighter can stay
+    // in the air, which is what "gate the move state" (asked 2026-08-20) means
+    // and why 1.7 repetitions is the honest ceiling.
+    EXPECT_LT(airTicks, 22 * 4)
+        << "the arc holds four or more repetitions of a 22-tick aerial, which "
+           "would make the air self-loop a much better approximation of an "
+           "infinite than this test assumes. Re-derive the gating argument.";
+}
