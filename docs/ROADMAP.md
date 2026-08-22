@@ -1151,6 +1151,33 @@ it. Safe and reversible, so proceeding under it (CLAUDE.md).
   its source's end state; the air self-loop is bounded by the arc rather than by
   juggle; and the graph's count equals what the kernel produces with
   `MoveDef::stance` wired (ROADMAP M1.3e).
+  **THREE CORRECTIONS TO THE ACCOUNT ABOVE, from a review pass and each verified
+  in code before being written here.**
+  (1) **`StanceAllows` reads `f.airborne` RAW, not `AirborneNow`.** The two sit
+  next to each other in `Combat.cpp` and mean different things: `AirborneNow`
+  ORs in a move's `airborne_from_tick` and is called from exactly one place
+  (`AttackKinds`). So `special_uppercut`'s `airborne_from_tick: 3` makes it count
+  as an aerial ATTACK for guard and invincibility, and does **not** let an air
+  move start out of it.
+  (2) **Ground → air costs zero ticks even MID-MOVE, because the jump is gated on
+  `canAct` and not on `moveId`.** A fighter can walk, and take off, in the middle
+  of its own attack — `stepFighter` asks only "not stunned". That is what makes
+  the launcher cancels (`stand_hk -> air_mp`, window `[16, 18]`) reachable at all:
+  the jump that satisfies `StanceAllows` happens inside the source move. It is
+  also a real statement about the GAME that nothing had pinned, and every
+  measured range in this repo assumes an attacker stands still while attacking.
+  `P2Movement.AFighterCanWalkAndJumpDuringItsOwnAttack` pins it — PINNED, NOT
+  FIXED, because "you are committed once you press a button" is a per-move design
+  decision and ADR-011 forbids hard-coding a mechanic a file cannot set. M1.3(b)
+  is where movement becomes an authored move; when it lands, that test is what
+  makes the change deliberate.
+  (3) **A crouching move cannot start on the tick you LAND**, and nobody wrote
+  that rule. `stepFighter` computes `crouching` from `airborne` BEFORE the
+  landing clamp, so on the touchdown tick `airborne` is still set and `crouching`
+  is forced to zero; `StepAttack` then sees a grounded fighter who is not
+  crouching. It costs exactly one tick and is invisible until something asks for
+  a crouching move out of a landing — which a gated graph will.
+  `P2Movement.ACrouchingMoveCannotStartOnTheTickOfLanding` pins it.
 
 - `[ ]` **M1.3 Mechanics, pass 1 — the ones the showcase needs.** *(M–L)* Each
   with ADR-011's five parts (schema field appended · `MoveDef`/`FighterData`

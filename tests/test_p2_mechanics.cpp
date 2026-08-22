@@ -1833,3 +1833,109 @@ TEST(P2Movement, AJumpIsAFixedNumberOfTicksAndBoundsAnyAirLoop) {
            "would make the air self-loop a much better approximation of an "
            "infinite than this test assumes. Re-derive the gating argument.";
 }
+
+// --- What a fighter can do WHILE ATTACKING -----------------------------------
+//
+// Found by review 2026-08-20 while asking what gates the combo graph, and it is
+// a fact about the GAME rather than about the analysis: `stepFighter` gates walk
+// and jump on `canAct` -- which is `hitstun == blockstun == knockdown == 0` --
+// and NOT on whether a move is running. So a fighter can walk, and take off,
+// in the middle of their own attack.
+//
+// PINNED RATHER THAN FIXED, deliberately. "You are committed once you press a
+// button" is the genre default, but it is a per-move design decision and not a
+// kernel rule -- ADR-011 forbids hard-coding a mechanic a character file cannot
+// set, and ROADMAP M1.3(b) is where movement becomes an authored move. This test
+// exists so that when that lands, the change is DELIBERATE and this file says
+// what the old behaviour was.
+//
+// It also matters to the analysis: every measured range in this repo assumes the
+// attacker stands still while attacking, and they do not have to.
+TEST(P2Movement, AFighterCanWalkAndJumpDuringItsOwnAttack) {
+    auto data = twoFighters();
+
+    // --- walking out of your own move ---------------------------------------
+    {
+        GameState s{};
+        ResetMatch(s, 0x1D7u);
+        InputPair press{};
+        press.p[0].bits = kInputLP;
+        Simulate(s, press, *data);
+        ASSERT_EQ(s.p[0].moveId, 1u) << "precondition: the move is running";
+
+        const std::int32_t before = s.p[0].posX;
+        InputPair walk{};
+        walk.p[0].bits = kInputRight;          // no attack button; the move runs on
+        Simulate(s, walk, *data);
+
+        EXPECT_EQ(s.p[0].moveId, 1u)
+            << "the move ended early, so this measures something else";
+        EXPECT_NE(s.p[0].posX, before)
+            << "the fighter did not move during its own attack. If this is now "
+               "true the kernel has gained a commitment rule -- check it is "
+               "AUTHORED per move (ADR-011) rather than hard-coded, and that "
+               "every measured range in this repo was re-derived.";
+    }
+
+    // --- taking off out of your own move -------------------------------------
+    {
+        GameState s{};
+        ResetMatch(s, 0x1D7u);
+        InputPair press{};
+        press.p[0].bits = kInputLP;
+        Simulate(s, press, *data);
+        ASSERT_EQ(s.p[0].moveId, 1u);
+        ASSERT_EQ(s.p[0].airborne, 0u);
+
+        InputPair up{};
+        up.p[0].bits = kInputUp;
+        Simulate(s, up, *data);
+
+        EXPECT_NE(s.p[0].airborne, 0u)
+            << "the fighter could not jump during its own attack. That is the "
+               "genre default and it is a CHANGE: it also removes the route by "
+               "which a launcher cancel reaches an air move, because the jump "
+               "that makes StanceAllows say yes happens mid-source-move.";
+    }
+}
+
+// AND A CROUCHING MOVE CANNOT START ON THE TICK YOU LAND, which is an ordering
+// consequence rather than a rule anybody wrote.
+//
+// stepFighter computes `crouching` from `airborne` BEFORE the landing clamp
+// runs, so on the tick the fighter touches down `airborne` is still 1 at that
+// line and `crouching` is forced to 0. StepAttack then sees a grounded fighter
+// who is not crouching. It costs exactly one tick, and it is invisible until
+// something asks for a crouching move out of a landing.
+TEST(P2Movement, ACrouchingMoveCannotStartOnTheTickOfLanding) {
+    auto data = twoFighters();
+    data->p[0].moves[1].stance = kStanceCrouching;
+
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+
+    InputPair up{};
+    up.p[0].bits = kInputUp;
+    Simulate(s, up, *data);
+    ASSERT_NE(s.p[0].airborne, 0u) << "precondition: airborne";
+
+    // Fall, holding Down and the button the whole way, so the only thing that
+    // can decide the outcome is the landing tick's own ordering.
+    InputPair downAttack{};
+    downAttack.p[0].bits = kInputDown | kInputLP;
+
+    int landedOnTick = -1;
+    for (int t = 0; t < 120 && landedOnTick < 0; ++t) {
+        Simulate(s, downAttack, *data);
+        if (s.p[0].airborne == 0) landedOnTick = t;
+    }
+    ASSERT_GE(landedOnTick, 0) << "never landed";
+
+    EXPECT_EQ(s.p[0].crouching, 0u)
+        << "the fighter was crouching on the tick it landed. If that is now "
+           "true the ordering in stepFighter changed -- `crouching` is computed "
+           "before the landing clamp, so `airborne` is still set when it runs.";
+    EXPECT_EQ(s.p[0].moveId, 0u)
+        << "a crouching move started on the landing tick. It cannot: the fighter "
+           "is not crouching yet, and StanceAllows says no.";
+}
