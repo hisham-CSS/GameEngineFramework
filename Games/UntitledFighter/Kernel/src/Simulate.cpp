@@ -143,7 +143,25 @@ void stepFighter(Fighter& f, Input in, const FighterData& data) {
     const bool committed = f.moveId != 0;
     const bool free      = canAct && !committed;
 
-    if (free) {
+    // THE JUMP IS BALLISTIC. Horizontal velocity in the air was decided at
+    // takeoff -- neutral, forward or back, from the direction held on the jump
+    // tick -- and NOTHING in the air recomputes it. Not an attack: an air
+    // normal rides the jump, and zeroing velX mid-arc (the first commitment
+    // draft did) stops the fighter dead so the attack lands behind where the
+    // jump was taking it. And not a held direction: where you land is chosen
+    // when you leave the ground, which is what makes a jump a commitment and an
+    // anti-air a read rather than a chase.
+    //
+    // Asked for from play (2026-08-21): "jumping normals should not block
+    // movement ... mostly they keep their momentum during the entire jump." A
+    // divekick that changes trajectory is an authored per-move motion (ROADMAP
+    // M1.3(b)), never a rule here.
+    //
+    // Being hit still zeroes it: air hitstun replaces momentum, and the launch
+    // vector that should replace it PROPERLY is M1.3(d)'s field.
+    if (f.airborne) {
+        if (!canAct) f.velX = 0;
+    } else if (free) {
         // THE FILE'S NUMBER WHEN THERE IS ONE. Zero means the character authored
         // none, and the placeholder above is then used unchanged -- see
         // FighterData::walkSpeedSub for why walk speed cannot stay a constant.

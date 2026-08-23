@@ -274,9 +274,11 @@ Six WPs, all landed, gate required in CI. The decision is
   collapsed `onHit`, so kara and whiff cancels are expressible;
   (b) **movement is a move** — jump, dash, backdash as authored moves with a
   `movement` field; the kernel's hard-coded jump is deleted; a jump cancel is an
-  ordinary cancel edge. Commitment is now the KERNEL DEFAULT (`P2Commitment.*`):
-  this is where the authored exceptions arrive — a lunge that carries the
-  fighter, a hop kick that leaves the ground mid-move;
+  ordinary cancel edge. Commitment is now the KERNEL DEFAULT (`P2Commitment.*`)
+  and the jump is BALLISTIC (`P2Ballistic.*`) — the arc is decided at takeoff
+  and neither an attack nor a held direction recomputes it. This is where the
+  authored exceptions arrive: a lunge that carries the fighter, a hop kick that
+  leaves the ground mid-move, a divekick that changes trajectory mid-arc;
   (c) **counter-hit** — per-move `counter_hit {hitstun_bonus, damage_bonus}`.
   **This is a soundness qualifier on every verdict, not just a mechanic** — see
   § Where this stands. Three ways out: qualify the verdict ("TERMINATING under

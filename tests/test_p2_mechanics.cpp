@@ -1969,6 +1969,109 @@ TEST(P2Commitment, AnIdleFighterStillWalksJumpsAndCrouches) {
     EXPECT_NE(s.p[0].airborne, 0u) << "an idle fighter did not jump";
 }
 
+// --- The jump is ballistic ---------------------------------------------------
+//
+// Asked for from play (2026-08-21): "jumping normals should not block movement
+// like this - certain jumping normals might affect jump trajectory (like
+// divekicks) but mostly they keep their momentum during the entire jump."
+//
+// THE MODEL: a jump's horizontal velocity is decided AT TAKEOFF -- neutral,
+// forward or back, from the direction held on the jump tick -- and nothing in
+// the air recomputes it. Not an attack: pressing an air normal keeps the arc,
+// which is the reported bug (commitment zeroed velX and the fighter stopped
+// dead mid-air). And not a held direction either: classic SF has no air
+// steering, and "they keep their momentum during the entire jump" is a
+// statement about the ARC, not about the attack. A divekick that changes
+// trajectory is an authored per-move motion (ROADMAP M1.3(b)), never a kernel
+// rule.
+TEST(P2Ballistic, AnAirNormalKeepsTheJumpsMomentum) {
+    auto data = twoFighters();
+    data->p[0].moves[1].stance = kStanceAir;
+
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+
+    // Forward jump: Right held on the takeoff tick decides the arc.
+    InputPair jumpFwd{};
+    jumpFwd.p[0].bits = kInputUp | kInputRight;
+    Simulate(s, jumpFwd, *data);
+    ASSERT_NE(s.p[0].airborne, 0u) << "precondition: took off";
+    const std::int32_t arcVel = s.p[0].velX;
+    ASSERT_GT(arcVel, 0) << "precondition: the forward jump carries velocity";
+
+    // Two ticks into the arc, press the air normal. Momentum must survive it.
+    Simulate(s, InputPair{}, *data);
+    InputPair attack{};
+    attack.p[0].bits = kInputLP;
+    Simulate(s, attack, *data);
+    ASSERT_EQ(s.p[0].moveId, 1u) << "precondition: the aerial started";
+
+    const std::int32_t before = s.p[0].posX;
+    Simulate(s, InputPair{}, *data);
+
+    EXPECT_EQ(s.p[0].velX, arcVel)
+        << "the air normal changed the arc's horizontal velocity from " << arcVel
+        << " to " << s.p[0].velX
+        << ". A jumping attack rides the jump; stopping dead mid-air is how a "
+           "jump-in becomes unusable, because the attack lands BEHIND where the "
+           "jump was taking you.";
+    EXPECT_GT(s.p[0].posX, before)
+        << "the fighter stopped advancing mid-arc while its aerial ran.";
+}
+
+TEST(P2Ballistic, TheArcIsDecidedAtTakeoffAndHeldDirectionsDoNotSteerIt) {
+    auto data = twoFighters();
+
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+
+    // Neutral jump: no direction on the takeoff tick.
+    InputPair up{};
+    up.p[0].bits = kInputUp;
+    Simulate(s, up, *data);
+    ASSERT_NE(s.p[0].airborne, 0u);
+    ASSERT_EQ(s.p[0].velX, 0) << "precondition: a neutral jump goes straight up";
+
+    // Hold Right for the rest of the arc. A ballistic jump ignores it.
+    const std::int32_t apexX = s.p[0].posX;
+    InputPair right{};
+    right.p[0].bits = kInputRight;
+    for (int t = 0; t < 10; ++t) Simulate(s, right, *data);
+
+    EXPECT_EQ(s.p[0].velX, 0)
+        << "holding Right mid-air steered a neutral jump. The arc is decided at "
+           "takeoff: where you land is chosen when you leave the ground, which "
+           "is what makes a jump a COMMITMENT and anti-airs a read rather than "
+           "a chase.";
+    EXPECT_EQ(s.p[0].posX, apexX)
+        << "the neutral jump drifted " << (s.p[0].posX - apexX) << " sub-units.";
+}
+
+TEST(P2Ballistic, LandingRestoresGroundRules) {
+    auto data = twoFighters();
+
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+
+    InputPair jumpFwd{};
+    jumpFwd.p[0].bits = kInputUp | kInputRight;
+    Simulate(s, jumpFwd, *data);
+    ASSERT_NE(s.p[0].airborne, 0u);
+
+    // Ride the arc down holding nothing, then walk on the ground again.
+    for (int t = 0; t < 120 && s.p[0].airborne != 0; ++t)
+        Simulate(s, InputPair{}, *data);
+    ASSERT_EQ(s.p[0].airborne, 0u) << "never landed";
+
+    const std::int32_t landedX = s.p[0].posX;
+    InputPair left{};
+    left.p[0].bits = kInputLeft;
+    Simulate(s, left, *data);
+    EXPECT_LT(s.p[0].posX, landedX)
+        << "a landed fighter no longer walks; the ballistic rule leaked past "
+           "the landing.";
+}
+
 // A DOWNED FIGHTER IS LYING DOWN, and the body says so.
 //
 // Asked for from play (2026-08-21): "knockdowns still don't seem to be visible

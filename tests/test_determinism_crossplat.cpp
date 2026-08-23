@@ -92,6 +92,17 @@ constexpr std::uint32_t kMatchSeed = 0xA5EED17Eu;
 // unrecorded forever, and the fix is to change kMatchSeed, not to weaken this.
 constexpr std::uint32_t kGoldenUnrecorded = 0u;
 
+// RE-RECORDED 2026-08-21 (second time today) for the BALLISTIC JUMP: horizontal
+// velocity in the air is decided at takeoff and neither an attack nor a held
+// direction recomputes it. Behaviour, not layout, and again a precise one: tick
+// 1000 (the walk phases) did not move; tick 2000 did, and the jumps phase is
+// ticks 1200-1800, where this script's "air control, such as it is" ticks now
+// steer nothing. The script is kept pressing those directions on purpose -- an
+// input that must do nothing is worth driving, and the day air steering becomes
+// authorable these goldens must move again.
+//
+// ---- the previous record, kept for its reasoning ---------------------------
+//
 // RE-RECORDED 2026-08-21 from MSVC 19.44 / x64 / RelWithDebInfo, for the
 // COMMITMENT RULE: a fighter no longer walks, jumps or changes posture while a
 // move is running. Behaviour, not layout -- CrossPlatformLayout passes untouched.
@@ -185,11 +196,11 @@ constexpr std::uint32_t kGoldenUnrecorded = 0u;
 //
 // gcc has NOT yet checked these. Until the Linux CI leg runs this test, they
 // prove that this toolchain is self-consistent and nothing more.
-constexpr std::uint32_t kGoldenRollingHash = 0x0CF2F516u;
+constexpr std::uint32_t kGoldenRollingHash = 0xAD470388u;
 constexpr std::uint32_t kGoldenCheckpoint[kCheckpointCount] = {
-    0x48918ACFu,  // tick 1000  (unchanged by commitment)
-    0xB94DE588u,  // tick 2000  (unchanged by commitment)
-    0xD341CFA8u,  // tick 3000  (the reversal phase: attacks while walking)
+    0x48918ACFu,  // tick 1000  (walk phases: unmoved by commitment OR ballistics)
+    0x58189F45u,  // tick 2000  (jumps phase: air control no longer steers)
+    0x46C2644Eu,  // tick 3000
 };
 
 // ============================================================================
