@@ -213,11 +213,14 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
             "and is why a silent file plays as it always did. Authored value, "
             "sub-units per tick: " + num(c.walkSpeedSub) + ".");
 
-    addLoss(report, "move.pushback", BuildLossDirection::KernelOmits, withPushback,
-            "Defender displacement on hit. ADR-001 section 6.3 records that this "
-            "number is ESTIMATED in every shipped character and that the "
-            "midscreen verdict turns on it; the kernel moves nobody on hit, so "
-            "two fighters stay exactly as far apart as they were.");
+    addLoss(report, "move.pushback", BuildLossDirection::Exact, withPushback,
+            "Defender displacement on hit, carried whole into MoveDef::pushbackHit "
+            "and applied by ResolveHits. ADR-001 section 6.3 records that this "
+            "number is ESTIMATED in every shipped character and that the midscreen "
+            "verdict turns on it -- so the estimate is now the game's behaviour "
+            "rather than a number nothing reads, which makes the estimate matter "
+            "MORE and not less. Saturated at the int16 slot, with a warning "
+            "naming both numbers when a file exceeds it.");
 
     addLoss(report, "move.stance", BuildLossDirection::KernelPermits, stanced,
             "Ground/air restriction. The kernel gates starting a move on hitstun "

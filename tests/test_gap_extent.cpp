@@ -195,9 +195,18 @@ constexpr std::int32_t kHeight    = px(60);
 // use fourteen different moves and one marginal gap would silently reclassify a
 // cycle as unperformable for a reason that is really about the stage.
 //
-// Nobody moves during any trace: the attacker holds attack buttons and no
-// direction, the defender is in hitstun, and the kernel applies no pushback on
-// hit at all. The gap is 8 px on every tick of every run below.
+// THE DEFENDER IS PUSHED, AND THE CORNER IS WHY THAT DOES NOT MOVE THE GAP.
+// The attacker holds attack buttons and no direction, so stepFighter zeroes its
+// velX; the defender is in hitstun, which zeroes velX anyway. Pushback is a
+// different mechanism -- it rides Fighter::pushX -- and since the bridge began
+// carrying `move.pushback` it is REAL: every hit queues a displacement.
+//
+// What holds the gap at 8 px is the STAGE, not the absence of a mechanic. The
+// defender opens with its back to the wall, so the clamp absorbs every push and
+// the separation the run measures is the one the corner verdict was computed
+// for. Move this sweep midscreen and the gap opens on the first hit -- which is
+// exactly what happened when pushback was first wired, and why these openings
+// are cornered above rather than centred.
 // IN THE CORNER, because that is the stage the verdict was computed for.
 // `fighter_a.json` declares `stage: corner` and its own header says the corner
 // verdict is the one the ranking certificate belongs to -- at stage corner

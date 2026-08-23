@@ -942,7 +942,7 @@ TEST(MatchBridgeLosses, EveryDropIsCountedAgainstKungFuGirlsActualFile) {
         { "cancel.effect",                 0, BuildLossDirection::KernelOmits   },
         { "move.cancel_window (absent)",   8, BuildLossDirection::KernelPermits },
         { "character.walk_speed",      1, BuildLossDirection::Exact         },
-        { "move.pushback",            24, BuildLossDirection::KernelOmits   },
+        { "move.pushback",            24, BuildLossDirection::Exact         },
         { "move.stance",              25, BuildLossDirection::KernelPermits },
         { "move.guard",                2, BuildLossDirection::Exact         },
         { "move.effect",              24, BuildLossDirection::Exact         },

@@ -182,12 +182,16 @@ constexpr std::int32_t kHeight    = px(60);
 // literally true, and test_match_bridge already tests that boundary to the
 // sub-unit. Here the margin is deliberately enormous.
 //
-// NOBODY MOVES DURING ANY TRACE. The attacker holds attack buttons and no
-// direction, so stepFighter sets velX to 0; the defender is in hitstun, which
-// zeroes velX anyway; and the kernel applies no pushback on hit at all
-// (MatchBuilder's `move.pushback` row: "the kernel moves nobody on hit"). The
-// gap is therefore 8 px on every tick of every run below, and no verdict here
-// rests on the pushback estimate ADR-001 section 6.3 names as the weakest number
+// THE DEFENDER IS PUSHED, AND THE CORNER ABSORBS IT. The attacker holds attack
+// buttons and no direction, so stepFighter sets velX to 0; the defender is in
+// hitstun, which zeroes velX anyway. Pushback is a separate mechanism riding
+// Fighter::pushX, and since the bridge began carrying `move.pushback` every hit
+// queues a real displacement -- the ledger row reads `exact` now, not
+// "the kernel moves nobody on hit".
+//
+// The gap holds at 8 px because the defender's back is to the WALL and the stage
+// clamp eats the push, not because nothing pushes. So a verdict here DOES rest on
+// the pushback estimate ADR-001 section 6.3 names as the weakest number
 // in the corpus.
 // IN THE CORNER, because that is the stage the verdict was computed for.
 // `fighter_a.json` declares `stage: corner` and its own header says the corner
