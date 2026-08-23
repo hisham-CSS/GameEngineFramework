@@ -257,11 +257,12 @@ Six WPs, all landed, gate required in CI. The decision is
   **Three corrections the predicate must respect, each verified:**
   `StanceAllows` reads `f.airborne` RAW, not `AirborneNow` — so a move's
   `airborne_from_tick` makes it count as an aerial *attack* and does not let an
-  air move start out of it; movement is gated on "not stunned" and **not** on
-  whether a move is running, so a fighter can walk and jump during its own attack
-  (`P2Movement.AFighterCanWalkAndJumpDuringItsOwnAttack` pins this — it is what
-  makes launcher cancels reachable); and a crouching move **cannot start on the
-  tick you land**, because `crouching` is computed before the landing clamp.
+  air move start out of it; **a fighter is COMMITTED while a move runs** — no
+  walking, no jumping, no posture change (`P2Commitment.*`, 2026-08-21), so a
+  launcher cancel into an aerial needs the jump BEFORE the source move or an
+  authored motion (M1.3(b)), not a mid-move takeoff; and a crouching move
+  **cannot start on the tick you land**, because `crouching` is computed before
+  the landing clamp.
   **Done when:** the enumeration refuses a hop whose stance is unreachable from
   its source's end state; the air self-loop is bounded by the arc rather than by
   juggle; and the graph's count equals what the kernel produces with stance
@@ -273,8 +274,9 @@ Six WPs, all landed, gate required in CI. The decision is
   collapsed `onHit`, so kara and whiff cancels are expressible;
   (b) **movement is a move** — jump, dash, backdash as authored moves with a
   `movement` field; the kernel's hard-coded jump is deleted; a jump cancel is an
-  ordinary cancel edge. This is also where "you are committed once you press a
-  button" becomes authorable rather than absent;
+  ordinary cancel edge. Commitment is now the KERNEL DEFAULT (`P2Commitment.*`):
+  this is where the authored exceptions arrive — a lunge that carries the
+  fighter, a hop kick that leaves the ground mid-move;
   (c) **counter-hit** — per-move `counter_hit {hitstun_bonus, damage_bonus}`.
   **This is a soundness qualifier on every verdict, not just a mechanic** — see
   § Where this stands. Three ways out: qualify the verdict ("TERMINATING under

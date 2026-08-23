@@ -155,6 +155,28 @@ bool ActiveHitbox(const FighterData& data, const Fighter& f, Box& out) {
 }
 
 Box Hurtbox(const FighterData& data, const Fighter& f) {
+    // A BODY ON THE FLOOR IS LYING DOWN: the standing box tipped over, as long
+    // as it was tall and as tall as it was wide, floor edge at zero. Checked
+    // FIRST, ahead of any move override, because a downed fighter has no move.
+    //
+    // This is the sim's own answer and not a drawing choice -- the view renders
+    // Hurtbox() and may not invent a pose the state did not produce, so the one
+    // honest place a knockdown can LOOK like one is here. It changes no
+    // exchange: InvulnerableTo already refuses every hit against a downed body
+    // (P2Knockdown.AFighterOnTheFloorCannotBeHit), so this shape is presentation
+    // routed through the state, which is the only routing ADR-011 allows.
+    // Asked for from play: a knockdown that keeps standing height looks like a
+    // fighter who is standing, whatever colour it is drawn in.
+    if (f.knockdown > 0) {
+        const std::int32_t w = data.hurtbox.x1 - data.hurtbox.x0;
+        const std::int32_t h = data.hurtbox.y1 - data.hurtbox.y0;
+        // Tipped toward the fighter's own back: head away from the opponent,
+        // which mirrors with facing exactly as every other box does.
+        const Box lying{ -h + (data.hurtbox.x1 - w / 2), 0,
+                          data.hurtbox.x1 - w / 2,        w };
+        return PlaceBox(lying, f.posX, f.posY, f.facing);
+    }
+
     // A move may replace the body for the ticks it runs. That is the whole
     // low-profile mechanism: a crouching attack ducks a high one because its body
     // is SHORTER for those frames, and no move ever names another move.

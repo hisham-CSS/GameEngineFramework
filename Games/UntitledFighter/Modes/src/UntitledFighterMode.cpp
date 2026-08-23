@@ -110,19 +110,28 @@ namespace {
         const char*   moves[3];
     };
 
+    // PUNCHES ON THE TOP ROW, KICKS ON THE HOME ROW. Reported from play
+    // (2026-08-21): "the keys u/i/o are supposed to be punches with j/k/l being
+    // kicks - it is stated opposite currently". It was. The convention is the
+    // arcade six-button layout read off a keyboard: the upper row is the upper
+    // row of the cabinet, and a hand resting on the home row finds the kicks.
+    //
+    // The pad follows the same shape: the four face buttons are light and medium
+    // of each, and the two heavies live on the bumpers, which is where every
+    // six-button fighting game on a standard pad puts them.
     const MoveKey kMoveKeys[] = {
-        { "Fight.Attack1", GLFW_KEY_J, GLFW_GAMEPAD_BUTTON_X,
-          "J", cse::kernel::kInputLP, { "stand_lp", "crouch_lp", "air_lp" } },
-        { "Fight.Attack2", GLFW_KEY_K, GLFW_GAMEPAD_BUTTON_Y,
-          "K", cse::kernel::kInputMP, { "stand_mp", "crouch_mp", "air_mp" } },
-        { "Fight.Attack3", GLFW_KEY_L, GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER,
-          "L", cse::kernel::kInputHP, { "stand_hp", "crouch_hp", "air_hp" } },
-        { "Fight.Attack4", GLFW_KEY_U, GLFW_GAMEPAD_BUTTON_A,
-          "U", cse::kernel::kInputLK, { "stand_lk", "crouch_lk", "air_lk" } },
-        { "Fight.Attack5", GLFW_KEY_I, GLFW_GAMEPAD_BUTTON_B,
-          "I", cse::kernel::kInputMK, { "stand_mk", "crouch_mk", "air_mk" } },
-        { "Fight.Attack6", GLFW_KEY_O, GLFW_GAMEPAD_BUTTON_LEFT_BUMPER,
-          "O", cse::kernel::kInputHK, { "stand_hk", "crouch_hk", "air_hk" } },
+        { "Fight.Attack1", GLFW_KEY_U, GLFW_GAMEPAD_BUTTON_X,
+          "U", cse::kernel::kInputLP, { "stand_lp", "crouch_lp", "air_lp" } },
+        { "Fight.Attack2", GLFW_KEY_I, GLFW_GAMEPAD_BUTTON_Y,
+          "I", cse::kernel::kInputMP, { "stand_mp", "crouch_mp", "air_mp" } },
+        { "Fight.Attack3", GLFW_KEY_O, GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER,
+          "O", cse::kernel::kInputHP, { "stand_hp", "crouch_hp", "air_hp" } },
+        { "Fight.Attack4", GLFW_KEY_J, GLFW_GAMEPAD_BUTTON_A,
+          "J", cse::kernel::kInputLK, { "stand_lk", "crouch_lk", "air_lk" } },
+        { "Fight.Attack5", GLFW_KEY_K, GLFW_GAMEPAD_BUTTON_B,
+          "K", cse::kernel::kInputMK, { "stand_mk", "crouch_mk", "air_mk" } },
+        { "Fight.Attack6", GLFW_KEY_L, GLFW_GAMEPAD_BUTTON_LEFT_BUMPER,
+          "L", cse::kernel::kInputHK, { "stand_hk", "crouch_hk", "air_hk" } },
     };
 
     // The four direction bits stepFighter reads: kInputLeft and kInputRight set

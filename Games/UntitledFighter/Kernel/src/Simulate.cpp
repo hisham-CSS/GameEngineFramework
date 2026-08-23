@@ -118,7 +118,32 @@ void stepFighter(Fighter& f, Input in, const FighterData& data) {
 
     const bool canAct = actionable(f);
 
-    if (canAct) {
+    // COMMITTED: a move that was already running at the top of this tick owns
+    // the fighter for it. No walking, no jumping, no change of posture.
+    //
+    // Asked for from play (2026-08-21): "we can move and attack and crouch and
+    // move as well ... not possible in normal fighting games (with certain moves
+    // being an exception - rather than a rule)." That is what a frame count
+    // MEANS in the genre -- startup, active and recovery are the frames you gave
+    // up on the press -- and a range measured against an attacker who can slide
+    // forward during startup is not a range. Every measured number in this repo
+    // already assumed an attacker who stands still.
+    //
+    // READ AT THE TOP OF THE TICK, NOT AFTER StepAttack, and that one tick is
+    // the whole of what keeps aerials startable. Up+button on one tick must take
+    // off and then attack: stepFighter runs first, no move is running yet, the
+    // jump goes through, and StepAttack then finds an airborne fighter asking
+    // for an air move. Up pressed one tick INTO a grounded move is refused.
+    //
+    // THE EXCEPTION IS AUTHORED, NOT HERE. A move that carries the fighter -- a
+    // lunge, a slide, a hop kick -- authors its own motion, which is ROADMAP
+    // M1.3(b) and ADR-011's rule that no mechanic is a kernel constant. Until a
+    // file says otherwise, nothing moves during an attack, which is the
+    // conservative default.
+    const bool committed = f.moveId != 0;
+    const bool free      = canAct && !committed;
+
+    if (free) {
         // THE FILE'S NUMBER WHEN THERE IS ONE. Zero means the character authored
         // none, and the placeholder above is then used unchanged -- see
         // FighterData::walkSpeedSub for why walk speed cannot stay a constant.
@@ -141,7 +166,16 @@ void stepFighter(Fighter& f, Input in, const FighterData& data) {
     // Crouching is an INPUT posture and airborne is a POSITION fact, which is why
     // they are two fields; the impossible combination is closed here, by
     // construction, rather than by a convention somebody has to remember.
-    f.crouching = (canAct && !f.airborne && (in.bits & kInputDown)) ? 1u : 0u;
+    //
+    // A committed fighter KEEPS the posture the move started in rather than
+    // dropping to standing: a crouching move's frame data was authored against
+    // the crouching body, and a fighter whose hurtbox grew back to 60 px on
+    // frame 2 of a slide would be hittable by everything the slide was built to
+    // duck.
+    if (free)
+        f.crouching = (!f.airborne && (in.bits & kInputDown)) ? 1u : 0u;
+    else if (!canAct)
+        f.crouching = 0;   // stunned or downed: nobody is holding a crouch
 
     if (f.airborne) {
         // The file's number when there is one; zero means unauthored and the

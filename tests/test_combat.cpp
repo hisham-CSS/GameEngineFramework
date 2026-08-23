@@ -451,12 +451,21 @@ TEST(CombatHit, ASimultaneousTradeIsSymmetric) {
 TEST(CombatMirror, AMirroredScenarioProducesExactlyMirroredState) {
     const MatchData data = makeMatchData();
 
-    // p0 walks toward p1 while jabbing; p1 stands still and gets hit. The
+    // p0 walks toward p1, THEN jabs; p1 stands still and gets hit. The
     // mirrored run reflects both positions and swaps left for right in the
     // input. Nothing else changes -- same seed, same data, same tick count.
     //
+    // WALK FIRST, ATTACK AFTER, because a fighter no longer walks during its own
+    // attack (P2Commitment, 2026-08-21). The first draft of this script held
+    // Right while jabbing every few ticks and covered the distance in the gaps;
+    // under the commitment rule it never moved more than a few pixels and the
+    // non-vacuity guard below reported "nothing was hit" -- which is the rule
+    // working, and this script catching up with the genre.
+    //
     // The starting distance is chosen so the two NEVER share an X coordinate:
-    // p0 covers 80 pixels in 40 ticks and starts 90 short of p1. That matters,
+    // p0 covers 60 pixels in its 30 walking ticks and starts 90 short of p1,
+    // then stands still and jabs from 30 px -- inside the jab's 20-60 px box and
+    // well clear of the tie. That matters,
     // and the test asserts it below. Facing is decided by `p0.posX <= p1.posX`,
     // and at exact equality that rule gives the SAME answer in both runs rather
     // than the mirrored one -- a real asymmetry, found by an earlier version of
@@ -467,20 +476,27 @@ TEST(CombatMirror, AMirroredScenarioProducesExactlyMirroredState) {
     GameState normal   = openingAt(-70,  20);
     GameState mirrored = openingAt( 70, -20);
 
-    constexpr int kTicks = 40;
+    // 30 ticks of walking and then room for three full jabs, so the hit branch
+    // is driven several times rather than once.
+    constexpr int kTicks = 30 + 3 * kJabDuration;
     int hitsNormal = 0, hitsMirrored = 0, sharedX = 0;
 
     for (int t = 0; t < kTicks; ++t) {
         const std::int32_t healthBeforeN = normal.p[1].health;
         const std::int32_t healthBeforeM = mirrored.p[1].health;
 
-        // LP pressed rather than held, for ROADMAP M1.1d's reason: a hold is one
-        // press. The direction bit stays held on purpose -- walking IS a level,
-        // and holding it is what puts the two runs at mirrored positions, which
-        // is the thing being compared.
-        const std::uint16_t attack = (t % kJabDuration == 0) ? kInputLP : 0u;
-        Simulate(normal,   inputs(attack | kInputRight, 0), data);
-        Simulate(mirrored, inputs(attack | kInputLeft,  0), data);
+        // Two acts. Walk for the first kWalkTicks -- the direction is a LEVEL and
+        // holding it is what puts the two runs at mirrored positions, which is
+        // the thing being compared -- then stop and jab, pressed rather than
+        // held for ROADMAP M1.1d's reason: a hold is one press.
+        constexpr int kWalkTicks = 30;   // 60 px at 2 px/tick, into jab range
+        const bool walking = t < kWalkTicks;
+        const std::uint16_t attack =
+            (!walking && (t - kWalkTicks) % kJabDuration == 0) ? kInputLP : 0u;
+        const std::uint16_t dirN = walking ? kInputRight : 0u;
+        const std::uint16_t dirM = walking ? kInputLeft  : 0u;
+        Simulate(normal,   inputs(attack | dirN, 0), data);
+        Simulate(mirrored, inputs(attack | dirM, 0), data);
 
         if (normal.p[1].health   < healthBeforeN) ++hitsNormal;
         if (mirrored.p[1].health < healthBeforeM) ++hitsMirrored;

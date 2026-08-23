@@ -1834,69 +1834,182 @@ TEST(P2Movement, AJumpIsAFixedNumberOfTicksAndBoundsAnyAirLoop) {
            "infinite than this test assumes. Re-derive the gating argument.";
 }
 
-// --- What a fighter can do WHILE ATTACKING -----------------------------------
+// --- Commitment: a move, once started, owns the fighter ----------------------
 //
-// Found by review 2026-08-20 while asking what gates the combo graph, and it is
-// a fact about the GAME rather than about the analysis: `stepFighter` gates walk
-// and jump on `canAct` -- which is `hitstun == blockstun == knockdown == 0` --
-// and NOT on whether a move is running. So a fighter can walk, and take off,
-// in the middle of their own attack.
+// Asked for from play (2026-08-21): "we can move and attack and crouch and move
+// as well. these are all things that are not possible in normal fighting games
+// (with certain moves being an exception - rather than a rule) - so lets figure
+// out how to model the player movement and actions closer to how street fighter
+// works."
 //
-// PINNED RATHER THAN FIXED, deliberately. "You are committed once you press a
-// button" is the genre default, but it is a per-move design decision and not a
-// kernel rule -- ADR-011 forbids hard-coding a mechanic a character file cannot
-// set, and ROADMAP M1.3(b) is where movement becomes an authored move. This test
-// exists so that when that lands, the change is DELIBERATE and this file says
-// what the old behaviour was.
+// THE RULE: while a move is running the fighter does not walk, does not jump and
+// does not change posture. That is what a frame count MEANS -- startup, active,
+// recovery are the frames you have given up -- and a range measured against an
+// attacker who can slide forward during startup is not a range.
 //
-// It also matters to the analysis: every measured range in this repo assumes the
-// attacker stands still while attacking, and they do not have to.
-TEST(P2Movement, AFighterCanWalkAndJumpDuringItsOwnAttack) {
+// THE EXCEPTION IS PER-MOVE AND AUTHORED, never a kernel rule: a move that wants
+// to carry the fighter authors its own motion (ROADMAP M1.3(b), "movement is a
+// move"). Until then nothing moves during an attack, which is the conservative
+// default and the one every measured range in this repo already assumed.
+//
+// The gate reads "a move was ALREADY RUNNING at the top of this tick", not
+// "a move is running now", and the difference is one tick and it is the whole
+// of what keeps aerials startable: Up+button on one tick must still take off
+// -- stepFighter runs before StepAttack, so on that tick no move is running yet
+// and the jump goes through -- while Up pressed a tick into a grounded move must
+// not.
+TEST(P2Commitment, AFighterDoesNotWalkDuringItsOwnAttack) {
     auto data = twoFighters();
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
 
-    // --- walking out of your own move ---------------------------------------
-    {
-        GameState s{};
-        ResetMatch(s, 0x1D7u);
-        InputPair press{};
-        press.p[0].bits = kInputLP;
-        Simulate(s, press, *data);
-        ASSERT_EQ(s.p[0].moveId, 1u) << "precondition: the move is running";
+    InputPair press{};
+    press.p[0].bits = kInputLP;
+    Simulate(s, press, *data);
+    ASSERT_EQ(s.p[0].moveId, 1u) << "precondition: the move is running";
 
-        const std::int32_t before = s.p[0].posX;
-        InputPair walk{};
-        walk.p[0].bits = kInputRight;          // no attack button; the move runs on
-        Simulate(s, walk, *data);
+    const std::int32_t before = s.p[0].posX;
+    InputPair walk{};
+    walk.p[0].bits = kInputRight;
+    Simulate(s, walk, *data);
 
-        EXPECT_EQ(s.p[0].moveId, 1u)
-            << "the move ended early, so this measures something else";
-        EXPECT_NE(s.p[0].posX, before)
-            << "the fighter did not move during its own attack. If this is now "
-               "true the kernel has gained a commitment rule -- check it is "
-               "AUTHORED per move (ADR-011) rather than hard-coded, and that "
-               "every measured range in this repo was re-derived.";
-    }
+    EXPECT_EQ(s.p[0].moveId, 1u) << "the move ended early; this measures something else";
+    EXPECT_EQ(s.p[0].posX, before)
+        << "the fighter slid " << (s.p[0].posX - before)
+        << " sub-units during its own attack. A range measured against an "
+           "attacker who can walk forward mid-startup is not a range, and the "
+           "genre gives the frames up on the press.";
+}
 
-    // --- taking off out of your own move -------------------------------------
-    {
-        GameState s{};
-        ResetMatch(s, 0x1D7u);
-        InputPair press{};
-        press.p[0].bits = kInputLP;
-        Simulate(s, press, *data);
-        ASSERT_EQ(s.p[0].moveId, 1u);
-        ASSERT_EQ(s.p[0].airborne, 0u);
+TEST(P2Commitment, AFighterDoesNotJumpDuringItsOwnAttack) {
+    auto data = twoFighters();
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
 
-        InputPair up{};
-        up.p[0].bits = kInputUp;
-        Simulate(s, up, *data);
+    InputPair press{};
+    press.p[0].bits = kInputLP;
+    Simulate(s, press, *data);
+    ASSERT_EQ(s.p[0].moveId, 1u);
+    ASSERT_EQ(s.p[0].airborne, 0u);
 
-        EXPECT_NE(s.p[0].airborne, 0u)
-            << "the fighter could not jump during its own attack. That is the "
-               "genre default and it is a CHANGE: it also removes the route by "
-               "which a launcher cancel reaches an air move, because the jump "
-               "that makes StanceAllows say yes happens mid-source-move.";
-    }
+    InputPair up{};
+    up.p[0].bits = kInputUp;
+    Simulate(s, up, *data);
+
+    EXPECT_EQ(s.p[0].airborne, 0u)
+        << "the fighter took off in the middle of a grounded attack. A jump is "
+           "a commitment of its own and cannot be layered on top of another.";
+}
+
+TEST(P2Commitment, AFighterDoesNotChangePostureDuringItsOwnAttack) {
+    auto data = twoFighters();
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+
+    InputPair press{};
+    press.p[0].bits = kInputLP;            // a standing move
+    Simulate(s, press, *data);
+    ASSERT_EQ(s.p[0].moveId, 1u);
+    ASSERT_EQ(s.p[0].crouching, 0u);
+
+    InputPair down{};
+    down.p[0].bits = kInputDown;
+    Simulate(s, down, *data);
+
+    EXPECT_EQ(s.p[0].crouching, 0u)
+        << "the fighter crouched mid-attack. The hurtbox would change under a "
+           "move whose frame data was authored against the standing body, and "
+           "every low-profile number in the file would be wrong.";
+}
+
+// AND THE ONE-TICK EXCEPTION THAT KEEPS AERIALS POSSIBLE. The press that starts
+// an air move and the jump that makes it legal land on the SAME tick, and the
+// commitment gate must let that tick through or no aerial can ever start from
+// the ground.
+TEST(P2Commitment, UpAndButtonOnOneTickStillStartsAnAerial) {
+    auto data = twoFighters();
+    data->p[0].moves[1].stance = kStanceAir;
+
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+
+    InputPair upAttack{};
+    upAttack.p[0].bits = kInputUp | kInputLP;
+    Simulate(s, upAttack, *data);
+
+    EXPECT_NE(s.p[0].airborne, 0u)
+        << "the jump was refused on the tick it was pressed, because the gate "
+           "read 'a move is running NOW' instead of 'a move was running at the "
+           "top of the tick'. That one-tick difference is what makes an aerial "
+           "startable at all.";
+    EXPECT_EQ(s.p[0].moveId, 1u)
+        << "the aerial did not start. Up+button must take off and attack in one "
+           "tick, or every air move needs a scripted jump and a timed press.";
+}
+
+// What it does NOT gate: a stunned or downed fighter was never acting anyway,
+// and a fighter who is IDLE may do all three. The rule is about moves, not about
+// the fighter in general.
+TEST(P2Commitment, AnIdleFighterStillWalksJumpsAndCrouches) {
+    auto data = twoFighters();
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+    const std::int32_t start = s.p[0].posX;
+
+    InputPair right{};  right.p[0].bits = kInputRight;
+    Simulate(s, right, *data);
+    EXPECT_GT(s.p[0].posX, start) << "an idle fighter did not walk";
+
+    InputPair down{};   down.p[0].bits = kInputDown;
+    Simulate(s, down, *data);
+    EXPECT_NE(s.p[0].crouching, 0u) << "an idle fighter did not crouch";
+
+    InputPair up{};     up.p[0].bits = kInputUp;
+    Simulate(s, up, *data);
+    EXPECT_NE(s.p[0].airborne, 0u) << "an idle fighter did not jump";
+}
+
+// A DOWNED FIGHTER IS LYING DOWN, and the body says so.
+//
+// Asked for from play (2026-08-21): "knockdowns still don't seem to be visible
+// (maybe we should remove the hurtbox and just have a smaller collision box for
+// their body during a knockdown so we can better visualize it)". The colour cue
+// alone did not read, and the reason is fair: a box that keeps standing height
+// looks like a fighter who is standing, whatever colour it is.
+//
+// This is SIMULATION, not presentation -- the view draws Hurtbox() and may not
+// invent a pose the sim did not produce (ADR-011: pose is a pure function of
+// state). So the kernel's own answer changes: while knocked down the body is the
+// standing box TIPPED OVER -- as long as the body was tall, as tall as it was
+// wide. Nothing can hit it anyway (AFighterOnTheFloorCannotBeHit), so the shape
+// changes no exchange; what it changes is that a knockdown LOOKS like one.
+TEST(P2Knockdown, ADownedFightersBodyIsLyingDown)  {
+    auto data = twoFighters();
+    data->p[0].moves[1].knockdownTicks = 20;
+    data->p[0].moves[1].hitstun        = 1;
+
+    GameState s = facingOff();
+    ResolveHits(s, *data);
+    ASSERT_EQ(s.p[1].knockdown, 20) << "precondition: the defender went down";
+
+    const Box standing = Hurtbox(data->p[1], s.p[0]);   // p0 is untouched
+    const Box downed   = Hurtbox(data->p[1], s.p[1]);
+
+    const std::int32_t standW = standing.x1 - standing.x0;
+    const std::int32_t standH = standing.y1 - standing.y0;
+    const std::int32_t downW  = downed.x1 - downed.x0;
+    const std::int32_t downH  = downed.y1 - downed.y0;
+
+    EXPECT_EQ(downH, standW)
+        << "the downed body is " << downH << " tall and the standing body is "
+        << standW << " wide; lying down swaps the two.";
+    EXPECT_EQ(downW, standH)
+        << "the downed body is " << downW << " long and the standing body is "
+        << standH << " tall; a knockdown that does not change the silhouette is "
+           "a knockdown nobody can see, which is the bug as reported.";
+    EXPECT_EQ(downed.y0, 0)
+        << "the downed body floats: its floor edge is " << downed.y0
+        << " and a body lying on the ground starts at 0.";
 }
 
 // AND A CROUCHING MOVE CANNOT START ON THE TICK YOU LAND, which is an ordering

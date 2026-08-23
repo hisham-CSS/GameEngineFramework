@@ -92,6 +92,21 @@ constexpr std::uint32_t kMatchSeed = 0xA5EED17Eu;
 // unrecorded forever, and the fix is to change kMatchSeed, not to weaken this.
 constexpr std::uint32_t kGoldenUnrecorded = 0u;
 
+// RE-RECORDED 2026-08-21 from MSVC 19.44 / x64 / RelWithDebInfo, for the
+// COMMITMENT RULE: a fighter no longer walks, jumps or changes posture while a
+// move is running. Behaviour, not layout -- CrossPlatformLayout passes untouched.
+//
+// And it is a precise re-record: the tick-1000 and tick-2000 checkpoints did NOT
+// move. Only tick 3000 did, which is the reversal phase -- the one stretch of
+// the script that presses attack buttons WHILE walking (`k % 13 == 0` LP on top
+// of held directions). That is exactly where commitment bites, and nowhere
+// else, which is the shape a one-rule change should have. Had tick 1000 moved,
+// the rule would be leaking into plain walking.
+//
+// gcc has NOT checked these yet; the Linux CI leg is the cross-toolchain half.
+//
+// ---- the previous record, kept for its reasoning ---------------------------
+//
 // RE-RECORDED 2026-08-20 from MSVC 19.44 / x64 / RelWithDebInfo, for the
 // invisible wall -- and this one is a BEHAVIOUR re-record, not a layout one.
 //
@@ -170,11 +185,11 @@ constexpr std::uint32_t kGoldenUnrecorded = 0u;
 //
 // gcc has NOT yet checked these. Until the Linux CI leg runs this test, they
 // prove that this toolchain is self-consistent and nothing more.
-constexpr std::uint32_t kGoldenRollingHash = 0xD6F0F687u;
+constexpr std::uint32_t kGoldenRollingHash = 0x0CF2F516u;
 constexpr std::uint32_t kGoldenCheckpoint[kCheckpointCount] = {
-    0x48918ACFu,  // tick 1000
-    0xB94DE588u,  // tick 2000
-    0xE1894695u,  // tick 3000
+    0x48918ACFu,  // tick 1000  (unchanged by commitment)
+    0xB94DE588u,  // tick 2000  (unchanged by commitment)
+    0xD341CFA8u,  // tick 3000  (the reversal phase: attacks while walking)
 };
 
 // ============================================================================
