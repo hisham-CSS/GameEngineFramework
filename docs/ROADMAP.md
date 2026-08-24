@@ -232,6 +232,34 @@ Six WPs, all landed, gate required in CI. The decision is
   With both, four of five broken tests go green. **The fifth is the headline:**
   `test_gap_extent` goes 97 → 77 (see § Where this stands), and section 3's
   timing account still cannot predict a cycle that leaves the ground.
+  **THIRD ATTEMPT (2026-08-21), CARRIED TO THE MEASUREMENT AND REVERTED ON A
+  DESIGN HOLE NOBODY HAD NAMED.** Everything below was built and run; the tree
+  is green without it. What worked: the wire, the ledger row to `Exact`, the
+  shipped-file bridge tests, `BuildDemonstration` establishing stance AND
+  re-pressing after a stall (two ticks of patience, mirroring the drivers), the
+  four driver `holds_` vectors, and the certificate-twin restatements — with the
+  wire in, `test_game_core` (38/38), `test_ground_truth`, `test_one_frame` (8/8)
+  and `test_training_mode` all pass, telling the CLOSED-GAP story: the air
+  self-cancel runs ~4 reps per jump (hit ticks 6,17,28,39 / landing gap with the
+  defender FREE / repeat), the demonstration performs its turns ACROSS jumps,
+  and no single string beats `maxHits` any more.
+  **What stopped it: COMMITMENT KILLED EVERY CROSS-POSTURE CANCEL, and 120 of
+  121 cycles collapsed.** A gatling like `stand_mp → crouch_hp` is ordinary in
+  the genre — hold Down, the cancel takes you into the crouch — but the
+  commitment rule freezes `crouching` while a move runs, `StanceAllows` reads
+  the frozen posture, and the cancel is refused. **The fix is a semantics
+  change:** selection must read the INPUT (is Down held?), and the posture must
+  FOLLOW THE MOVE — starting a crouching move makes you crouching, whatever you
+  were. That keeps commitment (no walking, no jumping, no posture change from
+  input alone) while letting cancels change posture the way every fighting game
+  does. Then the sweep must be re-measured a third time, and section 3's
+  account must learn the jump before its two-route predictions mean anything
+  (97 of 121 disagreed).
+  **A near-miss worth the line:** the first driver edit asserted AFTER mutating
+  its string but BEFORE writing the file, so `holds_` was declared and read but
+  never filled — an empty-vector index that crashed all seven gap-extent tests
+  with an access violation. An edit script must write before it asserts
+  anything about a later block.
   **Four traps, verified in `tests/test_one_frame.cpp` and all four latent:**
   line 1691 mashes a bare `bindings[0].button`, which makes
   `EXPECT_TRUE(mashed.defenderActedTicks.empty())` unfalsifiable; line 774 pulses
@@ -249,6 +277,10 @@ Six WPs, all landed, gate required in CI. The decision is
   `usableEdges` filters cancel edges by `Contact::Block`/`Whiff` and the prover's
   dead-cancel list, and by nothing else. Neither the enumeration nor section 3
   ever asks what state the fighter is in.
+  **Prerequisite from M1.3e's third attempt: posture follows the move.**
+  Selection reads the input; starting a move sets the fighter's posture to the
+  move's stance; commitment forbids input-driven posture change only. Without
+  this, every cross-posture cancel is refused and the graph has nothing to gate.
   **The gating predicate:** B's stance must be reachable from A's END state.
   Ground → air is free, even mid-move. Air → ground needs a **landing**, which no
   cancel window covers — `Fighter::airborne` is cleared by POSITION alone, so an
