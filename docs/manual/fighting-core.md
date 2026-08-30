@@ -1,6 +1,6 @@
 # The Fighting-Game Core
 
-Verified: 2026-08-30 @ 019b7a8
+Verified: 2026-08-30 @ 47ba2b2
 
 Cat Splat Engine is being built toward a deterministic, rollback-capable fighting game. That work does not live in `Engine/`. It is a **title** — `Games/UntitledFighter/` — and the engine does not depend on any of it. The link direction is a configure-time error, not a convention.
 

@@ -75,7 +75,7 @@ falls out of that), then M1.6. Everything else is done or serves these.
 
 | In flight | Owner | Since |
 |---|---|---|
-| M1.3e — stance reaches the kernel, posture follows the move | Claude | 2026-08-30 |
+| *(nothing)* | | |
 
 One at a time. The next unblocked WP is always the top `[ ]` in milestone
 order — which, under the 2026-08-21 reorder, is the sequence named above.
@@ -246,8 +246,8 @@ Six WPs, all landed, gate required in CI. The decision is
   fell short, six to nine timing mismatches each). That objection dies when M1.4
   deletes section 3's parallel account, so the wire waits for it.
 
-- `[~]` **M1.3e Stance reaches the kernel, and the drivers establish it.** *(M)*
-  Claude, 2026-08-30. Landed in two steps, on the fourth attempt, with the
+- `[x]` **M1.3e Stance reaches the kernel, and the drivers establish it.** *(M)*
+  — `5db85a6` `47ba2b2`. Landed in two steps, on the fourth attempt, with the
   third attempt's map (its full text lives in this entry's git history; the
   four test-harness traps it named were each avoided and are pinned in code
   comments where they lived).
