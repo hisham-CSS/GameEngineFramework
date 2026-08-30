@@ -287,8 +287,28 @@ void stepFighter(Fighter& f, Input in, const FighterData& data) {
         // transition detector sees nothing. If nothing started, the press went
         // unused and is worth keeping.
         const bool startedThisTick = f.moveId != 0 && f.moveFrame == 0;
-        if (pressed != 0 && !startedThisTick) {
-            f.bufferedButtons = pressed;
+
+        // ONLY BITS SOME MOVE CAN USE enter the buffer. `pressed` carries all
+        // sixteen bits, directions included, and the buffer is replace-on-write
+        // -- so without this mask a nervous forward tap during hitstun REPLACES
+        // a buffered reversal with a direction that can never match any move's
+        // button. The tap could start nothing; the press it destroyed could.
+        // Found by adversarial review (2026-08-21), and it plays as "the game
+        // eats my inputs sometimes", which is the exact feel a buffer exists to
+        // remove.
+        //
+        // The union is computed from the move table each tick rather than
+        // cached in a field, because a cached union would be one more byte the
+        // connect handshake hashes and one more thing a layout change moves;
+        // thirty-two integer ORs is free at this scale and always current.
+        std::uint16_t usable = 0;
+        for (std::int32_t i = 1; i < data.moveCount && i < kMaxMovesPerFighter; ++i)
+            usable |= data.moves[i].button;
+        const std::uint16_t buffable =
+            static_cast<std::uint16_t>(pressed & usable);
+
+        if (buffable != 0 && !startedThisTick) {
+            f.bufferedButtons = buffable;
             f.bufferAge       = 0;
         } else if (f.bufferedButtons != 0) {
             // Aged, then dropped. A buffer that never expired would fire a move

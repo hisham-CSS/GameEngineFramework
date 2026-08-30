@@ -153,14 +153,43 @@ Six WPs, all landed, gate required in CI. The decision is
   a two-frame link is performable by a human.
   **Done when:** the seven `P3Input` tests. All exist and pass.
 
-- `[ ]` **M1.1e The buffer window as an authored character field.** *(S)*
-  `FighterData::inputBufferFrames` exists and the kernel honours it; nothing sets
-  it from a file, so every caller that wants buffering assigns it directly.
-  Needs [ADR-011](adr/ADR-011-mechanics-are-fields.md)'s five parts, and it
-  touches `schema.v2.json`, which the published prover reads.
+- `[ ]` **M1.1e The modern input buffer, authored.** *(S–M)* Asked for
+  2026-08-21: *"holding inputs for a few frames before consumption so things
+  like one frame links become easier ... a 3 frame buffer that makes a tightly
+  timed link much easier"* — and adversarially reviewed the same day, six
+  agents, every claim refuted-or-confirmed against the code. **The mechanism is
+  in and mostly right:** reversal buffering out of hitstun works (fires on the
+  first actionable tick, zero added delay), wake-up from knockdown works,
+  rollback replays buffering identically by construction, overwrite is
+  last-wins, and buffering is INVISIBLE to the prover — `edgeUsable` already
+  assumes first-frame cancels, so a buffer only makes the kernel match the
+  model's ideal player. What remains is authoring and the verified checklist:
+  (a) `input_buffer_frames` in `schema.v2.json` (character-global matches the
+  genre — SF6/GGST use a game-global 4–5f; the real exceptions are
+  per-SITUATION, wakeup/jump/tech windows, which no per-move field expresses
+  either — say so in the schema note), the load with an A-assertion, the
+  `MatchBuilder` copy, a ledger row;
+  (b) **window N accepts N+1 ticks** — the "3-frame feel" is
+  `input_buffer_frames: 2`; document it where the field is defined;
+  (c) **loader bound ≤ 255**: `bufferAge` is uint8 against an int32 window — a
+  window past 255 wraps the age and the buffer becomes eternal;
+  (d) fixed 2026-08-21: a direction tap no longer clobbers a buffered attack
+  (`P3Input.ADirectionTapDoesNotClobberABufferedReversal`) — capture masks to
+  the union of move buttons;
+  (e) **a decision, the author's:** a cancel fired by a HELD button consumes an
+  unrelated buffered press (`FindCancel` clears on any edge). Clear-on-any-start
+  is simple and slightly lossy; clear-only-when-used keeps a buffered link
+  alive through an unrelated cancel. Genre feel, not mechanics;
+  (f) **negative edge is never buffered** — releases get 1 tick where presses
+  get N+1, inverted relative to why negative edge exists; extend or document;
+  (g) authoring the field **moves the replay/handshake content hash** for that
+  file (by design — it is character data) and `test_ground_truth`'s counts
+  re-derive; `test_gap_extent`'s post-build override then measures a number the
+  shipped file does not use — reconcile, do not leave both.
   **Done when:** a file authoring `input_buffer_frames` produces a `FighterData`
-  carrying it; a file authoring none produces zero; out of range is a load error
-  naming the key.
+  carrying it; none produces zero; out of range (or > 255) is a load error
+  naming the key; and a one-frame link test passes with a 2-frame window and
+  fails at zero.
 
 - `[ ]` **M1.1f The juggle wiring, and the mirror that waits on it.** *(S)*
   `MatchBuilder` sets neither `FighterData::juggleMax` nor `MoveDef::juggleCost`,
@@ -287,9 +316,41 @@ Six WPs, all landed, gate required in CI. The decision is
   is proved by the bytes not changing, which is the one honest proof a pure
   restructure has. Any behaviour discovered mid-refactor is a finding for
   M1.3e, not a silent fix here.
+  **One placement rule from the buffer review, and the golden cannot police it:**
+  hitstop's early-return currently skips buffer capture AND `prevButtons`, which
+  by accident does two right things (a pre-freeze buffer's age pauses; a press
+  HELD across the freeze reads as a fresh edge on thaw) and one wrong one (a
+  press-and-RELEASE entirely inside the freeze is eaten — the tap-confirm modern
+  games rely on). Under the pipeline, buffer RECORDING moves to ReadIntent and
+  must run during hitstop with aging suspended; the freeze gates
+  StepPhysics/StepAttack only. The crossplat golden runs the two-arg `Simulate`
+  with no moves and no hitstop, so it cannot catch a regression here — a
+  dedicated freeze-tap test must, written in this WP.
   **Done when:** the pipeline stages exist with fixed signatures, the field-
   writer audit shows one stage per field, `test_determinism_crossplat` passes
-  WITHOUT a re-golden, and the kernel's two files did not grow.
+  WITHOUT a re-golden, the freeze-tap test exists, and the kernel's two files
+  did not grow.
+
+- `[ ]` **M1.3h The host delivers every press.** *(S–M)* From the buffer
+  review's host strand, all verified with lines: the kernel buffer cannot fix
+  what never arrives, and today it does not always arrive.
+  `readPad_` level-reads a mask refreshed once per RENDER frame, so above 60 fps
+  a tap released before the next tick-running frame **vanishes** — no edge ever
+  reaches the kernel; below 60 fps one frame's sample is replicated across every
+  catch-up tick (two taps in a stalled frame collapse into one hold); and under
+  slow motion at divisor 8 the pad is effectively sampled at **7.5 Hz**, in the
+  training tool whose whole point is practising links slowly. Deeper, at the
+  engine: `glfwGetKey` cached state misses any press+release inside one
+  `glfwPollEvents`, and `GLFW_STICKY_KEYS` is set nowhere.
+  **The fix shape is already in the engine:** `Action::latched` +
+  `consumePressed` accumulate-and-serve-once. The mode accumulates
+  `pendingPressBits_` from `consumePressed` per fixed tick and ORs them into the
+  next latched session input — determinism intact, because the bits flow through
+  `LatchedInputSource` like every other input. The GLFW blindness needs the
+  engine-side sticky/callback fix and is out of the mode's reach.
+  **Done when:** a one-tick synthetic tap reaches the kernel at any render rate
+  the harness can simulate, slow motion latches taps across non-run ticks, and
+  the sticky-keys gap is closed or explicitly recorded as a platform limit.
 
 - `[ ]` **M1.3g One witness cursor.** *(S–M)* ADR-012 rule 4, pulled forward
   from M1.6 because the fifth copy drifted this week and the seam test caught

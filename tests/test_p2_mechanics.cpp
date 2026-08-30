@@ -2155,3 +2155,40 @@ TEST(P2Movement, ACrouchingMoveCannotStartOnTheTickOfLanding) {
         << "a crouching move started on the landing tick. It cannot: the fighter "
            "is not crouching yet, and StanceAllows says no.";
 }
+
+// --- The buffer survives a direction tap -------------------------------------
+//
+// Found by adversarial review (2026-08-21). Capture stored ALL 16 pressed bits,
+// and a press replaces the buffer wholesale -- so a defender who buffers HP for
+// a wake-up reversal and then taps forward (or down, or up) before waking has
+// the reversal silently replaced by a direction that can never match a bound
+// move. "It eats my inputs sometimes" is exactly what that plays like.
+//
+// The rule: a press that could not start ANY move this character has -- no
+// move's button mask intersects it -- does not overwrite a press that could.
+TEST(P3Input, ADirectionTapDoesNotClobberABufferedReversal) {
+    auto data = twoFighters();
+    data->p[0].inputBufferFrames = 10;
+
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+    s.p[0].hitstun = 6;                     // waking up in six ticks
+
+    InputPair press{};
+    press.p[0].bits = kInputLP;             // the reversal, buffered mid-stun
+    Simulate(s, press, *data);
+    ASSERT_EQ(s.p[0].moveId, 0u) << "precondition: still stunned";
+
+    InputPair tap{};
+    tap.p[0].bits = kInputRight;            // a nervous direction tap
+    Simulate(s, tap, *data);
+    Simulate(s, InputPair{}, *data);        // and released again
+
+    // Ride out the stun with nothing held.
+    for (int t = 0; t < 6; ++t) Simulate(s, InputPair{}, *data);
+
+    EXPECT_EQ(s.p[0].moveId, 1u)
+        << "the buffered reversal did not fire on wake-up. A direction tap "
+           "matching no move replaced it in the buffer, which is pure loss: the "
+           "tap could never start anything, and the press it destroyed could.";
+}
