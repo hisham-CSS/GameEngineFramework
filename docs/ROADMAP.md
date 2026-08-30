@@ -71,7 +71,7 @@ falls out of that), then M1.6. Everything else is done or serves these.
 
 | In flight | Owner | Since |
 |---|---|---|
-| M1.3f — the tick becomes a pipeline, byte for byte | Claude | 2026-08-30 |
+| *(nothing)* | | |
 
 One at a time. The next unblocked WP is always the top `[ ]` in milestone
 order — which, under the 2026-08-21 reorder, is the sequence named above.
@@ -301,8 +301,7 @@ Six WPs, all landed, gate required in CI. The decision is
   M1.1c's claim re-tested **through `BuildMatchData`**; and the suite green with
   the counts re-derived.
 
-- `[~]` **M1.3f The tick becomes a pipeline, byte for byte.** *(M)* Claude,
-  2026-08-30. [ADR-012](adr/ADR-012-the-tick-is-a-pipeline.md) rules 1–2, built:
+- `[x]` **M1.3f The tick becomes a pipeline, byte for byte.** *(M)* — `019b7a8`. [ADR-012](adr/ADR-012-the-tick-is-a-pipeline.md) rules 1–2, built:
   `ReadIntent` (pure) → `StepPhysics` → `StepAttack` → `Resolve`; the fields the
   audit existed for (`crouching` 4 sites, `airborne` 5, `facing` 6 — the week's
   three bugs were write-order bugs on them) now have ONE writing stage each, and
