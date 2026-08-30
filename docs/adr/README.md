@@ -34,6 +34,7 @@ Three consequences worth knowing before you read one:
 | [009](ADR-009-how-many-fighters.md) | How many fighters a match has, and who "the opponent" is | Accepted 2026-08-16 · **Implemented** @ `41ea6e5` | Eight slots, because `alreadyHitBits` is eight bits — the number is measured, not chosen — and "the opponent" becomes a team lookup |
 | [010](ADR-010-one-roadmap-one-rule.md) | One roadmap, one rule | Proposed 2026-08-17 · being executed as ROADMAP M0 | Five milestones, six living documents, and one five-line rule with a CI gate under it |
 | [011](ADR-011-mechanics-are-fields.md) | Mechanics are fields, not rules | Proposed 2026-08-17 · constrains ROADMAP M1 and M3 | Every 2.5D mechanic is opt-in data on a move, never a kernel rule; movement is a move; presentation is a pure function of frame data |
+| [012](ADR-012-the-tick-is-a-pipeline.md) | The tick is a pipeline of pure functions | Proposed 2026-08-21 · constrains ROADMAP M1.3e–M1.4 | Pure stages with fixed signatures; one writer per field; derive rather than store; posture follows the move; predictions by execution, never a parallel model |
 
 ## Writing one
 

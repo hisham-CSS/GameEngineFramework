@@ -58,10 +58,14 @@ and `air_hitstun_ticks` — authored on every move and differing from ground
 hitstun on all of them — has the same shape. Three ways out are in M1.3(c); none
 is chosen, because it changes what the tool claims.
 
-**The shortest credible path to the claim:** M1.3e + M1.4a together (the kernel
-and the graph both learn state, and the number they agree on is the one to
-publish), then M1.4 (`ComboSearch` on the real kernel), then M1.6 (a replay per
-verdict). Everything else is either done or serves those three.
+**The shortest credible path to the claim**, reordered 2026-08-21 under
+[ADR-012](adr/ADR-012-the-tick-is-a-pipeline.md) after complexity itself became
+the risk: **M1.3f** (the tick becomes a pipeline of pure stages, golden-locked —
+same bytes, fewer write sites), then **M1.3e** (posture follows the move + the
+stance wire, one deliberate re-golden), then **M1.3g** (ONE witness cursor in
+`CseGame`, five copies deleted), then **M1.4a + M1.4** (`ComboSearch` runs the
+real kernel and section 3's parallel model is deleted — the new headline number
+falls out of that), then M1.6. Everything else is done or serves these.
 
 ## Now
 
@@ -272,6 +276,30 @@ Six WPs, all landed, gate required in CI. The decision is
   `MatchBridgeMechanics.ADirectionEstablishesTheStanceOnTheTickItIsPressed`;
   M1.1c's claim re-tested **through `BuildMatchData`**; and the suite green with
   the counts re-derived.
+
+- `[ ]` **M1.3f The tick becomes a pipeline, byte for byte.** *(M)*
+  [ADR-012](adr/ADR-012-the-tick-is-a-pipeline.md) rules 1–2: `ReadIntent` →
+  `StepPhysics` → `StepAttack` → `Resolve`, each a pure stage with its writes in
+  its signature; every field gets ONE writing stage (`crouching` has 4 sites
+  today, `airborne` 5, `facing` 6 — this week's three bugs were all write-order
+  bugs on those fields).
+  **GOLDEN-LOCKED: this WP may not move the cross-toolchain hash.** The refactor
+  is proved by the bytes not changing, which is the one honest proof a pure
+  restructure has. Any behaviour discovered mid-refactor is a finding for
+  M1.3e, not a silent fix here.
+  **Done when:** the pipeline stages exist with fixed signatures, the field-
+  writer audit shows one stage per field, `test_determinism_crossplat` passes
+  WITHOUT a re-golden, and the kernel's two files did not grow.
+
+- `[ ]` **M1.3g One witness cursor.** *(S–M)* ADR-012 rule 4, pulled forward
+  from M1.6 because the fifth copy drifted this week and the seam test caught
+  it: a pure step `(cursorState, observed) → (bits, cursorState')` in
+  `CseGame`, used by `BuildDemonstration` and all four test drivers; the copies
+  are deleted, and the two driver rules (the posture rides through a release;
+  re-press after two waiting ticks) live in exactly one place.
+  **Done when:** the seam test compares `BuildDemonstration` against the SAME
+  function it uses, net lines are negative by at least 300, and every M1.3e
+  driver trap has exactly one home.
 
 - `[ ]` **M1.4a Gate the combo graph on move state.** *(M)*
   `usableEdges` filters cancel edges by `Contact::Block`/`Whiff` and the prover's
