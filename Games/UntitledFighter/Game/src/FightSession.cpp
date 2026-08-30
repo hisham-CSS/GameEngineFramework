@@ -53,6 +53,20 @@ std::string describeAttacker(const cse::kernel::Fighter& f) {
     return "in kernel move " + num(f.moveId) + " at frame " + num(f.moveFrame);
 }
 
+// The direction that ESTABLISHES a move's stance, held with its button and kept
+// through the release ticks between repeats. Since ROADMAP M1.3e the kernel
+// enforces MoveDef::stance on both start routes, so a crouching normal needs
+// Down held on the press tick and an aerial needs the takeoff Up provides. THE
+// RELEASE IS OF THE BUTTON, NOT THE POSTURE: dropping the direction on a
+// release tick drops the stance, and a buffered press consumed on that silent
+// tick would ask for a crouching move from a stand, be refused, and repeat
+// every loop one tick late. A player holds down-back and taps the button.
+std::uint16_t stanceHold(const cse::kernel::MoveDef& m) {
+    if (m.stance == cse::kernel::kStanceCrouching) return cse::kernel::kInputDown;
+    if (m.stance == cse::kernel::kStanceAir)       return cse::kernel::kInputUp;
+    return 0;
+}
+
 } // namespace
 
 // --- Setup -------------------------------------------------------------------
@@ -533,9 +547,20 @@ bool BuildDemonstration(const DemonstrationRequest& request, Demonstration& out)
     std::size_t   cursor          = 0;
     std::uint32_t ticksRun        = 0;
     bool          everAdvanced    = false;
-    // True when the next tick must emit nothing, so the press after it is an edge.
+    // True when the next tick must drop the BUTTON (the stance hold stays), so
+    // the press after it is an edge.
     bool          releasePending  = false;
     std::uint32_t lastAdvanceTick = 0;
+    // Ticks spent waiting for the expected move; a re-press follows. Mirrors
+    // the test drivers' rule exactly -- long enough that a move in progress is
+    // not interrupted by a pointless re-press, short enough to catch the
+    // actionable tick -- because the seam test compares the two traces tick
+    // for tick, and since M1.3e a landing between turns makes waiting ROUTINE
+    // rather than a failure mode: an aerial loop touches down, the fighter
+    // needs a free tick to take off again, and a trace that held one press
+    // through it would perform exactly one jump's worth of the witness.
+    int                 waitingTicks  = 0;
+    constexpr int       kRepressAfter = 2;
 
     // WHAT "DONE" MEANS, and the two sentences in the header that have to be
     // reconciled. `complete` is documented as "every move in the witness was
@@ -559,9 +584,13 @@ bool BuildDemonstration(const DemonstrationRequest& request, Demonstration& out)
         // Non-null and nonzero: every entry was checked above, and the cursor
         // only ever holds an index inside the witness.
         const std::uint16_t wanted = request.moveIds[cursor];
-        // Zero on a release tick; see the flag's assignment below.
-        const std::uint16_t bits =
-            releasePending ? 0u : cse::kernel::MoveAt(attacker, wanted)->button;
+        const cse::kernel::MoveDef& move = *cse::kernel::MoveAt(attacker, wanted);
+        // A release tick drops the button and KEEPS the stance hold; see
+        // stanceHold above for why the posture must ride through it.
+        const std::uint16_t hold = stanceHold(move);
+        const std::uint16_t bits = releasePending
+            ? hold
+            : static_cast<std::uint16_t>(move.button | hold);
 
         cse::kernel::InputPair in{};
         in.p[request.attackerSlot].bits = bits;
@@ -596,7 +625,22 @@ bool BuildDemonstration(const DemonstrationRequest& request, Demonstration& out)
         }
 
         const cse::kernel::Fighter& f = session.State().p[request.attackerSlot];
-        if (f.moveId == wanted && f.moveFrame == 0) {
+        if (f.moveId != wanted || f.moveFrame != 0) {
+            // WAITING, so alternate rather than hold. A held button is one
+            // press, so a rehearsal that stalls on a move which never comes
+            // stops feeding the kernel anything at all -- and since M1.3e a
+            // landing between turns makes this the ROUTINE path, not the
+            // failure one. A human presses again; so does this. Mirrors the
+            // drivers' kRepressAfter exactly; the seam test checks that.
+            ++waitingTicks;
+            if (waitingTicks >= kRepressAfter) {
+                releasePending = true;
+                waitingTicks   = 0;
+            }
+            continue;
+        }
+        waitingTicks = 0;
+        {
             // How far along the witness this got: the number of LEADING entries
             // entered at least once, which reaches witnessSize exactly on the
             // wrap and stays there. On a stall during the first pass it is also
@@ -637,9 +681,13 @@ bool BuildDemonstration(const DemonstrationRequest& request, Demonstration& out)
             // the disagreement at tick 1.
             //
             // It is free wherever it lands: the attacker is one tick into startup
-            // and cannot act whatever is held.
+            // and cannot act whatever is held. Compared on BUTTONS, not on the
+            // emitted bits -- the stance hold rides along in `bits` since
+            // M1.3e, and a comparison against the composite would miss every
+            // same-button repeat performed from a stance.
             releasePending =
-                cse::kernel::MoveAt(attacker, request.moveIds[cursor])->button == bits;
+                cse::kernel::MoveAt(attacker, request.moveIds[cursor])->button ==
+                move.button;
         }
     }
 

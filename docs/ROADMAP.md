@@ -35,21 +35,25 @@ The paper's claim has four load-bearing parts. This is what each rests on today.
 |---|---|---|
 | **A deterministic simulation** | `tests/test_kernel.cpp` T1/T2; `tests/test_determinism_crossplat.cpp` T3, re-checked by gcc 13 on the Linux leg | Nothing. This one is done and has been re-goldened three times for stated reasons. |
 | **The prover reads the shipped files** | `tests/test_character_data.cpp` load assertions; the editor's Combo Prover panel | Nothing structural. `counter_hit` is absent from the schema entirely — see the qualifier below. |
-| **Every verdict is demonstrable as a replay** | `tests/test_ground_truth.cpp` executes the prover's own printed witness | **The largest gap.** Only one character's witness is executed, the demonstration cannot press a direction, and see the two findings below. |
-| **The game is the file** | `MatchBuilder`'s loss ledger, checked move-by-move in `tests/test_match_bridge.cpp` | **The bridge carries ~10 of `MoveDef`'s fields.** Stance, juggle, hitstop, priority, chip and scaling are authored and dropped. |
+| **Every verdict is demonstrable as a replay** | `tests/test_ground_truth.cpp` executes the prover's own printed witness; since M1.3e the demonstration presses directions, establishes stances and performs its turns across jumps | Only one character's witness is executed; the witness cursor exists in five drifting copies (M1.3g). |
+| **The game is the file** | `MatchBuilder`'s loss ledger, checked move-by-move in `tests/test_match_bridge.cpp`; stance and guard height carried since M1.3e (`EveryAuthoredNormalIsReachableThroughItsButtonAndStance`) | Juggle, hitstop, priority, chip and scaling are still authored and dropped. |
 
-**Two findings decide how much of the claim survives, and both are measured.**
+**The headline, measured three times (third: 2026-08-30, M1.3e).**
 
-1. **The bridge drops stance, so 12 of `fighter_a`'s 18 normals cannot be
-   performed at all** — `stand_hk` shadows `crouch_hk` on a shared button. Wiring
-   it moves `tests/test_gap_extent.cpp`'s headline from **97 of 121** cycles
-   "run forever" to **77**, and every one of the 41 cycles that changes contains
-   an air move: they ran forever only because an aerial could be performed on the
-   ground. **97 was earned by neither the model nor the kernel.** (M1.3e, M1.4a.)
-2. **The combo graph gates on nothing about fighter state.** A jump is 38 ticks
-   and `air_mp` is 22, so `air_mp > air_mp` — the one cycle the graph calls
-   performable end-to-end through the cancel system — yields about **1.7
-   repetitions before landing.** It is not an infinite. (M1.4a.)
+`tests/test_gap_extent.cpp` drives all **121** usable cycles of `fighter_a`
+through the real kernel. **97** ran forever while an aerial was startable from
+the ground (the bridge dropped stance, so `stand_hk` shadowed `crouch_hk` and
+12 of 18 normals could not be performed at all); **77** with the stance wire
+alone; **ZERO** with the genre's movement rules enforced — commitment, the
+ballistic jump, posture-following-the-move, stance on both start routes. Every
+cycle passes through `air_mp`, entering an aerial costs a real jump, and the
+landing hands the defender their turn: the prover says TERMINATING, and the
+executed game now agrees on all 121 — **for the game's own reason.** The model
+charges juggle; the kernel runs out of air (the arc holds exactly the 4
+repetitions the budget permits — `GroundTruthGap.TheArcEndsEveryStringAtThe
+CountTheModelChargesToJuggle`); juggle is still unwired (M1.1f), and the combo
+GRAPH still gates on nothing about fighter state. Making the graph agree for
+the right reason is M1.4a, and the number the paper quotes is published there.
 
 **And one qualifier the write-up does not yet carry.** `counter_hit` appears zero
 times in `schema.v2.json`. The model reads one `hitstun` per move, so a
@@ -122,26 +126,21 @@ Six WPs, all landed, gate required in CI. The decision is
   that could go wrong. And the re-golden this WP predicted never happened: walk
   speed did not move the golden, because the crossplat match authors none.
 
-- `[ ]` **M1.1c Attack selection is (button × stance), not a button per move.**
-  *(S–M)* — (a)(b)(d) landed on master (`a891f55`, `fa46343`); (c) did not.
+- `[x]` **M1.1c Attack selection is (button × stance), not a button per move.**
+  *(S–M)* — (a)(b)(d) `a891f55` `fa46343`; the central claim proved with M1.3e.
   Six buttons bound once each, `Down` bound, HUD showing one row per stance
-  variant.
-  **THIS WP'S CENTRAL CLAIM IS CURRENTLY FALSE AND THAT IS WHY IT IS STILL
-  OPEN.** It reads "every normal `fighter_a` authors is reachable". It is not:
-  `MatchBuilder` never assigns `MoveDef::stance`, so `StepAttack` takes the first
-  slot whose button matches and **12 of the 18 normals — every `crouch_*` and
-  `air_*` — are unreachable.** A built `fighter_a` emits about twelve "can never
-  start" build warnings that nothing reads.
-  **And its Done-when test proves the property at the one layer where it is not
-  broken.** `P3Attacks.OneButtonPicksTheMoveForTheStanceYouAreIn` assigns
-  `stance` **by hand** on a synthetic `FighterData` and never calls
-  `BuildMatchData`. The kernel honours stance; the bridge drops it; the test only
-  ever asked the kernel. Any re-test must go through `BuildMatchData`.
-  **Done when:** the above, through the builder; plus
-  `P3Attacks.TwoMovesOnOneButtonWithOverlappingStancesIsRefused` for part (c),
-  which is not written — the shipped
-  `…OverlappingStancesShadowTheHigherSlot` asserts today's behaviour instead.
-  **Blocked on M1.3e**, which is the same wire.
+  variant. The claim — "every normal `fighter_a` authors is reachable" — was
+  FALSE until the stance wire, and its first test proved the property at the
+  one layer where it was not broken (a synthetic `FighterData`, never
+  `BuildMatchData`). It is now proved at the right layer:
+  `MatchBridgeMechanics.EveryAuthoredNormalIsReachableThroughItsButtonAndStance`
+  drives all 18 normals end to end through `BuildMatchData` and the real
+  kernel, each asked for the way a player asks.
+  **Residue:** part (c)'s `TwoMovesOnOneButtonWithOverlappingStancesIsRefused`
+  is still unwritten — the builder warns rather than refuses a genuinely
+  shadowed binding. (The warning itself learned with M1.3e that stance
+  disambiguates, and stays silent where Down or the takeoff tells a pair
+  apart.)
 
 - `[x]` **M1.1d Input edges and buffering — the second state expansion.** *(M)* —
   `8795a46`.
@@ -248,59 +247,48 @@ Six WPs, all landed, gate required in CI. The decision is
   deletes section 3's parallel account, so the wire waits for it.
 
 - `[~]` **M1.3e Stance reaches the kernel, and the drivers establish it.** *(M)*
-  Claude, 2026-08-30.
-  The ten-line wire that fixes M1.1c, plus the two driver rules it needs. Both
-  rules are proved and written down:
-  **a stance lands on the same tick as the press** — `StepPhysics` sets
-  `airborne` on the jump and `crouching` from Down, and `StepAttack` runs after
-  both in one `Simulate` call, so `Up+button` starts an aerial off the ground and
-  no derived trace has to script a jump; and **the release is of the button, not
-  the posture** — dropping the direction on a release tick drops the stance, so a
-  buffered press consumed on a silent tick is refused and every loop repeats one
-  tick late.
-  With both, four of five broken tests go green. **The fifth is the headline:**
-  `test_gap_extent` goes 97 → 77 (see § Where this stands), and section 3's
-  timing account still cannot predict a cycle that leaves the ground.
-  **THIRD ATTEMPT (2026-08-21), CARRIED TO THE MEASUREMENT AND REVERTED ON A
-  DESIGN HOLE NOBODY HAD NAMED.** Everything below was built and run; the tree
-  is green without it. What worked: the wire, the ledger row to `Exact`, the
-  shipped-file bridge tests, `BuildDemonstration` establishing stance AND
-  re-pressing after a stall (two ticks of patience, mirroring the drivers), the
-  four driver `holds_` vectors, and the certificate-twin restatements — with the
-  wire in, `test_game_core` (38/38), `test_ground_truth`, `test_one_frame` (8/8)
-  and `test_training_mode` all pass, telling the CLOSED-GAP story: the air
-  self-cancel runs ~4 reps per jump (hit ticks 6,17,28,39 / landing gap with the
-  defender FREE / repeat), the demonstration performs its turns ACROSS jumps,
-  and no single string beats `maxHits` any more.
-  **What stopped it: COMMITMENT KILLED EVERY CROSS-POSTURE CANCEL, and 120 of
-  121 cycles collapsed.** A gatling like `stand_mp → crouch_hp` is ordinary in
-  the genre — hold Down, the cancel takes you into the crouch — but the
-  commitment rule freezes `crouching` while a move runs, `StanceAllows` reads
-  the frozen posture, and the cancel is refused. **The fix is a semantics
-  change:** selection must read the INPUT (is Down held?), and the posture must
-  FOLLOW THE MOVE — starting a crouching move makes you crouching, whatever you
-  were. That keeps commitment (no walking, no jumping, no posture change from
-  input alone) while letting cancels change posture the way every fighting game
-  does. Then the sweep must be re-measured a third time, and section 3's
-  account must learn the jump before its two-route predictions mean anything
-  (97 of 121 disagreed).
-  **A near-miss worth the line:** the first driver edit asserted AFTER mutating
-  its string but BEFORE writing the file, so `holds_` was declared and read but
-  never filled — an empty-vector index that crashed all seven gap-extent tests
-  with an access violation. An edit script must write before it asserts
-  anything about a later block.
-  **Four traps, verified in `tests/test_one_frame.cpp` and all four latent:**
-  line 1691 mashes a bare `bindings[0].button`, which makes
-  `EXPECT_TRUE(mashed.defenderActedTicks.empty())` unfalsifiable; line 774 pulses
-  the whole input so the posture drops on odd ticks; folding the direction into
-  `buttons_` breaks `Usable()`'s zero-button check (line 628) and `Observe`'s
-  release predicate (line 660); and `kP0X`'s "holds an attack button and no
-  direction" becomes false.
-  **Do with M1.4a**, and publish the number they agree on.
-  **Done when:** `MatchBuilder` assigns `MoveDef::stance` and `blockedAs`;
-  `MatchBridgeMechanics.ADirectionEstablishesTheStanceOnTheTickItIsPressed`;
-  M1.1c's claim re-tested **through `BuildMatchData`**; and the suite green with
-  the counts re-derived.
+  Claude, 2026-08-30. Landed in two steps, on the fourth attempt, with the
+  third attempt's map (its full text lives in this entry's git history; the
+  four test-harness traps it named were each avoided and are pinned in code
+  comments where they lived).
+  **Step 1 — the semantics the third attempt died for**
+  ([ADR-012](adr/ADR-012-the-tick-is-a-pipeline.md) rule 3):
+  commitment froze input-driven posture, `StanceAllows` read the frozen
+  posture, and every cross-posture gatling (`stand_mp → crouch_hp`, Down held)
+  was refused — 120 of 121 cycles collapsed when stance first landed. Now
+  SELECTION READS THE INPUT (is Down held now; `Intent::crouchWish`, and
+  FindCancel derives the same bit) and POSTURE FOLLOWS THE MOVE (`adoptStance`,
+  `crouching`'s second authorized writer: a crouching move crouches the body
+  its frame data was authored against, a standing move stands it up, a move
+  stating no posture imposes none). Proved test-first in `P2Stance.*`: the
+  gatling was refused before, takes with Down held after, and the two pins —
+  no Down means no crouching follow-up; an any-stance chain keeps its posture
+  — never moved. Deliberately invisible to shipped files until step 2.
+  **Step 2 — the wire, the drivers, and the third measurement.** `MatchBuilder`
+  maps `stance` and `blockedAs` BY NAME (the two enum families order their
+  values differently; a bare cast ships crouching normals as air moves), both
+  ledger rows read `Exact`, and the shadowed-binding warning learned that
+  stance disambiguates. The five witness cursors and both mash policies gained
+  the two driver rules the third attempt proved — **the stance hold is pressed
+  with the button and kept through releases** (the release is of the button,
+  not the posture) **and a stall re-presses after two waiting ticks**, now
+  also in `BuildDemonstration`, whose seam test kept all copies honest.
+  `test_gap_extent` re-derived end to end: **97 → 77 → 0 of 121** (§ Where
+  this stands), its own tripwire `static_assert` rewritten from
+  `kEscapable < kUsableCycles` to `==` — the file demanding the route be named
+  if a cycle ever stops leaking. Section 3's tick-exact predictions were
+  DELETED rather than taught the jump (ADR-012 rule 4; M1.4 deletes the rest);
+  `ground_truth` section 5 inverted into the count-agreement finding; the
+  training-mode "certified-away cycle outruns maxHits" alarm inverted into
+  earned quiet; the replay format's RLE-win claim demoted to the human-input
+  case it was chosen for.
+  **No re-golden:** the crossplat match runs no moves, so the predicted
+  deliberate re-golden never happened — recorded like M1.1b's.
+  **Done when (met):** `MatchBuilder` assigns `MoveDef::stance` and
+  `blockedAs`; `MatchBridgeMechanics.ADirectionEstablishesTheStanceOnTheTickIt
+  IsPressed`; M1.1c's claim re-tested **through `BuildMatchData`**
+  (`EveryAuthoredNormalIsReachableThroughItsButtonAndStance`, all 18); the
+  suite green with the counts re-derived.
 
 - `[x]` **M1.3f The tick becomes a pipeline, byte for byte.** *(M)* — `019b7a8`. [ADR-012](adr/ADR-012-the-tick-is-a-pipeline.md) rules 1–2, built:
   `ReadIntent` (pure) → `StepPhysics` → `StepAttack` → `Resolve`; the fields the
@@ -530,7 +518,7 @@ during recovery is correctly forgotten.
 |---|---|
 | **Do** | Press **V** for midscreen. Hit the dummy and watch it slide; count the squares. Press **V** back to the corner and hit it there. Hold **Down** and look at its body. Walk into it. Walk it into a corner. Jump over it. Sweep it with `crouch_hk`. |
 | **Should** | Midscreen: every hit carries it back, further on heavies. Squares are 20 px and every fifth line is one **reach unit** — so a move authored `reach: 0.42` reaches four squares and a bit. Corner: it does not move, and the HUD says the verdict on screen is about *this* position. Crouching: the body is visibly shorter, 34 px against 60. Walking into it: blocked, and neither of you inside the other. Its **body** stops at the wall, not its middle. |
-| **Wrong if** | It slides in the corner (the clamp is not holding). A light knocks it as far as a heavy (pushback is not per-move). Crouching changes nothing. Or **the sweep does not knock it down and turn the box blue** — which is the known M1.3e bug: `crouch_hk` cannot be selected at all, so nothing authored on it can happen. |
+| **Wrong if** | It slides in the corner (the clamp is not holding). A light knocks it as far as a heavy (pushback is not per-move). Crouching changes nothing. Or **Down+HK does not knock it down and turn the box blue** — `crouch_hk` is selectable since M1.3e (Down decides the variant), so a sweep that does nothing means the stance wire regressed. |
 
 ### R1–R9
 

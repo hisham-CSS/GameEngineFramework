@@ -1,30 +1,29 @@
-﻿// HOW BIG IS THE GAP? Every cycle in the character, not one of them.
+﻿// HOW BIG IS THE GAP? Measured three times, and the third answer is ZERO.
 //
-// tests/test_ground_truth.cpp section 5 ends on a finding and a single
-// measurement. The finding: `fighter_a` is TERMINATING, its ranking certificate
-// says so because JUGGLE RUNS DOWN, and the kernel never spends it. Since
-// ROADMAP M1.1b the kernel DOES simulate resources -- it primes them, applies
-// each move's effect on contact and refuses a move whose guard is unmet -- so
-// the sentence that used to sit here, "it has no resources at all", is no longer
-// the reason. Two narrower things are: `ApplyEffects` CLAMPS at the authored
-// floor instead of refusing, and `MatchBuilder` sets neither `juggleMax` nor
-// `juggleCost`, so the budget gate in Combat.cpp has never fired for a built
-// character. The measurement: ONE cycle, `air_mp` into itself, which the
-// model permits four repetitions of and the kernel performed eighteen.
-//
-// One cycle is an existence proof. It settles that the gap is real and settles
-// nothing about its size, and the size is the number a research contribution
-// actually quotes. So this file measures the whole character.
+// tests/test_ground_truth.cpp section 5 measures one cycle; this file measures
+// every cycle in the character, because the size of the model/game gap is the
+// number a research contribution actually quotes. The size has been three
+// numbers as the kernel grew the genre's rules: 97 of 121 cycles ran forever
+// while an aerial was startable from the ground; 77 with the stance wire
+// alone; and ZERO since ROADMAP M1.3e, when commitment, the ballistic jump,
+// posture-following-the-move and stance on both start routes made every cycle
+// take a real jump each turn -- and the landing hands the defender their turn.
+// `fighter_a` is TERMINATING, its ranking certificate says so because JUGGLE
+// RUNS DOWN, the kernel still never spends juggle (`MatchBuilder` sets neither
+// `juggleMax` nor `juggleCost`; M1.1f) -- and the executed game now terminates
+// every cycle anyway, for its own reason. The count agrees; the mechanism does
+// not; M1.4a makes the graph agree for the right one.
 //
 // ---------------------------------------------------------------------------
 // THE QUESTION, AND THE FOUR THINGS IT DECOMPOSES INTO
 // ---------------------------------------------------------------------------
 // fighter_a's usable cancel graph holds EXACTLY 121 SIMPLE CYCLES -- one of
 // length 1 (air_mp into itself), eight of length 3, forty-eight of length 4 and
-// sixty-four of length 5 -- and all 121 terminate for one
-// reason: every one contains an edge into an air move, air moves spend juggle,
-// so every cycle strictly decreases it. If that is true, then in a kernel with no
-// juggle every one of those 41 is a candidate infinite.
+// sixty-four of length 5 -- and in the MODEL all 121 terminate for one reason:
+// every one contains an edge into an air move, air moves spend juggle, so every
+// cycle strictly decreases it. The kernel still has no juggle, so every one of
+// the 121 is a candidate infinite there -- and what stops each of them in the
+// EXECUTED game is the jump the aerial now costs, not the budget.
 //
 //   1. HOW MANY CYCLES ARE THERE? Derived here, by enumerating them from the
 //      loaded CharacterData, because a number a file states about itself is a
@@ -41,71 +40,35 @@
 //      trace per cycle, with the defender mashing. Section 4.
 //
 // ---------------------------------------------------------------------------
-// WHAT IT MEASURED. THE HEADLINE IS THE LAST LINE
+// WHAT IT MEASURES NOW (third measurement, 2026-08-30)
 // ---------------------------------------------------------------------------
-//   the graph            73 authored cancels, 5 dead in the model, 68 usable
-//   simple cycles        143 over the AUTHORED graph, 41 over the USABLE one
-//   the report's 41      CONFIRMED, including the 1 / 8 / 32 split by length
-//   ended by juggle      41 of 41. Every cycle's total juggle effect is strictly
-//                        negative and NO cycle touches meter, so juggle alone
-//                        ends all of them -- and the kernel never spends juggle
+//   the graph            94 authored cancels, 6 dead in the model, 88 usable
+//   simple cycles        615 over the AUTHORED graph, 121 over the USABLE one
+//                        (1 self-loop / 8 of length 3 / 48 of 4 / 64 of 5)
+//   ended by juggle      121 of 121 in the model. Every cycle's total juggle
+//                        effect is strictly negative and NO cycle touches
+//                        meter -- and the kernel still never spends juggle
 //                        (M1.1b: tracked, clamped at the floor, gate unwired).
-//   performable as the   1 of 41. The other 40 each contain exactly one edge the
-//   model describes it   kernel cannot take.
-//   EXECUTED ANYWAY      33 of 41, as loops the defender never gets one tick out
-//                        of, returning to their own opening state every turn.
+//   performable as the   1 of 121, the self-loop. The other 120 each contain
+//   model describes it   exactly one edge the kernel cannot take: a landing
+//                        link out of `air_mp`, resolved to the EMPTY window
+//                        [21, 14] -- startup 6 + delay 15 opens at 21, the
+//                        authored cancel_window closes at 14, and MatchBuilder
+//                        intersects. Not a bridge bug: the file means these as
+//                        LINKS, and Combat.h names the empty-window case.
+//   EXECUTED             0 of 121 with the defender never once actionable.
+//                        Every cycle passes through `air_mp`; entering an
+//                        aerial costs a real jump since M1.3e; commitment
+//                        forbids taking off mid-move; so every turn crosses a
+//                        free-and-grounded seam, and the defender's stun does
+//                        not survive the arc-plus-landing between the hits.
 //
-// So the D8 gap on this character is 33 cycles wide, not 1 and not 41.
-//
-// ---------------------------------------------------------------------------
-// THE TWO SURPRISES, BECAUSE NEITHER WAS THE EXPECTED ANSWER
-// ---------------------------------------------------------------------------
-//
-// FIRST: 40 OF THE 41 CYCLES CONTAIN AN EDGE THE KERNEL CANNOT TAKE, AND IT IS
-// ALWAYS THE SAME KIND OF EDGE. Every cycle longer than the self-loop leaves
-// `air_mp` by one of its nine landing links, and every one of those resolves to
-// an EMPTY kernel window of [21, 14]. `air_mp` starts on frame 6 and the link's
-// authored delay is 15, so MatchBuilder opens the window at 6 + 15 = 21; but the
-// move authors `cancel_window_ticks` [8, 14], and MatchBuilder intersects, so the
-// window closes seven ticks before it opens. This is not a bridge bug. The file
-// means these edges as LINKS -- `air_mp`'s own derivation says "hitstun 22
-// against L 15 is on-hit +7, so this move DOES link" -- and Combat.h names the
-// case exactly: "an edge whose earliest is past its latest matches nothing for
-// any frame, which is how an authored delay longer than the source move ends up
-// inert instead of ending up wrong."
-//
-// SECOND, AND IT IS WHY THE ANSWER IS 33 RATHER THAN 1: THE LOOPS RUN ANYWAY.
-// The kernel takes buttons HELD rather than PRESSED (Combat.cpp says so, and
-// calls it "a real gap, named rather than papered over"), and StepAttack ends a
-// move and runs the button scan in the SAME call -- so a trace holding the
-// follow-up's button starts it on the very tick `air_mp` recovers. The cancel
-// system loses the edge and the input model hands it straight back. What the
-// kernel performs is the LINK the file authored, by a route the file never
-// mentions, one tick later than the file's own arithmetic puts it: frame 22, the
-// end of the move, against the delay's frame 21.
-//
-// That one lost tick is the entire difference between the 33 and the 8. `air_mp`
-// is +7 on hit; a light (3f, 4f startup) still connects with ticks to spare and a
-// medium (6f, 7f) does not. So the eight cycles that leak a defender turn are
-// EXACTLY the eight of length 3 -- the ones that land from `air_mp` straight into
-// a medium -- and all 32 of length 4, which land into a light first, do not. The
-// kernel is CONSERVATIVE there, in ProverAdapter.h's vocabulary: stricter than
-// the file, on eight cycles, by one tick.
-//
-// Both halves of that are asserted rather than told. Section 3 counts the blocked
-// edges and names the arithmetic; section 4 requires the static two-route account
-// to predict the executed outcome for all 41 AND the frame each of the 500-odd
-// observed transitions happened on, because an explanation that cannot predict the
-// run is a story.
-//
-// THE BUTTON-START ROUTE IS ALREADY IN AN EXISTING GREEN MEASUREMENT, unremarked.
-// test_ground_truth.cpp's control replays the infinite character's `stand_lp`
-// witness against fighter_a and records "12 hits, one every 14". fighter_a's
-// `stand_lp` is 3 + 2 + 9 = 14 ticks long, and it has no edge back into itself:
-// that period of 14 IS the move ending and the held button starting it again, at
-// exactly MoveDuration. The mechanism 32 of the cycles below depend on has been
-// sitting in a passing test the whole time, as a number nobody had a reason to
-// read that way.
+// So the EXECUTION gap on this character is zero cycles wide, and the two
+// numbers this file used to headline are history worth keeping: 33 of 41 when
+// buttons were taken HELD (the loops ran on a route the file never mentioned);
+// 97 of 121 when the press landed but an aerial was startable standing. Each
+// number died to a named rule -- M1.1d's press edge, M1.3e's movement -- and
+// the file's assertions were the instrument that measured both deaths.
 //
 // ---------------------------------------------------------------------------
 // A NOTE ON MEASUREMENT, BECAUSE IT CHANGED THE ANSWER BY FOUR
@@ -125,11 +88,14 @@
 //
 // So the criterion here is the direct one: the defender was ACTIONABLE at tick t
 // if their hitstun at the end of tick t-1 was at most 1, because StepPhysics
-// decrements it before anything else and `actionable()` is `hitstun == 0`. It
+// decrements it before anything else and `Actionable()` is `hitstun == 0`. It
 // needs nothing the harness does not already record and it cannot be erased by a
-// later step of the same tick. On this character it finds four escapes the other
-// two detectors do not, and 37 becomes 33. Section 6 measures that difference
-// rather than asserting it in a comment.
+// later step of the same tick. When routes between hits ran at cancel speed it
+// found one-frame escapes the copied detectors missed (37 became 33, then the
+// disagreement was twelve); since M1.3e the seam is wide enough that both
+// families agree on every cycle. Section 6 measures the agreement rather than
+// asserting it in a comment, and the distinction stands ready for the day a
+// cancel-speed route returns.
 //
 // ---------------------------------------------------------------------------
 // WHAT WOULD FALSIFY WHAT, AND WHAT IS COPIED
@@ -705,16 +671,31 @@ std::vector<MoveBinding> bindingsFor(const CharacterData& c, const Cycle& cycle)
 // cancel specifically would have reported every one of them as a stall.
 class Driver {
 public:
+    // `data` is the BUILT fighter: the stance-establishing hold is read off
+    // MoveDef::stance, the bytes the kernel enforces since ROADMAP M1.3e --
+    // reading the authored CharacterData instead would let this driver and a
+    // mis-mapped bridge agree with each other and disagree with the game.
     Driver(const CharacterData& c, const Cycle& cycle, const MoveIndexMap& map,
-           const std::vector<MoveBinding>& bindings) {
+           const std::vector<MoveBinding>& bindings,
+           const cse::kernel::FighterData& data) {
         for (const MoveIndex m : cycle.moves) {
             const std::string& id = c.moves[m].id;
-            slots_.push_back(map.Find(id));
+            const std::uint16_t slot = map.Find(id);
+            slots_.push_back(slot);
             std::uint16_t button = 0;
             for (const MoveBinding& b : bindings)
                 if (b.moveId == id) { button = b.button; break; }
             buttons_.push_back(button);
             ids_.push_back(id);
+            // SEPARATE from buttons_: folded in, it would break Usable()'s
+            // zero-button check and the same-button release predicate.
+            std::uint16_t hold = 0;
+            const cse::kernel::MoveDef* mv = cse::kernel::MoveAt(data, slot);
+            if (mv != nullptr) {
+                if (mv->stance == cse::kernel::kStanceCrouching) hold = cse::kernel::kInputDown;
+                else if (mv->stance == cse::kernel::kStanceAir)  hold = cse::kernel::kInputUp;
+            }
+            holds_.push_back(hold);
         }
     }
 
@@ -743,8 +724,13 @@ public:
     // all -- "the cycle managed one turn" would then mean "the driver went
     // quiet", not "the game refused".
     std::uint16_t Bits() const {
-        if (release_ || buttons_.empty()) return 0;
-        return buttons_[cursor_];
+        if (buttons_.empty()) return 0;
+        // The button drops on a release tick, the stance hold does not: the
+        // release is of the button, not the posture (ROADMAP M1.3e), or a
+        // buffered press consumed on the silent tick would ask for a crouching
+        // move from a stand and be refused.
+        if (release_) return holds_[cursor_];
+        return static_cast<std::uint16_t>(buttons_[cursor_] | holds_[cursor_]);
     }
 
     // THE MOVE STARTING IS CHECKED BEFORE THE RELEASE TICK IS SPENT, and that
@@ -774,6 +760,7 @@ public:
 private:
     std::vector<std::uint16_t> slots_;
     std::vector<std::uint16_t> buttons_;
+    std::vector<std::uint16_t> holds_;   // stance direction per entry
     std::vector<std::string>   ids_;
     std::size_t                cursor_ = 0;
     bool                       release_ = false;
@@ -868,9 +855,18 @@ TickLog drive(const MatchData& data, Driver& driver, int ticks,
         in.p[0].bits = driver.Bits();
         if (policy == DefenderPolicy::MashesOnceHit && log.firstHitTick >= 0 &&
             t > log.firstHitTick) {
-            // Mashing is repeated PRESSES; holding is one. See the same change
-            // in tests/test_ground_truth.cpp.
-            in.p[1].bits = (t % 2 == 0) ? defenderBits : 0u;
+            // Mashing is repeated PRESSES of the BUTTON; the direction is HELD
+            // through the off ticks, exactly as the attacker's driver holds it
+            // through a release: a jumping reversal needs Up down on the very
+            // tick the fighter wakes, and a masher whose Up pulsed off that
+            // tick would be reported as "never acted" by this harness's own
+            // parity rather than by the game (ROADMAP M1.3e).
+            constexpr std::uint16_t kDirections =
+                cse::kernel::kInputUp | cse::kernel::kInputDown |
+                cse::kernel::kInputLeft | cse::kernel::kInputRight;
+            in.p[1].bits = (t % 2 == 0)
+                               ? defenderBits
+                               : static_cast<std::uint16_t>(defenderBits & kDirections);
         }
 
         cse::kernel::Simulate(s, in, data);
@@ -950,28 +946,28 @@ std::string Table(const TickLog& log, const MoveIndexMap& map,
 // rather than a quiet undercount. Section 5 is what turns three turns into
 // "forever"; the budget does not have to.
 constexpr int kSweepTicks = 160;
-constexpr int kMinTurns   = 3;
+// TWO, and it used to be three. Since ROADMAP M1.3e every landing ends a
+// combo, ending a combo RESTORES scaling, and full-damage strings kill: three
+// turns of a length-5 cycle deal more than the 1000-point bar, so three turns
+// with the defender alive is not a number this character can produce. Two
+// turns is enough because the periodicity burden no longer rests on hit
+// spacing -- section 5 compares the whole per-tick STATE across one period,
+// which needs exactly two.
+constexpr int kMinTurns   = 2;
 
-// ONE BUDGET STOPPED WORKING WHEN THE CYCLES GOT LONGER, and the two failure
-// modes pull in opposite directions, which is why this is a function of the
-// cycle rather than a bigger constant.
-//
-// A turn of a length-N cycle takes about N times as long as one move, so a
-// length-5 cycle managed only TWO turns inside the 160 ticks that gave a
-// length-4 cycle three. Raising the constant for everybody is the obvious fix
-// and it is the wrong one: the short cycles would then run long enough to KO the
-// defender, `Fighter::health` clamps at zero, and "the defender's health fell
-// this tick" would stop reporting hits -- silently undercounting the very thing
-// this sweep measures. The comment above already names that hazard.
-//
-// So the budget scales with length and is FLOORED at the old number. Every cycle
-// of length 1, 3 or 4 is driven for exactly the 160 ticks it was driven for
-// before, so no previously-measured number can move for this reason; only the
-// length-5 cycles the six-aerial roster introduced get more.
-constexpr int kTicksPerMoveInCycle = 40;   // 160 / 4, the old budget's own ratio
-
+// ONE BUDGET STOPPED WORKING WHEN THE CYCLES GOT LONGER, and again when they
+// got SLOWER: since ROADMAP M1.3e a turn contains a real jump, and a turn's
+// length is NOT proportional to the cycle's -- measured, a turn is about
+// 14 ticks per grounded move plus ~42 of takeoff, arc-remainder and landing,
+// so a length-3 turn runs ~85 ticks and a length-5 one ~115. The budget is
+// two such turns plus margin -- NOT three, because a landing restores scaling
+// (the string ended; that is the finding), so every string hits at full
+// damage and three turns of a length-5 cycle exceed the 1000-point bar.
+// `Fighter::health` clamps at zero and a KO silently undercounts the very
+// thing this sweep measures; the health and turn-count assertions police both
+// edges of the window.
 inline int sweepTicksFor(std::size_t cycleLength) {
-    const int scaled = kTicksPerMoveInCycle * static_cast<int>(cycleLength);
+    const int scaled = 2 * (14 * static_cast<int>(cycleLength) + 42) + 70;
     return scaled > kSweepTicks ? scaled : kSweepTicks;
 }
 
@@ -1162,7 +1158,7 @@ void runSweep(const Subject& s, Sweep& out) {
         build.data.p[0].inputBufferFrames = 2;
         build.data.p[1].inputBufferFrames = 2;
 
-        Driver silentDriver(c, cycle, build.moves[0], bindings);
+        Driver silentDriver(c, cycle, build.moves[0], bindings, build.data.p[0]);
         std::string why;
         if (!silentDriver.Usable(why)) {
             // Not a failure: a cycle nothing can ask for is a MEASUREMENT, and
@@ -1170,16 +1166,27 @@ void runSweep(const Subject& s, Sweep& out) {
             out.results.push_back(r);
             continue;
         }
-        Driver mashDriver(c, cycle, build.moves[0], bindings);
+        Driver mashDriver(c, cycle, build.moves[0], bindings, build.data.p[0]);
 
         const int budget = sweepTicksFor(cycle.moves.size());
         r.silent = drive(build.data, silentDriver, budget,
                          DefenderPolicy::Silent, 0);
         // The defender mashes the FIRST move of the cycle, which is bound by
-        // construction. Handing them an unbound button would make "the defender
-        // never acted" a fact about the binding table rather than about the combo.
+        // construction, WITH its stance-establishing direction -- since ROADMAP
+        // M1.3e a bare button whose binding is a crouching or air move starts
+        // nothing, and "the defender never acted" would be a fact about this
+        // line rather than about the combo.
+        std::uint16_t mashBits = bindings[0].button;
+        {
+            const cse::kernel::MoveDef* mm = cse::kernel::MoveAt(
+                build.data.p[1], build.moves[0].Find(bindings[0].moveId));
+            if (mm != nullptr) {
+                if (mm->stance == cse::kernel::kStanceCrouching) mashBits |= cse::kernel::kInputDown;
+                else if (mm->stance == cse::kernel::kStanceAir)  mashBits |= cse::kernel::kInputUp;
+            }
+        }
         const TickLog mashed = drive(build.data, mashDriver, budget,
-                                     DefenderPolicy::MashesOnceHit, bindings[0].button);
+                                     DefenderPolicy::MashesOnceHit, mashBits);
 
         const std::size_t length = cycle.moves.size();
         r.driven             = true;
@@ -1250,14 +1257,19 @@ constexpr std::size_t kEndedByJuggle  = 121;  // of 121
 constexpr std::size_t kFullyTakeable  = 1;    // of 121
 constexpr std::size_t kEmptyWindowed  = 120;  // of 121
 
-constexpr std::size_t kUnescapable    = 97;   // of 121, on the actionable detector
-constexpr std::size_t kEscapable      = 24;
-constexpr std::size_t kByCancelAlone  = 1;    // of the 97
-constexpr std::size_t kByHeldButton   = 96;
-
-// What the copied detectors would have said, kept so the difference is pinned
-// rather than described.
-constexpr std::size_t kUnescapableByFreeTicks = 109;
+// THE THIRD MEASUREMENT (2026-08-30, ROADMAP M1.3e), and the number the first
+// two were converging on. 97 of 121 ran forever while an aerial was startable
+// from the ground; wiring stance alone measured 77; and with the genre's
+// movement rules all enforced -- commitment, the ballistic jump, posture
+// following the move, stance on both start routes -- the count is ZERO. Every
+// cycle passes through `air_mp`, entering `air_mp` now costs a JUMP, and the
+// jump's landing hands the defender their turn: no route through the graph
+// survives the seam. The model said TERMINATING all along; the game finally
+// agrees, cycle for cycle.
+constexpr std::size_t kUnescapable    = 0;    // of 121, on the actionable detector
+constexpr std::size_t kEscapable      = 121;
+constexpr std::size_t kByCancelAlone  = 0;
+constexpr std::size_t kByHeldButton   = 0;
 
 // air_mp's landing links: startup 6 + delay 15 = 21, against a cancel window that
 // closes at 14. Named so a failure can quote the arithmetic and not just the
@@ -1286,25 +1298,20 @@ static_assert(kUnescapable + kEscapable == kUsableCycles,
 static_assert(kUnescapable == kByCancelAlone + kByHeldButton,
               "every loop runs by one of the two routes");
 
-// THE RELATION THAT USED TO BE HERE WAS A COINCIDENCE OF A TWO-AERIAL CHARACTER,
-// and saying so is worth more than replacing it with a new arithmetic identity.
-//
-// It read `kEscapable == kLengthThree` -- "the cycles that leak are exactly the
-// ones of length 3" -- and that was true only because, with `air_mp` and
-// `air_hk` the sole aerials, every length-3 cycle happened to be one whose
-// landing link enters a MEDIUM and no length-4 cycle was. What actually decides
-// whether a cycle leaks is that the held-button restart route is one tick later
-// than the file's authored delay, so `air_mp` at +7 still connects into a light
-// (3f/4f) and does not into a medium (6f/7f).
-//
-// The six-aerial character breaks the coincidence without touching the rule:
-// the leaking cycles are now the 8 of length 3 PLUS 16 of length 4. Restating
-// that as `kEscapable == kLengthThree + 16` would encode a second coincidence
-// and teach the next reader nothing, so the property is asserted where it
-// belongs instead -- section 6 measures the route per cycle and this file's own
-// `[ GAP EXTENT ]` block prints the split.
-static_assert(kEscapable < kUsableCycles,
-              "if every cycle leaks there is no gap left to measure");
+// THE TRIPWIRE THAT USED TO BE HERE HAS FIRED, and that is the finding. It
+// read `static_assert(kEscapable < kUsableCycles, "if every cycle leaks there
+// is no gap left to measure")` -- written when 97 ran forever, as the line
+// that would force this file to say so the day the gap closed. M1.3e closed
+// it: every cycle leaks, at the jump each turn must now take, so the
+// EXECUTION gap this file was built to measure is zero cycles wide. What the
+// file still measures is everything short of that -- the graph, the model's
+// account, the census of WHERE each cycle hands the turn back -- until M1.4
+// replaces its counts with properties and its section 3 with the real kernel.
+static_assert(kEscapable == kUsableCycles,
+              "a cycle stopped leaking: some route through the graph survives "
+              "the jump seam again, and the infinite this file retired is "
+              "back. That is the paper's number moving -- find the route and "
+              "name it before touching this line.");
 
 }  // namespace
 
@@ -1612,11 +1619,14 @@ TEST(GapExtentKernel, ExactlyOneCycleIsPerformableThroughTheCancelSystem) {
 }
 
 // ============================================================================
-// 4. THE MEASUREMENT -- what the kernel actually does with all 41
+// 4. THE MEASUREMENT -- what the kernel actually does with all 121
 // ============================================================================
 
-// THIS IS THE FILE'S ANSWER.
-TEST(GapExtentKernel, NinetySevenOfThe121RunForever) {
+// THIS IS THE FILE'S ANSWER, third measurement. 97 ran forever while an
+// aerial was startable from the ground; 77 with stance wired alone; ZERO with
+// the movement rules enforced (ROADMAP M1.3e). Every cycle must now take a
+// real jump each turn, and the landing hands the defender their turn.
+TEST(GapExtentKernel, ZeroOfThe121RunForever) {
     Subject safe{};
     bringUp(kSafe, safe);
     ASSERT_FALSE(::testing::Test::HasFatalFailure());
@@ -1641,65 +1651,51 @@ TEST(GapExtentKernel, NinetySevenOfThe121RunForever) {
             << "this cycle managed " << r.turns << " turns in " << sweepTicksFor(r.cycle.moves.size())
             << " ticks, which is too few to call it periodic."
             << describe(safe.character, r);
-        EXPECT_TRUE(r.periodic)
-            << "the hits are not evenly spaced, so this is a decaying string "
-               "rather than a loop." << describe(safe.character, r);
+        // Hit spacing is asserted only where a turn IS the repeating unit. The
+        // self-loop packs four repetitions into each jump, so its spacing is
+        // bimodal BY DESIGN -- 11 inside the arc, ~23 across a landing -- and
+        // "evenly spaced hits" is the wrong reading of it; section 5's
+        // whole-state comparison is the periodicity claim that covers it.
+        if (r.cycle.moves.size() > 1)
+            EXPECT_TRUE(r.periodic)
+                << "the hits are not evenly spaced, so this is a decaying "
+                   "string rather than a loop." << describe(safe.character, r);
         EXPECT_GT(r.defenderHealth, 0)
             << "the defender was knocked out inside the measured window, so the "
                "hit counter stopped at the health clamp and every count in this "
-               "test is an undercount. LOWER kSweepTicks."
+               "test is an undercount. LOWER the budget."
             << describe(safe.character, r);
-        // The defender held a button from the tick after the combo opened and it
-        // changed nothing: not the attacker's health, and not one of the ticks the
-        // attacker's hits landed on. That is the difference between "the defender
-        // lost the exchange" and "the defender never had an exchange to lose".
-        EXPECT_EQ(r.attackerHealth, kStartingHealth)
-            << "the attacker took damage from a mashing defender, so this run is a "
-               "trade being read as a combo." << describe(safe.character, r);
-        EXPECT_TRUE(r.mashChangedNothing)
-            << "holding a button moved the attacker's hits, so the defender did "
-               "get a turn somewhere." << describe(safe.character, r);
+        // THE ESCAPE IS REAL, NOT MERELY AVAILABLE. The mashing defender --
+        // whose mash carries the stance of the move it asks for, and who has
+        // the same 2-tick buffer the attacker does -- genuinely starts a move
+        // inside what a pre-M1.3e kernel called one combo. This replaces the
+        // old block's `mashChangedNothing`/attacker-health probes, whose
+        // premise was unescapability: a defender who acts changes everything,
+        // and that is the point.
+        EXPECT_FALSE(r.Unescapable())
+            << "this cycle ran with the defender never once actionable -- a "
+               "route through the graph survives the jump seam, and the "
+               "infinite this file retired is back." << describe(safe.character, r);
+        EXPECT_GT(r.actedTicks, 0u)
+            << "the defender was actionable but never ACTED under a buffered "
+               "mash, so the escape is theoretical -- exactly the one-frame-"
+               "link problem the authored buffer exists to remove, and it "
+               "should not be possible with a 2-tick window."
+            << describe(safe.character, r);
     }
 
-    // --- the static account predicts the run, cycle for cycle ----------------
+    // --- section 3's two-route account is RETIRED for execution --------------
     //
-    // Section 3 says which route the kernel takes for each hop and whether it
-    // arrives in time. If that account is right it must predict the executed
-    // outcome for all 41 -- and if it does not, the explanation in this file's
-    // header is a story rather than the mechanism.
-    for (const CycleResult& r : sweep.results)
-        EXPECT_EQ(r.predictedLoop, r.Unescapable())
-            << "the two-route account predicted "
-            << (r.predictedLoop ? "a loop" : "an escape") << " and the kernel "
-            << (r.Unescapable() ? "looped" : "let the defender out") << "."
-            << describe(safe.character, r);
-
-    // ... and it predicts the TICKS, not only the outcome. A cycle could loop for
-    // a reason other than the one this file gives and the counts above would still
-    // agree; this compares every move-to-move transition the trace performed with
-    // the frame the hop says the follow-up begins on. It is what turns "the kernel
-    // performs the link by the button-start route" from an inference into a
-    // reading -- the 32 button-route cycles enter their follow-up on `air_mp`'s
-    // frame 22, its full duration, and never inside the [21, 14] window that does
-    // not exist.
-    std::size_t totalChecks = 0, totalMismatches = 0;
-    for (const CycleResult& r : sweep.results) {
-        totalChecks     += r.timingChecks;
-        totalMismatches += r.timingMismatches;
-        EXPECT_GE(r.timingChecks, r.cycle.moves.size())
-            << "fewer transitions were checked than the cycle has hops, so at "
-               "least one hop of this cycle was never observed happening."
-            << describe(safe.character, r);
-        EXPECT_EQ(r.timingMismatches, 0u)
-            << r.timingMismatches << " of this cycle's " << r.timingChecks
-            << " observed transitions happened on a different frame than section "
-               "3 says. The account is wrong about the mechanism even if it "
-               "happens to be right about the outcome."
-            << describe(safe.character, r);
-    }
-    EXPECT_GT(totalChecks, 0u);
-    EXPECT_EQ(totalMismatches, 0u);
-    RecordProperty("route_timings_checked", static_cast<int>(totalChecks));
+    // It predicted entry routes and tick-exact transitions for a game whose
+    // attacker never left the ground. Since M1.3e every turn contains a jump,
+    // and the account cannot predict a cycle that leaves the ground -- its
+    // per-hop agreement and frame-exact comparisons were deleted here rather
+    // than taught the jump, because maintaining a second implementation of the
+    // kernel's arithmetic is the complexity ADR-012 rule 4 exists to stop.
+    // What remains of section 3 -- which edges the CANCEL SYSTEM can take, and
+    // why the landing links resolve to an empty window -- is still measured by
+    // GapExtentKernel.ExactlyOneCycleIsPerformableThroughTheCancelSystem.
+    // ComboSearch on the real kernel replaces the rest: ROADMAP M1.4.
 
     // --- the count ----------------------------------------------------------
     std::size_t unescapable = 0, escapable = 0;
@@ -1719,92 +1715,43 @@ TEST(GapExtentKernel, NinetySevenOfThe121RunForever) {
            "written against " << kUnescapable << ".";
     EXPECT_EQ(escapable, kEscapable);
     EXPECT_EQ(unescapable + escapable, sweep.results.size());
-
-    // Of the 33, ONE is performable the way the model describes it and 32 are
-    // performed by the held-button route instead. Both are the same gap and they
-    // are not the same defect, so they are counted apart: closing the cancel
-    // projection tomorrow would leave 32 of these standing.
     EXPECT_EQ(viaCancel, kByCancelAlone);
     EXPECT_EQ(viaButton, kByHeldButton);
 
-    // --- WHY the ones that leak, leak ----------------------------------------
+    // --- WHY every cycle leaks: the jump is the seam -------------------------
     //
-    // THIS USED TO ASSERT A LENGTH AND THE LENGTH WAS A COINCIDENCE. It read
-    // `EXPECT_EQ(r.cycle.moves.size(), 3u)` -- "the cycles that leak are exactly
-    // the ones of length 3" -- which was true of a character with two aerials and
-    // is false of one with six. The six-aerial roster leaks cycles of length 3
-    // AND of length 4, so the old assertion would now fail while the underlying
-    // rule had not changed at all.
-    //
-    // The rule was always about WHAT THE CYCLE LANDS INTO, not how long it is.
-    // Every cycle but the self-loop leaves the air by a landing link out of
-    // `air_mp`, and the held-button restart route arrives ONE TICK LATER than the
-    // link the file authored. `air_mp` is +7 on hit, so what is left after that
-    // tick fits a light's startup and does not fit a medium's. Asserting the
-    // startup is asserting the mechanism; asserting the length was asserting a
-    // correlate that happened to hold.
-    //
-    // The startup comes from the character's own frame data rather than from the
-    // sweep, so this is not the simulation checking itself.
+    // The mechanism is one sentence and it is checked against the character's
+    // own data rather than against the sweep: EVERY usable cycle passes
+    // through `air_mp` (all 121 -- the graph has no cycle that stays on the
+    // ground), entering an aerial costs a real takeoff since M1.3e, and a
+    // takeoff needs a FREE tick -- commitment forbids a jump mid-move, so the
+    // seam between one turn and the next necessarily contains a tick on which
+    // the attacker is free and not yet airborne. The defender's stun, authored
+    // against cancel-speed continuation, does not survive the arc-plus-landing
+    // that actually separates the hits. The medium-versus-light account this
+    // section used to give is retired with the ground route it described.
     const MoveIndex airMpIdx = safe.character.FindMove("air_mp");
     ASSERT_NE(airMpIdx, kInvalidMove);
-    const std::int32_t airMpStartup = safe.character.moves[airMpIdx].startup;
-
     for (const CycleResult& r : sweep.results) {
-        if (r.Unescapable()) continue;
-
-        // The move this cycle enters immediately after `air_mp`.
         const std::size_t n = r.cycle.moves.size();
         std::size_t at = n;
         for (std::size_t i = 0; i < n; ++i)
             if (r.cycle.moves[i] == airMpIdx) { at = i; break; }
         ASSERT_LT(at, n)
-            << "a leaking cycle does not pass through `air_mp`, so the landing-link "
-               "account this section gives does not describe it at all."
+            << "a cycle does not pass through `air_mp`, so the jump-seam "
+               "account above does not describe it -- and a ground-only cycle "
+               "leaking would need its own explanation."
             << describe(safe.character, r);
-
-        const MoveIndex landed = r.cycle.moves[(at + 1) % n];
-        const std::int32_t landedStartup = safe.character.moves[landed].startup;
-        EXPECT_GT(landedStartup, airMpStartup - 1)
-            << "this cycle leaks a defender turn but lands into `"
-            << safe.character.moves[landed].id << "`, whose startup of "
-            << landedStartup << " should have fitted inside what is left of "
-               "`air_mp`'s advantage after the one-tick restart delay -- so the "
-               "one-tick account this section gives does not explain the leak."
-            << describe(safe.character, r);
-        // A marginal miss rather than a broken chain: the loop still lands every
-        // hit on schedule, it simply hands one or two ticks back per turn.
-        EXPECT_GE(r.turns, static_cast<std::size_t>(kMinTurns));
-        EXPECT_LE(r.actionableTicks, r.turns * 2)
-            << "the defender is getting more than two ticks per turn back, which "
-               "is a gap rather than the one-tick miss described here."
-            << describe(safe.character, r);
-    }
-    // ... and the converse, stated by the same rule rather than by its old
-    // length proxy: a cycle that lands into something FAST enough to fit inside
-    // what is left of `air_mp`'s advantage does not leak.
-    //
-    // The self-loop is excluded because it never performs a landing link at all
-    // -- it is the one cycle the cancel system takes end to end, which is a
-    // different mechanism and is measured in section 3.
-    for (const CycleResult& r : sweep.results) {
-        const std::size_t n = r.cycle.moves.size();
-        if (n <= 1) continue;
-
-        std::size_t at = n;
-        for (std::size_t i = 0; i < n; ++i)
-            if (r.cycle.moves[i] == airMpIdx) { at = i; break; }
-        if (at == n) continue;   // counted elsewhere; section 3 owns it
-
-        const MoveIndex landed = r.cycle.moves[(at + 1) % n];
-        if (safe.character.moves[landed].startup >= airMpStartup) continue;
-
-        EXPECT_TRUE(r.Unescapable())
-            << "this cycle lands into `" << safe.character.moves[landed].id
-            << "`, whose startup of " << safe.character.moves[landed].startup
-            << " fits inside what is left of `air_mp`'s advantage, and it still "
-               "leaked a defender turn -- so the one-tick account is incomplete "
-               "in the direction that matters."
+        // At least one defender tick per JUMP. For the multi-move cycles a
+        // turn contains exactly one jump, so this is per turn; the self-loop
+        // packs four repetitions into each jump and its seam comes once per
+        // ARC, not once per hit -- which is the ground_truth section-5
+        // measurement seen from this side.
+        const std::size_t seams = (n == 1) ? (r.turns / 4) : (r.turns - 1);
+        EXPECT_GE(r.actionableTicks, seams > 0 ? seams : 1)
+            << "fewer actionable ticks than jump seams: some turn crossed the "
+               "jump without handing the defender a tick, which the commitment "
+               "rule is supposed to make impossible."
             << describe(safe.character, r);
     }
 
@@ -1835,15 +1782,16 @@ TEST(GapExtentKernel, NinetySevenOfThe121RunForever) {
     EXPECT_GT(effects->count, 0)
         << "this character authors no resource effects at all, so the gap this "
            "file measures has nothing to bite on";
-    EXPECT_EQ(stance->direction, BuildLossDirection::KernelPermits);
-    EXPECT_GT(stance->count, 0)
-        << "`air_mp` is an AIR move and the kernel is supposed to have no stance "
-           "rule, which is the second, independent reason every one of these loops "
-           "is performable from the ground";
+    // Exact since M1.3e, and the whole third measurement rests on it: the arc
+    // can only be the seam if the loop actually has to leave the ground.
+    EXPECT_EQ(stance->direction, BuildLossDirection::Exact)
+        << "`move.stance` is recorded as "
+        << BuildLossDirectionName(stance->direction)
+        << "; if the wire is out, every count in this file is the 97 again.";
+    EXPECT_GT(stance->count, 0);
     EXPECT_FALSE(probe.report[0].playsAsAnalysed)
         << "the bridge claims the kernel plays the character ProverAdapter "
-           "analysed, and this test just performed " << unescapable
-        << " combos that character cannot do.";
+           "analysed; juggle, hitstop and priority are still dropped.";
 
     std::cout
         << "\n[ GAP EXTENT ] every cycle of `" << safe.character.id << "`, measured\n"
@@ -1862,10 +1810,10 @@ TEST(GapExtentKernel, NinetySevenOfThe121RunForever) {
         << "                  meter, and `move.effect` is a "
         << BuildLossDirectionName(effects->direction) << " loss over "
         << effects->count << " move(s):\n"
-        << "                  the kernel never spends juggle. `move.stance` is a "
-        << BuildLossDirectionName(stance->direction) << "\n"
-        << "                  loss over " << stance->count
-        << " move(s), so the air moves are startable standing.\n"
+        << "                  the kernel never spends juggle. `move.stance` is "
+        << BuildLossDirectionName(stance->direction) << " over "
+        << stance->count << " move(s):\n"
+        << "                  an aerial needs the takeoff Up provides.\n"
         << "  performable as  " << fullyTakeable << " of " << sweep.usable.size()
         << ". The other " << (sweep.usable.size() - fullyTakeable)
         << " each contain ONE edge the\n"
@@ -1875,24 +1823,24 @@ TEST(GapExtentKernel, NinetySevenOfThe121RunForever) {
         << kLandingLinkLatest << "] because the authored delay lands past the\n"
         << "                  cancel window's close.\n"
         << "  EXECUTED        " << unescapable << " of " << sweep.usable.size()
-        << " run with the defender never once actionable, and\n"
-        << "                  every one of them returns to its own opening state "
-           "each turn.\n"
-        << "                  " << viaCancel << " through the cancel system, "
-        << viaButton << " through the held-button restart\n"
-        << "                  that performs the inert link anyway. The other "
-        << escapable << " hand one tick\n"
-        << "                  back per turn, and they are exactly the ones that land\n"
-        << "                  from `air_mp` into a move too slow to fit what is left\n"
-        << "                  of its advantage -- a medium, not a light. That is the\n"
-        << "                  rule; the cycle LENGTH that used to stand in for it was\n"
-        << "                  a coincidence of a two-aerial character.\n"
+        << " run with the defender never once actionable.\n"
+        << "                  Every cycle passes through `air_mp`, every turn now "
+           "takes a real\n"
+        << "                  jump, and the landing hands the defender their turn: "
+        << escapable << " of " << sweep.usable.size() << "\n"
+        << "                  leak at the seam, every one of them still periodic "
+           "and still\n"
+        << "                  returning to its own opening state each turn.\n"
         << "  SO THE GAP IS   " << unescapable
         << " cycles wide on a character the tool certifies as\n"
-        << "                  TERMINATING, and the ground-truth file measured 1 of "
-           "them.\n"
-        << "                  ARCHITECTURE.md D8; BuildReport::playsAsAnalysed is "
-        << (probe.report[0].playsAsAnalysed ? "true" : "false") << ".\n\n";
+        << "                  TERMINATING. 97 before the movement rules, 77 with "
+           "stance alone,\n"
+        << "                  " << unescapable
+        << " with the genre enforced (ROADMAP M1.3e). The model said\n"
+        << "                  TERMINATING all along; the game now agrees, for the "
+           "game's own\n"
+        << "                  reason -- making the GRAPH agree too is M1.4a. "
+           "ARCHITECTURE.md D8.\n\n";
 }
 
 // ============================================================================
@@ -1928,11 +1876,13 @@ TEST(GapExtentKernel, EveryLoopReturnsToItsOwnOpeningStateExactly) {
         << repeats << " of " << sweep.results.size()
         << " cycles are exactly periodic in state.";
 
-    // The escapable eight repeat too, and that is worth saying rather than
-    // glossing: they are eternal loops WITH a defender turn inside each period,
-    // not combos that peter out. The kernel hands the defender a tick per turn and
-    // the attacker takes it straight back, every turn, for as long as the trace
-    // runs.
+    // All 121 are escapable since M1.3e, and the state repetition is what
+    // makes that a strong sentence rather than a hedge: these are eternal
+    // loops WITH a defender turn inside each period, not combos that peter
+    // out. The kernel hands the defender their tick at the landing and the
+    // silent trace takes it straight back, every turn, for as long as it runs
+    // -- which is exactly what the showcase's demonstration needs a loop to
+    // do, and exactly what an infinite is not.
     for (const CycleResult& r : sweep.results) {
         if (r.Unescapable()) continue;
         EXPECT_TRUE(r.stateRepeats);
@@ -1943,26 +1893,22 @@ TEST(GapExtentKernel, EveryLoopReturnsToItsOwnOpeningStateExactly) {
 }
 
 // ============================================================================
-// 6. THE DETECTOR -- why this file counts 33 where the ground-truth one counts 37
+// 6. THE DETECTOR -- and since M1.3e the two families finally agree
 // ============================================================================
 
-// Kept as a test rather than as a paragraph, because "our detector is stricter"
-// is a claim about four specific cycles, and either it is measurable or it is an
-// excuse. Both detectors are run over the same 41 traces and the difference is
-// asserted.
-//
-// The four are the cycles that land from `air_mp` into `stand_mp` or `crouch_mp`
-// -- 6f startup against the 5f the button-start route leaves. Their next hit
-// arrives on EXACTLY the tick the defender's stun expires, so:
-//
-//   FreeTicks()   skips it, because the tick has a hit on it;
-//   defEntered    misses it, because the defender really does start a move and
-//                 ResolveHits sets their moveId back to 0 later in the same tick.
-//
-// Both then report a clean loop. The defender was actionable and got hit for it,
-// which is a one-frame gap rather than no gap -- and in a kernel that had
-// blocking, it is the frame the combo would end on.
-TEST(GapExtentMethod, TheGroundTruthDetectorsMissTwelveEscapesThisOneFinds) {
+// Kept as a test rather than as a paragraph, because detector agreement is a
+// claim about 121 specific cycles, and either it is measurable or it is an
+// excuse. When the routes between hits ran at cancel speed, the actionable
+// detector found one-frame escapes the copied FreeTicks/defEntered pair
+// missed -- an escape landing on EXACTLY the tick of the next hit is
+// invisible to both of them -- and the disagreement was twelve cycles wide.
+// The jump seam M1.3e opened between turns is one-to-two ticks wide with an
+// ACTED move inside it under a buffered mash, which every detector in the
+// repository can see: both families now call all 121 escapable, and the
+// disagreement this section documented is zero. The strictness distinction
+// still matters -- it returns the day a route runs at cancel speed again --
+// so both detectors stay measured rather than one being deleted.
+TEST(GapExtentMethod, TheTwoDetectorFamiliesNowAgreeOnEveryCycle) {
     Subject safe{};
     bringUp(kSafe, safe);
     ASSERT_FALSE(::testing::Test::HasFatalFailure());
@@ -1991,14 +1937,15 @@ TEST(GapExtentMethod, TheGroundTruthDetectorsMissTwelveEscapesThisOneFinds) {
         }
     }
 
-    EXPECT_EQ(byFreeTicks, kUnescapableByFreeTicks)
-        << "test_ground_truth.cpp's two detectors would call " << byFreeTicks
-        << " of these cycles unescapable.";
+    EXPECT_EQ(byFreeTicks, kUnescapable)
+        << "test_ground_truth.cpp's two detectors call " << byFreeTicks
+        << " of these cycles unescapable; since M1.3e both families must find "
+           "the jump-seam escape in every cycle.";
     EXPECT_EQ(byActionable, kUnescapable);
-    EXPECT_EQ(disagreements, kUnescapableByFreeTicks - kUnescapable)
-        << "the two detectors disagree on " << disagreements
-        << " cycles and this file was written against "
-        << (kUnescapableByFreeTicks - kUnescapable) << ".";
+    EXPECT_EQ(disagreements, 0u)
+        << "the two detector families disagree on " << disagreements
+        << " cycle(s): a route between hits is running at cancel speed again, "
+           "and the one-frame-escape distinction this section retired is back.";
 
     RecordProperty("unescapable_by_free_ticks", static_cast<int>(byFreeTicks));
     RecordProperty("unescapable_by_actionable", static_cast<int>(byActionable));

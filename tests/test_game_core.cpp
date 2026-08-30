@@ -359,16 +359,30 @@ std::vector<MoveBinding> bindingsFor(const Witness& w) {
 // again: the loop is a move cancelling into ITSELF, so the id never changes.
 class Driver {
 public:
+    // `data` is the BUILT fighter: the stance hold is read off MoveDef::stance,
+    // the same bytes the kernel enforces since ROADMAP M1.3e.
     Driver(const Witness& w, const MoveIndexMap& map,
-           const std::vector<MoveBinding>& bindings)
+           const std::vector<MoveBinding>& bindings,
+           const cse::kernel::FighterData& data)
         : loopStart_(w.loopStart) {
         for (const std::string& id : w.sequence) {
-            slots_.push_back(map.Find(id));
+            const std::uint16_t slot = map.Find(id);
+            slots_.push_back(slot);
             std::uint16_t button = 0;
             for (const MoveBinding& b : bindings)
                 if (b.moveId == id) { button = b.button; break; }
             buttons_.push_back(button);
             ids_.push_back(id);
+            // The stance-establishing direction, SEPARATE from buttons_ --
+            // folding it in would break Usable()'s zero-button check and the
+            // same-button release predicate below.
+            std::uint16_t hold = 0;
+            const cse::kernel::MoveDef* m = cse::kernel::MoveAt(data, slot);
+            if (m != nullptr) {
+                if (m->stance == cse::kernel::kStanceCrouching) hold = cse::kernel::kInputDown;
+                else if (m->stance == cse::kernel::kStanceAir)  hold = cse::kernel::kInputUp;
+            }
+            holds_.push_back(hold);
         }
     }
 
@@ -386,25 +400,37 @@ public:
         return !slots_.empty();
     }
 
-    // Zero on a release tick -- see BuildDemonstration, which this is the
-    // reference for. A witness that cancels a move into ITSELF asks for the same
-    // button twice running, and a held bit is ONE press however long it lasts.
+    // The button drops on a release tick and the STANCE HOLD does not -- the
+    // release is of the button, not the posture (ROADMAP M1.3e). See
+    // BuildDemonstration, which this is the reference for. A witness that
+    // cancels a move into ITSELF asks for the same button twice running, and a
+    // held bit is ONE press however long it lasts.
     //
     // THIS IS THE THIRD COPY OF THIS RULE (here, test_ground_truth.cpp, and
     // FightSession.cpp) and the duplication is why the seam test exists. It is
-    // recorded as work rather than left as a comment -- ROADMAP M1.6.
+    // recorded as work rather than left as a comment -- ROADMAP M1.3g.
     std::uint16_t Bits() const {
-        if (release_ || buttons_.empty()) return 0;
-        return buttons_[cursor_];
+        if (buttons_.empty()) return 0;
+        if (release_) return holds_[cursor_];
+        return static_cast<std::uint16_t>(buttons_[cursor_] | holds_[cursor_]);
     }
 
     void Observe(std::uint16_t attackerMove, std::uint16_t attackerFrame) {
         if (slots_.empty()) return;
         // Spent without looking at the state, which is safe only because the
         // release lands one tick after an advance and nothing can start there.
-        // See tests/test_ground_truth.cpp's copy of this note and ROADMAP M1.6.
+        // See tests/test_ground_truth.cpp's copy of this note and ROADMAP M1.3g.
         if (release_) { release_ = false; return; }
-        if (attackerMove != slots_[cursor_] || attackerFrame != 0) return;
+        if (attackerMove != slots_[cursor_] || attackerFrame != 0) {
+            // WAITING, so alternate rather than hold -- since M1.3e a landing
+            // between turns makes waiting ROUTINE, and a held button is one
+            // press. Mirrors ground_truth's driver and BuildDemonstration
+            // exactly; the seam test compares the traces tick for tick.
+            ++waiting_;
+            if (waiting_ >= kRepressAfter) { release_ = true; waiting_ = 0; }
+            return;
+        }
+        waiting_ = 0;
         const std::uint16_t justUsed = buttons_[cursor_];
         cursor_ = (cursor_ + 1 < slots_.size()) ? cursor_ + 1 : loopStart_;
         release_ = (buttons_[cursor_] == justUsed);
@@ -416,10 +442,13 @@ public:
 private:
     std::vector<std::uint16_t> slots_;
     std::vector<std::uint16_t> buttons_;
+    std::vector<std::uint16_t> holds_;   // stance direction per entry
     std::vector<std::string>   ids_;
     std::size_t                loopStart_ = 0;
     std::size_t                cursor_    = 0;
     bool                       release_   = false;
+    int                        waiting_   = 0;
+    static constexpr int       kRepressAfter = 2;
 };
 
 // ============================================================================
@@ -1544,7 +1573,7 @@ TEST(GameDemonstration, TheSeamProducesExactlyTheGroundTruthDriversTrace) {
 
     // The reference: the closed-loop driver copied out of test_ground_truth.cpp,
     // run against a bare Simulate loop exactly as that file runs it.
-    Driver reference(rig.witness, rig.build.moves[0], rig.bindings);
+    Driver reference(rig.witness, rig.build.moves[0], rig.bindings, rig.build.data.p[0]);
     std::string why;
     ASSERT_TRUE(reference.Usable(why)) << "the witness cannot be driven: " << why;
 
@@ -2045,27 +2074,22 @@ TEST(GameReplayFormat, TheEncodedBytesAreExactlyWhatTheHeaderTableSays) {
                   kReplayCheckpointBytes * checkpointCount)
         << "the encoded size does not match the header's own counts";
 
-    // THE RLE CLAIM, MEASURED -- and it is no longer "one run".
-    //
-    // This asserted runCount == 1, on the premise that a self-cancel loop's trace
-    // is one button held for the whole demonstration. That stopped being true
-    // when the trace builder started RELEASING between repeats of the same
-    // button: a witness that cancels a move into itself asks for the same bit
-    // twice running, and a held bit is one press however long it lasts. The old
-    // number was measuring a trace that could not perform its own loop.
-    //
-    // What the encoding actually has to do is unchanged, so that is what is
-    // asserted now: far fewer runs than ticks, and a smaller file than a flat
-    // log. Both survive the trace's shape changing again.
-    EXPECT_LT(runCount, trace.size() / 2)
-        << "a " << trace.size() << "-tick demonstration encoded as " << runCount
-        << " runs. Press/release alternation still leaves long stretches of held "
-           "bits between moves, so an encoding near one run per tick is not doing "
-           "the one thing it exists for.";
+    // THE RLE CLAIM, MEASURED TWICE AND DEMOTED TWICE. It began as
+    // runCount == 1 (a held button is one run) and died when the trace builder
+    // started releasing between repeats; then "fewer runs than half the ticks,
+    // smaller than a flat log" died with ROADMAP M1.3e, when the rehearsal
+    // gained the drivers' re-press rule -- a waiting cursor now alternates
+    // press and release every third tick, so a DEMONSTRATION trace is press-
+    // dense by construction and RLE gains almost nothing on it. That is a fact
+    // about this adversarially dense input, not about the encoding: the format
+    // exists for hour-long HUMAN matches, whose neutral stretches are long.
+    // What survives here is the structural claim -- runs are bounded by ticks,
+    // every run is nonzero, and the file is EXACTLY its header's arithmetic
+    // (asserted above and below), so a payload cannot ride along.
+    EXPECT_LE(runCount, trace.size())
+        << "more runs than ticks: some run must be zero-length";
     EXPECT_EQ(readU16(bytes, runOffset(0) + 0), trace.front().bits);
     EXPECT_EQ(readU16(bytes, runOffset(0) + 2), 0u) << "the silent dummy's bits";
-    EXPECT_LT(bytes.size(), 4u * trace.size())
-        << "the run-length encoded file is not smaller than a flat log would be";
 
     // Run lengths sum to EXACTLY tickCount, and no run is zero-length -- a
     // zero-length run is how a hostile file makes a decoder loop without
@@ -4073,7 +4097,15 @@ TEST(GameComboWatcher, ACycleTheCertificateRetiresIsStillFlaggedWhenTheKernelRun
     // adapter's omit-the-opening-move caveat cannot apply to it.
     analysis.loopEntryKnown = true;
 
-    constexpr std::uint32_t kSafeTurns = 6;
+    // THREE, and the bound is the ARC. Since ROADMAP M1.3e the air self-cancel
+    // is performed the way a player performs it -- jump, cancel down the arc,
+    // land -- and one jump holds at most four repetitions (hit ticks 6, 17,
+    // 28, 39; test_ground_truth section 5 measures it). The defender is FREE
+    // between jumps, so a watcher correctly ends the combo there: six turns as
+    // ONE combo is no longer a thing the game contains, and this test's claim
+    // -- the watcher flags a certified-away cycle while it runs -- must be
+    // made inside a single string.
+    constexpr std::uint32_t kSafeTurns = 3;
 
     GameState from{};
     cse::kernel::ResetMatch(from, kSeed);

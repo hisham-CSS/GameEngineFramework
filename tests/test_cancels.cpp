@@ -837,14 +837,18 @@ TEST(CancelBridge, TheLossTableCountsWhatTheProjectionActuallyCost) {
 
     // AND THE FLAG IS STILL FALSE, computed rather than remembered. Cancels were
     // the dominant reason it was false and they no longer are; nineteen entries
-    // still bite, five of them about cancels.
+    // still bite, five of them about cancels. `bites` counts NONZERO rows
+    // whatever their direction, so M1.3e's stance flip to Exact moves nothing
+    // here (25 stanced moves still count) and the new blocked_as row is zero
+    // for this character.
     EXPECT_EQ(19, r.lossesThatBite);
     EXPECT_FALSE(r.playsAsAnalysed)
         << "the bridge is claiming the kernel plays the character ProverAdapter "
            "analysed. It does not -- see the loss table -- and the cancel system "
            "landing does not by itself make that sentence true.";
 
-    EXPECT_EQ(26u, r.losses.size())
+    // 26 -> 27 when M1.3e added the move.blocked_as row beside move.stance.
+    EXPECT_EQ(27u, r.losses.size())
         << "the loss table grew or shrank. That is fine, and it has to be "
            "recorded here, because the point of the table is that somebody "
            "counted.";

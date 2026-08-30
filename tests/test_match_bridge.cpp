@@ -860,10 +860,14 @@ TEST(MatchBridgeOptions, AnUnsuppliedBodyWarnsAndUsesTheNamedDefault) {
 }
 
 TEST(MatchBridgeOptions, ABindingThatCanNeverStartIsReportedAndReallyNeverStarts) {
-    // StepAttack takes the first move in slot order whose buttons are ALL held.
-    // stand_lp is slot 1 with {LP} and crouch_lp is slot 12 with {Down, LP}, so
-    // holding Down+LP can only ever produce stand_lp. That is the natural way
-    // somebody binds crouching normals and it silently does not work.
+    // StepAttack takes the first move in slot order whose buttons are ALL held
+    // and whose stance the input selects. Kung Fu Girl's transcription authors
+    // `stance: ground` on BOTH stand_lp and crouch_lp -- MUGEN's statetype is
+    // not the standing/crouching split -- so stance cannot tell the pair apart,
+    // the shadow is real, and holding Down+LP can only ever produce stand_lp
+    // (slot 1, {LP}, against crouch_lp's {Down, LP}). A character that DOES
+    // author the split gets selection instead of a warning since ROADMAP
+    // M1.3e; this test is the case the warning still exists for.
     KfgMatch m{};
     buildKungFuGirl(m, { bind("stand_lp",  cse::kernel::kInputLP),
                          bind("crouch_lp", static_cast<std::uint16_t>(
@@ -943,7 +947,11 @@ TEST(MatchBridgeLosses, EveryDropIsCountedAgainstKungFuGirlsActualFile) {
         { "move.cancel_window (absent)",   8, BuildLossDirection::KernelPermits },
         { "character.walk_speed",      1, BuildLossDirection::Exact         },
         { "move.pushback",            24, BuildLossDirection::Exact         },
-        { "move.stance",              25, BuildLossDirection::KernelPermits },
+        // Exact since ROADMAP M1.3e wired both into MoveDef and StanceAllows.
+        // Kung Fu Girl authors a stance on all 25 moves and no blocked_as at
+        // all -- the zero-count row records that somebody looked.
+        { "move.stance",              25, BuildLossDirection::Exact         },
+        { "move.blocked_as",           0, BuildLossDirection::Exact         },
         { "move.guard",                2, BuildLossDirection::Exact         },
         { "move.effect",              24, BuildLossDirection::Exact         },
         { "resources",                 2, BuildLossDirection::Exact         },
@@ -1244,4 +1252,107 @@ TEST(MatchBridgeMechanics, FighterAsSweepCarriesItsKnockdownIntoTheKernel) {
         << "the bridge handed the kernel a knockdown of "
         << build.data.p[0].moves[slot].knockdownTicks
         << " for a move the file says knocks down.";
+}
+
+// --- The stance wire (ROADMAP M1.3e) -----------------------------------------
+//
+// The bridge finding that moved the headline: MoveDef::stance was never
+// assigned, so every built move was kStanceAny, stand_hk shadowed crouch_hk on
+// their shared button, and 12 of fighter_a's 18 normals could not be performed
+// at all. These two prove the wire on the SHIPPED file, end to end through
+// BuildMatchData and the real kernel -- the layer every earlier attempt proved
+// at the wrong one.
+
+TEST(MatchBridgeMechanics, ADirectionEstablishesTheStanceOnTheTickItIsPressed) {
+    CharacterData c{};
+    LoadReport report{};
+    ASSERT_TRUE(LoadCharacterFile(ownCharactersDir(), "fighter_a.json", loadOptions(), c, report))
+        << report.error;
+
+    // Both variants on the ONE button, standing first -- the exact shadowing
+    // pair the finding names.
+    BuildOptions options{};
+    options.bindings = { { "stand_hk",  cse::kernel::kInputHK },
+                         { "crouch_hk", cse::kernel::kInputHK } };
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build)) << build.report[0].error;
+
+    const std::uint16_t standSlot  = build.moves[0].Find("stand_hk");
+    const std::uint16_t crouchSlot = build.moves[0].Find("crouch_hk");
+    ASSERT_NE(standSlot,  0u);
+    ASSERT_NE(crouchSlot, 0u);
+
+    // Down+HK from idle: the crouching variant, on that very tick.
+    cse::kernel::GameState s{};
+    cse::kernel::ResetMatch(s, 0x1D7u);
+    cse::kernel::InputPair in{};
+    in.p[0].bits = cse::kernel::kInputDown | cse::kernel::kInputHK;
+    cse::kernel::Simulate(s, in, build.data);
+    EXPECT_EQ(s.p[0].moveId, crouchSlot)
+        << "Down+HK started move " << s.p[0].moveId << " and not crouch_hk ("
+        << crouchSlot << "). Without the stance wire the first slot sharing "
+        << "the button shadows the rest, and the sweep cannot be performed.";
+
+    // HK alone: the standing one.
+    cse::kernel::GameState s2{};
+    cse::kernel::ResetMatch(s2, 0x1D7u);
+    cse::kernel::InputPair hk{};
+    hk.p[0].bits = cse::kernel::kInputHK;
+    cse::kernel::Simulate(s2, hk, build.data);
+    EXPECT_EQ(s2.p[0].moveId, standSlot)
+        << "HK with no direction started move " << s2.p[0].moveId
+        << " and not stand_hk (" << standSlot << ").";
+}
+
+// M1.1c's central claim -- "every normal fighter_a authors is reachable" --
+// re-tested THROUGH BuildMatchData, which is the layer its original test
+// skipped. Each variant is asked for the way a player asks: its button plus
+// the stance-establishing direction, from idle, and it must start on that
+// tick under its own name.
+TEST(MatchBridgeMechanics, EveryAuthoredNormalIsReachableThroughItsButtonAndStance) {
+    CharacterData c{};
+    LoadReport report{};
+    ASSERT_TRUE(LoadCharacterFile(ownCharactersDir(), "fighter_a.json", loadOptions(), c, report))
+        << report.error;
+
+    const char* kButtons[] = { "lp", "mp", "hp", "lk", "mk", "hk" };
+    const std::uint16_t kBits[] = {
+        cse::kernel::kInputLP, cse::kernel::kInputMP, cse::kernel::kInputHP,
+        cse::kernel::kInputLK, cse::kernel::kInputMK, cse::kernel::kInputHK };
+
+    BuildOptions options{};
+    for (int b = 0; b < 6; ++b) {
+        options.bindings.push_back({ std::string("stand_")  + kButtons[b], kBits[b] });
+        options.bindings.push_back({ std::string("crouch_") + kButtons[b], kBits[b] });
+        options.bindings.push_back({ std::string("air_")    + kButtons[b], kBits[b] });
+    }
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build)) << build.report[0].error;
+
+    int reachable = 0;
+    for (int b = 0; b < 6; ++b) {
+        const struct { std::string name; std::uint16_t extra; } variants[] = {
+            { std::string("stand_")  + kButtons[b], 0 },
+            { std::string("crouch_") + kButtons[b], cse::kernel::kInputDown },
+            { std::string("air_")    + kButtons[b], cse::kernel::kInputUp },
+        };
+        for (const auto& v : variants) {
+            const std::uint16_t slot = build.moves[0].Find(v.name);
+            ASSERT_NE(slot, 0u) << v.name << " did not reach the move table";
+
+            cse::kernel::GameState s{};
+            cse::kernel::ResetMatch(s, 0x1D7u);
+            cse::kernel::InputPair in{};
+            in.p[0].bits = static_cast<std::uint16_t>(kBits[b] | v.extra);
+            cse::kernel::Simulate(s, in, build.data);
+
+            EXPECT_EQ(s.p[0].moveId, slot)
+                << v.name << " (slot " << slot << ") did not start; moveId is "
+                << s.p[0].moveId << ". A normal the player cannot perform is "
+                << "authored frame data the game does not have.";
+            if (s.p[0].moveId == slot) ++reachable;
+        }
+    }
+    EXPECT_EQ(reachable, 18)
+        << "only " << reachable << " of fighter_a's 18 normals are reachable.";
 }

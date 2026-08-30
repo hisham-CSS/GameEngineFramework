@@ -1854,7 +1854,7 @@ TEST(TrainingModeReset, BeginDoesNotResetTheWatcherAndAHostThatForgetsShowsTheOl
 // This section drives one of them, with the analysis the mode ACTUALLY HOLDS, and
 // asserts what the game can and cannot notice.
 
-TEST(TrainingModeVerdict, ACertifiedAwayCycleOutrunsTheAnalysisOwnWorstCase) {
+TEST(TrainingModeVerdict, ACertifiedAwayCycleNowStopsInsideTheAnalysisWorstCase) {
     Rig         rig{};
     std::string moveId;
     CancelIndex edgeIndex = 0;
@@ -2021,70 +2021,82 @@ TEST(TrainingModeVerdict, ACertifiedAwayCycleOutrunsTheAnalysisOwnWorstCase) {
             << Table(log, map, byHealth[i] > 4 ? byHealth[i] - 4u : 0u, 10);
     }
 
-    // THE WATCHER COUNTED EVERY REPETITION. An id-transition detector reports 1
-    // here: this is one move cancelling into ITSELF, so the moveId never changes.
-    EXPECT_EQ(report.hits, static_cast<std::int32_t>(byBits.size()))
-        << "the watcher counted " << report.hits << " hits and the attacker's "
-           "alreadyHitBits gained the defender's bit on " << byBits.size()
-        << " ticks.\nA watcher that reports 1 is detecting a CHANGE OF moveId, "
-           "which a self-cancel never produces."
-        << DescribeReport(report, map)
-        << Table(log, map, 0, 32);
+    // THE RUN IS STRINGS NOW, NOT ONE COMBO. Since ROADMAP M1.3e the cycle is
+    // performed the way a player performs it -- jump, cancel down the arc,
+    // land, jump again -- so the watcher correctly RESETS at every landing
+    // (the defender leaves hitstun there) and `report` describes the LAST
+    // string, not the run. The per-string shape is recovered from the hit
+    // ticks themselves: hits inside a string arrive at the cancel period, and
+    // a landing is a longer gap.
     for (std::uint16_t m : report.sequence)
         ASSERT_EQ(m, slot) << "a connecting move other than `" << moveId
                            << "` appeared in a one-move cycle";
+    ASSERT_GE(byBits.size(), 2u);
+    const std::uint32_t period = byBits[1] - byBits[0];
+    std::vector<std::int32_t> stringLens;
+    std::int32_t cur = 1;
+    for (std::size_t i = 1; i < byBits.size(); ++i) {
+        if (byBits[i] - byBits[i - 1] <= period) ++cur;
+        else { stringLens.push_back(cur); cur = 1; }
+    }
+    stringLens.push_back(cur);
+    std::int32_t maxString = 0;
+    for (std::int32_t n : stringLens) maxString = maxString > n ? maxString : n;
 
-    // --- THE HEADLINE: THE STRING OUTRAN THE ANALYSIS'S OWN WORST CASE -------
+    // --- THE HEADLINE, INVERTED BY M1.3e: NOTHING OUTRUNS THE ANALYSIS ------
     //
-    // ProverResult::maxHits is the longest chain the decision procedure can find
-    // through this character's configuration graph, with every resource cost
-    // applied. A string with more hits than that is not merely surprising: it is
-    // something the analysis says cannot happen. This is docs/NORTHSTAR.md item 2
-    // -- "the bounds dual" -- run live through the seam training mode is made of,
-    // rather than as an offline search.
-    EXPECT_GT(report.hits, rig.verdict.maxHits)
-        << "the point of this test is a string LONGER than the analysis's stated "
-           "worst case of " << rig.verdict.maxHits << " hits, and the run produced "
-        << report.hits << ". Either the demonstration stopped early or the bound "
-           "moved."
-        << DescribeReport(report, map);
-    EXPECT_GT(static_cast<std::int32_t>(byBits.size()), permittedTurns)
-        << "THE CERTIFICATE RETIRES THIS CYCLE AFTER " << permittedTurns
-        << " TURN(S) -- `" << spentResource << "` starts at " << spentInitial
-        << " and `" << moveId << "` -> itself spends " << spentPerTurn
-        << " of it, so `nonNegative` refuses the next one -- and the kernel "
-           "performed it " << byBits.size() << " time(s). If those are equal, the "
-           "kernel has grown resources and THE GAP THIS TEST MEASURES HAS CLOSED.";
+    // This test used to measure a string LONGER than ProverResult::maxHits --
+    // the certified-away cycle running forever off the ground route the
+    // missing stance wire left open. That route is closed. What the kernel
+    // produces now is strings the certificate can look at without flinching:
+    // the longest is exactly the certificate's own permitted turns -- an
+    // AGREEMENT OF COUNT, not of reason, because juggle is still unwired
+    // (M1.1f) and what ends the kernel's string is the ballistic arc running
+    // out of air. If maxString ever exceeds permittedTurns again, a route
+    // around the arc has opened and the infinite is back; if it falls short,
+    // the arc got shorter than the budget and the agreement was luck.
+    EXPECT_EQ(maxString, permittedTurns)
+        << "the longest single string is " << maxString << " hit(s) against the "
+           "certificate's " << permittedTurns << " -- the two bounds no longer "
+           "coincide."
+        << Table(log, map, 0, 40);
+    EXPECT_LE(maxString, rig.verdict.maxHits)
+        << "a single string of " << maxString << " outran the analysis's stated "
+           "worst case of " << rig.verdict.maxHits
+        << " hits -- something the analysis says cannot happen.";
+    EXPECT_LE(report.hits, rig.verdict.maxHits);
 
-    // Every repetition connected: no whiffs padding the count, and one move start
-    // per hit. A cycle with whiffs in it is still a cycle and would still be worth
-    // flagging -- this asserts the cleaner thing actually happened, so the count
-    // above is a count of connecting repetitions rather than of button presses.
+    // AND THE CYCLE STILL TURNS -- across strings, with the defender free at
+    // every landing. The total exceeding the per-combo budget is NOT a
+    // violation of the certificate: `nonNegative` is a statement about ONE
+    // combo, and the model's own juggle restores when the defender recovers,
+    // exactly as the kernel's does. More than one string is what proves the
+    // demonstration performed its turns ACROSS jumps rather than stopping at
+    // the first landing.
+    EXPECT_GE(stringLens.size(), 2u)
+        << "the whole run was one string, so the demonstration stopped at the "
+           "first landing" << Table(log, map, 0, 40);
+    EXPECT_GT(static_cast<std::int32_t>(byBits.size()), permittedTurns);
+
+    // Every repetition connected: no whiffs padding the count, and one move
+    // start per connecting hit.
     const std::vector<std::uint32_t> starts = log.MoveStartTicks(0);
     EXPECT_EQ(starts.size(), byBits.size())
         << "`" << moveId << "` started " << starts.size() << " time(s) and "
            "connected " << byBits.size() << " time(s)"
         << Table(log, map, 0, 32);
-    EXPECT_EQ(report.whiffedStarts, 0)
-        << report.whiffedStarts << " repetition(s) of a loop the analysis calls "
-           "unescapable started and never connected";
+    EXPECT_EQ(report.whiffedStarts, 0);
 
-    // A TRUE COMBO, on the DIRECT reading of Fighter::hitstun that ComboWatcher.h
-    // insists on. This is the detector that turned 37 into 33 in
-    // tests/test_gap_extent.cpp, and it is why that count is 33: the defender does
-    // not get one tick back anywhere inside this string.
+    // The LAST string is still a true combo on the direct Fighter::hitstun
+    // reading -- within a string the defender never gets a tick back.
     EXPECT_EQ(report.gapTicks, 0)
         << "the defender was actionable on " << report.gapTicks << " tick(s) "
-           "inside this string, so it is a blockable string rather than one of the "
-           "33 tests/test_gap_extent.cpp counts as unescapable."
+           "INSIDE a string; the free ticks belong between strings."
         << DescribeReport(report, map)
         << Table(log, map, byBits.front(), 32);
     EXPECT_TRUE(report.TrueCombo());
-    EXPECT_TRUE(report.open)
-        << "the string ended, so the defender got out of a loop measured as "
-           "unescapable";
 
-    // --- AND NOW THE PART THE MODE HAS TO BE BUILT AROUND --------------------
+    // --- AND THE PART THE MODE IS BUILT AROUND -------------------------------
     //
     // NONE OF ComboWatcher'S LOUD MARKERS IS UP, and every one of them is down
     // for a correct reason:
@@ -2094,11 +2106,12 @@ TEST(TrainingModeVerdict, ACertifiedAwayCycleOutrunsTheAnalysisOwnWorstCase) {
     //   completedProverLoop            gated on ProverStatus::Infinite.
     //   performedDeadCancel            the edge is one the prover KEEPS.
     //
-    // So a training HUD that draws only the watcher's flags shows a green combo
-    // counter, a TRUE COMBO badge, and nothing else -- while the playtester is
-    // doing something the analysis says is impossible. THAT is the failure this
-    // section exists to make impossible to ship unnoticed: the mode must draw the
-    // comparison above, not merely the flags.
+    // Before M1.3e a quiet HUD here was a LIE -- the playtester was performing
+    // something the analysis called impossible and no flag said so. Now the
+    // quiet is earned: the game stops where the certificate says. The mode
+    // still has to draw the COMPARISON rather than only the flags, because the
+    // comparison is the instrument that caught the wire missing -- and the day
+    // maxString and permittedTurns part company again, it is what says so.
     EXPECT_EQ(report.cycleRun, 0)
         << "the cycle matcher followed a loop on a TERMINATING verdict, which "
            "carries none. If ProverResult::loop is now populated for a terminating "
@@ -2122,8 +2135,9 @@ TEST(TrainingModeVerdict, ACertifiedAwayCycleOutrunsTheAnalysisOwnWorstCase) {
     // be silent about it, so it is recorded rather than asserted one way.
     RecordProperty("soundness_alarm", rig.verdict.soundnessAlarm ? 1 : 0);
     RecordProperty("prover_max_hits", rig.verdict.maxHits);
-    RecordProperty("performed_hits", report.hits);
+    RecordProperty("longest_string_hits", maxString);
     RecordProperty("permitted_turns", permittedTurns);
+    RecordProperty("total_hits_across_strings", static_cast<int>(byBits.size()));
     RecordProperty("cycle_move", moveId);
 
     std::cout
@@ -2134,23 +2148,20 @@ TEST(TrainingModeVerdict, ACertifiedAwayCycleOutrunsTheAnalysisOwnWorstCase) {
         << "  the certificate     `" << moveId << "` -> itself spends "
         << spentPerTurn << " " << spentResource << " of " << spentInitial
         << ", so the model affords " << permittedTurns << " turn(s)\n"
-        << "  the kernel ran it   " << byBits.size() << " time(s) for "
-        << report.hits << " hits, gapTicks " << report.gapTicks
-        << ", defender " << kStartingHealth << " -> " << log.Final().p[1].health
-        << "\n"
+        << "  the kernel ran it   " << stringLens.size() << " string(s), longest "
+        << maxString << " hit(s), " << byBits.size() << " hits in all; defender "
+        << kStartingHealth << " -> " << log.Final().p[1].health << "\n"
         << "  health bar ran out  "
         << (exhausted < static_cast<std::uint32_t>(log.Size())
                 ? "at tick " + std::to_string(exhausted)
                 : std::string("no"))
         << " (past it only the alreadyHitBits reading is a count)\n"
-        << "  the watcher flags   cycleRun " << report.cycleRun
-        << ", completedProverLoop "
-        << (report.completedProverLoop ? "yes" : "NO")
-        << ", performedDeadCancel "
-        << (report.performedDeadCancel ? "yes" : "NO") << "\n"
-        << "  SO THE ALARM IS THE COMPARISON, NOT A FLAG: " << report.hits
-        << " hits against a stated worst case of " << rig.verdict.maxHits
-        << ". A HUD that draws only the flags shows a green combo counter here.\n\n";
+        << "  THE COUNT AGREES AND THE REASON DOES NOT: the arc ends the "
+           "kernel's string where the model's\n"
+        << "  budget ends its own. Juggle is still unwired (M1.1f); making the "
+           "graph agree for the right\n"
+        << "  reason is M1.4a. The watcher's quiet is earned now -- before "
+           "M1.3e it was a lie.\n\n";
 }
 
 // ============================================================================
@@ -3176,6 +3187,16 @@ TEST(TrainingModeReadout, ASpentActiveWindowStillOffersABoxAndTheStateCannotSayW
                "second frame for the guard to have spent and this subject cannot "
                "show the split";
 
+        // The press ESTABLISHES the move's stance (ROADMAP M1.3e): an aerial is
+        // asked for with the takeoff Up provides, on the same tick, and rides
+        // the arc through its active window -- which is exactly how the
+        // reviewer's case is performed in play.
+        std::uint16_t hold = 0;
+        if (move->stance == cse::kernel::kStanceCrouching)
+            hold = cse::kernel::kInputDown;
+        else if (move->stance == cse::kernel::kStanceAir)
+            hold = cse::kernel::kInputUp;
+
         std::int32_t boxFrames = 0, hitFrames = 0, deadFrames = 0;
         std::int32_t deadOverlapping = 0;
         std::int32_t bitSetOnHitFrame = -1;
@@ -3186,7 +3207,8 @@ TEST(TrainingModeReadout, ASpentActiveWindowStillOffersABoxAndTheStateCannotSayW
         std::int32_t previousHealth = kStartingHealth;
         for (std::int32_t t = 0; t < cse::kernel::MoveDuration(*move) + 2; ++t) {
             step(s, bench.build.data,
-                 static_cast<std::uint16_t>(t == 0 ? subject.button : 0));
+                 static_cast<std::uint16_t>(
+                     t == 0 ? (subject.button | hold) : 0));
 
             cse::kernel::Box hitbox{};
             const bool hasBox =

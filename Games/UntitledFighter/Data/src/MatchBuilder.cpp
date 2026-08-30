@@ -104,9 +104,11 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
     std::int32_t stanced = 0, withEffect = 0, withGuard = 0, withPushback = 0;
     std::int32_t withHitCondition = 0, noReach = 0, withReach = 0;
     std::int32_t withHits = 0, withMotion = 0, withEscapeHatch = 0;
+    std::int32_t offMid = 0;
 
     for (const Move& m : c.moves) {
         if (m.stance != Stance::Any)        ++stanced;
+        if (m.blockedAs != BlockHeight::Mid) ++offMid;
         if (!m.effect.empty())              ++withEffect;
         if (!m.guard.empty())               ++withGuard;
         if (m.pushbackSub != 0)             ++withPushback;
@@ -222,11 +224,21 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
             "MORE and not less. Saturated at the int16 slot, with a warning "
             "naming both numbers when a file exceeds it.");
 
-    addLoss(report, "move.stance", BuildLossDirection::KernelPermits, stanced,
-            "Ground/air restriction. The kernel gates starting a move on hitstun "
-            "and blockstun only, so an air-only move is startable standing and a "
-            "ground-only move is startable in the air. More is possible in the "
-            "game than in the file.");
+    addLoss(report, "move.stance", BuildLossDirection::Exact, stanced,
+            "What the fighter must be in to START the move, mapped by name into "
+            "MoveDef::stance and enforced by StanceAllows on both start routes. "
+            "Selection reads the held INPUT (is Down held now) and the posture "
+            "then follows the started move, so a cross-posture gatling works "
+            "and two variants of a shared button stop shadowing each other -- "
+            "the wire ROADMAP M1.3e records moving the measured headline.");
+
+    addLoss(report, "move.blocked_as", BuildLossDirection::Exact, offMid,
+            "The guard height that stops the move, mapped by name into "
+            "MoveDef::blockedAs -- the kernel's zero is Mid (stopped by both "
+            "guards), so an unmapped value could never invent an unblockable. "
+            "With it carried, a low goes through a standing block and an "
+            "overhead through a crouching one, on the shipped file and not "
+            "only on synthetic benches.");
 
     addLoss(report, "move.guard", BuildLossDirection::Exact, withGuard,
             "The resource minimum a move requires. MoveDef::guard carries it and "
@@ -777,6 +789,27 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
         // written explicitly, because the handshake hashes these bytes.
         m.negativeEdge = 0;
 
+        // STANCE AND GUARD HEIGHT (ROADMAP M1.3e), mapped BY NAME and never by
+        // cast: the two enum families order their values differently -- data
+        // Air is 2 where kernel kStanceAir is 4, data High is 0 where the
+        // kernel makes Mid the zero -- so a bare static_cast is in range,
+        // compiles, and ships crouching normals as air moves and overheads as
+        // mids. This wire is what makes `stand_hk` stop shadowing `crouch_hk`:
+        // StanceAllows can finally tell the two variants of a shared button
+        // apart, so 12 of fighter_a's 18 normals become performable at all.
+        switch (src.stance) {
+            case cse::data::Stance::Ground:    m.stance = cse::kernel::kStanceGround;    break;
+            case cse::data::Stance::Air:       m.stance = cse::kernel::kStanceAir;       break;
+            case cse::data::Stance::Standing:  m.stance = cse::kernel::kStanceStanding;  break;
+            case cse::data::Stance::Crouching: m.stance = cse::kernel::kStanceCrouching; break;
+            case cse::data::Stance::Any:       m.stance = cse::kernel::kStanceAny;       break;
+        }
+        switch (src.blockedAs) {
+            case cse::data::BlockHeight::High: m.blockedAs = cse::kernel::kBlockedAsHigh; break;
+            case cse::data::BlockHeight::Low:  m.blockedAs = cse::kernel::kBlockedAsLow;  break;
+            case cse::data::BlockHeight::Mid:  m.blockedAs = cse::kernel::kBlockedAsMid;  break;
+        }
+
         // KNOCKBACK, the first of ADR-005 P2's mechanics this bridge ever
         // carried. The kernel has applied `pushbackHit` since P2 and every
         // shipped move authors a `pushback`; until ROADMAP M1.3d nothing joined
@@ -937,27 +970,43 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
 
     // --- Shadowed bindings ---------------------------------------------------
     //
-    // StepAttack scans the table from slot 1 upward and takes the FIRST move all
-    // of whose bits are held. So a move whose buttons are a strict superset of an
-    // earlier move's can never start: whenever its combination is held, the
-    // earlier one's is too. {LP} at slot 1 and {Down|LP} at slot 12 is exactly
-    // that, and it is the natural way somebody binds crouching normals.
+    // StepAttack scans the table from slot 1 upward and takes the FIRST move
+    // all of whose bits are held AND whose stance the held input selects. So a
+    // move whose buttons are a superset of an earlier move's can never start
+    // -- UNLESS their stances are ones a single tick's input tells apart,
+    // because since ROADMAP M1.3e `StanceAllows` reads the held input and the
+    // two are SELECTED rather than shadowed: {LP} standing at slot 1 and
+    // {Down|LP} crouching at slot 12 both start, Down decides, and that pair
+    // is the natural way somebody binds crouching normals. The warning fires
+    // only where the stance test cannot separate the two.
     //
     // Reported rather than reordered. Reordering would change the move indices,
     // and those indices are the thing the whole file exists to keep aligned with
     // the ids ProverAdapter reports.
+    const auto grounded = [](Stance s) {
+        return s == Stance::Standing || s == Stance::Crouching || s == Stance::Ground;
+    };
+    const auto stanceSeparates = [&grounded](Stance a, Stance b) {
+        if ((a == Stance::Air && grounded(b)) || (b == Stance::Air && grounded(a)))
+            return true;
+        return (a == Stance::Standing && b == Stance::Crouching) ||
+               (a == Stance::Crouching && b == Stance::Standing);
+    };
     for (std::size_t j = 0; j < moveCount; ++j) {
         if (button[j] == 0) continue;
         for (std::size_t i = 0; i < j; ++i) {
             if (button[i] == 0) continue;
             if ((button[j] & button[i]) != button[i]) continue;
+            if (stanceSeparates(character.moves[j].stance,
+                                character.moves[i].stance)) continue;
             report.warnings.push_back(
                 who + ": move `" + character.moves[j].id + "` (slot " +
                 num(static_cast<std::int64_t>(j + 1)) + ") can never start. Its "
                 "buttons are a superset of `" + character.moves[i].id + "`'s (slot " +
-                num(static_cast<std::int64_t>(i + 1)) + "), and StepAttack takes the "
-                "first move in slot order whose buttons are all held, so the "
-                "earlier one always wins.");
+                num(static_cast<std::int64_t>(i + 1)) + "), their stances do not "
+                "tell the two apart, and StepAttack takes the first move in slot "
+                "order whose buttons are all held, so the earlier one always "
+                "wins.");
             break;   // one report per shadowed move; the first shadower is enough
         }
     }
