@@ -71,7 +71,7 @@ falls out of that), then M1.6. Everything else is done or serves these.
 
 | In flight | Owner | Since |
 |---|---|---|
-| *(nothing)* | | |
+| M1.3e — stance reaches the kernel, posture follows the move | Claude | 2026-08-30 |
 
 One at a time. The next unblocked WP is always the top `[ ]` in milestone
 order — which, under the 2026-08-21 reorder, is the sequence named above.
@@ -247,7 +247,8 @@ Six WPs, all landed, gate required in CI. The decision is
   fell short, six to nine timing mismatches each). That objection dies when M1.4
   deletes section 3's parallel account, so the wire waits for it.
 
-- `[ ]` **M1.3e Stance reaches the kernel, and the drivers establish it.** *(M)*
+- `[~]` **M1.3e Stance reaches the kernel, and the drivers establish it.** *(M)*
+  Claude, 2026-08-30.
   The ten-line wire that fixes M1.1c, plus the two driver rules it needs. Both
   rules are proved and written down:
   **a stance lands on the same tick as the press** — `StepPhysics` sets

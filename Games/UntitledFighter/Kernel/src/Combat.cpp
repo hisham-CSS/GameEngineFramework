@@ -214,12 +214,16 @@ bool AirborneNow(const FighterData& data, const Fighter& f) {
     return static_cast<std::int32_t>(f.moveFrame) >= m->airborneFromTick;
 }
 
-bool StanceAllows(const MoveDef& m, const Fighter& f) {
+bool StanceAllows(const MoveDef& m, const Fighter& f, bool crouchHeld) {
+    // The standing/crouching cases read the INPUT (`crouchHeld`), never
+    // Fighter::crouching -- the header says why, and the difference is exactly
+    // the cross-posture cancel. On a free tick the two agree by construction:
+    // StepPhysics computed `crouching` from the same held Down this tick.
     switch (m.stance) {
         case kStanceAny:       return true;
         case kStanceGround:    return f.airborne == 0;
-        case kStanceStanding:  return f.airborne == 0 && f.crouching == 0;
-        case kStanceCrouching: return f.airborne == 0 && f.crouching != 0;
+        case kStanceStanding:  return f.airborne == 0 && !crouchHeld;
+        case kStanceCrouching: return f.airborne == 0 && crouchHeld;
         case kStanceAir:       return f.airborne != 0;
         default: break;
     }
@@ -340,6 +344,10 @@ const CancelEdge* FindCancel(const FighterData& data, const Fighter& f, Input in
     // the behaviour it got before this file grew a cancel system.
     if (MoveAt(data, f.moveId) == nullptr) return nullptr;
 
+    // Derived from the LIVE bits, not from Fighter::crouching: a cancel is a
+    // selection, and selection asks what the player is holding NOW.
+    const bool crouchHeld = (in.bits & kInputDown) != 0;
+
     for (std::int32_t i = 0; i < data.cancelCount && i < kMaxCancelsPerFighter; ++i) {
         const CancelEdge& e = data.cancels[i];
         if (!CancelIsOpen(f, e)) continue;
@@ -384,7 +392,7 @@ const CancelEdge* FindCancel(const FighterData& data, const Fighter& f, Input in
         // does to a fresh start. Without this a grounded chain could cancel into
         // an air-only move from the floor, which is one of the two routes
         // test_gap_extent measured keeping 32 of the 33 runaway cycles alive.
-        if (!StanceAllows(*target, f)) continue;
+        if (!StanceAllows(*target, f, crouchHeld)) continue;
 
         return &e;
     }
@@ -396,6 +404,24 @@ const CancelEdge* FindCancel(const FighterData& data, const Fighter& f, Input in
 bool Actionable(const Fighter& f) {
     return f.hitstun == 0 && f.blockstun == 0 && f.knockdown == 0;
 }
+
+namespace {
+
+// POSTURE FOLLOWS THE MOVE (docs/adr/ADR-012 rule 3) -- `crouching`'s second
+// authorized writer, the move-start rule. A crouching move makes the fighter
+// crouching and a standing move stands them up, because the move's frame data
+// was authored against that body; a move that states no ground posture
+// (any/ground/air) imposes none, so the posture the input rule established
+// rides through -- an any-stance chain that silently stood a croucher up would
+// be hittable by everything the crouch was ducking. One helper for both start
+// routes, so a cancel cannot start a move by a slightly different rule than
+// the button scan does.
+void adoptStance(Fighter& f, const MoveDef& m) {
+    if (m.stance == kStanceCrouching)     f.crouching = 1;
+    else if (m.stance == kStanceStanding) f.crouching = 0;
+}
+
+} // namespace
 
 void StepAttack(Fighter& f, const FighterData& data, const Intent& it) {
     // Benched does nothing; frozen does not advance. Gated HERE so a future
@@ -453,6 +479,7 @@ void StepAttack(Fighter& f, const FighterData& data, const Intent& it) {
             // one writing stage (docs/adr/ADR-012 rule 2).
             f.moveId    = edge->to;
             f.moveFrame = 0;
+            adoptStance(f, *MoveAt(data, edge->to));
             // A NEW ACTIVE WINDOW, so the record of who the old one hit goes with
             // it. Without this line the follow-up inherits the source's hit bit
             // and can never connect on the same defender -- the whole combo would
@@ -490,7 +517,7 @@ void StepAttack(Fighter& f, const FighterData& data, const Intent& it) {
     for (std::int32_t i = 1; i < data.moveCount && i < kMaxMovesPerFighter; ++i) {
         const MoveDef& m = data.moves[i];
         if (m.button == 0) continue;
-        if (!StanceAllows(m, f)) continue;
+        if (!StanceAllows(m, f, it.crouchWish)) continue;
 
         // Every bit the move wants must be HELD -- a chord is still a chord --
         // and at least one of them must have arrived this tick, or the move
@@ -518,6 +545,7 @@ void StepAttack(Fighter& f, const FighterData& data, const Intent& it) {
         f.moveId         = static_cast<std::uint16_t>(i);
         f.moveFrame      = 0;
         f.alreadyHitBits = 0;
+        adoptStance(f, m);
         return;
     }
 }

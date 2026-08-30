@@ -278,11 +278,14 @@ struct Fighter {
     // "anything a tick writes lives here" is this file's rule.
     std::uint8_t active;
 
-    // Input posture. SEPARATE FROM airborne, and the two are not a collapsed
+    // Ground posture. SEPARATE FROM airborne, and the two are not a collapsed
     // three-value enum by deliberate choice: `airborne` is derived from POSITION
-    // (posY <= 0 lands you) and `crouching` from INPUT (holding down). They have
-    // different sources of truth and different writers, which is what makes them
-    // two facts rather than ADR-006 §2's one-field-two-ideas mistake.
+    // (posY <= 0 lands you) while `crouching` has exactly two writers (ADR-012
+    // rule 3) -- the INPUT on a free tick (holding down), and the STARTED
+    // MOVE's stance on a move start, because a crouching move's frame data was
+    // authored against the crouching body. Different sources of truth, which is
+    // what makes them two facts rather than ADR-006 §2's one-field-two-ideas
+    // mistake.
     //
     // The impossible combination is closed by construction rather than by
     // convention: StepPhysics forces crouching to 0 whenever airborne is 1.

@@ -794,12 +794,23 @@ Box Hurtbox(const FighterData& data, const Fighter& f);
 // stance says what you must be in to START it."
 bool AirborneNow(const FighterData& data, const Fighter& f);
 
-// Whether a fighter in this state may START this move.
+// Whether a fighter in this state may START this move, given what the input is
+// asking for RIGHT NOW.
 //
 // kStanceAny permits everything, which is what every character authored before
 // the field existed gets from a zero-init. kStanceGround means grounded with the
 // standing/crouching distinction unstated, so it permits both.
-bool StanceAllows(const MoveDef& m, const Fighter& f);
+//
+// THE STANDING/CROUCHING AXIS READS `crouchHeld` -- the INPUT -- and never
+// Fighter::crouching, because commitment freezes input-driven posture while a
+// move runs and a selection that read the frozen posture refused every
+// cross-posture cancel: stand_mp -> crouch_hp with Down held, the ordinary
+// gatling, collapsed 120 of 121 measured cycles when stance was first wired
+// (ROADMAP M1.3e). The posture then FOLLOWS THE MOVE: StepAttack sets
+// `crouching` from the started move's stance, so selection asks the player and
+// the body obeys the move. `airborne` stays the fighter's own -- a jump is
+// position history, not a request.
+bool StanceAllows(const MoveDef& m, const Fighter& f, bool crouchHeld);
 
 // What an incoming attack COUNTS AS: a bitwise OR of kAttack*, drawn from the
 // move's blockedAs and from the attacker's current airborne-ness.

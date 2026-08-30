@@ -2255,6 +2255,147 @@ TEST(P3Input, ABufferedPressOutlivesAFreezeLongerThanItsWindow) {
            "nothing.";
 }
 
+// --- Stance: selection reads the input, posture follows the move ------------
+//
+// The design hole that killed the third stance attempt (ROADMAP M1.3e), as
+// tests. Commitment freezes INPUT-driven posture while a move runs -- correct
+// -- but selection used to read that frozen posture, so an ordinary gatling
+// like stand_mp -> crouch_hp (hold Down, the cancel takes you into the crouch)
+// was refused, and 120 of 121 measured cycles collapsed when stance was first
+// wired. The fix is two rules (ADR-012 rule 3): selection reads the INPUT --
+// is Down held NOW -- and the posture then FOLLOWS THE MOVE. A crouching move
+// makes the fighter crouching, a standing move stands them up, and a move that
+// states no posture (any/ground/air) leaves the established posture alone --
+// which is `crouching`'s second authorized writer, the move-start rule.
+
+namespace {
+
+// The chain bench with postures: slot 1 is a STANDING move, slot 2 a CROUCHING
+// one, the whiff-open edge joining them mid-life, and a second edge back.
+std::unique_ptr<MatchData> stanceBench() {
+    auto d = chainBench();
+    d->p[0].moves[1].stance = kStanceStanding;
+    d->p[0].moves[2].stance = kStanceCrouching;
+
+    CancelEdge& back = d->p[0].cancels[1];
+    back.from          = 2;
+    back.to            = 1;
+    back.earliestFrame = kCancelOpens;
+    back.latestFrame   = kCancelCloses;
+    back.onHit         = 0;
+    d->p[0].cancelCount = 2;
+    return d;
+}
+
+}  // namespace
+
+TEST(P2Stance, ACancelIntoACrouchingMoveIsTakenWithDownHeldAndCrouchesTheBody) {
+    auto data = stanceBench();
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+
+    InputPair lp{}, downMp{};
+    lp.p[0].bits     = kInputLP;
+    downMp.p[0].bits = kInputDown | kInputMP;
+
+    Simulate(s, lp, *data);                       // the standing source starts
+    ASSERT_EQ(s.p[0].moveId, 1u) << "precondition: the source did not start";
+    ASSERT_EQ(s.p[0].crouching, 0u) << "precondition: started standing";
+
+    Simulate(s, InputPair{}, *data);              // frames 1..3 tick by
+    Simulate(s, InputPair{}, *data);
+    Simulate(s, InputPair{}, *data);
+    Simulate(s, downMp, *data);                   // frame 4: inside the window
+
+    EXPECT_EQ(s.p[0].moveId, 2u)
+        << "holding Down did not take the cancel into the crouching follow-up. "
+           "Selection must read the INPUT, not the posture commitment froze -- "
+           "a gatling into a crouching normal is ordinary in the genre, and "
+           "refusing it collapsed 120 of 121 measured cycles.";
+    EXPECT_EQ(s.p[0].crouching, 1u)
+        << "the crouching move started but the fighter is not crouching. "
+           "Posture follows the move: the crouching body is what its frame "
+           "data was authored against.";
+}
+
+TEST(P2Stance, ACancelIntoACrouchingMoveIsRefusedWithoutDown) {
+    auto data = stanceBench();
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+
+    InputPair lp{}, mp{};
+    lp.p[0].bits = kInputLP;
+    mp.p[0].bits = kInputMP;                      // no direction
+
+    Simulate(s, lp, *data);
+    ASSERT_EQ(s.p[0].moveId, 1u);
+    Simulate(s, InputPair{}, *data);
+    Simulate(s, InputPair{}, *data);
+    Simulate(s, InputPair{}, *data);
+    Simulate(s, mp, *data);
+
+    EXPECT_EQ(s.p[0].moveId, 1u)
+        << "a crouching follow-up started with no Down held. Selection reads "
+           "the input; without the direction the stance is not asked for, and "
+           "the source must keep running.";
+}
+
+TEST(P2Stance, ACancelIntoAStandingMoveStandsACrouchingFighterUp) {
+    auto data = stanceBench();
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+
+    InputPair downMp{}, lp{};
+    downMp.p[0].bits = kInputDown | kInputMP;     // the crouching source
+    lp.p[0].bits     = kInputLP;                  // the standing follow-up
+
+    Simulate(s, downMp, *data);
+    ASSERT_EQ(s.p[0].moveId, 2u) << "precondition: the crouching source did not start";
+    ASSERT_EQ(s.p[0].crouching, 1u) << "precondition: not crouching";
+
+    Simulate(s, InputPair{}, *data);              // Down released mid-move
+    Simulate(s, InputPair{}, *data);
+    Simulate(s, InputPair{}, *data);
+    Simulate(s, lp, *data);                       // frame 4: the window is open
+
+    EXPECT_EQ(s.p[0].moveId, 1u)
+        << "the standing follow-up was refused out of a crouching move. With "
+           "Down released, selection asks for a standing move and the frozen "
+           "posture must not veto it.";
+    EXPECT_EQ(s.p[0].crouching, 0u)
+        << "the standing move started but the fighter stayed crouching. "
+           "Posture follows the move.";
+}
+
+TEST(P2Stance, AMoveThatStatesNoPostureKeepsTheOneEstablished) {
+    // chainBench unmodified: both moves are kStanceAny. A fighter who started
+    // a move crouching keeps the crouch through an any-stance cancel, because
+    // a move that states no posture has nothing to impose -- and a hurtbox
+    // that silently stood up mid-chain would be hittable by everything the
+    // crouch was ducking.
+    auto data = chainBench();
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+
+    InputPair downLp{}, downMp{};
+    downLp.p[0].bits = kInputDown | kInputLP;
+    downMp.p[0].bits = kInputDown | kInputMP;
+
+    Simulate(s, downLp, *data);
+    ASSERT_EQ(s.p[0].moveId, 1u);
+    ASSERT_EQ(s.p[0].crouching, 1u) << "precondition: started crouching";
+
+    Simulate(s, downLp, *data);                   // frames tick by, Down held
+    Simulate(s, downLp, *data);
+    Simulate(s, downLp, *data);
+    Simulate(s, downMp, *data);                   // the cancel
+
+    ASSERT_EQ(s.p[0].moveId, 2u) << "precondition: the any-stance cancel was refused";
+    EXPECT_EQ(s.p[0].crouching, 1u)
+        << "an any-stance follow-up changed the posture. Only a move that "
+           "STATES a posture may impose one.";
+}
+
 TEST(P3Input, AReleaseInsideTheFreezeStillFiresTheNegativeEdge) {
     auto data = twoFighters();
     data->p[0].moves[1].negativeEdge = 1;

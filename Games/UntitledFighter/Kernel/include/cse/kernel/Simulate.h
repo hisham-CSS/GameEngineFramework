@@ -36,7 +36,10 @@ namespace cse::kernel {
 //                the four clocks counting DOWN (hitstop hitstun blockstun
 //                knockdown) and the out-of-combo restore (comboHits scaling
 //                juggle).
-//   StepAttack   moveId moveFrame alreadyHitBits.
+//   StepAttack   moveId moveFrame alreadyHitBits · crouching ON A MOVE START
+//                (the move-start rule, ADR-012 rule 3: the started move's
+//                stance imposes the posture its frame data was authored
+//                against -- `crouching`'s second authorized writer).
 //   Resolve      prevButtons bufferedButtons bufferAge (LatchInputs, the one
 //                input-bookkeeping writer) · facing · guard · health · res ·
 //                posX (the cross-fighter wall and pushbox clamps, which MUST
@@ -51,9 +54,8 @@ namespace cse::kernel {
 //
 // The fields the audit exists for -- crouching, airborne, facing, velX, which
 // had 4-6 write sites across two files and produced a week of write-order bugs
-// -- now each have ONE writing stage, no exceptions. `crouching` gains its
-// second authorized writer (the move-start rule) in ROADMAP M1.3e, per ADR-012
-// rule 3.
+// -- are down to their authorized writers: one stage each, plus `crouching`'s
+// named move-start rule above (landed 2026-08-30 with ROADMAP M1.3e).
 void Simulate(GameState& state, const InputPair& inputs, const MatchData& data);
 
 // The same tick with no characters loaded: nothing can start a move, no box can
