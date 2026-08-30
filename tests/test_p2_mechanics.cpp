@@ -779,7 +779,7 @@ TEST(P3Attacks, OneButtonPicksTheMoveForTheStanceYouAreIn) {
     {
         GameState s{};
         ResetMatch(s, 0x5A17u);
-        // HEIGHT, not just the flag. stepFighter clears `airborne` the tick a
+        // HEIGHT, not just the flag. StepPhysics clears `airborne` the tick a
         // fighter reaches the floor, so setting the flag at posY 0 lands them
         // before the attack scan ever runs -- which is a real property of the
         // kernel and a trap for anyone writing an air test.
@@ -1855,7 +1855,7 @@ TEST(P2Movement, AJumpIsAFixedNumberOfTicksAndBoundsAnyAirLoop) {
 // The gate reads "a move was ALREADY RUNNING at the top of this tick", not
 // "a move is running now", and the difference is one tick and it is the whole
 // of what keeps aerials startable: Up+button on one tick must still take off
-// -- stepFighter runs before StepAttack, so on that tick no move is running yet
+// -- StepPhysics runs before StepAttack, so on that tick no move is running yet
 // and the jump goes through -- while Up pressed a tick into a grounded move must
 // not.
 TEST(P2Commitment, AFighterDoesNotWalkDuringItsOwnAttack) {
@@ -2118,7 +2118,7 @@ TEST(P2Knockdown, ADownedFightersBodyIsLyingDown)  {
 // AND A CROUCHING MOVE CANNOT START ON THE TICK YOU LAND, which is an ordering
 // consequence rather than a rule anybody wrote.
 //
-// stepFighter computes `crouching` from `airborne` BEFORE the landing clamp
+// StepPhysics computes `crouching` from `airborne` BEFORE the landing clamp
 // runs, so on the tick the fighter touches down `airborne` is still 1 at that
 // line and `crouching` is forced to 0. StepAttack then sees a grounded fighter
 // who is not crouching. It costs exactly one tick, and it is invisible until
@@ -2149,7 +2149,7 @@ TEST(P2Movement, ACrouchingMoveCannotStartOnTheTickOfLanding) {
 
     EXPECT_EQ(s.p[0].crouching, 0u)
         << "the fighter was crouching on the tick it landed. If that is now "
-           "true the ordering in stepFighter changed -- `crouching` is computed "
+           "true the ordering in StepPhysics changed -- `crouching` is computed "
            "before the landing clamp, so `airborne` is still set when it runs.";
     EXPECT_EQ(s.p[0].moveId, 0u)
         << "a crouching move started on the landing tick. It cannot: the fighter "
@@ -2191,4 +2191,88 @@ TEST(P3Input, ADirectionTapDoesNotClobberABufferedReversal) {
         << "the buffered reversal did not fire on wake-up. A direction tap "
            "matching no move replaced it in the buffer, which is pure loss: the "
            "tap could never start anything, and the press it destroyed could.";
+}
+
+// --- The buffer and the freeze ----------------------------------------------
+//
+// Hitstop advances NOTHING about a fighter, and before ROADMAP M1.3f that
+// included the input bookkeeping -- which by accident did two right things (a
+// pre-freeze buffer's age paused; a press HELD across the freeze read as a
+// fresh edge on thaw) and one wrong one: a press-and-RELEASE made entirely
+// inside the freeze was eaten, and a tap-confirm inside an eight-tick freeze
+// is the exact input modern fighting games are built to accept. These three
+// pin all three behaviours, because the crossplat golden runs a match with no
+// moves and no hitstop and can catch none of them. `hitstop` is written by
+// hand here for the same reason the stun tests write `hitstun` by hand: the
+// bridge deliberately holds the authored field back (M1.3i).
+
+TEST(P3Input, ATapEntirelyInsideTheFreezeStillBuffers) {
+    auto data = twoFighters();
+    data->p[0].inputBufferFrames = 10;
+
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+    s.p[0].hitstop = 4;
+
+    InputPair press{};
+    press.p[0].bits = kInputLP;
+    Simulate(s, press, *data);                  // pressed inside the freeze...
+    Simulate(s, InputPair{}, *data);            // ...and released inside it too
+    Simulate(s, InputPair{}, *data);
+    Simulate(s, InputPair{}, *data);            // the freeze runs out
+    ASSERT_EQ(s.p[0].hitstop, 0u) << "precondition: the freeze is over";
+
+    Simulate(s, InputPair{}, *data);            // first tick the fighter runs
+
+    EXPECT_EQ(s.p[0].moveId, 1u)
+        << "a tap made entirely inside hitstop started nothing after the thaw. "
+           "The freeze must gate the fighter's ADVANCE, not the recording of "
+           "what the player asked for -- eating the tap-confirm makes every "
+           "freeze a hole in the buffer it sits inside.";
+}
+
+TEST(P3Input, ABufferedPressOutlivesAFreezeLongerThanItsWindow) {
+    auto data = twoFighters();
+    data->p[0].inputBufferFrames = 2;           // the modern three-tick feel
+
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+    s.p[0].hitstun = 3;
+
+    InputPair press{};
+    press.p[0].bits = kInputLP;
+    Simulate(s, press, *data);                  // buffered mid-stun
+    ASSERT_EQ(s.p[0].moveId, 0u) << "precondition: still stunned";
+
+    s.p[0].hitstop = 6;                         // a freeze LONGER than the window
+    for (int t = 0; t < 6; ++t) Simulate(s, InputPair{}, *data);
+    for (int t = 0; t < 2; ++t) Simulate(s, InputPair{}, *data);
+
+    EXPECT_EQ(s.p[0].moveId, 1u)
+        << "the buffered press expired during the freeze. Frozen ticks are not "
+           "time to the fighter, so they must not be time to the buffer: a "
+           "window of 2 that ages through an 6-tick freeze is a window of "
+           "nothing.";
+}
+
+TEST(P3Input, AReleaseInsideTheFreezeStillFiresTheNegativeEdge) {
+    auto data = twoFighters();
+    data->p[0].moves[1].negativeEdge = 1;
+
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+    s.p[0].prevButtons = kInputLP;              // held before the freeze began
+    s.p[0].hitstop     = 3;
+
+    // Released on the first frozen tick, and never pressed again.
+    for (int t = 0; t < 3; ++t) Simulate(s, InputPair{}, *data);
+    ASSERT_EQ(s.p[0].hitstop, 0u) << "precondition: the freeze is over";
+
+    Simulate(s, InputPair{}, *data);
+
+    EXPECT_EQ(s.p[0].moveId, 1u)
+        << "a release made inside the freeze fired nothing after it. The "
+           "falling edge must survive to the first tick the fighter runs -- "
+           "which is why the previous-buttons latch may not advance while the "
+           "fighter is frozen.";
 }

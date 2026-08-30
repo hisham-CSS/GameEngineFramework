@@ -45,7 +45,7 @@ TEST(KernelLayout, StateIsSmallEnoughToSnapshotEveryTick) {
 namespace {
 
 // A scripted input sequence with enough variety to exercise every branch in
-// stepFighter: walking both directions, a jump and its whole arc, and idle.
+// StepPhysics: walking both directions, a jump and its whole arc, and idle.
 std::vector<InputPair> scriptedMatch(int ticks) {
     std::vector<InputPair> seq;
     seq.reserve(static_cast<std::size_t>(ticks));

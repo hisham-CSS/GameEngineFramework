@@ -183,7 +183,7 @@ constexpr std::int32_t kHeight    = px(60);
 // sub-unit. Here the margin is deliberately enormous.
 //
 // THE DEFENDER IS PUSHED, AND THE CORNER ABSORBS IT. The attacker holds attack
-// buttons and no direction, so stepFighter sets velX to 0; the defender is in
+// buttons and no direction, so StepPhysics sets velX to 0; the defender is in
 // hitstun, which zeroes velX anyway. Pushback is a separate mechanism riding
 // Fighter::pushX, and since the bridge began carrying `move.pushback` every hit
 // queues a real displacement -- the ledger row reads `exact` now, not
@@ -1088,7 +1088,7 @@ TEST(GroundTruthPayoff, ThePrintedLoopExecutesInTheKernel) {
     //
     // Read straight off Fighter::hitstun on every tick inside the combo, not
     // derived from frame arithmetic. The tick each hit lands on is excluded, and
-    // has to be: hitstun is decremented at the top of stepFighter and re-set by
+    // has to be: hitstun is decremented at the top of StepPhysics and re-set by
     // ResolveHits at the bottom, so on the very first hit's tick the defender was
     // legitimately free -- that is what being hit out of neutral means.
     const std::vector<std::int32_t> free = run.FreeTicks();

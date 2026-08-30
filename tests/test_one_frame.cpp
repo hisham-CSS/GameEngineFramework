@@ -329,7 +329,7 @@ constexpr std::int32_t kHeight    = px(60);
 // would be about an empty room.
 //
 // NOBODY MOVES. The attacker holds an attack button and no direction, so
-// stepFighter sets velX to 0; the defender is in hitstun, which zeroes velX
+// StepPhysics sets velX to 0; the defender is in hitstun, which zeroes velX
 // anyway; and the kernel applies no pushback on hit at all (MatchBuilder's
 // `move.pushback` row: "the kernel moves nobody on hit"). The gap is 8 px on
 // every tick of every run below.
@@ -733,7 +733,7 @@ struct TickLog {
     // Fighter::hitstun rather than derived from frame arithmetic.
     //
     // The tick each hit lands on is excluded and has to be: hitstun is
-    // decremented at the top of stepFighter and re-set by ResolveHits at the
+    // decremented at the top of StepPhysics and re-set by ResolveHits at the
     // bottom, so on the very first hit's tick the defender was legitimately free
     // -- that is what being hit out of neutral means.
     std::vector<std::int32_t> FreeTicks() const {

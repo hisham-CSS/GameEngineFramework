@@ -385,7 +385,7 @@ void ComboWatcher::OnTick(const TickView& view) {
     // === SIGNAL 2: THE DEFENDER WAS ACTIONABLE AT THE TOP OF THIS TICK =====
     //
     // Read DIRECTLY off Fighter::hitstun as observed at the END of the previous
-    // tick, and off nothing else. stepFighter decrements stun before anything else
+    // tick, and off nothing else. StepPhysics decrements stun before anything else
     // looks at it and Simulate.cpp's actionable() is `hitstun == 0 && blockstun ==
     // 0`, so a defender sitting at 1 at the end of tick t-1 is free to act on tick
     // t. blockstun is in the test even though nothing in the kernel writes it, so

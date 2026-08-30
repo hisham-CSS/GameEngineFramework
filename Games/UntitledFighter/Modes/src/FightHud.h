@@ -141,14 +141,14 @@ struct Actionable {
 //
 // EVERY TERM IS A KERNEL FIELD OR A KERNEL FUNCTION, AND THERE ARE THREE:
 //
-//   Fighter::hitstun / Fighter::blockstun. stepFighter decrements these at the
-//   TOP of a tick, before `actionable()` -- which is `hitstun == 0 &&
-//   blockstun == 0` -- is evaluated (Simulate.cpp). So a fighter observed with
+//   Fighter::hitstun / Fighter::blockstun. StepPhysics decrements these at the
+//   TOP of a tick, before `Actionable()` -- which is `hitstun == 0 &&
+//   blockstun == 0` -- is evaluated. So a fighter observed with
 //   stun h at the end of tick t is free on tick t + h, and on t + 1 when h is 0
 //   or 1. That is the same rule ComboWatcher.h states as "actionable at tick t
 //   iff their hitstun as observed at the end of tick t-1 was <= 1". It is a
-//   FLOOR under the other two: StepAttack's `if (!actionable) return` sits above
-//   both the cancel test and the button scan.
+//   FLOOR under the other two: StepAttack's `if (!Actionable(f)) return` sits
+//   above both the cancel test and the button scan.
 //
 //   Fighter::moveId / Fighter::moveFrame against cse::kernel::MoveDuration.
 //   StepAttack increments moveFrame and ends the move when it REACHES the

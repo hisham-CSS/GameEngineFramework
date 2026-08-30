@@ -134,7 +134,7 @@ namespace {
           "L", cse::kernel::kInputHK, { "stand_hk", "crouch_hk", "air_hk" } },
     };
 
-    // The four direction bits stepFighter reads: kInputLeft and kInputRight set
+    // The four direction bits ReadIntent reads: kInputLeft and kInputRight set
     // velX, kInputUp jumps, and kInputDown sets `crouching` (Simulate.cpp).
     //
     // DOWN USED TO BE UNBOUND, on the stated grounds that "nothing in the kernel
@@ -616,10 +616,10 @@ cse::kernel::Input UntitledFighterMode::readPad_() const {
     MyCoreEngine::InputMap& map = ctx_.app->input();
 
     // isDown, NOT consumePressed -- and since ROADMAP M1.1d that is the RIGHT
-    // read rather than a concession. StepAttack derives the edge itself from
-    // Fighter::prevButtons, because rollback re-simulates a tick from a snapshot
-    // and hands Simulate only that tick's bits: an edge computed out here would
-    // survive one replay and not the next. What this function owes the kernel is
+    // read rather than a concession. The kernel derives the edge itself (in
+    // ReadIntent, against Fighter::prevButtons), because rollback re-simulates
+    // a tick from a snapshot and hands Simulate only that tick's bits: an edge
+    // computed out here would survive one replay and not the next. What this function owes the kernel is
     // the honest LEVEL every tick, INCLUDING the ticks a button is not held --
     // a reader that dropped those would replay a press as a hold and the kernel
     // would never see a second press.

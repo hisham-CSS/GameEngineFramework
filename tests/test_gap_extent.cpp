@@ -124,7 +124,7 @@
 // defender who never moved, in hitstun, being hit.
 //
 // So the criterion here is the direct one: the defender was ACTIONABLE at tick t
-// if their hitstun at the end of tick t-1 was at most 1, because stepFighter
+// if their hitstun at the end of tick t-1 was at most 1, because StepPhysics
 // decrements it before anything else and `actionable()` is `hitstun == 0`. It
 // needs nothing the harness does not already record and it cannot be erased by a
 // later step of the same tick. On this character it finds four escapes the other
@@ -196,7 +196,7 @@ constexpr std::int32_t kHeight    = px(60);
 // cycle as unperformable for a reason that is really about the stage.
 //
 // THE DEFENDER IS PUSHED, AND THE CORNER IS WHY THAT DOES NOT MOVE THE GAP.
-// The attacker holds attack buttons and no direction, so stepFighter zeroes its
+// The attacker holds attack buttons and no direction, so StepPhysics zeroes its
 // velX; the defender is in hitstun, which zeroes velX anyway. Pushback is a
 // different mechanism -- it rides Fighter::pushX -- and since the bridge began
 // carrying `move.pushback` it is REAL: every hit queues a displacement.
@@ -626,7 +626,7 @@ Hop classify(const CharacterData& c, const cse::kernel::CancelEdge& ke,
     // The frame the source's hit lands on, in the source's own numbering, and the
     // frame the defender is free again. Both are the kernel's own arithmetic:
     // ResolveHits SETS hitstun on the frame the boxes overlap -- which is
-    // `startup`, the first active frame -- and stepFighter decrements it at the
+    // `startup`, the first active frame -- and StepPhysics decrements it at the
     // top of every tick after, so it reaches zero at startup + hitstun.
     const std::int32_t contactFrame = src.startup;
     const std::int32_t defenderFree = contactFrame + src.hitstun;
@@ -831,7 +831,7 @@ struct TickLog {
     // NOT COPIED. THE DETECTOR THIS FILE DECIDES ON -- see the header.
     //
     // The defender was ACTIONABLE at tick t if their hitstun at the end of tick
-    // t-1 was at most 1: stepFighter decrements it at the top of the tick before
+    // t-1 was at most 1: StepPhysics decrements it at the top of the tick before
     // anything else looks at it, and `actionable()` is `hitstun == 0`. Read this
     // way it cannot be erased by ResolveHits clearing their moveId later in the
     // same tick, which is exactly what hides the case both copied detectors miss.

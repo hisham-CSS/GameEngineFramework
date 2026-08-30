@@ -56,7 +56,7 @@
 //     the defender was ACTIONABLE at tick t  IFF  their hitstun as observed at
 //     the END of tick t-1 was <= 1 (and their blockstun likewise)
 //
-// because stepFighter decrements hitstun at the TOP of the tick before anything
+// because StepPhysics decrements hitstun at the TOP of the tick before anything
 // else looks at it, and Simulate.cpp's `actionable()` is
 // `hitstun == 0 && blockstun == 0`. A defender sitting at hitstun 1 at the end of
 // tick t-1 is free to act on tick t.

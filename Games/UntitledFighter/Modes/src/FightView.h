@@ -155,8 +155,9 @@ glm::vec4 SlotColour(int slot);
 // wall and puts the dummy against it; a wall in the wrong place would make every
 // verdict on screen answer a question about a stage that does not exist.
 //
-// So it is MEASURED. stepFighter's last act on position is
-// `posX = clampInt(posX + velX, -half, +half)`; with neutral input velX is zero,
+// So it is MEASURED. StepPhysics's last act on posX is
+// `posX = clampInt(posX + velX + pushX, -limit, +limit)`; with neutral input
+// and nothing landed, velX and pushX are zero,
 // and the two-argument Simulate runs against kNoMoves so no move can start and
 // nothing else can touch the field. Put a fighter past any possible bound, run
 // one tick of a pure function, and what comes back IS the clamp.

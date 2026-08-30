@@ -184,7 +184,7 @@ struct Fighter {
 
     // Pushback velocity, in sub-units per tick, decaying toward zero.
     //
-    // SEPARATE FROM velX ON PURPOSE, and the reason is a line in stepFighter:
+    // SEPARATE FROM velX ON PURPOSE, and the reason is a line in StepPhysics:
     // a fighter who cannot act has `velX = 0` written every tick. Pushback that
     // lived in velX would therefore be erased on the very tick it was applied,
     // because being hit is precisely when you cannot act. Adding a "unless we
@@ -285,7 +285,7 @@ struct Fighter {
     // two facts rather than ADR-006 §2's one-field-two-ideas mistake.
     //
     // The impossible combination is closed by construction rather than by
-    // convention: stepFighter forces crouching to 0 whenever airborne is 1.
+    // convention: StepPhysics forces crouching to 0 whenever airborne is 1.
     std::uint8_t crouching;
 
     // kGuardNone / kGuardHigh / kGuardLow, recomputed from held input each tick.

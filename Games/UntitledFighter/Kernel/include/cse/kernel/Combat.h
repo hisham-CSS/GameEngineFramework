@@ -860,23 +860,54 @@ bool CancelIsOpen(const Fighter& f, const CancelEdge& edge);
 // unreachable by definition and is skipped rather than taken for free.
 const CancelEdge* FindCancel(const FighterData& data, const Fighter& f, Input in);
 
-// --- The tick's two combat steps --------------------------------------------
+// --- The tick as a pipeline (docs/adr/ADR-012) -------------------------------
+
+// What one fighter's input MEANS this tick, read once at the top of the tick
+// and passed by value to every stage after it. Transient: never part of
+// GameState, never hashed, rebuilt from (state, input, data) on every
+// re-simulation -- which is exactly why the stages that consume it cannot
+// disagree about what was pressed.
+//
+// Edges are computed against Fighter::prevButtons AS LATCHED, and the latch is
+// written only at the end of an unfrozen tick -- so during hitstop the edges
+// keep describing "since the fighter last ran", which is what lets a release
+// made inside the freeze still read as a falling edge on thaw.
+struct Intent {
+    std::uint16_t bits;       // this tick's raw buttons
+    std::uint16_t pressed;    // rising edges since the fighter last ran
+    std::uint16_t released;   // falling edges since the fighter last ran
+    std::uint16_t buffable;   // pressed bits some move in the table can use
+    std::int32_t  walkWish;   // signed sub-units of walk the input asks for
+    bool          jumpWish;   // Up is held
+    bool          crouchWish; // Down is held
+    bool          frozen;     // hitstop held this fighter at the top of the tick
+};
+
+// A fighter is actionable when nothing is holding them still: no hitstun, no
+// blockstun, no knockdown. ONE function decides it, shared by the physics and
+// attack stages, because "cannot act" split across two files is how one gate
+// ends up enforced and the other does not. Hitstop is deliberately NOT in this
+// list: a frozen fighter does not act because it does not ADVANCE at all, which
+// is the stages' own gate -- folding it in here would freeze the fighter's
+// agency while still ticking its move frames.
+bool Actionable(const Fighter& f);
 
 // Advance one fighter's attack: end a move that has run out, CANCEL a move that
 // is still running into a follow-up the fighter is asking for, or start one if
-// the fighter is idle and holding a move's buttons. Called from stepFighter,
-// once per fighter, in slot order.
+// the fighter is idle and pressing a move's buttons. The attack stage of the
+// tick pipeline; called once per fighter, in slot order, and it returns
+// immediately for a benched or frozen fighter.
 //
-// THE ORDERING FACT A CANCEL RULE HAS TO LIVE WITH. This runs inside the
-// per-fighter step, which is BEFORE ResolveHits -- so a hit landing on tick N is
-// not visible to a cancel test until tick N+1. The fastest cancel the kernel can
-// express is therefore one tick after contact, never zero, and an edge whose
-// authored delay is 0 fires on the tick after the hit. That is a property of the
-// tick's shape, not a fudge: on the tick the hit resolves, the hit has not
-// happened yet as far as the first half of the tick is concerned, and moving the
-// cancel test after ResolveHits would instead let a fighter cancel a move on the
-// same tick it started, which is worse.
-void StepAttack(Fighter& f, const FighterData& data, Input in, bool actionable);
+// THE ORDERING FACT A CANCEL RULE HAS TO LIVE WITH. This runs BEFORE
+// ResolveHits -- so a hit landing on tick N is not visible to a cancel test
+// until tick N+1. The fastest cancel the kernel can express is therefore one
+// tick after contact, never zero, and an edge whose authored delay is 0 fires
+// on the tick after the hit. That is a property of the tick's shape, not a
+// fudge: on the tick the hit resolves, the hit has not happened yet as far as
+// the first half of the tick is concerned, and moving the cancel test after
+// ResolveHits would instead let a fighter cancel a move on the same tick it
+// started, which is worse.
+void StepAttack(Fighter& f, const FighterData& data, const Intent& it);
 
 // Test every active fighter's live hitbox against every ACTIVE OPPOSING
 // fighter's body, and apply at most one hit per attacker. Called once per tick,

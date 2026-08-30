@@ -393,7 +393,16 @@ const CancelEdge* FindCancel(const FighterData& data, const Fighter& f, Input in
 
 // --- The move lifecycle -----------------------------------------------------
 
-void StepAttack(Fighter& f, const FighterData& data, Input in, bool actionable) {
+bool Actionable(const Fighter& f) {
+    return f.hitstun == 0 && f.blockstun == 0 && f.knockdown == 0;
+}
+
+void StepAttack(Fighter& f, const FighterData& data, const Intent& it) {
+    // Benched does nothing; frozen does not advance. Gated HERE so a future
+    // caller cannot forget it -- the freeze skipping this whole function is
+    // what keeps startup 5 meaning five ticks OF THE MOVE under hitstop.
+    if (f.active == 0 || it.frozen) return;
+
     if (f.moveId != 0) {
         const MoveDef* m = MoveAt(data, f.moveId);
         if (m == nullptr) {
@@ -422,8 +431,9 @@ void StepAttack(Fighter& f, const FighterData& data, Input in, bool actionable) 
     // included. A fighter who was hit has already had their move interrupted by
     // ResolveHits, so this is belt and braces -- but it is the belt that keeps
     // "cancel" from quietly becoming "act out of hitstun", which is a different
-    // and much larger feature.
-    if (!actionable) return;
+    // and much larger feature. Derived rather than passed in: physics has
+    // already burned this tick's stun down, and one definition answers both.
+    if (!Actionable(f)) return;
 
     // --- The cancel ---------------------------------------------------------
     //
@@ -435,16 +445,12 @@ void StepAttack(Fighter& f, const FighterData& data, Input in, bool actionable) 
     // reach them, and the move has already been given its chance to end normally,
     // so a cancel never resurrects a move that expired on this very tick.
     if (f.moveId != 0) {
-        const CancelEdge* edge = FindCancel(data, f, in);
+        const CancelEdge* edge = FindCancel(data, f, Input{it.bits});
         if (edge != nullptr) {
-            // CONSUMED, exactly as the button scan consumes it. A buffered press
-            // that survived the cancel it triggered would trigger the next one
-            // too, a window later, and the fighter would appear to choose its
-            // own timing -- which is what left GapExtentKernel's transitions a
-            // few frames out per cycle before this line existed.
-            f.bufferedButtons = 0;
-            f.bufferAge       = 0;
-
+            // The buffered press this may have spent is NOT zeroed here: the
+            // bookkeeping stage derives "a move started this tick" from
+            // moveFrame == 0 and clears it there, so the buffer keeps exactly
+            // one writing stage (docs/adr/ADR-012 rule 2).
             f.moveId    = edge->to;
             f.moveFrame = 0;
             // A NEW ACTIVE WINDOW, so the record of who the old one hit goes with
@@ -479,12 +485,8 @@ void StepAttack(Fighter& f, const FighterData& data, Input in, bool actionable) 
     //             for inputBufferFrames ticks and consumed here
     //   release   a falling edge, for a move that authored negativeEdge
     //
-    // `pressed` is computed against last tick's buttons; `released` is its
-    // mirror. Both come from the one field, which is why positive and negative
-    // edge landed together.
-    const std::uint16_t pressed  = static_cast<std::uint16_t>(in.bits & ~f.prevButtons);
-    const std::uint16_t released = static_cast<std::uint16_t>(~in.bits & f.prevButtons);
-
+    // The edges arrive on the Intent, computed ONCE at the top of the tick, so
+    // two stages cannot disagree about what was pressed.
     for (std::int32_t i = 1; i < data.moveCount && i < kMaxMovesPerFighter; ++i) {
         const MoveDef& m = data.moves[i];
         if (m.button == 0) continue;
@@ -493,15 +495,16 @@ void StepAttack(Fighter& f, const FighterData& data, Input in, bool actionable) 
         // Every bit the move wants must be HELD -- a chord is still a chord --
         // and at least one of them must have arrived this tick, or the move
         // would start again on every subsequent tick of the same hold.
-        const bool byPress = (in.bits & m.button) == m.button &&
-                             (pressed & m.button) != 0;
-        // A buffered press is spent whether or not it starts this move; see the
-        // consume below. It carries the same all-bits-wanted rule.
+        const bool byPress = (it.bits & m.button) == m.button &&
+                             (it.pressed & m.button) != 0;
+        // A buffered press is spent on any start -- the bookkeeping stage
+        // clears it -- so it cannot fire again on the next actionable tick,
+        // the rapid-fire bug in a different hat. Same all-bits-wanted rule.
         const bool byBuffer = (f.bufferedButtons & m.button) == m.button;
         // Release fires only for a move that asked for it, and only when the
         // whole chord was held on the previous tick.
         const bool byRelease = m.negativeEdge != 0 &&
-                               (released & m.button) != 0 &&
+                               (it.released & m.button) != 0 &&
                                (f.prevButtons & m.button) == m.button;
 
         if (!byPress && !byBuffer && !byRelease) continue;
@@ -511,12 +514,6 @@ void StepAttack(Fighter& f, const FighterData& data, Input in, bool actionable) 
         // to the next slot sharing the button -- which is how a super and a
         // heavy normal live on one button in the genre.
         if (!GuardsMet(f, m)) continue;
-
-        // CONSUMED, not merely aged. A buffered press that only expired would
-        // start this move now and start it again on the next actionable tick,
-        // which is the rapid-fire bug wearing a different hat.
-        f.bufferedButtons = 0;
-        f.bufferAge       = 0;
 
         f.moveId         = static_cast<std::uint16_t>(i);
         f.moveFrame      = 0;
@@ -771,10 +768,13 @@ void ResolveHits(GameState& state, const MatchData& data) {
 
         if (m->knockdownTicks > 0) {
             def.knockdown = m->knockdownTicks;
-            // A knocked-down fighter is on the floor, not crouching and not
-            // guarding. Leaving `guard` set would let a body on the ground block.
-            def.crouching = 0;
-            def.guard     = kGuardNone;
+            // A body on the ground may not block, so the guard already computed
+            // this tick is revoked. `crouching` is deliberately NOT cleared
+            // here: the physics stage clears it on the next tick's "cannot act"
+            // rule, nothing reads it in between (the lying Hurtbox outranks
+            // it), and a second stage clearing it is exactly the multi-writer
+            // shape docs/adr/ADR-012 rule 2 exists to forbid.
+            def.guard = kGuardNone;
         }
 
         def.pushX += pushAwayFrom(atk, def, m->pushbackHit);

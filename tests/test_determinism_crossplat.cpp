@@ -310,7 +310,7 @@ struct Coverage {
 
 // --- The scripted match -----------------------------------------------------
 //
-// Six phases, chosen so that every branch in stepFighter is driven for long
+// Six phases, chosen so that every branch in StepPhysics is driven for long
 // enough to matter, and so that a human reading a divergence report can say
 // what the fighters were doing at the tick it names.
 constexpr int kPhaseWallsEnd    = 600;   // cross over, then travel to +X together
@@ -942,7 +942,7 @@ TEST(CrossPlatformDeterminism, AFinalStateHashWouldHaveMissedThisEntirely) {
     //
     // p1 is idle for the whole of the last phase -- grounded, velY zero,
     // airborne clear -- so dropping its height by one sub-unit is undone on the
-    // very next tick by the floor snap in stepFighter (`if (posY <= 0) { posY =
+    // very next tick by the floor snap in StepPhysics (`if (posY <= 0) { posY =
     // 0; velY = 0; airborne = 0; }`). One tick later the two runs are byte-
     // identical again and stay that way to the end of the match.
     //

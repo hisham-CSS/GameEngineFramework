@@ -71,12 +71,10 @@ falls out of that), then M1.6. Everything else is done or serves these.
 
 | In flight | Owner | Since |
 |---|---|---|
-| M1.2 — push boxes and the corner | Claude | 2026-08-20 |
-| M1.3d — the bridge carries the mechanics the kernel has | Claude | 2026-08-20 |
+| M1.3f — the tick becomes a pipeline, byte for byte | Claude | 2026-08-30 |
 
-Two are open because M1.3d's remaining half is blocked on M1.3e's decision; do
-not start a third. The next unblocked WP is always the top `[ ]` in milestone
-order.
+One at a time. The next unblocked WP is always the top `[ ]` in milestone
+order — which, under the 2026-08-21 reorder, is the sequence named above.
 
 ## Legend
 
@@ -219,43 +217,40 @@ Six WPs, all landed, gate required in CI. The decision is
   until it is there it is an exception this file is naming rather than hiding.
   **Done when (the debt):** the separation limit is authored, not constant.
 
-- `[~]` **M1.2 Push boxes and the corner.** *(S–M)* Claude, 2026-08-20.
+- `[x]` **M1.2 Push boxes and the corner.** *(S–M)* — `9bbd0db` `fd99827`.
   Body separation between fighters and the stage edge as a wall; resolution order
   per NORTHSTAR Phase 2: pushbox separation → strikes.
-  **Done when:** `P3Pushbox.FightersNeverOverlapAfterSeparation`,
-  `.TheCornerIsAWallOnBothSides`, `.SeparationIsAnExactMirror`. **All three exist
-  and pass**, plus `.AnAirborneFighterPassesOverAGroundedOne` and
-  `.TheCornerStopsTheBodyRatherThanTheOrigin`.
-  **Still open:** `engine.constants.default_pushbox_sub` is authored and unread —
-  it is in MUGEN's **Y-DOWN** convention, which `fighter_a.json` warns about at
-  length, and reading it without the flip buries a body sixty pixels underground.
-  The separation limit above belongs here too.
+  **Done when (met):** `P3Pushbox.FightersNeverOverlapAfterSeparation`,
+  `.TheCornerIsAWallOnBothSides`, `.SeparationIsAnExactMirror`, plus
+  `.AnAirborneFighterPassesOverAGroundedOne` and
+  `.TheCornerStopsTheBodyRatherThanTheOrigin` — all five in CI.
+  **Debt, joined to M1.1g's:** `engine.constants.default_pushbox_sub` is authored
+  and unread — it is in MUGEN's **Y-DOWN** convention, which `fighter_a.json`
+  warns about at length, and reading it without the flip buries a body sixty
+  pixels underground. It is settled by the same "authored, not constant" line as
+  the separation limit (M1.1g's debt), not by a wire of its own.
 
-- `[~]` **M1.3d The bridge carries the mechanics the kernel already has.** *(M)*
-  Claude, 2026-08-20.
+- `[x]` **M1.3d The bridge carries the mechanics the kernel already has.** *(M)*
+  — `06c77be` `7e0b642` `984ffbe` `ec022d2` `fd99827`.
   The kernel implements impact freeze, knockdown, knockback, chip, scaling, trade
   priority and guard height; the files author all of them; `MatchBuilder`
-  populates ten `MoveDef` fields and leaves the rest at zero. Two layers: some
-  fields are loaded and not copied, and `engine.reaction` / `engine.constants`
-  are authored blocks the loader largely ignores.
-  **Landed:** `pushbackHit` (a hit visibly knocks the dummy back);
-  `engine.reaction` read into `CharacterData`; `knockdownTicks`; a crouching body
-  (`FighterData::crouchHurtbox`, `fighter_a` authors 34 px against a 60 px
-  stand); and a knocked-down fighter is invulnerable until they get up.
-  **Held back on measurement, not caution:** `hitstop` is loaded and not carried.
-  It freezes BOTH fighters, so every frame-exact prediction in
-  `tests/test_gap_extent.cpp` moves by the freeze duration — 120 of 121 cycles
-  fell short, six to nine timing mismatches each. Section 3's account must learn
-  hitstop first.
-  **Done when:** its four named `P3Reactions` tests — none of which is written.
-  What landed is proved by `MatchBridgeMechanics.*` and `P2Crouch.*` and
-  `P2Knockdown.AFighterOnTheFloorCannotBeHit` instead. **Rewrite the Done-when to
-  name the tests that exist, or write the ones it names; do not leave both.**
+  populates ten `MoveDef` fields and leaves the rest at zero.
+  **Done when (rewritten to the tests that exist, then met):**
+  `MatchBridgeMechanics.*` (pushback and knockdown end-to-end through
+  `BuildMatchData`), `P2Crouch.*` (the 34 px crouching body against the 60 px
+  stand), and `P2Knockdown.AFighterOnTheFloorCannotBeHit` — all in CI. The four
+  `P3Reactions` names the first draft promised were never written; this Done-when
+  replaces them rather than leaving both.
+  **The remainder is M1.3i:** `hitstop` is loaded and deliberately not carried —
+  it freezes BOTH fighters, so every frame-exact prediction in
+  `tests/test_gap_extent.cpp` moves by the freeze duration (120 of 121 cycles
+  fell short, six to nine timing mismatches each). That objection dies when M1.4
+  deletes section 3's parallel account, so the wire waits for it.
 
 - `[ ]` **M1.3e Stance reaches the kernel, and the drivers establish it.** *(M)*
   The ten-line wire that fixes M1.1c, plus the two driver rules it needs. Both
   rules are proved and written down:
-  **a stance lands on the same tick as the press** — `stepFighter` sets
+  **a stance lands on the same tick as the press** — `StepPhysics` sets
   `airborne` on the jump and `crouching` from Down, and `StepAttack` runs after
   both in one `Simulate` call, so `Up+button` starts an aerial off the ground and
   no derived trace has to script a jump; and **the release is of the button, not
@@ -306,30 +301,34 @@ Six WPs, all landed, gate required in CI. The decision is
   M1.1c's claim re-tested **through `BuildMatchData`**; and the suite green with
   the counts re-derived.
 
-- `[ ]` **M1.3f The tick becomes a pipeline, byte for byte.** *(M)*
-  [ADR-012](adr/ADR-012-the-tick-is-a-pipeline.md) rules 1–2: `ReadIntent` →
-  `StepPhysics` → `StepAttack` → `Resolve`, each a pure stage with its writes in
-  its signature; every field gets ONE writing stage (`crouching` has 4 sites
-  today, `airborne` 5, `facing` 6 — this week's three bugs were all write-order
-  bugs on those fields).
-  **GOLDEN-LOCKED: this WP may not move the cross-toolchain hash.** The refactor
-  is proved by the bytes not changing, which is the one honest proof a pure
-  restructure has. Any behaviour discovered mid-refactor is a finding for
-  M1.3e, not a silent fix here.
-  **One placement rule from the buffer review, and the golden cannot police it:**
-  hitstop's early-return currently skips buffer capture AND `prevButtons`, which
-  by accident does two right things (a pre-freeze buffer's age pauses; a press
-  HELD across the freeze reads as a fresh edge on thaw) and one wrong one (a
-  press-and-RELEASE entirely inside the freeze is eaten — the tap-confirm modern
-  games rely on). Under the pipeline, buffer RECORDING moves to ReadIntent and
-  must run during hitstop with aging suspended; the freeze gates
-  StepPhysics/StepAttack only. The crossplat golden runs the two-arg `Simulate`
-  with no moves and no hitstop, so it cannot catch a regression here — a
-  dedicated freeze-tap test must, written in this WP.
-  **Done when:** the pipeline stages exist with fixed signatures, the field-
-  writer audit shows one stage per field, `test_determinism_crossplat` passes
-  WITHOUT a re-golden, the freeze-tap test exists, and the kernel's two files
-  did not grow.
+- `[~]` **M1.3f The tick becomes a pipeline, byte for byte.** *(M)* Claude,
+  2026-08-30. [ADR-012](adr/ADR-012-the-tick-is-a-pipeline.md) rules 1–2, built:
+  `ReadIntent` (pure) → `StepPhysics` → `StepAttack` → `Resolve`; the fields the
+  audit existed for (`crouching` 4 sites, `airborne` 5, `facing` 6 — the week's
+  three bugs were write-order bugs on them) now have ONE writing stage each, and
+  the audit table lives in `Simulate.h`.
+  **GOLDEN-LOCKED, and it held:** `test_determinism_crossplat` passes without a
+  re-golden, and the frame-exact suite (`test_gap_extent`'s 121 cycles,
+  `test_ground_truth`, `test_one_frame`, `test_game_core`) is untouched — the
+  one honest proof a pure restructure has.
+  **The one sanctioned behaviour change is the freeze-tap fix** from the buffer
+  review: hitstop's early-return ate a press-and-release made entirely inside
+  the freeze (the modern tap-confirm) while doing two right things by accident
+  (buffer age paused; a held press read as a fresh edge on thaw). Recording
+  landed in **`LatchInputs`, the head of Resolve**, not in ReadIntent as first
+  planned — capture must run after StepAttack, because "the buffer was spent"
+  is derived from `moveFrame == 0` rather than written by StepAttack (which
+  would be a second writer), and an interrupt would otherwise resurrect a spent
+  press; ReadIntent stays pure. On frozen ticks it records with aging suspended
+  and the `prevButtons` latch withheld. The golden cannot police any of this
+  (no moves, no hitstop), so three `P3Input` freeze tests pin it: the
+  tap-confirm buffers (failed before the change), a buffer outlives a freeze
+  longer than its window, and a release inside the freeze still fires the
+  negative edge.
+  **Done when (met):** stages with fixed signatures; the `Simulate.h` audit —
+  one stage per field, imposed-fact exceptions listed; crossplat green without
+  re-golden; the freeze tests; kernel files did not grow (739 and 800 lines,
+  from 739 and 800).
 
 - `[ ]` **M1.3h The host delivers every press.** *(S–M)* From the buffer
   review's host strand, all verified with lines: the kernel buffer cannot fix
@@ -423,6 +422,17 @@ Six WPs, all landed, gate required in CI. The decision is
   showcase and panel. Rewrite `test_ground_truth.cpp` and `test_gap_extent.cpp`
   as properties rather than counts — which is also what makes M1.1f and the
   hitstop half of M1.3d landable.
+
+- `[ ]` **M1.3i Hitstop crosses the bridge.** *(S)* The remainder M1.3d split
+  out. `MatchBuilder` copies the authored `hitstop` (it is loaded and held back
+  today, with the reason in code), the freeze is visible end-to-end, and the
+  buffer's freeze-tap behaviour (M1.3f's placement rule) is exercised with a
+  real authored value rather than a synthetic one. **Sequenced after M1.4**
+  because carrying it earlier shifts every frame-exact count in
+  `tests/test_gap_extent.cpp`; once those counts are properties, the objection
+  is gone.
+  **Done when:** a bridge test proves the authored freeze reaches both fighters
+  and a tap inside it still buffers; no gap-extent count is re-derived by hand.
 
 - `[ ]` **M1.5 Character hot reload.** *(S–M)* A frame-data edit lands in a
   running match; NORTHSTAR property (c)'s last clause.
