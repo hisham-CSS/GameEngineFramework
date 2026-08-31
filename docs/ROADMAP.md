@@ -673,8 +673,20 @@ Six WPs, all landed, gate required in CI. The decision is
   (`TheLogGrowsByOneAppendAndRoundTripsItsFields`,
   tests/test_prover_telemetry.cpp); the panel's run site is the mirror.
 
-- `[ ]` **M1.8 Housekeeping.** *(S)* The deferred small things; add to it rather
-  than folding them into unrelated WPs.
+- `[x]` **M1.8 Housekeeping.** *(S)* Claude, 2026-08-31. The deferred small
+  things; add to it rather than folding them into unrelated WPs. Items done:
+  - `[x]` `68bdf12` `PathIsContained` refused a MISSING file under a relative
+    base on MSVC (`weakly_canonical` returns a relative path for a
+    nonexistent target), misreporting a typo'd filename as a containment
+    refusal, differently per toolchain. Fixed in the sandbox itself
+    (`AMissingFileIsReportedAsUnopenableNotRefused`); the local workarounds
+    in `CharacterFileWatch` and `AuthoringTelemetry` shrank to pointers.
+  - `[x]` `962df4f` Variant MOVE patches merged unknown keys silently (the
+    one_frame_link coin-flip: `hitstop_ticks`, then `reaction`, both merged
+    and changed nothing, costing two wrong diagnoses). The move level is a
+    CLOSED 17-key set, unlike the annotation-tolerant `engine` namespace, so
+    an unknown move-patch key is now a load error naming the key and listing
+    what exists (`AMovePatchKeyTheLoaderDoesNotReadIsRefusedByName`).
 
 ## M2 — Two people, one match *(size L)* — ARCHITECTURE Phase 4
 
