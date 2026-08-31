@@ -37,6 +37,7 @@ Three consequences worth knowing before you read one:
 | [012](ADR-012-the-tick-is-a-pipeline.md) | The tick is a pipeline of pure functions | Proposed 2026-08-21 · constrains ROADMAP M1.3e–M1.4 | Pure stages with fixed signatures; one writer per field; derive rather than store; posture follows the move; predictions by execution, never a parallel model |
 | [013](ADR-013-verdicts-by-execution.md) | ComboSearch: verdicts by execution | Proposed 2026-08-31 · shapes ROADMAP M1.4a+M1.4 | A bounded search over macro-actions executed on the real kernel; masked-checksum nodes; INFINITE / TERMINATING / UNRESOLVED, and a budget only ever produces the third |
 | [014](ADR-014-movement-lands-in-three-steps.md) | Movement lands in three steps, and the wire grows once | Proposed 2026-08-31 · stages ROADMAP M1.3(b) | ADR-011's jump-as-move stays the destination; the authored physics wire first, one batched MoveDef growth second (reserving (c)/(d) bytes), the level-to-edge jump flip with its golden re-record last |
+| [015](ADR-015-what-a-verdict-claims-about-hitstun.md) | What a verdict claims when hitstun stops being one number | Proposed 2026-08-31 · **blocks M1.3(c)+(d), needs the human** | Counter-hit and air hitstun both break the model's one-hitstun agreement; qualify the verdict / worst-case / verdict-per-opening all change what the published tool claims, so none is enacted by default |
 
 ## Writing one
 

@@ -89,7 +89,7 @@ is done or serves it.
 | In flight | Owner | Since |
 |---|---|---|
 | M1.6 — the showcase; slices 1–5 landed, rest blocked on walk macros + M1.3 | Claude | 2026-08-31 |
-| M1.3 — mechanics pass 1; (a) (b1) (b2) landed; next: (c)'s ADR or (d) | Claude | 2026-08-31 |
+| M1.3 — mechanics pass 1; (a) (b1) (b2) landed; (c)+(d) blocked on ADR-015 (human) | Claude | 2026-08-31 |
 
 M1.6 stays open, blocked on a stated design step (walk/wait macros amend
 ADR-013) and on M1.3's mechanics. M1.1e landed inside its slice 5 — the
@@ -477,7 +477,12 @@ Six WPs, all landed, gate required in CI. The decision is
   **This is a soundness qualifier on every verdict, not just a mechanic** — see
   § Where this stands. Three ways out: qualify the verdict ("TERMINATING under
   neutral hit"), take the worst case over hit types, or one verdict per hit type.
-  **Not chosen; it changes what the tool claims.**
+  **Not chosen; it changes what the tool claims — now written as
+  [ADR-015](adr/ADR-015-what-a-verdict-claims-about-hitstun.md) (Proposed,
+  recommended default: qualification) and BLOCKED on the human accepting it.
+  (d) shares the block: `air_hitstun_ticks` has the same one-model-number,
+  two-game-numbers shape, and the launcher is what makes it reachable. The
+  MoveDef bytes for both are already reserved (b2), zeroed and unread.**
   (d) **wall bounce / wall splat / launch vector** as per-hit `on_hit` reactions
   using the fields M1.1a reserved. `air_hitstun_ticks` is already loaded and
   waiting for a launcher to put someone in the air.
