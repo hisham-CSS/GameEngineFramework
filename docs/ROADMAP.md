@@ -75,7 +75,7 @@ published there), then M1.6. Everything else is done or serves these.
 
 | In flight | Owner | Since |
 |---|---|---|
-| M1.3g — one witness cursor | Claude | 2026-08-30 |
+| *(nothing)* | | |
 
 One at a time. The next unblocked WP is always the top `[ ]` in milestone
 order — which, under the 2026-08-21 reorder, is the sequence named above.
@@ -339,7 +339,7 @@ Six WPs, all landed, gate required in CI. The decision is
   the harness can simulate, slow motion latches taps across non-run ticks, and
   the sticky-keys gap is closed or explicitly recorded as a platform limit.
 
-- `[~]` **M1.3g One witness cursor.** Claude, 2026-08-30. *(S–M)* ADR-012
+- `[x]` **M1.3g One witness cursor.** *(S–M)* — `bcd47fb`. ADR-012
   rule 4, pulled forward from M1.6 because the fifth copy drifted this week and
   the seam test caught it. Built: `WitnessCursor` in `CseGame` — an immutable
   table (slot/button/stance-hold per entry, read off the BUILT `MoveDef`) plus
