@@ -273,6 +273,16 @@ target_link_libraries(test_training_mode PRIVATE CseGame CseData CseKernel GTest
 add_dependencies(test_training_mode test_runtime_deps)
 add_test(NAME test_training_mode COMMAND $<TARGET_FILE:test_training_mode>)
 
+# PRESS DELIVERY (ROADMAP M1.3h) — the one test that links Engine AND the game
+# libraries, deliberately: the claim is that a tap crosses from the engine's
+# InputMap latch, through the accumulator, into the latched session log and the
+# kernel, and a test of either half alone is exactly the "modelled, not
+# measured" gap the buffer review found.
+add_executable(test_press_delivery test_press_delivery.cpp)
+target_link_libraries(test_press_delivery PRIVATE Engine CseGame CseData CseKernel GTest::gtest_main)
+add_dependencies(test_press_delivery test_runtime_deps)
+add_test(NAME test_press_delivery COMMAND $<TARGET_FILE:test_press_delivery>)
+
 # BUILD SETTINGS — the scene list a Build assembles from, and the refusals that
 # keep a hand-edited or copied settings file from writing somewhere it should
 # not. Links Engine because BuildSettings lives there with the path sandbox it

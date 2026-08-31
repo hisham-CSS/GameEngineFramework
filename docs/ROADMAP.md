@@ -336,26 +336,42 @@ Six WPs, all landed, gate required in CI. The decision is
   re-golden; the freeze tests; kernel files did not grow (739 and 800 lines,
   from 739 and 800).
 
-- `[ ]` **M1.3h The host delivers every press.** *(S–M)* From the buffer
-  review's host strand, all verified with lines: the kernel buffer cannot fix
-  what never arrives, and today it does not always arrive.
-  `readPad_` level-reads a mask refreshed once per RENDER frame, so above 60 fps
-  a tap released before the next tick-running frame **vanishes** — no edge ever
-  reaches the kernel; below 60 fps one frame's sample is replicated across every
-  catch-up tick (two taps in a stalled frame collapse into one hold); and under
-  slow motion at divisor 8 the pad is effectively sampled at **7.5 Hz**, in the
-  training tool whose whole point is practising links slowly. Deeper, at the
-  engine: `glfwGetKey` cached state misses any press+release inside one
-  `glfwPollEvents`, and `GLFW_STICKY_KEYS` is set nowhere.
-  **The fix shape is already in the engine:** `Action::latched` +
-  `consumePressed` accumulate-and-serve-once. The mode accumulates
-  `pendingPressBits_` from `consumePressed` per fixed tick and ORs them into the
-  next latched session input — determinism intact, because the bits flow through
-  `LatchedInputSource` like every other input. The GLFW blindness needs the
-  engine-side sticky/callback fix and is out of the mode's reach.
-  **Done when:** a one-tick synthetic tap reaches the kernel at any render rate
-  the harness can simulate, slow motion latches taps across non-run ticks, and
-  the sticky-keys gap is closed or explicitly recorded as a platform limit.
+- `[~]` **M1.3h The host delivers every press.** *(S–M)* Claude, 2026-08-31. From the buffer
+  review's host strand: the kernel buffer cannot fix what never arrives, and
+  it did not always arrive — `readPad_` level-read the pad only on the fixed
+  steps a tick actually ran, so a tap made and released between run ticks
+  (slow motion at divisor 8 sampled the pad at 7.5 Hz; pause sampled it never;
+  above 60 fps most render frames run zero ticks) vanished before the kernel
+  saw it, and at the engine `glfwGetKey`'s cached state missed any
+  press+release inside one `glfwPollEvents`.
+  **Built, in three composable parts.** `GLFW_STICKY_KEYS` is set at the one
+  window-creation site (`Window.h`), so a sub-poll tap reads `GLFW_PRESS`
+  once — its two residual limits (first-poll-wins when one key feeds several
+  polls; two taps in one poll interval collapse to one) are recorded at the
+  call, and neither is reachable by a headless test. `InputMap`'s existing
+  press latch already survives zero-tick frames (the `awaitingTick` rule).
+  And `PressAccumulator` (CseGame, beside `LatchedInputSource` — the pure
+  half with the hardware removed) Notes the `consumePressed` edges on EVERY
+  fixed step and Spends them into the next run tick's level bits **before**
+  the latch, so replay, rollback and the checksum read the same bytes the
+  simulation did. Pending presses deliberately do not age: between run ticks
+  game time is not passing (pause is the divisor made infinite), so a tap
+  made while paused comes out on the frame-step that follows — which is what
+  stepping is for. The mode's `notePadPresses_`/`Spend` glue mirrors the rule
+  pinned in `tests/test_press_delivery.cpp`, the one test that links Engine
+  AND the game libraries so the claim is measured from `InputMap` through the
+  latch into the kernel, not modelled; the mode itself still cannot be
+  constructed headlessly (Application owns a real window), which that file
+  records. ARCHITECTURE's input section had already specified this producer
+  design; DETERMINISM N4 is now structural + tested, its "never networked"
+  half vacuous until M2.4's CseNet exists.
+  **Done when (met):** a one-tick synthetic tap reaches the kernel at any
+  render rate the harness can simulate
+  (`ATapInsideZeroTickFramesIsDeliveredWhenTheNextTickRuns`), slow motion
+  latches taps across non-run ticks
+  (`ATapBetweenSlowMotionRunTicksIsDeliveredOnTheNextRunTick`, plus the
+  paused/frame-step and replay-identity legs), and the sticky-keys gap is
+  closed with its platform limits recorded at the `glfwSetInputMode` call.
 
 - `[x]` **M1.3g One witness cursor.** *(S–M)* — `bcd47fb`. ADR-012
   rule 4, pulled forward from M1.6 because the fifth copy drifted this week and

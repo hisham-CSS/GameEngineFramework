@@ -223,6 +223,59 @@ private:
     const char*                     name_      = "LOCAL";
 };
 
+// --- The taps a run tick never saw ------------------------------------------
+
+// A press observed on a fixed step where no session tick ran, carried until
+// one does.
+//
+// The host samples the pad as LEVELS on the ticks it runs (see readPad_'s
+// essay in the mode), but pause, slow motion and frame-step are fixed steps on
+// which no tick runs at all -- and a tap that goes down and up entirely
+// between two run ticks is invisible to a level read. ROADMAP M1.3h measured
+// the cost: under slow motion at divisor 8 the pad is effectively sampled at
+// 7.5 Hz, in the training tool whose whole point is practising links slowly.
+//
+// The rule is two calls. Note(pressedBits) runs on EVERY fixed step with the
+// press edges the host's input layer served that step (InputMap's
+// consumePressed latch, which already survives render frames that run no
+// step); Spend(levelBits) runs on the steps a tick actually runs, ORs the
+// pending presses into that tick's level bits, and clears them. The injected
+// bit is a one-tick pulse: the kernel derives the press edge itself against
+// Fighter::prevButtons, so a bit that is clear on the previous latched tick
+// and set on this one IS the press, and its absence on the next is the
+// release. A player still holding the key contributes the level bit through
+// the normal read and the OR changes nothing.
+//
+// DETERMINISM IS UNTOUCHED because delivery happens BEFORE the latch: the
+// pending bits are ORed into the Input that LatchedInputSource records, so
+// replay, rollback and the desync checksum all read the same bytes the
+// simulation did. Nothing downstream can tell a delivered tap from a held
+// key pressed on exactly the right tick.
+//
+// PENDING PRESSES DO NOT AGE, deliberately -- the kernel's own input buffer
+// expires by GAME ticks (a buffer that never expired would fire a move
+// minutes after the press), but between run ticks game time is not passing:
+// slow motion stretches wall time only, and pause is just the divisor made
+// infinite. A press made during the stretch belongs to the next game tick
+// that exists, at which point it is zero game-ticks old and the kernel's own
+// buffer rules take over. A tap made while paused therefore comes out on the
+// frame-step that follows -- which is what stepping one tick at a time is
+// FOR.
+class PressAccumulator final {
+public:
+    // Every fixed step: the press edges the host observed this step.
+    void          Note(std::uint16_t pressedBits);
+    // On a run tick, before Latch: this tick's level bits plus every pending
+    // press, and the pending set is spent.
+    std::uint16_t Spend(std::uint16_t levelBits);
+    std::uint16_t Pending() const;
+    // For match resets: a press aimed at a match that is gone stays there.
+    void          Clear();
+
+private:
+    std::uint16_t pending_ = 0;
+};
+
 // --- The composition that hands control back --------------------------------
 
 // Primary if it authors this tick, otherwise secondary.

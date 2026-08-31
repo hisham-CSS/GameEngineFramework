@@ -1,4 +1,4 @@
-// The three input sources, out of line.
+﻿// The three input sources, out of line.
 //
 // Every method here is on the path `At` describes in InputSource.h: const, pure,
 // total, allocation-free and non-throwing. That contract is not decoration --
@@ -153,6 +153,26 @@ void LatchedInputSource::Reset(std::uint32_t firstTick) {
     inputs_.clear();
     firstTick_ = firstTick;
 }
+
+// --- PressAccumulator -------------------------------------------------------
+
+// The whole rule is OR-then-spend; everything load-bearing about it -- why
+// delivery is pre-latch, why the pulse is one tick, why pending presses do
+// not age -- is the header's essay, kept there because the mode and the tests
+// both read this type from there.
+void PressAccumulator::Note(std::uint16_t pressedBits) {
+    pending_ |= pressedBits;
+}
+
+std::uint16_t PressAccumulator::Spend(std::uint16_t levelBits) {
+    const std::uint16_t out = static_cast<std::uint16_t>(levelBits | pending_);
+    pending_ = 0;
+    return out;
+}
+
+std::uint16_t PressAccumulator::Pending() const { return pending_; }
+
+void PressAccumulator::Clear() { pending_ = 0; }
 
 // --- FallbackInputSource ----------------------------------------------------
 

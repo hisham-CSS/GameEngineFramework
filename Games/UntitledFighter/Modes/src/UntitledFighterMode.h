@@ -126,6 +126,17 @@ private:
     // a reader that dropped them would replay a press as a hold.
     cse::kernel::Input readPad_() const;
 
+    // The press edges the same keys made THIS fixed step, noted into taps_
+    // whether or not a tick runs (ROADMAP M1.3h). This is the half a level
+    // read cannot see: a tap made and released between run ticks -- under
+    // slow motion, while paused, inside zero-tick render frames -- vanished
+    // before the kernel ever saw it. taps_.Spend ORs the pending presses into
+    // the next latched input, BEFORE the latch, so replay and rollback read
+    // the same bytes the simulation did. The rule itself is pinned against
+    // the real InputMap and session in tests/test_press_delivery.cpp; these
+    // two call sites are its mirror.
+    void notePadPresses_();
+
     // The training controls, read as EDGES in the fixed phase with
     // consumePressed. Not wasPressed: that is scoped to a rendered frame, and
     // above the fixed rate most frames run no tick at all while a stalled frame
@@ -220,6 +231,8 @@ private:
     cse::game::LatchedInputSource                    local_{ 0u, "YOU" };
     std::unique_ptr<cse::game::ScriptedInputSource>  demo_;
     std::unique_ptr<cse::game::FallbackInputSource>  playerSource_;
+    // The taps the run ticks never saw (see notePadPresses_ above).
+    cse::game::PressAccumulator                      taps_{};
 
     // --- the picture's own facts ---------------------------------------------
     std::vector<BindingRow> bindings_;

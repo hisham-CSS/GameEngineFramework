@@ -92,7 +92,7 @@ presentation, and its only determinism obligation is §7.
 | N1 | Input is a value parameter. The simulation never queries hardware | structural | `Simulate`'s signature takes `const InputPair&` |
 | N2 | No analog value reaches the simulation. Directions are quantized at the sampling boundary | structural | `Input` is ten digital bits (`GameState.h`). A stick has to be reduced to those bits before it can be expressed at all |
 | N3 | Once written, a tick's input is immutable; re-simulation reads the same bytes | structural | GekkoNet owns the input ring ([ADR-003](adr/ADR-003-gekkonet-spike.md)); `CseNet` moves bytes and a length, never a `GameState` |
-| N4 | Producer-side sticky state — the between-tick "pressed since last tick" accumulator — is never read during re-simulation and never networked | **not yet** | ROADMAP M2.4 |
+| N4 | Producer-side sticky state — the between-tick "pressed since last tick" accumulator — is never read during re-simulation and never networked | structural + test | `PressAccumulator` is spent into the input record BEFORE `LatchedInputSource` records it, so re-simulation reads only the latched log; `PressDelivery.TheDeliveredTapsAreInTheRecordAndReplayBitIdentically`. "Never networked" is vacuous until `CseNet` exists — ROADMAP M2.4 re-checks it |
 | N5 | UI focus never suppresses gameplay input while a session is live | **not yet** | ROADMAP M2.4 |
 
 ### The tick loop (T)

@@ -558,6 +558,9 @@ void UntitledFighterMode::resetMatch_() {
     // tick index went back to 0, and then wake up 400 ticks later.
     demo_.reset();
     local_.Reset(session_.CurrentTick());
+    // A pending tap was aimed at the match that just ended; delivered now it
+    // would start a move on tick 0 of a match nobody pressed anything in.
+    taps_.Clear();
     bindPlayerSource_();
     if (watcher_) watcher_->Reset();
     // AND THE LATCHED MEASUREMENT, for the reason the demonstration goes: it
@@ -624,9 +627,13 @@ cse::kernel::Input UntitledFighterMode::readPad_() const {
     // a reader that dropped those would replay a press as a hold and the kernel
     // would never see a second press.
     //
-    // A level read is also phase-independent: it cannot be consumed by somebody
-    // else and cannot be missed by a frame that ran no tick, which consumePressed
-    // can be and can.
+    // A level read is one half of the pad (ROADMAP M1.3h): it carries HOLDS,
+    // and it cannot carry a tap that went down and up between the ticks that
+    // run -- slow motion, pause and zero-tick render frames all open such
+    // gaps. notePadPresses_ is the other half: it consumes the same keys'
+    // press edges on EVERY fixed step into taps_, and FixedTick ORs the
+    // pending presses into this read's bits before latching, so the tap
+    // arrives as a one-tick pulse the kernel reads its own edge from.
     //
     // Holding a button therefore starts a move ONCE. It used to repeat the move
     // the tick the last one recovered, which is what review point R0 found by
@@ -636,6 +643,25 @@ cse::kernel::Input UntitledFighterMode::readPad_() const {
     for (const MoveKey& key : kDirectionKeys)
         if (map.isDown(key.action)) input.bits |= key.button;
     return input;
+}
+
+void UntitledFighterMode::notePadPresses_() {
+    if (!ctx_.app) return;
+    MyCoreEngine::InputMap& map = ctx_.app->input();
+
+    // consumePressed on the SAME keys readPad_ level-reads, every fixed step
+    // including the ones no tick runs on -- that is the point: the steps slow
+    // motion and pause skip are exactly where a tap dies (ROADMAP M1.3h).
+    // Consuming here does not starve readPad_: isDown is a level and has no
+    // latch to eat. Directions are noted too -- a tapped Down or Up between
+    // run ticks is a one-tick stance wish on the next, which is the press the
+    // player made.
+    std::uint16_t pressed = 0;
+    for (const MoveKey& key : kMoveKeys)
+        if (map.consumePressed(key.action)) pressed |= key.button;
+    for (const MoveKey& key : kDirectionKeys)
+        if (map.consumePressed(key.action)) pressed |= key.button;
+    taps_.Note(pressed);
 }
 
 void UntitledFighterMode::readControls_() {
@@ -907,6 +933,12 @@ void UntitledFighterMode::FixedTick(float dt) {
 
     if (!matchReady_ || !fatal_.empty()) return;
 
+    // EVERY fixed step, before the run gate: the press edges this step made,
+    // held for the next tick that runs. After the match check on purpose --
+    // a press aimed at no match should not fire on the first tick of the next
+    // one (resetMatch_ clears taps_ for the same reason).
+    notePadPresses_();
+
     // --- whether a tick runs at all ------------------------------------------
     //
     // This is the whole of pause, slow motion and frame step. FightSession owns
@@ -939,7 +971,11 @@ void UntitledFighterMode::FixedTick(float dt) {
     // not run does not advance either counter. Latching on a paused step would
     // put a value in the log for a tick nobody simulated.
     const std::uint32_t tick = session_.CurrentTick();
-    if (!local_.Latch(tick, readPad_())) {
+    cse::kernel::Input padIn = readPad_();
+    // The taps the skipped steps collected, delivered as part of THIS tick's
+    // recorded input -- pre-latch, so replay and rollback see the same bytes.
+    padIn.bits = taps_.Spend(padIn.bits);
+    if (!local_.Latch(tick, padIn)) {
         // The header is explicit: a caller that gets false back has a sequencing
         // bug and must STOP THE MATCH rather than continue with a hole in the
         // input log. Continuing would leave a tick nobody can answer for, and
