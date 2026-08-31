@@ -1902,7 +1902,55 @@ bool LoadCharacterVariant(const std::string& baseDir,
             report.error = baseRelPath + ": moves: missing or not an array";
             return false;
         }
+        // THE MOVE LEVEL IS A CLOSED KEY SET, so a patch key the loader does
+        // not read there is refused BY NAME (ROADMAP M1.8). It happened twice
+        // on one shipped variant: `hitstop_ticks`, then `reaction`, both
+        // guesses at the real path `engine.reaction`, both merged silently
+        // into keys nothing reads -- so the exhibit measured the BASE
+        // character while its caption claimed a diff, and the wrong verdict
+        // pair cost two diagnoses. This list mirrors exactly the names the
+        // move loop in LoadCharacterJson reads off a move object; a reader
+        // added there adds its name here, or the first variant to patch the
+        // new field is refused and says so out loud -- the loud failure, where
+        // the silent one already shipped a lying exhibit.
+        //
+        // `engine` is deliberately NOT validated one level down: that
+        // namespace carries MUGEN transcription and authoring notes by
+        // documented design (fighter_a authors twenty-six keys there), so a
+        // closed list would refuse the file's own conventions.
+        static const char* const kMovePatchKeys[] = {
+            "id",         "label",    "startup",       "active",
+            "recovery",   "hitstun",  "stance",        "blocked_as",
+            "priority",   "invincibility",             "damage",
+            "reach",      "pushback", "effect",        "guard",
+            "hit_condition",          "engine",
+        };
         for (auto it = patch["moves"].begin(); it != patch["moves"].end(); ++it) {
+            if (!it.value().is_object()) {
+                report.error = variantRelPath + ": patch.moves." + it.key() +
+                               ": must be an object of move keys -- RFC 7386 "
+                               "would REPLACE the whole move with this value.";
+                return false;
+            }
+            for (auto f = it.value().begin(); f != it.value().end(); ++f) {
+                bool known = false;
+                for (const char* k : kMovePatchKeys)
+                    if (f.key() == k) { known = true; break; }
+                if (known) continue;
+                std::string keys;
+                for (const char* k : kMovePatchKeys) {
+                    if (!keys.empty()) keys += ", ";
+                    keys += k;
+                }
+                report.error = variantRelPath + ": patch.moves." + it.key() +
+                               ": unknown key `" + f.key() + "` -- the loader "
+                               "reads no such move field, so the patch would "
+                               "merge silently and change nothing. A move "
+                               "patch edits: " + keys + ". (Engine-specific "
+                               "fields nest under `engine`, e.g. "
+                               "engine.reaction.hitstop_ticks.)";
+                return false;
+            }
             bool found = false;
             for (nlohmann::json& m : baseDoc["moves"]) {
                 if (!m.is_object() || !m.contains("id")) continue;

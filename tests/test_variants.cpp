@@ -193,6 +193,88 @@ TEST(VariantLoader, ADescriptionIsRequiredAndAnUnknownMoveIsRefused) {
     EXPECT_NE(report.error.find("sweep"), std::string::npos) << report.error;
 }
 
+// The one_frame_link coin-flip, pinned (ROADMAP M1.8). A patch key the loader
+// does not read at move level merged silently and changed nothing -- twice on
+// one variant: `hitstop_ticks`, then `reaction`, both guesses at the real
+// path `engine.reaction` -- so the exhibit measured the BASE character while
+// its caption claimed a diff, and the wrong pair of verdicts cost two
+// diagnoses before anyone compared the merged doc to the file. The move level
+// is a CLOSED key set (the loader reads exactly seventeen names there), so an
+// unknown key is a load error naming the key -- NORTHSTAR property (c)'s own
+// sentence, applied to the patch format. `engine` deliberately stays open one
+// level down: that namespace carries MUGEN transcription and authoring notes
+// by documented design.
+TEST(VariantLoader, AMovePatchKeyTheLoaderDoesNotReadIsRefusedByName) {
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::path(::testing::TempDir()) / "cse_variants";
+    fs::create_directories(dir);
+    {
+        // `scaling` is an ARRAY: unlike the refusal cases above, the accept
+        // case below reaches LoadCharacterJson over the merged doc, so this
+        // base must actually parse.
+        std::ofstream b(dir / "base_parses.json", std::ios::binary);
+        b << R"({"name":"b","stage":"corner","walk_speed":0.5,)"
+             R"("resources":[{"name":"meter","initial":0,"floor":0},)"
+             R"({"name":"juggle","initial":4,"floor":0}],)"
+             R"("scaling":[],"decay":{"kind":"none"},)"
+             R"("moves":[{"id":"jab","startup":3,"active":2,"recovery":4,)"
+             R"("hitstun":8,"damage":10.0,"stance":"standing"}],"cancels":[]})";
+    }
+    {
+        // The incident's first guess.
+        std::ofstream v(dir / "typo_hitstop.json", std::ios::binary);
+        v << R"({"description":"zeroes hitstop, or so it believes",)"
+             R"("patch":{"moves":{"jab":{"hitstop_ticks":0}}}})";
+    }
+    {
+        // The incident's second guess.
+        std::ofstream v(dir / "typo_reaction.json", std::ios::binary);
+        v << R"({"description":"zeroes hitstop, second guess",)"
+             R"("patch":{"moves":{"jab":{"reaction":{"hitstop_ticks":0}}}}})";
+    }
+    {
+        // RFC 7386 would REPLACE the whole move with the scalar.
+        std::ofstream v(dir / "scalar.json", std::ios::binary);
+        v << R"({"description":"a scalar where a move patch should be",)"
+             R"("patch":{"moves":{"jab":3}}})";
+    }
+    {
+        // The correct spelling of the same edit, plus an open-namespace
+        // engine key: both must still load, or the refusal has closed a
+        // namespace the schema documents as open.
+        std::ofstream v(dir / "real_path.json", std::ios::binary);
+        v << R"({"description":"zeroes hitstop at the path the loader reads",)"
+             R"("patch":{"moves":{"jab":{"hitstun":9,)"
+             R"("engine":{"reaction":{"hitstop_ticks":0},"authoring_note":"x"}}}}})";
+    }
+
+    CharacterData c{};
+    LoadReport report{};
+    LoadOptions o = loadOptions();
+
+    EXPECT_FALSE(LoadCharacterVariant(dir.string(), "base_parses.json",
+                                      "typo_hitstop.json", o, c, report))
+        << "the exact incident key merged silently again";
+    EXPECT_NE(report.error.find("hitstop_ticks"), std::string::npos)
+        << "the refusal did not name the key: " << report.error;
+
+    EXPECT_FALSE(LoadCharacterVariant(dir.string(), "base_parses.json",
+                                      "typo_reaction.json", o, c, report));
+    EXPECT_NE(report.error.find("`reaction`"), std::string::npos)
+        << "the refusal did not name the key: " << report.error;
+
+    EXPECT_FALSE(LoadCharacterVariant(dir.string(), "base_parses.json",
+                                      "scalar.json", o, c, report))
+        << "a scalar move patch would replace the whole move under merge";
+
+    ASSERT_TRUE(LoadCharacterVariant(dir.string(), "base_parses.json",
+                                     "real_path.json", o, c, report))
+        << "the correctly-spelled edit was refused: " << report.error;
+    const cse::data::MoveIndex jab = c.FindMove("jab");
+    ASSERT_NE(jab, cse::data::kInvalidMove);
+    EXPECT_EQ(c.moves[jab].hitstun, 9) << "the valid patch did not land";
+}
+
 TEST(VariantExhibits, HitstunAloneHandsTheGameAnInfiniteTheModelCannotSee) {
     Exhibit e{};
     bringUpVariant("fighter_a/variants/hitstun_plus_7.json", e);
