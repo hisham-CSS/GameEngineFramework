@@ -88,12 +88,12 @@ is done or serves it.
 
 | In flight | Owner | Since |
 |---|---|---|
-| M1.6 — the showcase; slices 1–7 landed (7 = microwalk + corner push); rest listed in the entry | Claude | 2026-08-31 |
+| M1.6 — the showcase; slices 1–8 landed (8 = the cooker recording + base row) | Claude | 2026-08-31 |
 | M1.3 — mechanics pass 1; (a) (b1) (b2) landed; (c)+(d) blocked on ADR-015 (human) | Claude | 2026-08-31 |
 
-M1.6 stays open on its listed remainder (the base catalogue row, the cooker
-recording, and the variants blocked on M1.3(b3)/ADR-015). M1.1e landed
-inside its slice 5 — the buffer pair is a catalogue row.
+M1.6 stays open only on the variants blocked on M1.3(b3)/ADR-015 (jump-
+cancel, kara, counter-hit, wallbounce). M1.1e landed inside its slice 5 —
+the buffer pair is a catalogue row.
 
 One at a time. The next unblocked WP is always the top `[ ]` in milestone
 order — which, under the 2026-08-21 reorder, is the sequence named above.
@@ -619,8 +619,8 @@ Six WPs, all landed, gate required in CI. The decision is
   bound alone, the full-roster drowning stated in the caption:
   `TheMicrowalkInfiniteNeedsTheWalkAndTheSearchWalksIt` — INFINITE, the
   loop CONTAINS the walks, the prover blind three ways.
-  **Slice 8 (sha at the next flip) — the cooker recording, and the `base`
-  row with it: "a replay per verdict" is now files.** The manifest the
+  **Slice 8, `c5ca43b` — the cooker recording, and the `base` row with it:
+  "a replay per verdict" is now files.** The manifest the
   catalogue never had (`variants/catalogue.json`: nine rows — base first —
   each carrying the one thing a patch cannot say, its bindings: meter_loop's
   super chord, microwalk's solo button, previously C++ literals inside
