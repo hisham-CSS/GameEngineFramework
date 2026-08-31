@@ -88,7 +88,7 @@ is done or serves it.
 
 | In flight | Owner | Since |
 |---|---|---|
-| M1.6 — the showcase; slices 1–6 landed (6 = the movement macros); rest listed in the entry | Claude | 2026-08-31 |
+| M1.6 — the showcase; slices 1–7 landed (7 = microwalk + corner push); rest listed in the entry | Claude | 2026-08-31 |
 | M1.3 — mechanics pass 1; (a) (b1) (b2) landed; (c)+(d) blocked on ADR-015 (human) | Claude | 2026-08-31 |
 
 M1.6 stays open on its listed remainder (microwalk row, cooker recording,
@@ -594,8 +594,8 @@ Six WPs, all landed, gate required in CI. The decision is
   arc and the juggle budget bind through a microwalk, which is its own
   finding; and the one_frame coin held against the wait vocabulary,
   measured, not assumed.
-  **Slice 7 (sha at the next flip) — the `microwalk` catalogue row, and the
-  corner-push wire it needed.** A mid-stage walking infinite provably cannot
+  **Slice 7, `42ec284` — the `microwalk` catalogue row, and the corner-push
+  wire it needed.** A mid-stage walking infinite provably cannot
   state-repeat (pushback's halving sum is always odd against even walk
   quanta, and the defender drifts wallward every hit), so the genre's
   pressure-release valve had to exist first: `corner_push_vel_sub` — already
