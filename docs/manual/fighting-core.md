@@ -888,6 +888,8 @@ The road not taken is a dirty flag set by whoever edits the character. It is che
 
 The footer (`ComboProverPanel.cpp:1078`) shows run count, last / worst / mean milliseconds, and a **Copy verdict** button that produces `DescribeVerdict` text (`ProverAdapter.h:253`) — the same text the tests assert on, so a bug report and a test can never describe the character differently.
 
+**And every real run is recorded** ([ADR-017](../adr/ADR-017-one-line-per-prover-run.md)): one JSON line — wall time, the file read, character, nonce-free content hash, changed-since-last (`false` for a Re-run on unchanged bytes), move/cancel counts, resource ranges, `explored`, run ms with the resource-check ms as its own field, verdict — appended to `telemetry/prover_runs.jsonl` beside the content root, through the sandboxed writer/reader pair in `cse::data::AuthoringTelemetry.h`. The footer says `recorded:` or shows the writer's error; a failed append never blocks the analysis. The reader skips-and-counts torn lines, and `tests/test_prover_telemetry.cpp` pins the round trip.
+
 ### Two wiring caveats
 
 The editor calls `comboProver_.Draw(nullptr, &panels_.comboProver)` (`Editor/src/EditorApplication.cpp:281`) and does not call `SetContentRoot` or `SetExpectedResources`. Two consequences today:

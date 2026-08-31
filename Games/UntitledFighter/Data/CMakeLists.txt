@@ -29,6 +29,10 @@ add_library(CseData STATIC
     # Here rather than in the mode because it opens an authored path, and every
     # authored path goes through the sandbox this library already compiles.
     src/CharacterFileWatch.cpp
+    # The prover-run telemetry writer/reader (ROADMAP M1.7, ADR-017). Same
+    # argument: it opens a path by name, and this library owns the sandbox and
+    # (privately) the JSON dependency both halves need.
+    src/AuthoringTelemetry.cpp
     # Compiled in rather than linked. Character files are authored content and
     # docs/MAINTENANCE.md admits no exceptions: an authored path goes through
     # PathIsContained before anything opens it. The alternative to compiling this

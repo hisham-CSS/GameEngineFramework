@@ -39,6 +39,7 @@ Three consequences worth knowing before you read one:
 | [014](ADR-014-movement-lands-in-three-steps.md) | Movement lands in three steps, and the wire grows once | Proposed 2026-08-31 · stages ROADMAP M1.3(b) | ADR-011's jump-as-move stays the destination; the authored physics wire first, one batched MoveDef growth second (reserving (c)/(d) bytes), the level-to-edge jump flip with its golden re-record last |
 | [015](ADR-015-what-a-verdict-claims-about-hitstun.md) | What a verdict claims when hitstun stops being one number | Proposed 2026-08-31 · **blocks M1.3(c)+(d), needs the human** | Counter-hit and air hitstun both break the model's one-hitstun agreement; qualify the verdict / worst-case / verdict-per-opening all change what the published tool claims, so none is enacted by default |
 | [016](ADR-016-a-reload-restarts-the-match.md) | A character reload restarts the match | Proposed 2026-08-31 · being executed as ROADMAP M1.5 | A frame-data edit lands by (mtime, size) poll and a full restart through the one start path, keep-last-good on a broken edit; never a live MatchData swap, which rollback, `resimulated` and the replay hash all forbid |
+| [017](ADR-017-one-line-per-prover-run.md) | Authoring telemetry is one appended line per prover run | Proposed 2026-08-31 · being executed as ROADMAP M1.7 | The panel appends one JSON line per real analysis run through a sandboxed writer in CseData, resource-check cost as its own field, sink beside — never inside — the staged tree; restores the Done-when the ROADMAP rewrite dropped |
 
 ## Writing one
 

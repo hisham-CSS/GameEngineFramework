@@ -289,6 +289,13 @@ add_executable(test_character_hotreload test_character_hotreload.cpp)
 target_link_libraries(test_character_hotreload PRIVATE CseGame CseData CseKernel GTest::gtest_main)
 add_test(NAME test_character_hotreload COMMAND $<TARGET_FILE:test_character_hotreload>)
 
+# AUTHORING TELEMETRY (ROADMAP M1.7, ADR-017) — the log grows by one line per
+# append and parses back. Pins the writer/reader pair the Combo Prover panel
+# calls; the panel's runIfStale_ is its ImGui mirror.
+add_executable(test_prover_telemetry test_prover_telemetry.cpp)
+target_link_libraries(test_prover_telemetry PRIVATE CseData GTest::gtest_main)
+add_test(NAME test_prover_telemetry COMMAND $<TARGET_FILE:test_prover_telemetry>)
+
 # PRESS DELIVERY (ROADMAP M1.3h) — the one test that links Engine AND the game
 # libraries, deliberately: the claim is that a tap crosses from the engine's
 # InputMap latch, through the accumulator, into the latched session log and the
