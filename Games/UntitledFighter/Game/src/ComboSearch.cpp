@@ -6,7 +6,9 @@
 // <set> and not <unordered_set>: nothing here iterates the visited set, but a
 // deterministic container costs nothing and removes the question. No <chrono>,
 // no <random> -- the header's determinism claim is a claim about this include
-// list too.
+// list too. <algorithm> is stable_sort for the per-node candidate order, a
+// pure function of node state.
+#include <algorithm>
 #include <set>
 
 namespace cse::game {
@@ -155,7 +157,7 @@ struct Node {
     // witness records movement macros, the hit count does not.
     std::int32_t               hits = 0;
     std::int32_t               movementUsed = 0;         // before the first hit
-    std::int32_t               stringMovementUsed = 0;   // inside the string
+    std::int32_t               stringMovementUsed = 0;   // since the LAST hit
 };
 
 // Movement caps (ADR-013 decision 6). The caps are what keep
@@ -166,12 +168,16 @@ struct Node {
 // eight, because a cap spent mid-string multiplies every stun phase of every
 // string depth. Split by phase instead: the APPROACH may walk eight entries
 // (five 8-tick walks cross ResetMatch's gap, with slack to fine-position),
-// and a LIVE STRING may walk two -- which is what the genre's microwalk IS;
-// three walked links in one string is not a mechanic anyone authors. A
-// verdict is therefore "within the movement vocabulary", which the fixed
-// menu already made true.
+// and a string may walk two PER LINK -- which is what the genre's microwalk
+// IS; three walked entries between two hits is not a mechanic anyone
+// authors. PER LINK and not per string, because the microwalk INFINITE
+// walks on every repetition forever -- a whole-string cap would refuse the
+// very loop the vocabulary exists to find (it did; the microwalk exhibit
+// read TERMINATING under the first draft). The per-link counter resets on
+// every connect, so the bound on the space is per-segment and exhaustion
+// stays affordable.
 constexpr std::int32_t kMaxApproachMovement = 8;
-constexpr std::int32_t kMaxStringMovement   = 2;
+constexpr std::int32_t kMaxLinkMovement     = 2;
 
 } // namespace
 
@@ -201,15 +207,25 @@ ComboSearchResult RunComboSearch(const ComboSearchRequest& req) {
     // expansion order stays "moves first" -- fixed and small, because every
     // entry multiplies the branching factor. Absolute directions: the
     // useless one dies by dedup (walking into a wall reproduces its key).
+    //
+    // LONGEST WALKS FIRST, and it is a depth-first search's whole fortune:
+    // the walk that OVERSHOOTS gets clamped by the pushbox to the one
+    // canonical adjacent state, so its chain self-repeats and an infinite is
+    // provable; a walk that lands short leaves a raw, drifting position
+    // whose chain dies in a dozen reps and whose siblings multiply. With
+    // short walks first the dive drowns in dying chains before it ever
+    // tries the clamping one -- measured: the microwalk exhibit read
+    // UNRESOLVED at 20M ticks under a shortest-first menu and resolves in
+    // seconds under this one.
     const std::uint16_t movementMenu[] = {
-        static_cast<std::uint16_t>(WitnessCursor::kMacroWalkLeft  | 1u),
-        static_cast<std::uint16_t>(WitnessCursor::kMacroWalkLeft  | 2u),
-        static_cast<std::uint16_t>(WitnessCursor::kMacroWalkLeft  | 4u),
         static_cast<std::uint16_t>(WitnessCursor::kMacroWalkLeft  | 8u),
-        static_cast<std::uint16_t>(WitnessCursor::kMacroWalkRight | 1u),
-        static_cast<std::uint16_t>(WitnessCursor::kMacroWalkRight | 2u),
-        static_cast<std::uint16_t>(WitnessCursor::kMacroWalkRight | 4u),
         static_cast<std::uint16_t>(WitnessCursor::kMacroWalkRight | 8u),
+        static_cast<std::uint16_t>(WitnessCursor::kMacroWalkLeft  | 4u),
+        static_cast<std::uint16_t>(WitnessCursor::kMacroWalkRight | 4u),
+        static_cast<std::uint16_t>(WitnessCursor::kMacroWalkLeft  | 2u),
+        static_cast<std::uint16_t>(WitnessCursor::kMacroWalkRight | 2u),
+        static_cast<std::uint16_t>(WitnessCursor::kMacroWalkLeft  | 1u),
+        static_cast<std::uint16_t>(WitnessCursor::kMacroWalkRight | 1u),
         static_cast<std::uint16_t>(WitnessCursor::kMacroWait      | 1u),
         static_cast<std::uint16_t>(WitnessCursor::kMacroWait      | 2u),
         static_cast<std::uint16_t>(WitnessCursor::kMacroWait      | 4u),
@@ -240,8 +256,45 @@ ComboSearchResult RunComboSearch(const ComboSearchRequest& req) {
         }
         ++r.nodesExpanded;
 
-        for (std::size_t ci = candidates.size(); ci-- > 0;) {
-            const std::uint16_t slot = candidates[ci];
+        // PER-NODE ORDER: moves in slot order, then walks TOWARD the
+        // opponent longest-first, then away, then waits. A pure function of
+        // the node's positions, so determinism holds -- and it is the
+        // difference between finding the microwalk infinite and drowning:
+        // the canonical walked loop (overshoot, pushbox clamp, repeat) must
+        // be the FIRST-popped child at every link, because a depth-first
+        // dive that reaches the verdict never pays for its siblings, while
+        // an away-first order explores an exponential universe of drifting
+        // near-miss chains before ever trying the one that closes.
+        std::vector<std::uint16_t> ordered = candidates;
+        {
+            const int def = 1 - req.attackerSlot;
+            const bool defToRight =
+                node.state.p[def].posX >= node.state.p[req.attackerSlot].posX;
+            const std::uint16_t toward = defToRight
+                                             ? WitnessCursor::kMacroWalkRight
+                                             : WitnessCursor::kMacroWalkLeft;
+            std::stable_sort(
+                ordered.begin(), ordered.end(),
+                [toward](std::uint16_t a, std::uint16_t b) {
+                    auto rank = [toward](std::uint16_t v) -> int {
+                        if (!WitnessCursor::IsMacro(v)) return 0;   // moves first
+                        const std::uint16_t kind =
+                            static_cast<std::uint16_t>(v & 0xFF00);
+                        if (kind == WitnessCursor::kMacroWait) return 3;
+                        return kind == toward ? 1 : 2;
+                    };
+                    const int ra = rank(a), rb = rank(b);
+                    if (ra != rb) return ra < rb;
+                    // Within walks: longest first (the clamping overshoot).
+                    if (ra == 1 || ra == 2)
+                        return WitnessCursor::MacroTickCount(a) >
+                               WitnessCursor::MacroTickCount(b);
+                    return false;   // moves and waits keep menu order
+                });
+        }
+
+        for (std::size_t ci = ordered.size(); ci-- > 0;) {
+            const std::uint16_t slot = ordered[ci];
             if (r.ticksUsed >= req.maxTicks) { budgetHit = true; break; }
             const bool isMovement = WitnessCursor::IsMacro(slot);
 
@@ -249,7 +302,7 @@ ComboSearchResult RunComboSearch(const ComboSearchRequest& req) {
             // the path do not open one (ADR-013 decision 6).
             const bool stringLive = node.hits > 0;
             if (isMovement &&
-                (stringLive ? node.stringMovementUsed >= kMaxStringMovement
+                (stringLive ? node.stringMovementUsed >= kMaxLinkMovement
                             : node.movementUsed >= kMaxApproachMovement))
                 continue;
 
@@ -328,8 +381,11 @@ ComboSearchResult RunComboSearch(const ComboSearchRequest& req) {
             child.hits  = hits;
             child.movementUsed = node.movementUsed +
                                  ((isMovement && !stringLive) ? 1 : 0);
-            child.stringMovementUsed = node.stringMovementUsed +
-                                       ((isMovement && stringLive) ? 1 : 0);
+            // Per LINK: a connect opens a fresh two-entry walking allowance.
+            child.stringMovementUsed =
+                mo.connected ? 0
+                             : node.stringMovementUsed +
+                                   ((isMovement && stringLive) ? 1 : 0);
             stack.push_back(std::move(child));
         }
         if (budgetHit) break;

@@ -516,10 +516,21 @@ struct MoveDef {
     std::int32_t counterDamageBonus;
     std::int32_t launchVelXSub;
     std::int32_t launchVelYSub;
+
+    // CORNER PUSH (M1.6's microwalk slice): recoil applied to the ATTACKER
+    // when a hit lands on a defender the wall already stops. Not a (c)/(d)
+    // field -- it moves nobody's stun and is ADR-015-free, a displacement
+    // like pushback -- and it took two of the tail pad bytes the (b2) growth
+    // left, so no layout moved for it. BEFORE the reaction byte, because an
+    // int16 after a uint8 opens the implicit hole the static_assert below
+    // exists to catch (it did, in this slice's first build). Saturated at
+    // int16 like pushbackHit. Zero is every move authored before the wire,
+    // including all 22 of fighter_a's (the file authors the key at 0).
+    std::int16_t cornerPushHit;
     std::uint8_t onHitReaction;
 
     // Explicit tail padding, hashed like everything else here.
-    std::uint8_t pad3_[3];
+    std::uint8_t pad3_[1];
 };
 
 // 32 moves per fighter. A hard cap, deliberately: D4 forbids unbounded growth in
@@ -839,6 +850,14 @@ static_assert(sizeof(CancelEdge) == 16,
               "handshake, same hazard as MoveDef above.");
 
 // --- Reading the state through the data -------------------------------------
+
+// Where the wall stops THIS fighter's origin: the stage half-width minus the
+// placed pushbox's reach past the origin (the body may not hang into the
+// void; Simulate.cpp's wall clamp essay is the one home of the argument). In
+// this header because TWO files ask it: StepPhysics clamps positions with it,
+// and ResolveHits' corner push asks whether the defender is already standing
+// at the answer.
+std::int32_t WallLimitFor(const FighterData& data, const Fighter& f);
 
 // The MoveDef a fighter's moveId names, or null if it names none -- either
 // because the fighter is idle (moveId 0) or because the id is outside this

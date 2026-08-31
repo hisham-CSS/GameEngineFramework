@@ -2823,3 +2823,39 @@ TEST(P3Movement, ASilentMoveStillDoesNotMove) {
            "a zero-initialised motion block is not inert -- the "
            "scalingReduction incident wearing a new field.";
 }
+
+// --- Corner push (M1.6's microwalk slice) ------------------------------------
+//
+// When the wall already stops the defender, their pushback is absorbed; the
+// authored corner push sends the pressure back through the ATTACKER instead.
+// Zero -- every shipped move today -- is byte-for-byte the old behaviour.
+TEST(P3Movement, ACornerPushRecoilsTheAttackerOnlyAtTheWall) {
+    auto data = twoFighters();
+    data->p[0].moves[1].cornerPushHit = 1536;   // ~12 px total recoil
+    // A pushbox, so WallLimitFor has a body to stop; both fighters share it.
+    data->p[0].pushbox = bodyBox();
+    data->p[1].pushbox = bodyBox();
+
+    // Mid-stage: the defender is nowhere near a wall, and the recoil must
+    // not fire -- corner push is a fact about the WALL, not about the hit.
+    {
+        GameState s = facingOff();
+        ResolveHits(s, *data);
+        EXPECT_EQ(s.p[0].pushX, 0)
+            << "the attacker recoiled from a mid-stage hit; corner push fired "
+               "without a corner";
+    }
+
+    // Cornered: the defender's origin stands at its own wall limit.
+    {
+        GameState s = facingOff();
+        const std::int32_t lim = WallLimitFor(data->p[1], s.p[1]);
+        s.p[1].posX = lim;                         // body against the right wall
+        s.p[0].posX = lim - px(14);                // adjacent, boxes overlapping
+        ResolveHits(s, *data);
+        EXPECT_LT(s.p[0].pushX, 0)
+            << "a hit on the cornered defender queued no recoil on the "
+               "attacker (pushX should point AWAY from the wall)";
+        EXPECT_LT(s.p[1].health, 1000) << "precondition: the hit landed";
+    }
+}

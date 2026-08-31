@@ -57,7 +57,12 @@
 // replay-stable: the same witness fed to the same opening walks the same
 // pixels. The press/release cycling does not apply to a held direction -- a
 // direction is a LEVEL to the kernel, and releasing it mid-walk would just
-// walk less than the entry says.
+// walk less than the entry says. ONLY FREE TICKS COUNT toward the entry: a
+// committed or frozen fighter cannot walk, so the held direction rides
+// silently through a move's tail or a hitstop freeze and "walk 8" always
+// means eight ticks of actual walking -- which is what makes a walk issued
+// right after a connect perform the microwalk instead of spending itself
+// committed.
 #pragma once
 
 #include "cse/kernel/Combat.h"

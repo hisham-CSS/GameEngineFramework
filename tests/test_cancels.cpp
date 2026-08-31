@@ -864,8 +864,9 @@ TEST(CancelBridge, TheLossTableCountsWhatTheProjectionActuallyCost) {
     // -> 31 when M1.3(b1) carried engine.movement (zero again: she authors
     // none and keeps the placeholder arc); -> 32 when M1.3(b2) carried the
     // motion keys and split the uncarried pos_add teleports into their own
-    // row (zero for her on both).
-    EXPECT_EQ(32u, r.losses.size())
+    // row (zero for her on both); -> 33 when the microwalk slice carried
+    // corner push (zero once more: her converted file authors none).
+    EXPECT_EQ(33u, r.losses.size())
         << "the loss table grew or shrank. That is fine, and it has to be "
            "recorded here, because the point of the table is that somebody "
            "counted.";

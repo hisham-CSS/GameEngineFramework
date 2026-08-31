@@ -77,8 +77,27 @@ the real kernel.** One implementation for tests, cooker, showcase and panel.
      are replay-stable, the useless direction dies by dedup (walking into a
      wall reproduces its own key), and the search stays free of a second
      facing rule.
+   - **Only free ticks count toward a walk.** A committed or frozen fighter
+     cannot walk, so the held direction rides silently through a move's tail
+     or a hitstop freeze and "walk 8" always means eight ticks of walking —
+     measured: without this, a walk issued right after a connect spent most
+     of itself committed and the microwalk link was never performable.
    - **A movement macro scores no hit.** The witness records it; the hit
      count does not. `maxHits` keeps meaning hits.
+   - **Two caps and one direction rule keep exhaustion affordable**, each
+     measured against fighter_a's corner roster: the APPROACH (before the
+     first hit) walks at most eight entries and only TOWARD the opponent (a
+     retreat opening is a different question the corner/midscreen pair
+     brackets); a live string walks at most two PER LINK — the genre's
+     microwalk is one or two, and a per-STRING cap refused the very loop the
+     vocabulary exists to find, since that loop walks on every repetition.
+   - **Expansion order is a pure function of the node**: moves in slot
+     order, then walks toward the opponent longest-first, then away, then
+     waits. Longest-toward-first is what lets the depth-first dive BE the
+     canonical walked loop — the walk that overshoots is clamped by the
+     pushbox to one repeating state, while a walk that lands short starts a
+     drifting near-miss chain; short-first ordering explored an exponential
+     universe of those before ever trying the one that closes.
    - **The induction rule narrows.** A path-repeat proves an infinite only
      while the string is LIVE (defender never actionable, rule 3). Pre-string
      movement — the approach — happens with the defender free, so those nodes

@@ -498,3 +498,70 @@ TEST(VariantExhibits, AFloatyJumpHandsTheStringToTheBudgetAlone) {
 
     RecordProperty("variant_description", e.description);
 }
+
+TEST(VariantExhibits, TheMicrowalkInfiniteNeedsTheWalkAndTheSearchWalksIt) {
+    // The paper's own vocabulary word, exhibited: an infinite that exists
+    // only for a player who can walk. Corner push (this slice's wire) recoils
+    // the attacker out of stand_lp's reach on every cornered hit; the wide
+    // hitstun leaves time to walk back in; the wall and the pushbox make the
+    // loop's state return EXACTLY. Found by ADR-013 decision 6's walks --
+    // there is nothing else in the kernel that could find it.
+    Exhibit e{};
+    bringUpVariant("fighter_a/variants/microwalk.json", e);
+    ASSERT_FALSE(::testing::Test::HasFatalFailure());
+
+    // THE LINK'S OWN BUTTON, BOUND ALONE -- and the caption says so. With the
+    // full roster bound the dive prefers whichever long-reach heavy connects
+    // from the recoil distance and explores those unrelated strings for the
+    // whole budget; the exhibit's claim is this LOOP's existence, so the
+    // search is asked about exactly the loop's vocabulary: one button plus
+    // the movement macros. (The probe that measured the full-roster drowning
+    // and the loop's own exact 255-rep period is in the slice commit.)
+    {
+        BuildOptions solo{};
+        solo.bindings = { { "stand_lp", cse::kernel::kInputLP } };
+        MatchBuild soloBuild{};
+        ASSERT_TRUE(BuildMatchData(e.character, solo, e.character, solo,
+                                   soloBuild))
+            << soloBuild.report[0].error;
+        e.build = soloBuild;
+
+        ComboSearchRequest req{};
+        req.data         = &e.build.data;
+        req.attackerSlot = 0;
+        cse::kernel::ResetMatch(req.from, 0x1D7u);
+        req.from.p[0].posX = kP0X;
+        req.from.p[1].posX = kP1X;
+        e.searched = RunComboSearch(req);
+    }
+
+    ASSERT_EQ(e.character.moves[e.character.FindMove("stand_lp")].cornerPushSub,
+              5120)
+        << "the variant's corner push did not load; the exhibit is measuring "
+           "the hitstun_plus_7 family instead of the microwalk";
+
+    ASSERT_EQ(e.searched.verdict, ComboVerdict::Infinite)
+        << "the walked restart loop was not found: " << e.searched.note;
+
+    // THE CLAIM: the loop itself walks. A walkless loop here would mean the
+    // recoil failed to open the gap and this is a stationary restart wearing
+    // the microwalk's name.
+    ASSERT_LT(e.searched.loopStart, e.searched.witness.size());
+    bool loopWalks = false, loopHits = false;
+    for (std::size_t i = e.searched.loopStart; i < e.searched.witness.size(); ++i) {
+        if (cse::game::WitnessCursor::IsMacro(e.searched.witness[i]))
+            loopWalks = true;
+        else
+            loopHits = true;
+    }
+    EXPECT_TRUE(loopWalks)
+        << "the infinite's loop contains no movement macro, so the walk was "
+           "not needed and the corner push is not doing its job";
+    EXPECT_TRUE(loopHits);
+
+    // The MODEL is blind three ways -- no restart route, no walk, no corner
+    // -- and must say so by not moving.
+    EXPECT_EQ(e.verdict.status, ProverStatus::Terminating);
+
+    RecordProperty("variant_description", e.description);
+}

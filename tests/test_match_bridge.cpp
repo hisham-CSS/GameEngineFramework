@@ -959,6 +959,9 @@ TEST(MatchBridgeLosses, EveryDropIsCountedAgainstKungFuGirlsActualFile) {
         { "resource.juggle (gate)",    0, BuildLossDirection::Exact         },
         { "character.input_buffer_frames", 0, BuildLossDirection::Exact     },
         { "move.pushback",            24, BuildLossDirection::Exact         },
+        // Zero: her converted file authors no corner push (the microwalk
+        // slice's carry), and the zero records that somebody looked.
+        { "move.corner_push",          0, BuildLossDirection::Exact         },
         // Zero for Kung Fu Girl and, like her juggle gate, the zero records
         // that somebody looked: her converted file authors no impact freeze,
         // so M1.3i's carried hitstop leaves every move of hers at 0.

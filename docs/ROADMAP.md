@@ -594,12 +594,35 @@ Six WPs, all landed, gate required in CI. The decision is
   arc and the juggle budget bind through a microwalk, which is its own
   finding; and the one_frame coin held against the wait vocabulary,
   measured, not assumed.
-  **Still open:** the `microwalk` catalogue row itself (a variant whose
-  infinite NEEDS the walk — the vocabulary now exists to find it); `base`
-  as a catalogue row; `jump-cancel`, `kara` blocked on M1.3(b3)/the kara
-  close-frame note; `counter-hit`, `wallbounce` blocked on ADR-015; and the
-  cooker recording — both verdicts, replays, `graph.dot` per entry — the
-  "replay per verdict" half.
+  **Slice 7 (sha at the next flip) — the `microwalk` catalogue row, and the
+  corner-push wire it needed.** A mid-stage walking infinite provably cannot
+  state-repeat (pushback's halving sum is always odd against even walk
+  quanta, and the defender drifts wallward every hit), so the genre's
+  pressure-release valve had to exist first: `corner_push_vel_sub` — already
+  authored at 0 on all 22 fighter_a moves, never parsed — now crosses whole
+  (loader → `MoveDef::cornerPushHit` in two (b2) pad bytes, no layout
+  change → ResolveHits recoils the ATTACKER when the wall already stops the
+  defender, `WallLimitFor` promoted to one home for its two askers;
+  `move.corner_push` Exact row, tables 32 → 33;
+  `P3Movement.ACornerPushRecoilsTheAttackerOnlyAtTheWall`). On top of it,
+  `microwalk.json`: recoil past a deliberately narrowed reach, the wall
+  pinning the defender and the pushbox absorbing the walk's overshoot — the
+  two quantizers that make the loop's state return EXACTLY once the combo
+  counter saturates at 255 (probed rep by rep; the key goes constant at rep
+  255). Three search rules were earned red-first getting there: walks count
+  only FREE ticks (a walk issued after a connect spent itself committed);
+  the per-string movement cap became per-LINK (the loop walks every rep,
+  and a string cap refused it); and expansion order became a pure function
+  of the node — toward-longest-first — because the dive must BE the
+  canonical clamped loop or it drowns in drifting near-miss chains (both
+  measured, in the slice commit). Exhibited with the link's own button
+  bound alone, the full-roster drowning stated in the caption:
+  `TheMicrowalkInfiniteNeedsTheWalkAndTheSearchWalksIt` — INFINITE, the
+  loop CONTAINS the walks, the prover blind three ways.
+  **Still open:** `base` as a catalogue row; `jump-cancel`, `kara` blocked
+  on M1.3(b3)/the kara close-frame note; `counter-hit`, `wallbounce`
+  blocked on ADR-015; and the cooker recording — both verdicts, replays,
+  `graph.dot` per entry — the "replay per verdict" half.
 
 - `[ ]` **M1.7 Authoring telemetry.** *(S)* What the author actually needed to
   know, recorded while authoring rather than reconstructed after.

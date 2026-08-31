@@ -1324,6 +1324,8 @@ bool parseDocument(Ctx& ctx, const json& doc, CharacterData& out) {
                         return false;
                     if (!readInt(ctx, *r, "air_hitstun_ticks", where, mv.airHitstunTicks, false))
                         return false;
+                    if (!readInt(ctx, *r, "corner_push_vel_sub", where, mv.cornerPushSub, false))
+                        return false;
                     if (!readInt(ctx, *r, "fall_recover_ticks", where, mv.fallRecoverTicks, false))
                         return false;
                     if (member(*r, "causes_knockdown") &&

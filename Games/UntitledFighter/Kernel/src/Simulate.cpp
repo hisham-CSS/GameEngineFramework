@@ -54,15 +54,11 @@ std::uint32_t nextRandom(std::uint32_t& s) {
 // by assuming the origin sits in the middle of it. A body wider than the stage
 // cannot be contained at all; the origin clamp is then the only answer that
 // keeps posX inside the world.
+// Promoted to Combat.h/.cpp as WallLimitFor when ResolveHits' corner push
+// became its second asker (M1.6's microwalk slice) -- the essay above rides
+// with it. This alias keeps the file's call sites reading as before.
 std::int32_t wallLimitFor(const FighterData& data, const Fighter& f) {
-    if (data.pushbox.x1 <= data.pushbox.x0) return kStageHalfWidthSub;
-
-    const Box placed = PlaceBox(data.pushbox, 0, 0, f.facing);
-    const std::int32_t back  = -placed.x0;
-    const std::int32_t front =  placed.x1;
-    const std::int32_t reach = back > front ? back : front;
-    if (reach >= kStageHalfWidthSub) return kStageHalfWidthSub;
-    return kStageHalfWidthSub - reach;
+    return WallLimitFor(data, f);
 }
 
 // --- The tick pipeline (docs/adr/ADR-012) ------------------------------------

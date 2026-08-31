@@ -124,8 +124,16 @@ WitnessCursor::StepResult WitnessCursor::Step(const State& s,
     // A movement macro advances by COUNTING (the header says why): `waiting`
     // is its elapsed-tick counter -- an entry is either watched or counted,
     // never both, so the field cannot mean two things at once on one entry.
+    //
+    // ONLY FREE TICKS COUNT. A fighter mid-move cannot walk (commitment) and
+    // a frozen one cannot either (hitstop), so "walk 8" means eight ticks OF
+    // WALKING: the held direction rides silently through a move's tail or a
+    // freeze and the count begins when the fighter can act on it. Without
+    // this, a walk macro issued right after a connect spent most of itself
+    // committed and the microwalk link was never performable -- the probe
+    // that measured it is in the slice commit.
     if (IsMacro(slots_[s.cursor])) {
-        ++r.next.waiting;
+        if (moveId == 0) ++r.next.waiting;
         if (r.next.waiting >= static_cast<int>(macroTicks_[s.cursor])) {
             r.advanced     = true;
             r.next.waiting = 0;

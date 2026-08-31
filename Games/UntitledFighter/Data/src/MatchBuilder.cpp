@@ -105,8 +105,10 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
     std::int32_t withHitCondition = 0, noReach = 0, withReach = 0;
     std::int32_t withHits = 0, withMotion = 0, withEscapeHatch = 0;
     std::int32_t offMid = 0, withHitstop = 0, withPosAdd = 0;
+    std::int32_t withCornerPush = 0;
 
     for (const Move& m : c.moves) {
+        if (m.cornerPushSub != 0) ++withCornerPush;
         for (const MotionKey& k : m.motion)
             if (k.posAddXSub != 0 || k.posAddYSub != 0) { ++withPosAdd; break; }
         if (m.stance != Stance::Any)        ++stanced;
@@ -277,6 +279,18 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
             "rather than a number nothing reads, which makes the estimate matter "
             "MORE and not less. Saturated at the int16 slot, with a warning "
             "naming both numbers when a file exceeds it.");
+
+    addLoss(report, "move.corner_push", BuildLossDirection::Exact, withCornerPush,
+            "engine.reaction.corner_push_vel_sub, carried whole into "
+            "MoveDef::cornerPushHit (M1.6's microwalk slice): when a hit "
+            "lands on a defender the wall already stops, the ATTACKER recoils "
+            "by this much -- the wall absorbs the defender's pushback and the "
+            "pressure re-opens the gap a microwalk then closes. fighter_a "
+            "authors the key at 0 on all 22 moves, so the shipped character "
+            "is unchanged and the microwalk showcase variant is where the "
+            "field first bites. The MODEL has no corner in its vocabulary at "
+            "all; its midscreen/corner split is a stage choice, not a rule "
+            "per hit.");
 
     addLoss(report, "move.hitstop", BuildLossDirection::Exact, withHitstop,
             "Impact freeze on hit, carried whole into MoveDef::hitstop (ROADMAP "
@@ -980,6 +994,16 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
                 push = clamped;
             }
             m.pushbackHit = static_cast<std::int16_t>(push);
+        }
+
+        // CORNER PUSH, CARRIED WHOLE (M1.6's microwalk slice), saturated at
+        // its int16 slot for pushback's own reason.
+        {
+            constexpr std::int32_t kMaxPushback = 32767;
+            std::int32_t recoil = src.cornerPushSub;
+            if (recoil > kMaxPushback) recoil = kMaxPushback;
+            if (recoil < -kMaxPushback) recoil = -kMaxPushback;
+            m.cornerPushHit = static_cast<std::int16_t>(recoil);
         }
 
         // HITSTOP, CARRIED WHOLE (ROADMAP M1.3i). It was held back from M1.3d

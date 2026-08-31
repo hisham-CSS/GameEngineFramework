@@ -469,6 +469,12 @@ struct Move {
     std::int32_t airHitstunTicks = 0;   // hitstun when the defender is AIRBORNE;
                                         // it is what makes a juggle last
     std::int32_t fallRecoverTicks = 0;  // ticks on the floor after a knockdown
+    // Recoil applied to the ATTACKER when the defender is already against the
+    // wall (M1.6's microwalk slice): the wall absorbs defender pushback, so
+    // this is the genre's pressure-release valve -- and the displacement a
+    // microwalk exists to walk back. Sub-units, like pushback; zero on every
+    // shipped move today (fighter_a authors the key at 0 on all 22).
+    std::int32_t cornerPushSub    = 0;
     bool         causesKnockdown  = false;
 
     // WHICH BLOCK STOPS THIS MOVE. Mid by default, which is what an absent field

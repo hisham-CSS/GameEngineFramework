@@ -124,6 +124,20 @@ bool BoxesOverlap(const Box& a, const Box& b) {
 
 // --- Reading the state through the data -------------------------------------
 
+std::int32_t WallLimitFor(const FighterData& data, const Fighter& f) {
+    // The argument for the pushbox and the placed-box reading lives with the
+    // wall clamp in Simulate.cpp, where it was written; this is the same
+    // arithmetic, moved here when the corner push became its second asker.
+    if (data.pushbox.x1 <= data.pushbox.x0) return kStageHalfWidthSub;
+
+    const Box placed = PlaceBox(data.pushbox, 0, 0, f.facing);
+    const std::int32_t back  = -placed.x0;
+    const std::int32_t front =  placed.x1;
+    const std::int32_t reach = back > front ? back : front;
+    if (reach >= kStageHalfWidthSub) return kStageHalfWidthSub;
+    return kStageHalfWidthSub - reach;
+}
+
 const MoveDef* MoveAt(const FighterData& data, std::uint16_t moveId) {
     if (moveId == 0) return nullptr;
     const std::int32_t id = static_cast<std::int32_t>(moveId);
@@ -836,6 +850,22 @@ void ResolveHits(GameState& state, const MatchData& data) {
         }
 
         def.pushX += pushAwayFrom(atk, def, m->pushbackHit);
+
+        // CORNER PUSH (M1.6's microwalk slice): when the wall already stops
+        // the defender, their pushback is absorbed and the pressure has to go
+        // SOMEWHERE -- the genre sends it back through the attacker, which is
+        // what re-opens the gap a microwalk then closes. "Cornered" is the
+        // defender's origin standing AT its own wall limit, a byte test
+        // against the same WallLimitFor the physics clamp uses -- one rule,
+        // two askers, no reach model. The recoil rides pushX for pushback's
+        // own recorded reason: velX is zeroed by commitment and stun exactly
+        // when a fighter cannot act, and a recoil stored there would be
+        // erased the tick it was applied.
+        if (m->cornerPushHit != 0) {
+            const std::int32_t lim = WallLimitFor(data.p[d], def);
+            if (def.posX <= -lim || def.posX >= lim)
+                atk.pushX += pushAwayFrom(def, atk, m->cornerPushHit);
+        }
     }
 
     // --- INTERRUPT ----------------------------------------------------------
