@@ -1052,6 +1052,14 @@ Actionable TicksUntilActionable(const cse::kernel::FighterData& data,
     // At least one: the tick being observed has already run, so nothing can be
     // acted on earlier than the next one.
     if (out.ticks < 1) out.ticks = 1;
+
+    // The freeze pauses ALL of the above (see the header): every clock the
+    // three terms read stands still while StepPhysics burns hitstop down, so
+    // the pause adds to whichever term won -- after the floor, because it
+    // delays the next actionable tick too. FrameAdvantage is unmoved by this
+    // line: ResolveHits freezes both fighters by the same amount, so the two
+    // additions cancel in its subtraction.
+    out.ticks += static_cast<std::int32_t>(fighter.hitstop);
     return out;
 }
 

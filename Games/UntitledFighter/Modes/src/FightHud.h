@@ -178,6 +178,15 @@ struct Actionable {
 //   edge that is open with THESE buttons held on THIS tick, and this returns the
 //   earliest tick any edge could open at all. Ties go to the first edge in file
 //   order, which is FindCancel's own tie-break and is chosen here for its reason.
+//
+//   AND ONE PAUSE, WHICH IS NOT A FOURTH RIVAL TERM: Fighter::hitstop (ROADMAP
+//   M1.3i). StepPhysics decrements it and RETURNS, so moveFrame, hitstun and
+//   blockstun all stand still while it runs and whichever term won above is
+//   late by exactly `hitstop` ticks. It is ADDED after the max and the floor
+//   rather than compared, because a pause delays the "next tick" too. Without
+//   it this readout is EARLY during every freeze -- the worse direction: a
+//   playtester told they are free presses a button the game ignores and
+//   concludes the input was dropped.
 Actionable TicksUntilActionable(const cse::kernel::FighterData& data,
                                 const cse::kernel::Fighter& fighter);
 

@@ -1,8 +1,8 @@
 {
-  "description": "stand_lp hitstun 12 -> 15: the restart link exists by exactly one tick -- the re-press must land on the very tick the move ends -- and this file authors NO input buffer, so the search's held early press never has an edge on that tick and the loop never closes: TERMINATING, the one-frame link as a coin that always lands wrong. The buffered twin (one_frame_link_buffered) differs by a single field and turns the same coin into a certainty.",
+  "description": "stand_lp hitstun 12 -> 15: the restart link exists by exactly one tick -- the re-press must land on the very tick the move ends -- and this file authors NO input buffer, so the search's held early press never has an edge on that tick and the loop never closes: TERMINATING, the one-frame link as a coin that always lands wrong. The buffered twin (one_frame_link_buffered) differs by a single buffer field and turns the same coin into a certainty. hitstop_ticks is zeroed on the move in BOTH twins, because the coin is a phase between the masher's re-press cycle and the link tick: fighter_a's authored 8-tick freeze (M1.3i) shifts that phase and lands the link on its own, which is a fact about hitstop, not about the buffer this pair isolates.",
   "patch": {
     "moves": {
-      "stand_lp": { "hitstun": 15 }
+      "stand_lp": { "hitstun": 15, "engine": { "reaction": { "hitstop_ticks": 0 } } }
     }
   }
 }

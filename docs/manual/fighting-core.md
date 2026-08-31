@@ -1,6 +1,6 @@
 # The Fighting-Game Core
 
-Verified: 2026-08-30 @ 47ba2b2
+Verified: 2026-08-31 @ 6036b00
 
 Cat Splat Engine is being built toward a deterministic, rollback-capable fighting game. That work does not live in `Engine/`. It is a **title** — `Games/UntitledFighter/` — and the engine does not depend on any of it. The link direction is a configure-time error, not a convention.
 
@@ -427,7 +427,7 @@ Neither direction is "the safe one". The prover's verdict was computed over the 
 
 **A loss with count 0 is still listed.** That is deliberate: knowing a check ran and found nothing is what tells "this character has no decay" apart from "nobody looked". Kung Fu Girl's `decay` entry has count 0 with a note containing the word `inert`, and `MatchBridgeLosses.TheDecayEntryRecordsThatItCheckedRatherThanThatItSkipped` asserts exactly that.
 
-Here is the full table for Kung Fu Girl; `MatchBridgeLosses.EveryDropIsCountedAgainstKungFuGirlsActualFile` (`tests/test_match_bridge.cpp:872`) counts every row of it out of her actual file, and asserts the row *count* as well, so an entry that appears or disappears has to be recorded here:
+Here is the full table for Kung Fu Girl; `MatchBridgeLosses.EveryDropIsCountedAgainstKungFuGirlsActualFile` (`tests/test_match_bridge.cpp`) counts every row of it out of her actual file, and asserts the row *count* as well, so an entry that appears or disappears has to be recorded here:
 
 | Field | Count | Direction |
 |---|---:|---|
@@ -439,12 +439,16 @@ Here is the full table for Kung Fu Girl; `MatchBridgeLosses.EveryDropIsCountedAg
 | `cancel.guard` | 41 | KernelPermits |
 | `cancel.effect` | 0 | KernelOmits |
 | `move.cancel_window (absent)` | 8 | KernelPermits |
-| `character.walk_speed` | 1 | KernelOmits |
-| `move.pushback` | 24 | KernelOmits |
-| `move.stance` | 25 | KernelPermits |
-| `move.guard` | 2 | KernelPermits |
-| `move.effect` | 24 | KernelOmits |
-| `resources` | 2 | KernelOmits |
+| `character.walk_speed` | 1 | Exact |
+| `resource.juggle (gate)` | 0 | Exact |
+| `character.input_buffer_frames` | 0 | Exact |
+| `move.pushback` | 24 | Exact |
+| `move.hitstop` | 0 | Exact |
+| `move.stance` | 25 | Exact |
+| `move.blocked_as` | 0 | Exact |
+| `move.guard` | 2 | Exact |
+| `move.effect` | 24 | Exact |
+| `resources` | 2 | Exact |
 | `move.hit_condition` | 17 | KernelPermits |
 | `move.escape_hatch` | 15 | KernelPermits |
 | `scaling` | 6 | KernelOmits |
@@ -458,7 +462,7 @@ Here is the full table for Kung Fu Girl; `MatchBridgeLosses.EveryDropIsCountedAg
 | `move.hitbox.y` | 25 | KernelPermits |
 | `hurtbox` | 1 | KernelPermits |
 
-Nineteen entries bite, so `lossesThatBite == 19`.
+Nineteen entries bite, so `lossesThatBite == 19` — nonzero `Exact` rows count too, because a nonzero row of any direction is a place somebody has to have looked. Her four zero-count `Exact` rows (juggle gate, input buffer, hitstop, blocked_as) are the why-zero exhibits: her converted file authors none of those mechanics, and the row is the proof a check ran.
 
 The first eight rows replaced what used to be a single `cancels` entry with a count of 134. **All 134 of her edges are now carried**; what is listed instead is the part of each edge the kernel cannot yet honour, and every one of those errs `KernelPermits` — the game chains in situations the file does not allow. A combo system uniformly more permissive than the analysed one is exactly how a `TERMINATING` verdict becomes a game with an infinite in it, which is the next section.
 
@@ -721,8 +725,9 @@ It names both resources, in order, `meter, juggle`. Only juggle can actually run
 | `move.guard` ×1 | `Exact` since M1.1b — the minimum is checked on both start routes, so `super_beam` is no longer startable on an empty bar |
 | `move.stance` ×22 | `Exact` since M1.3e — mapped by name into `MoveDef::stance` and enforced by `StanceAllows` on both start routes. Selection reads the held **input** (is Down held now) and the posture then follows the started move, so a cross-posture gatling works and an air move needs the takeoff Up provides |
 | `move.blocked_as` ×9 | `Exact` since M1.3e — a low goes through a standing block and an overhead through a crouching one, on the shipped file |
+| `move.hitstop` ×22 | `Exact` since M1.3i — the authored freeze reaches `MoveDef::hitstop` and ResolveHits imposes it on BOTH fighters, so every clock stops together: no frame-data relationship moves, only wall-clock periods stretch (the air loop's hit period is now 23 = the 11-tick cancel plus 12 of freeze) |
 
-`tests/test_ground_truth.cpp` then hands the kernel a trace derived from the prover's own witness — nothing hardcodes a button; the trace is built by walking `ProverResult`, so the claim is that *the engine* can read the verdict, not that a human can. Before M1.3e the kernel performed `air_mp` into itself 18 times in 200 ticks — a cancel the model permits four of. **Since M1.3e the loop must jump, and the arc ends every string at exactly the model's count: four hits per jump at a fixed period, then a landing on which the defender is genuinely free.** The count agrees, and since M1.1f the reason does too: the ballistic arc runs out of air at four, and the wired juggle budget — `FighterData::juggleMax` mirroring the resource the certificate ranks — would refuse the fifth aerial in the same breath. `GroundTruthGap.TheArcEndsEveryStringAtTheCountTheModelChargesToJuggle` is that sentence as a test. `BuildReport::playsAsAnalysed` is still `false` (hitstop, priority, chip, scaling), and the tests are what the flag costs.
+`tests/test_ground_truth.cpp` then hands the kernel a trace derived from the prover's own witness — nothing hardcodes a button; the trace is built by walking `ProverResult`, so the claim is that *the engine* can read the verdict, not that a human can. Before M1.3e the kernel performed `air_mp` into itself 18 times in 200 ticks — a cancel the model permits four of. **Since M1.3e the loop must jump, and the arc ends every string at exactly the model's count: four hits per jump at a fixed period, then a landing on which the defender is genuinely free.** The count agrees, and since M1.1f the reason does too: the ballistic arc runs out of air at four, and the wired juggle budget — `FighterData::juggleMax` mirroring the resource the certificate ranks — would refuse the fifth aerial in the same breath. `GroundTruthGap.TheArcEndsEveryStringAtTheCountTheModelChargesToJuggle` is that sentence as a test. `BuildReport::playsAsAnalysed` is still `false` (priority, chip and scaling are still dropped, and the carried cancel conditions are honoured only in part), and the tests are what the flag costs.
 
 The model agrees, once you ask it the right question. Hand the *same* character to `AnalyseCharacter` with every move and cancel `effect` and `guard` emptied — the resource declarations left in place, because the pool existing and nothing moving it is exactly the kernel's state — and the verdict is **`INFINITE COMBO`, with the loop `air_mp`**. That is the panel's third question, and it names the very loop whose infinite the movement rules then close on the stage.
 

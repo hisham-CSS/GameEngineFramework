@@ -4018,8 +4018,9 @@ TEST(GameComboWatcher, ACycleTheCertificateRetiresIsStillFlaggedWhenTheKernelRun
 
     // THREE, and the bound is the ARC. Since ROADMAP M1.3e the air self-cancel
     // is performed the way a player performs it -- jump, cancel down the arc,
-    // land -- and one jump holds at most four repetitions (hit ticks 6, 17,
-    // 28, 39; test_ground_truth section 5 measures it). The defender is FREE
+    // land -- and one jump holds at most four repetitions (hit ticks 6, 29,
+    // 52, 75 with M1.3i's freeze: the 11-tick cancel plus air_mp's 12 of
+    // hitstop; test_ground_truth section 5 measures it). The defender is FREE
     // between jumps, so a watcher correctly ends the combo there: six turns as
     // ONE combo is no longer a thing the game contains, and this test's claim
     // -- the watcher flags a certified-away cycle while it runs -- must be

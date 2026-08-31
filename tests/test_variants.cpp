@@ -411,8 +411,20 @@ TEST(VariantExhibits, TheBufferTurnsAOneFrameLinkFromACoinIntoACertainty) {
 
     // Without the buffer, the search's held early press never has an edge on
     // the one tick the link needs: the loop never closes.
+    const auto spell = [](const Exhibit& e) {
+        std::string s;
+        for (std::size_t i = 0; i < e.searched.witness.size(); ++i) {
+            if (i == e.searched.loopStart) s += "[loop] ";
+            const std::string_view id =
+                e.build.moves[0].IdOf(e.searched.witness[i]);
+            s += id.empty() ? std::string("?") : std::string(id);
+            s += ' ';
+        }
+        return s;
+    };
     EXPECT_EQ(coin.searched.verdict, ComboVerdict::Terminating)
-        << "the unbuffered one-frame link closed after all: " << coin.searched.note;
+        << "the unbuffered one-frame link closed after all: " << coin.searched.note
+        << "\n  witness: " << spell(coin);
 
     // With the two-tick window, the same press is consumed on exactly that
     // tick, and the restart loop is found by performing it.

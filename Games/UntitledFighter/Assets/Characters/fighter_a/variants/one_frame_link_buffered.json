@@ -1,9 +1,9 @@
 {
-  "description": "The same stand_lp hitstun 15 as one_frame_link, plus the genre's modern buffer: input_buffer_frames 2, the three-tick feel. A press made up to two ticks early is consumed on exactly the tick the link needs, so the one-frame restart loop closes and the search finds it INFINITE -- the same coin the unbuffered twin always loses, made a certainty by one authored field. This is the feature asked for in the author's own words ('a 3 frame buffer that makes a tightly timed link much easier'), demonstrated by the paper's own instrument.",
+  "description": "The same stand_lp hitstun 15 (and hitstop_ticks 0 -- see the unbuffered twin for why the freeze must sit out) as one_frame_link, plus the genre's modern buffer: input_buffer_frames 2, the three-tick feel. A press made up to two ticks early is consumed on exactly the tick the link needs, so the one-frame restart loop closes and the search finds it INFINITE -- the same coin the unbuffered twin always loses, made a certainty by one authored field. This is the feature asked for in the author's own words ('a 3 frame buffer that makes a tightly timed link much easier'), demonstrated by the paper's own instrument.",
   "patch": {
     "input_buffer_frames": 2,
     "moves": {
-      "stand_lp": { "hitstun": 15 }
+      "stand_lp": { "hitstun": 15, "engine": { "reaction": { "hitstop_ticks": 0 } } }
     }
   }
 }

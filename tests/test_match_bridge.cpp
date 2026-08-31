@@ -953,6 +953,10 @@ TEST(MatchBridgeLosses, EveryDropIsCountedAgainstKungFuGirlsActualFile) {
         { "resource.juggle (gate)",    0, BuildLossDirection::Exact         },
         { "character.input_buffer_frames", 0, BuildLossDirection::Exact     },
         { "move.pushback",            24, BuildLossDirection::Exact         },
+        // Zero for Kung Fu Girl and, like her juggle gate, the zero records
+        // that somebody looked: her converted file authors no impact freeze,
+        // so M1.3i's carried hitstop leaves every move of hers at 0.
+        { "move.hitstop",              0, BuildLossDirection::Exact         },
         // Exact since ROADMAP M1.3e wired both into MoveDef and StanceAllows.
         // Kung Fu Girl authors a stance on all 25 moves and no blocked_as at
         // all -- the zero-count row records that somebody looked.
@@ -1186,12 +1190,11 @@ TEST(MatchBridgeMechanics, PushbackReachesTheKernelAndMovesTheDefender) {
 // Knockdown, from the authored `engine.reaction` block. The kernel slot has
 // existed since ADR-005 P2 and was zero for every built character.
 //
-// HITSTOP IS READ BY THE LOADER AND NOT YET CARRIED HERE, deliberately: it
-// freezes BOTH fighters, so every frame-exact prediction in
-// tests/test_gap_extent.cpp moves by the freeze duration -- 120 of 121 cycles
-// and six to nine timing mismatches each. That is correct game behaviour and it
-// needs the sweep's frame account to LEARN hitstop, which is its own slice.
-// ROADMAP M1.3d records the measurement.
+// Hitstop used to be read by the loader and deliberately NOT carried here,
+// because the freeze moved every frame-exact count in tests/test_gap_extent.cpp.
+// M1.4 made those counts properties, M1.3i carried the freeze, and
+// TheAuthoredFreezeReachesBothFightersAndATapInsideItBuffers below is the
+// bridge test for it.
 TEST(MatchBridgeMechanics, KnockdownReachesTheKernel) {
     CharacterData c = syntheticCharacter(2);
 
@@ -1428,4 +1431,95 @@ TEST(MatchBridgeMechanics, TheJuggleBudgetReachesTheKernelAndRefusesTheOverspend
                    "defender with 0 left, and the gate let it land";
         }
     }
+}
+
+// --- Hitstop crosses the bridge (ROADMAP M1.3i) ------------------------------
+//
+// The kernel has frozen both fighters on impact since ADR-005 P2; the bridge
+// held the authored value back until M1.4 turned the frame-exact counts into
+// properties, because the freeze moves every wall-clock number while moving no
+// frame-data relationship -- startup 5 is still five ticks OF THE MOVE. Two
+// halves proved on the shipped file: the authored freeze reaches BOTH
+// fighters, and a tap made entirely inside it still buffers -- the M1.3f
+// placement rule, exercised with a real authored value instead of a synthetic
+// one, which the crossplat golden (no moves, no hitstop) can never do.
+TEST(MatchBridgeMechanics, TheAuthoredFreezeReachesBothFightersAndATapInsideItBuffers) {
+    CharacterData c{};
+    LoadReport report{};
+    ASSERT_TRUE(LoadCharacterFile(ownCharactersDir(), "fighter_a.json", loadOptions(), c, report))
+        << report.error;
+
+    const MoveIndex lp = c.FindMove("stand_lp");
+    ASSERT_NE(lp, cse::data::kInvalidMove);
+    ASSERT_EQ(c.moves[lp].hitstopTicks, 8)
+        << "the loader no longer reads stand_lp's authored freeze";
+
+    BuildOptions options{};
+    options.bindings = { { "stand_lp", cse::kernel::kInputLP },
+                         { "stand_mp", cse::kernel::kInputMP } };
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build)) << build.report[0].error;
+
+    const std::uint16_t lpSlot = build.moves[0].Find("stand_lp");
+    ASSERT_NE(lpSlot, 0u);
+    EXPECT_EQ(build.data.p[0].moves[lpSlot].hitstop, 8)
+        << "the bridge dropped the freeze; MoveDef::hitstop is "
+        << build.data.p[0].moves[lpSlot].hitstop;
+
+    // Both fighters, with the buffer live so the tap-confirm can be watched.
+    build.data.p[0].inputBufferFrames = 2;
+    build.data.p[1].inputBufferFrames = 2;
+
+    cse::kernel::GameState s{};
+    cse::kernel::ResetMatch(s, 0x1D7u);
+    s.p[0].posX = -px(10);
+    s.p[1].posX =  px(10);
+    s.p[0].facing = 0;
+    s.p[1].facing = 1;
+
+    cse::kernel::InputPair lpPress{};
+    lpPress.p[0].bits = cse::kernel::kInputLP;
+    cse::kernel::Simulate(s, lpPress, build.data);          // stand_lp starts
+    ASSERT_EQ(s.p[0].moveId, lpSlot);
+
+    // Run to the contact tick: startup 3 means the box first lands on the
+    // move's third frame, and the freeze is set by ResolveHits that tick.
+    cse::kernel::InputPair none{};
+    while (s.p[0].hitstop == 0) {
+        cse::kernel::Simulate(s, none, build.data);
+        ASSERT_NE(s.p[0].moveId, 0u) << "stand_lp ran out before it connected";
+    }
+    // Observed on the tick ResolveHits SET it, before any decrement -- the
+    // freeze starts counting on the next tick's physics.
+    EXPECT_EQ(s.p[0].hitstop, 8)
+        << "the ATTACKER'S freeze is not the authored 8";
+    EXPECT_EQ(s.p[1].hitstop, 8)
+        << "the DEFENDER'S freeze is not the authored 8: hitstop freezes BOTH "
+           "fighters, or the impact reads as the defender lagging";
+    const std::uint16_t frameAtFreeze = s.p[0].moveFrame;
+
+    // THE TAP-CONFIRM: press and RELEASE stand_mp's button entirely inside
+    // the freeze. M1.3f's placement rule says recording runs during hitstop
+    // with aging suspended, so the tap must come out as the cancel the moment
+    // the move can take it -- eaten, it is the exact input this genre's
+    // confirm culture is built on.
+    cse::kernel::InputPair mpTap{};
+    mpTap.p[0].bits = cse::kernel::kInputMP;
+    cse::kernel::Simulate(s, mpTap, build.data);            // pressed, frozen
+    cse::kernel::Simulate(s, none, build.data);             // released, frozen
+    EXPECT_EQ(s.p[0].moveFrame, frameAtFreeze)
+        << "the move advanced during its own freeze";
+
+    const std::uint16_t mpSlot = build.moves[0].Find("stand_mp");
+    ASSERT_NE(mpSlot, 0u);
+    bool cancelled = false;
+    for (int t = 0; t < 30 && !cancelled; ++t) {
+        cse::kernel::Simulate(s, none, build.data);
+        cancelled = s.p[0].moveId == mpSlot;
+    }
+    EXPECT_TRUE(cancelled)
+        << "the tap made entirely inside the authored freeze never came out: "
+           "the freeze ate the confirm, which is the regression the three "
+           "P3Input freeze tests pin on synthetic data and this one pins on "
+           "the shipped file.";
 }

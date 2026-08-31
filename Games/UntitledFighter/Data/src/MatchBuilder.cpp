@@ -104,7 +104,7 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
     std::int32_t stanced = 0, withEffect = 0, withGuard = 0, withPushback = 0;
     std::int32_t withHitCondition = 0, noReach = 0, withReach = 0;
     std::int32_t withHits = 0, withMotion = 0, withEscapeHatch = 0;
-    std::int32_t offMid = 0;
+    std::int32_t offMid = 0, withHitstop = 0;
 
     for (const Move& m : c.moves) {
         if (m.stance != Stance::Any)        ++stanced;
@@ -112,6 +112,7 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
         if (!m.effect.empty())              ++withEffect;
         if (!m.guard.empty())               ++withGuard;
         if (m.pushbackSub != 0)             ++withPushback;
+        if (m.hitstopTicks != 0)            ++withHitstop;
         if (!m.hitConditionProse.empty())   ++withHitCondition;
         if (m.reachSub == kNoReach)         ++noReach; else ++withReach;
         if (!m.hits.empty())                ++withHits;
@@ -250,6 +251,17 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
             "rather than a number nothing reads, which makes the estimate matter "
             "MORE and not less. Saturated at the int16 slot, with a warning "
             "naming both numbers when a file exceeds it.");
+
+    addLoss(report, "move.hitstop", BuildLossDirection::Exact, withHitstop,
+            "Impact freeze on hit, carried whole into MoveDef::hitstop (ROADMAP "
+            "M1.3i) and imposed on BOTH fighters by ResolveHits, so every clock "
+            "-- move frames, stun, the arc -- stands still together and no "
+            "frame-data relationship moves; only wall-clock periods stretch. "
+            "The MODEL still has no freeze in its vocabulary, which is fine "
+            "for the certificate (relationships are freeze-invariant) and "
+            "visible to a masher: the freeze shifts re-press phase against a "
+            "one-tick link, which is what the one_frame_link variants zero it "
+            "for. Saturated at the uint16 slot.");
 
     addLoss(report, "move.stance", BuildLossDirection::Exact, stanced,
             "What the fighter must be in to START the move, mapped by name into "
@@ -894,21 +906,24 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
             m.pushbackHit = static_cast<std::int16_t>(push);
         }
 
-        // KNOCKDOWN, from engine.reaction. The kernel slot has existed since
-        // ADR-005 P2 and this bridge left it at zero, so a built character's
-        // sweeps knocked nobody down.
-        //
-        // HITSTOP IS READ BY THE LOADER AND DELIBERATELY NOT CARRIED YET, and
-        // the reason is measured rather than cautious. It freezes BOTH
-        // fighters, so every frame-exact prediction in tests/test_gap_extent.cpp
-        // moves by the freeze duration: 120 of 121 cycles fell short and each
-        // carried six to nine timing mismatches. That is the game becoming
-        // correct, not the bridge becoming wrong -- but the sweep's section-3
-        // account has to LEARN hitstop before its numbers mean anything again,
-        // and that is its own slice. ROADMAP M1.3d holds the measurement.
-        //
-        // Saturated at its unsigned 16-bit slot for the reason pushback is: a
-        // wrap turns a 20-tick knockdown into an 18-hour one.
+        // HITSTOP, CARRIED WHOLE (ROADMAP M1.3i). It was held back from M1.3d
+        // for a measured reason -- the freeze moves every frame-exact count in
+        // the old hand-derived sweep -- and that objection died when M1.4 made
+        // the counts properties: the freeze moves wall-clock periods and no
+        // frame-data RELATIONSHIP, because it freezes BOTH fighters and
+        // "startup 5 is still five ticks OF THE MOVE" (Combat.h). Saturated at
+        // the uint16 slot for the reason pushback is.
+        {
+            constexpr std::int32_t kMaxFreeze = 65535;
+            std::int32_t freeze = src.hitstopTicks;
+            if (freeze < 0) freeze = 0;
+            if (freeze > kMaxFreeze) freeze = kMaxFreeze;
+            m.hitstop = static_cast<std::uint16_t>(freeze);
+        }
+
+        // KNOCKDOWN, from engine.reaction, saturated at its unsigned 16-bit
+        // slot for the reason pushback is: a wrap turns a 20-tick knockdown
+        // into an 18-hour one.
         {
             constexpr std::int32_t kMaxTicks = 65535;
 

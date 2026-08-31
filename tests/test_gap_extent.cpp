@@ -847,11 +847,14 @@ constexpr int kSweepTicks = 160;
 // which needs exactly two.
 constexpr int kMinTurns   = 2;
 
-// ONE BUDGET STOPPED WORKING WHEN THE CYCLES GOT LONGER, and again when they
-// got SLOWER: since ROADMAP M1.3e a turn contains a real jump, and a turn's
-// length is NOT proportional to the cycle's -- measured, a turn is about
-// 14 ticks per grounded move plus ~42 of takeoff, arc-remainder and landing,
-// so a length-3 turn runs ~85 ticks and a length-5 one ~115. The budget is
+// ONE BUDGET STOPPED WORKING WHEN THE CYCLES GOT LONGER, again when they got
+// SLOWER, and a third time when hits started FREEZING: since ROADMAP M1.3e a
+// turn contains a real jump -- measured, ~14 ticks per grounded move plus ~42
+// of takeoff, arc-remainder and landing -- and since M1.3i every connecting
+// hit stops BOTH clocks for its authored hitstop (8-12 ticks on this
+// character), so a turn's wall length gains up to 12 more per hit. The 14+12
+// per-move term below is that ceiling; frame-data relationships are
+// freeze-invariant, so only this wall-clock scaffolding moved. The budget is
 // two such turns plus margin -- NOT three, because a landing restores scaling
 // (the string ended; that is the finding), so every string hits at full
 // damage and three turns of a length-5 cycle exceed the 1000-point bar.
@@ -859,7 +862,7 @@ constexpr int kMinTurns   = 2;
 // thing this sweep measures; the health and turn-count assertions police both
 // edges of the window.
 inline int sweepTicksFor(std::size_t cycleLength) {
-    const int scaled = 2 * (14 * static_cast<int>(cycleLength) + 42) + 70;
+    const int scaled = 2 * ((14 + 12) * static_cast<int>(cycleLength) + 42) + 70;
     return scaled > kSweepTicks ? scaled : kSweepTicks;
 }
 
@@ -1631,7 +1634,7 @@ TEST(GapExtentKernel, ZeroOfThe121RunForever) {
     EXPECT_GT(stance->count, 0);
     EXPECT_FALSE(probe.report[0].playsAsAnalysed)
         << "the bridge claims the kernel plays the character ProverAdapter "
-           "analysed; juggle, hitstop and priority are still dropped.";
+           "analysed; priority, chip and scaling are still dropped.";
 
     std::cout
         << "\n[ GAP EXTENT ] every cycle of `" << safe.character.id << "`, measured\n"

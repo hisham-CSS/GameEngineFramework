@@ -734,8 +734,12 @@ constexpr int kPayoffTicks = 160;
 constexpr int kMinTurns    = 20;
 
 // Section 5 runs longer, because the edge it exercises repeats every 11 ticks
-// rather than every 6 and the point is the size of the overrun.
-constexpr int kGapTicks = 200;
+// rather than every 6 and the point is the size of the overrun. Sized up for
+// ROADMAP M1.3i: every connecting air_mp now freezes both fighters for its
+// authored 12 ticks of hitstop, so a four-hit string plus its landing takes
+// ~104 wall ticks instead of ~62, and the old 200-tick window held only ONE
+// landing seam where assertion (2) needs at least two.
+constexpr int kGapTicks = 460;
 
 // ResetMatch's opening health (Simulate.cpp). Named so the damage arithmetic
 // below reads as a subtraction from a known starting point rather than as a
@@ -1494,11 +1498,13 @@ TEST(GroundTruthGap, TheArcEndsEveryStringAtTheCountTheModelChargesToJuggle) {
     // charges to juggle -- and it is now DOUBLY enforced: the ballistic arc
     // runs out of air at four, and the wired juggle budget (juggleMax 4,
     // air_mp costing 1) would refuse the fifth in the same breath. Measured
-    // 2026-08-30: hits at ticks 6, 17, 28, 39 -- four per jump, the cancel
-    // period is 11 -- then a landing, a free tick, and the next jump opens at
-    // 62; the wire moved none of these numbers, only the reason. If this
-    // assertion ever fails, the arc and the budget have PARTED: say which
-    // moved, and why.
+    // 2026-08-31, with M1.3i's hitstop live: hits at ticks 6, 29, 52, 75 --
+    // still four per jump, and the period is 23 = the 11-tick cancel plus
+    // air_mp's authored 12 of freeze, during which BOTH clocks stop so the
+    // arc and the move age together and the count cannot drift. The juggle
+    // wire (M1.1f) moved none of these numbers; the hitstop wire moved every
+    // WALL-CLOCK one and no FRAME-DATA one. If this assertion ever fails, the
+    // arc and the budget have PARTED: say which moved, and why.
     ASSERT_GE(run.hitTicks.size(), static_cast<std::size_t>(permitted) + 1)
         << "the loop did not even reach a second string" << Summary(run, build.moves[0]);
     const std::int32_t period = run.hitTicks[1] - run.hitTicks[0];
@@ -1550,7 +1556,8 @@ TEST(GroundTruthGap, TheArcEndsEveryStringAtTheCountTheModelChargesToJuggle) {
            "string if the loop actually has to leave the ground.";
 
     // The flag that was always going to be the one to watch. Still false --
-    // juggle, hitstop and priority are still dropped -- and still COMPUTED.
+    // priority, chip and scaling are still dropped, and the carried cancel
+    // conditions are honoured only in part -- and still COMPUTED.
     EXPECT_FALSE(build.report[0].playsAsAnalysed);
     EXPECT_GT(build.report[0].lossesThatBite, 0);
 

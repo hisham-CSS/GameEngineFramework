@@ -889,12 +889,16 @@ struct Row {
     std::int32_t  srcStartup  = 0;
     std::int32_t  srcHitstun  = 0;
     std::int32_t  srcDuration = 0;
+    std::int32_t  srcHitstop  = 0;
 
     // The first frame on which the kernel can BOTH see the window open and see
     // that the source connected. A hit lands on `moveFrame == startup` and
     // ResolveHits sets `alreadyHitBits` at the BOTTOM of that tick, so the cancel
     // test first sees it at `startup + 1` -- which is also, therefore, the loop's
-    // period when the window opens earlier than that.
+    // FRAME period when the window opens earlier than that. The WALL period is
+    // this plus `srcHitstop` (ROADMAP M1.3i): the contact that opens the window
+    // also freezes the move's clock, and the assertions below add that term
+    // where they measure ticks.
     std::int32_t FirstTakeableFrame() const {
         const std::int32_t contact = srcStartup + 1;
         return earliest > contact ? earliest : contact;
@@ -902,8 +906,9 @@ struct Row {
 };
 
 // How long each sweep run gets. Chosen against the file rather than picked: the
-// fastest configuration repeats every 5 ticks for 25 damage, so 120 ticks is 24
-// hits and 600 damage against 1000 health. It stays clear of the KO on purpose
+// fastest configuration repeats every 5 ticks plus 8 of freeze (M1.3i) for 25
+// damage, so 120 ticks is ~9 hits and ~225 damage against 1000 health. It
+// stays clear of the KO on purpose
 // -- Fighter::health clamps at zero and a hit that takes a clamped number to a
 // clamped number is not observable as a hit at all, so a KO inside the window
 // would silently truncate every count in the table. The sweep ASSERTS the
@@ -951,6 +956,7 @@ bool sweep(std::vector<Row>& out, std::size_t& probeOut, std::string& why) {
         row.srcStartup  = src.startup;
         row.srcHitstun  = src.hitstun;
         row.srcDuration = src.startup + src.active + src.recovery;
+        row.srcHitstop  = src.hitstopTicks;
 
         row.proverKeepsEdge = true;
         for (const ProverDeadCancel& dead : a.verdict.deadCancels)
@@ -1040,9 +1046,11 @@ constexpr std::int32_t kKernelBoundary = 6;
 constexpr std::int32_t kStartingHealth = 1000;
 
 // The payoff run. Longer than the sweep because it asserts a period holds over
-// many turns; still short of the KO, at 22 hits for 550 damage in the fastest
-// configuration it uses.
-constexpr int kPayoffTicks = 200;
+// many turns; still short of the KO. Sized for ROADMAP M1.3i's freeze: every
+// connecting hit now adds the probe's 8 authored ticks of hitstop to the wall
+// clock, so the same ~21 hits that 200 ticks used to hold need ~360 -- the HIT
+// COUNT is what the KO ceiling cares about, and it has not moved.
+constexpr int kPayoffTicks = 360;
 constexpr int kMinTurns    = 18;
 
 // The relationships between those three, as compile-time facts rather than as
@@ -1451,13 +1459,18 @@ TEST(OneFramePayoff, AtTheProversBoundaryTheKernelCannotPerformThePrintedLoop) {
         << Summary(run, a.build.moves[0]);
 
     // And the repetition that DOES happen is the move running out and the held
-    // button starting it again -- period `duration`, not period `earliest`.
+    // button starting it again -- period `duration` plus the freeze, not period
+    // `earliest`. Every repetition connects, and since ROADMAP M1.3i a
+    // connecting hit stops the move's own clock for its authored hitstop, so
+    // the WALL period gains exactly that; the move is still `duration` frames
+    // long and still ends by running out.
     const Move& src = a.character.moves[a.character.cancels[a.fileCancel].from];
     const std::int32_t duration = src.startup + src.active + src.recovery;
-    EXPECT_EQ(run.Period(), duration)
+    EXPECT_EQ(run.Period(), duration + src.hitstopTicks)
         << "the string repeats every " << run.Period() << " ticks and the move is "
-        << duration << " ticks long, so something other than the button start is "
-           "restarting it." << Summary(run, a.build.moves[0]);
+        << duration << " ticks long plus " << src.hitstopTicks << " of freeze, so "
+           "something other than the button start is restarting it."
+        << Summary(run, a.build.moves[0]);
 
     // The bridge already says the game is not the analysed character. What this
     // test adds is which edge, and in which direction.
@@ -1476,7 +1489,7 @@ TEST(OneFramePayoff, AtTheProversBoundaryTheKernelCannotPerformThePrintedLoop) {
         << "  MatchBuilder resolves the same edge to " << a.Window()
         << ", so the kernel never takes it: the\n"
         << "  string repeats every " << run.Period() << " ticks (the move's own "
-           "duration) and the defender is out of\n"
+           "duration plus its freeze) and the defender is out of\n"
         << "  hitstun on " << free.size() << " tick(s) inside it, starting a move "
            "on " << run.defenderActedTicks.size() << " of them.\n"
         << "  This is the MIRROR of test_ground_truth.cpp section 5. There the "
@@ -1596,8 +1609,12 @@ TEST(OneFramePayoff, TheLoopExecutesOnceTheKernelWindowOpens) {
     // ties what the kernel did back to the number the bridge produced, rather than
     // to a constant somebody recorded.
     const Move& src = a.character.moves[a.character.cancels[a.fileCancel].from];
+    // Plus the freeze (ROADMAP M1.3i): the hit that opens the window also stops
+    // the move's clock for its authored hitstop, so each turn of the loop is
+    // that many wall ticks longer than the frame arithmetic alone says.
     const std::int32_t expectedPeriod =
-        a.earliest > src.startup + 1 ? a.earliest : src.startup + 1;
+        (a.earliest > src.startup + 1 ? a.earliest : src.startup + 1) +
+        src.hitstopTicks;
     ASSERT_GE(run.hitTicks.size(), loopLength + 1);
     EXPECT_EQ(run.Period(), expectedPeriod)
         << "the loop repeats every " << run.Period() << " ticks; MatchBuilder opened "
@@ -1745,13 +1762,16 @@ TEST(OneFrameBoundary, TheSweepPutsTheAnalysisThreeFramesAheadOfTheGame) {
                 << "the edge is inert and a mashing defender never got to act";
             // What the kernel does INSTEAD: the move runs to the end of its
             // recovery and the held button starts it again, so the string repeats
-            // on the move's own duration. Asserted rather than left as "slower",
+            // on the move's own duration plus its freeze -- each repetition
+            // connects, and the contact stalls the move's clock for its authored
+            // hitstop (ROADMAP M1.3i). Asserted rather than left as "slower",
             // because it is the sentence that says the repetition is an ordinary
             // button press and not a cancel that happens to be late.
-            EXPECT_EQ(r.period, r.srcDuration)
+            EXPECT_EQ(r.period, r.srcDuration + r.srcHitstop)
                 << "the string repeats every " << r.period << " ticks and the move "
-                   "is " << r.srcDuration << " ticks long, so something other than "
-                   "the button start is restarting it.";
+                   "is " << r.srcDuration << " ticks long plus " << r.srcHitstop
+                << " of freeze, so something other than the button start is "
+                   "restarting it.";
         } else {
             EXPECT_EQ(r.verdict, KernelVerdict::Connects)
                 << "the window is [" << r.earliest << ", " << r.latest
@@ -1761,12 +1781,14 @@ TEST(OneFrameBoundary, TheSweepPutsTheAnalysisThreeFramesAheadOfTheGame) {
             EXPECT_EQ(r.defActs, 0u)
                 << "a mashing defender started " << r.defActs
                 << " move(s) inside a combo the window says is unbroken";
-            // The period is MatchBuilder's own number rather than a recorded
-            // constant: see Row::FirstTakeableFrame for the derivation.
-            EXPECT_EQ(r.period, r.FirstTakeableFrame())
+            // The period is MatchBuilder's own number plus the freeze, rather
+            // than a recorded constant: see Row::FirstTakeableFrame for both
+            // halves of the derivation.
+            EXPECT_EQ(r.period, r.FirstTakeableFrame() + r.srcHitstop)
                 << "the loop repeats every " << r.period
                 << " ticks; the window opens at frame " << r.earliest
-                << " and the source connects on frame " << r.srcStartup << ".";
+                << ", the source connects on frame " << r.srcStartup
+                << " and freezes " << r.srcHitstop << ".";
         }
     }
 

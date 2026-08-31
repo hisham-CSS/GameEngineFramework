@@ -2304,7 +2304,13 @@ std::int32_t twoTermTicksUntilActionable(const cse::kernel::FighterData& data,
                                   static_cast<std::int32_t>(fighter.moveFrame);
         if (left > ticks) ticks = left;
     }
-    return ticks < 1 ? 1 : ticks;
+    if (ticks < 1) ticks = 1;
+
+    // The pause, mirrored from FightHud.cpp with the terms (ROADMAP M1.3i):
+    // pending hitstop stalls every clock the two terms read, so it adds to
+    // whichever won. Restated here WITH it so the residual this file measures
+    // stays exactly the missing cancel term and not the freeze too.
+    return ticks + static_cast<std::int32_t>(fighter.hitstop);
 }
 
 // FightHud.cpp's FrameAdvantage, on top of it. `known` is false unless the
@@ -2496,10 +2502,15 @@ TEST(TrainingModeReadout, ACancelIsAThirdWayOutOfAMoveAndTheTwoTermRuleMissesIt)
     // One tick and not a hold. A held button restarts the move in the same
     // StepAttack call that ended it -- the next test is about exactly that -- and
     // here it would lay a second stand_lp on top of the frames being swept.
+    // Long enough for the whole move PLUS the freeze: since ROADMAP M1.3i the
+    // contact stalls the frame counter for `hitstop` ticks, so a trunk sized to
+    // the duration alone would end mid-move and the sweep would never see the
+    // frames after the window closes.
+    const std::int32_t freeze = static_cast<std::int32_t>(source->hitstop);
     std::vector<GameState> trunk;
     {
         GameState s = opening();
-        for (std::int32_t t = 0; t < duration + 2; ++t) {
+        for (std::int32_t t = 0; t < duration + freeze + 2; ++t) {
             step(s, bench.build.data,
                  static_cast<std::uint16_t>(t == 0 ? cse::kernel::kInputLP : 0));
             trunk.push_back(s);
@@ -2527,12 +2538,22 @@ TEST(TrainingModeReadout, ACancelIsAThirdWayOutOfAMoveAndTheTwoTermRuleMissesIt)
     std::int32_t agreements         = 0;
     std::int32_t framesSwept        = 0;
 
+    std::int32_t lastSweptFrame = -1;
     for (std::size_t t = 0; t < trunk.size(); ++t) {
         const GameState& at = trunk[t];
         if (at.p[0].moveId != lp) continue;   // the move has ended; nothing to ask
-        ++framesSwept;
-
         const std::int32_t frame = static_cast<std::int32_t>(at.p[0].moveFrame);
+
+        // ONE ROW PER FRAME, NOT PER TICK. The freeze holds the move on its
+        // contact frame for `freeze` consecutive trunk states; sweeping each of
+        // them would ask the same frame-domain question `freeze` times and the
+        // shape counts below would stop meaning "frames of the move". The first
+        // state at each frame is the one swept -- for the contact frame that is
+        // the state with the full freeze pending, which is also the hardest one
+        // for the wall-tick model below.
+        if (frame == lastSweptFrame) continue;
+        lastSweptFrame = frame;
+        ++framesSwept;
 
         // WHAT THE KERNEL DOES: fork here, hold the follow-up, and watch.
         const Freedom got =
@@ -2560,7 +2581,19 @@ TEST(TrainingModeReadout, ACancelIsAThirdWayOutOfAMoveAndTheTwoTermRuleMissesIt)
             << got.leftAtFrame << ". The edge's window is ["
             << edge->earliestFrame << ", " << edge->latestFrame
             << "] and the move is " << duration << " ticks long.";
-        EXPECT_EQ(static_cast<std::int32_t>(got.ticks), expectedLeaveFrame - frame);
+        // THE WALL CLOCK ALSO PAYS THE FREEZE (ROADMAP M1.3i), and how much of
+        // it depends on where the fork sits: a fork carrying pending hitstop
+        // pays what is left of it; a fork from before the contact replays the
+        // contact and pays all of it; a fork after the freeze has burned off
+        // pays nothing, because `alreadyHitBits` stops the move connecting
+        // twice. The frame-domain expectation above is untouched -- the freeze
+        // stalls the frame counter and the wall clock together.
+        const std::int32_t freezeInFork =
+            at.p[0].hitstop > 0
+                ? static_cast<std::int32_t>(at.p[0].hitstop)
+                : (at.p[0].alreadyHitBits == 0 ? freeze : 0);
+        EXPECT_EQ(static_cast<std::int32_t>(got.ticks),
+                  expectedLeaveFrame - frame + freezeInFork);
         EXPECT_EQ(got.byCancel, expectedLeaveFrame < duration)
             << "frame " << frame << ": the route out was "
             << (got.byCancel ? "a cancel" : "the move running out")
@@ -2656,7 +2689,8 @@ TEST(TrainingModeReadout, ACancelIsAThirdWayOutOfAMoveAndTheTwoTermRuleMissesIt)
 // LIVE STATE describes the tick it was computed on and not the interaction the
 // playtester is trying to learn. Any periodic drive makes that unavoidable rather
 // than unlikely, because every quantity derived from (moveFrame, hitstun) is then
-// periodic with the move's duration.
+// periodic with the repetition's wall period -- the move's duration plus its
+// authored freeze, since ROADMAP M1.3i.
 //
 // WHAT DRIVES IT HERE IS A RE-PRESS, not a held key, and that is the one thing
 // this test had to be rewritten for. StepAttack's button scan reads the PRESS
@@ -2690,9 +2724,19 @@ TEST(TrainingModeReadout, ARepeatedPressRestartsTheMoveSoALiveAdvantageStrobesFo
     ASSERT_GT(duration, 0);
     ASSERT_GT(stun, 0);
 
+    // THE WALL PERIOD IS NOT THE DURATION ANY MORE (ROADMAP M1.3i): every
+    // repetition connects on its startup frame and freezes both fighters for
+    // the move's authored hitstop, during which the frame counter stands
+    // still. The strobe this test describes survives intact -- the freeze
+    // holds BOTH fighters' clocks, so the readings inside it are the settled
+    // reading, not a fourth kind -- it just repeats every `duration + hitstop`
+    // wall ticks instead.
+    const std::int32_t freeze = static_cast<std::int32_t>(move->hitstop);
+    const std::int32_t period = duration + freeze;
+
     // Three periods: one to warm up (nothing has connected yet, so the readout is
     // legitimately unknown for the first few ticks) and two to measure.
-    const std::int32_t total = duration * 3;
+    const std::int32_t total = period * 3;
 
     std::vector<TwoTermAdvantage> readings;
     std::vector<std::uint32_t>    hitTicks;
@@ -2704,23 +2748,31 @@ TEST(TrainingModeReadout, ARepeatedPressRestartsTheMoveSoALiveAdvantageStrobesFo
             // PRESS. Releasing cannot disturb the repetition it ends -- a move
             // already running ignores the button entirely -- and it is what buys
             // the rising edge that starts the next one exactly on time.
-            const bool release = (t % duration) == duration - 1;
+            const bool release = (t % period) == period - 1;
             step(s, bench.build.data,
                  release ? std::uint16_t{0} : cse::kernel::kInputLP);
 
             // THE PERIOD, ASSERTED TICK BY TICK RATHER THAN INFERRED AT THE END.
             // A re-press never lets the fighter reach idle: the move ends and the
             // button scan finds this tick's press inside the same StepAttack
-            // call, so the frame counter is exactly the tick index modulo the
-            // duration.
+            // call. The frame counter climbs to `startup`, PLATEAUS there for
+            // `freeze` ticks while the hit's freeze runs, then climbs on -- so
+            // the phase-to-frame map has three legs, and asserting all three is
+            // what licenses reading the whole strobe off `t % period` below.
+            const std::int32_t phase = t % period;
+            const std::int32_t expectedFrame =
+                phase <= startup            ? phase
+                : phase <= startup + freeze ? startup
+                                            : phase - freeze;
             ASSERT_EQ(s.p[0].moveId, lp)
                 << "tick " << t << ": the attacker is not in `stand_lp` although "
                    "LP has been pressed once per repetition since tick 0";
-            ASSERT_EQ(static_cast<std::int32_t>(s.p[0].moveFrame), t % duration)
+            ASSERT_EQ(static_cast<std::int32_t>(s.p[0].moveFrame), expectedFrame)
                 << "tick " << t << ": `stand_lp` is on frame " << s.p[0].moveFrame
-                << " and a move restarted by a re-press is on frame "
-                << (t % duration) << ". If this fails the move is NOT restarting "
-                   "immediately, and the strobe below is not the shape it says.";
+                << " and the freeze-aware phase map says frame "
+                << expectedFrame << ". If this fails the move is NOT restarting "
+                   "immediately (or the freeze moved), and the strobe below is "
+                   "not the shape it says.";
 
             if (s.p[1].health < previousHealth)
                 hitTicks.push_back(static_cast<std::uint32_t>(t));
@@ -2733,11 +2785,11 @@ TEST(TrainingModeReadout, ARepeatedPressRestartsTheMoveSoALiveAdvantageStrobesFo
     // One hit per repetition, on the move's first active frame every time.
     ASSERT_EQ(hitTicks.size(), static_cast<std::size_t>(3))
         << "`stand_lp` connected " << hitTicks.size() << " time(s) in " << total
-        << " ticks; a " << duration << "-tick move pressed once per repetition "
+        << " ticks; a " << period << "-tick repetition pressed once per period "
            "should land three.";
     for (std::size_t i = 0; i < hitTicks.size(); ++i)
         EXPECT_EQ(static_cast<std::int32_t>(hitTicks[i]),
-                  startup + static_cast<std::int32_t>(i) * duration)
+                  startup + static_cast<std::int32_t>(i) * period)
             << "repetition " << i << " connected off its own startup frame";
 
     // --- the readings, over the two settled periods -------------------------
@@ -2745,9 +2797,9 @@ TEST(TrainingModeReadout, ARepeatedPressRestartsTheMoveSoALiveAdvantageStrobesFo
     std::int32_t plusValue = 0, minusValue = 0;
     std::ostringstream strip;
 
-    for (std::int32_t t = duration; t < total; ++t) {
+    for (std::int32_t t = period; t < total; ++t) {
         const TwoTermAdvantage& a = readings[static_cast<std::size_t>(t)];
-        if (t < duration * 2) {
+        if (t < period * 2) {
             strip << (a.known ? (a.ticks > 0 ? "+" + std::to_string(a.ticks)
                                              : std::to_string(a.ticks))
                               : std::string("-"))
@@ -2789,15 +2841,22 @@ TEST(TrainingModeReadout, ARepeatedPressRestartsTheMoveSoALiveAdvantageStrobesFo
 
     // AND THE OTHER TWO READINGS OF THE SAME INTERACTION.
     //
-    //   the settled +1     every tick from contact until the move runs out:
-    //                      `duration - startup` of them.
+    //   the settled +1     every tick from contact until the move runs out --
+    //                      INCLUDING the freeze, which is why the strobe gains
+    //                      no fourth kind: both fighters carry the same pending
+    //                      hitstop, the readout adds it to both halves, and the
+    //                      difference is unmoved. `duration - startup + freeze`
+    //                      of them.
     //   one deep negative  the restart tick. The attacker is back on frame 0 of a
-    //                      fresh move (`duration` ticks to go) while the defender
-    //                      still has the last tick of the previous stun, so the
-    //                      row swings from +1 to 1 - duration in ONE TICK.
+    //                      fresh move (`duration` ticks to go, no freeze pending)
+    //                      while the defender still has the last tick of the
+    //                      previous stun, so the row swings from +1 to
+    //                      1 - duration in ONE TICK.
     //   not known          the ticks between the stun running out and the next
-    //                      repetition connecting: `duration - hitstun` of them.
-    EXPECT_EQ(plusCount, (duration - startup) * 2)
+    //                      repetition connecting: still `duration - hitstun` of
+    //                      them, because the freeze suspends the stun clock and
+    //                      the frame clock by the same amount.
+    EXPECT_EQ(plusCount, (duration - startup + freeze) * 2)
         << "the settled reading appeared " << plusCount << " times over two "
            "periods; it should hold from contact until the move ends.";
     EXPECT_EQ(minusCount, 2)
@@ -2813,15 +2872,15 @@ TEST(TrainingModeReadout, ARepeatedPressRestartsTheMoveSoALiveAdvantageStrobesFo
     // THE CLAIM ITSELF, stated so it cannot be satisfied by the numbers merely
     // being different: three distinct readings of ONE interaction, cycling
     // forever, at a rate a playtester perceives as a flicker rather than as a
-    // change. 60 / 14 is 4.3 Hz.
+    // change. 60 / 22 is 2.7 Hz.
     EXPECT_GE(plusCount, 1);
     EXPECT_GE(minusCount, 1);
     EXPECT_GE(unknownCount, 1);
-    EXPECT_EQ(plusCount + minusCount + unknownCount, duration * 2)
+    EXPECT_EQ(plusCount + minusCount + unknownCount, period * 2)
         << "the three counts do not cover the two periods, so one of them is "
            "measuring something else";
 
-    RecordProperty("advantage_period_ticks", duration);
+    RecordProperty("advantage_period_ticks", period);
     RecordProperty("advantage_settled", plusValue);
     RecordProperty("advantage_on_restart", minusValue);
     RecordProperty("advantage_unknown_per_period", duration - stun);
@@ -2829,13 +2888,13 @@ TEST(TrainingModeReadout, ARepeatedPressRestartsTheMoveSoALiveAdvantageStrobesFo
     std::cout
         << "\n[ TRAINING MODE ] the same interaction, recomputed every frame, on `"
         << bench.character.id << "` with LP held\n"
-        << "  the move            `stand_lp`, " << duration
-        << " ticks, restarted by the held button the tick it ends\n"
+        << "  the move            `stand_lp`, " << duration << " ticks plus "
+        << freeze << " of freeze, restarted by the held button the tick it ends\n"
         << "  one period reads    " << strip.str() << "\n"
-        << "  so the row shows    " << (duration - startup) << " tick(s) of "
+        << "  so the row shows    " << (duration - startup + freeze) << " tick(s) of "
         << plusValue << ", one tick of " << minusValue << ", "
         << (duration - stun) << " tick(s) of nothing -- "
-        << (cse::kernel::kTicksPerSecond) << "/" << duration
+        << (cse::kernel::kTicksPerSecond) << "/" << period
         << " times a second, forever\n"
         << "  WHICH IS WHY        a number that is meant to describe an "
            "INTERACTION has to be latched on the contact tick. ComboWatcher "
@@ -3195,6 +3254,14 @@ TEST(TrainingModeReadout, ASpentActiveWindowStillOffersABoxAndTheStateCannotSayW
         const std::uint16_t hold =
             cse::game::WitnessCursor::StanceHold(bench.build.data.p[0], slot);
 
+        // The freeze DEEPENS this finding rather than disturbing it (ROADMAP
+        // M1.3i): the contact freezes the move ON its first active frame for
+        // `hitstop` wall ticks, ActiveHitbox is a pure function of that frozen
+        // frame, and the multi-hit guard has already spent the window -- so the
+        // red box that cannot hit is now on screen for the whole freeze too,
+        // still lying across the dummy's body.
+        const std::int32_t freeze = static_cast<std::int32_t>(move->hitstop);
+
         std::int32_t boxFrames = 0, hitFrames = 0, deadFrames = 0;
         std::int32_t deadOverlapping = 0;
         std::int32_t bitSetOnHitFrame = -1;
@@ -3203,7 +3270,8 @@ TEST(TrainingModeReadout, ASpentActiveWindowStillOffersABoxAndTheStateCannotSayW
 
         GameState s = opening();
         std::int32_t previousHealth = kStartingHealth;
-        for (std::int32_t t = 0; t < cse::kernel::MoveDuration(*move) + 2; ++t) {
+        for (std::int32_t t = 0;
+             t < cse::kernel::MoveDuration(*move) + freeze + 2; ++t) {
             step(s, bench.build.data,
                  static_cast<std::uint16_t>(
                      t == 0 ? (subject.button | hold) : 0));
@@ -3252,16 +3320,16 @@ TEST(TrainingModeReadout, ASpentActiveWindowStillOffersABoxAndTheStateCannotSayW
 
         // The kernel offered a box on every active frame -- which is right, and
         // is what makes the picture wrong.
-        EXPECT_EQ(boxFrames, move->active)
+        EXPECT_EQ(boxFrames, move->active + freeze)
             << "`" << subject.id << "` is authored active " << move->active
-            << " and ActiveHitbox answered on " << boxFrames << " frame(s)"
-            << table.str();
+            << " with a freeze of " << freeze << ", and ActiveHitbox answered on "
+            << boxFrames << " tick(s)" << table.str();
         EXPECT_EQ(hitFrames, 1)
             << "the multi-hit guard allows exactly one hit per active window"
             << table.str();
-        EXPECT_EQ(deadFrames, move->active - 1)
+        EXPECT_EQ(deadFrames, move->active + freeze - 1)
             << "`" << subject.id << "` drew " << deadFrames
-            << " red frame(s) that could not hit" << table.str();
+            << " red tick(s) that could not hit" << table.str();
         EXPECT_EQ(deadOverlapping, deadFrames)
             << "every dead frame here is drawn LYING ACROSS THE DUMMY'S BODY, "
                "which is the exact picture FightView.h promises a playtester will "

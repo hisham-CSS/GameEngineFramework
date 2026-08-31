@@ -36,7 +36,7 @@ The paper's claim has four load-bearing parts. This is what each rests on today.
 | **A deterministic simulation** | `tests/test_kernel.cpp` T1/T2; `tests/test_determinism_crossplat.cpp` T3, re-checked by gcc 13 on the Linux leg | Nothing. This one is done and has been re-goldened three times for stated reasons. |
 | **The prover reads the shipped files** | `tests/test_character_data.cpp` load assertions; the editor's Combo Prover panel | Nothing structural. `counter_hit` is absent from the schema entirely — see the qualifier below. |
 | **Every verdict is demonstrable as a replay** | `tests/test_ground_truth.cpp` executes the prover's own printed witness; since M1.3e the demonstration presses directions, establishes stances and performs its turns across jumps; since M1.3g one `WitnessCursor` performs every witness in the repository | Only one character's witness is executed. |
-| **The game is the file** | `MatchBuilder`'s loss ledger, checked move-by-move in `tests/test_match_bridge.cpp`; stance and guard height carried since M1.3e (`EveryAuthoredNormalIsReachableThroughItsButtonAndStance`) | Juggle, hitstop, priority, chip and scaling are still authored and dropped. |
+| **The game is the file** | `MatchBuilder`'s loss ledger, checked move-by-move in `tests/test_match_bridge.cpp`; stance and guard height carried since M1.3e (`EveryAuthoredNormalIsReachableThroughItsButtonAndStance`); juggle since M1.1f, hitstop since M1.3i | Priority, chip and scaling are still authored and dropped. |
 
 **The headline, measured three times (third: 2026-08-30, M1.3e).**
 
@@ -258,11 +258,11 @@ Six WPs, all landed, gate required in CI. The decision is
   stand), and `P2Knockdown.AFighterOnTheFloorCannotBeHit` — all in CI. The four
   `P3Reactions` names the first draft promised were never written; this Done-when
   replaces them rather than leaving both.
-  **The remainder is M1.3i:** `hitstop` is loaded and deliberately not carried —
-  it freezes BOTH fighters, so every frame-exact prediction in
-  `tests/test_gap_extent.cpp` moves by the freeze duration (120 of 121 cycles
-  fell short, six to nine timing mismatches each). That objection dies when M1.4
-  deletes section 3's parallel account, so the wire waits for it.
+  **The remainder became M1.3i:** `hitstop` was loaded and deliberately not
+  carried — it freezes BOTH fighters, so every frame-exact prediction in
+  `tests/test_gap_extent.cpp` moved by the freeze duration (120 of 121 cycles
+  fell short, six to nine timing mismatches each). The objection died when M1.4
+  made the counts properties, and M1.3i carried the wire.
 
 - `[x]` **M1.3e Stance reaches the kernel, and the drivers establish it.** *(M)*
   — `5db85a6` `47ba2b2`. Landed in two steps, on the fourth attempt, with the
@@ -438,16 +438,28 @@ Six WPs, all landed, gate required in CI. The decision is
   `GapExtentSearch.TheExecutedWorstCaseIsInsideTheModels`; and no test asserts
   a frame the kernel did not produce.
 
-- `[ ]` **M1.3i Hitstop crosses the bridge.** *(S)* The remainder M1.3d split
-  out. `MatchBuilder` copies the authored `hitstop` (it is loaded and held back
-  today, with the reason in code), the freeze is visible end-to-end, and the
-  buffer's freeze-tap behaviour (M1.3f's placement rule) is exercised with a
-  real authored value rather than a synthetic one. **Sequenced after M1.4**
-  because carrying it earlier shifts every frame-exact count in
-  `tests/test_gap_extent.cpp`; once those counts are properties, the objection
-  is gone.
+- `[~]` **M1.3i Hitstop crosses the bridge.** *(S)* Claude, 2026-08-31. The remainder M1.3d split
+  out. `MatchBuilder` carries the authored `hitstop` into `MoveDef::hitstop`
+  with a `move.hitstop` ledger row (Exact; 22 on fighter_a, 0 on Kung Fu Girl
+  whose converted file authors no freeze), ResolveHits imposes it on BOTH
+  fighters, and the buffer's freeze-tap behaviour (M1.3f's placement rule) is
+  exercised with the real authored 8 rather than a synthetic value. Sequencing
+  after M1.4 paid off as predicted: no gap-extent count was re-derived by
+  hand — the frame-domain properties all held, and only wall-clock
+  SCAFFOLDING moved (harness budgets gained a freeze term; the air loop's hit
+  period is now 23 = the 11-tick cancel + 12 of freeze). Two real findings in
+  the fallout, both fixed in the same change: `FightHud`'s
+  `TicksUntilActionable` was EARLY during every freeze — the worse direction
+  for a readout — and now adds the pause after its max-and-floor (the pause
+  stalls every clock the terms read, and FrameAdvantage is unmoved because
+  both fighters carry the same pending freeze); and the `one_frame_link`
+  twins' fixed coin re-flipped — the freeze shifts a masher's re-press phase
+  against a one-tick link — so both twins zero `hitstop_ticks` on the link
+  move and their descriptions say why the freeze must sit out.
   **Done when:** a bridge test proves the authored freeze reaches both fighters
-  and a tap inside it still buffers; no gap-extent count is re-derived by hand.
+  and a tap inside it still buffers
+  (`TheAuthoredFreezeReachesBothFightersAndATapInsideItBuffers`); no gap-extent
+  count is re-derived by hand.
 
 - `[ ]` **M1.5 Character hot reload.** *(S–M)* A frame-data edit lands in a
   running match; NORTHSTAR property (c)'s last clause.
