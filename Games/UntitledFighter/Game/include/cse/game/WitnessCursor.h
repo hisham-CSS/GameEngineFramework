@@ -48,6 +48,16 @@
 // free tick to take off again. Two ticks: long enough not to interrupt a move
 // in progress with a pointless re-press, short enough to catch the actionable
 // tick.
+//
+// A MOVEMENT MACRO ADVANCES BY COUNTING, NOT BY OBSERVING (ADR-013 decision
+// 6). Witness entries at or above kMacroBase are not move slots: a walk holds
+// one ABSOLUTE direction, a wait holds nothing, and the entry completes after
+// its encoded tick count -- there is no move start to watch for. Directions
+// are absolute (left/right, never toward/away) so the emitted bits are
+// replay-stable: the same witness fed to the same opening walks the same
+// pixels. The press/release cycling does not apply to a held direction -- a
+// direction is a LEVEL to the kernel, and releasing it mid-walk would just
+// walk less than the entry says.
 #pragma once
 
 #include "cse/kernel/Combat.h"
@@ -68,6 +78,21 @@ class WitnessCursor {
 public:
     // Ticks a stalled cursor waits before it releases to re-press.
     static constexpr int kRepressAfter = 2;
+
+    // Movement-macro codes (ADR-013 decision 6): kind in the high byte, tick
+    // count 1..255 in the low. Far above kMaxMovesPerFighter on purpose -- a
+    // witness entry is either a move slot or one of these, and the gap makes
+    // a confusion loud.
+    static constexpr std::uint16_t kMacroBase      = 0x8000;
+    static constexpr std::uint16_t kMacroWalkLeft  = 0x8000;   // + ticks
+    static constexpr std::uint16_t kMacroWalkRight = 0x8100;   // + ticks
+    static constexpr std::uint16_t kMacroWait      = 0x8200;   // + ticks
+    static constexpr bool IsMacro(std::uint16_t entry) {
+        return entry >= kMacroBase;
+    }
+    static constexpr std::uint16_t MacroTickCount(std::uint16_t entry) {
+        return static_cast<std::uint16_t>(entry & 0x00FF);
+    }
 
     // The mutable half, a value: copy it, snapshot it, resume it. Rollback and
     // rehearsal both depend on nothing hiding outside it.
@@ -129,6 +154,11 @@ private:
     std::vector<std::uint16_t> slots_;
     std::vector<std::uint16_t> buttons_;
     std::vector<std::uint16_t> holds_;   // stance direction; never folded into buttons_
+    // Movement-macro tick counts; 0 for move entries. A separate table for
+    // the same reason holds_ is: an entry is EITHER watched (a move) or
+    // counted (a macro), and overloading `waiting` across both meanings in
+    // one untagged field is how the next drift starts.
+    std::vector<std::uint16_t> macroTicks_;
     std::vector<std::string>   ids_;     // for Usable's messages only
     std::size_t                loopStart_ = 0;
 };

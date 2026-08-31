@@ -250,3 +250,76 @@ TEST(ComboSearchVerdicts, TheResultIsBitIdenticalOnASecondRun) {
         << "two runs of the same request disagreed; a verdict that changes "
            "between runs cannot gate a cooker, golden a test, or be believed.";
 }
+
+TEST(ComboSearchVerdicts, TheSearchWalksIntoRangeAndMidscreenStopsBeingZero) {
+    // The measurement that blocked every midscreen claim (ROADMAP M1.6): from
+    // ResetMatch's own opening -- origins 200 px apart, further than anything
+    // fighter_a reaches -- the search found ZERO hits, because "ask for move
+    // M" was its whole vocabulary and no move closes distance. ADR-013
+    // decision 6 adds the movement macros: the approach is walked, by the
+    // same cursor that will replay it.
+    Bench b{};
+    bringUp("fighter_a.json", b);
+    ASSERT_FALSE(::testing::Test::HasFatalFailure());
+
+    cse::kernel::GameState mid{};
+    cse::kernel::ResetMatch(mid, 0x1D7u);   // the default +/-100 px opening
+    b.request.from = mid;
+
+    const ComboSearchResult r = RunComboSearch(b.request);
+
+    EXPECT_GT(r.maxHits, 0)
+        << "the search still cannot approach at midscreen; the movement "
+           "macros are not reaching the kernel." << describe(b.build, r);
+    EXPECT_NE(r.verdict, ComboVerdict::Infinite)
+        << "fighter_a grew a midscreen infinite; that is a FINDING, not a "
+           "harness bug -- investigate before touching this test."
+        << describe(b.build, r);
+
+    // The walked approach is IN the witness vocabulary: the longest string's
+    // entries must be replayable, which Usable checks without running a tick.
+    const cse::game::WitnessCursor cursor = cse::game::WitnessCursor::FromSlots(
+        r.longestString, 0, b.build.data.p[0]);
+    std::string why;
+    EXPECT_TRUE(cursor.Usable(why)) << why << describe(b.build, r);
+}
+
+TEST(ComboSearchVerdicts, AWalkedWitnessReplaysAndItsFirstHitLands) {
+    // The macros are witness vocabulary, not search bookkeeping: the same
+    // cursor that found a walked approach must be able to PERFORM it. The
+    // midscreen longest string starts with walks; feed it back through a
+    // WitnessDriver from the same opening and the first hit must land.
+    Bench b{};
+    bringUp("fighter_a.json", b);
+    ASSERT_FALSE(::testing::Test::HasFatalFailure());
+
+    cse::kernel::GameState mid{};
+    cse::kernel::ResetMatch(mid, 0x1D7u);
+    b.request.from = mid;
+
+    const ComboSearchResult r = RunComboSearch(b.request);
+    ASSERT_GT(r.maxHits, 0) << describe(b.build, r);
+    ASSERT_TRUE(cse::game::WitnessCursor::IsMacro(r.longestString.front()))
+        << "the midscreen longest string does not OPEN with a movement macro; "
+           "either the opening moved into reach or the witness lost its walk."
+        << describe(b.build, r);
+
+    cse::game::WitnessDriver driver(cse::game::WitnessCursor::FromSlots(
+        r.longestString, 0, b.build.data.p[0]));
+    std::string why;
+    ASSERT_TRUE(driver.Usable(why)) << why;
+
+    cse::kernel::GameState s = mid;
+    const std::int32_t healthBefore = s.p[1].health;
+    bool landed = false;
+    for (int t = 0; t < 400 && !landed; ++t) {
+        cse::kernel::InputPair in{};
+        in.p[0].bits = driver.Bits();
+        cse::kernel::Simulate(s, in, b.build.data);
+        driver.Observe(s.p[0].moveId, s.p[0].moveFrame);
+        landed = s.p[1].health < healthBefore;
+    }
+    EXPECT_TRUE(landed)
+        << "the walked witness, replayed from the same opening, never landed "
+           "its first hit -- the demonstration and the search have parted.";
+}

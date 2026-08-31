@@ -88,12 +88,12 @@ is done or serves it.
 
 | In flight | Owner | Since |
 |---|---|---|
-| M1.6 — the showcase; slices 1–5 landed, rest blocked on walk macros + M1.3 | Claude | 2026-08-31 |
+| M1.6 — the showcase; slices 1–6 landed (6 = the movement macros); rest listed in the entry | Claude | 2026-08-31 |
 | M1.3 — mechanics pass 1; (a) (b1) (b2) landed; (c)+(d) blocked on ADR-015 (human) | Claude | 2026-08-31 |
 
-M1.6 stays open, blocked on a stated design step (walk/wait macros amend
-ADR-013) and on M1.3's mechanics. M1.1e landed inside its slice 5 — the
-buffer pair is a catalogue row.
+M1.6 stays open on its listed remainder (microwalk row, cooker recording,
+and the variants blocked on M1.3(b3)/ADR-015). M1.1e landed inside its
+slice 5 — the buffer pair is a catalogue row.
 
 One at a time. The next unblocked WP is always the top `[ ]` in milestone
 order — which, under the 2026-08-21 reorder, is the sequence named above.
@@ -580,15 +580,27 @@ Six WPs, all landed, gate required in CI. The decision is
   7 from the corner AND 7 from an in-reach midscreen opening (the pushbacks
   are ~5 px against 30–68 px reaches, too small to end a string early), so
   the row waits for a character whose pushback matters rather than being
-  authored to exhibit nothing. And from the REALISTIC ±100 px opening the
-  search measures 0 hits — nothing reaches and no macro walks — which is the
-  measured form of ADR-011 §5's requirement: `microwalk` and every midscreen
-  claim need walk/wait macro-actions in ComboSearch first (an ADR-013
-  amendment, not a patch).
-  **Still open:** walk/wait macros, then `microwalk`; `base` as a catalogue
-  row; `jump-cancel`, `kara`, `counter-hit`, `wallbounce` are blocked on
-  M1.3; and the cooker recording — both verdicts, replays, `graph.dot` per
-  entry — is the "replay per verdict" half.
+  authored to exhibit nothing.
+  **Slice 6 (sha at the next flip) — the movement macros, ADR-013 decision
+  6.** From the realistic ±100 px opening the search used to measure ZERO
+  hits — nothing reached and no macro walked. Now it walks: `WitnessCursor`
+  carries walk/wait entries (absolute directions, counted ticks, replayable
+  in the same demonstrations — `AWalkedWitnessReplaysAndItsFirstHitLands`),
+  the search's menu adds them with two phase caps (approach 8, live-string
+  2 — the microwalk IS one or two) and the approach-closes-distance rule
+  that keeps a corner search from paying for midscreen's question too.
+  Measured after: midscreen opens to a real walked string; the corner
+  roster still EXHAUSTS (10.5M of the raised 20M-tick default) and
+  fighter_a's executed worst case is **still 7 under walked links** — the
+  arc and the juggle budget bind through a microwalk, which is its own
+  finding; and the one_frame coin held against the wait vocabulary,
+  measured, not assumed.
+  **Still open:** the `microwalk` catalogue row itself (a variant whose
+  infinite NEEDS the walk — the vocabulary now exists to find it); `base`
+  as a catalogue row; `jump-cancel`, `kara` blocked on M1.3(b3)/the kara
+  close-frame note; `counter-hit`, `wallbounce` blocked on ADR-015; and the
+  cooker recording — both verdicts, replays, `graph.dot` per entry — the
+  "replay per verdict" half.
 
 - `[ ]` **M1.7 Authoring telemetry.** *(S)* What the author actually needed to
   know, recorded while authoring rather than reconstructed after.

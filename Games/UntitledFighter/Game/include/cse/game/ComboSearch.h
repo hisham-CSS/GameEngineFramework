@@ -2,8 +2,9 @@
 //
 // The question the paper asks -- what can this character actually perform, and
 // does any string run forever? -- answered by SEARCHING THE GAME: a bounded
-// exploration over macro-actions ("ask for move M next"), each performed the
-// way a player performs it and executed on the real kernel. The prover answers
+// exploration over macro-actions ("ask for move M next", plus ADR-013
+// decision 6's walks and waits from a fixed menu), each performed the way a
+// player performs it and executed on the real kernel. The prover answers
 // the same question about the FILE, soundly and conservatively; this is the
 // executed counterpart its verdicts are compared against, one implementation
 // for tests, cooker, showcase and panel.
@@ -67,10 +68,13 @@ struct ComboSearchRequest {
     // is connect-states expanded. Hitting either yields Unresolved, never a
     // verdict -- size them so the character resolves or say that it did not.
     // The defaults resolve the two shipped characters in seconds: a kernel
-    // tick is integer arithmetic over 728 bytes, and two million of them cost
-    // less than a renderer frame is worth of debugging.
-    std::uint32_t maxTicks      = 2000000;
-    std::uint32_t maxNodes      = 50000;
+    // tick is integer arithmetic over 728 bytes. RAISED 2M -> 20M when the
+    // movement macros landed (ADR-013 decision 6): walks multiply the
+    // reachable positions, the corner roster stopped exhausting inside 2M,
+    // and a budget that cannot resolve the shipped characters is a default
+    // that answers Unresolved to every question the paper asks.
+    std::uint32_t maxTicks      = 20000000;
+    std::uint32_t maxNodes      = 200000;
     // Per-macro bound: how long "ask for M" may take before it is abandoned.
     // A jump plus the longest move plus re-press slack fits comfortably.
     std::uint32_t maxMacroTicks = 120;

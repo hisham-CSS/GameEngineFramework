@@ -1,8 +1,9 @@
 # ADR-013 — ComboSearch: verdicts by execution
 
-Status: Proposed (2026-08-31). Recommended default; safe and reversible
-(additive code, no state or wire change), so work proceeds under it per
-CLAUDE.md.
+Status: Proposed (2026-08-31; decision 6, the movement macros, added later the
+same day while still Proposed — the design step ROADMAP M1.6 named). Recommended
+default; safe and reversible (additive code, no state or wire change), so work
+proceeds under it per CLAUDE.md.
 
 ## Context
 
@@ -60,6 +61,34 @@ the real kernel.** One implementation for tests, cooker, showcase and panel.
    ascending), integer state, no clock, no randomness: the same character and
    budget produce the same verdict, witness and counts on every machine — so
    a verdict can be a golden the way a hash can.
+
+6. **Movement macros, from a small fixed menu.** Two more macro-action kinds
+   beside "ask for move M": *walk* (an absolute direction held for a fixed
+   tick count) and *wait* (nothing held). They are witness entries like any
+   move — encoded as reserved codes above the move-slot range
+   (`WitnessCursor::kMacroWalkLeft/Right/Wait` + tick count), performed by the
+   same cursor, replayable in the same demonstrations — because without them
+   the search cannot approach at midscreen (measured: ±100 px opens to ZERO
+   hits) and cannot express the microwalk the paper's vocabulary names.
+   - **The menu is fixed and small** — walks of 1, 2, 4 and 8 ticks in each
+     absolute direction, waits of 1, 2 and 4 — because every entry multiplies
+     the branching factor, and D4's spirit applies to search spaces too.
+     Directions are ABSOLUTE (left/right, not toward/away): the emitted bits
+     are replay-stable, the useless direction dies by dedup (walking into a
+     wall reproduces its own key), and the search stays free of a second
+     facing rule.
+   - **A movement macro scores no hit.** The witness records it; the hit
+     count does not. `maxHits` keeps meaning hits.
+   - **The induction rule narrows.** A path-repeat proves an infinite only
+     while the string is LIVE (defender never actionable, rule 3). Pre-string
+     movement — the approach — happens with the defender free, so those nodes
+     restart the path-key chain rather than extend it: a fighter walking in
+     place at neutral repeats its state forever and means nothing. A
+     MID-STRING repeat that includes walks is exactly the microwalk infinite
+     and stays a verdict.
+   - **A wait at neutral prunes itself**: the masked key ignores tick and
+     rng, so the resulting state is its parent and dedup drops it. Waits earn
+     their place mid-string, where delaying a press changes the link.
 
 ## Consequences
 
