@@ -29,6 +29,7 @@
 //    that proves the point: its walk speed of 2.4 px/tick is exactly 614
 //    sub-units and inexactly 0.024 reach units.
 #include "cse/data/CharacterData.h"
+#include "cse/data/CatalogueManifest.h"
 
 // PathSandbox.h lives in Engine/src/core but pulls in nothing but Core.h,
 // <filesystem> and <string>, so CseData compiles PathSandbox.cpp directly rather
@@ -1950,6 +1951,118 @@ bool LoadCharacterVariant(const std::string& baseDir,
     baseDoc.merge_patch(patch);
     return LoadCharacterJson(baseRelPath + " + " + variantRelPath,
                              baseDoc.dump(), options, out, report);
+}
+
+// --- The catalogue manifest (ROADMAP M1.6's cooker slice) --------------------
+
+bool LoadCatalogueManifest(const std::string& charactersDir,
+                           const std::string& relPath,
+                           CatalogueManifest& out,
+                           std::string& error) {
+    out = CatalogueManifest{};
+    error.clear();
+
+    // The same sandboxed read every authored file goes through -- one home,
+    // shared, so the manifest cannot come to disagree with the characters
+    // about what a refused path is.
+    LoadOptions options;
+    LoadReport  report{};
+    std::string text;
+    if (!readAuthoredFile(charactersDir, relPath, options, text, report)) {
+        error = report.error;
+        return false;
+    }
+
+    const json doc = json::parse(text.begin(), text.end(), nullptr, false);
+    if (doc.is_discarded()) {
+        error = relPath + ": not valid JSON";
+        return false;
+    }
+    if (!doc.contains("base") || !doc["base"].is_string()) {
+        error = relPath + ": `base` (the unpatched character file) is required";
+        return false;
+    }
+    out.baseFile = doc["base"].get<std::string>();
+
+    if (!doc.contains("entries") || !doc["entries"].is_array() ||
+        doc["entries"].empty()) {
+        error = relPath + ": `entries` must be a non-empty array -- a "
+                "catalogue with no rows exhibits nothing";
+        return false;
+    }
+
+    // The six arcade buttons, by the names the binding vocabulary has used
+    // since M1.1c. Anything else is refused by name.
+    const auto buttonBit = [](const std::string& b) -> std::uint16_t {
+        if (b == "lp") return cse::kernel::kInputLP;
+        if (b == "mp") return cse::kernel::kInputMP;
+        if (b == "hp") return cse::kernel::kInputHP;
+        if (b == "lk") return cse::kernel::kInputLK;
+        if (b == "mk") return cse::kernel::kInputMK;
+        if (b == "hk") return cse::kernel::kInputHK;
+        return 0;
+    };
+
+    for (const json& e : doc["entries"]) {
+        CatalogueEntry entry;
+        if (!e.is_object() || !e.contains("name") || !e["name"].is_string() ||
+            e["name"].get<std::string>().empty()) {
+            error = relPath + ": every entry needs a non-empty `name`";
+            return false;
+        }
+        entry.name = e["name"].get<std::string>();
+
+        if (e.contains("variant")) {
+            if (!e["variant"].is_string()) {
+                error = relPath + ": " + entry.name +
+                        ": `variant` must be a string path";
+                return false;
+            }
+            entry.variantRel = e["variant"].get<std::string>();
+        }
+        if (e.contains("solo_binding")) {
+            if (!e["solo_binding"].is_string()) {
+                error = relPath + ": " + entry.name +
+                        ": `solo_binding` must be a move id";
+                return false;
+            }
+            entry.soloBindingMove = e["solo_binding"].get<std::string>();
+        }
+        if (e.contains("extra_bindings")) {
+            if (!e["extra_bindings"].is_array()) {
+                error = relPath + ": " + entry.name +
+                        ": `extra_bindings` must be an array";
+                return false;
+            }
+            for (const json& b : e["extra_bindings"]) {
+                if (!b.is_object() || !b.contains("move") ||
+                    !b["move"].is_string() || !b.contains("buttons") ||
+                    !b["buttons"].is_array() || b["buttons"].empty()) {
+                    error = relPath + ": " + entry.name +
+                            ": an extra binding needs `move` and a non-empty "
+                            "`buttons` array";
+                    return false;
+                }
+                CatalogueBinding binding;
+                binding.moveId = b["move"].get<std::string>();
+                for (const json& n : b["buttons"]) {
+                    const std::uint16_t bit =
+                        n.is_string() ? buttonBit(n.get<std::string>()) : 0;
+                    if (bit == 0) {
+                        error = relPath + ": " + entry.name + ": `" +
+                                (n.is_string() ? n.get<std::string>()
+                                               : std::string("?")) +
+                                "` is not one of lp/mp/hp/lk/mk/hk";
+                        return false;
+                    }
+                    binding.buttons |= bit;
+                }
+                entry.extraBindings.push_back(std::move(binding));
+            }
+        }
+        out.entries.push_back(std::move(entry));
+    }
+    return true;
 }
 
 } // namespace cse::data

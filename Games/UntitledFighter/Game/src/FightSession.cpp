@@ -442,6 +442,10 @@ bool BuildDemonstration(const DemonstrationRequest& request, Demonstration& out)
     // exactly this check, in exactly this order, for exactly this reason.
     for (std::size_t i = 0; i < request.moveIds.size(); ++i) {
         const std::uint16_t id = request.moveIds[i];
+        // A movement macro (ADR-013 decision 6) is a witness entry with no
+        // move to look up: WitnessCursor::Usable below validates its kind and
+        // tick count, the same one home the search and every driver use.
+        if (WitnessCursor::IsMacro(id)) continue;
         const cse::kernel::MoveDef* const move = cse::kernel::MoveAt(attacker, id);
         if (move == nullptr) {
             out.error = "witness entry " + num(i) + " names kernel move " +
@@ -628,7 +632,20 @@ bool BuildDemonstration(const DemonstrationRequest& request, Demonstration& out)
     out.stalledAt = everAdvanced ? lastAdvanceTick + 1u : 0u;
 
     const std::uint16_t wanted = request.moveIds[cur.cursor];
-    const std::uint16_t bits   = cse::kernel::MoveAt(attacker, wanted)->button;
+    // A movement macro has no MoveDef to name -- and dereferencing MoveAt for
+    // one here was a crash inside the diagnostics, the worst place to have
+    // one (found by the first full catalogue cook).
+    const cse::kernel::MoveDef* const wantedMove =
+        WitnessCursor::IsMacro(wanted) ? nullptr
+                                       : cse::kernel::MoveAt(attacker, wanted);
+    const std::string wantedWhat =
+        WitnessCursor::IsMacro(wanted)
+            ? "movement macro " + num(wanted) + " (" +
+                  num(WitnessCursor::MacroTickCount(wanted)) + " free tick(s))"
+            : "kernel move " + num(wanted) + " (button " +
+                  hex16(wantedMove != nullptr ? wantedMove->button
+                                              : std::uint16_t{0}) +
+                  ")";
 
     out.error = ranOutMidProgress
                     ? "the rehearsal ran out of budget after " + num(ticksRun) +
@@ -636,8 +653,8 @@ bool BuildDemonstration(const DemonstrationRequest& request, Demonstration& out)
                     : "the rehearsal stalled at tick " + num(out.stalledAt) +
                           " of " + num(ticksRun) + " (ticks relative to "
                           "firstTick " + num(request.firstTick) + ")";
-    out.error += ": it was waiting for kernel move " + num(wanted) + " (button " +
-                 hex16(bits) + ") and the attacker was " +
+    out.error += ": it was waiting for " + wantedWhat +
+                 " and the attacker was " +
                  describeAttacker(session.State().p[request.attackerSlot]) +
                  ". Entered " + num(out.reachedIndex) + " of " + num(witnessSize) +
                  " witness move(s) and completed " + num(out.turnsDone) + " of " +

@@ -19,6 +19,9 @@ add_library(CseData STATIC
     # comboprover type, so the prover is an implementation detail of this
     # library exactly as GekkoNet is of CseNet.
     src/ProverAdapter.cpp
+    # The cancel graph as Graphviz text, for the catalogue cooker (ADR-011
+    # section 4). Beside the adapter because it draws this library's nouns.
+    src/CancelGraphDot.cpp
     # CharacterData -> the kernel's MatchData. See the include-directory note
     # below for why this does not make CseData link the kernel.
     src/MatchBuilder.cpp

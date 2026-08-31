@@ -273,6 +273,14 @@ target_link_libraries(test_training_mode PRIVATE CseGame CseData CseKernel GTest
 add_dependencies(test_training_mode test_runtime_deps)
 add_test(NAME test_training_mode COMMAND $<TARGET_FILE:test_training_mode>)
 
+# THE COOKER RECORDING (ROADMAP M1.6) — cooks a two-row subset of the showcase
+# catalogue and audits the artifacts from the files: the replay decodes,
+# matches the rebuilt bytes, and re-simulates bit-identical.
+add_executable(test_catalogue test_catalogue.cpp)
+target_link_libraries(test_catalogue PRIVATE CseGame CseData CseKernel GTest::gtest_main)
+add_dependencies(test_catalogue test_runtime_deps)
+add_test(NAME test_catalogue COMMAND $<TARGET_FILE:test_catalogue>)
+
 # PRESS DELIVERY (ROADMAP M1.3h) — the one test that links Engine AND the game
 # libraries, deliberately: the claim is that a tap crosses from the engine's
 # InputMap latch, through the accumulator, into the latched session log and the

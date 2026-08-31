@@ -347,7 +347,14 @@ ComboSearchResult RunComboSearch(const ComboSearchRequest& req) {
             // proves nothing and must not: those nodes restart the chain
             // below instead of extending it.
             if (stringLive || mo.connected) {
-                for (std::size_t k = 0; k < node.pathKeys.size(); ++k) {
+                // BACKWARD, so the first match is the LATEST repeated ancestor
+                // and the reported loop is the SHORTEST enclosing cycle. Any
+                // repeat is the same induction; scanning forward reported the
+                // EARLIEST match, and a wandering dive then printed a
+                // thousands-of-entries "loop" that was mostly its own
+                // approach -- measured on the microwalk exhibit, whose tight
+                // walk-walk-press cycle is the thing worth replaying.
+                for (std::size_t k = node.pathKeys.size(); k-- > 0;) {
                     if (node.pathKeys[k] != key) continue;
                     r.verdict   = ComboVerdict::Infinite;
                     r.witness   = node.moves;

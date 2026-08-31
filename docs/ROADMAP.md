@@ -619,10 +619,37 @@ Six WPs, all landed, gate required in CI. The decision is
   bound alone, the full-roster drowning stated in the caption:
   `TheMicrowalkInfiniteNeedsTheWalkAndTheSearchWalksIt` — INFINITE, the
   loop CONTAINS the walks, the prover blind three ways.
-  **Still open:** `base` as a catalogue row; `jump-cancel`, `kara` blocked
-  on M1.3(b3)/the kara close-frame note; `counter-hit`, `wallbounce`
-  blocked on ADR-015; and the cooker recording — both verdicts, replays,
-  `graph.dot` per entry — the "replay per verdict" half.
+  **Slice 8 (sha at the next flip) — the cooker recording, and the `base`
+  row with it: "a replay per verdict" is now files.** The manifest the
+  catalogue never had (`variants/catalogue.json`: nine rows — base first —
+  each carrying the one thing a patch cannot say, its bindings: meter_loop's
+  super chord, microwalk's solo button, previously C++ literals inside
+  tests). `CookCatalogue` (CseGame) cooks every row end to end: load →
+  prover verdict → manifest bindings → search verdict from the derived
+  corner bench → the demonstrated sequence rehearsed by BuildDemonstration
+  (an INFINITE demos its LOOP — rotated until a rotation performs from
+  neutral, since meter_loop opens on a cancel-only super, and excerpted to
+  24 entries when the provable cycle is a drift super-cycle thousands long,
+  as the microwalk's is) → recorded by ReplayRecorder → **verified
+  bit-identical under ReplayVerifier before it is written** (ADR-011 §4's
+  own rule) → `<name>.csrp` + `<name>.dot` (`WriteCancelGraphDot`, CseData —
+  the emitter that did not exist: dead edges dashed, the loop red) +
+  `catalogue.txt`. The tool is `UntitledFighterCatalogue`, title-owned
+  because the never-list forbids Cooker/ touching a title — its CMakeLists
+  says so in writing. All nine rows cook, exit 0, ~8 s; the pairs read
+  exactly as the exhibits claim (three disagreements: hitstun_plus_7,
+  one_frame_link_buffered, microwalk — each's description says why).
+  `test_catalogue` cooks a two-row subset in CI and audits the artifacts
+  FROM THE FILES: decode, hash-match against a rebuilt character,
+  re-simulate bit-identical. Two findings fixed en route: the search's
+  path-repeat scan now runs BACKWARD (the first match was the EARLIEST
+  ancestor, so a wandering dive printed a mostly-approach "loop";
+  backward gives the shortest enclosing cycle), and BuildDemonstration
+  learned movement macros (its entry validation predated them — and its
+  stall DIAGNOSTICS dereferenced a macro as a move, a crash the first full
+  cook found).
+  **Still open:** `jump-cancel`, `kara` blocked on M1.3(b3)/the kara
+  close-frame note; `counter-hit`, `wallbounce` blocked on ADR-015.
 
 - `[ ]` **M1.7 Authoring telemetry.** *(S)* What the author actually needed to
   know, recorded while authoring rather than reconstructed after.
