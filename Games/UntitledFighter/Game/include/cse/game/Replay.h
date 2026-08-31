@@ -135,15 +135,18 @@
 // ---------------------------------------------------------------------------
 // WHY THE INPUT STREAM IS RUN-LENGTH ENCODED
 // ---------------------------------------------------------------------------
-// Because of the actual shape of fighting-game input, which is not the shape of
-// general time-series data: A HELD BUTTON IS THE COMMON CASE AND MOST TICKS
-// REPEAT THE PREVIOUS ONE. A player walks forward for forty ticks, holds down
-// for twenty, holds a punch through its whole 14-tick animation. The kernel
-// makes this even more pronounced than a real game would -- Combat.cpp takes
-// buttons HELD rather than PRESSED, so the natural way to perform anything is to
-// hold it -- and the tool-assisted player's trace for a self-cancel loop is
-// literally one button held for the entire demonstration. That is 160 ticks in
-// one 6-byte run.
+// Because of the actual shape of HUMAN fighting-game input, which is not the
+// shape of general time-series data: A HELD BUTTON IS THE COMMON CASE AND MOST
+// TICKS REPEAT THE PREVIOUS ONE. A player walks forward for forty ticks, holds
+// down for twenty, holds a punch through its whole 14-tick animation.
+//
+// A DEMONSTRATION trace is the adversarial case, and has grown steadily
+// denser: M1.1d made it release between repeats of a button (the kernel takes
+// the press), and M1.3e gave it the drivers' re-press rule, so a cursor
+// waiting out a landing alternates press and release every third tick. Against
+// that shape RLE roughly breaks even -- the worst case below -- and that is
+// fine, because demonstrations are seconds long. The encoding is chosen for
+// the hour-long human match, whose neutral stretches it compresses ~500x.
 //
 // The worst case is honest and small: input that changes every single tick costs
 // 6 bytes per tick against a flat log's 4, a 1.5x loss on a file that would be
@@ -241,12 +244,16 @@ inline constexpr std::uint32_t kDefaultCheckpointInterval = 60;
 // question would eventually disagree.
 std::uint32_t HashMatchData(const cse::kernel::MatchData& data);
 
-// The six int32s are maxHealth, juggleMax, hitstunDecayStep, hitstunDecayFloor,
-// moveCount and cancelCount. Written as a sum of the members rather than as a
+// Three Boxes now: the standing body, the crouching one, and the pushbox.
+// The eleven int32s are maxHealth, juggleMax, inputBufferFrames,
+// hitstunDecayStep, hitstunDecayFloor, resourceCount, walkSpeedSub, gravitySub,
+// jumpImpulseSub, moveCount and cancelCount; the ResourceDef array is counted
+// separately. Written as a sum of the members rather than as a
 // byte count so this keeps checking for PADDING after the P2 expansion rather
 // than becoming a number to update.
 static_assert(sizeof(cse::kernel::FighterData) ==
-                  sizeof(cse::kernel::Box) + 6 * sizeof(std::int32_t) +
+                  3 * sizeof(cse::kernel::Box) + 11 * sizeof(std::int32_t) +
+                      cse::kernel::kMaxResources * sizeof(cse::kernel::ResourceDef) +
                       cse::kernel::kMaxMovesPerFighter * sizeof(cse::kernel::MoveDef) +
                       cse::kernel::kMaxCancelsPerFighter * sizeof(cse::kernel::CancelEdge),
               "FighterData has acquired padding. HashMatchData reads its object "

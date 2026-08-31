@@ -110,22 +110,31 @@ namespace {
         const char*   moves[3];
     };
 
+    // PUNCHES ON THE TOP ROW, KICKS ON THE HOME ROW. Reported from play
+    // (2026-08-21): "the keys u/i/o are supposed to be punches with j/k/l being
+    // kicks - it is stated opposite currently". It was. The convention is the
+    // arcade six-button layout read off a keyboard: the upper row is the upper
+    // row of the cabinet, and a hand resting on the home row finds the kicks.
+    //
+    // The pad follows the same shape: the four face buttons are light and medium
+    // of each, and the two heavies live on the bumpers, which is where every
+    // six-button fighting game on a standard pad puts them.
     const MoveKey kMoveKeys[] = {
-        { "Fight.Attack1", GLFW_KEY_J, GLFW_GAMEPAD_BUTTON_X,
-          "J", cse::kernel::kInputLP, { "stand_lp", "crouch_lp", "air_lp" } },
-        { "Fight.Attack2", GLFW_KEY_K, GLFW_GAMEPAD_BUTTON_Y,
-          "K", cse::kernel::kInputMP, { "stand_mp", "crouch_mp", "air_mp" } },
-        { "Fight.Attack3", GLFW_KEY_L, GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER,
-          "L", cse::kernel::kInputHP, { "stand_hp", "crouch_hp", "air_hp" } },
-        { "Fight.Attack4", GLFW_KEY_U, GLFW_GAMEPAD_BUTTON_A,
-          "U", cse::kernel::kInputLK, { "stand_lk", "crouch_lk", "air_lk" } },
-        { "Fight.Attack5", GLFW_KEY_I, GLFW_GAMEPAD_BUTTON_B,
-          "I", cse::kernel::kInputMK, { "stand_mk", "crouch_mk", "air_mk" } },
-        { "Fight.Attack6", GLFW_KEY_O, GLFW_GAMEPAD_BUTTON_LEFT_BUMPER,
-          "O", cse::kernel::kInputHK, { "stand_hk", "crouch_hk", "air_hk" } },
+        { "Fight.Attack1", GLFW_KEY_U, GLFW_GAMEPAD_BUTTON_X,
+          "U", cse::kernel::kInputLP, { "stand_lp", "crouch_lp", "air_lp" } },
+        { "Fight.Attack2", GLFW_KEY_I, GLFW_GAMEPAD_BUTTON_Y,
+          "I", cse::kernel::kInputMP, { "stand_mp", "crouch_mp", "air_mp" } },
+        { "Fight.Attack3", GLFW_KEY_O, GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER,
+          "O", cse::kernel::kInputHP, { "stand_hp", "crouch_hp", "air_hp" } },
+        { "Fight.Attack4", GLFW_KEY_J, GLFW_GAMEPAD_BUTTON_A,
+          "J", cse::kernel::kInputLK, { "stand_lk", "crouch_lk", "air_lk" } },
+        { "Fight.Attack5", GLFW_KEY_K, GLFW_GAMEPAD_BUTTON_B,
+          "K", cse::kernel::kInputMK, { "stand_mk", "crouch_mk", "air_mk" } },
+        { "Fight.Attack6", GLFW_KEY_L, GLFW_GAMEPAD_BUTTON_LEFT_BUMPER,
+          "L", cse::kernel::kInputHK, { "stand_hk", "crouch_hk", "air_hk" } },
     };
 
-    // The four direction bits stepFighter reads: kInputLeft and kInputRight set
+    // The four direction bits ReadIntent reads: kInputLeft and kInputRight set
     // velX, kInputUp jumps, and kInputDown sets `crouching` (Simulate.cpp).
     //
     // DOWN USED TO BE UNBOUND, on the stated grounds that "nothing in the kernel
@@ -151,6 +160,7 @@ namespace {
     constexpr const char* kActReset = "Fight.Reset";
     constexpr const char* kActDemo  = "Fight.Demonstrate";
     constexpr const char* kActSwap  = "Fight.NextCharacter";
+    constexpr const char* kActStage = "Fight.StagePosition";
 
     struct ControlKey {
         const char* action;
@@ -164,6 +174,7 @@ namespace {
         { kActReset, GLFW_KEY_R,      -1 },
         { kActDemo,  GLFW_KEY_TAB,    -1 },
         { kActSwap,  GLFW_KEY_C,      -1 },
+        { kActStage, GLFW_KEY_V,      -1 },
     };
 
     // 1 -> 1/2 -> 1/4 -> 1/8 -> 1. Integer division of the host's fixed steps,
@@ -307,59 +318,10 @@ void UntitledFighterMode::Exit() {
 
 // --- Bringing a character up ---------------------------------------------------
 
-bool UntitledFighterMode::startCharacter_(int index) {
-    // Everything the previous character owned goes first, in dependency order:
-    // the session stops pointing at the watcher and the sources, then those are
-    // freed, then the data they borrowed is replaced. A build_ reassigned while
-    // the session still held a pointer into it would be a dangling MatchData on
-    // the very next tick.
-    session_.ClearObservers();
-    session_.SetInputSource(kPlayerSlot, nullptr);
-    session_.SetInputSource(kDummySlot, nullptr);
-    playerSource_.reset();
-    demo_.reset();
-    watcher_.reset();
-
-    matchReady_    = false;
-    analysisReady_ = false;
-    setupError_.clear();
-    analysisError_.clear();
-    demoNote_.clear();
-    fatal_.clear();
-    bindings_.clear();
-    hitAdvantage_ = LatchedAdvantage{};
-    paused_       = false;
-    slowDivisor_  = 1;
-    slowCounter_  = 0;
-    pendingSteps_ = 0;
-
-    character_ = cse::data::CharacterData{};
-    build_     = cse::data::MatchBuild{};
-    analysis_  = cse::data::ProverResult{};
-    setup_     = cse::game::FightSetup{};
-
-    // Wraps in both directions, so one key can walk the list forwards and a
-    // negative index cannot land outside it.
-    characterIndex_ = ((index % kCharacterCount) + kCharacterCount) % kCharacterCount;
-    const std::string file = kCharacters[characterIndex_].file;
-
-    // --- load ---------------------------------------------------------------
-    cse::data::LoadReport  loadReport{};
-    cse::data::LoadOptions loadOptions{};
-    // expectedResources deliberately empty: assertion A03 is a CROSS-FILE rule
-    // about a whole build's resource ORDER, and this mode loads one file at a
-    // time. Naming an order here would be this file inventing a build-wide
-    // contract. The check is SKIPPED rather than passed, and CharacterData.h
-    // records that as a warning for exactly this reason.
-    if (!cse::data::LoadCharacterFile(ctx_.contentRoot, file, loadOptions,
-                                      character_, loadReport)) {
-        setupError_ = "load " + file + ": " +
-                      (loadReport.rule.empty() ? "" : loadReport.rule + ": ") +
-                      loadReport.error;
-        return false;
-    }
-
-    // --- build ---------------------------------------------------------------
+// The options every match this mode starts is built with. One function rather
+// than a block inside the start path, because prepare and adopt both need the
+// SAME answer -- two assemblies would be two binding tables one edit apart.
+static cse::data::BuildOptions matchBuildOptions() {
     cse::data::BuildOptions options{};
     // The documented defaults, PASSED BY NAME rather than left at zero. Omitting
     // them gets the same numbers plus a warning nobody would draw; naming them
@@ -381,21 +343,130 @@ bool UntitledFighterMode::startCharacter_(int index) {
             options.bindings.push_back(binding);
         }
     }
+    return options;
+}
+
+bool UntitledFighterMode::startCharacter_(int index) {
+    // Wraps in both directions, so one key can walk the list forwards and a
+    // negative index cannot land outside it.
+    characterIndex_ = ((index % kCharacterCount) + kCharacterCount) % kCharacterCount;
+    const std::string file = kCharacters[characterIndex_].file;
+
+    // The watch is bound BEFORE the load and regardless of its outcome
+    // (ADR-016): the file that failed to load is exactly the file whose next
+    // save must be noticed, or the honest-error screen can only be revived by
+    // C -- which advances to the NEXT character. A containment refusal here is
+    // impossible for the constants above, and ignored the same way the load's
+    // own refusal would report it one line later.
+    {
+        std::string watchError;
+        (void)reloadWatch_.Bind(ctx_.contentRoot, file, watchError);
+    }
+
+    cse::data::CharacterData character{};
+    cse::data::MatchBuild    build{};
+    std::string              error;
+    const bool prepared = prepareCharacter_(file, character, build, error);
+    if (!prepared) {
+        // A swap is a SWAP: the old match goes even when the new file is
+        // broken, and the honest-error screen says why. (A hot reload of the
+        // SAME file makes the other choice -- keep-last-good -- and
+        // pollHotReload_ says why there.)
+        teardownMatch_();
+        setupError_ = error;
+        return false;
+    }
+    return adoptPrepared_(std::move(character), std::move(build));
+}
+
+bool UntitledFighterMode::prepareCharacter_(const std::string& file,
+                                            cse::data::CharacterData& outCharacter,
+                                            cse::data::MatchBuild& outBuild,
+                                            std::string& error) {
+    // --- load ---------------------------------------------------------------
+    cse::data::LoadReport  loadReport{};
+    cse::data::LoadOptions loadOptions{};
+    // expectedResources deliberately empty: assertion A03 is a CROSS-FILE rule
+    // about a whole build's resource ORDER, and this mode loads one file at a
+    // time. Naming an order here would be this file inventing a build-wide
+    // contract. The check is SKIPPED rather than passed, and CharacterData.h
+    // records that as a warning for exactly this reason.
+    if (!cse::data::LoadCharacterFile(ctx_.contentRoot, file, loadOptions,
+                                      outCharacter, loadReport)) {
+        error = "load " + file + ": " +
+                (loadReport.rule.empty() ? "" : loadReport.rule + ": ") +
+                loadReport.error;
+        return false;
+    }
+
+    // --- build ---------------------------------------------------------------
+    const cse::data::BuildOptions options = matchBuildOptions();
     // BOTH SIDES GET THE SAME TABLE. A mirror match is the setup in which nothing
     // that happens can be blamed on the two sides having different data, and the
     // dummy having the same bindings is what makes "the dummy never acted" a fact
     // about the combo rather than about the binding table -- the same reason
     // tests/test_gap_extent.cpp's harness mirrors. It presses nothing today; that
     // is a decision about its INPUT and not about its data.
-    if (!cse::data::BuildMatchData(character_, options, character_, options,
-                                   build_)) {
+    if (!cse::data::BuildMatchData(outCharacter, options, outCharacter, options,
+                                   outBuild)) {
         // Both sides are the same character, so a per-side report cannot
         // disagree; take whichever one actually says something.
-        const std::string& first = build_.report[0].error;
-        setupError_ = "build match: " +
-                      (first.empty() ? build_.report[1].error : first);
+        const std::string& first = outBuild.report[0].error;
+        error = "build match: " +
+                (first.empty() ? outBuild.report[1].error : first);
         return false;
     }
+    return true;
+}
+
+void UntitledFighterMode::teardownMatch_() {
+    // Everything the previous character owned goes first, in dependency order:
+    // the session stops pointing at the watcher and the sources, then those are
+    // freed, then the data they borrowed is replaced. A build_ reassigned while
+    // the session still held a pointer into it would be a dangling MatchData on
+    // the very next tick.
+    session_.ClearObservers();
+    session_.SetInputSource(kPlayerSlot, nullptr);
+    session_.SetInputSource(kDummySlot, nullptr);
+    playerSource_.reset();
+    demo_.reset();
+    watcher_.reset();
+
+    matchReady_    = false;
+    analysisReady_ = false;
+    setupError_.clear();
+    analysisError_.clear();
+    demoNote_.clear();
+    reloadNote_.clear();
+    reloadFailed_  = false;
+    fatal_.clear();
+    bindings_.clear();
+    hitAdvantage_ = LatchedAdvantage{};
+    paused_       = false;
+    slowDivisor_  = 1;
+    slowCounter_  = 0;
+    pendingSteps_ = 0;
+    // A pending tap was aimed at the match that is going away; delivered later
+    // it would start a move on tick 0 of a match nobody pressed anything in.
+    // resetMatch_ has always cleared these; the swap path silently keeping
+    // them was the stale-press leak the M1.5 seam mapping found.
+    taps_.Clear();
+
+    character_ = cse::data::CharacterData{};
+    build_     = cse::data::MatchBuild{};
+    analysis_  = cse::data::ProverResult{};
+    setup_     = cse::game::FightSetup{};
+}
+
+bool UntitledFighterMode::adoptPrepared_(cse::data::CharacterData&& character,
+                                         cse::data::MatchBuild&& build) {
+    // Teardown BEFORE the members move: the session must not hold a pointer
+    // into a build_ that is being replaced, even for the length of this call.
+    teardownMatch_();
+    character_ = std::move(character);
+    build_     = std::move(build);
+
+    const cse::data::BuildOptions options = matchBuildOptions();
 
     // The binding table AS BUILT, which is not the same thing as the table asked
     // for: a move this character does not have got no slot (Find returns 0, its
@@ -456,7 +527,7 @@ bool UntitledFighterMode::startCharacter_(int index) {
 
     // --- the opening position -------------------------------------------------
     //
-    // THE DUMMY GOES IN THE CORNER, and that is not a flourish. The in-engine
+    // THE DUMMY OPENS IN THE CORNER, and that is not a flourish. The in-engine
     // decision procedure is corner-only by construction (ProverAdapter.h note 2):
     // it answers for a defender pinned against the wall with no room to walk
     // away. Every verdict this mode puts on screen is about that position, so the
@@ -464,15 +535,22 @@ bool UntitledFighterMode::startCharacter_(int index) {
     // quoting a corner verdict at a player standing somewhere the verdict says
     // nothing about.
     //
-    // The corner itself is MEASURED off the kernel rather than typed in here; see
-    // ProbeStageHalfWidthSub.
+    // AND [V] MOVES IT TO MIDSCREEN, which is not a softening of that argument
+    // but the other half of it. Asked for from play (2026-08-20): "the training
+    // mode seems to keep the enemy in the corner so I can't really tell if
+    // pushback or anything like that is working." Both statements are true at
+    // once -- the corner is where the verdicts mean something, and it is also
+    // the one place on the stage where knockback has nowhere to put anybody, so
+    // every spacing mechanic this engine has is invisible there.
+    //
+    // Rather than choose, the mode says which position it is in and what that
+    // costs. The HUD carries the warning: midscreen, the verdict above the
+    // fighters is about a position they are not standing in.
+    bodyHalfWidthSub_  = options.body.halfWidthSub;
     stageHalfWidthSub_ = ProbeStageHalfWidthSub();
     setup_             = cse::game::FightSetup{};
     setup_.data        = &build_.data;   // BORROWED for the session's whole life
-    setup_.start.startPosX[kDummySlot] = stageHalfWidthSub_;
-    setup_.start.startPosX[kPlayerSlot] =
-        stageHalfWidthSub_ - (2 * options.body.halfWidthSub +
-                              kTrainingGapPx * cse::kernel::kSubUnitsPerPixel);
+    applyStagePosition_();
 
     std::string beginError;
     if (!session_.Begin(setup_, beginError)) {
@@ -489,9 +567,89 @@ bool UntitledFighterMode::startCharacter_(int index) {
     // decision nobody can find.
     session_.SetInputSource(kDummySlot, nullptr);
 
+    // The camera opens ON THE PAIR rather than holding a framing from a match
+    // that no longer exists. Without this a restart, or the [V] toggle, would
+    // leave the deadzone anchored where the last fight ended and scroll back
+    // across the stage on the first tick of the new one.
+    cameraCentrePx_ =
+        static_cast<float>((setup_.start.startPosX[kPlayerSlot] +
+                            setup_.start.startPosX[kDummySlot]) / 2) /
+        static_cast<float>(cse::kernel::kSubUnitsPerPixel);
+
     matchReady_ = true;
     refreshDemoNote_();
     return true;
+}
+
+// The authoring loop (ROADMAP M1.5). ADR-016 in four sentences: a change to
+// the loaded character file RESTARTS the match with the freshly built data,
+// through the same adopt path C uses; it never swaps MatchData under the live
+// session, because rollback across the edit is undefined (FightSession.h),
+// `resimulated` would never flag the changed ticks, and a replay's single
+// matchDataHash would describe a match nobody simulated; a broken edit -- the
+// normal state while typing -- keeps the last good match and says so; and the
+// author's time posture (pause, slow motion) survives, because the person
+// saving the file is usually frame-stepping the very move they are editing.
+//
+// The property is pinned headlessly in tests/test_character_hotreload.cpp,
+// against real files and a real FightSession; this function is its mirror
+// with the hardware attached, the same division test_press_delivery.cpp draws
+// for the tap accumulator.
+//
+// NOTE THE FILE IT WATCHES: the STAGED copy under the content root, beside the
+// executable -- the only copy the sandbox lets this mode read. An edit to the
+// authoring source under Games/UntitledFighter/Assets/ lands when the build
+// restages it (or when it is copied by hand); docs/manual/fighting-core.md
+// says so where the authoring loop is described.
+void UntitledFighterMode::pollHotReload_(float dt) {
+    if (!reloadWatch_.Update(dt)) return;
+
+    const std::string file = kCharacters[characterIndex_].file;
+    cse::data::CharacterData character{};
+    cse::data::MatchBuild    build{};
+    std::string              error;
+    if (!prepareCharacter_(file, character, build, error)) {
+        // KEEP-LAST-GOOD: nothing was adopted, so the running match (or the
+        // honest-error screen) stands exactly as it was. The watch refreshed
+        // its stamps when it reported, so this says its piece ONCE and the
+        // save that fixes the file lands like any other edit.
+        reloadNote_   = "edit refused, keeping the last good match -- " + error;
+        reloadFailed_ = true;
+        return;
+    }
+
+    // The author's decisions about time survive the reload; everything that
+    // names an ABSOLUTE TICK of the old match dies with it in teardownMatch_
+    // (demonstration, pending taps, pending steps, latched advantage), for
+    // resetMatch_'s own reasons.
+    const bool keepPaused = paused_;
+    const int  keepSlow   = slowDivisor_;
+    if (!adoptPrepared_(std::move(character), std::move(build))) return;
+    paused_      = keepPaused;
+    slowDivisor_ = keepSlow;
+
+    reloadNote_   = "edit landed -- " + file +
+                    " rebuilt, match restarted at tick 0"
+                    + (paused_ ? std::string(", still paused") : std::string());
+    reloadFailed_ = false;
+}
+
+// Where the two fighters start, for whichever position the mode is in. The GAP
+// between them is the same in both, so the only thing that changes is how much
+// room the dummy has behind it -- which is exactly the variable being toggled.
+void UntitledFighterMode::applyStagePosition_() {
+    const std::int32_t gap = 2 * bodyHalfWidthSub_ +
+                             kTrainingGapPx * cse::kernel::kSubUnitsPerPixel;
+
+    if (stageMidscreen_) {
+        // Centred, so there is a full half-stage of room on both sides and a
+        // knockback has somewhere to carry the dummy.
+        setup_.start.startPosX[kDummySlot]  = gap / 2;
+        setup_.start.startPosX[kPlayerSlot] = -(gap - gap / 2);
+    } else {
+        setup_.start.startPosX[kDummySlot]  = stageHalfWidthSub_;
+        setup_.start.startPosX[kPlayerSlot] = stageHalfWidthSub_ - gap;
+    }
 }
 
 void UntitledFighterMode::resetMatch_() {
@@ -513,6 +671,9 @@ void UntitledFighterMode::resetMatch_() {
     // tick index went back to 0, and then wake up 400 ticks later.
     demo_.reset();
     local_.Reset(session_.CurrentTick());
+    // A pending tap was aimed at the match that just ended; delivered now it
+    // would start a move on tick 0 of a match nobody pressed anything in.
+    taps_.Clear();
     bindPlayerSource_();
     if (watcher_) watcher_->Reset();
     // AND THE LATCHED MEASUREMENT, for the reason the demonstration goes: it
@@ -570,24 +731,50 @@ cse::kernel::Input UntitledFighterMode::readPad_() const {
     if (!ctx_.app) return input;
     MyCoreEngine::InputMap& map = ctx_.app->input();
 
-    // isDown, NOT consumePressed. The kernel takes buttons HELD -- StepAttack
-    // scans for a move all of whose bits are held and starts it, with no notion
-    // of an edge, because honest edge detection would need the previous tick's
-    // buttons inside GameState and a rollback hands Simulate only the current
-    // tick's (Combat.cpp). So the right read here is a LEVEL, and a level read is
-    // phase-independent: it cannot be consumed by somebody else and cannot be
-    // missed by a frame that ran no tick.
+    // isDown, NOT consumePressed -- and since ROADMAP M1.1d that is the RIGHT
+    // read rather than a concession. The kernel derives the edge itself (in
+    // ReadIntent, against Fighter::prevButtons), because rollback re-simulates
+    // a tick from a snapshot and hands Simulate only that tick's bits: an edge
+    // computed out here would survive one replay and not the next. What this function owes the kernel is
+    // the honest LEVEL every tick, INCLUDING the ticks a button is not held --
+    // a reader that dropped those would replay a press as a hold and the kernel
+    // would never see a second press.
     //
-    // Holding a button therefore REPEATS a move as soon as the last one recovers.
-    // That is the kernel's documented gap, and on this character it is also the
-    // route 32 of the 33 runaway cycles actually take (tests/test_gap_extent.cpp),
-    // so a playtester holding one key is doing the most interesting thing
-    // available to them.
+    // A level read is one half of the pad (ROADMAP M1.3h): it carries HOLDS,
+    // and it cannot carry a tap that went down and up between the ticks that
+    // run -- slow motion, pause and zero-tick render frames all open such
+    // gaps. notePadPresses_ is the other half: it consumes the same keys'
+    // press edges on EVERY fixed step into taps_, and FixedTick ORs the
+    // pending presses into this read's bits before latching, so the tap
+    // arrives as a one-tick pulse the kernel reads its own edge from.
+    //
+    // Holding a button therefore starts a move ONCE. It used to repeat the move
+    // the tick the last one recovered, which is what review point R0 found by
+    // playing; holding is now reserved for mechanics that do not exist yet.
     for (const MoveKey& key : kMoveKeys)
         if (map.isDown(key.action)) input.bits |= key.button;
     for (const MoveKey& key : kDirectionKeys)
         if (map.isDown(key.action)) input.bits |= key.button;
     return input;
+}
+
+void UntitledFighterMode::notePadPresses_() {
+    if (!ctx_.app) return;
+    MyCoreEngine::InputMap& map = ctx_.app->input();
+
+    // consumePressed on the SAME keys readPad_ level-reads, every fixed step
+    // including the ones no tick runs on -- that is the point: the steps slow
+    // motion and pause skip are exactly where a tap dies (ROADMAP M1.3h).
+    // Consuming here does not starve readPad_: isDown is a level and has no
+    // latch to eat. Directions are noted too -- a tapped Down or Up between
+    // run ticks is a one-tick stance wish on the next, which is the press the
+    // player made.
+    std::uint16_t pressed = 0;
+    for (const MoveKey& key : kMoveKeys)
+        if (map.consumePressed(key.action)) pressed |= key.button;
+    for (const MoveKey& key : kDirectionKeys)
+        if (map.consumePressed(key.action)) pressed |= key.button;
+    taps_.Note(pressed);
 }
 
 void UntitledFighterMode::readControls_() {
@@ -618,6 +805,16 @@ void UntitledFighterMode::readControls_() {
     }
 
     if (map.consumePressed(kActReset)) resetMatch_();
+
+    // A position change is a RESTART, not a teleport. Moving two fighters in a
+    // live match would be presentation writing state the simulation did not
+    // produce, which is the one thing ADR-011 forbids outright; going through
+    // the same path R does keeps every tick something the session produced.
+    if (map.consumePressed(kActStage)) {
+        stageMidscreen_ = !stageMidscreen_;
+        applyStagePosition_();
+        resetMatch_();
+    }
 
     // --- FROM HERE DOWN, EVERY CONTROL ACTS ON A MATCH THAT IS RUNNING --------
     //
@@ -836,7 +1033,8 @@ void UntitledFighterMode::bindPlayerSource_() {
 // --- The tick -------------------------------------------------------------------
 
 void UntitledFighterMode::FixedTick(float dt) {
-    (void)dt;   // the session takes no dt at all: it is a tick index, not a clock
+    // dt feeds ONLY the hot-reload poll interval below. The session itself
+    // takes no dt at all: it is a tick index, not a clock.
     ++modeTicks_;
 
     // BEFORE the match check, so the character key still works on a machine where
@@ -847,7 +1045,20 @@ void UntitledFighterMode::FixedTick(float dt) {
     // rest of them nothing.
     readControls_();
 
+    // AFTER the controls, so an explicit C or R this step acts first and a
+    // just-swapped character starts from fresh stamps; ALSO before the match
+    // check, so a fixed or newly staged file revives the honest-error screen
+    // without a keypress (ADR-016) -- and clears `fatal_`, which is about an
+    // input log this restart has just replaced.
+    pollHotReload_(dt);
+
     if (!matchReady_ || !fatal_.empty()) return;
+
+    // EVERY fixed step, before the run gate: the press edges this step made,
+    // held for the next tick that runs. After the match check on purpose --
+    // a press aimed at no match should not fire on the first tick of the next
+    // one (resetMatch_ clears taps_ for the same reason).
+    notePadPresses_();
 
     // --- whether a tick runs at all ------------------------------------------
     //
@@ -881,7 +1092,11 @@ void UntitledFighterMode::FixedTick(float dt) {
     // not run does not advance either counter. Latching on a paused step would
     // put a value in the log for a tick nobody simulated.
     const std::uint32_t tick = session_.CurrentTick();
-    if (!local_.Latch(tick, readPad_())) {
+    cse::kernel::Input padIn = readPad_();
+    // The taps the skipped steps collected, delivered as part of THIS tick's
+    // recorded input -- pre-latch, so replay and rollback see the same bytes.
+    padIn.bits = taps_.Spend(padIn.bits);
+    if (!local_.Latch(tick, padIn)) {
         // The header is explicit: a caller that gets false back has a sequencing
         // bug and must STOP THE MATCH rather than continue with a hole in the
         // input log. Continuing would leave a tick nobody can answer for, and
@@ -984,6 +1199,8 @@ FightHudModel UntitledFighterMode::hudModel_() const {
     model.setupError    = &setupError_;
     model.analysisError = &analysisError_;
     model.demoNote      = &demoNote_;
+    model.reloadNote    = &reloadNote_;
+    model.reloadFailed  = reloadFailed_;
     model.fatal         = &fatal_;
 
     model.modeTicks   = modeTicks_;
@@ -992,6 +1209,7 @@ FightHudModel UntitledFighterMode::hudModel_() const {
     model.slowDivisor = slowDivisor_;
     model.playerSlot  = kPlayerSlot;
     model.demoArmed   = demoArmed_();
+    model.stageMidscreen = stageMidscreen_;
     // BY VALUE, and it is the only field here that is a measurement rather than a
     // reading. See FightHudModel::hitAdvantage and latchHitAdvantage_.
     model.hitAdvantage = hitAdvantage_;
@@ -1055,7 +1273,11 @@ void UntitledFighterMode::Draw(MyCoreEngine::Renderer2D& r2d, int widthPx,
         // captured. UIPass's closing End() therefore restores the same bits it
         // would have restored anyway. The cost is two extra flushes per frame.
         r2d.End();
-        r2d.BeginWorld(FightCamera(session_.State(), widthPx, heightPx), widthPx,
+        const MyCoreEngine::Camera2D cam =
+            FightCamera(session_.State(), widthPx, heightPx,
+                        stageHalfWidthSub_, cameraCentrePx_);
+        cameraCentrePx_ = cam.position.x;   // the deadzone's memory
+        r2d.BeginWorld(cam, widthPx,
                        heightPx);
         DrawFightWorld(r2d, session_.State(), session_.Data(), stageHalfWidthSub_);
         r2d.End();

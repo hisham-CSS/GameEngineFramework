@@ -64,6 +64,7 @@
 
 #include "cse/game/ComboWatcher.h"
 #include "cse/game/FightSession.h"
+#include "cse/game/WitnessCursor.h"
 #include "cse/game/InputSource.h"
 #include "cse/game/Replay.h"
 
@@ -127,8 +128,21 @@ constexpr std::int32_t kHeight    = px(60);
 // header says so in the comment on `startPosX` and points at test_ground_truth
 // for the number; these are that number. Origins 34 px apart, bodies 8 px apart,
 // which is inside the reach of every move any trace here uses.
-constexpr std::int32_t kP0X = -px(17);
-constexpr std::int32_t kP1X =  px(17);
+// IN THE CORNER, for the reason tests/test_gap_extent.cpp states at length:
+// the verdicts these combos come from were computed at `stage: corner`, where
+// the model drops horizontal position entirely. Opening midscreen was harmless
+// while nothing moved the defender; once ROADMAP M1.3d wired pushback it meant
+// measuring a sliding midscreen exchange against a corner-only analysis, and
+// every loop here died of separation the model does not model.
+constexpr std::int32_t kStageEdge = 480 * cse::kernel::kSubUnitsPerPixel;
+//
+// THE DEFENDER'S BODY IS AGAINST THE WALL, not its origin. Since ROADMAP M1.2
+// the stage clamps the BODY -- a fighter may not disappear half into the corner
+// -- so an origin placed exactly on the edge is outside its own limit and the
+// first tick shoves it inward. That is not a cornered opening, it is a fighter
+// falling into position while the test believes nothing has happened.
+constexpr std::int32_t kP1X =  kStageEdge - kHalfWidth;
+constexpr std::int32_t kP0X =  kP1X - px(34);
 
 // Fixed so that a failing run is reproducible verbatim. It only feeds
 // GameState::rng, which nothing in a combat tick reads -- but it IS in the
@@ -344,53 +358,17 @@ std::vector<MoveBinding> bindingsFor(const Witness& w) {
 // Advancing on `moveFrame == 0` rather than on a change of `moveId` is the trap
 // FightSession.h writes out for BuildDemonstration and ComboWatcher.h writes out
 // again: the loop is a move cancelling into ITSELF, so the id never changes.
-class Driver {
-public:
-    Driver(const Witness& w, const MoveIndexMap& map,
-           const std::vector<MoveBinding>& bindings)
-        : loopStart_(w.loopStart) {
-        for (const std::string& id : w.sequence) {
-            slots_.push_back(map.Find(id));
-            std::uint16_t button = 0;
-            for (const MoveBinding& b : bindings)
-                if (b.moveId == id) { button = b.button; break; }
-            buttons_.push_back(button);
-            ids_.push_back(id);
-        }
-    }
+// THE witness cursor lives in CseGame now (WitnessCursor.h, ROADMAP M1.3g);
+// this file's copy -- the one the seam test caught drifting -- is deleted, and
+// the seam below compares BuildDemonstration against a WitnessDriver over the
+// SAME step function, which is the strongest form that comparison can take.
+using Driver = cse::game::WitnessDriver;
 
-    bool Usable(std::string& why) const {
-        for (std::size_t i = 0; i < slots_.size(); ++i) {
-            if (slots_[i] == 0) {
-                why = "this character has no move called `" + ids_[i] + "`";
-                return false;
-            }
-            if (buttons_[i] == 0) {
-                why = "`" + ids_[i] + "` was given no button, so nothing can ask for it";
-                return false;
-            }
-        }
-        return !slots_.empty();
-    }
-
-    std::uint16_t Bits() const { return buttons_.empty() ? 0 : buttons_[cursor_]; }
-
-    void Observe(std::uint16_t attackerMove, std::uint16_t attackerFrame) {
-        if (slots_.empty()) return;
-        if (attackerMove != slots_[cursor_] || attackerFrame != 0) return;
-        cursor_ = (cursor_ + 1 < slots_.size()) ? cursor_ + 1 : loopStart_;
-    }
-
-    const std::vector<std::uint16_t>& Slots() const { return slots_; }
-    std::size_t LoopStart() const { return loopStart_; }
-
-private:
-    std::vector<std::uint16_t> slots_;
-    std::vector<std::uint16_t> buttons_;
-    std::vector<std::string>   ids_;
-    std::size_t                loopStart_ = 0;
-    std::size_t                cursor_    = 0;
-};
+Driver makeDriver(const Witness& w, const MoveIndexMap& map,
+                  const cse::kernel::FighterData& data) {
+    return Driver(cse::game::WitnessCursor::FromIds(w.sequence, w.loopStart,
+                                                    map, data));
+}
 
 // ============================================================================
 // 0c. WATCHING A SESSION FROM OUTSIDE
@@ -1514,7 +1492,7 @@ TEST(GameDemonstration, TheSeamProducesExactlyTheGroundTruthDriversTrace) {
 
     // The reference: the closed-loop driver copied out of test_ground_truth.cpp,
     // run against a bare Simulate loop exactly as that file runs it.
-    Driver reference(rig.witness, rig.build.moves[0], rig.bindings);
+    Driver reference = makeDriver(rig.witness, rig.build.moves[0], rig.build.data.p[0]);
     std::string why;
     ASSERT_TRUE(reference.Usable(why)) << "the witness cannot be driven: " << why;
 
@@ -2015,19 +1993,22 @@ TEST(GameReplayFormat, TheEncodedBytesAreExactlyWhatTheHeaderTableSays) {
                   kReplayCheckpointBytes * checkpointCount)
         << "the encoded size does not match the header's own counts";
 
-    // THE RLE CLAIM, MEASURED. The tool-assisted player's trace for a self-cancel
-    // loop is literally one button held for the whole demonstration, and the
-    // header says that is ONE six-byte run. A flat log of the same fight would be
-    // four bytes a tick.
-    EXPECT_EQ(runCount, 1u)
-        << "a demonstration that holds one button for " << trace.size()
-        << " ticks encoded as " << runCount << " runs; the run-length encoding is "
-           "not doing the one thing it exists for.";
+    // THE RLE CLAIM, MEASURED TWICE AND DEMOTED TWICE. It began as
+    // runCount == 1 (a held button is one run) and died when the trace builder
+    // started releasing between repeats; then "fewer runs than half the ticks,
+    // smaller than a flat log" died with ROADMAP M1.3e, when the rehearsal
+    // gained the drivers' re-press rule -- a waiting cursor now alternates
+    // press and release every third tick, so a DEMONSTRATION trace is press-
+    // dense by construction and RLE gains almost nothing on it. That is a fact
+    // about this adversarially dense input, not about the encoding: the format
+    // exists for hour-long HUMAN matches, whose neutral stretches are long.
+    // What survives here is the structural claim -- runs are bounded by ticks,
+    // every run is nonzero, and the file is EXACTLY its header's arithmetic
+    // (asserted above and below), so a payload cannot ride along.
+    EXPECT_LE(runCount, trace.size())
+        << "more runs than ticks: some run must be zero-length";
     EXPECT_EQ(readU16(bytes, runOffset(0) + 0), trace.front().bits);
     EXPECT_EQ(readU16(bytes, runOffset(0) + 2), 0u) << "the silent dummy's bits";
-    EXPECT_EQ(readU16(bytes, runOffset(0) + 4), trace.size());
-    EXPECT_LT(bytes.size(), 4u * trace.size())
-        << "the run-length encoded file is not smaller than a flat log would be";
 
     // Run lengths sum to EXACTLY tickCount, and no run is zero-length -- a
     // zero-length run is how a hostile file makes a decoder loop without
@@ -4035,7 +4016,16 @@ TEST(GameComboWatcher, ACycleTheCertificateRetiresIsStillFlaggedWhenTheKernelRun
     // adapter's omit-the-opening-move caveat cannot apply to it.
     analysis.loopEntryKnown = true;
 
-    constexpr std::uint32_t kSafeTurns = 6;
+    // THREE, and the bound is the ARC. Since ROADMAP M1.3e the air self-cancel
+    // is performed the way a player performs it -- jump, cancel down the arc,
+    // land -- and one jump holds at most four repetitions (hit ticks 6, 29,
+    // 52, 75 with M1.3i's freeze: the 11-tick cancel plus air_mp's 12 of
+    // hitstop; test_ground_truth section 5 measures it). The defender is FREE
+    // between jumps, so a watcher correctly ends the combo there: six turns as
+    // ONE combo is no longer a thing the game contains, and this test's claim
+    // -- the watcher flags a certified-away cycle while it runs -- must be
+    // made inside a single string.
+    constexpr std::uint32_t kSafeTurns = 3;
 
     GameState from{};
     cse::kernel::ResetMatch(from, kSeed);
@@ -4466,4 +4456,150 @@ TEST(GameComboWatcher, AStringThatEndsIsMovedToPreviousAndCounted) {
     EXPECT_EQ(watcher.CompletedCombos(), 0);
     EXPECT_FALSE(watcher.Current().open);
     EXPECT_EQ(watcher.Current().hits, 0);
+}
+
+// A witness that cancels a move into ITSELF -- fighter_a_infinite's whole
+// deliberate bug is `stand_lp -> stand_lp` -- asks for the same button twice in
+// a row. Emitting that bit continuously is a HOLD, and a kernel that starts
+// moves on a PRESS would never see the second one: the loop stops being
+// performable, not because the analysis was wrong but because the trace was
+// written for a kernel that could not tell a hold from a press.
+//
+// So a derived trace releases between repeats. This is pinned here, in the
+// SHIPPED builder, rather than in the tests that happen to drive loops today,
+// because the same function turns every showcase verdict into a replay
+// (ROADMAP M1.6) and every one of those is a derived trace.
+//
+// The release costs nothing: it is spent one tick after the move started, deep
+// inside startup, where the attacker cannot act whatever is held.
+TEST(GameDemonstration, ASelfCancellingWitnessReleasesBetweenRepeats) {
+    Rig rig{};
+    bringUpInfinite(rig);
+    ASSERT_FALSE(::testing::Test::HasFatalFailure());
+
+    FightSession session;
+    std::string error;
+    ASSERT_TRUE(session.Begin(rig.setup, error)) << error;
+
+    Demonstration demo{};
+    demonstrate(rig, session.State(), kDemoTurns, session.CurrentTick(), demo);
+    ASSERT_FALSE(::testing::Test::HasFatalFailure());
+    ASSERT_TRUE(demo.complete) << demo.error;
+    ASSERT_FALSE(demo.inputs.empty());
+
+    // The trace must not be one unbroken hold. Counting zero-bit ticks rather
+    // than inspecting positions keeps this about the PROPERTY -- there is a gap
+    // between repeats -- and not about where the builder chose to put it.
+    std::size_t releases = 0;
+    for (const cse::kernel::Input& in : demo.inputs)
+        if (in.bits == 0u) ++releases;
+
+    EXPECT_GT(releases, 0u)
+        << "the derived trace holds its button for all " << demo.inputs.size()
+        << " ticks without ever releasing. The witness cancels a move into "
+           "itself, so every repeat asks for the same bit -- and a held bit is "
+           "one press however long it lasts.";
+
+    // And it is still a trace that performs the witness, which is the half a
+    // release count alone cannot say.
+    EXPECT_GE(demo.turnsDone, static_cast<std::uint32_t>(kDemoTurns))
+        << "the release frames broke the demonstration: " << demo.turnsDone
+        << " of " << kDemoTurns << " turns. A gap in the wrong place delays the "
+           "next move rather than enabling it.";
+}
+
+// A REHEARSAL STILL PERFORMS THE WITNESS FOR A CHARACTER THAT BUFFERS INPUT --
+// and, more usefully, WHY the builder's release tick is safe to skip.
+//
+// BuildDemonstration spends a release tick and `continue`s, on the reasoning
+// that "nothing starts from an input of zero, so there is nothing to test for".
+// Buffering looks like it should break that: a press made two ticks ago is
+// CONSUMED the tick the fighter becomes actionable, so a move can begin on a
+// tick the trace is silent on -- and a `continue` there would leave the cursor
+// pointing at a move already running, exactly the blindness that cost most of a
+// session in the three test drivers (ROADMAP M1.1d).
+//
+// It does not break, and the reason is the PLACEMENT of the release rather than
+// the absence of a buffer. The builder releases only on the tick immediately
+// after an advance: the fighter is one frame into a move it just started, and
+// the press that started it has already been consumed, so there is nothing
+// buffered to fire. The second assertion below turns that sentence into a check,
+// because it is the invariant that makes the `continue` correct and it is not
+// obvious from the code -- move the release anywhere else and this test is what
+// says so.
+//
+// I wrote this expecting it to fail and change the builder. It passed against
+// the unchanged builder, which is the answer.
+//
+// The window is set on the built MatchData rather than authored, because no
+// character file can author one yet -- that is ROADMAP M1.1e.
+TEST(GameDemonstration, ABufferedPressIsSeenEvenWhenItLandsOnAReleaseTick) {
+    Rig rig{};
+    bringUpInfinite(rig);
+    ASSERT_FALSE(::testing::Test::HasFatalFailure());
+
+    // Wide enough that a press is pending across the release the builder emits
+    // after every advance, which is what puts a move start ON a release tick.
+    rig.build.data.p[0].inputBufferFrames = 8;
+    rig.build.data.p[1].inputBufferFrames = 8;
+
+    FightSession session;
+    std::string error;
+    ASSERT_TRUE(session.Begin(rig.setup, error)) << error;
+
+    Demonstration demo{};
+    demonstrate(rig, session.State(), kDemoTurns, session.CurrentTick(), demo);
+    ASSERT_FALSE(::testing::Test::HasFatalFailure());
+
+    EXPECT_TRUE(demo.complete)
+        << "the rehearsal did not finish for a character that buffers input, "
+           "though the same witness completes for one that does not. Buffering "
+           "makes a link EASIER, so a rehearsal it breaks is a rehearsal that "
+           "stopped watching.\n  reachedIndex "
+        << demo.reachedIndex << " of " << rig.kernelWitness.size()
+        << "\n  turnsDone    " << demo.turnsDone << " of " << kDemoTurns
+        << "\n  stalledAt    " << demo.stalledAt
+        << "\n  error        " << demo.error;
+
+    EXPECT_GE(demo.turnsDone, static_cast<std::uint32_t>(kDemoTurns))
+        << "the buffered rehearsal managed " << demo.turnsDone << " of "
+        << kDemoTurns << " turns.";
+
+    // --- and no move ever begins on a tick the trace is silent on ------------
+    //
+    // Replayed rather than inferred: BuildDemonstration reports the inputs, not
+    // the states, so the only honest way to ask "did a move start on a release
+    // tick" is to run them.
+    GameState replay = session.State();
+    std::size_t startsOnSilentTicks = 0, silentTicks = 0, startsSeen = 0;
+    for (const cse::kernel::Input& in : demo.inputs) {
+        cse::kernel::InputPair pair{};
+        pair.p[0] = in;
+        pair.p[1] = cse::kernel::Input{};   // the silent dummy, as demonstrate() asks for
+        cse::kernel::Simulate(replay, pair, rig.build.data);
+        const bool started =
+            replay.p[0].moveId != 0u && replay.p[0].moveFrame == 0u;
+        if (started) ++startsSeen;
+        if (in.bits != 0u) continue;
+        ++silentTicks;
+        if (started) ++startsOnSilentTicks;
+    }
+
+    ASSERT_GT(silentTicks, 0u)
+        << "the trace never releases, so this check saw nothing. The witness "
+           "cancels a move into itself; there must be release ticks.";
+    // NOT VACUOUS: the replay does observe move starts, so a zero below is the
+    // absence of one on a SILENT tick and not the loop failing to see any.
+    ASSERT_GT(startsSeen, 0u)
+        << "replaying the demonstration's own inputs started no move at all, so "
+           "this replay is not the run BuildDemonstration rehearsed and the "
+           "check beneath it means nothing.";
+    EXPECT_EQ(startsOnSilentTicks, 0u)
+        << startsOnSilentTicks << " of the trace's " << silentTicks
+        << " release tick(s) started a move. BuildDemonstration skips its "
+           "cursor check on a release tick, which is only safe while no move can "
+           "begin there -- and it is safe today because the release lands one "
+           "tick after a start, when the buffer has just been consumed. If this "
+           "fails, the release moved, and the `continue` has to look at the "
+           "state before spending it.";
 }

@@ -82,10 +82,15 @@
 // simply cannot be taken more than four times, because `air_mp` spends one point
 // of a four-point juggle budget and `nonNegative` refuses the fifth.
 //
-// THE KERNEL HAS NO JUGGLE. It has no resources at all: `Fighter::meter` exists
-// and nothing writes it, and there is no juggle field to write. MatchBuilder
-// already says so -- `move.effect` is a KernelOmits row and
-// `BuildReport::playsAsAnalysed` is false -- but "a loss table entry" and "the
+// THE KERNEL NEVER SPENDS JUGGLE, which since ROADMAP M1.1b is a narrower claim
+// than the one that used to be here. It has resources now: they are declared,
+// primed, spent by `MoveDef::effect` on contact and guarded by
+// `MoveDef::guard` on both routes into a move. What it does NOT do is end a
+// combo when one runs out -- `ApplyEffects` clamps at the authored floor rather
+// than refusing, and `MatchBuilder` populates neither `juggleMax` nor
+// `juggleCost`, so the budget gate in Combat.cpp has never fired for a built
+// character. MatchBuilder still says the outcome -- `BuildReport::playsAsAnalysed`
+// is false -- but "a loss table entry" and "the
 // character has an infinite the tool certified away" are very different
 // sentences, and section 5 turns the first into the second by executing it.
 //
@@ -124,6 +129,7 @@
 
 #include "cse/data/CharacterData.h"
 #include "cse/data/MatchBuilder.h"
+#include "cse/game/WitnessCursor.h"
 #include "cse/data/ProverAdapter.h"
 #include "cse/kernel/Simulate.h"
 
@@ -177,15 +183,35 @@ constexpr std::int32_t kHeight    = px(60);
 // literally true, and test_match_bridge already tests that boundary to the
 // sub-unit. Here the margin is deliberately enormous.
 //
-// NOBODY MOVES DURING ANY TRACE. The attacker holds attack buttons and no
-// direction, so stepFighter sets velX to 0; the defender is in hitstun, which
-// zeroes velX anyway; and the kernel applies no pushback on hit at all
-// (MatchBuilder's `move.pushback` row: "the kernel moves nobody on hit"). The
-// gap is therefore 8 px on every tick of every run below, and no verdict here
-// rests on the pushback estimate ADR-001 section 6.3 names as the weakest number
+// THE DEFENDER IS PUSHED, AND THE CORNER ABSORBS IT. The attacker holds attack
+// buttons and no direction, so StepPhysics sets velX to 0; the defender is in
+// hitstun, which zeroes velX anyway. Pushback is a separate mechanism riding
+// Fighter::pushX, and since the bridge began carrying `move.pushback` every hit
+// queues a real displacement -- the ledger row reads `exact` now, not
+// "the kernel moves nobody on hit".
+//
+// The gap holds at 8 px because the defender's back is to the WALL and the stage
+// clamp eats the push, not because nothing pushes. So a verdict here DOES rest on
+// the pushback estimate ADR-001 section 6.3 names as the weakest number
 // in the corpus.
-constexpr std::int32_t kP0X = -px(17);
-constexpr std::int32_t kP1X =  px(17);
+// IN THE CORNER, because that is the stage the verdict was computed for.
+// `fighter_a.json` declares `stage: corner` and its own header says the corner
+// verdict is the one the ranking certificate belongs to -- at stage corner
+// model.py drops horizontal position entirely. A sweep opening midscreen was
+// comparing a midscreen game against a corner model, which was invisible while
+// nothing moved the defender and stops being invisible the moment pushback is
+// wired (ROADMAP M1.3d). The defender's back is to the wall Simulate clamps at,
+// so pushback has nowhere to put them and the comparison is the one the model
+// licenses.
+constexpr std::int32_t kStageEdge = 480 * cse::kernel::kSubUnitsPerPixel;
+//
+// THE DEFENDER'S BODY IS AGAINST THE WALL, not its origin. Since ROADMAP M1.2
+// the stage clamps the BODY -- a fighter may not disappear half into the corner
+// -- so an origin placed exactly on the edge is outside its own limit and the
+// first tick shoves it inward. That is not a cornered opening, it is a fighter
+// falling into position while the test believes nothing has happened.
+constexpr std::int32_t kP1X =  kStageEdge - kHalfWidth;
+constexpr std::int32_t kP0X =  kP1X - px(34);
 
 // The build-wide resource order, positional and identical in every file a build
 // loads (ADR-001 section 8 item 7). Passing it is what arms load assertion A03.
@@ -422,55 +448,18 @@ std::vector<MoveBinding> bindingsFor(const Witness& w) {
 // advances and the trace holds one button forever. That is the correct failure
 // mode -- it stalls visibly, and the per-tick table below shows what the attacker
 // was doing instead.
-class Driver {
-public:
-    Driver(const Witness& w, const MoveIndexMap& map,
-           const std::vector<MoveBinding>& bindings)
-        : loopStart_(w.loopStart) {
-        for (const std::string& id : w.sequence) {
-            slots_.push_back(map.Find(id));
-            std::uint16_t button = 0;
-            for (const MoveBinding& b : bindings)
-                if (b.moveId == id) { button = b.button; break; }
-            buttons_.push_back(button);
-            ids_.push_back(id);
-        }
-    }
+// THE witness cursor lives in CseGame now (WitnessCursor.h, ROADMAP M1.3g):
+// one home for the advance-on-frame-zero rule, the release between repeats,
+// the stance hold riding through it, and the two-tick re-press. This file's
+// copy is deleted; BuildDemonstration and every driver in the suite sit on the
+// same step function, and the seam test in test_game_core.cpp says so.
+using Driver = cse::game::WitnessDriver;
 
-    bool Usable(std::string& why) const {
-        for (std::size_t i = 0; i < slots_.size(); ++i) {
-            if (slots_[i] == 0) {
-                why = "this character has no move called `" + ids_[i] +
-                      "`, so the witness cannot be replayed against it";
-                return false;
-            }
-            if (buttons_[i] == 0) {
-                why = "`" + ids_[i] + "` was given no button, so nothing can ask for it";
-                return false;
-            }
-        }
-        return !slots_.empty();
-    }
-
-    std::uint16_t Bits() const { return buttons_.empty() ? 0 : buttons_[cursor_]; }
-
-    void Observe(std::uint16_t attackerMove, std::uint16_t attackerFrame) {
-        if (slots_.empty()) return;
-        if (attackerMove != slots_[cursor_] || attackerFrame != 0) return;
-        cursor_ = (cursor_ + 1 < slots_.size()) ? cursor_ + 1 : loopStart_;
-    }
-
-    const std::vector<std::uint16_t>& Slots() const { return slots_; }
-    std::size_t LoopStart() const { return loopStart_; }
-    std::size_t LoopLength() const { return slots_.size() - loopStart_; }
-
-private:
-    std::vector<std::uint16_t> slots_;
-    std::vector<std::uint16_t> buttons_;
-    std::vector<std::string>   ids_;
-    std::size_t                loopStart_ = 0;
-    std::size_t                cursor_    = 0;
-};
+Driver makeDriver(const Witness& w, const MoveIndexMap& map,
+                  const cse::kernel::FighterData& data) {
+    return Driver(cse::game::WitnessCursor::FromIds(w.sequence, w.loopStart,
+                                                    map, data));
+}
 
 // ============================================================================
 // Running one, and watching from outside
@@ -560,7 +549,13 @@ TickLog drive(const MatchData& data, Driver& driver, int ticks,
         in.p[0].bits = driver.Bits();
         if (policy == DefenderPolicy::MashesOnceHit && run.firstHitTick >= 0 &&
             t > run.firstHitTick) {
-            in.p[1].bits = defenderBits;
+            // MASHING IS REPEATED PRESSES, and this used to hold the button --
+            // which was indistinguishable from mashing only while the kernel
+            // restarted a move on a held bit. Under edge detection a hold is one
+            // press, so a "masher" who holds acts once and then never again, and
+            // the control would report that the kernel refused to let them out
+            // when in fact nothing had asked it to (ROADMAP M1.1d).
+            in.p[1].bits = (t % 2 == 0) ? defenderBits : 0u;
         }
 
         cse::kernel::Simulate(s, in, data);
@@ -739,8 +734,12 @@ constexpr int kPayoffTicks = 160;
 constexpr int kMinTurns    = 20;
 
 // Section 5 runs longer, because the edge it exercises repeats every 11 ticks
-// rather than every 6 and the point is the size of the overrun.
-constexpr int kGapTicks = 200;
+// rather than every 6 and the point is the size of the overrun. Sized up for
+// ROADMAP M1.3i: every connecting air_mp now freezes both fighters for its
+// authored 12 ticks of hitstop, so a four-hit string plus its landing takes
+// ~104 wall ticks instead of ~62, and the old 200-tick window held only ONE
+// landing seam where assertion (2) needs at least two.
+constexpr int kGapTicks = 460;
 
 // ResetMatch's opening health (Simulate.cpp). Named so the damage arithmetic
 // below reads as a subtraction from a known starting point rather than as a
@@ -960,7 +959,7 @@ TEST(GroundTruthPayoff, ThePrintedLoopExecutesInTheKernel) {
     ASSERT_TRUE(buildMirror(bugged.character, bindings, build))
         << "p0: " << build.report[0].error << " / p1: " << build.report[1].error;
 
-    Driver driver(w, build.moves[0], bindings);
+    Driver driver = makeDriver(w, build.moves[0], build.data.p[0]);
     std::string why;
     ASSERT_TRUE(driver.Usable(why)) << "the witness cannot be driven: " << why;
 
@@ -1013,7 +1012,7 @@ TEST(GroundTruthPayoff, ThePrintedLoopExecutesInTheKernel) {
     //
     // Read straight off Fighter::hitstun on every tick inside the combo, not
     // derived from frame arithmetic. The tick each hit lands on is excluded, and
-    // has to be: hitstun is decremented at the top of stepFighter and re-set by
+    // has to be: hitstun is decremented at the top of StepPhysics and re-set by
     // ResolveHits at the bottom, so on the very first hit's tick the defender was
     // legitimately free -- that is what being hit out of neutral means.
     const std::vector<std::int32_t> free = run.FreeTicks();
@@ -1109,8 +1108,8 @@ TEST(GroundTruthPayoff, TheDefenderCannotMashOutOfIt) {
     ASSERT_TRUE(buildMirror(bugged.character, bindings, build))
         << build.report[0].error;
 
-    Driver silentDriver(w, build.moves[0], bindings);
-    Driver mashDriver(w, build.moves[0], bindings);
+    Driver silentDriver = makeDriver(w, build.moves[0], build.data.p[0]);
+    Driver mashDriver = makeDriver(w, build.moves[0], build.data.p[0]);
     std::string why;
     ASSERT_TRUE(silentDriver.Usable(why)) << why;
 
@@ -1155,8 +1154,8 @@ TEST(GroundTruthPayoff, TheExecutedLoopIsBitIdenticalOnAReplay) {
     ASSERT_TRUE(buildMirror(bugged.character, bindings, build))
         << build.report[0].error;
 
-    Driver first(w, build.moves[0], bindings);
-    Driver again(w, build.moves[0], bindings);
+    Driver first = makeDriver(w, build.moves[0], build.data.p[0]);
+    Driver again = makeDriver(w, build.moves[0], build.data.p[0]);
     const TickLog a = drive(build.data, first, kPayoffTicks, DefenderPolicy::Silent, 0);
     const TickLog b = drive(build.data, again, kPayoffTicks, DefenderPolicy::Silent, 0);
 
@@ -1197,7 +1196,7 @@ TEST(GroundTruthControl, TheSameTraceAgainstTheSafeCharacterLetsTheDefenderOut) 
     ASSERT_TRUE(buildMirror(safe.character, bindings, build))
         << build.report[0].error;
 
-    Driver driver(w, build.moves[0], bindings);
+    Driver driver = makeDriver(w, build.moves[0], build.data.p[0]);
     std::string why;
     ASSERT_TRUE(driver.Usable(why))
         << "the infinite character's witness cannot be replayed against "
@@ -1238,7 +1237,7 @@ TEST(GroundTruthControl, TheSameTraceAgainstTheSafeCharacterLetsTheDefenderOut) 
     MatchBuild buggedBuild{};
     ASSERT_TRUE(buildMirror(bugged.character, bindings, buggedBuild))
         << buggedBuild.report[0].error;
-    Driver buggedDriver(w, buggedBuild.moves[0], bindings);
+    Driver buggedDriver = makeDriver(w, buggedBuild.moves[0], buggedBuild.data.p[0]);
     const TickLog buggedRun = drive(buggedBuild.data, buggedDriver, kPayoffTicks,
                                 DefenderPolicy::Silent, 0);
 
@@ -1272,7 +1271,7 @@ TEST(GroundTruthControl, TheSafeCharactersDefenderReallyGetsToAct) {
     MatchBuild build{};
     ASSERT_TRUE(buildMirror(safe.character, bindings, build)) << build.report[0].error;
 
-    Driver driver(w, build.moves[0], bindings);
+    Driver driver = makeDriver(w, build.moves[0], build.data.p[0]);
     const TickLog run = drive(build.data, driver, kPayoffTicks,
                           DefenderPolicy::MashesOnceHit, bindings[0].button);
 
@@ -1310,14 +1309,21 @@ TEST(GroundTruthControl, TheSafeCharactersDefenderReallyGetsToAct) {
 }
 
 // ============================================================================
-// 5. THE GAP -- a cancel the prover proved could not repeat, repeating
+// 5. THE GAP, CLOSED -- the string ends at the model's count, for the game's
+//    own reason
 // ============================================================================
 //
-// READ THE HEADER OF THIS FILE BEFORE READING THESE TWO TESTS. They PASS, and
-// what they assert is a defect in the projection from the file to the kernel,
-// measured rather than argued. This is the outcome ARCHITECTURE.md section 5.5
-// item 4 calls "the gap between the model and the game is itself a publishable
-// finding", arrived at from the safe character rather than the bugged one.
+// READ THE HEADER OF THIS FILE BEFORE READING THESE TWO TESTS. Until ROADMAP
+// M1.3e this section measured a DEFECT: the stance wire was missing, `air_mp`
+// was performable from the ground, and the kernel repeated the prover's one
+// live self-cancel forever. With stance wired the loop must be performed the
+// way a player performs it -- jump, cancel down the arc, land -- and the
+// measurement inverts into the finding these tests now pin: the kernel ends
+// every string at the same count the model charges to juggle, but for a
+// DIFFERENT reason (the ballistic arc runs out of air), and the defender is
+// genuinely free between strings. The count agrees; the explanation does not;
+// making the graph agree for the right reason is M1.4a's business
+// (ARCHITECTURE.md section 5.5 item 4 -- the gap is a finding either way).
 
 // First half: establish, from the data, that fighter_a contains exactly one
 // self-cancel the prover keeps, and that the only thing stopping it looping is a
@@ -1419,8 +1425,9 @@ TEST(GroundTruthGap, TheSafeCharactersOnlyLiveSelfCancelIsStoppedByAResource) {
            "what stops the only live cycle in the character";
 }
 
-// Second half: execute it. THIS IS THE FINDING.
-TEST(GroundTruthGap, TheKernelPerformsItForeverBecauseItHasNoResources) {
+// Second half: execute it. THIS IS THE FINDING, in its post-M1.3e form: the
+// count agrees with the model and the reason does not.
+TEST(GroundTruthGap, TheArcEndsEveryStringAtTheCountTheModelChargesToJuggle) {
     Subject safe{};
     bringUp(kSafe, safe);
     ASSERT_FALSE(::testing::Test::HasFatalFailure());
@@ -1459,13 +1466,19 @@ TEST(GroundTruthGap, TheKernelPerformsItForeverBecauseItHasNoResources) {
     ASSERT_LE(kernelEdge->earliestFrame, kernelEdge->latestFrame)
         << "the kernel window is empty, so this edge is inert and there is no gap";
 
-    Driver driver(w, build.moves[0], bindings);
+    Driver driver = makeDriver(w, build.moves[0], build.data.p[0]);
     std::string why;
     ASSERT_TRUE(driver.Usable(why)) << why;
 
-    // The defender mashes the moment the combo opens, and gets nowhere.
+    // Silent, which is the recipe the file's own ground truth prescribes. A
+    // mash control is deliberately absent HERE: the landing gap is one to two
+    // ticks wide and this bench has no input buffer, so whether an alternating
+    // mash lands on it is decided by tick parity -- a coin this fixture happens
+    // to fix. Making that window human is exactly what the authored buffer is
+    // for (ROADMAP M1.1e); the direct evidence of escapability is the
+    // defender's own hitstun counter, read below.
     const TickLog run = drive(build.data, driver, kGapTicks,
-                          DefenderPolicy::MashesOnceHit, bindings[0].button);
+                          DefenderPolicy::Silent, 0);
 
     // The model's budget, recomputed here so the two halves cannot drift.
     const ResourceIndex juggle = 1;   // A03: the build's positional order
@@ -1478,81 +1491,96 @@ TEST(GroundTruthGap, TheKernelPerformsItForeverBecauseItHasNoResources) {
     const std::int32_t permitted =
         safe.character.resources[juggle].initial / (-spend);
 
-    // THE MEASUREMENT.
-    EXPECT_GT(static_cast<std::int32_t>(run.Hits()), permitted)
-        << "the kernel performed `" << moveId << "` -> itself "
-        << run.Hits() << " times; the model permits " << permitted << ".";
-    EXPECT_TRUE(run.FreeTicks().empty())
-        << "the defender got out, so this is not the infinite it looks like."
-        << Summary(run, build.moves[0]);
-    EXPECT_TRUE(run.defenderActedTicks.empty())
-        << "the defender acted while mashing, so the loop is escapable after all."
-        << Summary(run, build.moves[0]);
-
-    // And it is not slowing down. A repetition count is not an infinite; a fixed
-    // period with no escape is.
-    ASSERT_GE(run.hitTicks.size(), 3u);
+    // THE MEASUREMENT, all four parts of it.
+    //
+    // (1) THE COUNT AGREES, AND SINCE M1.1f SO DOES THE MECHANISM. The
+    // kernel's string is `permitted` hits long -- the same number the model
+    // charges to juggle -- and it is now DOUBLY enforced: the ballistic arc
+    // runs out of air at four, and the wired juggle budget (juggleMax 4,
+    // air_mp costing 1) would refuse the fifth in the same breath. Measured
+    // 2026-08-31, with M1.3i's hitstop live: hits at ticks 6, 29, 52, 75 --
+    // still four per jump, and the period is 23 = the 11-tick cancel plus
+    // air_mp's authored 12 of freeze, during which BOTH clocks stop so the
+    // arc and the move age together and the count cannot drift. The juggle
+    // wire (M1.1f) moved none of these numbers; the hitstop wire moved every
+    // WALL-CLOCK one and no FRAME-DATA one. If this assertion ever fails, the
+    // arc and the budget have PARTED: say which moved, and why.
+    ASSERT_GE(run.hitTicks.size(), static_cast<std::size_t>(permitted) + 1)
+        << "the loop did not even reach a second string" << Summary(run, build.moves[0]);
     const std::int32_t period = run.hitTicks[1] - run.hitTicks[0];
-    for (std::size_t i = 1; i + 1 < run.hitTicks.size(); ++i)
+    for (std::int32_t i = 0; i + 1 < permitted; ++i)
         EXPECT_EQ(run.hitTicks[i + 1] - run.hitTicks[i], period)
-            << "the repetition is not periodic" << Summary(run, build.moves[0]);
+            << "the first string is not periodic" << Summary(run, build.moves[0]);
+    EXPECT_GT(run.hitTicks[permitted] - run.hitTicks[permitted - 1], period)
+        << "hit " << permitted + 1 << " came at the cancel period, so the "
+           "string ran PAST the model's budget -- the arc did not end it and "
+           "the gap this section used to measure is back."
+        << Summary(run, build.moves[0]);
 
-    // WHY, in the loss table's own words. Both of these are already recorded by
-    // MatchBuilder as things the kernel does not do; what this test adds is that
-    // one of them is load-bearing for a TERMINATING verdict.
+    // (2) THE DEFENDER IS GENUINELY FREE BETWEEN STRINGS -- hitstun zero,
+    // read off the state, inside what a pre-M1.3e kernel called one combo.
+    // This is what makes the prover's TERMINATING verdict TRUE of the game:
+    // a string that hands the defender a turn is not an infinite.
+    const std::vector<std::int32_t> freeTicks = run.FreeTicks();
+    EXPECT_GE(freeTicks.size(), 2u)
+        << "the defender was never free between strings, so the loop really "
+           "is one unbroken combo and the infinite is back."
+        << Summary(run, build.moves[0]);
+
+    // (3) AND THE LOOP STILL TURNS. Across jumps -- the driver re-establishes
+    // the stance at every landing -- the kernel keeps performing strings, so
+    // the demonstration is a real loop of real strings rather than one jump's
+    // worth of witness.
+    EXPECT_GE(run.hitTicks.size(), static_cast<std::size_t>(2 * permitted))
+        << "the second string never completed" << Summary(run, build.moves[0]);
+
+    // (4) WHY, in the loss table's own words -- and the reason has narrowed
+    // twice. M1.1b: effects ARE applied, and what keeps a string alive at the
+    // floor is the clamp (on the EFFECT path a cost that cannot be paid is forgiven,
+    // not refused -- M1.1f's decision). M1.3e: stance IS enforced, so the
+    // ground route to this air loop is closed and both rows read Exact. What
+    // remains is exactly the explanation gap the assertions above measure:
+    // the kernel's string ends on the ARC, the model's on the BUDGET, and
+    // nothing yet makes the graph reason about either (M1.4a).
     const BuildLoss* effects = findLoss(build.report[0], "move.effect");
     ASSERT_NE(effects, nullptr);
-    EXPECT_GT(effects->count, 0)
-        << "the kernel is supposed to be dropping this character's resource "
-           "effects, and the loss table says it drops none";
-    EXPECT_EQ(effects->direction, BuildLossDirection::KernelOmits)
-        << "`move.effect` is recorded as "
-        << BuildLossDirectionName(effects->direction)
-        << " and the argument in this test needs it to be KernelOmits";
-
+    EXPECT_GT(effects->count, 0);
+    EXPECT_EQ(effects->direction, BuildLossDirection::Exact);
     const BuildLoss* stance = findLoss(build.report[0], "move.stance");
     ASSERT_NE(stance, nullptr);
-    EXPECT_GT(stance->count, 0)
-        << "`" << moveId << "` is an AIR move and the kernel has no stance rule, "
-           "which is a second, independent reason this loop is performable from "
-           "the ground";
-    EXPECT_EQ(stance->direction, BuildLossDirection::KernelPermits)
+    EXPECT_GT(stance->count, 0);
+    EXPECT_EQ(stance->direction, BuildLossDirection::Exact)
         << "`move.stance` is recorded as "
-        << BuildLossDirectionName(stance->direction);
+        << BuildLossDirectionName(stance->direction)
+        << " and this test's argument needs it Exact: the arc can only end the "
+           "string if the loop actually has to leave the ground.";
 
-    // The flag that was always going to be the one to watch. It is false, it is
-    // COMPUTED rather than remembered, and this test is what it costs.
-    EXPECT_FALSE(build.report[0].playsAsAnalysed)
-        << "the bridge is claiming the kernel plays the character ProverAdapter "
-           "analysed, and this test just performed a combo that character cannot "
-           "do.";
+    // The flag that was always going to be the one to watch. Still false --
+    // priority, chip and scaling are still dropped, and the carried cancel
+    // conditions are honoured only in part -- and still COMPUTED.
+    EXPECT_FALSE(build.report[0].playsAsAnalysed);
     EXPECT_GT(build.report[0].lossesThatBite, 0);
 
-    RecordProperty("kernel_repetitions", static_cast<int>(run.Hits()));
+    RecordProperty("kernel_hits_per_string", permitted);
     RecordProperty("model_permits_repetitions", permitted);
     RecordProperty("gap_loop_move", moveId);
     RecordProperty("gap_period_ticks", period);
+    RecordProperty("free_ticks_between_strings", static_cast<int>(freeTicks.size()));
 
     // PRINTED ON SUCCESS, because a passing test says nothing and this number is
     // the reason the file exists. RecordProperty puts the same figures in the
     // XML for a harness; this is for the human reading the console.
     std::cout
-        << "\n[ GROUND TRUTH ] a measured model/game gap on `" << safe.character.id
-        << "`\n"
-        << "  the decision procedure says TERMINATING, and its certificate is "
-           "that juggle runs down.\n"
-        << "  `" << moveId << "` cancels into itself; the model permits "
-        << permitted << " repetition(s) before\n"
-        << "  juggle hits its floor. The kernel performed " << run.Hits()
-        << " in " << kGapTicks << " ticks, every "
-        << period << " ticks, with the defender\n"
-        << "  unable to act on any tick in between. The kernel has no resources: "
-           "`move.effect`\n"
-        << "  is a " << BuildLossDirectionName(effects->direction) << " loss over "
-        << effects->count << " move(s) and `move.stance` a "
-        << BuildLossDirectionName(stance->direction) << " loss over "
-        << stance->count << " move(s),\n"
-        << "  and BuildReport::playsAsAnalysed is "
-        << (build.report[0].playsAsAnalysed ? "true" : "false")
-        << ". ARCHITECTURE.md 5.5 item 4.\n\n";
+        << "\n[ GROUND TRUTH ] the model/game count AGREES on `"
+        << safe.character.id << "`, twice over since M1.1f\n"
+        << "  the decision procedure says TERMINATING; its certificate charges "
+           "juggle and permits " << permitted << " repetition(s).\n"
+        << "  the kernel performs `" << moveId << "` -> itself " << permitted
+        << " time(s) per jump (period " << period << "): the ARC runs out of "
+           "air there,\n"
+        << "  and the wired juggle budget would refuse the next one in the "
+           "same breath. The defender\n"
+        << "  was free on " << freeTicks.size()
+        << " tick(s) between strings, so no string is an infinite. "
+           "ARCHITECTURE.md 5.5 item 4.\n\n";
 }

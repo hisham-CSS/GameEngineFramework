@@ -244,10 +244,23 @@ void buildKfg(Kfg& out) {
     ASSERT_NE(0u, out.mp);
 }
 
-// stand_lp reaches 57 px and stand_mp reaches 54 px, so a body-to-body gap of
-// 50 px is inside both. Chosen from her file rather than tuned until it worked:
-// if either number moves, this test should fail rather than quietly test one hit.
-constexpr std::int32_t kComboGap = px(50);
+// stand_lp reaches 57 px and stand_mp reaches 54 px, and stand_lp KNOCKS THE
+// DEFENDER BACK 13 px. Those three numbers are hers, not tuned until this
+// worked, and together they say the gap has to leave room for the recoil: the
+// push decays by halves so it carries the defender about 23 px in total, and
+// stand_mp has to still be reaching when it lands.
+//
+// 20 px does it with margin -- 43 px when the follow-up connects, against a
+// 54 px reach. The 50 px this used to be had FOUR pixels of margin and was
+// calibrated when the bridge dropped pushback, so nobody was ever moved; wiring
+// it (ROADMAP M1.3d) turned that margin into a miss and the second hit of the
+// chain simply stopped landing.
+//
+// The lesson is a real one about the genre rather than about the harness: a
+// light into a medium is not confirmable at maximum range, because the light's
+// own knockback takes the defender out of the medium's. If either reach or the
+// pushback moves, this test should fail rather than quietly test one hit.
+constexpr std::int32_t kComboGap = px(20);
 std::int32_t comboDefenderAt() { return kComboGap + 2 * kHalfWidth; }
 
 // LP on tick 0, MP on tick 5, nothing else ever. One tick of each, not a hold:
@@ -350,7 +363,8 @@ TEST(CancelCombo, StandLpIsCancelledIntoStandMpAndBothHitsLand) {
     ASSERT_NE(nullptr, edge) << "the stand_lp -> stand_mp edge did not survive the build";
     EXPECT_EQ(5, edge->earliestFrame);
     EXPECT_EQ(10, edge->latestFrame);
-    EXPECT_EQ(1u, edge->onHit) << "her file authors this edge `on: hit`";
+    EXPECT_EQ(cse::kernel::kContactHit, edge->contactMask)
+        << "her file authors this edge `on: hit`";
 
     const std::int32_t lpDuration = cse::kernel::MoveDuration(d.moves[k.lp]);
     ASSERT_EQ(11, lpDuration)
@@ -488,21 +502,31 @@ TEST(CancelWindow, TooEarlyAndTooLateBothFailAgainstTheTickItself) {
         << "the cancel fired one tick after its window shut";
 
     // AND THE PRESS WAS REAL. A `too late` press that is simply dropped forever
-    // is indistinguishable from a binding that does not work, so hold the button
-    // from the tick after the window shuts until the move ends and require the
-    // follow-up to arrive -- as a LINK, on the tick `a` releases the fighter.
+    // is indistinguishable from a binding that does not work, so press the button
+    // after the window shuts and require the follow-up to arrive -- as a LINK, on
+    // the tick `a` releases the fighter.
+    //
+    // THIS USED TO HOLD THE BUTTON and rely on the hold being retried every tick,
+    // which stopped being true when a press became an edge (ROADMAP M1.1d). The
+    // mechanism it needs is the one M1.1d adds for exactly this: a press that
+    // arrives while the fighter cannot act is BUFFERED and spent the tick they
+    // can. So the character authors a window long enough to span the wait, and
+    // the test now demonstrates the buffer instead of depending on rapid-fire.
+    cse::kernel::MatchData buffered = build.data;
+    buffered.p[0].inputBufferFrames = kSourceTicks;
+
     std::vector<std::uint16_t> held(kSourceTicks + 2, 0u);
     held[0] = cse::kernel::kInputLP;
-    for (std::size_t t = kWindowClose + 1; t < held.size(); ++t)
-        held[t] = cse::kernel::kInputMP;
+    held[kWindowClose + 1] = cse::kernel::kInputMP;   // one press, too late
 
-    const Replay heldRun = drive(build.data, 0, windowDefenderAt(), held);
+    const Replay heldRun = drive(buffered, 0, windowDefenderAt(), held);
     EXPECT_EQ(0, heldRun.cancelsTaken);
     EXPECT_EQ(a, heldRun.moveIdAt[kSourceTicks - 1])
-        << "`a` left early even though its window was shut for the whole hold";
+        << "`a` left early even though its window was shut when the press "
+           "arrived";
     EXPECT_EQ(b, heldRun.moveIdAt[kSourceTicks])
-        << "the held button never produced `b` at all, so `too late` above was "
-           "not the window refusing -- it was the input never arriving";
+        << "the buffered press never produced `b` at all, so `too late` above "
+           "was not the window refusing -- it was the input never arriving";
     EXPECT_EQ(0u, heldRun.moveFrameAt[kSourceTicks]);
 }
 
@@ -599,7 +623,7 @@ TEST(CancelContact, AlreadyHitBitsIsTheContactRecordAndAClearedOneRefuses) {
     const CancelEdge* edge = findEdge(build.data.p[0], build.moves[0].Find("a"),
                                       build.moves[0].Find("b"));
     ASSERT_NE(nullptr, edge);
-    ASSERT_EQ(1u, edge->onHit);
+    ASSERT_EQ(cse::kernel::kContactHit, edge->contactMask);
 
     Fighter f{};
     f.moveId    = build.moves[0].Find("a");
@@ -720,10 +744,16 @@ TEST(CancelBridge, EveryOneOfKungFuGirlsAuthoredEdgesSurvivesTheMapping) {
         EXPECT_EQ(MoveIndexMap::KernelMoveIdOf(src.from), built.from);
         EXPECT_EQ(MoveIndexMap::KernelMoveIdOf(src.to),   built.to);
 
-        // The contact collapse, move for move: Hit and Block require contact,
-        // Whiff and Always do not. See CancelEdge::onHit.
-        const bool requiresContact = src.on == Contact::Hit || src.on == Contact::Block;
-        EXPECT_EQ(requiresContact ? 1u : 0u, built.onHit);
+        // The contact MASK, move for move, since M1.3 slice (a) uncollapsed
+        // the old one-bit onHit: each of the schema's four values crosses as
+        // its own byte, `always` keeping the ungated 0 and `hit` keeping the
+        // 1 the collapse used, so an all-hit character's bytes did not move.
+        const std::uint8_t wantMask =
+            src.on == Contact::Hit     ? cse::kernel::kContactHit
+            : src.on == Contact::Block ? cse::kernel::kContactBlock
+            : src.on == Contact::Whiff ? cse::kernel::kContactWhiff
+                                       : std::uint8_t{0};
+        EXPECT_EQ(wantMask, built.contactMask);
 
         // Padding is hashed by the connect handshake, so an unwritten byte is a
         // byte two peers can disagree about.
@@ -778,7 +808,10 @@ TEST(CancelBridge, TheLossTableCountsWhatTheProjectionActuallyCost) {
         { "cancels (dropped)",           0, BuildLossDirection::KernelOmits   },
         { "cancels (link, not cancel)",  0, BuildLossDirection::KernelPermits },
         { "cancel.contact_frame",      132, BuildLossDirection::KernelPermits },
-        { "cancel.on",                   4, BuildLossDirection::KernelPermits },
+        // Exact since M1.3 slice (a): the contact mask carries all four `on`
+        // values whole and the kernel observes all three outcomes. The count
+        // still says how many edges the old one-bit collapse used to move.
+        { "cancel.on",                   4, BuildLossDirection::Exact         },
         { "cancel.certain",            103, BuildLossDirection::KernelPermits },
         { "cancel.guard",               41, BuildLossDirection::KernelPermits },
         { "cancel.effect",               0, BuildLossDirection::KernelOmits   },
@@ -814,14 +847,26 @@ TEST(CancelBridge, TheLossTableCountsWhatTheProjectionActuallyCost) {
 
     // AND THE FLAG IS STILL FALSE, computed rather than remembered. Cancels were
     // the dominant reason it was false and they no longer are; nineteen entries
-    // still bite, five of them about cancels.
+    // still bite, five of them about cancels. `bites` counts NONZERO rows
+    // whatever their direction, so M1.3e's stance flip to Exact moves nothing
+    // here (25 stanced moves still count) and the new blocked_as row is zero
+    // for this character.
     EXPECT_EQ(19, r.lossesThatBite);
     EXPECT_FALSE(r.playsAsAnalysed)
         << "the bridge is claiming the kernel plays the character ProverAdapter "
            "analysed. It does not -- see the loss table -- and the cancel system "
            "landing does not by itself make that sentence true.";
 
-    EXPECT_EQ(26u, r.losses.size())
+    // 26 -> 27 when M1.3e added move.blocked_as; -> 28 when M1.1e added
+    // character.input_buffer_frames; -> 29 when M1.1f wired the juggle gate;
+    // -> 30 when M1.3i carried hitstop (zero for this character -- her
+    // converted file authors no impact freeze -- so `bites` above is unmoved);
+    // -> 31 when M1.3(b1) carried engine.movement (zero again: she authors
+    // none and keeps the placeholder arc); -> 32 when M1.3(b2) carried the
+    // motion keys and split the uncarried pos_add teleports into their own
+    // row (zero for her on both); -> 33 when the microwalk slice carried
+    // corner push (zero once more: her converted file authors none).
+    EXPECT_EQ(33u, r.losses.size())
         << "the loss table grew or shrank. That is fine, and it has to be "
            "recorded here, because the point of the table is that somebody "
            "counted.";

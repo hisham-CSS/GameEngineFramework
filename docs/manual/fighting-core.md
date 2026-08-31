@@ -1,6 +1,6 @@
 # The Fighting-Game Core
 
-Verified: 2026-08-17 @ e2f08bd
+Verified: 2026-08-31 @ 6036b00
 
 Cat Splat Engine is being built toward a deterministic, rollback-capable fighting game. That work does not live in `Engine/`. It is a **title** — `Games/UntitledFighter/` — and the engine does not depend on any of it. The link direction is a configure-time error, not a convention.
 
@@ -130,19 +130,31 @@ There are two overloads:
 
 ### What one tick actually does
 
-In order, from `Games/UntitledFighter/Kernel/src/Simulate.cpp:93`:
+The tick is a **pipeline of fixed stages** ([ADR-012](../adr/ADR-012-the-tick-is-a-pipeline.md)), each run for every fighter in fixed slot order — never over a container whose order can vary, the hash-ordering hazard that has already bitten `SimplePhysicsBackend` and `ScriptWorld` in this repository. From `Games/UntitledFighter/Kernel/src/Simulate.cpp`:
 
-1. **`stepFighter(p[0])` then `stepFighter(p[1])`**, in fixed slot order (`:98-99`). Never over a container whose order can vary — that is the hash-ordering hazard that has already bitten `SimplePhysicsBackend` and `ScriptWorld` in this repository. Each fighter, in `stepFighter` (`:45`):
-   - `hitstun` and `blockstun` burn down first, and while they do the player has no agency.
-   - If actionable: left/right set `velX`; up sets `velY` and `airborne` when grounded.
-   - Gravity applies while airborne; position integrates; `posX` clamps to the stage; landing at `posY <= 0` zeroes `posY`, `velY` and `airborne`.
-   - **`StepAttack`** (declared in `Combat.h`, implemented in `Games/UntitledFighter/Kernel/src/Combat.cpp`) ends a move that has run out and starts one the fighter is asking for. It runs *after* movement so a move started this tick sees the position the fighter reached.
-2. **Facing is derived** from relative position (`:103-109`), evaluated after both have moved so it cannot depend on which player was stepped first.
-3. **`ResolveHits`** (`:115`, implemented in `Games/UntitledFighter/Kernel/src/Combat.cpp`).
-4. **The RNG advances every tick** whether or not anything consumed it (`:121`), so its position is a function of the tick count alone.
-5. `++state.tick` (`:123`).
+1. **`ReadIntent`** — pure. What this input *means*: press and release edges against the latched `prevButtons`, the walk/jump/crouch wish, the buffer-eligible bits, and whether hitstop froze this fighter. Computed once, so no two stages can disagree about what was pressed.
+2. **`StepPhysics`** — the freeze (a frozen fighter only counts its `hitstop` down), the stun clocks, then movement: the walk wish lands in `velX`, up sets `velY` and `airborne` when grounded, gravity applies while airborne, position integrates, `posX` clamps the **body** to the stage, landing at `posY <= 0` zeroes `posY`, `velY` and `airborne`. Since M1.3(b2), a committed fighter whose move authors **motion keys** (`MoveDef::motion`) flies them instead: the active key owns both velocity components, an upward key leaves the ground, and gravity is skipped while a key owns the arc — the lunge, the hop kick and the divekick are authored fields, exactly as ADR-011 demands.
+3. **`StepAttack`** (declared in `Combat.h`, implemented in `Games/UntitledFighter/Kernel/src/Combat.cpp`) ends a move that has run out and starts one the fighter is asking for. It runs *after* movement so a move started this tick sees the position the fighter reached.
+4. **Resolve** — everything that needs more than one fighter, plus the input latch. `LatchInputs` (the one writer of `prevButtons` and the buffer, and it records **during hitstop** — see the buffer note below) · the invisible wall and the push boxes, read off top-of-tick positions · **facing** derived from relative position, after everyone moved so it cannot depend on step order · guard · **`ResolveHits`** · the round rule · the RNG advances every tick whether or not anything consumed it, so its position is a function of the tick count alone · `++state.tick`.
 
-The movement numbers are **placeholders**, not character data. `Games/UntitledFighter/Kernel/src/Simulate.cpp:15-18` declares walk speed 2 px/tick, gravity 0.25 px/tick², jump impulse 5 px/tick and a stage half-width of 480 px, with a comment saying so. `CharacterData` carries a `walkSpeedSub` and the bridge reports it as a loss (see the loss table below) — the kernel does not read it yet.
+Each field of `Fighter` has **one writing stage** — the audit table is in `Simulate.h`, with the two named exceptions (imposed facts like `hitstun`, written by physics as a clock and by `ResolveHits` as a consequence; and ADR-012's own two-writer rule for `crouching`).
+
+Most movement numbers are **placeholders**, not character data. `Simulate.cpp`'s tuning block declares gravity 0.25 px/tick², jump impulse 5 px/tick and the exported `kStageHalfWidthSub` of 480 px, with a comment saying so. Walk speed is the exception: `FighterData::walkSpeedSub` is authored and the kernel reads it, falling back to 2 px/tick when a file says nothing. `engine.constants` authors `gravity_sub` and `jump_vel_sub` too, and the loader does not read them yet — [ROADMAP.md](../ROADMAP.md) M1.3d.
+
+### How a fighter moves
+
+The genre's movement rules, each landed 2026-08-20/30 with the test that owns it.
+
+- **Selection reads the input; posture follows the move** ([ADR-012](../adr/ADR-012-the-tick-is-a-pipeline.md) rule 3, ROADMAP M1.3e). Which stance variant a press asks for is decided by what is **held now** — Down for a crouching normal, the takeoff Up provides for an aerial — never by the posture commitment froze, so an ordinary gatling like `stand_mp → crouch_hp` works mid-move. Starting a crouching move makes the fighter crouching and a standing move stands them up (the frame data was authored against that body); a move that states no posture imposes none. `P2Stance.*`, and end-to-end on the shipped file `MatchBridgeMechanics.ADirectionEstablishesTheStanceOnTheTickItIsPressed` and `.EveryAuthoredNormalIsReachableThroughItsButtonAndStance`.
+
+- **Commitment.** A fighter whose move was already running at the top of the tick does not walk, does not jump and does not change posture — the frames were given up on the press. The one-tick edge matters: `Up`+button on a single tick still takes off and attacks, because `StepPhysics` runs before `StepAttack`, so no aerial needs a scripted jump. Per-move exceptions (a lunge, a hop kick) are authored motion, ROADMAP M1.3(b), never a kernel rule. `P2Commitment.*` in `tests/test_p2_mechanics.cpp`.
+- **The jump is ballistic.** Horizontal velocity is decided at takeoff from the direction held on the jump tick, and nothing in the air recomputes it — not an air normal (it rides the arc), not a held direction (no air steering). Being hit still zeroes it, until M1.3(d)'s launch vector replaces that properly. The arc is ~38 ticks against `air_mp`'s 22, which is why an air self-cancel yields repetitions per jump rather than an infinite. `P2Ballistic.*`.
+- **The invisible wall.** Two fighters are never further apart than `kMaxSeparationSub` (374 px), anchored to where the opponent stood at the top of the tick — so retreat resumes for exactly as long as the chaser advances, and stops when they stop. Simulation, not camera: it decides whether a move reaches. It is currently a kernel constant, named as a debt in ROADMAP M1.1g. `P2Stage.*`.
+- **Push boxes.** Fighters cannot occupy the same ground: the overlap splits equally, rounds up (an odd overlap must resolve), and is an exact mirror. Airborne fighters pass over — that is what a cross-up is. The wall clamps the **body**, not the origin, so nobody stands half inside a corner; `wallLimitFor` is shared by the walk clamp and the separation pass so neither can undo the other. `P3Pushbox.*`.
+- **Knockdown.** A downed fighter cannot act, cannot be hit (`InvulnerableTo` answers before the move lookup, because a downed fighter has no move), and **is lying down** — the kernel's own `Hurtbox` returns the standing box tipped over, floor edge at zero, so the state reads in silhouette and not just in the overlay's colour. OTG will arrive as an authored per-move field, not a loosening. `P2Knockdown.*`.
+- **Crouching.** The body is the authored `crouch_height_px` (34 px against `fighter_a`'s 60) at the standing width; a move's own `hurtboxOverride` outranks the posture, because the move is the more specific statement; a character authoring nothing keeps one body. One ordering fact worth knowing: a crouching move cannot start on the exact tick of landing, because `crouching` is computed before the landing clamp. `P2Crouch.*`, `P2Movement.ACrouchingMoveCannotStartOnTheTickOfLanding`.
+
+The training keys: punches on **U/I/O**, kicks on **J/K/L** (the arcade rows read off a keyboard), **V** toggles corner/midscreen, **R** resets, and the floor's checkerboard is a ruler — 20 px squares, a heavier line every reach unit (100 px), so an authored `reach: 0.42` is four squares and a bit, counted off the floor.
 
 ### Boxes
 
@@ -179,7 +191,14 @@ Three behaviours to design against:
 - **Hitstun is set, not added.** A fresh hit refreshes stun rather than stacking it. Stacking is how a two-hit string becomes inescapable.
 - **Being hit interrupts the defender's move** (`moveId = 0`). Hitstun gates *starting* a move and nothing else, so without this a fighter would go on swinging while being hit.
 
-> **Gotcha — moves start on buttons being HELD, not pressed.** `StepAttack` (`Games/UntitledFighter/Kernel/src/Combat.cpp`) scans move slots in ascending order and takes the first whose `button` mask is entirely held. So holding a button repeats a move as soon as the previous one recovers. Honest edge detection needs the previous tick's buttons *inside* `GameState`, which is a deliberate omission with its own consequences, spelled out in the "HELD, not pressed" comment above that scan. Two knock-on effects: a move whose mask is a superset of an earlier slot's can **never start** (see the binding warning below), and a test that wants a single hit must press for exactly one tick.
+**Moves start on the PRESS, and a press is an edge.** `StepAttack` (`Games/UntitledFighter/Kernel/src/Combat.cpp`) scans move slots in ascending order and takes the first whose `button` mask is entirely down *and* newly down this tick — `bits & ~prevButtons`. `Fighter::prevButtons` is where last tick's buttons live, and it is in `GameState` rather than in the input producer because a rollback hands `Simulate` only the current tick's bits, so an edge computed anywhere else replays a press as a hold ([DETERMINISM.md](../DETERMINISM.md) D6). Holding a button therefore starts a move **once**, and holding it is reserved for mechanics that do not exist yet.
+
+Two routes reach a move besides that press, both opt-in per character or per move:
+
+- **A buffered press.** `FighterData::inputBufferFrames` — zero, and so off, unless a file asks for it — remembers a press made while the fighter could not act, and **consumes** it the tick they can. It feeds the button scan *and* the cancel scan: a buffered press takes a cancel the tick its window opens, which is what makes a two-frame link something a human can hit. Consumed rather than aged, or one press would walk a fighter down a chain. Only bits some move can use are recorded, so a direction tap cannot clobber a buffered reversal. **Hitstop does not eat it**: recording runs during the freeze, aging is suspended (frozen ticks are not time), and the `prevButtons` latch is withheld so a release inside the freeze still fires a negative edge on thaw — the three `P3Input` freeze tests in `tests/test_p2_mechanics.cpp` pin all of this.
+- **A release.** `MoveDef::negativeEdge`, off by default, lets a move fire on `~bits & prevButtons` — the SF-lineage hold-motion-release special. Nothing distinguishes a "normal" from a "special" in the schema, so the rule *no normal fires on release* holds by construction: a normal that opts in is an authoring error, not a kernel one.
+
+> **Gotcha — a move whose mask is a superset of an earlier slot's can never start.** Slot order still decides, so `{Down, LP}` in a later slot is unreachable if `{LP}` sits in an earlier one; see the binding warning below. A test that wants a single hit now simply presses, but a test that wants the *same* move twice must release between the two presses — two presses on consecutive ticks is one hold.
 
 ### Snapshot, restore, checksum
 
@@ -360,7 +379,7 @@ Three binding diagnostics, all warnings rather than errors:
 > **Gotcha — a crouching normal bound to Down+LP silently never fires.**
 > *(Being fixed: [ROADMAP.md](../ROADMAP.md) M1.1c makes a binding
 > `button → strength` and lets the move's `stance` disambiguate, so a
-> crouching normal is LP-while-crouching rather than a chord.)* `StepAttack` takes the first move in slot order whose buttons are *all* held. `stand_lp` is slot 1 with `{LP}` and `crouch_lp` is slot 12 with `{Down, LP}`, so holding Down+LP can only ever produce `stand_lp`. That is the natural way somebody binds crouching normals, and it does not work. The builder detects the shadowing and warns; `MatchBridgeOptions.ABindingThatCanNeverStartIsReportedAndReallyNeverStarts` checks the warning *against the kernel* rather than merely believing it.
+> crouching normal is LP-while-crouching rather than a chord.)* `StepAttack` takes the first move in slot order whose buttons are *all* down on the tick they are pressed. `stand_lp` is slot 1 with `{LP}` and `crouch_lp` is slot 12 with `{Down, LP}`, so holding Down+LP can only ever produce `stand_lp`. That is the natural way somebody binds crouching normals, and it does not work. The builder detects the shadowing and warns; `MatchBridgeOptions.ABindingThatCanNeverStartIsReportedAndReallyNeverStarts` checks the warning *against the kernel* rather than merely believing it.
 
 ### Capacity: a refusal, not a truncation
 
@@ -408,24 +427,30 @@ Neither direction is "the safe one". The prover's verdict was computed over the 
 
 **A loss with count 0 is still listed.** That is deliberate: knowing a check ran and found nothing is what tells "this character has no decay" apart from "nobody looked". Kung Fu Girl's `decay` entry has count 0 with a note containing the word `inert`, and `MatchBridgeLosses.TheDecayEntryRecordsThatItCheckedRatherThanThatItSkipped` asserts exactly that.
 
-Here is the full table for Kung Fu Girl; `MatchBridgeLosses.EveryDropIsCountedAgainstKungFuGirlsActualFile` (`tests/test_match_bridge.cpp:872`) counts every row of it out of her actual file, and asserts the row *count* as well, so an entry that appears or disappears has to be recorded here:
+Here is the full table for Kung Fu Girl; `MatchBridgeLosses.EveryDropIsCountedAgainstKungFuGirlsActualFile` (`tests/test_match_bridge.cpp`) counts every row of it out of her actual file, and asserts the row *count* as well, so an entry that appears or disappears has to be recorded here:
 
 | Field | Count | Direction |
 |---|---:|---|
 | `cancels (dropped)` | 0 | KernelOmits |
 | `cancels (link, not cancel)` | 0 | KernelPermits |
 | `cancel.contact_frame` | 132 | KernelPermits |
-| `cancel.on` | 4 | KernelPermits |
+| `cancel.on` | 4 | Exact |
 | `cancel.certain` | 103 | KernelPermits |
 | `cancel.guard` | 41 | KernelPermits |
 | `cancel.effect` | 0 | KernelOmits |
 | `move.cancel_window (absent)` | 8 | KernelPermits |
-| `character.walk_speed` | 1 | KernelOmits |
-| `move.pushback` | 24 | KernelOmits |
-| `move.stance` | 25 | KernelPermits |
-| `move.guard` | 2 | KernelPermits |
-| `move.effect` | 24 | KernelOmits |
-| `resources` | 2 | KernelOmits |
+| `character.walk_speed` | 1 | Exact |
+| `character.movement` | 0 | Exact |
+| `resource.juggle (gate)` | 0 | Exact |
+| `character.input_buffer_frames` | 0 | Exact |
+| `move.pushback` | 24 | Exact |
+| `move.corner_push` | 0 | Exact |
+| `move.hitstop` | 0 | Exact |
+| `move.stance` | 25 | Exact |
+| `move.blocked_as` | 0 | Exact |
+| `move.guard` | 2 | Exact |
+| `move.effect` | 24 | Exact |
+| `resources` | 2 | Exact |
 | `move.hit_condition` | 17 | KernelPermits |
 | `move.escape_hatch` | 15 | KernelPermits |
 | `scaling` | 6 | KernelOmits |
@@ -433,15 +458,16 @@ Here is the full table for Kung Fu Girl; `MatchBridgeLosses.EveryDropIsCountedAg
 | `gap_actions` | 1 | KernelOmits |
 | `starters` | 21 | KernelOmits |
 | `move.engine.hits` | 0 | KernelOmits |
-| `move.engine.motion` | 0 | KernelOmits |
+| `move.engine.motion` | 0 | Exact |
+| `move.engine.motion (pos_add)` | 0 | KernelOmits |
 | `move.reach (absent)` | 0 | KernelOmits |
 | `move.reach (provenance)` | 25 | KernelPermits |
 | `move.hitbox.y` | 25 | KernelPermits |
 | `hurtbox` | 1 | KernelPermits |
 
-Nineteen entries bite, so `lossesThatBite == 19`.
+Nineteen entries bite, so `lossesThatBite == 19` — nonzero `Exact` rows count too, because a nonzero row of any direction is a place somebody has to have looked. Her seven zero-count `Exact` rows (juggle gate, input buffer, hitstop, blocked_as, movement, motion keys, corner push) are the why-zero exhibits: her converted file authors none of those mechanics, and the row is the proof a check ran.
 
-The first eight rows replaced what used to be a single `cancels` entry with a count of 134. **All 134 of her edges are now carried**; what is listed instead is the part of each edge the kernel cannot yet honour, and every one of those errs `KernelPermits` — the game chains in situations the file does not allow. A combo system uniformly more permissive than the analysed one is exactly how a `TERMINATING` verdict becomes a game with an infinite in it, which is the next section.
+The first eight rows replaced what used to be a single `cancels` entry with a count of 134. **All 134 of her edges are now carried**; what remains listed is the part of each edge the kernel cannot yet honour, and every row still short errs `KernelPermits` — the game chains in situations the file does not allow. A combo system uniformly more permissive than the analysed one is exactly how a `TERMINATING` verdict becomes a game with an infinite in it, which is the next section. `cancel.on` left that list at M1.3 slice (a): the contact mask carries the file's `on` whole — `on: hit` no longer fires off a blocked contact, `on: block` no longer off a clean hit, and `on: whiff` (the kara) is expressible at all — so its row reads `Exact`, with the count recording how many edges the old one-bit collapse used to move.
 
 ### `playsAsAnalysed`
 
@@ -652,6 +678,22 @@ the printed loop to `BuildDemonstration`, and swaps the attacker's input source
 for the resulting script through a `FallbackInputSource` — so when the
 demonstration ends, the pad takes over mid-match with no seam.
 
+**Hot reload** is the authoring loop ([ADR-016](../adr/ADR-016-a-reload-restarts-the-match.md)):
+the mode polls the loaded character file's (mtime, size) stamp every 0.25 s and
+a change **restarts the match with the freshly built data** — health, position
+and combo history do not survive, because after a frame-data edit they describe
+a match that no longer exists. A broken save (the normal state while typing)
+keeps the last good match running and puts the loader's own error on the HUD's
+`hot reload:` line; the save that fixes it lands like any other edit. Pause and
+slow motion survive a reload — the person saving the file is usually
+frame-stepping the move they are editing. Two things to know when it seems not
+to work: the watch reads the **staged** copy under the content root beside the
+executable, so an edit to the source under `Games/UntitledFighter/Assets/`
+lands when a build restages it (or copy it by hand); and `C` still swaps
+characters while `R` still restarts without re-reading — hot reload replaces
+neither. The property test is `tests/test_character_hotreload.cpp`; the mode's
+poll is its mirror.
+
 ---
 
 ## What a verdict promises, and what it does not
@@ -670,7 +712,7 @@ Neither of those is the question a designer is actually asking. That question is
 
 ### The gap that has been measured rather than suspected: resources
 
-> **The kernel has no resources.** `Fighter::meter` is declared at `Games/UntitledFighter/Kernel/include/cse/kernel/GameState.h:54` and appears nowhere in `Games/UntitledFighter/Kernel/src/` — no rule reads it, no rule writes it. There is no juggle field at all, and no ceiling logic. **So a character whose termination depends on a resource running down has no such limit in the game: the bound the verdict rests on does not exist there.**
+> **The kernel simulates resources, and since M1.1f the bound binds.** Since ROADMAP M1.1b, `FighterData::resources` carries each declared slot's initial, floor and ceiling in file order; `Fighter::res` is primed on the match's first tick; `MoveDef::effect` is applied on contact and clamped; and both routes into a move refuse one whose `MoveDef::guard` minimum is unmet. `super_beam` is no longer startable on an empty bar. **And the juggle BUDGET is wired** (M1.1f): `MatchBuilder` sets `FighterData::juggleMax` from the resource the file calls `juggle` and each spending move's `MoveDef::juggleCost` from its authored delta, so the gate in `Games/UntitledFighter/Kernel/src/Combat.cpp` REFUSES the overspending hit — the one thing the clamped effect path never could. `Fighter::juggle` is the mirror of the authored slot: same numbers, gating where `ApplyEffects` only clamps. On `fighter_a` the wire moved no measured number — the arc and the budget both stop the aerial string at four — it aligned the reason, which is what a certificate needs.
 
 That is not a prediction. It was executed on 2026-08-13, on this project's own character, and it is the second half of the ground-truth validation [ARCHITECTURE.md](../ARCHITECTURE.md)'s research section asks for (ADR-001 section 6.1 records both halves).
 
@@ -696,14 +738,17 @@ It names both resources, in order, `meter, juggle`. Only juggle can actually run
 
 | Mechanism | Where it went |
 |---|---|
-| `resources` ×2 | `KernelOmits` — "the kernel has one integer called meter and no ceiling logic at all" |
-| `move.effect` ×3 | `KernelOmits` — the delta is never applied, so juggle is never spent |
-| `move.guard` ×1 | `KernelPermits` — the minimum is never checked, so `super_beam` is startable on an empty bar |
-| `move.stance` ×18 | `KernelPermits` — every move in the file restricts its stance and the kernel gates on nothing but stun, so an *air* move is startable standing. A second and independent reason this loop runs |
+| `resources` ×2 | `Exact` since M1.1b — initial, floor and ceiling all carried, in file order |
+| `move.effect` ×3 | `Exact` since M1.1b — the delta is applied on contact and clamped |
+| `resource.juggle (gate)` ×6 | `Exact` since M1.1f — the budget refuses the overspending hit, the certificate's own mechanism executed |
+| `move.guard` ×1 | `Exact` since M1.1b — the minimum is checked on both start routes, so `super_beam` is no longer startable on an empty bar |
+| `move.stance` ×22 | `Exact` since M1.3e — mapped by name into `MoveDef::stance` and enforced by `StanceAllows` on both start routes. Selection reads the held **input** (is Down held now) and the posture then follows the started move, so a cross-posture gatling works and an air move needs the takeoff Up provides |
+| `move.blocked_as` ×9 | `Exact` since M1.3e — a low goes through a standing block and an overhead through a crouching one, on the shipped file |
+| `move.hitstop` ×22 | `Exact` since M1.3i — the authored freeze reaches `MoveDef::hitstop` and ResolveHits imposes it on BOTH fighters, so every clock stops together: no frame-data relationship moves, only wall-clock periods stretch (the air loop's hit period is now 23 = the 11-tick cancel plus 12 of freeze) |
 
-`tests/test_ground_truth.cpp` then handed the kernel a trace derived from the prover's own witness — nothing hardcodes a button; the trace is built by walking `ProverResult`, so the claim is that *the engine* can read the verdict, not that a human can. **The kernel performed `air_mp` into itself 18 times in 200 ticks — a cancel the model permits four of — at a fixed period, with a mashing defender out of hitstun on 0 ticks and starting a move on 0 ticks.** `BuildReport::playsAsAnalysed` is `false` for this character, and that test is what the flag costs.
+`tests/test_ground_truth.cpp` then hands the kernel a trace derived from the prover's own witness — nothing hardcodes a button; the trace is built by walking `ProverResult`, so the claim is that *the engine* can read the verdict, not that a human can. Before M1.3e the kernel performed `air_mp` into itself 18 times in 200 ticks — a cancel the model permits four of. **Since M1.3e the loop must jump, and the arc ends every string at exactly the model's count: four hits per jump at a fixed period, then a landing on which the defender is genuinely free.** The count agrees, and since M1.1f the reason does too: the ballistic arc runs out of air at four, and the wired juggle budget — `FighterData::juggleMax` mirroring the resource the certificate ranks — would refuse the fifth aerial in the same breath. `GroundTruthGap.TheArcEndsEveryStringAtTheCountTheModelChargesToJuggle` is that sentence as a test. `BuildReport::playsAsAnalysed` is still `false` (priority, chip and scaling are still dropped, and the carried cancel conditions are honoured only in part), and the tests are what the flag costs.
 
-The model agrees, once you ask it the right question. Hand the *same* character to `AnalyseCharacter` with every move and cancel `effect` and `guard` emptied — the resource declarations left in place, because the pool existing and nothing moving it is exactly the kernel's state — and the verdict is **`INFINITE COMBO`, with the loop `air_mp`**. That is the panel's third question, and it is the same `air_mp` the kernel then performed 18 times.
+The model agrees, once you ask it the right question. Hand the *same* character to `AnalyseCharacter` with every move and cancel `effect` and `guard` emptied — the resource declarations left in place, because the pool existing and nothing moving it is exactly the kernel's state — and the verdict is **`INFINITE COMBO`, with the loop `air_mp`**. That is the panel's third question, and it names the very loop whose infinite the movement rules then close on the stage.
 
 The same test file also carries the *positive* result, which is why the pair is worth reading together: `fighter_a_infinite` carries **one deliberate bug** — `cancels[0]` is `stand_lp` cancelling into itself after 2 ticks — the prover calls it `INFINITE`, and its printed loop executes as written: 26 hits in 160 ticks, one every 6, first on tick 4, 30 damage a turn from 1000 down to 220, defender out of hitstun on **0** ticks, bit-identical on replay. Run the *same* derived trace against `fighter_a` and the defender gets out: 12 hits, one every 14, free on 22 ticks and starting a move on 11 of them. The analysis is validated end to end **and** the gap is a number, from one test file.
 
@@ -713,7 +758,8 @@ The claim is precise, and overstating it would cost the page its usefulness:
 
 - **The prover is not wrong.** It is sound about the file it was given. What fails is the projection from that file to the running game — the *conservative* direction in `ProverAdapter.h`'s vocabulary, moved one layer down.
 - **It does not mean every model cycle is performable in the game.** The kernel differs in both directions at once, and the model's loop is one question while the kernel performing it is another. What is settled is that the *bound* is gone.
-- **A loop being inert in the kernel is not a safety property.** An edge whose authored delay outlives its source resolves to an empty window, so the kernel can never take it *as a cancel* — but the file's requirement was **contact**, and the ordinary button start permits the follow-up whether or not the source connected. `MatchBuilder` records that case as `cancels (link, not cancel)`, direction **`KernelPermits`**. Remember also that [moves start on buttons **held**, not pressed](#hit-resolution): holding a button repeats a move the tick it recovers, which is a chain the cancel table never had to contain.
+- **A loop being inert in the kernel is not a safety property.** An edge whose authored delay outlives its source resolves to an empty window, so the kernel can never take it *as a cancel* — but the file's requirement was **contact**, and the ordinary button start permits the follow-up whether or not the source connected. `MatchBuilder` records that case as `cancels (link, not cancel)`, direction **`KernelPermits`**. What closed the gap was never that inertness: it was the genre's own movement rules landing one by one — the press edge (M1.1d) killed the hold-repeat chain, and M1.3e's stance wire plus commitment, the ballistic jump and posture-following-the-move killed the ground route. The execution gap went **97 → 77 → 0 of 121**: `GapExtentKernel.ZeroOfThe121RunForever` measures that every cycle must now take a real jump each turn and the landing hands the defender their turn. The standing account lives in [ROADMAP.md](../ROADMAP.md) § Where this stands; the attempt-by-attempt history lives in git, not here.
+- **And the question is now asked of the game by searching the game.** `ComboSearch` ([ADR-013](../adr/ADR-013-verdicts-by-execution.md), `Games/UntitledFighter/Game/include/cse/game/ComboSearch.h`) performs macro-actions on the real kernel — each "ask for move M" pressed the way a player presses it — and returns INFINITE with a replayable witness, TERMINATING with the executed worst case, or UNRESOLVED when the budget ran out (a budget is never a verdict). On the shipped pair: `fighter_a_infinite` comes back **INFINITE** and the test replays the witness; `fighter_a` comes back **TERMINATING with an executed worst case of 7 hits** against the model's stated 21 — the sound half is loose by 14 on this character, and the bound held. `tests/test_combo_search.cpp` and `GapExtentSearch.TheExecutedWorstCaseIsInsideTheModels`.
 - **Frame arithmetic survives the projection far better than resources do**, and for a structural reason: the kernel counts `hitstun` down every tick, so a follow-up that arrives after the defender is free meets a defender who can act. Nothing in the kernel counts a resource down. Termination that rests on frames is carried by the simulation; termination that rests on a resource is carried by nothing.
 
 #### What to do about it today
@@ -841,6 +887,8 @@ The panel takes no change notification from the editor and does not want one. Ev
 The road not taken is a dirty flag set by whoever edits the character. It is cheaper per frame and it is wrong the first time somebody adds a second edit path and forgets to set it — and the failure is *silent*, a stale verdict that looks live.
 
 The footer (`ComboProverPanel.cpp:1078`) shows run count, last / worst / mean milliseconds, and a **Copy verdict** button that produces `DescribeVerdict` text (`ProverAdapter.h:253`) — the same text the tests assert on, so a bug report and a test can never describe the character differently.
+
+**And every real run is recorded** ([ADR-017](../adr/ADR-017-one-line-per-prover-run.md)): one JSON line — wall time, the file read, character, nonce-free content hash, changed-since-last (`false` for a Re-run on unchanged bytes), move/cancel counts, resource ranges, `explored`, run ms with the resource-check ms as its own field, verdict — appended to `telemetry/prover_runs.jsonl` beside the content root, through the sandboxed writer/reader pair in `cse::data::AuthoringTelemetry.h`. The footer says `recorded:` or shows the writer's error; a failed append never blocks the analysis. The reader skips-and-counts torn lines, and `tests/test_prover_telemetry.cpp` pins the round trip.
 
 ### Two wiring caveats
 

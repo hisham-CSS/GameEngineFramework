@@ -126,3 +126,8 @@ add_subdirectory(Modes)
 # either without the other. Players link this; the editor does not, because an
 # editor opens the scene the designer asked for.
 add_subdirectory(FrontEnd)
+
+# The showcase catalogue cooker (ROADMAP M1.6, ADR-011 section 4). A title
+# tool, not an engine one -- its CMakeLists says why the name "cooker" cannot
+# mean Cooker/ here.
+add_subdirectory(Catalogue)

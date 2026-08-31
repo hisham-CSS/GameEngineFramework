@@ -19,12 +19,24 @@ namespace MyCoreEngine {
         std::error_code ec;
         const fs::path base = baseDir.empty() ? fs::current_path(ec)
                                               : fs::path(baseDir);
-        const fs::path joined = base / relp;
+        if (ec) return false;
+        // ABSOLUTIZED before canonicalizing, and the reason is a measured
+        // toolchain divergence, not tidiness: for a target that does not
+        // exist yet, MSVC's weakly_canonical hands back a RELATIVE path
+        // (libstdc++ absolutizes it), so with a relative base the prefix
+        // check below refused every missing file -- a plain typo'd filename
+        // was diagnosed as a sandbox escape, on Windows only. Files that do
+        // not exist yet are legitimate callers' business: a hot-reload watch
+        // binds before content stages, and a telemetry log does not exist
+        // until its first line.
+        const fs::path absBase = fs::absolute(base, ec);
+        if (ec) return false;
+        const fs::path joined = absBase / relp;
         // weakly_canonical resolves any surviving . or symlink and does not
         // require the file to exist yet.
         const fs::path canon = fs::weakly_canonical(joined, ec);
         if (ec) return false;
-        const fs::path canonBase = fs::weakly_canonical(base, ec);
+        const fs::path canonBase = fs::weakly_canonical(absBase, ec);
         if (ec) return false;
 
         // Prefix check on the normalized component sequences.

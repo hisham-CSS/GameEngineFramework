@@ -1,4 +1,4 @@
-#include "cse/kernel/Combat.h"
+﻿#include "cse/kernel/Combat.h"
 
 // Nothing is included here. Not <cstring>, not <algorithm>, not <cstdlib>. The
 // whole file is integer comparisons, negation and addition, which is the entire
@@ -89,7 +89,7 @@ Box MirrorBox(const Box& local) {
 
 Box PlaceBox(const Box& local, std::int32_t posX, std::int32_t posY,
              std::uint8_t facing) {
-    // RANGE ANALYSIS, which §4.3 requires rather than trusting:
+    // RANGE ANALYSIS, which Â§4.3 requires rather than trusting:
     // every coordinate below is bounded by kMaxBoxCoord (2^20) and every origin
     // by kMaxWorldCoord (2^24), so each sum is at most 2^24 + 2^20 = 17,825,792
     // in magnitude, against an int32 range of 2,147,483,647. Signed overflow is
@@ -124,6 +124,20 @@ bool BoxesOverlap(const Box& a, const Box& b) {
 
 // --- Reading the state through the data -------------------------------------
 
+std::int32_t WallLimitFor(const FighterData& data, const Fighter& f) {
+    // The argument for the pushbox and the placed-box reading lives with the
+    // wall clamp in Simulate.cpp, where it was written; this is the same
+    // arithmetic, moved here when the corner push became its second asker.
+    if (data.pushbox.x1 <= data.pushbox.x0) return kStageHalfWidthSub;
+
+    const Box placed = PlaceBox(data.pushbox, 0, 0, f.facing);
+    const std::int32_t back  = -placed.x0;
+    const std::int32_t front =  placed.x1;
+    const std::int32_t reach = back > front ? back : front;
+    if (reach >= kStageHalfWidthSub) return kStageHalfWidthSub;
+    return kStageHalfWidthSub - reach;
+}
+
 const MoveDef* MoveAt(const FighterData& data, std::uint16_t moveId) {
     if (moveId == 0) return nullptr;
     const std::int32_t id = static_cast<std::int32_t>(moveId);
@@ -155,14 +169,50 @@ bool ActiveHitbox(const FighterData& data, const Fighter& f, Box& out) {
 }
 
 Box Hurtbox(const FighterData& data, const Fighter& f) {
+    // A BODY ON THE FLOOR IS LYING DOWN: the standing box tipped over, as long
+    // as it was tall and as tall as it was wide, floor edge at zero. Checked
+    // FIRST, ahead of any move override, because a downed fighter has no move.
+    //
+    // This is the sim's own answer and not a drawing choice -- the view renders
+    // Hurtbox() and may not invent a pose the state did not produce, so the one
+    // honest place a knockdown can LOOK like one is here. It changes no
+    // exchange: InvulnerableTo already refuses every hit against a downed body
+    // (P2Knockdown.AFighterOnTheFloorCannotBeHit), so this shape is presentation
+    // routed through the state, which is the only routing ADR-011 allows.
+    // Asked for from play: a knockdown that keeps standing height looks like a
+    // fighter who is standing, whatever colour it is drawn in.
+    if (f.knockdown > 0) {
+        const std::int32_t w = data.hurtbox.x1 - data.hurtbox.x0;
+        const std::int32_t h = data.hurtbox.y1 - data.hurtbox.y0;
+        // Tipped toward the fighter's own back: head away from the opponent,
+        // which mirrors with facing exactly as every other box does.
+        const Box lying{ -h + (data.hurtbox.x1 - w / 2), 0,
+                          data.hurtbox.x1 - w / 2,        w };
+        return PlaceBox(lying, f.posX, f.posY, f.facing);
+    }
+
     // A move may replace the body for the ticks it runs. That is the whole
     // low-profile mechanism: a crouching attack ducks a high one because its body
     // is SHORTER for those frames, and no move ever names another move.
     const MoveDef* m = MoveAt(data, f.moveId);
-    const Box& local = (m != nullptr && m->hasHurtboxOverride != 0)
-                           ? m->hurtboxOverride
-                           : data.hurtbox;
-    return PlaceBox(local, f.posX, f.posY, f.facing);
+    if (m != nullptr && m->hasHurtboxOverride != 0)
+        return PlaceBox(m->hurtboxOverride, f.posX, f.posY, f.facing);
+
+    // Otherwise the posture decides. A MOVE'S OVERRIDE OUTRANKS THE CROUCH,
+    // above, because the move is the more specific statement: a crouching move
+    // that authors its own body has already said what crouching looks like for
+    // those frames, and layering the generic crouch under it would silently
+    // ignore half of what the file said.
+    //
+    // Degenerate means unauthored -- see FighterData::crouchHurtbox -- so a
+    // character with no crouch body simply keeps its standing one, exactly as
+    // before this field existed.
+    const bool crouched = f.crouching != 0;
+    const Box& cb = data.crouchHurtbox;
+    const bool authored = cb.x1 > cb.x0 && cb.y1 > cb.y0;
+
+    return PlaceBox(crouched && authored ? cb : data.hurtbox,
+                    f.posX, f.posY, f.facing);
 }
 
 // --- Stance, guard, priority and invincibility -------------------------------
@@ -178,12 +228,16 @@ bool AirborneNow(const FighterData& data, const Fighter& f) {
     return static_cast<std::int32_t>(f.moveFrame) >= m->airborneFromTick;
 }
 
-bool StanceAllows(const MoveDef& m, const Fighter& f) {
+bool StanceAllows(const MoveDef& m, const Fighter& f, bool crouchHeld) {
+    // The standing/crouching cases read the INPUT (`crouchHeld`), never
+    // Fighter::crouching -- the header says why, and the difference is exactly
+    // the cross-posture cancel. On a free tick the two agree by construction:
+    // StepPhysics computed `crouching` from the same held Down this tick.
     switch (m.stance) {
         case kStanceAny:       return true;
         case kStanceGround:    return f.airborne == 0;
-        case kStanceStanding:  return f.airborne == 0 && f.crouching == 0;
-        case kStanceCrouching: return f.airborne == 0 && f.crouching != 0;
+        case kStanceStanding:  return f.airborne == 0 && !crouchHeld;
+        case kStanceCrouching: return f.airborne == 0 && crouchHeld;
         case kStanceAir:       return f.airborne != 0;
         default: break;
     }
@@ -224,6 +278,26 @@ bool GuardStops(std::uint8_t guard, std::uint8_t blockedAs) {
 }
 
 bool InvulnerableTo(const FighterData& data, const Fighter& f, std::uint16_t kinds) {
+    // A BODY ON THE FLOOR IS NOT A TARGET, to every kind of attack, for as long
+    // as it takes to get up.
+    //
+    // Checked FIRST, and before the move lookup, because a knocked-down fighter
+    // has no move: `moveId` is zero, `MoveAt` returns null, and the window scan
+    // below would have answered "not invulnerable" for the one state in the game
+    // where that is most wrong.
+    //
+    // This is what the kernel MEANS by knockdown rather than a mechanic of its
+    // own, so it gets no field: the opt-in is already the authored
+    // `causes_knockdown` and its duration, and a move that knocks nobody down
+    // grants nobody this. Without it a sweep OPENS an unescapable loop instead
+    // of ending pressure, which is the exact inversion of what a knockdown is
+    // for -- and from the other side of the screen a knockdown that only stopped
+    // the defender ACTING is indistinguishable from a long hitstun.
+    //
+    // OTG -- hitting a downed opponent on purpose -- is a later mechanic and
+    // will arrive as an authored per-move field, not as a loosening here.
+    if (f.knockdown > 0) return true;
+
     const MoveDef* m = MoveAt(data, f.moveId);
     if (m == nullptr) return false;
 
@@ -260,10 +334,28 @@ bool CancelIsOpen(const Fighter& f, const CancelEdge& edge) {
     if (f.moveId == 0) return false;
     if (edge.from != f.moveId) return false;
 
-    // The contact gate. `onHit` collapses the schema's four Contact values into
-    // the one distinction the kernel can actually observe -- see CancelEdge in
-    // Combat.h -- and alreadyHitBits is the observation.
-    if (edge.onHit != 0 && f.alreadyHitBits == 0) return false;
+    // The contact gate (M1.3 slice (a)). A nonzero mask names the outcomes
+    // that open this edge, and the edge is open when ANY recorded outcome is
+    // in it: whiff is `alreadyHitBits == 0` (nothing has connected -- which
+    // is also what makes a kara, `on: whiff` in the startup frames, work
+    // with no extra state), a clean hit is a contact bit WITHOUT its blocked
+    // mirror, and a block is a contact bit WITH it. Any-of over the
+    // per-defender bits, because one window can meet two defenders and land
+    // differently on each; a mask of 0 is UNGATED, the byte `on: always`
+    // and every hand-built bench already carry.
+    if (edge.contactMask != 0) {
+        const std::uint8_t contact = f.alreadyHitBits;
+        const std::uint8_t stopped =
+            static_cast<std::uint8_t>(f.flags & kFlagsBlockedBits);
+        bool open = false;
+        if ((edge.contactMask & kContactWhiff) != 0)
+            open = open || contact == 0;
+        if ((edge.contactMask & kContactHit) != 0)
+            open = open || (contact & static_cast<std::uint8_t>(~stopped)) != 0;
+        if ((edge.contactMask & kContactBlock) != 0)
+            open = open || (contact & stopped) != 0;
+        if (!open) return false;
+    }
 
     // Both bounds inclusive. An edge whose earliest is past its latest matches
     // nothing for any frame, which is how an authored delay longer than the
@@ -272,12 +364,21 @@ bool CancelIsOpen(const Fighter& f, const CancelEdge& edge) {
     return frame >= edge.earliestFrame && frame <= edge.latestFrame;
 }
 
+// Declared here and defined beside ApplyEffects further down, because both the
+// cancel scan and the button scan below need it and both come before the place
+// resources are otherwise dealt with.
+bool GuardsMet(const Fighter& f, const MoveDef& m);
+
 const CancelEdge* FindCancel(const FighterData& data, const Fighter& f, Input in) {
     // A fighter with no move in progress has nothing to cancel, and a moveId this
     // character's table does not describe is INERT here for the same reason it is
     // inert in StepAttack: a harness that drives moveId by hand must keep getting
     // the behaviour it got before this file grew a cancel system.
     if (MoveAt(data, f.moveId) == nullptr) return nullptr;
+
+    // Derived from the LIVE bits, not from Fighter::crouching: a cancel is a
+    // selection, and selection asks what the player is holding NOW.
+    const bool crouchHeld = (in.bits & kInputDown) != 0;
 
     for (std::int32_t i = 0; i < data.cancelCount && i < kMaxCancelsPerFighter; ++i) {
         const CancelEdge& e = data.cancels[i];
@@ -290,20 +391,40 @@ const CancelEdge* FindCancel(const FighterData& data, const Fighter& f, Input in
         const MoveDef* target = MoveAt(data, e.to);
         if (target == nullptr) continue;
 
-        // HELD, not pressed -- the same limitation StepAttack's button scan has
-        // and for the same missing field. It bites slightly differently here: a
-        // player holding the follow-up button through the whole source move takes
-        // the cancel on the first frame of its window rather than on the frame
-        // they chose. That is a real difference from the genre and it is the
-        // second thing prevButtons would fix.
+        // A HELD BUTTON STILL TAKES A CANCEL, and unlike the button scan that is
+        // deliberate rather than a limitation. A player holding the follow-up
+        // through the whole source move takes the cancel on the first frame of
+        // its window rather than on the frame they chose -- which is what a
+        // genre player expects of a chain, and what makes holding a button a
+        // reasonable way to buffer before the buffer field existed.
         if (target->button == 0) continue;
-        if ((in.bits & target->button) != target->button) continue;
+
+        // A CANCEL TAKES A BUFFERED PRESS, and that is what makes links and
+        // cancels doable by a human. A player aiming at a two-frame link presses
+        // slightly early far more often than slightly late, so a cancel that
+        // only reads the CURRENT tick's bits is a cancel that punishes the
+        // common miss. The buffered press is exactly the input that was meant
+        // for this cancel, arriving one or two frames before the window opened.
+        //
+        // Held bits still count, because a chord is still a chord and this is
+        // the same all-bits-wanted rule the button scan uses; what the buffer
+        // adds is the press that has already been let go of.
+        const bool heldNow  = (in.bits & target->button) == target->button;
+        const bool buffered = (f.bufferedButtons & target->button) == target->button;
+        if (!heldNow && !buffered) continue;
+
+        // AND IT HAS TO BE AFFORDABLE. A cancel into a super the fighter cannot
+        // pay for is not a cancel that fails halfway -- it is an edge that is
+        // not available, so the scan keeps looking and a cheaper edge later in
+        // file order can still take the input. Checked here rather than after
+        // the loop for exactly that reason.
+        if (!GuardsMet(f, *target)) continue;
 
         // The follow-up's own stance condition applies to a cancel exactly as it
         // does to a fresh start. Without this a grounded chain could cancel into
         // an air-only move from the floor, which is one of the two routes
         // test_gap_extent measured keeping 32 of the 33 runaway cycles alive.
-        if (!StanceAllows(*target, f)) continue;
+        if (!StanceAllows(*target, f, crouchHeld)) continue;
 
         return &e;
     }
@@ -312,7 +433,34 @@ const CancelEdge* FindCancel(const FighterData& data, const Fighter& f, Input in
 
 // --- The move lifecycle -----------------------------------------------------
 
-void StepAttack(Fighter& f, const FighterData& data, Input in, bool actionable) {
+bool Actionable(const Fighter& f) {
+    return f.hitstun == 0 && f.blockstun == 0 && f.knockdown == 0;
+}
+
+namespace {
+
+// POSTURE FOLLOWS THE MOVE (docs/adr/ADR-012 rule 3) -- `crouching`'s second
+// authorized writer, the move-start rule. A crouching move makes the fighter
+// crouching and a standing move stands them up, because the move's frame data
+// was authored against that body; a move that states no ground posture
+// (any/ground/air) imposes none, so the posture the input rule established
+// rides through -- an any-stance chain that silently stood a croucher up would
+// be hittable by everything the crouch was ducking. One helper for both start
+// routes, so a cancel cannot start a move by a slightly different rule than
+// the button scan does.
+void adoptStance(Fighter& f, const MoveDef& m) {
+    if (m.stance == kStanceCrouching)     f.crouching = 1;
+    else if (m.stance == kStanceStanding) f.crouching = 0;
+}
+
+} // namespace
+
+void StepAttack(Fighter& f, const FighterData& data, const Intent& it) {
+    // Benched does nothing; frozen does not advance. Gated HERE so a future
+    // caller cannot forget it -- the freeze skipping this whole function is
+    // what keeps startup 5 meaning five ticks OF THE MOVE under hitstop.
+    if (f.active == 0 || it.frozen) return;
+
     if (f.moveId != 0) {
         const MoveDef* m = MoveAt(data, f.moveId);
         if (m == nullptr) {
@@ -332,8 +480,11 @@ void StepAttack(Fighter& f, const FighterData& data, Input in, bool actionable) 
             // Clearing the record of who this window already hit is what makes
             // the NEXT repetition of the same move able to hit again. The bug on
             // the other side of this line is the one where a jab connects once
-            // per match.
+            // per match. The blocked mirror travels with it, here and at the
+            // other three clear sites: a blocked bit outliving its hit bit
+            // would break the subset invariant GameState.h promises.
             f.alreadyHitBits = 0;
+            f.flags = static_cast<std::uint16_t>(f.flags & ~kFlagsBlockedBits);
         }
     }
 
@@ -341,8 +492,9 @@ void StepAttack(Fighter& f, const FighterData& data, Input in, bool actionable) 
     // included. A fighter who was hit has already had their move interrupted by
     // ResolveHits, so this is belt and braces -- but it is the belt that keeps
     // "cancel" from quietly becoming "act out of hitstun", which is a different
-    // and much larger feature.
-    if (!actionable) return;
+    // and much larger feature. Derived rather than passed in: physics has
+    // already burned this tick's stun down, and one definition answers both.
+    if (!Actionable(f)) return;
 
     // --- The cancel ---------------------------------------------------------
     //
@@ -354,19 +506,25 @@ void StepAttack(Fighter& f, const FighterData& data, Input in, bool actionable) 
     // reach them, and the move has already been given its chance to end normally,
     // so a cancel never resurrects a move that expired on this very tick.
     if (f.moveId != 0) {
-        const CancelEdge* edge = FindCancel(data, f, in);
+        const CancelEdge* edge = FindCancel(data, f, Input{it.bits});
         if (edge != nullptr) {
+            // The buffered press this may have spent is NOT zeroed here: the
+            // bookkeeping stage derives "a move started this tick" from
+            // moveFrame == 0 and clears it there, so the buffer keeps exactly
+            // one writing stage (docs/adr/ADR-012 rule 2).
             f.moveId    = edge->to;
             f.moveFrame = 0;
+            adoptStance(f, *MoveAt(data, edge->to));
             // A NEW ACTIVE WINDOW, so the record of who the old one hit goes with
             // it. Without this line the follow-up inherits the source's hit bit
             // and can never connect on the same defender -- the whole combo would
             // consist of one hit and a lot of animation. It is the same clear
             // that a normal move start does, and it is deliberately the same
-            // three assignments, because a cancel that started a move by a
-            // slightly different route than StepAttack's other start is a bug
-            // waiting for the fourth field.
+            // assignments, because a cancel that started a move by a slightly
+            // different route than StepAttack's other start is a bug waiting
+            // for the next field.
             f.alreadyHitBits = 0;
+            f.flags = static_cast<std::uint16_t>(f.flags & ~kFlagsBlockedBits);
         }
         return;
     }
@@ -375,27 +533,94 @@ void StepAttack(Fighter& f, const FighterData& data, Input in, bool actionable) 
     // sharing a button resolve to the same one on every machine. Slot 0 is the
     // reserved idle slot and is skipped.
     //
-    // HELD, not pressed. Distinguishing a press from a hold needs the previous
-    // tick's buttons, and a rollback hands Simulate only the current tick's input
-    // -- so honest edge detection needs a `prevButtons` field inside GameState,
-    // which is a state addition with its own consequences (D6 puts the input ring
-    // OUTSIDE the state on purpose). Holding a button therefore repeats a move as
-    // soon as the previous one recovers. That is a real gap, named rather than
-    // papered over, and it is the next field this file will want.
+    // PRESSED, not held -- and this is the field the note here used to ask for.
+    // Holding a button used to restart the move the tick it recovered, which is
+    // not a fighting-game mechanic and made any recorded "combo" suspect: one
+    // key held is not a link. Fighter::prevButtons is in the STATE because a
+    // rollback hands Simulate only the current tick's bits, so an edge computed
+    // anywhere else is recomputed wrongly on every re-simulation.
+    //
+    // Three ways a move can be asked for, and a move takes the first that
+    // applies:
+    //
+    //   press     a rising edge on every bit the move wants
+    //   buffered  a press that arrived while this fighter could not act, kept
+    //             for inputBufferFrames ticks and consumed here
+    //   release   a falling edge, for a move that authored negativeEdge
+    //
+    // The edges arrive on the Intent, computed ONCE at the top of the tick, so
+    // two stages cannot disagree about what was pressed.
     for (std::int32_t i = 1; i < data.moveCount && i < kMaxMovesPerFighter; ++i) {
         const MoveDef& m = data.moves[i];
         if (m.button == 0) continue;
-        if ((in.bits & m.button) != m.button) continue;
-        if (!StanceAllows(m, f)) continue;
+        if (!StanceAllows(m, f, it.crouchWish)) continue;
+
+        // Every bit the move wants must be HELD -- a chord is still a chord --
+        // and at least one of them must have arrived this tick, or the move
+        // would start again on every subsequent tick of the same hold.
+        const bool byPress = (it.bits & m.button) == m.button &&
+                             (it.pressed & m.button) != 0;
+        // A buffered press is spent on any start -- the bookkeeping stage
+        // clears it -- so it cannot fire again on the next actionable tick,
+        // the rapid-fire bug in a different hat. Same all-bits-wanted rule.
+        const bool byBuffer = (f.bufferedButtons & m.button) == m.button;
+        // Release fires only for a move that asked for it, and only when the
+        // whole chord was held on the previous tick.
+        const bool byRelease = m.negativeEdge != 0 &&
+                               (it.released & m.button) != 0 &&
+                               (f.prevButtons & m.button) == m.button;
+
+        if (!byPress && !byBuffer && !byRelease) continue;
+
+        // Affordable, or this slot is not the one this press starts. Slot order
+        // still decides, so a guarded move that cannot be paid for falls through
+        // to the next slot sharing the button -- which is how a super and a
+        // heavy normal live on one button in the genre.
+        if (!GuardsMet(f, m)) continue;
 
         f.moveId         = static_cast<std::uint16_t>(i);
         f.moveFrame      = 0;
         f.alreadyHitBits = 0;
+        f.flags = static_cast<std::uint16_t>(f.flags & ~kFlagsBlockedBits);
+        adoptStance(f, m);
         return;
     }
 }
 
 // --- Hit resolution ---------------------------------------------------------
+
+// --- Resources ---------------------------------------------------------------
+
+// Every guard this move declares is satisfied by what the fighter currently
+// holds. A guard is a MINIMUM, checked before the move starts, which is how a
+// super refuses at zero meter rather than starting and going negative.
+//
+// The mask and not a zero test: zero is a legal minimum for a resource whose
+// floor is negative, so "guard[i] == 0" cannot mean "no guard on i".
+bool GuardsMet(const Fighter& f, const MoveDef& m) {
+    if (m.guardMask == 0) return true;      // the common case, and free
+    for (std::int32_t r = 0; r < kMaxResources; ++r)
+        if ((m.guardMask & (1u << r)) != 0 && f.res[r] < m.guard[r]) return false;
+    return true;
+}
+
+// Apply this move's deltas, clamped to each resource's authored range.
+//
+// CLAMPED RATHER THAN REFUSED, because the guard is where refusal lives: by the
+// time this runs the move has already connected, and a gain that would exceed
+// the ceiling is a full meter rather than a hit that did not happen. The floor
+// does the same at the bottom, which is what stops a cost the guard let through
+// -- a resource with no guard at all -- driving a counter negative forever.
+void ApplyEffects(const FighterData& d, Fighter& f, const MoveDef& m) {
+    for (std::int32_t r = 0; r < kMaxResources; ++r) {
+        if (m.effect[r] == 0) continue;
+        const ResourceDef& def = d.resources[r];
+        std::int32_t v = f.res[r] + m.effect[r];
+        if (v < def.floor) v = def.floor;
+        if (def.hasCeiling != 0 && v > def.ceiling) v = def.ceiling;
+        f.res[r] = v;
+    }
+}
 
 void ResolveHits(GameState& state, const MatchData& data) {
     // THE ORDER PROBLEM, AND WHY THIS IS THREE LOOPS.
@@ -527,6 +752,13 @@ void ResolveHits(GameState& state, const MatchData& data) {
         atk.alreadyHitBits =
             static_cast<std::uint8_t>(atk.alreadyHitBits | bitForSlot(d));
 
+        // ON CONTACT, AND ON THE ATTACKER. A block is still contact -- a blocked
+        // special that builds meter is the genre norm -- so this sits above the
+        // blocked/hit fork rather than inside either arm. If a character ever
+        // needs to pay differently for a block, that is a second authored field
+        // and not a branch here.
+        ApplyEffects(data.p[a], atk, *m);
+
         // Hitstop freezes BOTH fighters, which is what makes it read as impact
         // rather than as the defender lagging.
         if (m->hitstop > 0) {
@@ -535,6 +767,13 @@ void ResolveHits(GameState& state, const MatchData& data) {
         }
 
         if (blocked[a]) {
+            // The attacker's half of the outcome (M1.3 slice (a)): the contact
+            // recorded in alreadyHitBits above was STOPPED, and the blocked
+            // mirror is what lets an `on: hit` cancel refuse it and an
+            // `on: block` cancel accept it. Set only here, in the arm that
+            // knows; cleared wherever alreadyHitBits clears.
+            atk.flags = static_cast<std::uint16_t>(atk.flags | bitForSlot(d));
+
             std::int32_t stun = m->blockstun;
             if (stun < 0) stun = 0;
             if (stun > kMaxStunTicks) stun = kMaxStunTicks;
@@ -601,13 +840,32 @@ void ResolveHits(GameState& state, const MatchData& data) {
 
         if (m->knockdownTicks > 0) {
             def.knockdown = m->knockdownTicks;
-            // A knocked-down fighter is on the floor, not crouching and not
-            // guarding. Leaving `guard` set would let a body on the ground block.
-            def.crouching = 0;
-            def.guard     = kGuardNone;
+            // A body on the ground may not block, so the guard already computed
+            // this tick is revoked. `crouching` is deliberately NOT cleared
+            // here: the physics stage clears it on the next tick's "cannot act"
+            // rule, nothing reads it in between (the lying Hurtbox outranks
+            // it), and a second stage clearing it is exactly the multi-writer
+            // shape docs/adr/ADR-012 rule 2 exists to forbid.
+            def.guard = kGuardNone;
         }
 
         def.pushX += pushAwayFrom(atk, def, m->pushbackHit);
+
+        // CORNER PUSH (M1.6's microwalk slice): when the wall already stops
+        // the defender, their pushback is absorbed and the pressure has to go
+        // SOMEWHERE -- the genre sends it back through the attacker, which is
+        // what re-opens the gap a microwalk then closes. "Cornered" is the
+        // defender's origin standing AT its own wall limit, a byte test
+        // against the same WallLimitFor the physics clamp uses -- one rule,
+        // two askers, no reach model. The recoil rides pushX for pushback's
+        // own recorded reason: velX is zeroed by commitment and stun exactly
+        // when a fighter cannot act, and a recoil stored there would be
+        // erased the tick it was applied.
+        if (m->cornerPushHit != 0) {
+            const std::int32_t lim = WallLimitFor(data.p[d], def);
+            if (def.posX <= -lim || def.posX >= lim)
+                atk.pushX += pushAwayFrom(def, atk, m->cornerPushHit);
+        }
     }
 
     // --- INTERRUPT ----------------------------------------------------------
@@ -624,6 +882,8 @@ void ResolveHits(GameState& state, const MatchData& data) {
         state.p[d].moveId         = 0;
         state.p[d].moveFrame      = 0;
         state.p[d].alreadyHitBits = 0;
+        state.p[d].flags =
+            static_cast<std::uint16_t>(state.p[d].flags & ~kFlagsBlockedBits);
     }
 }
 

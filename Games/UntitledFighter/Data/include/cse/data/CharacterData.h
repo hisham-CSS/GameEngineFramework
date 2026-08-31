@@ -456,6 +456,27 @@ struct Move {
                                           // midscreen verdict turns on it.
     Stance       stance = Stance::Any;
 
+    // --- engine.reaction, the block that says what a HIT DOES ----------------
+    //
+    // Authored on every move of `fighter_a` since the file was written and read
+    // by nothing until ROADMAP M1.3d. These are the fields that make a defender
+    // visibly react rather than merely lose health.
+    //
+    // Zero is "the file did not say" on all three, which is what a move authored
+    // before this block existed gets and is why wiring them changes no character
+    // that does not use them.
+    std::int32_t hitstopTicks    = 0;   // impact freeze, BOTH fighters
+    std::int32_t airHitstunTicks = 0;   // hitstun when the defender is AIRBORNE;
+                                        // it is what makes a juggle last
+    std::int32_t fallRecoverTicks = 0;  // ticks on the floor after a knockdown
+    // Recoil applied to the ATTACKER when the defender is already against the
+    // wall (M1.6's microwalk slice): the wall absorbs defender pushback, so
+    // this is the genre's pressure-release valve -- and the displacement a
+    // microwalk exists to walk back. Sub-units, like pushback; zero on every
+    // shipped move today (fighter_a authors the key at 0 on all 22).
+    std::int32_t cornerPushSub    = 0;
+    bool         causesKnockdown  = false;
+
     // WHICH BLOCK STOPS THIS MOVE. Mid by default, which is what an absent field
     // means and what every move written before this field existed is.
     //
@@ -685,8 +706,37 @@ struct CharacterData {
     std::string stage;   // "midscreen" or "corner": which model the file's verdict answers
 
     std::int32_t walkSpeedSub = 0;              // sub-units per tick
+
+    // Jump takeoff velocity and gravity, sub-units per tick(^2), KERNEL
+    // semantics: +Y up, both positive, gravity a magnitude the kernel
+    // subtracts. From `engine.movement` (ROADMAP M1.3(b1), ADR-014). ZERO
+    // MEANS UNAUTHORED -- the kernel's `!= 0` fallback to its placeholder --
+    // so the loader refuses an explicit 0 by name rather than letting it
+    // silently mean "the default". NOT read from `engine.constants`, whose
+    // MUGEN-provenance numbers are Y-down and cited-not-loaded.
+    std::int32_t jumpImpulseSub = 0;
+    std::int32_t gravitySub     = 0;
+
+    // The modern input buffer's window, in ticks; zero-or-absent is no
+    // buffering. Character-global (the schema note says why that matches the
+    // genre), loaded with a hard 255 bound because the kernel ages the buffer
+    // in a uint8. A window of N accepts a press on the actionable tick plus
+    // the N before it -- N+1 ticks in all, so the modern "3-frame feel" is
+    // authored as 2. ROADMAP M1.1e.
+    std::int32_t inputBufferFrames = 0;
     std::vector<std::int32_t> scalingPermille;  // damage scaling by combo depth
     Decay decay;
+
+    // Crouching body height in sub-units, from `engine.constants.crouch_height_px`.
+    // ZERO MEANS UNAUTHORED and the standing body is used while crouching, which
+    // is what every character written before this field gets.
+    //
+    // A HEIGHT AND NOT A BOX, unlike the kernel's crouchHurtbox: the file already
+    // authors `height_px` beside this and the crouch shares the standing box's
+    // width, so asking a designer to restate the width would be asking them to
+    // keep two numbers in step for no gain. MatchBuilder turns the pair into the
+    // box the kernel wants.
+    std::int32_t crouchHeightSub = 0;
 
     std::vector<ResourceDef> resources;         // ORDER IS THE CONTRACT -- see ResourceDef
     std::vector<GapAction>   gapActions;
@@ -842,5 +892,23 @@ bool LoadCharacterJson(const std::string& sourceName,
                        const LoadOptions& options,
                        CharacterData& out,
                        LoadReport& report);
+
+// Load a base character with a VARIANT patch applied -- the showcase's
+// one-fighter-many-patches mechanism (docs/adr/ADR-011 section 4, ROADMAP
+// M1.6). The variant file is `{ "description": "<one line>", "patch": {...} }`;
+// the description is REQUIRED and is returned through `description` when the
+// caller wants it. The patch is RFC 7386 at the top level, EXCEPT that
+// `patch.moves` is an OBJECT keyed by move id, each value merged onto that one
+// array element -- merge patch treats arrays as atomic, and a variant that had
+// to restate every move would stop being the diff it exhibits. A patch naming
+// a move the base does not author is refused rather than silently inert. Both
+// paths go through the same containment rule as LoadCharacterFile.
+bool LoadCharacterVariant(const std::string& baseDir,
+                          const std::string& baseRelPath,
+                          const std::string& variantRelPath,
+                          const LoadOptions& options,
+                          CharacterData& out,
+                          LoadReport& report,
+                          std::string* description = nullptr);
 
 } // namespace cse::data

@@ -279,7 +279,8 @@ struct InvincibilityWindow {
     // Bitwise OR of kAttack*. Zero means everything (see above).
     std::uint16_t kinds;
 
-    // Explicit, for MoveDef::pad_'s reason.
+    // Explicit, for the reason MoveDef's own trailing byte was explicit before
+    // negativeEdge took it: a hashed POD may not carry indeterminate bytes.
     std::uint16_t pad_;
 };
 
@@ -288,6 +289,34 @@ struct InvincibilityWindow {
 // comfortable headroom, and it is a fixed bound because D4 forbids unbounded
 // growth in anything the simulation reads.
 inline constexpr std::int32_t kMaxInvulnWindows = 4;
+
+// One velocity state in a move's authored motion (ROADMAP M1.3(b2), ADR-014).
+//
+// RESOLVED, NOT SYMBOLIC: each key is a complete velocity the fighter flies
+// from `fromTick` until the next key or the move's end -- friction and any
+// authored curve were pre-evaluated into these numbers at transcription, which
+// is what lets a rollback resume mid-move from state alone. While a key owns
+// the fighter, gravity does NOT apply (the segment IS the trajectory); a move
+// that wants ballistics back before it ends authors a final key saying so.
+//
+// `velXSub` is TOWARD THE FIGHTER'S FACING, applied by a branch and never by
+// multiplying facing into a coordinate (MirrorBox's rule). `velYSub` is +Y UP,
+// the kernel's convention -- the bridge flips the file's MUGEN Y-down sign, in
+// MatchBuilder, once. `fromTick` compares against Fighter::moveFrame as
+// observed at the TOP of the tick, so a key at 0 first moves the fighter on
+// the tick after the press -- the press tick's physics ran before the move
+// existed, the same ordering that makes commitment readable.
+struct MotionKey {
+    std::int32_t fromTick;
+    std::int32_t velXSub;
+    std::int32_t velYSub;
+};
+
+// Eight keys per move. Measured against the corpus rather than picked: the
+// largest authored motion is five keys (fighter_a_infinite's
+// special_dash_punch), so this is comfortable headroom and still the fixed
+// bound D4 demands of anything the simulation reads.
+inline constexpr std::int32_t kMaxMotionKeys = 8;
 
 // One attack. Frame numbers are ticks from the start of the move, where the tick
 // the move starts is frame 0. The hitbox is live on frames
@@ -424,13 +453,84 @@ struct MoveDef {
     // hasHurtboxOverride, deliberately, so there is one idiom here and not two.
     std::uint8_t hasAirborneFrom;
 
-    // Explicit, for the same reason Fighter has no implicit padding: section 4.8
-    // says the connect handshake hashes the LOADED POD ARRAYS, and hashing a
-    // struct with indeterminate padding compares two machines' uninitialised
-    // bytes.
-    std::uint8_t pad_;
+    // Fires on button RELEASE as well as on press: hold the button, input the
+    // motion, let go, and the special comes out. Zero is off, which is what a
+    // file that authors nothing gets.
+    //
+    // Per move rather than per character, because it is a property of the move
+    // in every game that has it -- a special accepts negative edge and a jab
+    // does not. It took the byte that used to be explicit padding here, so
+    // MoveDef is still 128 bytes and no MatchData layout moved for it.
+    std::uint8_t negativeEdge;
 
     InvincibilityWindow invuln[kMaxInvulnWindows];
+
+    // --- Resources (ROADMAP M1.1b) ------------------------------------------
+    //
+    // POSITIONAL, and that is a build-wide contract rather than a convenience.
+    // The prover keys its resource vector by index (ADR-001 section 8 item 7),
+    // so slot i means the same resource in every file a build loads; the loader
+    // resolves each authored name to an index once, and from here down there are
+    // no names at all. Assertion A03 is where the contract is enforced.
+    //
+    // `effect` is a DELTA applied when this move connects: +1 juggle spent, +25
+    // meter gained. Zero is no effect, which is what an unauthored slot holds
+    // and what every character built before this field had.
+    std::int32_t effect[kMaxResources];
+
+    // `guard` is a MINIMUM checked before the move starts: a super that costs
+    // meter refuses below its cost. Guarded slots are named by the mask rather
+    // than by a sentinel, because ZERO IS A LEGAL MINIMUM -- a resource with a
+    // negative floor can be guarded at zero, and a sentinel would silently make
+    // that mean "unguarded" and hand the move away for free.
+    std::int32_t guard[kMaxResources];
+    std::uint8_t guardMask;      // bit i set = guard[i] is checked
+
+    // Explicit, because a hashed POD may not carry indeterminate bytes: the
+    // connect handshake compares these bytes across two machines. No longer
+    // the tail -- M1.3(b2) appended below it -- but a hole is a hole wherever
+    // it sits.
+    std::uint8_t pad2_[3];
+
+    // --- Authored motion (ROADMAP M1.3(b2), ADR-014 step two) ---------------
+    //
+    // THE EXCEPTION COMMITMENT PROMISED: a committed fighter's velocity is
+    // zero unless ITS MOVE says otherwise, and this is where a move says so --
+    // the lunge that carries the fighter, the hop kick that leaves the ground
+    // mid-move (velYSub > 0 sets `airborne`), the divekick that rewrites an
+    // arc it is already flying. Zero keys means the move does not move, which
+    // is every move authored before this field and every hand-built bench.
+    // StepPhysics::ActiveMotion is the one reader.
+    MotionKey    motion[kMaxMotionKeys];
+    std::int32_t motionCount;
+
+    // --- RESERVED for M1.3(c) and (d), semantics deliberately unchosen ------
+    //
+    // Bytes only, reserved in the SAME growth as the motion block so the
+    // hashed contract pays its re-hash once (ADR-005 section 3, ADR-014).
+    // Counter-hit's three-ways-out question (ROADMAP M1.3(c)) is NOT decided
+    // by these fields existing -- zero is inert, nothing reads them, and the
+    // (c) ADR still owes the choice. Same for the launch vector and reaction
+    // id (d): Simulate.cpp's air-hit velX zeroing stands until they land.
+    std::int32_t counterHitstunBonus;
+    std::int32_t counterDamageBonus;
+    std::int32_t launchVelXSub;
+    std::int32_t launchVelYSub;
+
+    // CORNER PUSH (M1.6's microwalk slice): recoil applied to the ATTACKER
+    // when a hit lands on a defender the wall already stops. Not a (c)/(d)
+    // field -- it moves nobody's stun and is ADR-015-free, a displacement
+    // like pushback -- and it took two of the tail pad bytes the (b2) growth
+    // left, so no layout moved for it. BEFORE the reaction byte, because an
+    // int16 after a uint8 opens the implicit hole the static_assert below
+    // exists to catch (it did, in this slice's first build). Saturated at
+    // int16 like pushbackHit. Zero is every move authored before the wire,
+    // including all 22 of fighter_a's (the file authors the key at 0).
+    std::int16_t cornerPushHit;
+    std::uint8_t onHitReaction;
+
+    // Explicit tail padding, hashed like everything else here.
+    std::uint8_t pad3_[1];
 };
 
 // 32 moves per fighter. A hard cap, deliberately: D4 forbids unbounded growth in
@@ -462,6 +562,18 @@ inline constexpr std::int32_t kMaxMovesPerFighter = 32;
 // wearing the schema's cancel shape. The kernel simply never takes it, which is
 // the correct behaviour, and MatchBuilder counts it rather than pretending the
 // character has 26 cancels it can perform.
+// The contact outcomes a cancel edge may name (ROADMAP M1.3 slice (a)). Bit
+// values, so an edge can name any set of them.
+//
+// kContactHit is 1 ON PURPOSE: the pre-mask kernel collapsed the schema's four
+// Contact values into one bit whose value for an `on: hit` edge was 1, and
+// every shipped fighter_a edge authors `on: hit` -- so the mask keeps those
+// bytes (and the character's MatchData hash, which the replay format and the
+// connect handshake compare) exactly where they were.
+inline constexpr std::uint8_t kContactHit   = 1;  // a guard did NOT stop it
+inline constexpr std::uint8_t kContactBlock = 2;  // contact a guard stopped
+inline constexpr std::uint8_t kContactWhiff = 4;  // no contact (yet)
+
 struct CancelEdge {
     // Kernel move ids, i.e. direct indices into FighterData::moves. An edge
     // naming slot 0 on either end can never fire: slot 0 is idle, a fighter with
@@ -473,18 +585,25 @@ struct CancelEdge {
     std::int32_t earliestFrame;
     std::int32_t latestFrame;
 
-    // 1 when the source must have CONNECTED for this edge to be available; 0
-    // when it may be taken on a whiff.
+    // Which contact outcomes open this edge: a mask of kContactHit /
+    // kContactBlock / kContactWhiff, or 0 for UNGATED (the schema's
+    // `on: always`, and the hand-built harness default -- a raw zero must keep
+    // meaning "no contact condition", not "no outcome allowed").
     //
-    // This is one bit where the schema has four values (Contact: Hit, Block,
-    // Whiff, Always), and the collapse is forced rather than chosen: the kernel
-    // has no blocking at all -- Fighter::blockstun exists and nothing ever writes
-    // it -- so "connected as a hit" and "connected as a block" are the same
-    // observation here. Hit and Block both become 1, Whiff and Always both become
-    // 0, and MatchBuilder counts the edges that reading moves.
-    std::uint8_t onHit;
+    // This byte used to be `onHit`, one bit collapsing the schema's four
+    // Contact values because the kernel could not tell a hit from a blocked
+    // contact -- both set alreadyHitBits and nothing else reached the
+    // attacker. That stopped being true when blocking landed (ResolveHits has
+    // written Fighter::blockstun since 41ea6e5), and since M1.3(a) the
+    // attacker also keeps the BLOCKED mirror of alreadyHitBits in the low
+    // byte of Fighter::flags -- so all three outcomes are attacker-observable
+    // and the file's `on` crosses whole: hit fires only on a clean hit (a
+    // blocked contact no longer opens an `on: hit` chain), block only on a
+    // stopped one, whiff only while nothing has connected. CancelIsOpen is
+    // the one reader.
+    std::uint8_t contactMask;
 
-    // Explicit, for MoveDef::pad_'s reason: the connect handshake hashes these
+    // Explicit, for the same reason: the connect handshake hashes these
     // bytes, and an indeterminate byte is a byte two peers can disagree about.
     std::uint8_t pad_[3];
 };
@@ -499,6 +618,29 @@ struct CancelEdge {
 inline constexpr std::int32_t kMaxCancelsPerFighter = 256;
 
 // Everything one fighter's simulation reads and never writes.
+// One resource slot, as the kernel sees it. NO NAME: the loader resolved every
+// authored name to an index once, and the index is the contract from there down
+// (ADR-001 section 8 item 7, assertion A03). A name here would be a second
+// spelling of the same fact and the first thing to drift.
+//
+// `hasCeiling` is a flag rather than a sentinel for the reason MoveDef's
+// hasAirborneFrom is: zero is a legal ceiling -- a resource that may never rise
+// above its starting value is a real design -- so no single int can mean both
+// "capped at zero" and "uncapped".
+struct ResourceDef {
+    std::int32_t initial;
+    std::int32_t floor;
+    std::int32_t ceiling;
+    std::uint8_t hasCeiling;
+    std::uint8_t pad_[3];
+};
+
+static_assert(std::is_trivially_copyable_v<ResourceDef>,
+              "MatchData is hashed and compared as bytes");
+static_assert(sizeof(ResourceDef) == 3 * sizeof(std::int32_t) + 4,
+              "ResourceDef grew, shrank, or acquired implicit padding. Same "
+              "connect handshake, same hazard as MoveDef.");
+
 struct FighterData {
     // The body, authored facing +X. This is the DEFAULT body; a move may replace
     // it for the ticks it runs via MoveDef::hurtboxOverride, which is the
@@ -528,6 +670,16 @@ struct FighterData {
     // ever connect, which is a legal but almost certainly unintended character.
     std::int32_t juggleMax;
 
+    // How many ticks a press survives while this fighter cannot act, before it
+    // is discarded. ZERO MEANS NO BUFFERING, which is what a file that authors
+    // nothing gets and what the kernel did before this field existed.
+    //
+    // A field rather than a constant because buffering changes which links are
+    // performable, and "which links are performable" is the question the whole
+    // project exists to answer -- a number the kernel chose for every character
+    // would be the kernel deciding the answer (docs/adr/ADR-011 decision 1).
+    std::int32_t inputBufferFrames;
+
     // Hitstun decay, as suffered BY THIS FIGHTER as a defender: each hit already
     // taken in the current combo shortens the next one's hitstun by `step` ticks,
     // never below `floor`.
@@ -544,6 +696,78 @@ struct FighterData {
     // and why assertion A01 guards it at load.
     std::int32_t hitstunDecayStep;
     std::int32_t hitstunDecayFloor;
+
+    // --- Resources (ROADMAP M1.1b) ------------------------------------------
+    //
+    // Slot i here is slot i of Fighter::res, of MoveDef::effect and of the
+    // prover's own resource vector. `resourceCount` is how many the file
+    // declared; slots past it are zeroed and never read.
+    ResourceDef  resources[kMaxResources];
+    std::int32_t resourceCount;
+
+    // The body while CROUCHING, and it is a separate box rather than a scale
+    // factor because a crouch is not a shorter standing pose -- the head comes
+    // forward as it comes down, and a character whose crouch is merely `height *
+    // 0.6` ducks nothing a designer aimed at.
+    //
+    // A DEGENERATE BOX MEANS UNAUTHORED: x1 <= x0 or y1 <= y0 and the standing
+    // body is used, which is what every character built before this field
+    // existed gets and is why wiring it changes nobody who does not use it. A
+    // flag would be the idiom elsewhere in this header (hasHurtboxOverride,
+    // hasAirborneFrom, hasCeiling), and it is not used here for a reason: those
+    // guard SCALARS where zero is a legal value, and there is no legal
+    // zero-area body. An empty box is already the impossible value.
+    //
+    // Asked for from play (ROADMAP M1.3d): a crouch that changes no box is a
+    // crouch nobody can see, and it is the state a low attack is aimed at.
+    Box crouchHurtbox;
+
+    // THE BODY YOU CANNOT WALK THROUGH. Separate from the hurtbox because the
+    // two answer different questions -- the hurtbox is where you can be HIT and
+    // this is where you can BE -- and in the genre they routinely differ: a
+    // sweep's hurtbox stretches far past the pushbox it keeps.
+    //
+    // A DEGENERATE BOX MEANS UNAUTHORED and nobody is separated, which is the
+    // behaviour every character had before ROADMAP M1.2 and is why wiring this
+    // changes nobody who does not carry one.
+    //
+    // Asked for from play (2026-08-20): "the enemy collider should be blocking
+    // collisions rather than trigger ... this prevents players and enemies
+    // overlapping hurtboxes and missing attacks because of that."
+    Box pushbox;
+
+    // Ground walk speed in sub-units per tick. ZERO MEANS UNAUTHORED, and the
+    // kernel then uses the placeholder it used before this field existed --
+    // which is what keeps every harness that builds a synthetic FighterData
+    // walking at the speed its expectations were written against.
+    //
+    // A field rather than Simulate.cpp's `kWalkSpeed` because walk speed decides
+    // whether a MICROWALK LOOP exists: the attacker steps forward between two
+    // hits to stay in range, and one pixel per tick is the difference between a
+    // string that drops and one that repeats forever. ADR-011 section 4 makes
+    // the microwalk variant `walk_speed` +1 px/tick from the base, so the base
+    // has to be a number the file owns. The corner-only prover cannot see this
+    // loop at all, which is exactly why the engine has to.
+    //
+    // Note the shipped `fighter_a.json` authors 3 px/tick where this kernel's
+    // placeholder is 2, so honouring the file is a BEHAVIOUR change and not a
+    // no-op -- see ROADMAP M1.1b, which measured it before writing the field.
+    std::int32_t walkSpeedSub;
+
+    // Downward acceleration and jump impulse, sub-units. ZERO MEANS UNAUTHORED
+    // on both, exactly as above.
+    //
+    // These arrived AHEAD of anything that could set them (M1.1b), because
+    // MatchData is hashed by the connect handshake and ADR-005 section 3's
+    // rule is to batch a contract change and review it once -- and the bet
+    // paid: `engine.movement` (ROADMAP M1.3(b1), ADR-014) made them
+    // authorable with no byte of this struct moving. The loader enforces the
+    // kernel's own convention at the boundary (+Y up, positive, an explicit
+    // zero refused as this sentinel), so the carry is a copy. A silent file
+    // still takes Simulate.cpp's placeholders, which is every character
+    // authored before the key existed.
+    std::int32_t gravitySub;
+    std::int32_t jumpImpulseSub;
 
     // Number of USED slots in moves[], INCLUDING the reserved idle slot 0.
     // A moveId names a real move if and only if 0 < moveId && moveId < moveCount.
@@ -599,19 +823,41 @@ static_assert(std::is_trivially_copyable_v<InvincibilityWindow>,
 static_assert(sizeof(InvincibilityWindow) == 12,
               "InvincibilityWindow grew, shrank, or acquired implicit padding. "
               "Same handshake, same hazard as MoveDef below.");
-static_assert(sizeof(MoveDef) == 128,
+static_assert(std::is_trivially_copyable_v<MotionKey>,
+              "MatchData is hashed and compared as bytes");
+static_assert(sizeof(MotionKey) == 12,
+              "MotionKey grew, shrank, or acquired implicit padding. Same "
+              "handshake, same hazard as MoveDef below.");
+static_assert(sizeof(MoveDef) == 128 + 2 * kMaxResources * sizeof(std::int32_t) + 4 +
+                                     kMaxMotionKeys * sizeof(MotionKey) + 4 +
+                                     4 * sizeof(std::int32_t) + 4,
               "MoveDef grew, shrank, or acquired implicit padding. The connect "
               "handshake hashes these bytes (ARCHITECTURE.md 4.8), so a padding "
               "hole would make two peers with identical characters disagree. "
-              "This was 40 before ADR-005 P2; the growth is priority, blockstun, "
-              "chip, pushback, juggle, hitstop, knockdown, scaling, stance, "
-              "blockedAs, the hurtbox override and the invincibility windows.");
+              "This was 40 before ADR-005 P2, 128 before M1.1b and 164 before "
+              "M1.3(b2); the growth is priority, blockstun, chip, pushback, "
+              "juggle, hitstop, knockdown, scaling, stance, blockedAs, the "
+              "hurtbox override, the invincibility windows, the resource effect "
+              "and guard vectors with their mask, and then the authored motion "
+              "block with the reserved (c)/(d) fields -- one batched re-hash, "
+              "per ADR-005 section 3 and ADR-014. Written as the OLD SIZE PLUS "
+              "THE NEW MEMBERS rather than as a fresh round number, so it still "
+              "asks 'did padding appear' and not 'is this what I last wrote "
+              "down'.");
 static_assert(std::is_trivially_copyable_v<CancelEdge>, "MatchData is hashed and compared as bytes");
 static_assert(sizeof(CancelEdge) == 16,
               "CancelEdge grew, shrank, or acquired implicit padding. Same "
               "handshake, same hazard as MoveDef above.");
 
 // --- Reading the state through the data -------------------------------------
+
+// Where the wall stops THIS fighter's origin: the stage half-width minus the
+// placed pushbox's reach past the origin (the body may not hang into the
+// void; Simulate.cpp's wall clamp essay is the one home of the argument). In
+// this header because TWO files ask it: StepPhysics clamps positions with it,
+// and ResolveHits' corner push asks whether the defender is already standing
+// at the answer.
+std::int32_t WallLimitFor(const FighterData& data, const Fighter& f);
 
 // The MoveDef a fighter's moveId names, or null if it names none -- either
 // because the fighter is idle (moveId 0) or because the id is outside this
@@ -656,12 +902,23 @@ Box Hurtbox(const FighterData& data, const Fighter& f);
 // stance says what you must be in to START it."
 bool AirborneNow(const FighterData& data, const Fighter& f);
 
-// Whether a fighter in this state may START this move.
+// Whether a fighter in this state may START this move, given what the input is
+// asking for RIGHT NOW.
 //
 // kStanceAny permits everything, which is what every character authored before
 // the field existed gets from a zero-init. kStanceGround means grounded with the
 // standing/crouching distinction unstated, so it permits both.
-bool StanceAllows(const MoveDef& m, const Fighter& f);
+//
+// THE STANDING/CROUCHING AXIS READS `crouchHeld` -- the INPUT -- and never
+// Fighter::crouching, because commitment freezes input-driven posture while a
+// move runs and a selection that read the frozen posture refused every
+// cross-posture cancel: stand_mp -> crouch_hp with Down held, the ordinary
+// gatling, collapsed 120 of 121 measured cycles when stance was first wired
+// (ROADMAP M1.3e). The posture then FOLLOWS THE MOVE: StepAttack sets
+// `crouching` from the started move's stance, so selection asks the player and
+// the body obeys the move. `airborne` stays the fighter's own -- a jump is
+// position history, not a request.
+bool StanceAllows(const MoveDef& m, const Fighter& f, bool crouchHeld);
 
 // What an incoming attack COUNTS AS: a bitwise OR of kAttack*, drawn from the
 // move's blockedAs and from the attacker's current airborne-ness.
@@ -722,23 +979,54 @@ bool CancelIsOpen(const Fighter& f, const CancelEdge& edge);
 // unreachable by definition and is skipped rather than taken for free.
 const CancelEdge* FindCancel(const FighterData& data, const Fighter& f, Input in);
 
-// --- The tick's two combat steps --------------------------------------------
+// --- The tick as a pipeline (docs/adr/ADR-012) -------------------------------
+
+// What one fighter's input MEANS this tick, read once at the top of the tick
+// and passed by value to every stage after it. Transient: never part of
+// GameState, never hashed, rebuilt from (state, input, data) on every
+// re-simulation -- which is exactly why the stages that consume it cannot
+// disagree about what was pressed.
+//
+// Edges are computed against Fighter::prevButtons AS LATCHED, and the latch is
+// written only at the end of an unfrozen tick -- so during hitstop the edges
+// keep describing "since the fighter last ran", which is what lets a release
+// made inside the freeze still read as a falling edge on thaw.
+struct Intent {
+    std::uint16_t bits;       // this tick's raw buttons
+    std::uint16_t pressed;    // rising edges since the fighter last ran
+    std::uint16_t released;   // falling edges since the fighter last ran
+    std::uint16_t buffable;   // pressed bits some move in the table can use
+    std::int32_t  walkWish;   // signed sub-units of walk the input asks for
+    bool          jumpWish;   // Up is held
+    bool          crouchWish; // Down is held
+    bool          frozen;     // hitstop held this fighter at the top of the tick
+};
+
+// A fighter is actionable when nothing is holding them still: no hitstun, no
+// blockstun, no knockdown. ONE function decides it, shared by the physics and
+// attack stages, because "cannot act" split across two files is how one gate
+// ends up enforced and the other does not. Hitstop is deliberately NOT in this
+// list: a frozen fighter does not act because it does not ADVANCE at all, which
+// is the stages' own gate -- folding it in here would freeze the fighter's
+// agency while still ticking its move frames.
+bool Actionable(const Fighter& f);
 
 // Advance one fighter's attack: end a move that has run out, CANCEL a move that
 // is still running into a follow-up the fighter is asking for, or start one if
-// the fighter is idle and holding a move's buttons. Called from stepFighter,
-// once per fighter, in slot order.
+// the fighter is idle and pressing a move's buttons. The attack stage of the
+// tick pipeline; called once per fighter, in slot order, and it returns
+// immediately for a benched or frozen fighter.
 //
-// THE ORDERING FACT A CANCEL RULE HAS TO LIVE WITH. This runs inside the
-// per-fighter step, which is BEFORE ResolveHits -- so a hit landing on tick N is
-// not visible to a cancel test until tick N+1. The fastest cancel the kernel can
-// express is therefore one tick after contact, never zero, and an edge whose
-// authored delay is 0 fires on the tick after the hit. That is a property of the
-// tick's shape, not a fudge: on the tick the hit resolves, the hit has not
-// happened yet as far as the first half of the tick is concerned, and moving the
-// cancel test after ResolveHits would instead let a fighter cancel a move on the
-// same tick it started, which is worse.
-void StepAttack(Fighter& f, const FighterData& data, Input in, bool actionable);
+// THE ORDERING FACT A CANCEL RULE HAS TO LIVE WITH. This runs BEFORE
+// ResolveHits -- so a hit landing on tick N is not visible to a cancel test
+// until tick N+1. The fastest cancel the kernel can express is therefore one
+// tick after contact, never zero, and an edge whose authored delay is 0 fires
+// on the tick after the hit. That is a property of the tick's shape, not a
+// fudge: on the tick the hit resolves, the hit has not happened yet as far as
+// the first half of the tick is concerned, and moving the cancel test after
+// ResolveHits would instead let a fighter cancel a move on the same tick it
+// started, which is worse.
+void StepAttack(Fighter& f, const FighterData& data, const Intent& it);
 
 // Test every active fighter's live hitbox against every ACTIVE OPPOSING
 // fighter's body, and apply at most one hit per attacker. Called once per tick,

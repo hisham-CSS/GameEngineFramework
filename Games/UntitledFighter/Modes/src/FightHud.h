@@ -141,14 +141,14 @@ struct Actionable {
 //
 // EVERY TERM IS A KERNEL FIELD OR A KERNEL FUNCTION, AND THERE ARE THREE:
 //
-//   Fighter::hitstun / Fighter::blockstun. stepFighter decrements these at the
-//   TOP of a tick, before `actionable()` -- which is `hitstun == 0 &&
-//   blockstun == 0` -- is evaluated (Simulate.cpp). So a fighter observed with
+//   Fighter::hitstun / Fighter::blockstun. StepPhysics decrements these at the
+//   TOP of a tick, before `Actionable()` -- which is `hitstun == 0 &&
+//   blockstun == 0` -- is evaluated. So a fighter observed with
 //   stun h at the end of tick t is free on tick t + h, and on t + 1 when h is 0
 //   or 1. That is the same rule ComboWatcher.h states as "actionable at tick t
 //   iff their hitstun as observed at the end of tick t-1 was <= 1". It is a
-//   FLOOR under the other two: StepAttack's `if (!actionable) return` sits above
-//   both the cancel test and the button scan.
+//   FLOOR under the other two: StepAttack's `if (!Actionable(f)) return` sits
+//   above both the cancel test and the button scan.
 //
 //   Fighter::moveId / Fighter::moveFrame against cse::kernel::MoveDuration.
 //   StepAttack increments moveFrame and ends the move when it REACHES the
@@ -178,6 +178,15 @@ struct Actionable {
 //   edge that is open with THESE buttons held on THIS tick, and this returns the
 //   earliest tick any edge could open at all. Ties go to the first edge in file
 //   order, which is FindCancel's own tie-break and is chosen here for its reason.
+//
+//   AND ONE PAUSE, WHICH IS NOT A FOURTH RIVAL TERM: Fighter::hitstop (ROADMAP
+//   M1.3i). StepPhysics decrements it and RETURNS, so moveFrame, hitstun and
+//   blockstun all stand still while it runs and whichever term won above is
+//   late by exactly `hitstop` ticks. It is ADDED after the max and the floor
+//   rather than compared, because a pause delays the "next tick" too. Without
+//   it this readout is EARLY during every freeze -- the worse direction: a
+//   playtester told they are free presses a button the game ignores and
+//   concludes the input was dropped.
 Actionable TicksUntilActionable(const cse::kernel::FighterData& data,
                                 const cse::kernel::Fighter& fighter);
 
@@ -229,8 +238,9 @@ Advantage FrameAdvantage(const cse::kernel::MatchData& data,
 // number that MEANS SOMETHING DIFFERENT ON EVERY TICK, which the top of this
 // header forbids in so many words, and it does it twice over:
 //
-//   * The kernel takes buttons HELD, so a playtester holding one key restarts
-//     the move the instant it recovers. The attacker's clock jumps back to the
+//   * A playtester MASHING restarts the move as soon as it recovers -- which
+//     since ROADMAP M1.1d takes a fresh press rather than a held key, and is
+//     exactly what a playtester does. The attacker's clock jumps back to the
 //     top of the move while the defender's stun keeps running down, so the
 //     difference steps DOWN by a whole move on the restart tick and back UP on
 //     the next contact. On fighter_a's air_mp -- self-cancelling at frame 8 of
@@ -238,6 +248,8 @@ Advantage FrameAdvantage(const cse::kernel::MatchData& data,
 //     forever, while the judge underneath correctly reads TRUE COMBO. A row
 //     that contradicts the verdict beneath it twice a second on the one
 //     interaction the mode is built around is worse than no row.
+//     (TrainingModeReadout.ARepeatedPressRestartsTheMoveSoALiveAdvantageStrobesForever
+//     measures the strobe; it was named for a held button until M1.1d.)
 //
 //   * "Advantage" is not a property of an instant in the first place. It is a
 //     property of a HIT: the question is what that hit bought, and the answer
@@ -290,6 +302,12 @@ struct FightHudModel {
     const std::string* setupError    = nullptr;
     const std::string* analysisError = nullptr;
     const std::string* demoNote      = nullptr;
+    // What the hot-reload watch last did (ROADMAP M1.5, ADR-016): "edit
+    // landed" or "edit refused" in the loader's own words. `reloadFailed`
+    // exists because the HUD colours a refusal as a warning and must not
+    // parse the sentence to decide.
+    const std::string* reloadNote    = nullptr;
+    bool               reloadFailed  = false;
     const std::string* fatal         = nullptr;
 
     const std::vector<BindingRow>* bindings = nullptr;
@@ -311,6 +329,11 @@ struct FightHudModel {
     // authors this tick.
     const char*   speaking      = nullptr;
     bool          demoArmed     = false;   // the analysis has a witness to perform
+
+    // The fighters are standing MIDSCREEN rather than in the corner. The HUD
+    // says so and says what it costs, because every verdict it draws is
+    // corner-only by construction.
+    bool          stageMidscreen = false;
     std::uint32_t demoRemaining = 0;       // ticks of script left to play
 
     // The last hit's frame advantage, latched by the host on the tick it landed.

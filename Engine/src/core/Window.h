@@ -24,6 +24,24 @@ namespace MyCoreEngine
             glfwMakeContextCurrent(window_);
             // Set user pointer so callbacks can access this instance
             glfwSetWindowUserPointer(window_, this);
+
+            // STICKY KEYS (ROADMAP M1.3h). glfwGetKey answers from the state
+            // cached at the last glfwPollEvents, so a key pressed AND released
+            // between two polls read GLFW_RELEASE at both and the press never
+            // existed -- at any frame rate, for every InputMap consumer.
+            // Sticky mode makes that missed press read GLFW_PRESS exactly once
+            // before resetting, which InputMap's per-frame edge detector turns
+            // into a normal one-frame press-and-release.
+            //
+            // Two recorded limits, neither reachable by a headless test:
+            // the reset happens on the FIRST glfwGetKey of that key, so when
+            // one physical key feeds several polls in one InputMap::update
+            // (two actions sharing a key, or an action and an axis pair) only
+            // the first poll sees the missed tap -- real taps that span a poll
+            // are unaffected; and two full taps inside one poll interval still
+            // collapse into one press, the same collapse InputMap::latched
+            // documents for zero-tick windows.
+            glfwSetInputMode(window_, GLFW_STICKY_KEYS, GLFW_TRUE);
         }
 
         ~Window() {

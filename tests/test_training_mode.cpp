@@ -158,6 +158,7 @@
 
 #include "cse/game/ComboWatcher.h"
 #include "cse/game/FightSession.h"
+#include "cse/game/WitnessCursor.h"
 #include "cse/game/InputSource.h"
 
 #include "cse/data/CharacterData.h"
@@ -214,8 +215,29 @@ constexpr std::int32_t kHeight    = px(60);
 // gap -- further than anything either character reaches, so nothing would ever
 // connect and every assertion in this file would be about an empty room. Origins
 // 34 px apart, bodies 8 px apart, inside the reach of every move used here.
-constexpr std::int32_t kP0X = -px(17);
-constexpr std::int32_t kP1X =  px(17);
+// IN THE CORNER, because almost everything in this file executes a verdict
+// computed at `stage: corner` -- the demonstrations rehearse `fighter_a_infinite`'s
+// printed loop, and at corner the model drops horizontal position entirely.
+// Opening midscreen was harmless while nothing moved the defender and stops
+// being harmless the moment pushback is wired (ROADMAP M1.3d): the rehearsal
+// separates and reaches index 3 of 6.
+constexpr std::int32_t kStageEdge = 480 * cse::kernel::kSubUnitsPerPixel;
+//
+// THE DEFENDER'S BODY IS AGAINST THE WALL, not its origin. Since ROADMAP M1.2
+// the stage clamps the BODY -- a fighter may not disappear half into the corner
+// -- so an origin placed exactly on the edge is outside its own limit and the
+// first tick shoves it inward. That is not a cornered opening, it is a fighter
+// falling into position while the test believes nothing has happened.
+constexpr std::int32_t kP1X =  kStageEdge - kHalfWidth;
+constexpr std::int32_t kP0X =  kP1X - px(34);
+
+// THE ONE EXCEPTION, and it is a different subject rather than an exemption.
+// The HUD's gap chip is walk ARITHMETIC across four bands -- apart, touching,
+// overlapping, coincident -- and it needs room to walk. Cornered, the fighter is
+// against the clamp and the walk step measures zero, which is the test correctly
+// refusing to measure a walk that did not happen.
+constexpr std::int32_t kWalkP0X = -px(17);
+constexpr std::int32_t kWalkP1X =  px(17);
 
 // Fixed so a failing run reproduces verbatim. It only feeds GameState::rng,
 // which nothing in a combat tick reads -- but it IS in the checksum, so section
@@ -1098,9 +1120,19 @@ TEST(TrainingModeDemonstrate, TheComboConnectsWhileTheScriptSpeaksAndThePadTakes
         << "the composition claims it runs out, though the pad behind it never "
            "does; a host would stop asking for ticks at that number";
 
+    // THE PLAYTESTER MASHES, and under press-activation that is the only way to
+    // be one. A pad that HELD MP would be a single press for the whole session:
+    // one stand_mp at the handover tick and silence after it, so the
+    // demonstration's own string would simply run on and Current() would still
+    // be holding it at the end -- which is the opposite of the trap this test
+    // exists to pin. Alternating is a person pressing about thirty times a
+    // second, and it is what makes "the playtester's string" a thing that
+    // exists at all.
     const std::uint32_t total = demoEnd + kYouTryTicks;
     for (std::uint32_t t = kPreDemoTicks; t < total; ++t) {
-        ASSERT_TRUE(pad.Latch(t, inputOf(cse::kernel::kInputMP)))
+        const std::uint16_t padBits =
+            (t % 2u == 0u) ? cse::kernel::kInputMP : std::uint16_t{0};
+        ASSERT_TRUE(pad.Latch(t, inputOf(padBits)))
             << "latching tick " << t << " was refused, which is a host sequencing "
                "bug: the pad must be latched on every tick, including the ones "
                "the demonstration is speaking for, or the input log has a hole in "
@@ -1132,9 +1164,14 @@ TEST(TrainingModeDemonstrate, TheComboConnectsWhileTheScriptSpeaksAndThePadTakes
     for (std::uint32_t t = demoEnd; t < total; ++t) {
         ASSERT_EQ(attacker.Active(t), static_cast<const IInputSource*>(&pad))
             << "control was not handed back at tick " << t;
-        ASSERT_EQ(log.samples[t].inputs.p[0].bits, cse::kernel::kInputMP)
+        ASSERT_EQ(log.samples[t].inputs.p[0].bits,
+                  (t % 2u == 0u) ? cse::kernel::kInputMP : std::uint16_t{0})
             << "tick " << t << " is past the demonstration and the pad's bits did "
-                              "not arrive";
+                              "not arrive as latched. The alternation is the "
+                              "point: the log must carry the RELEASE ticks too, "
+                              "because a press is only a press against the tick "
+                              "before it and a log that dropped them would "
+                              "replay as a held button.";
     }
 
     // What a HUD asks, and it must be a pure question with a pure answer.
@@ -1242,7 +1279,9 @@ TEST(TrainingModeDemonstrate, TheComboConnectsWhileTheScriptSpeaksAndThePadTakes
     EXPECT_LT(watcher.Current().hits, peak->hits)
         << "the string Current() holds at the end of the fight is as long as the "
            "demonstration's, so either the playtester's own attempt joined it or "
-           "the two strings were never told apart";
+           "the two strings were never told apart"
+        << "\n  completed combos " << watcher.CompletedCombos()
+        << DescribeReport(watcher.Current(), build.moves[0]);
 
     // --- AND THE FIGHT KEPT GOING ACROSS THE HANDOVER ------------------------
     //
@@ -1816,7 +1855,7 @@ TEST(TrainingModeReset, BeginDoesNotResetTheWatcherAndAHostThatForgetsShowsTheOl
 // This section drives one of them, with the analysis the mode ACTUALLY HOLDS, and
 // asserts what the game can and cannot notice.
 
-TEST(TrainingModeVerdict, ACertifiedAwayCycleOutrunsTheAnalysisOwnWorstCase) {
+TEST(TrainingModeVerdict, ACertifiedAwayCycleNowStopsInsideTheAnalysisWorstCase) {
     Rig         rig{};
     std::string moveId;
     CancelIndex edgeIndex = 0;
@@ -1892,10 +1931,16 @@ TEST(TrainingModeVerdict, ACertifiedAwayCycleOutrunsTheAnalysisOwnWorstCase) {
         ASSERT_NE(effects, nullptr)
             << "the build no longer reports what happens to `move.effect`, so "
                "nothing here can claim the kernel omits it";
-        EXPECT_EQ(effects->direction, BuildLossDirection::KernelOmits)
-            << "`move.effect` is no longer omitted by the kernel. If resources "
-               "landed, THE GAP THIS TEST MEASURES HAS CLOSED and the assertions "
-               "below should be inverted rather than relaxed: " << effects->note;
+        // Resources LANDED in ROADMAP M1.1b and this row is `exact` now. The gap
+        // this test measures has NOT closed, and the distinction is the finding:
+        // the kernel applies the delta and then clamps it at the authored floor,
+        // so on the EFFECT path a cost that cannot be paid is forgiven there instead of ending the
+        // combo. `playsAsAnalysed` below is still false, and it is false for a
+        // narrower reason than when this test was written.
+        EXPECT_EQ(effects->direction, BuildLossDirection::Exact)
+            << "`move.effect` is recorded as "
+            << BuildLossDirectionName(effects->direction)
+            << ", and this test now needs it to be Exact: " << effects->note;
         EXPECT_GT(effects->count, 0);
         EXPECT_FALSE(rig.build.report[0].playsAsAnalysed)
             << "the build claims the kernel plays this character exactly as the "
@@ -1977,70 +2022,82 @@ TEST(TrainingModeVerdict, ACertifiedAwayCycleOutrunsTheAnalysisOwnWorstCase) {
             << Table(log, map, byHealth[i] > 4 ? byHealth[i] - 4u : 0u, 10);
     }
 
-    // THE WATCHER COUNTED EVERY REPETITION. An id-transition detector reports 1
-    // here: this is one move cancelling into ITSELF, so the moveId never changes.
-    EXPECT_EQ(report.hits, static_cast<std::int32_t>(byBits.size()))
-        << "the watcher counted " << report.hits << " hits and the attacker's "
-           "alreadyHitBits gained the defender's bit on " << byBits.size()
-        << " ticks.\nA watcher that reports 1 is detecting a CHANGE OF moveId, "
-           "which a self-cancel never produces."
-        << DescribeReport(report, map)
-        << Table(log, map, 0, 32);
+    // THE RUN IS STRINGS NOW, NOT ONE COMBO. Since ROADMAP M1.3e the cycle is
+    // performed the way a player performs it -- jump, cancel down the arc,
+    // land, jump again -- so the watcher correctly RESETS at every landing
+    // (the defender leaves hitstun there) and `report` describes the LAST
+    // string, not the run. The per-string shape is recovered from the hit
+    // ticks themselves: hits inside a string arrive at the cancel period, and
+    // a landing is a longer gap.
     for (std::uint16_t m : report.sequence)
         ASSERT_EQ(m, slot) << "a connecting move other than `" << moveId
                            << "` appeared in a one-move cycle";
+    ASSERT_GE(byBits.size(), 2u);
+    const std::uint32_t period = byBits[1] - byBits[0];
+    std::vector<std::int32_t> stringLens;
+    std::int32_t cur = 1;
+    for (std::size_t i = 1; i < byBits.size(); ++i) {
+        if (byBits[i] - byBits[i - 1] <= period) ++cur;
+        else { stringLens.push_back(cur); cur = 1; }
+    }
+    stringLens.push_back(cur);
+    std::int32_t maxString = 0;
+    for (std::int32_t n : stringLens) maxString = maxString > n ? maxString : n;
 
-    // --- THE HEADLINE: THE STRING OUTRAN THE ANALYSIS'S OWN WORST CASE -------
+    // --- THE HEADLINE, INVERTED BY M1.3e: NOTHING OUTRUNS THE ANALYSIS ------
     //
-    // ProverResult::maxHits is the longest chain the decision procedure can find
-    // through this character's configuration graph, with every resource cost
-    // applied. A string with more hits than that is not merely surprising: it is
-    // something the analysis says cannot happen. This is docs/NORTHSTAR.md item 2
-    // -- "the bounds dual" -- run live through the seam training mode is made of,
-    // rather than as an offline search.
-    EXPECT_GT(report.hits, rig.verdict.maxHits)
-        << "the point of this test is a string LONGER than the analysis's stated "
-           "worst case of " << rig.verdict.maxHits << " hits, and the run produced "
-        << report.hits << ". Either the demonstration stopped early or the bound "
-           "moved."
-        << DescribeReport(report, map);
-    EXPECT_GT(static_cast<std::int32_t>(byBits.size()), permittedTurns)
-        << "THE CERTIFICATE RETIRES THIS CYCLE AFTER " << permittedTurns
-        << " TURN(S) -- `" << spentResource << "` starts at " << spentInitial
-        << " and `" << moveId << "` -> itself spends " << spentPerTurn
-        << " of it, so `nonNegative` refuses the next one -- and the kernel "
-           "performed it " << byBits.size() << " time(s). If those are equal, the "
-           "kernel has grown resources and THE GAP THIS TEST MEASURES HAS CLOSED.";
+    // This test used to measure a string LONGER than ProverResult::maxHits --
+    // the certified-away cycle running forever off the ground route the
+    // missing stance wire left open. That route is closed. What the kernel
+    // produces now is strings the certificate can look at without flinching:
+    // the longest is exactly the certificate's own permitted turns -- and
+    // since M1.1f the agreement is of REASON too: the ballistic arc runs out
+    // of air at that count, and the wired juggle budget would refuse the next
+    // repetition in the same breath. If maxString ever exceeds permittedTurns
+    // again, a route around BOTH brakes has opened and the infinite is back;
+    // if it falls short, one brake tightened past the other.
+    EXPECT_EQ(maxString, permittedTurns)
+        << "the longest single string is " << maxString << " hit(s) against the "
+           "certificate's " << permittedTurns << " -- the two bounds no longer "
+           "coincide."
+        << Table(log, map, 0, 40);
+    EXPECT_LE(maxString, rig.verdict.maxHits)
+        << "a single string of " << maxString << " outran the analysis's stated "
+           "worst case of " << rig.verdict.maxHits
+        << " hits -- something the analysis says cannot happen.";
+    EXPECT_LE(report.hits, rig.verdict.maxHits);
 
-    // Every repetition connected: no whiffs padding the count, and one move start
-    // per hit. A cycle with whiffs in it is still a cycle and would still be worth
-    // flagging -- this asserts the cleaner thing actually happened, so the count
-    // above is a count of connecting repetitions rather than of button presses.
+    // AND THE CYCLE STILL TURNS -- across strings, with the defender free at
+    // every landing. The total exceeding the per-combo budget is NOT a
+    // violation of the certificate: `nonNegative` is a statement about ONE
+    // combo, and the model's own juggle restores when the defender recovers,
+    // exactly as the kernel's does. More than one string is what proves the
+    // demonstration performed its turns ACROSS jumps rather than stopping at
+    // the first landing.
+    EXPECT_GE(stringLens.size(), 2u)
+        << "the whole run was one string, so the demonstration stopped at the "
+           "first landing" << Table(log, map, 0, 40);
+    EXPECT_GT(static_cast<std::int32_t>(byBits.size()), permittedTurns);
+
+    // Every repetition connected: no whiffs padding the count, and one move
+    // start per connecting hit.
     const std::vector<std::uint32_t> starts = log.MoveStartTicks(0);
     EXPECT_EQ(starts.size(), byBits.size())
         << "`" << moveId << "` started " << starts.size() << " time(s) and "
            "connected " << byBits.size() << " time(s)"
         << Table(log, map, 0, 32);
-    EXPECT_EQ(report.whiffedStarts, 0)
-        << report.whiffedStarts << " repetition(s) of a loop the analysis calls "
-           "unescapable started and never connected";
+    EXPECT_EQ(report.whiffedStarts, 0);
 
-    // A TRUE COMBO, on the DIRECT reading of Fighter::hitstun that ComboWatcher.h
-    // insists on. This is the detector that turned 37 into 33 in
-    // tests/test_gap_extent.cpp, and it is why that count is 33: the defender does
-    // not get one tick back anywhere inside this string.
+    // The LAST string is still a true combo on the direct Fighter::hitstun
+    // reading -- within a string the defender never gets a tick back.
     EXPECT_EQ(report.gapTicks, 0)
         << "the defender was actionable on " << report.gapTicks << " tick(s) "
-           "inside this string, so it is a blockable string rather than one of the "
-           "33 tests/test_gap_extent.cpp counts as unescapable."
+           "INSIDE a string; the free ticks belong between strings."
         << DescribeReport(report, map)
         << Table(log, map, byBits.front(), 32);
     EXPECT_TRUE(report.TrueCombo());
-    EXPECT_TRUE(report.open)
-        << "the string ended, so the defender got out of a loop measured as "
-           "unescapable";
 
-    // --- AND NOW THE PART THE MODE HAS TO BE BUILT AROUND --------------------
+    // --- AND THE PART THE MODE IS BUILT AROUND -------------------------------
     //
     // NONE OF ComboWatcher'S LOUD MARKERS IS UP, and every one of them is down
     // for a correct reason:
@@ -2050,11 +2107,12 @@ TEST(TrainingModeVerdict, ACertifiedAwayCycleOutrunsTheAnalysisOwnWorstCase) {
     //   completedProverLoop            gated on ProverStatus::Infinite.
     //   performedDeadCancel            the edge is one the prover KEEPS.
     //
-    // So a training HUD that draws only the watcher's flags shows a green combo
-    // counter, a TRUE COMBO badge, and nothing else -- while the playtester is
-    // doing something the analysis says is impossible. THAT is the failure this
-    // section exists to make impossible to ship unnoticed: the mode must draw the
-    // comparison above, not merely the flags.
+    // Before M1.3e a quiet HUD here was a LIE -- the playtester was performing
+    // something the analysis called impossible and no flag said so. Now the
+    // quiet is earned: the game stops where the certificate says. The mode
+    // still has to draw the COMPARISON rather than only the flags, because the
+    // comparison is the instrument that caught the wire missing -- and the day
+    // maxString and permittedTurns part company again, it is what says so.
     EXPECT_EQ(report.cycleRun, 0)
         << "the cycle matcher followed a loop on a TERMINATING verdict, which "
            "carries none. If ProverResult::loop is now populated for a terminating "
@@ -2078,8 +2136,9 @@ TEST(TrainingModeVerdict, ACertifiedAwayCycleOutrunsTheAnalysisOwnWorstCase) {
     // be silent about it, so it is recorded rather than asserted one way.
     RecordProperty("soundness_alarm", rig.verdict.soundnessAlarm ? 1 : 0);
     RecordProperty("prover_max_hits", rig.verdict.maxHits);
-    RecordProperty("performed_hits", report.hits);
+    RecordProperty("longest_string_hits", maxString);
     RecordProperty("permitted_turns", permittedTurns);
+    RecordProperty("total_hits_across_strings", static_cast<int>(byBits.size()));
     RecordProperty("cycle_move", moveId);
 
     std::cout
@@ -2090,23 +2149,20 @@ TEST(TrainingModeVerdict, ACertifiedAwayCycleOutrunsTheAnalysisOwnWorstCase) {
         << "  the certificate     `" << moveId << "` -> itself spends "
         << spentPerTurn << " " << spentResource << " of " << spentInitial
         << ", so the model affords " << permittedTurns << " turn(s)\n"
-        << "  the kernel ran it   " << byBits.size() << " time(s) for "
-        << report.hits << " hits, gapTicks " << report.gapTicks
-        << ", defender " << kStartingHealth << " -> " << log.Final().p[1].health
-        << "\n"
+        << "  the kernel ran it   " << stringLens.size() << " string(s), longest "
+        << maxString << " hit(s), " << byBits.size() << " hits in all; defender "
+        << kStartingHealth << " -> " << log.Final().p[1].health << "\n"
         << "  health bar ran out  "
         << (exhausted < static_cast<std::uint32_t>(log.Size())
                 ? "at tick " + std::to_string(exhausted)
                 : std::string("no"))
         << " (past it only the alreadyHitBits reading is a count)\n"
-        << "  the watcher flags   cycleRun " << report.cycleRun
-        << ", completedProverLoop "
-        << (report.completedProverLoop ? "yes" : "NO")
-        << ", performedDeadCancel "
-        << (report.performedDeadCancel ? "yes" : "NO") << "\n"
-        << "  SO THE ALARM IS THE COMPARISON, NOT A FLAG: " << report.hits
-        << " hits against a stated worst case of " << rig.verdict.maxHits
-        << ". A HUD that draws only the flags shows a green combo counter here.\n\n";
+        << "  THE COUNT AGREES AND SINCE M1.1f SO DOES THE REASON: the arc "
+           "ends the kernel's string\n"
+        << "  where the model's budget ends its own, and the wired juggle "
+           "gate would refuse the next\n"
+        << "  repetition in the same breath. The watcher's quiet is earned "
+           "now -- before M1.3e it was a lie.\n\n";
 }
 
 // ============================================================================
@@ -2196,6 +2252,14 @@ GameState opening() {
     return s;
 }
 
+// The gap chip's own opening: see kWalkP0X for why this file has two.
+GameState walkingOpening() {
+    GameState s = opening();
+    s.p[0].posX = kWalkP0X;
+    s.p[1].posX = kWalkP1X;
+    return s;
+}
+
 void step(GameState& s, const MatchData& data, std::uint16_t p0Bits,
           std::uint16_t p1Bits = 0u) {
     cse::kernel::Simulate(s, pairOf(p0Bits, p1Bits), data);
@@ -2240,7 +2304,13 @@ std::int32_t twoTermTicksUntilActionable(const cse::kernel::FighterData& data,
                                   static_cast<std::int32_t>(fighter.moveFrame);
         if (left > ticks) ticks = left;
     }
-    return ticks < 1 ? 1 : ticks;
+    if (ticks < 1) ticks = 1;
+
+    // The pause, mirrored from FightHud.cpp with the terms (ROADMAP M1.3i):
+    // pending hitstop stalls every clock the two terms read, so it adds to
+    // whichever won. Restated here WITH it so the residual this file measures
+    // stays exactly the missing cancel term and not the freeze too.
+    return ticks + static_cast<std::int32_t>(fighter.hitstop);
 }
 
 // FightHud.cpp's FrameAdvantage, on top of it. `known` is false unless the
@@ -2285,10 +2355,27 @@ Freedom measureFreedom(const MatchData& data, const GameState& from,
                        std::uint32_t budget) {
     Freedom out{};
     GameState s = from;
+
+    // PULSED, AND BUFFERED, because StepAttack reads the PRESS. Holding `bits`
+    // for the whole fork is ONE press however long the fork runs, so a fork that
+    // held them answered "the attacker never acted" for every frame where the
+    // first tick was not already actionable -- a fact about this function, not
+    // about the kernel. The question being asked is "how soon CAN the attacker
+    // act", so the fork must have a fresh press available on every tick the
+    // attacker might take one.
+    //
+    // Pulsing alone would only supply an edge every other tick and the answer
+    // could land a frame late; the two-tick buffer covers the tick between, so
+    // the press is consumed the exact frame the kernel opens. Buffer and pulse
+    // are chosen together and neither is sufficient on its own.
+    MatchData armed = data;
+    armed.p[0].inputBufferFrames = 2;
+    armed.p[1].inputBufferFrames = 2;
+
     for (std::uint32_t k = 1; k <= budget; ++k) {
         const std::uint16_t beforeId    = s.p[0].moveId;
         const std::uint16_t beforeFrame = s.p[0].moveFrame;
-        step(s, data, bits);
+        step(s, armed, (k % 2u == 1u) ? bits : std::uint16_t{0});
 
         const cse::kernel::Fighter& atk = s.p[0];
         if (atk.moveId == 0 || atk.moveId == sourceMove || atk.moveFrame != 0)
@@ -2396,7 +2483,8 @@ TEST(TrainingModeReadout, ACancelIsAThirdWayOutOfAMoveAndTheTwoTermRuleMissesIt)
            "cancel for the rule to be missing and this test is about nothing.";
     EXPECT_EQ(edge->earliestFrame, 5);
     EXPECT_EQ(edge->latestFrame, 9);
-    EXPECT_EQ(edge->onHit, 1u) << "the file authors this edge `on: hit`";
+    EXPECT_EQ(edge->contactMask, cse::kernel::kContactHit)
+        << "the file authors this edge `on: hit`";
     EXPECT_EQ(duration, 14) << "stand_lp is 3 + 2 + 9 in this file";
 
     // THE FASTEST THE KERNEL CAN TAKE A CONTACT-GATED EDGE. StepAttack runs
@@ -2415,10 +2503,15 @@ TEST(TrainingModeReadout, ACancelIsAThirdWayOutOfAMoveAndTheTwoTermRuleMissesIt)
     // One tick and not a hold. A held button restarts the move in the same
     // StepAttack call that ended it -- the next test is about exactly that -- and
     // here it would lay a second stand_lp on top of the frames being swept.
+    // Long enough for the whole move PLUS the freeze: since ROADMAP M1.3i the
+    // contact stalls the frame counter for `hitstop` ticks, so a trunk sized to
+    // the duration alone would end mid-move and the sweep would never see the
+    // frames after the window closes.
+    const std::int32_t freeze = static_cast<std::int32_t>(source->hitstop);
     std::vector<GameState> trunk;
     {
         GameState s = opening();
-        for (std::int32_t t = 0; t < duration + 2; ++t) {
+        for (std::int32_t t = 0; t < duration + freeze + 2; ++t) {
             step(s, bench.build.data,
                  static_cast<std::uint16_t>(t == 0 ? cse::kernel::kInputLP : 0));
             trunk.push_back(s);
@@ -2446,12 +2539,22 @@ TEST(TrainingModeReadout, ACancelIsAThirdWayOutOfAMoveAndTheTwoTermRuleMissesIt)
     std::int32_t agreements         = 0;
     std::int32_t framesSwept        = 0;
 
+    std::int32_t lastSweptFrame = -1;
     for (std::size_t t = 0; t < trunk.size(); ++t) {
         const GameState& at = trunk[t];
         if (at.p[0].moveId != lp) continue;   // the move has ended; nothing to ask
-        ++framesSwept;
-
         const std::int32_t frame = static_cast<std::int32_t>(at.p[0].moveFrame);
+
+        // ONE ROW PER FRAME, NOT PER TICK. The freeze holds the move on its
+        // contact frame for `freeze` consecutive trunk states; sweeping each of
+        // them would ask the same frame-domain question `freeze` times and the
+        // shape counts below would stop meaning "frames of the move". The first
+        // state at each frame is the one swept -- for the contact frame that is
+        // the state with the full freeze pending, which is also the hardest one
+        // for the wall-tick model below.
+        if (frame == lastSweptFrame) continue;
+        lastSweptFrame = frame;
+        ++framesSwept;
 
         // WHAT THE KERNEL DOES: fork here, hold the follow-up, and watch.
         const Freedom got =
@@ -2479,7 +2582,19 @@ TEST(TrainingModeReadout, ACancelIsAThirdWayOutOfAMoveAndTheTwoTermRuleMissesIt)
             << got.leftAtFrame << ". The edge's window is ["
             << edge->earliestFrame << ", " << edge->latestFrame
             << "] and the move is " << duration << " ticks long.";
-        EXPECT_EQ(static_cast<std::int32_t>(got.ticks), expectedLeaveFrame - frame);
+        // THE WALL CLOCK ALSO PAYS THE FREEZE (ROADMAP M1.3i), and how much of
+        // it depends on where the fork sits: a fork carrying pending hitstop
+        // pays what is left of it; a fork from before the contact replays the
+        // contact and pays all of it; a fork after the freeze has burned off
+        // pays nothing, because `alreadyHitBits` stops the move connecting
+        // twice. The frame-domain expectation above is untouched -- the freeze
+        // stalls the frame counter and the wall clock together.
+        const std::int32_t freezeInFork =
+            at.p[0].hitstop > 0
+                ? static_cast<std::int32_t>(at.p[0].hitstop)
+                : (at.p[0].alreadyHitBits == 0 ? freeze : 0);
+        EXPECT_EQ(static_cast<std::int32_t>(got.ticks),
+                  expectedLeaveFrame - frame + freezeInFork);
         EXPECT_EQ(got.byCancel, expectedLeaveFrame < duration)
             << "frame " << frame << ": the route out was "
             << (got.byCancel ? "a cancel" : "the move running out")
@@ -2573,16 +2688,24 @@ TEST(TrainingModeReadout, ACancelIsAThirdWayOutOfAMoveAndTheTwoTermRuleMissesIt)
 // This is the other half of the frame-advantage readout and it is independent of
 // the missing term above: even with the arithmetic granted, a value computed from
 // LIVE STATE describes the tick it was computed on and not the interaction the
-// playtester is trying to learn. The kernel makes that unavoidable rather than
-// unlikely -- StepAttack's button scan is HELD, not pressed (its own comment
-// calls that "a real gap, named rather than papered over"), so a key left down
-// restarts the move the instant it ends, and every quantity derived from
-// (moveFrame, hitstun) is periodic with the move's duration.
+// playtester is trying to learn. Any periodic drive makes that unavoidable rather
+// than unlikely, because every quantity derived from (moveFrame, hitstun) is then
+// periodic with the repetition's wall period -- the move's duration plus its
+// authored freeze, since ROADMAP M1.3i.
+//
+// WHAT DRIVES IT HERE IS A RE-PRESS, not a held key, and that is the one thing
+// this test had to be rewritten for. StepAttack's button scan reads the PRESS
+// -- the rising edge -- so a key left down starts `stand_lp` exactly once and
+// the fighter idles from then on. The playtester who sees the strobe is the one
+// mashing, so the drive below releases for the last tick of each repetition and
+// presses again on the tick the move ends. The period is therefore identical to
+// the one a held key used to produce, and every number below is unchanged; what
+// changed is whose behaviour it is a fact about.
 //
 // The measurement below is the reason a training HUD has to LATCH this number on
 // the contact tick rather than recompute it: not because recomputation is
 // expensive, but because there is no single tick whose reading is the answer.
-TEST(TrainingModeReadout, AHeldButtonRestartsTheMoveSoALiveAdvantageStrobesForever) {
+TEST(TrainingModeReadout, ARepeatedPressRestartsTheMoveSoALiveAdvantageStrobesForever) {
     // ONLY stand_lp IS BOUND, so no cancel is reachable at all and the period
     // below is unambiguously the move's own duration rather than a chain's.
     Bench bench{};
@@ -2602,9 +2725,19 @@ TEST(TrainingModeReadout, AHeldButtonRestartsTheMoveSoALiveAdvantageStrobesForev
     ASSERT_GT(duration, 0);
     ASSERT_GT(stun, 0);
 
+    // THE WALL PERIOD IS NOT THE DURATION ANY MORE (ROADMAP M1.3i): every
+    // repetition connects on its startup frame and freezes both fighters for
+    // the move's authored hitstop, during which the frame counter stands
+    // still. The strobe this test describes survives intact -- the freeze
+    // holds BOTH fighters' clocks, so the readings inside it are the settled
+    // reading, not a fourth kind -- it just repeats every `duration + hitstop`
+    // wall ticks instead.
+    const std::int32_t freeze = static_cast<std::int32_t>(move->hitstop);
+    const std::int32_t period = duration + freeze;
+
     // Three periods: one to warm up (nothing has connected yet, so the readout is
     // legitimately unknown for the first few ticks) and two to measure.
-    const std::int32_t total = duration * 3;
+    const std::int32_t total = period * 3;
 
     std::vector<TwoTermAdvantage> readings;
     std::vector<std::uint32_t>    hitTicks;
@@ -2612,20 +2745,35 @@ TEST(TrainingModeReadout, AHeldButtonRestartsTheMoveSoALiveAdvantageStrobesForev
         GameState s = opening();
         std::int32_t previousHealth = kStartingHealth;
         for (std::int32_t t = 0; t < total; ++t) {
-            step(s, bench.build.data, cse::kernel::kInputLP);
+            // RELEASED FOR THE LAST TICK OF EACH REPETITION so the next tick is a
+            // PRESS. Releasing cannot disturb the repetition it ends -- a move
+            // already running ignores the button entirely -- and it is what buys
+            // the rising edge that starts the next one exactly on time.
+            const bool release = (t % period) == period - 1;
+            step(s, bench.build.data,
+                 release ? std::uint16_t{0} : cse::kernel::kInputLP);
 
             // THE PERIOD, ASSERTED TICK BY TICK RATHER THAN INFERRED AT THE END.
-            // A held button never lets the fighter reach idle: the move ends and
-            // the button scan restarts it inside the same StepAttack call, so the
-            // frame counter is exactly the tick index modulo the duration.
+            // A re-press never lets the fighter reach idle: the move ends and the
+            // button scan finds this tick's press inside the same StepAttack
+            // call. The frame counter climbs to `startup`, PLATEAUS there for
+            // `freeze` ticks while the hit's freeze runs, then climbs on -- so
+            // the phase-to-frame map has three legs, and asserting all three is
+            // what licenses reading the whole strobe off `t % period` below.
+            const std::int32_t phase = t % period;
+            const std::int32_t expectedFrame =
+                phase <= startup            ? phase
+                : phase <= startup + freeze ? startup
+                                            : phase - freeze;
             ASSERT_EQ(s.p[0].moveId, lp)
                 << "tick " << t << ": the attacker is not in `stand_lp` although "
-                   "LP has been held since tick 0";
-            ASSERT_EQ(static_cast<std::int32_t>(s.p[0].moveFrame), t % duration)
+                   "LP has been pressed once per repetition since tick 0";
+            ASSERT_EQ(static_cast<std::int32_t>(s.p[0].moveFrame), expectedFrame)
                 << "tick " << t << ": `stand_lp` is on frame " << s.p[0].moveFrame
-                << " and a move restarted by a held button is on frame "
-                << (t % duration) << ". If this fails the move is NOT restarting "
-                   "immediately, and the strobe below is not the shape it says.";
+                << " and the freeze-aware phase map says frame "
+                << expectedFrame << ". If this fails the move is NOT restarting "
+                   "immediately (or the freeze moved), and the strobe below is "
+                   "not the shape it says.";
 
             if (s.p[1].health < previousHealth)
                 hitTicks.push_back(static_cast<std::uint32_t>(t));
@@ -2638,10 +2786,11 @@ TEST(TrainingModeReadout, AHeldButtonRestartsTheMoveSoALiveAdvantageStrobesForev
     // One hit per repetition, on the move's first active frame every time.
     ASSERT_EQ(hitTicks.size(), static_cast<std::size_t>(3))
         << "`stand_lp` connected " << hitTicks.size() << " time(s) in " << total
-        << " ticks; a " << duration << "-tick move held down should land three.";
+        << " ticks; a " << period << "-tick repetition pressed once per period "
+           "should land three.";
     for (std::size_t i = 0; i < hitTicks.size(); ++i)
         EXPECT_EQ(static_cast<std::int32_t>(hitTicks[i]),
-                  startup + static_cast<std::int32_t>(i) * duration)
+                  startup + static_cast<std::int32_t>(i) * period)
             << "repetition " << i << " connected off its own startup frame";
 
     // --- the readings, over the two settled periods -------------------------
@@ -2649,9 +2798,9 @@ TEST(TrainingModeReadout, AHeldButtonRestartsTheMoveSoALiveAdvantageStrobesForev
     std::int32_t plusValue = 0, minusValue = 0;
     std::ostringstream strip;
 
-    for (std::int32_t t = duration; t < total; ++t) {
+    for (std::int32_t t = period; t < total; ++t) {
         const TwoTermAdvantage& a = readings[static_cast<std::size_t>(t)];
-        if (t < duration * 2) {
+        if (t < period * 2) {
             strip << (a.known ? (a.ticks > 0 ? "+" + std::to_string(a.ticks)
                                              : std::to_string(a.ticks))
                               : std::string("-"))
@@ -2693,15 +2842,22 @@ TEST(TrainingModeReadout, AHeldButtonRestartsTheMoveSoALiveAdvantageStrobesForev
 
     // AND THE OTHER TWO READINGS OF THE SAME INTERACTION.
     //
-    //   the settled +1     every tick from contact until the move runs out:
-    //                      `duration - startup` of them.
+    //   the settled +1     every tick from contact until the move runs out --
+    //                      INCLUDING the freeze, which is why the strobe gains
+    //                      no fourth kind: both fighters carry the same pending
+    //                      hitstop, the readout adds it to both halves, and the
+    //                      difference is unmoved. `duration - startup + freeze`
+    //                      of them.
     //   one deep negative  the restart tick. The attacker is back on frame 0 of a
-    //                      fresh move (`duration` ticks to go) while the defender
-    //                      still has the last tick of the previous stun, so the
-    //                      row swings from +1 to 1 - duration in ONE TICK.
+    //                      fresh move (`duration` ticks to go, no freeze pending)
+    //                      while the defender still has the last tick of the
+    //                      previous stun, so the row swings from +1 to
+    //                      1 - duration in ONE TICK.
     //   not known          the ticks between the stun running out and the next
-    //                      repetition connecting: `duration - hitstun` of them.
-    EXPECT_EQ(plusCount, (duration - startup) * 2)
+    //                      repetition connecting: still `duration - hitstun` of
+    //                      them, because the freeze suspends the stun clock and
+    //                      the frame clock by the same amount.
+    EXPECT_EQ(plusCount, (duration - startup + freeze) * 2)
         << "the settled reading appeared " << plusCount << " times over two "
            "periods; it should hold from contact until the move ends.";
     EXPECT_EQ(minusCount, 2)
@@ -2717,15 +2873,15 @@ TEST(TrainingModeReadout, AHeldButtonRestartsTheMoveSoALiveAdvantageStrobesForev
     // THE CLAIM ITSELF, stated so it cannot be satisfied by the numbers merely
     // being different: three distinct readings of ONE interaction, cycling
     // forever, at a rate a playtester perceives as a flicker rather than as a
-    // change. 60 / 14 is 4.3 Hz.
+    // change. 60 / 22 is 2.7 Hz.
     EXPECT_GE(plusCount, 1);
     EXPECT_GE(minusCount, 1);
     EXPECT_GE(unknownCount, 1);
-    EXPECT_EQ(plusCount + minusCount + unknownCount, duration * 2)
+    EXPECT_EQ(plusCount + minusCount + unknownCount, period * 2)
         << "the three counts do not cover the two periods, so one of them is "
            "measuring something else";
 
-    RecordProperty("advantage_period_ticks", duration);
+    RecordProperty("advantage_period_ticks", period);
     RecordProperty("advantage_settled", plusValue);
     RecordProperty("advantage_on_restart", minusValue);
     RecordProperty("advantage_unknown_per_period", duration - stun);
@@ -2733,13 +2889,13 @@ TEST(TrainingModeReadout, AHeldButtonRestartsTheMoveSoALiveAdvantageStrobesForev
     std::cout
         << "\n[ TRAINING MODE ] the same interaction, recomputed every frame, on `"
         << bench.character.id << "` with LP held\n"
-        << "  the move            `stand_lp`, " << duration
-        << " ticks, restarted by the held button the tick it ends\n"
+        << "  the move            `stand_lp`, " << duration << " ticks plus "
+        << freeze << " of freeze, restarted by the held button the tick it ends\n"
         << "  one period reads    " << strip.str() << "\n"
-        << "  so the row shows    " << (duration - startup) << " tick(s) of "
+        << "  so the row shows    " << (duration - startup + freeze) << " tick(s) of "
         << plusValue << ", one tick of " << minusValue << ", "
         << (duration - stun) << " tick(s) of nothing -- "
-        << (cse::kernel::kTicksPerSecond) << "/" << duration
+        << (cse::kernel::kTicksPerSecond) << "/" << period
         << " times a second, forever\n"
         << "  WHICH IS WHY        a number that is meant to describe an "
            "INTERACTION has to be latched on the contact tick. ComboWatcher "
@@ -2770,25 +2926,62 @@ TEST(TrainingModeReadout, WalkingClosesTheGapAndOnlyTheIntervalRuleSurvivesConta
     bringUpBench({}, bench);
     ASSERT_FALSE(::testing::Test::HasFatalFailure());
 
-    // THE BRIDGE'S HALF OF THIS, ASSERTED BEFORE THE KERNEL'S. The character
-    // authors a walk speed and FighterData has no field for one, so the fighters
-    // below move at Simulate.cpp's hardcoded rate. MatchBuilder says so in its own
-    // loss table, and that entry is what makes "the gap closes at 2 px/tick"
-    // a statement about the game rather than about the character.
+    // A WALK SPEED THIS TEST CHOOSES, and the choice is arithmetic rather than
+    // taste. The subject here is the gap chip's FORMULA across four bands, and
+    // to catch the one tick that separates the two candidate rules the walk has
+    // to land EXACTLY on the touching tick and again on the coincident tick.
+    // The bodies open 34 px apart and are 26 px wide together, so the step must
+    // divide both 8 and 34. Two does. The character's authored three divides
+    // neither -- 26 is not a multiple of 3 -- and the test would then measure
+    // whichever side of the boundary the rounding happened to fall on.
+    //
+    // Before M1.1b this was true by accident: the kernel walked everything at 2
+    // px/tick and this test inherited that without saying so. The premise is now
+    // written down and owned, which is the only thing that changed about it.
+    // ROADMAP M1.1b argues the alternative -- restating the test in terms of
+    // CROSSING zero rather than landing on it -- and rejects it, because "the
+    // one tick this test is really about" is exactly what that would lose.
+    bench.build.data.p[0].walkSpeedSub = 2 * cse::kernel::kSubUnitsPerPixel;
+    bench.build.data.p[1].walkSpeedSub = 2 * cse::kernel::kSubUnitsPerPixel;
+
+    // AND NO PUSHBOX, which is not a dodge -- it is the difference between the
+    // two boxes this file keeps confusing for each other.
+    //
+    // ROADMAP M1.2 stopped fighters standing in each other, so two PUSHBOXES
+    // never overlap any more. The gap chip does not measure pushboxes: it
+    // measures HURTBOXES, which still overlap freely, because a sweep's hurtbox
+    // reaches far past the body it keeps. Two of the four bands this test walks
+    // through -- overlapping and coincident -- are ordinary hurtbox states and
+    // unreachable pushbox ones, so a bench that carried a pushbox would separate
+    // the fighters before the walk ever got there and measure two bands instead
+    // of four.
+    //
+    // Degenerate is how FighterData spells "no pushbox".
+    bench.build.data.p[0].pushbox = cse::kernel::Box{};
+    bench.build.data.p[1].pushbox = cse::kernel::Box{};
+
+    // THE BRIDGE'S HALF OF THIS, ASSERTED BEFORE THE KERNEL'S. The kernel now
+    // carries the authored walk speed whole, so this row reads `exact` -- and
+    // that is what makes the override above a deliberate act by this test rather
+    // than the engine's own behaviour. A reader who sees 2 px/tick below must be
+    // able to find out in one hop that the file says three.
     const BuildLoss* const walkLoss =
         findLoss(bench.build.report[0], "character.walk_speed");
     ASSERT_NE(walkLoss, nullptr)
         << "the build no longer reports what happens to `character.walk_speed`";
-    EXPECT_EQ(walkLoss->direction, BuildLossDirection::KernelOmits);
+    EXPECT_EQ(walkLoss->direction, BuildLossDirection::Exact)
+        << "`character.walk_speed` is no longer carried exactly into the kernel. "
+           "If the kernel has stopped reading the field, the override above is "
+           "silently doing nothing and every tick number below is a coincidence.";
     EXPECT_GT(walkLoss->count, 0)
         << "the loss is reported with a count of zero, which would mean this "
-           "character authors no walk speed and the rate below is not a "
-           "divergence at all";
+           "character authors no walk speed and the override above is not an "
+           "override at all";
 
     const cse::kernel::Box body0 =
-        cse::kernel::Hurtbox(bench.build.data.p[0], opening().p[0]);
+        cse::kernel::Hurtbox(bench.build.data.p[0], walkingOpening().p[0]);
     const cse::kernel::Box body1 =
-        cse::kernel::Hurtbox(bench.build.data.p[1], opening().p[1]);
+        cse::kernel::Hurtbox(bench.build.data.p[1], walkingOpening().p[1]);
     ASSERT_EQ(body0.x1 - body0.x0, kHalfWidth * 2);
     ASSERT_EQ(body1.x1 - body1.x0, kHalfWidth * 2)
         << "the two bodies are different widths, so |dx| - 2*halfWidth is no "
@@ -2815,7 +3008,7 @@ TEST(TrainingModeReadout, WalkingClosesTheGapAndOnlyTheIntervalRuleSurvivesConta
     std::int32_t apartTicks  = 0, overlapTicks = 0;
 
     {
-        GameState s = opening();
+        GameState s = walkingOpening();
         std::int32_t previousP0 = s.p[0].posX;
         for (std::int32_t t = 0; t <= 22; ++t) {
             if (t > 0) step(s, bench.build.data, cse::kernel::kInputRight);
@@ -2828,24 +3021,23 @@ TEST(TrainingModeReadout, WalkingClosesTheGapAndOnlyTheIntervalRuleSurvivesConta
                 EXPECT_EQ(walkStep, 2 * cse::kernel::kSubUnitsPerPixel)
                     << "one tick of `right` moved the fighter "
                     << subAndPx(walkStep)
-                    << ". Simulate.cpp walks every fighter at a hardcoded 2 "
-                       "px/tick; a HUD that told a playtester the gap closes at "
-                       "the character's authored rate would be wrong by "
-                    << subAndPx(bench.character.walkSpeedSub - walkStep)
-                    << " every tick.";
+                    << ", so the override at the top of this test did not take "
+                       "and the tick numbers below no longer land on the band "
+                       "boundaries this test exists to measure.";
                 EXPECT_NE(walkStep, bench.character.walkSpeedSub)
-                    << "the kernel now walks at the character's authored speed of "
-                    << subAndPx(bench.character.walkSpeedSub)
-                    << ", so `character.walk_speed` is no longer a loss and the "
-                       "assertion above about the loss table should be inverted "
-                       "rather than deleted";
+                    << "the override now matches the character's authored speed "
+                       "of " << subAndPx(bench.character.walkSpeedSub)
+                    << ", so it is no longer isolating this test from the file. "
+                       "That is not a failure of the engine -- it means the file "
+                       "was re-authored to 2 px/tick and the override should be "
+                       "deleted along with the paragraph explaining it.";
             } else if (t > 1) {
                 ASSERT_EQ(s.p[0].posX - previousP0, walkStep)
                     << "tick " << t << ": the walk rate changed mid-walk";
             }
             previousP0 = s.p[0].posX;
 
-            ASSERT_EQ(s.p[1].posX, kP1X)
+            ASSERT_EQ(s.p[1].posX, kWalkP1X)
                 << "tick " << t << ": the defender moved. It is given no input "
                    "and the kernel has no pushboxes, so nothing may push it.";
             ASSERT_EQ(s.p[0].moveId, 0u)
@@ -3056,6 +3248,21 @@ TEST(TrainingModeReadout, ASpentActiveWindowStillOffersABoxAndTheStateCannotSayW
                "second frame for the guard to have spent and this subject cannot "
                "show the split";
 
+        // The press ESTABLISHES the move's stance (ROADMAP M1.3e): an aerial is
+        // asked for with the takeoff Up provides, on the same tick, and rides
+        // the arc through its active window -- which is exactly how the
+        // reviewer's case is performed in play.
+        const std::uint16_t hold =
+            cse::game::WitnessCursor::StanceHold(bench.build.data.p[0], slot);
+
+        // The freeze DEEPENS this finding rather than disturbing it (ROADMAP
+        // M1.3i): the contact freezes the move ON its first active frame for
+        // `hitstop` wall ticks, ActiveHitbox is a pure function of that frozen
+        // frame, and the multi-hit guard has already spent the window -- so the
+        // red box that cannot hit is now on screen for the whole freeze too,
+        // still lying across the dummy's body.
+        const std::int32_t freeze = static_cast<std::int32_t>(move->hitstop);
+
         std::int32_t boxFrames = 0, hitFrames = 0, deadFrames = 0;
         std::int32_t deadOverlapping = 0;
         std::int32_t bitSetOnHitFrame = -1;
@@ -3064,9 +3271,11 @@ TEST(TrainingModeReadout, ASpentActiveWindowStillOffersABoxAndTheStateCannotSayW
 
         GameState s = opening();
         std::int32_t previousHealth = kStartingHealth;
-        for (std::int32_t t = 0; t < cse::kernel::MoveDuration(*move) + 2; ++t) {
+        for (std::int32_t t = 0;
+             t < cse::kernel::MoveDuration(*move) + freeze + 2; ++t) {
             step(s, bench.build.data,
-                 static_cast<std::uint16_t>(t == 0 ? subject.button : 0));
+                 static_cast<std::uint16_t>(
+                     t == 0 ? (subject.button | hold) : 0));
 
             cse::kernel::Box hitbox{};
             const bool hasBox =
@@ -3112,16 +3321,16 @@ TEST(TrainingModeReadout, ASpentActiveWindowStillOffersABoxAndTheStateCannotSayW
 
         // The kernel offered a box on every active frame -- which is right, and
         // is what makes the picture wrong.
-        EXPECT_EQ(boxFrames, move->active)
+        EXPECT_EQ(boxFrames, move->active + freeze)
             << "`" << subject.id << "` is authored active " << move->active
-            << " and ActiveHitbox answered on " << boxFrames << " frame(s)"
-            << table.str();
+            << " with a freeze of " << freeze << ", and ActiveHitbox answered on "
+            << boxFrames << " tick(s)" << table.str();
         EXPECT_EQ(hitFrames, 1)
             << "the multi-hit guard allows exactly one hit per active window"
             << table.str();
-        EXPECT_EQ(deadFrames, move->active - 1)
+        EXPECT_EQ(deadFrames, move->active + freeze - 1)
             << "`" << subject.id << "` drew " << deadFrames
-            << " red frame(s) that could not hit" << table.str();
+            << " red tick(s) that could not hit" << table.str();
         EXPECT_EQ(deadOverlapping, deadFrames)
             << "every dead frame here is drawn LYING ACROSS THE DUMMY'S BODY, "
                "which is the exact picture FightView.h promises a playtester will "

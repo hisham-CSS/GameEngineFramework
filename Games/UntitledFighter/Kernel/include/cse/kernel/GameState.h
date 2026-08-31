@@ -36,6 +36,39 @@ namespace cse::kernel {
 // authored as halvings and a rounding difference is a desync.
 inline constexpr std::int32_t kSubUnitsPerPixel = 256;
 
+// --- The stage ---------------------------------------------------------------
+//
+// PUBLIC BECAUSE THREE THINGS HAVE TO AGREE ABOUT THEM, and until ROADMAP M1.1g
+// only one of the three could see them: Simulate clamped against a file-local
+// constant, the training mode WALKED A FIGHTER INTO THE CLAMP to find out where
+// it was, and four test files wrote `480` down again by hand. That is the shape
+// MAINTENANCE.md's rule is about -- if a comment says "must match X", make it
+// call X.
+//
+// Both are stage properties rather than character ones, and a stage has no data
+// model yet, so they are kernel constants for now and M1.2 is where they become
+// authored. That is a known debt, written down rather than hidden: nothing here
+// may be a number a level designer cannot set.
+inline constexpr std::int32_t kStageHalfWidthSub = 480 * kSubUnitsPerPixel;
+
+// THE INVISIBLE WALL, and it is the Street Fighter rule rather than a camera
+// convenience. Two fighters may never be more than this far apart: a player
+// backing away stops at it, and it MOVES WITH THE OPPONENT, so retreating stays
+// possible for exactly as long as the opponent keeps advancing. Once they stop,
+// so does the retreat -- and the only thing that lets anyone gain more ground
+// than this is the opponent's own forward walk, or an absolute corner behind
+// them.
+//
+// It is simulation and not presentation: it decides POSITION, so it decides
+// whether a move reaches, and a camera that merely declined to show the gap
+// would be a camera lying about a fight the kernel had already resolved.
+//
+// 374 px is 400 -- the width the view shows -- less a 13 px half-body at each
+// edge, so two fighters at maximum separation are both fully on screen rather
+// than half of each hanging off it. FightView derives its framing from THIS
+// number for that reason; see kViewHalfWidthPx.
+inline constexpr std::int32_t kMaxSeparationSub = 374 * kSubUnitsPerPixel;
+
 // Ticks per second. The simulation is tick-driven, never delta-time driven:
 // Application's FixedTimestep is explicitly NOT allowed to drive this (it caps
 // at 8 steps then ZEROES the accumulator, dropping the backlog -- see
@@ -122,6 +155,11 @@ inline constexpr std::uint8_t kGuardNone = 0;
 inline constexpr std::uint8_t kGuardHigh = 1;  // standing block: stops high + mid
 inline constexpr std::uint8_t kGuardLow  = 2;  // crouching block: stops low + mid
 
+// The low byte of Fighter::flags: the BLOCKED mirror of alreadyHitBits (M1.3
+// slice (a) -- see the field). Named so its writers and its four clear sites
+// spell the same mask.
+inline constexpr std::uint16_t kFlagsBlockedBits = 0x00FF;
+
 // GameState::roundState.
 inline constexpr std::uint8_t kRoundFighting = 0;
 inline constexpr std::uint8_t kRoundOver     = 1;  // this round is decided
@@ -151,7 +189,7 @@ struct Fighter {
 
     // Pushback velocity, in sub-units per tick, decaying toward zero.
     //
-    // SEPARATE FROM velX ON PURPOSE, and the reason is a line in stepFighter:
+    // SEPARATE FROM velX ON PURPOSE, and the reason is a line in StepPhysics:
     // a fighter who cannot act has `velX = 0` written every tick. Pushback that
     // lived in velX would therefore be erased on the very tick it was applied,
     // because being hit is precisely when you cannot act. Adding a "unless we
@@ -245,14 +283,17 @@ struct Fighter {
     // "anything a tick writes lives here" is this file's rule.
     std::uint8_t active;
 
-    // Input posture. SEPARATE FROM airborne, and the two are not a collapsed
+    // Ground posture. SEPARATE FROM airborne, and the two are not a collapsed
     // three-value enum by deliberate choice: `airborne` is derived from POSITION
-    // (posY <= 0 lands you) and `crouching` from INPUT (holding down). They have
-    // different sources of truth and different writers, which is what makes them
-    // two facts rather than ADR-006 §2's one-field-two-ideas mistake.
+    // (posY <= 0 lands you) while `crouching` has exactly two writers (ADR-012
+    // rule 3) -- the INPUT on a free tick (holding down), and the STARTED
+    // MOVE's stance on a move start, because a crouching move's frame data was
+    // authored against the crouching body. Different sources of truth, which is
+    // what makes them two facts rather than ADR-006 §2's one-field-two-ideas
+    // mistake.
     //
     // The impossible combination is closed by construction rather than by
-    // convention: stepFighter forces crouching to 0 whenever airborne is 1.
+    // convention: StepPhysics forces crouching to 0 whenever airborne is 1.
     std::uint8_t crouching;
 
     // kGuardNone / kGuardHigh / kGuardLow, recomputed from held input each tick.
@@ -260,14 +301,58 @@ struct Fighter {
 
     // --- Reserved for the pass-1 mechanics (ROADMAP M1.3) ------------------
     //
-    // Nothing writes these yet, and they are here anyway: M1.3 adds wall
+    // Reserved in the layout before anything wrote them: M1.3 adds wall
     // bounce, wall splat, ground bounce and counter-hit as per-hit reactions,
     // and every one of them needs state on the DEFENDER. Reserving them costs
     // three bytes now; adding them later costs a second wire-format change and
     // a second cross-toolchain re-golden (ADR-005 section 3).
     std::uint8_t reaction;   // which on_hit reaction is playing out; 0 = none
     std::uint8_t bounces;    // bounces spent, so a loop cannot bounce forever
-    std::uint16_t flags;     // per-fighter reaction bits, defined by M1.3
+    // Per-fighter mechanic bits. The LOW BYTE is defined by M1.3 slice (a):
+    // the BLOCKED mirror of alreadyHitBits -- bit i set when the contact this
+    // window recorded on slot i was stopped by a guard, clear when it landed
+    // clean. Written only in ResolveHits' blocked arm and cleared at exactly
+    // the four sites alreadyHitBits clears (move start, move end, cancel
+    // taken, attacker interrupted), so the invariant `blocked bits are a
+    // subset of alreadyHitBits` holds by construction. It exists because the
+    // attacker's own bytes used to be identical after a clean hit and a
+    // blocked one, which made the schema's `on: hit` / `on: block` cancel
+    // distinction unobservable in the kernel. The high byte stays reserved
+    // for the M1.3 reactions.
+    std::uint16_t flags;
+
+    // --- Input edges and buffering (ROADMAP M1.1d) -------------------------
+    //
+    // WHY THESE ARE IN THE STATE and not in whatever produced the input. D6 puts
+    // the input ring OUTSIDE GameState on purpose, and Simulate is handed only
+    // the CURRENT tick's bits -- so an edge computed anywhere else is recomputed
+    // wrongly on every re-simulation, and a rollback would replay a press as a
+    // hold. Anything the simulation reads lives here; that is the whole rule.
+    //
+    // Last tick's buttons, which is where both edges come from: a press is
+    // `bits & ~prevButtons` and a release is `~bits & prevButtons`. One field,
+    // two mechanics, which is why positive and negative edge are one change.
+    std::uint16_t prevButtons;
+
+    // A press that arrived while this fighter could not act, kept for a few
+    // ticks and CONSUMED -- not merely aged out -- the tick they become
+    // actionable. Consumed, because a buffered press that is only aged would
+    // start a move and then start it again on the next actionable tick.
+    //
+    // The window is a per-character field (FighterData::inputBufferFrames), not
+    // a constant here: buffering is a mechanic, and mechanics are authored
+    // (docs/adr/ADR-011 decision 1). Zero means no buffering, which is the
+    // behaviour a file that says nothing gets.
+    std::uint16_t bufferedButtons;
+    std::uint8_t  bufferAge;      // ticks the buffered press has been waiting
+
+    // THREE, not one, and the assertion is what said so. Fighter is 40 bytes of
+    // int32 plus 22 of 16-bit plus its uint8 group, and the struct has to end on
+    // a multiple of its 4-byte alignment -- one pad byte left it at 74 and the
+    // compiler quietly added two more. has_unique_object_representations_v
+    // turned that into a build error instead of two machines hashing bytes
+    // neither of them wrote.
+    std::uint8_t  pad_[3];
 };
 
 // The complete authoritative state. Everything the simulation may read.
@@ -382,8 +467,8 @@ static_assert(std::has_unique_object_representations_v<GameState>,
 // Written as a SUM OF THE MEMBERS rather than a byte count, so it keeps asking
 // "did padding appear" instead of "is this the number I last wrote down".
 static_assert(sizeof(Fighter) == sizeof(std::int32_t) * (6 + kMaxResources) +
-                                     sizeof(std::uint16_t) * 9 +
-                                     sizeof(std::uint8_t) * 10,
+                                     sizeof(std::uint16_t) * 11 +
+                                     sizeof(std::uint8_t) * 14,
               "Fighter has grown a member that is not accounted for, or the "
               "compiler inserted padding into it.");
 

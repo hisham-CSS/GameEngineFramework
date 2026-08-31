@@ -26,6 +26,42 @@ namespace cse::kernel {
 // reads the same bytes it read the first time. What it does mean is that a
 // GameState alone no longer describes a match, and the connect handshake
 // (ARCHITECTURE.md 4.8) is what proves both peers hold the same MatchData.
+// THE FIELD-WRITER AUDIT (docs/adr/ADR-012 rule 2). Inside one tick, every
+// Fighter field is written by exactly ONE stage; the audited exceptions are the
+// IMPOSED facts -- Resolve making one fighter's action a consequence on
+// another, which no per-fighter stage may do -- and they are listed, not open:
+//
+//   ReadIntent   writes nothing. Pure by construction.
+//   StepPhysics  velX velY airborne crouching posY pushX(decay) posX(integrate)
+//                the four clocks counting DOWN (hitstop hitstun blockstun
+//                knockdown) and the out-of-combo restore (comboHits scaling
+//                juggle).
+//   StepAttack   moveId moveFrame alreadyHitBits · flags' LOW BYTE, cleared
+//                wherever alreadyHitBits clears (the blocked mirror, M1.3
+//                slice (a): the two travel together or the subset invariant
+//                in GameState.h breaks) · crouching ON A MOVE START
+//                (the move-start rule, ADR-012 rule 3: the started move's
+//                stance imposes the posture its frame data was authored
+//                against -- `crouching`'s second authorized writer).
+//   Resolve      prevButtons bufferedButtons bufferAge (LatchInputs, the one
+//                input-bookkeeping writer) · facing · guard · health · res ·
+//                posX (the cross-fighter wall and pushbox clamps, which MUST
+//                live here: order-independence requires them to read a
+//                top-of-tick snapshot no single fighter's step can own) · the
+//                round fields, rng and tick · and the IMPOSED side of a hit:
+//                the clocks being SET, resources spent, pushback added,
+//                scaling/juggle/comboHits charged, the ATTACKER's blocked
+//                mirror (flags' low byte SET in the blocked arm -- the
+//                attacker learning how its contact went is a fact only the
+//                cross-fighter stage can know), and the defender's
+//                moveId/moveFrame/alreadyHitBits(+mirror) interrupt.
+//   tick 0       res[] primed from the character data, in Simulate itself,
+//                before the stages -- ResetMatch does not take the data.
+//
+// The fields the audit exists for -- crouching, airborne, facing, velX, which
+// had 4-6 write sites across two files and produced a week of write-order bugs
+// -- are down to their authorized writers: one stage each, plus `crouching`'s
+// named move-start rule above (landed 2026-08-30 with ROADMAP M1.3e).
 void Simulate(GameState& state, const InputPair& inputs, const MatchData& data);
 
 // The same tick with no characters loaded: nothing can start a move, no box can

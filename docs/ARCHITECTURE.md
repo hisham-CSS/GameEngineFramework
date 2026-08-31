@@ -287,14 +287,16 @@ either double-consume a press or see nothing.
 
 The latch is not sloppiness and "stop using it" is not the fix: `wasPressed` is
 genuinely scoped to a *rendered frame*, while the fixed tick may run zero or
-several times per frame. The structural fix is three parts. The session clock
-decides how many ticks run, and each tick consumes exactly one immutable input
-record sampled when the tick was scheduled. Between ticks the producer
-OR-accumulates a sticky "pressed since last tick" mask, so a tap during a stall
-is not lost — that mask is producer-side, local-only, never re-read during
-re-simulation, and therefore never needs snapshotting. `InputMap` keeps its latch
-machinery unchanged for the editor and menus, where it is correct, and becomes a
-*producer* into the input stream and nothing more.
+several times per frame. The structural fix is three parts, and all three are
+built (ROADMAP M1.3h). The session clock decides how many ticks run, and each
+tick consumes exactly one immutable input record sampled when the tick was
+scheduled. Between ticks the producer OR-accumulates a sticky "pressed since
+last tick" mask — `PressAccumulator` in `cse/game/InputSource.h` — so a tap
+during a stall is not lost; that mask is producer-side, local-only, spent into
+the input record *before* it is latched, never re-read during re-simulation,
+and therefore never needs snapshotting. `InputMap` keeps its latch machinery
+unchanged for the editor and menus, where it is correct, and is a *producer*
+into the input stream and nothing more.
 
 Two couplings go with it: while a session is live the producer ignores UI capture
 entirely, and pausing becomes a session protocol message rather than a local

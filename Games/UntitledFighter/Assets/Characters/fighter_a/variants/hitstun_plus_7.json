@@ -1,0 +1,8 @@
+{
+  "description": "stand_lp hitstun 12 -> 19: frame data alone hands the game an infinite the model cannot see. The restart route -- the move ends and the button scan starts it again in the same StepAttack call -- needs stun to outlive duration (14) plus the re-press cadence (up to 4 ticks without an authored buffer), so +7 makes stand_lp loop into itself forever on flat ground. The prover still says TERMINATING, because its graph walks CANCELS only: the ledger's `starters`/`gap_actions` rows record exactly this blindness, and ComboSearch finds the loop by performing it.",
+  "patch": {
+    "moves": {
+      "stand_lp": { "hitstun": 19 }
+    }
+  }
+}

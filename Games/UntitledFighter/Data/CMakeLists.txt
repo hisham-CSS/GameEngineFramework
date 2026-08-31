@@ -19,9 +19,20 @@ add_library(CseData STATIC
     # comboprover type, so the prover is an implementation detail of this
     # library exactly as GekkoNet is of CseNet.
     src/ProverAdapter.cpp
+    # The cancel graph as Graphviz text, for the catalogue cooker (ADR-011
+    # section 4). Beside the adapter because it draws this library's nouns.
+    src/CancelGraphDot.cpp
     # CharacterData -> the kernel's MatchData. See the include-directory note
     # below for why this does not make CseData link the kernel.
     src/MatchBuilder.cpp
+    # The (mtime, size) stamp poll hot reload runs on (ROADMAP M1.5, ADR-016).
+    # Here rather than in the mode because it opens an authored path, and every
+    # authored path goes through the sandbox this library already compiles.
+    src/CharacterFileWatch.cpp
+    # The prover-run telemetry writer/reader (ROADMAP M1.7, ADR-017). Same
+    # argument: it opens a path by name, and this library owns the sandbox and
+    # (privately) the JSON dependency both halves need.
+    src/AuthoringTelemetry.cpp
     # Compiled in rather than linked. Character files are authored content and
     # docs/MAINTENANCE.md admits no exceptions: an authored path goes through
     # PathIsContained before anything opens it. The alternative to compiling this

@@ -1,0 +1,17 @@
+{
+  "x-what-this-is": "The showcase catalogue's row list (ROADMAP M1.6, ADR-011 section 4), read by LoadCatalogueManifest and cooked by CookCatalogue. One entry per exhibit; an entry with no `variant` is the unpatched base -- the row every patch is a diff against. `solo_binding` and `extra_bindings` record the per-entry binding choices that previously lived only as C++ literals inside tests: meter_loop's super_beam chord, microwalk's single-button build. Entries are cooked in this order and the order is part of the catalogue.",
+  "base": "fighter_a.json",
+  "entries": [
+    { "name": "base" },
+    { "name": "hitstun_plus_7", "variant": "fighter_a/variants/hitstun_plus_7.json" },
+    { "name": "dead_air_window", "variant": "fighter_a/variants/dead_air_window.json" },
+    { "name": "decay_linear", "variant": "fighter_a/variants/decay_linear.json" },
+    { "name": "meter_loop", "variant": "fighter_a/variants/meter_loop.json",
+      "extra_bindings": [ { "move": "super_beam", "buttons": ["lp", "mp"] } ] },
+    { "name": "one_frame_link", "variant": "fighter_a/variants/one_frame_link.json" },
+    { "name": "one_frame_link_buffered", "variant": "fighter_a/variants/one_frame_link_buffered.json" },
+    { "name": "floaty_jump", "variant": "fighter_a/variants/floaty_jump.json" },
+    { "name": "microwalk", "variant": "fighter_a/variants/microwalk.json",
+      "solo_binding": "stand_lp" }
+  ]
+}

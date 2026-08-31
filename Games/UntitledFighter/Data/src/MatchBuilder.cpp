@@ -1,4 +1,4 @@
-#include "cse/data/MatchBuilder.h"
+﻿#include "cse/data/MatchBuilder.h"
 
 // <algorithm> is fine HERE and would not be fine one directory over. This is
 // CseData: it already has std::string, std::vector and nlohmann. The rule about
@@ -104,12 +104,19 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
     std::int32_t stanced = 0, withEffect = 0, withGuard = 0, withPushback = 0;
     std::int32_t withHitCondition = 0, noReach = 0, withReach = 0;
     std::int32_t withHits = 0, withMotion = 0, withEscapeHatch = 0;
+    std::int32_t offMid = 0, withHitstop = 0, withPosAdd = 0;
+    std::int32_t withCornerPush = 0;
 
     for (const Move& m : c.moves) {
+        if (m.cornerPushSub != 0) ++withCornerPush;
+        for (const MotionKey& k : m.motion)
+            if (k.posAddXSub != 0 || k.posAddYSub != 0) { ++withPosAdd; break; }
         if (m.stance != Stance::Any)        ++stanced;
+        if (m.blockedAs != BlockHeight::Mid) ++offMid;
         if (!m.effect.empty())              ++withEffect;
         if (!m.guard.empty())               ++withGuard;
         if (m.pushbackSub != 0)             ++withPushback;
+        if (m.hitstopTicks != 0)            ++withHitstop;
         if (!m.hitConditionProse.empty())   ++withHitCondition;
         if (m.reachSub == kNoReach)         ++noReach; else ++withReach;
         if (!m.hits.empty())                ++withHits;
@@ -157,14 +164,25 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
             "could have landed, so the follow-up becomes available up to "
             "`active - 1` ticks before the file allows it.");
 
-    addLoss(report, "cancel.on", BuildLossDirection::KernelPermits,
+    addLoss(report, "cancel.on", BuildLossDirection::Exact,
             cancels.onBlockOrWhiff,
-            "Edges authored `on: block` or `on: whiff`. The kernel has no "
-            "blocking at all -- Fighter::blockstun exists and nothing writes it "
-            "-- so the only contact fact it can observe is whether the attack "
-            "landed. A block-only edge is therefore taken after a HIT, and a "
-            "whiff-only edge is taken after a hit as well as after a whiff. "
-            "`on: hit` and `on: always` cross exactly and are not counted here.");
+            "Edges authored `on: block` or `on: whiff`, carried whole since "
+            "ROADMAP M1.3 slice (a): CancelEdge::contactMask keeps all four "
+            "Contact values (hit / block / whiff as bits; `always` is the "
+            "ungated 0), and the attacker can now OBSERVE all three outcomes "
+            "-- alreadyHitBits for contact, its blocked mirror in "
+            "Fighter::flags' low byte for how the contact went. `on: hit` no "
+            "longer fires off a blocked contact, which the old one-bit "
+            "collapse permitted. Counted so the row still says how many edges "
+            "the OLD reading used to move. The MODEL keeps its own collapse "
+            "({hit, always} usable) and its own `cancel.on` ledger row -- a "
+            "whiff edge the kernel honours is still an edge the prover's "
+            "graph skips, the D8 gap the kara showcase variant exists to "
+            "demonstrate. Conversion caveat: MUGEN's Movecontact means hit OR "
+            "block, and the corpus transcribed it as `hit` (schema KNOWN "
+            "GAP), so a converted character may now refuse a chain MUGEN "
+            "allowed on block -- that is the FILE's claim honoured, not a "
+            "kernel choice.");
 
     addLoss(report, "cancel.certain", BuildLossDirection::KernelPermits,
             cancels.uncertain,
@@ -176,16 +194,23 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
 
     addLoss(report, "cancel.guard", BuildLossDirection::KernelPermits,
             cancels.withGuard,
-            "The resource minimum an edge requires -- meter, for the shipped "
-            "characters. Fighter::meter exists but nothing reads it, so a cancel "
-            "into an EX move is free. This is the same hole as `move.guard`, "
-            "listed separately because a metered CANCEL is the thing a combo "
-            "route is usually built out of.");
+            "The resource minimum an EDGE requires. CancelEdge carries no guard "
+            "field, so this is still listed as a loss -- but the constraint is "
+            "enforced in practice: the cancel scan refuses a target move whose "
+            "own MoveDef::guard is unmet, and every authored edge guard in this "
+            "tree restates its target's guard exactly. An edge demanding MORE "
+            "than its target would be permitted where the file refuses, and the "
+            "build warns per edge when it finds one. Kept as KernelPermits "
+            "rather than promoted to Exact because that is the direction the "
+            "remaining hole runs.");
 
     addLoss(report, "cancel.effect", BuildLossDirection::KernelOmits,
             cancels.withEffect,
-            "The resource delta an edge applies. Nothing writes Fighter::meter, "
-            "so the cost is never paid and the gain is never banked.");
+            "The resource delta an EDGE applies, as distinct from the delta its "
+            "target move applies -- which the kernel does carry and does bank. "
+            "No character in this tree authors one, so this row counts zero "
+            "everywhere and CancelEdge was left at 16 bytes rather than grown "
+            "for a field nothing uses (ROADMAP M1.1b).");
 
     addLoss(report, "move.cancel_window (absent)", BuildLossDirection::KernelPermits,
             cancels.sourcesWithoutWindow,
@@ -196,41 +221,124 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
             "recovery. Moves that DO author one get exactly it, intersected with "
             "the per-edge delay.");
 
-    addLoss(report, "character.walk_speed", BuildLossDirection::KernelOmits,
+    addLoss(report, "character.walk_speed", BuildLossDirection::Exact,
             c.walkSpeedSub != 0 ? 1 : 0,
-            "FighterData has no walk speed; Simulate.cpp walks every fighter at a "
-            "hardcoded 2 px/tick. This is not cosmetic -- walking is how a "
-            "midscreen attacker closes the gap a move's reach is measured "
-            "against, so a character with a different walk speed connects at "
-            "different times than the file says. Authored value, sub-units per "
-            "tick: " + num(c.walkSpeedSub) + ".");
+            "FighterData::walkSpeedSub carries the authored number and Simulate "
+            "walks at it. CharacterData quantized it once at load, so this build "
+            "rounds nothing and the kernel walks the character the file "
+            "describes. A file that authors none leaves this zero and the kernel "
+            "keeps its 2 px/tick placeholder, which is the pre-M1.1b behaviour "
+            "and is why a silent file plays as it always did. Authored value, "
+            "sub-units per tick: " + num(c.walkSpeedSub) + ".");
 
-    addLoss(report, "move.pushback", BuildLossDirection::KernelOmits, withPushback,
-            "Defender displacement on hit. ADR-001 section 6.3 records that this "
-            "number is ESTIMATED in every shipped character and that the "
-            "midscreen verdict turns on it; the kernel moves nobody on hit, so "
-            "two fighters stay exactly as far apart as they were.");
+    std::int32_t juggleSpenders = 0;
+    for (const Move& m : c.moves)
+        for (const ResourceAmount& e : m.effect)
+            for (std::size_t r = 0; r < c.resources.size(); ++r)
+                if (static_cast<std::size_t>(e.resource) == r &&
+                    c.resources[r].name == "juggle" && e.value < 0)
+                    ++juggleSpenders;
+    addLoss(report, "character.movement", BuildLossDirection::Exact,
+            (c.jumpImpulseSub != 0 ? 1 : 0) + (c.gravitySub != 0 ? 1 : 0),
+            "engine.movement's jump_impulse_sub and gravity_sub, carried whole "
+            "into the FighterData slots the kernel has consulted since M1.1b "
+            "(ROADMAP M1.3(b1), ADR-014). Kernel semantics at load -- +Y up, "
+            "positive, explicit zero refused as the unauthored sentinel -- so "
+            "the carry is two copies. A silent file keeps the placeholder arc "
+            "(5 px/tick against 0.25 px/tick^2, 38 airborne ticks). The MODEL "
+            "has no jump vocabulary at all, so an authored arc changes the "
+            "GAME's strings and none of the prover's -- the D8 gap ADR-011 "
+            "section 2.8 assigns to this ledger, and what the floaty_jump "
+            "variant exhibits.");
 
-    addLoss(report, "move.stance", BuildLossDirection::KernelPermits, stanced,
-            "Ground/air restriction. The kernel gates starting a move on hitstun "
-            "and blockstun only, so an air-only move is startable standing and a "
-            "ground-only move is startable in the air. More is possible in the "
-            "game than in the file.");
+    addLoss(report, "resource.juggle (gate)", BuildLossDirection::Exact,
+            juggleSpenders,
+            "The juggle budget, wired as the ranking certificate's own "
+            "mechanism (M1.1f): FighterData::juggleMax carries the resource's "
+            "authored initial and each spending move's cost mirrors its "
+            "authored delta, so ResolveHits REFUSES the overspending hit -- "
+            "the one thing the clamped effect path never could. A character "
+            "with no resource named `juggle` keeps zero on both halves and "
+            "the gate never fires.");
 
-    addLoss(report, "move.guard", BuildLossDirection::KernelPermits, withGuard,
-            "The resource minimum a move requires -- meter, for the shipped "
-            "characters. Fighter::meter exists but nothing reads it, so a super "
-            "that costs a full bar is startable on an empty one.");
+    addLoss(report, "character.input_buffer_frames", BuildLossDirection::Exact,
+            c.inputBufferFrames != 0 ? 1 : 0,
+            "The modern input buffer's window, carried whole into "
+            "FighterData::inputBufferFrames; the kernel keeps a press made "
+            "while the fighter cannot act for this many ticks and consumes it "
+            "the exact tick they can, on both start routes. A window of N "
+            "accepts N+1 ticks (the press tick plus N), so the genre's "
+            "three-frame feel is authored as 2. Zero is no buffering. "
+            "Authored value: " + num(c.inputBufferFrames) + ".");
 
-    addLoss(report, "move.effect", BuildLossDirection::KernelOmits, withEffect,
-            "The resource delta a move applies. Fighter::meter exists but nothing "
-            "writes it, so meter is never gained either. The two halves cancel "
-            "into 'resources are not simulated' rather than into 'no difference'.");
+    addLoss(report, "move.pushback", BuildLossDirection::Exact, withPushback,
+            "Defender displacement on hit, carried whole into MoveDef::pushbackHit "
+            "and applied by ResolveHits. ADR-001 section 6.3 records that this "
+            "number is ESTIMATED in every shipped character and that the midscreen "
+            "verdict turns on it -- so the estimate is now the game's behaviour "
+            "rather than a number nothing reads, which makes the estimate matter "
+            "MORE and not less. Saturated at the int16 slot, with a warning "
+            "naming both numbers when a file exceeds it.");
 
-    addLoss(report, "resources", BuildLossDirection::KernelOmits,
+    addLoss(report, "move.corner_push", BuildLossDirection::Exact, withCornerPush,
+            "engine.reaction.corner_push_vel_sub, carried whole into "
+            "MoveDef::cornerPushHit (M1.6's microwalk slice): when a hit "
+            "lands on a defender the wall already stops, the ATTACKER recoils "
+            "by this much -- the wall absorbs the defender's pushback and the "
+            "pressure re-opens the gap a microwalk then closes. fighter_a "
+            "authors the key at 0 on all 22 moves, so the shipped character "
+            "is unchanged and the microwalk showcase variant is where the "
+            "field first bites. The MODEL has no corner in its vocabulary at "
+            "all; its midscreen/corner split is a stage choice, not a rule "
+            "per hit.");
+
+    addLoss(report, "move.hitstop", BuildLossDirection::Exact, withHitstop,
+            "Impact freeze on hit, carried whole into MoveDef::hitstop (ROADMAP "
+            "M1.3i) and imposed on BOTH fighters by ResolveHits, so every clock "
+            "-- move frames, stun, the arc -- stands still together and no "
+            "frame-data relationship moves; only wall-clock periods stretch. "
+            "The MODEL still has no freeze in its vocabulary, which is fine "
+            "for the certificate (relationships are freeze-invariant) and "
+            "visible to a masher: the freeze shifts re-press phase against a "
+            "one-tick link, which is what the one_frame_link variants zero it "
+            "for. Saturated at the uint16 slot.");
+
+    addLoss(report, "move.stance", BuildLossDirection::Exact, stanced,
+            "What the fighter must be in to START the move, mapped by name into "
+            "MoveDef::stance and enforced by StanceAllows on both start routes. "
+            "Selection reads the held INPUT (is Down held now) and the posture "
+            "then follows the started move, so a cross-posture gatling works "
+            "and two variants of a shared button stop shadowing each other -- "
+            "the wire ROADMAP M1.3e records moving the measured headline.");
+
+    addLoss(report, "move.blocked_as", BuildLossDirection::Exact, offMid,
+            "The guard height that stops the move, mapped by name into "
+            "MoveDef::blockedAs -- the kernel's zero is Mid (stopped by both "
+            "guards), so an unmapped value could never invent an unblockable. "
+            "With it carried, a low goes through a standing block and an "
+            "overhead through a crouching one, on the shipped file and not "
+            "only on synthetic benches.");
+
+    addLoss(report, "move.guard", BuildLossDirection::Exact, withGuard,
+            "The resource minimum a move requires. MoveDef::guard carries it and "
+            "both start routes -- the button scan and the cancel scan -- refuse "
+            "a move the fighter cannot afford, so a super that costs a full bar "
+            "is no longer startable on an empty one. A refused slot falls "
+            "through to the next one sharing the button rather than eating the "
+            "press.");
+
+    addLoss(report, "move.effect", BuildLossDirection::Exact, withEffect,
+            "The resource delta a move applies. MoveDef::effect carries it and "
+            "ResolveHits applies it on contact -- on block as well as on hit, "
+            "which is the genre norm for meter -- clamped to each resource's "
+            "authored floor and ceiling.");
+
+    addLoss(report, "resources", BuildLossDirection::Exact,
             static_cast<std::int32_t>(c.resources.size()),
-            "Declared resources and their initial/floor/ceiling. The kernel has "
-            "one integer called meter and no ceiling logic at all.");
+            "Declared resources with their initial, floor and ceiling. "
+            "FighterData::resources carries them in FILE ORDER, which is the "
+            "positional contract the prover keys on, and Fighter::res is primed "
+            "from `initial` on the match's first tick.");
 
     addLoss(report, "move.hit_condition", BuildLossDirection::KernelPermits, withHitCondition,
             "A predicate over the DEFENDER gating whether the move connects -- "
@@ -279,10 +387,26 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
             "(startup, active, hitstun, damage) tuple and ResolveHits applies at "
             "most one hit per active window, so a multi-hit move lands once.");
 
-    addLoss(report, "move.engine.motion", BuildLossDirection::KernelOmits, withMotion,
-            "The attacker's own displacement keys. The kernel's fighters do not "
-            "move during a move, so a special that travels forward connects only "
-            "from where it started.");
+    addLoss(report, "move.engine.motion", BuildLossDirection::Exact, withMotion,
+            "The attacker's own velocity keys, carried whole since ROADMAP "
+            "M1.3(b2): MoveDef::motion owns a committed fighter's velocity "
+            "from each key's tick to the next -- the lunge, the hop kick's "
+            "physics, the divekick -- with the one Y-sign flip (MUGEN "
+            "Y-down to kernel Y-up) applied here at load. A move authoring "
+            "none keeps commitment's zero velocity, which is every move "
+            "before this wire. The MODEL never reads motion -- a special "
+            "that travels forward still connects, to the prover, only from "
+            "where it started -- so the D8 gap moved from the GAME lacking "
+            "the mechanic to the MODEL lacking the vocabulary.");
+
+    addLoss(report, "move.engine.motion (pos_add)", BuildLossDirection::KernelOmits,
+            withPosAdd,
+            "Teleport components (MUGEN PosAdd) on motion keys. NOT carried: "
+            "a position ADD interacts with the wall clamp and the pushbox "
+            "separation in ways nothing has pinned, and carrying it as a "
+            "velocity would smear a step across a tick. One authored key in "
+            "the corpus (fighter_a_infinite's special_dash_punch, a 2 px "
+            "step); its dash still flies the velocity half of its keys.");
 
     // Reach: two entries, because "the file declined to state one" and "the file
     // stated one measured from somewhere else" are different problems pointing in
@@ -412,9 +536,9 @@ bool buildCancels(const CharacterData& c, const std::string& who,
 
         if (e.delay < 0) {
             report.error = where + ": negative delay (" + num(e.delay) +
-                           " ticks). A cancel that becomes legal before the move "
-                           "it cancels has connected is not a thing the file "
-                           "means to say.";
+                           " ticks). A cancel that becomes legal before its "
+                           "own anchor frame is not a thing the file means to "
+                           "say.";
             return false;
         }
 
@@ -425,8 +549,23 @@ bool buildCancels(const CharacterData& c, const std::string& who,
                                       static_cast<std::int64_t>(src.active) +
                                       static_cast<std::int64_t>(src.recovery);
 
-        std::int64_t earliest = static_cast<std::int64_t>(src.startup) +
-                                static_cast<std::int64_t>(e.delay);
+        // WHERE `delay` COUNTS FROM depends on what the edge waits for. A
+        // hit- or block-gated edge waits for CONTACT, so its delay anchors at
+        // the source's first active frame (the earliest a contact exists to
+        // count from -- the `cancel.contact_frame` row is the cost of that
+        // reading). A WHIFF edge waits for nothing: the move is whiffing from
+        // its first frame, so its delay anchors at frame 0 -- which is what
+        // makes a kara (`on: whiff` in the first startup frames) authorable
+        // at all, since startup anchoring puts every frame below `startup`
+        // out of reach. `always` KEEPS the startup anchor it has shipped
+        // with since v1: no authored `always` edge exists that wants earlier
+        // frames (measured across the corpus: 89, all with this reading),
+        // and moving 89 edges' windows to fix zero of them is churn, not
+        // fidelity.
+        std::int64_t earliest =
+            (e.on == Contact::Whiff ? std::int64_t{0}
+                                    : static_cast<std::int64_t>(src.startup)) +
+            static_cast<std::int64_t>(e.delay);
         std::int64_t latest   = duration - 1;
 
         if (src.hasCancelWindow) {
@@ -469,12 +608,54 @@ bool buildCancels(const CharacterData& c, const std::string& who,
         if (!e.guard.empty()) ++stats.withGuard;
         if (!e.effect.empty()) ++stats.withEffect;
 
+        // AN EDGE GUARD STRICTER THAN ITS TARGET'S IS THE ONLY ONE THE KERNEL
+        // CAN GET WRONG, so it is the only one worth a warning.
+        //
+        // CancelEdge carries no guard of its own (ROADMAP M1.1b measured every
+        // character in this tree and found all 51 authored edge guards restate
+        // the target move's own guard exactly), so the kernel enforces the
+        // constraint through MoveDef::guard on the target and the two agree.
+        // That agreement is an observation about today's data, not a property of
+        // the schema -- which is what makes it worth CHECKING rather than
+        // assuming. An edge that demanded more than its target would be
+        // permitted where the file refuses, and this is the line that says so.
+        {
+            const cse::data::Move& target = c.moves[e.to];
+            for (const cse::data::ResourceAmount& g : e.guard) {
+                std::int32_t targetMin = 0;
+                bool         found     = false;
+                for (const cse::data::ResourceAmount& t : target.guard)
+                    if (t.resource == g.resource) { targetMin = t.value; found = true; break; }
+                if (!found || targetMin < g.value)
+                    report.warnings.push_back(
+                        "cancel " + c.moves[e.from].id + " -> " + target.id +
+                        " requires " + num(g.value) + " of resource " +
+                        num(static_cast<std::int32_t>(g.resource)) +
+                        " and `" + target.id + "` itself requires " +
+                        (found ? num(targetMin) : std::string("none")) +
+                        ". The kernel checks the TARGET's guard, so this cancel "
+                        "is permitted where the file refuses it. Give the edge "
+                        "guard to the move, or CancelEdge needs a guard of its "
+                        "own (ROADMAP M1.1b).");
+            }
+        }
+
         CancelEdge edge{};
         edge.from          = MoveIndexMap::KernelMoveIdOf(e.from);
         edge.to            = MoveIndexMap::KernelMoveIdOf(e.to);
         edge.earliestFrame = static_cast<std::int32_t>(earliest);
         edge.latestFrame   = static_cast<std::int32_t>(latest);
-        edge.onHit         = requiresContact ? std::uint8_t{1} : std::uint8_t{0};
+        // The four Contact values, BY NAME (the M1.3e enum lesson: the data
+        // and kernel orders must never be cast into each other). `always` is
+        // the ungated 0 -- the byte the old collapse gave it -- and `hit`
+        // is kContactHit == 1, the byte the old collapse gave it, so an
+        // all-hit character's MatchData hash does not move.
+        switch (e.on) {
+            case Contact::Hit:    edge.contactMask = cse::kernel::kContactHit;   break;
+            case Contact::Block:  edge.contactMask = cse::kernel::kContactBlock; break;
+            case Contact::Whiff:  edge.contactMask = cse::kernel::kContactWhiff; break;
+            case Contact::Always: edge.contactMask = 0;                          break;
+        }
         edge.pad_[0] = 0;   // explicit: these bytes are hashed by the handshake
         edge.pad_[1] = 0;
         edge.pad_[2] = 0;
@@ -590,6 +771,108 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
 
     out.hurtbox = Box{ -halfWidth, 0, halfWidth, height };
 
+    // THE PUSHBOX DEFAULTS TO THE BODY, which is the roadmap's plan (M1.2:
+    // "default from MatchBuilder.h's BodySpec") and is the conservative reading
+    // of a file that does not author one: a character occupies the space it can
+    // be hit in. `engine.constants.default_pushbox_sub` exists on `fighter_a`
+    // and is deliberately NOT read yet -- it is authored in MUGEN's Y-DOWN
+    // convention, which that file warns about at length in its own
+    // `the_y_axis_trap_in_this_very_file` note, and reading it without the
+    // conversion would bury a body sixty pixels underground where nothing
+    // touches it. That wire is M1.2's, with the flip written down and tested.
+    out.pushbox = out.hurtbox;
+
+    // THE CROUCHING BODY, same width and the authored height. Left degenerate
+    // when the file authors none, which is how the kernel reads "unauthored" and
+    // is why a character written before this field keeps one box for both
+    // postures.
+    //
+    // A crouch TALLER than the stand is refused rather than clamped: it is not a
+    // near miss to be tidied, it is a file saying something impossible, and
+    // silently making it the standing height would hide the typo behind a
+    // character who cannot duck anything.
+    if (character.crouchHeightSub > 0) {
+        if (character.crouchHeightSub > height) {
+            report.error = who + ": engine.constants.crouch_height_px is " +
+                           num(character.crouchHeightSub / cse::kernel::kSubUnitsPerPixel) +
+                           " px and the standing body is " +
+                           num(height / cse::kernel::kSubUnitsPerPixel) +
+                           " px. A crouch cannot be taller than the stand.";
+            return false;
+        }
+        out.crouchHurtbox = Box{ -halfWidth, 0, halfWidth, character.crouchHeightSub };
+    }
+
+    // WALK SPEED, CARRIED WHOLE. CharacterData already quantized it once at load
+    // (D8: quantise at the boundary, never in the kernel), so this is a copy and
+    // not a conversion -- there is no second rounding to lose anything to, which
+    // is what lets the loss row below say `exact`. A character that authored none
+    // arrives here as zero and the kernel keeps its placeholder.
+    out.walkSpeedSub = character.walkSpeedSub;
+
+    // JUMP PHYSICS, CARRIED WHOLE (ROADMAP M1.3(b1), ADR-014). The loader
+    // already enforced kernel semantics (+Y up, positive, explicit-zero
+    // refused), so this is two copies into the FighterData slots the kernel
+    // has consulted since M1.1b -- `!= 0 ? authored : placeholder` -- and a
+    // silent file arrives as zero and keeps the placeholder arc every
+    // measured count was derived on.
+    out.jumpImpulseSub = character.jumpImpulseSub;
+    out.gravitySub     = character.gravitySub;
+
+    // THE INPUT BUFFER WINDOW, CARRIED WHOLE (ROADMAP M1.1e). Integer ticks,
+    // already bounded at 255 by the loader for the kernel's uint8 age; zero is
+    // no buffering, the behaviour every silent file has always had.
+    out.inputBufferFrames = character.inputBufferFrames;
+
+    // THE JUGGLE BUDGET (ROADMAP M1.1f): Fighter::juggle becomes the MIRROR of
+    // the resource the file calls `juggle` -- the same authored numbers the
+    // ranking certificate is computed from, wired into the one gate that can
+    // REFUSE a hit where ApplyEffects only clamps. Found BY NAME, because the
+    // positional contract (A03) fixes order across files of one build but says
+    // nothing about which slot juggling lives in; a character with no resource
+    // named juggle keeps zero on both halves, and the gate -- juggleCost > 0 --
+    // never fires for it, which is every character before this wire.
+    //
+    // BOTH HALVES OR NEITHER, per the ROADMAP entry: a budget with no cost
+    // never depletes, a cost with no budget refuses every hit. The costs land
+    // in the per-move loop below, from the same resource index.
+    std::int32_t juggleResource = -1;
+    for (std::size_t r = 0; r < character.resources.size() &&
+                            r < static_cast<std::size_t>(cse::kernel::kMaxResources); ++r)
+        if (character.resources[r].name == "juggle")
+            juggleResource = static_cast<std::int32_t>(r);
+    if (juggleResource >= 0) {
+        constexpr std::int32_t kMaxBudget = 32767;   // Fighter::juggle is int16
+        std::int32_t budget = character.resources[juggleResource].initial;
+        if (budget < 0) budget = 0;
+        if (budget > kMaxBudget) budget = kMaxBudget;
+        out.juggleMax = budget;
+    }
+
+    // The resource declarations, in FILE ORDER, which is the whole contract:
+    // slot i here is slot i of Fighter::res, of MoveDef::effect and of the
+    // prover's own vector (ADR-001 section 8 item 7, assertion A03). Nothing
+    // sorts or renames on the way through, because any reordering here would be
+    // invisible and would make two builds of the same file disagree.
+    const std::size_t declared = character.resources.size();
+    out.resourceCount = static_cast<std::int32_t>(
+        declared < static_cast<std::size_t>(cse::kernel::kMaxResources)
+            ? declared
+            : static_cast<std::size_t>(cse::kernel::kMaxResources));
+    for (std::int32_t i = 0; i < out.resourceCount; ++i) {
+        const cse::data::ResourceDef& r = character.resources[static_cast<std::size_t>(i)];
+        out.resources[i].initial    = r.initial;
+        out.resources[i].floor      = r.floor;
+        out.resources[i].ceiling    = r.ceiling;
+        out.resources[i].hasCeiling = r.hasCeiling ? 1u : 0u;
+    }
+    if (declared > static_cast<std::size_t>(cse::kernel::kMaxResources))
+        report.warnings.push_back(
+            "this character declares " + num(static_cast<std::int32_t>(declared)) +
+            " resources and the kernel holds " + num(cse::kernel::kMaxResources) +
+            "; the extra declarations are dropped, and every effect or guard "
+            "naming one of them is dropped with it.");
+
     // --- Bindings -----------------------------------------------------------
     const std::size_t moveCount = character.moves.size();
     std::vector<std::uint16_t> button(moveCount, 0u);
@@ -659,7 +942,177 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
         m.hitstun  = src.hitstun;
         m.damage   = damagePointsFromHundredths(src.damageHundredths);
         m.button   = button[i];
-        m.pad_     = 0;   // explicit: these bytes are hashed by the handshake
+        // The byte that used to be pad_ here is negativeEdge now, and the
+        // schema does not author it yet (ROADMAP M1.1d): zero is "press
+        // only", which is the behaviour every shipped move has today. Still
+        // written explicitly, because the handshake hashes these bytes.
+        m.negativeEdge = 0;
+
+        // STANCE AND GUARD HEIGHT (ROADMAP M1.3e), mapped BY NAME and never by
+        // cast: the two enum families order their values differently -- data
+        // Air is 2 where kernel kStanceAir is 4, data High is 0 where the
+        // kernel makes Mid the zero -- so a bare static_cast is in range,
+        // compiles, and ships crouching normals as air moves and overheads as
+        // mids. This wire is what makes `stand_hk` stop shadowing `crouch_hk`:
+        // StanceAllows can finally tell the two variants of a shared button
+        // apart, so 12 of fighter_a's 18 normals become performable at all.
+        switch (src.stance) {
+            case cse::data::Stance::Ground:    m.stance = cse::kernel::kStanceGround;    break;
+            case cse::data::Stance::Air:       m.stance = cse::kernel::kStanceAir;       break;
+            case cse::data::Stance::Standing:  m.stance = cse::kernel::kStanceStanding;  break;
+            case cse::data::Stance::Crouching: m.stance = cse::kernel::kStanceCrouching; break;
+            case cse::data::Stance::Any:       m.stance = cse::kernel::kStanceAny;       break;
+        }
+        switch (src.blockedAs) {
+            case cse::data::BlockHeight::High: m.blockedAs = cse::kernel::kBlockedAsHigh; break;
+            case cse::data::BlockHeight::Low:  m.blockedAs = cse::kernel::kBlockedAsLow;  break;
+            case cse::data::BlockHeight::Mid:  m.blockedAs = cse::kernel::kBlockedAsMid;  break;
+        }
+
+        // KNOCKBACK, the first of ADR-005 P2's mechanics this bridge ever
+        // carried. The kernel has applied `pushbackHit` since P2 and every
+        // shipped move authors a `pushback`; until ROADMAP M1.3d nothing joined
+        // them, so a built character's hits moved nobody.
+        //
+        // SATURATED, NOT WRAPPED. MoveDef stores this as an int16 to hold its
+        // size and CharacterData stores sub-units as int32. A bare cast turns a
+        // 128-pixel pushback into a PULL, which reads as a physics bug rather
+        // than as the range error it is. A file past the limit gets the limit
+        // and a warning naming both numbers.
+        {
+            constexpr std::int32_t kMaxPushback = 32767;
+            std::int32_t push = src.pushbackSub;
+            if (push > kMaxPushback || push < -kMaxPushback) {
+                const std::int32_t clamped = push > 0 ? kMaxPushback : -kMaxPushback;
+                report.warnings.push_back(
+                    where + ": pushback " + num(push) +
+                    " sub-units exceeds MoveDef::pushbackHit's int16 range and is "
+                    "clamped to " + num(clamped) + " (" +
+                    num(clamped / cse::kernel::kSubUnitsPerPixel) +
+                    " px). A move authored past that is describing a distance no "
+                    "fighting game uses.");
+                push = clamped;
+            }
+            m.pushbackHit = static_cast<std::int16_t>(push);
+        }
+
+        // CORNER PUSH, CARRIED WHOLE (M1.6's microwalk slice), saturated at
+        // its int16 slot for pushback's own reason.
+        {
+            constexpr std::int32_t kMaxPushback = 32767;
+            std::int32_t recoil = src.cornerPushSub;
+            if (recoil > kMaxPushback) recoil = kMaxPushback;
+            if (recoil < -kMaxPushback) recoil = -kMaxPushback;
+            m.cornerPushHit = static_cast<std::int16_t>(recoil);
+        }
+
+        // HITSTOP, CARRIED WHOLE (ROADMAP M1.3i). It was held back from M1.3d
+        // for a measured reason -- the freeze moves every frame-exact count in
+        // the old hand-derived sweep -- and that objection died when M1.4 made
+        // the counts properties: the freeze moves wall-clock periods and no
+        // frame-data RELATIONSHIP, because it freezes BOTH fighters and
+        // "startup 5 is still five ticks OF THE MOVE" (Combat.h). Saturated at
+        // the uint16 slot for the reason pushback is.
+        {
+            constexpr std::int32_t kMaxFreeze = 65535;
+            std::int32_t freeze = src.hitstopTicks;
+            if (freeze < 0) freeze = 0;
+            if (freeze > kMaxFreeze) freeze = kMaxFreeze;
+            m.hitstop = static_cast<std::uint16_t>(freeze);
+        }
+
+        // KNOCKDOWN, from engine.reaction, saturated at its unsigned 16-bit
+        // slot for the reason pushback is: a wrap turns a 20-tick knockdown
+        // into an 18-hour one.
+        {
+            constexpr std::int32_t kMaxTicks = 65535;
+
+            // The FILE says "this knocks down" and "getting up takes N"; the
+            // kernel counts one number down. A move that does not knock down
+            // leaves this zero however long its fall_recover is, because
+            // fall_recover describes the knockdown and not the move.
+            const std::int32_t fall = src.causesKnockdown ? src.fallRecoverTicks : 0;
+            m.knockdownTicks = static_cast<std::uint16_t>(
+                fall < 0 ? 0 : (fall > kMaxTicks ? kMaxTicks : fall));
+        }
+
+        // AUTHORED MOTION, CARRIED AS VELOCITIES (ROADMAP M1.3(b2), ADR-014).
+        // The file's keys are MUGEN-signed -- velYSub DOWN-positive -- and the
+        // kernel's velY is +Y up, so the ONE sign flip happens here, at load,
+        // where D8 says the one documented conversion lives. Keys are taken in
+        // ascending fromTick order (sorted here, stably, so an unsorted file
+        // and a sorted one build the same bytes); negative ticks are refused
+        // as meaning nothing; keys past the kernel's fixed bound are dropped
+        // with a warning naming the count. `pos_add` teleport components are
+        // NOT carried -- a teleport interacts with the wall clamp in ways no
+        // test has pinned yet -- and the `move.engine.motion (pos_add)` row
+        // counts what that drops.
+        {
+            std::vector<cse::data::MotionKey> keys = src.motion;
+            std::stable_sort(keys.begin(), keys.end(),
+                             [](const cse::data::MotionKey& a,
+                                const cse::data::MotionKey& b) {
+                                 return a.tick < b.tick;
+                             });
+            std::int32_t kept = 0;
+            for (const cse::data::MotionKey& k : keys) {
+                if (k.tick < 0) {
+                    report.error = where + ": motion key at tick " +
+                                   num(k.tick) + " -- a key before the move "
+                                   "starts is not a thing the file means.";
+                    return false;
+                }
+                if (kept >= cse::kernel::kMaxMotionKeys) {
+                    report.warnings.push_back(
+                        where + ": authors " +
+                        num(static_cast<std::int64_t>(keys.size())) +
+                        " motion keys and the kernel holds " +
+                        num(cse::kernel::kMaxMotionKeys) +
+                        "; the extra keys are dropped from the end of the "
+                        "sorted list, so the move flies its opening.");
+                    break;
+                }
+                m.motion[kept].fromTick = k.tick;
+                m.motion[kept].velXSub  = k.velXSub;
+                m.motion[kept].velYSub  = -k.velYSub;   // MUGEN Y-down -> kernel Y-up
+                ++kept;
+            }
+            m.motionCount = kept;
+        }
+
+
+        // RESOURCES, SPARSE IN THE FILE AND DENSE IN THE KERNEL. The authored
+        // form is a sorted list of (index, value) because a character may
+        // declare four resources and a move may touch one; the kernel form is a
+        // fixed array because D4 forbids unbounded growth in anything the
+        // simulation reads and because an array indexed by the contract needs no
+        // search at tick time. Scattering happens here, once.
+        //
+        // Out-of-range indices are dropped rather than clamped: index 3 landing
+        // on slot 0 would silently spend the wrong resource, and A03 already
+        // guarantees the loader resolved every name against this character's own
+        // declaration. A count that exceeded kMaxResources is a load error.
+        for (const cse::data::ResourceAmount& e : src.effect) {
+            if (e.resource < cse::kernel::kMaxResources)
+                m.effect[e.resource] = e.value;
+            // The juggle SPEND doubles as the gate's cost (M1.1f): the same
+            // authored number, mirrored into the field ResolveHits can refuse
+            // on, where the effect path only clamps at the floor. A juggle
+            // GAIN is not a cost and gates nothing.
+            if (juggleResource >= 0 &&
+                static_cast<std::int32_t>(e.resource) == juggleResource &&
+                e.value < 0) {
+                std::int32_t cost = -e.value;
+                if (cost > 32767) cost = 32767;   // MoveDef::juggleCost is int16
+                m.juggleCost = static_cast<std::int16_t>(cost);
+            }
+        }
+        for (const cse::data::ResourceAmount& g : src.guard)
+            if (g.resource < cse::kernel::kMaxResources) {
+                m.guard[g.resource] = g.value;
+                m.guardMask = static_cast<std::uint8_t>(
+                    m.guardMask | (1u << g.resource));
+            }
 
         if (src.hitstun > 0xFFFF) {
             report.warnings.push_back(
@@ -745,27 +1198,43 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
 
     // --- Shadowed bindings ---------------------------------------------------
     //
-    // StepAttack scans the table from slot 1 upward and takes the FIRST move all
-    // of whose bits are held. So a move whose buttons are a strict superset of an
-    // earlier move's can never start: whenever its combination is held, the
-    // earlier one's is too. {LP} at slot 1 and {Down|LP} at slot 12 is exactly
-    // that, and it is the natural way somebody binds crouching normals.
+    // StepAttack scans the table from slot 1 upward and takes the FIRST move
+    // all of whose bits are held AND whose stance the held input selects. So a
+    // move whose buttons are a superset of an earlier move's can never start
+    // -- UNLESS their stances are ones a single tick's input tells apart,
+    // because since ROADMAP M1.3e `StanceAllows` reads the held input and the
+    // two are SELECTED rather than shadowed: {LP} standing at slot 1 and
+    // {Down|LP} crouching at slot 12 both start, Down decides, and that pair
+    // is the natural way somebody binds crouching normals. The warning fires
+    // only where the stance test cannot separate the two.
     //
     // Reported rather than reordered. Reordering would change the move indices,
     // and those indices are the thing the whole file exists to keep aligned with
     // the ids ProverAdapter reports.
+    const auto grounded = [](Stance s) {
+        return s == Stance::Standing || s == Stance::Crouching || s == Stance::Ground;
+    };
+    const auto stanceSeparates = [&grounded](Stance a, Stance b) {
+        if ((a == Stance::Air && grounded(b)) || (b == Stance::Air && grounded(a)))
+            return true;
+        return (a == Stance::Standing && b == Stance::Crouching) ||
+               (a == Stance::Crouching && b == Stance::Standing);
+    };
     for (std::size_t j = 0; j < moveCount; ++j) {
         if (button[j] == 0) continue;
         for (std::size_t i = 0; i < j; ++i) {
             if (button[i] == 0) continue;
             if ((button[j] & button[i]) != button[i]) continue;
+            if (stanceSeparates(character.moves[j].stance,
+                                character.moves[i].stance)) continue;
             report.warnings.push_back(
                 who + ": move `" + character.moves[j].id + "` (slot " +
                 num(static_cast<std::int64_t>(j + 1)) + ") can never start. Its "
                 "buttons are a superset of `" + character.moves[i].id + "`'s (slot " +
-                num(static_cast<std::int64_t>(i + 1)) + "), and StepAttack takes the "
-                "first move in slot order whose buttons are all held, so the "
-                "earlier one always wins.");
+                num(static_cast<std::int64_t>(i + 1)) + "), their stances do not "
+                "tell the two apart, and StepAttack takes the first move in slot "
+                "order whose buttons are all held, so the earlier one always "
+                "wins.");
             break;   // one report per shadowed move; the first shadower is enough
         }
     }

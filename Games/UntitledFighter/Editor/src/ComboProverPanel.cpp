@@ -12,6 +12,7 @@
 // asserts it). That last part is why the panel can be plugged into a
 // general-purpose editor at all: what reaches the Editor executable through
 // this is character data and an analysis, never the simulation.
+#include "cse/data/AuthoringTelemetry.h"
 #include "cse/data/MatchBuilder.h"
 
 #include <chrono>
@@ -294,6 +295,7 @@ void ComboProverPanel::loadFromPath_() {
         owned_       = std::move(fresh);
         ownedReport_ = std::move(rep);
         ownedLoaded_ = true;
+        loadedFrom_  = pathBuf_;   // the telemetry record names which file
     } else {
         // Keep the previous character on screen rather than blanking the page. A
         // designer who typos a path should lose the typo, not the verdict they
@@ -330,6 +332,51 @@ void ComboProverPanel::runIfStale_(const CharacterData& character) {
 
     fingerprint_ = now;
     haveResult_  = true;
+
+    // --- the telemetry line (ROADMAP M1.7, ADR-017) -------------------------
+    //
+    // ONE line per real run, appended after both measurements so the record
+    // carries exactly what the footer shows. changed-since-last is computed
+    // against the NONCE-FREE fingerprint: fingerprint_ folds forceNonce_ in,
+    // so it moves when Re-run is pressed on unchanged bytes -- and "the author
+    // edited" versus "the author pressed the button again" is precisely the
+    // distinction a harvest of this log needs. gap ms stays its own field for
+    // the reason the header keeps lastGapMs_ out of the four run figures.
+    //
+    // A failed append is latched for the footer and nothing else: telemetry
+    // must never block an analysis, and the property test for the line itself
+    // is tests/test_prover_telemetry.cpp -- this call site is its mirror.
+    const std::uint64_t contentNow = fingerprintOf(character, options_, 0);
+    cse::data::ProverRunRecord line;
+    line.unixTimeSeconds =
+        std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+            .count();
+    line.file      = (&character == &owned_) ? loadedFrom_ : std::string{};
+    line.character = character.name.empty() ? character.id : character.name;
+    line.contentHash      = contentNow;
+    line.changedSinceLast =
+        !haveContentFingerprint_ || contentNow != contentFingerprint_;
+    line.moveCount   = static_cast<std::int32_t>(character.moves.size());
+    line.cancelCount = static_cast<std::int32_t>(character.cancels.size());
+    for (const ResourceDef& r : character.resources)
+        line.resources.push_back({ r.name, r.initial, r.floor });
+    line.explored = result_.explored;
+    line.capped   = result_.capped;
+    line.runMs    = ms;
+    line.gapMs    = lastGapMs_;
+    line.verdict  = resultOk_ ? ProverStatusName(result_.status)
+                              : "analysis-failed";
+
+    std::string appendError;
+    if (cse::data::AppendProverRun(".", "telemetry/prover_runs.jsonl", line,
+                                   appendError)) {
+        telemetryError_.clear();
+    } else {
+        telemetryError_ = std::move(appendError);
+    }
+    contentFingerprint_     = contentNow;
+    haveContentFingerprint_ = true;
 }
 
 // The three questions note 7 sets out, in order, each answered from a different
@@ -1124,6 +1171,17 @@ void ComboProverPanel::drawFooter_(const CharacterData& c) {
         if (gap_.ran) {
             ImGui::SameLine(0.f, 8.f);
             ImGui::TextDisabled("(+ %.3f ms resource check)", lastGapMs_);
+        }
+        // The run above was also RECORDED (ADR-017), and the footer says so --
+        // or says why not, in the writer's own words. A log that fails
+        // silently is the archived NORTHSTAR's "worthless retroactively"
+        // arriving one session at a time.
+        if (telemetryError_.empty()) {
+            ImGui::TextDisabled("recorded: telemetry/prover_runs.jsonl, one "
+                                "line per run");
+        } else {
+            ImGui::TextColored(kWarn, "telemetry NOT recorded: %s",
+                               telemetryError_.c_str());
         }
     }
 }

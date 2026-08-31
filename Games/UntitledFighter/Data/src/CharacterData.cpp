@@ -29,6 +29,7 @@
 //    that proves the point: its walk speed of 2.4 px/tick is exactly 614
 //    sub-units and inexactly 0.024 reach units.
 #include "cse/data/CharacterData.h"
+#include "cse/data/CatalogueManifest.h"
 
 // PathSandbox.h lives in Engine/src/core but pulls in nothing but Core.h,
 // <filesystem> and <string>, so CseData compiles PathSandbox.cpp directly rather
@@ -915,6 +916,25 @@ bool parseDocument(Ctx& ctx, const json& doc, CharacterData& out) {
     (void)ticksPerSec;
     const std::int64_t reachScale = pxPerReach * subPerPixel;   // reach units -> sub-units
 
+    // engine.constants: the block that carries this character's own physical
+    // numbers AS PROVENANCE -- cited, MUGEN-signed (Y-down), and mostly
+    // unread. Only the crouch height is read from it (ROADMAP M1.3d). Jump
+    // physics deliberately did NOT get loaded from here: `engine.movement`
+    // (M1.3(b1), ADR-014) is the loadable block, in the kernel's own +Y-up
+    // convention, precisely so no sign flip lives in a loader.
+    if (const json* consts = engineNs ? member(*engineNs, "constants") : nullptr) {
+        if (!consts->is_object())
+            return ctx.fail("engine", "constants is present but is not an object");
+        std::int32_t crouchPx = 0;
+        if (!readInt(ctx, *consts, "crouch_height_px", "engine.constants", crouchPx, false))
+            return false;
+        if (crouchPx < 0)
+            return ctx.fail("engine.constants",
+                            "crouch_height_px is " + std::to_string(crouchPx) +
+                            "; a body cannot have a negative height.");
+        out.crouchHeightSub = crouchPx * cse::kernel::kSubUnitsPerPixel;
+    }
+
     const json* quant = engineNs ? member(*engineNs, "quantized_sources") : nullptr;
     if (quant && !quant->is_object())
         return ctx.fail("engine", "quantized_sources is present but is not an object");
@@ -929,6 +949,63 @@ bool parseDocument(Ctx& ctx, const json& doc, CharacterData& out) {
     const json* walkSub = quant ? member(*quant, "walk_speed_sub_per_tick") : nullptr;
     if (!readQuantized(ctx, doc, "walk_speed", "document", walkSub, reachScale,
                        out.walkSpeedSub)) return false;
+
+    // --- engine.movement (ROADMAP M1.3(b1), ADR-014). Kernel semantics on
+    // purpose -- +Y up, positive impulse, positive gravity magnitude -- so
+    // the projection into FighterData is two assignments a reader checks by
+    // eye, never a sign flip to get wrong (the Y-down trap lives in
+    // engine.constants and stays there, cited and unread). Zero is the
+    // kernel's unauthored sentinel (`!= 0` falls back to the placeholder),
+    // so an EXPLICIT zero is refused by name: an author writing 0 means "no
+    // jump" or "no gravity", and silently handing them the placeholder is a
+    // worse accident than a load error.
+    if (const json* mv = engineNs ? member(*engineNs, "movement") : nullptr) {
+        if (!mv->is_object())
+            return ctx.fail("engine", "`movement` is present but is not an object");
+        struct Field { const char* key; std::int32_t* out; };
+        const Field fields[] = {
+            { "jump_impulse_sub", &out.jumpImpulseSub },
+            { "gravity_sub",      &out.gravitySub },
+        };
+        for (const Field& fdef : fields) {
+            const json* v = member(*mv, fdef.key);
+            if (v == nullptr) continue;
+            std::int32_t n = 0;
+            if (!asInt32(*v, n) || n < 0)
+                return ctx.fail("engine.movement",
+                                std::string("`") + fdef.key +
+                                "` must be a positive integer in sub-units, "
+                                "+Y up (the kernel's convention, not "
+                                "engine.constants' Y-down one)");
+            if (n == 0)
+                return ctx.fail("engine.movement",
+                                std::string("`") + fdef.key +
+                                "` is 0, which the kernel reads as UNAUTHORED "
+                                "and replaces with its placeholder. Omit the "
+                                "key to mean that; an authored zero would be "
+                                "a silent lie.");
+            *fdef.out = n;
+        }
+    }
+
+    // --- input_buffer_frames (ROADMAP M1.1e). Character-global, integer ticks,
+    // zero-or-absent means no buffering. BOUNDED AT 255 and refused past it,
+    // never rounded: the kernel ages the buffer in a uint8, so a window of 256
+    // wraps the age and the buffer becomes ETERNAL -- a press firing a move
+    // minutes later -- which is a worse authoring accident than a load error.
+    if (const json* buf = member(doc, "input_buffer_frames")) {
+        std::int32_t v = 0;
+        if (!asInt32(*buf, v) || v < 0)
+            return ctx.fail("document",
+                            "`input_buffer_frames` must be an integer >= 0");
+        if (v > 255)
+            return ctx.fail("document",
+                            "`input_buffer_frames` is " + toString(v) +
+                            "; the kernel ages the buffer in a uint8, so "
+                            "windows past 255 wrap into an eternal buffer and "
+                            "are refused rather than rounded");
+        out.inputBufferFrames = v;
+    }
 
     // --- scaling ------------------------------------------------------------
     {
@@ -1230,6 +1307,53 @@ bool parseDocument(Ctx& ctx, const json& doc, CharacterData& out) {
                                            "attribute classes) and it stays. The move-level "
                                            "field is the designed rule, in this schema's own "
                                            "vocabulary of blocked_as heights plus `aerial`");
+
+                // engine.reaction: what the hit DOES to the defender. Read as
+                // a block because that is how it is authored, and optional
+                // throughout -- a move that says nothing here behaves exactly as
+                // it did before ROADMAP M1.3d read any of it.
+                //
+                // `priority` inside this block is MUGEN's HitDef parameter and
+                // is deliberately NOT read here: the note above refuses it at
+                // the `engine` level for being a different vocabulary's word,
+                // and reading it one level down would reintroduce the collision
+                // that note exists to prevent.
+                if (const json* r = member(*e, "reaction")) {
+                    if (!r->is_object())
+                        return ctx.fail(where, "`engine.reaction` is not an object");
+                    if (!readInt(ctx, *r, "hitstop_ticks", where, mv.hitstopTicks, false))
+                        return false;
+                    if (!readInt(ctx, *r, "air_hitstun_ticks", where, mv.airHitstunTicks, false))
+                        return false;
+                    if (!readInt(ctx, *r, "corner_push_vel_sub", where, mv.cornerPushSub, false))
+                        return false;
+                    if (!readInt(ctx, *r, "fall_recover_ticks", where, mv.fallRecoverTicks, false))
+                        return false;
+                    if (member(*r, "causes_knockdown") &&
+                        !readBool(ctx, *r, "causes_knockdown", where, mv.causesKnockdown))
+                        return false;
+
+                    // A KNOCKDOWN WITH NO PER-MOVE RECOVERY IS ORDINARY, and
+                    // this warns rather than refuses because the first draft
+                    // refused and a shipped fixture caught it: AOF2's
+                    // `punk_b_kick` knocks down with `fall_recover_ticks` 0.
+                    // That is not a broken file. MUGEN carries liedown time as a
+                    // CHARACTER-GLOBAL rather than per-move, so a transcribed
+                    // move legitimately says "this knocks down" and leaves the
+                    // duration to the character.
+                    //
+                    // The kernel has no global liedown time, so it will not
+                    // knock down for such a move at all -- a real loss, named
+                    // here rather than left as a silent zero.
+                    if (mv.causesKnockdown && mv.fallRecoverTicks <= 0)
+                        ctx.warn(where +
+                            ": `engine.reaction.causes_knockdown` is true and "
+                            "`fall_recover_ticks` is " + std::to_string(mv.fallRecoverTicks) +
+                            ". MUGEN keeps liedown time per CHARACTER and this "
+                            "engine keeps it per MOVE, so the kernel will not "
+                            "knock down for this move. Author the duration on "
+                            "the move to get the knockdown the source had.");
+                }
 
                 if (!readInt(ctx, *e, "state_id", where, mv.stateId, false)) return false;
                 if (!readInt(ctx, *e, "anim_id",  where, mv.animId,  false)) return false;
@@ -1648,18 +1772,17 @@ bool LoadCharacterJson(const std::string& sourceName,
     return true;
 }
 
-bool LoadCharacterFile(const std::string& baseDir,
-                       const std::string& relPath,
-                       const LoadOptions& options,
-                       CharacterData& out,
-                       LoadReport& report) {
-    out = CharacterData{};
-    report = LoadReport{};
+namespace {
 
-    // Containment BEFORE the file is opened, every time. docs/MAINTENANCE.md:
-    // "anything from scene content goes through PathIsContained before the file
-    // is opened. Absolute paths and `..` are refused." A character file is
-    // authored content with a path in it and there is no exception to that rule.
+// The one authored-file read: containment BEFORE the file is opened, every
+// time (docs/MAINTENANCE.md -- "anything from scene content goes through
+// PathIsContained before the file is opened. Absolute paths and `..` are
+// refused."), then the size cap, then the bytes. Shared by the plain load and
+// the variant load so the two cannot come to disagree about what a refused
+// path is.
+bool readAuthoredFile(const std::string& baseDir, const std::string& relPath,
+                      const LoadOptions& options, std::string& text,
+                      LoadReport& report) {
     std::filesystem::path full;
     if (!MyCoreEngine::PathIsContained(baseDir, relPath, full)) {
         report.error = relPath + ": path: refused, because it is absolute, carries a "
@@ -1687,13 +1810,307 @@ bool LoadCharacterFile(const std::string& baseDir,
         report.error = relPath + ": file: cannot be opened for reading";
         return false;
     }
-    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    text.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
     if (in.bad()) {
         report.error = relPath + ": file: read failed";
         return false;
     }
+    return true;
+}
 
+} // namespace
+
+bool LoadCharacterFile(const std::string& baseDir,
+                       const std::string& relPath,
+                       const LoadOptions& options,
+                       CharacterData& out,
+                       LoadReport& report) {
+    out = CharacterData{};
+    report = LoadReport{};
+
+    std::string text;
+    if (!readAuthoredFile(baseDir, relPath, options, text, report)) return false;
     return LoadCharacterJson(relPath, text, options, out, report);
+}
+
+bool LoadCharacterVariant(const std::string& baseDir,
+                          const std::string& baseRelPath,
+                          const std::string& variantRelPath,
+                          const LoadOptions& options,
+                          CharacterData& out,
+                          LoadReport& report,
+                          std::string* description) {
+    out = CharacterData{};
+    report = LoadReport{};
+    if (description != nullptr) description->clear();
+
+    std::string baseText, variantText;
+    if (!readAuthoredFile(baseDir, baseRelPath, options, baseText, report))
+        return false;
+    if (!readAuthoredFile(baseDir, variantRelPath, options, variantText, report))
+        return false;
+
+    nlohmann::json baseDoc = nlohmann::json::parse(baseText, nullptr, false);
+    if (baseDoc.is_discarded()) {
+        report.error = baseRelPath + ": json: does not parse";
+        return false;
+    }
+    nlohmann::json variantDoc = nlohmann::json::parse(variantText, nullptr, false);
+    if (variantDoc.is_discarded()) {
+        report.error = variantRelPath + ": json: does not parse";
+        return false;
+    }
+
+    // The one-line description is REQUIRED (docs/adr/ADR-011 section 4): a
+    // catalogue entry that cannot say what it shows is a diff nobody can
+    // exhibit, and requiring it here is what keeps the rule from decaying into
+    // a convention.
+    if (!variantDoc.contains("description") ||
+        !variantDoc["description"].is_string() ||
+        variantDoc["description"].get<std::string>().empty()) {
+        report.error = variantRelPath + ": description: missing or empty. Every "
+                       "variant carries one line saying what the diff shows.";
+        return false;
+    }
+    if (description != nullptr)
+        *description = variantDoc["description"].get<std::string>();
+
+    if (!variantDoc.contains("patch") || !variantDoc["patch"].is_object()) {
+        report.error = variantRelPath + ": patch: missing or not an object. A "
+                       "variant IS its patch; a file without one exhibits "
+                       "nothing.";
+        return false;
+    }
+    nlohmann::json patch = variantDoc["patch"];
+
+    // MOVES ARE PATCHED BY ID, NOT BY RFC 7386. A merge patch treats arrays as
+    // atomic, so a standard patch touching one move would have to restate all
+    // of them and the exhibit would stop being the diff. The variant format
+    // therefore spells `moves` as an OBJECT keyed by move id, each value an
+    // RFC 7386 merge applied to that one array element; every other key merges
+    // at the top level the standard way. An id the base does not author is
+    // refused -- a patch that silently patched nothing is the worst kind of
+    // green.
+    if (patch.contains("moves")) {
+        if (!patch["moves"].is_object()) {
+            report.error = variantRelPath + ": patch.moves: must be an OBJECT "
+                           "keyed by move id (arrays are atomic under merge "
+                           "patch; restating every move is not a diff).";
+            return false;
+        }
+        if (!baseDoc.contains("moves") || !baseDoc["moves"].is_array()) {
+            report.error = baseRelPath + ": moves: missing or not an array";
+            return false;
+        }
+        // THE MOVE LEVEL IS A CLOSED KEY SET, so a patch key the loader does
+        // not read there is refused BY NAME (ROADMAP M1.8). It happened twice
+        // on one shipped variant: `hitstop_ticks`, then `reaction`, both
+        // guesses at the real path `engine.reaction`, both merged silently
+        // into keys nothing reads -- so the exhibit measured the BASE
+        // character while its caption claimed a diff, and the wrong verdict
+        // pair cost two diagnoses. This list mirrors exactly the names the
+        // move loop in LoadCharacterJson reads off a move object; a reader
+        // added there adds its name here, or the first variant to patch the
+        // new field is refused and says so out loud -- the loud failure, where
+        // the silent one already shipped a lying exhibit.
+        //
+        // `engine` is deliberately NOT validated one level down: that
+        // namespace carries MUGEN transcription and authoring notes by
+        // documented design (fighter_a authors twenty-six keys there), so a
+        // closed list would refuse the file's own conventions.
+        static const char* const kMovePatchKeys[] = {
+            "id",         "label",    "startup",       "active",
+            "recovery",   "hitstun",  "stance",        "blocked_as",
+            "priority",   "invincibility",             "damage",
+            "reach",      "pushback", "effect",        "guard",
+            "hit_condition",          "engine",
+        };
+        for (auto it = patch["moves"].begin(); it != patch["moves"].end(); ++it) {
+            if (!it.value().is_object()) {
+                report.error = variantRelPath + ": patch.moves." + it.key() +
+                               ": must be an object of move keys -- RFC 7386 "
+                               "would REPLACE the whole move with this value.";
+                return false;
+            }
+            for (auto f = it.value().begin(); f != it.value().end(); ++f) {
+                bool known = false;
+                for (const char* k : kMovePatchKeys)
+                    if (f.key() == k) { known = true; break; }
+                if (known) continue;
+                std::string keys;
+                for (const char* k : kMovePatchKeys) {
+                    if (!keys.empty()) keys += ", ";
+                    keys += k;
+                }
+                report.error = variantRelPath + ": patch.moves." + it.key() +
+                               ": unknown key `" + f.key() + "` -- the loader "
+                               "reads no such move field, so the patch would "
+                               "merge silently and change nothing. A move "
+                               "patch edits: " + keys + ". (Engine-specific "
+                               "fields nest under `engine`, e.g. "
+                               "engine.reaction.hitstop_ticks.)";
+                return false;
+            }
+            bool found = false;
+            for (nlohmann::json& m : baseDoc["moves"]) {
+                if (!m.is_object() || !m.contains("id")) continue;
+                if (m["id"] != it.key()) continue;
+                m.merge_patch(it.value());
+                found = true;
+                break;
+            }
+            if (!found) {
+                report.error = variantRelPath + ": patch.moves." + it.key() +
+                               ": the base character authors no move with this "
+                               "id, so the patch would silently change nothing.";
+                return false;
+            }
+        }
+        patch.erase("moves");
+    }
+
+    // CANCELS ARE APPENDED, NOT MERGED, for the same atomic-array reason as
+    // moves -- and unlike moves they have no single natural key (from, to and
+    // delay can all repeat), so the variant format supports exactly the one
+    // operation the showcase needs: `patch.cancels` is `{ "append": [edge...] }`
+    // and each edge lands at the end of the authored list. Anything else --
+    // an array, an edit, a delete -- is refused with the reason, so a future
+    // need announces itself here instead of silently restating ninety edges.
+    if (patch.contains("cancels")) {
+        if (!patch["cancels"].is_object() ||
+            !patch["cancels"].contains("append") ||
+            !patch["cancels"]["append"].is_array() ||
+            patch["cancels"].size() != 1) {
+            report.error = variantRelPath + ": patch.cancels: must be exactly "
+                           "{ \"append\": [edge, ...] } (arrays are atomic "
+                           "under merge patch, and edges have no single "
+                           "natural key to merge by).";
+            return false;
+        }
+        if (!baseDoc.contains("cancels") || !baseDoc["cancels"].is_array()) {
+            report.error = baseRelPath + ": cancels: missing or not an array";
+            return false;
+        }
+        for (const nlohmann::json& edge : patch["cancels"]["append"])
+            baseDoc["cancels"].push_back(edge);
+        patch.erase("cancels");
+    }
+
+    baseDoc.merge_patch(patch);
+    return LoadCharacterJson(baseRelPath + " + " + variantRelPath,
+                             baseDoc.dump(), options, out, report);
+}
+
+// --- The catalogue manifest (ROADMAP M1.6's cooker slice) --------------------
+
+bool LoadCatalogueManifest(const std::string& charactersDir,
+                           const std::string& relPath,
+                           CatalogueManifest& out,
+                           std::string& error) {
+    out = CatalogueManifest{};
+    error.clear();
+
+    // The same sandboxed read every authored file goes through -- one home,
+    // shared, so the manifest cannot come to disagree with the characters
+    // about what a refused path is.
+    LoadOptions options;
+    LoadReport  report{};
+    std::string text;
+    if (!readAuthoredFile(charactersDir, relPath, options, text, report)) {
+        error = report.error;
+        return false;
+    }
+
+    const json doc = json::parse(text.begin(), text.end(), nullptr, false);
+    if (doc.is_discarded()) {
+        error = relPath + ": not valid JSON";
+        return false;
+    }
+    if (!doc.contains("base") || !doc["base"].is_string()) {
+        error = relPath + ": `base` (the unpatched character file) is required";
+        return false;
+    }
+    out.baseFile = doc["base"].get<std::string>();
+
+    if (!doc.contains("entries") || !doc["entries"].is_array() ||
+        doc["entries"].empty()) {
+        error = relPath + ": `entries` must be a non-empty array -- a "
+                "catalogue with no rows exhibits nothing";
+        return false;
+    }
+
+    // The six arcade buttons, by the names the binding vocabulary has used
+    // since M1.1c. Anything else is refused by name.
+    const auto buttonBit = [](const std::string& b) -> std::uint16_t {
+        if (b == "lp") return cse::kernel::kInputLP;
+        if (b == "mp") return cse::kernel::kInputMP;
+        if (b == "hp") return cse::kernel::kInputHP;
+        if (b == "lk") return cse::kernel::kInputLK;
+        if (b == "mk") return cse::kernel::kInputMK;
+        if (b == "hk") return cse::kernel::kInputHK;
+        return 0;
+    };
+
+    for (const json& e : doc["entries"]) {
+        CatalogueEntry entry;
+        if (!e.is_object() || !e.contains("name") || !e["name"].is_string() ||
+            e["name"].get<std::string>().empty()) {
+            error = relPath + ": every entry needs a non-empty `name`";
+            return false;
+        }
+        entry.name = e["name"].get<std::string>();
+
+        if (e.contains("variant")) {
+            if (!e["variant"].is_string()) {
+                error = relPath + ": " + entry.name +
+                        ": `variant` must be a string path";
+                return false;
+            }
+            entry.variantRel = e["variant"].get<std::string>();
+        }
+        if (e.contains("solo_binding")) {
+            if (!e["solo_binding"].is_string()) {
+                error = relPath + ": " + entry.name +
+                        ": `solo_binding` must be a move id";
+                return false;
+            }
+            entry.soloBindingMove = e["solo_binding"].get<std::string>();
+        }
+        if (e.contains("extra_bindings")) {
+            if (!e["extra_bindings"].is_array()) {
+                error = relPath + ": " + entry.name +
+                        ": `extra_bindings` must be an array";
+                return false;
+            }
+            for (const json& b : e["extra_bindings"]) {
+                if (!b.is_object() || !b.contains("move") ||
+                    !b["move"].is_string() || !b.contains("buttons") ||
+                    !b["buttons"].is_array() || b["buttons"].empty()) {
+                    error = relPath + ": " + entry.name +
+                            ": an extra binding needs `move` and a non-empty "
+                            "`buttons` array";
+                    return false;
+                }
+                CatalogueBinding binding;
+                binding.moveId = b["move"].get<std::string>();
+                for (const json& n : b["buttons"]) {
+                    const std::uint16_t bit =
+                        n.is_string() ? buttonBit(n.get<std::string>()) : 0;
+                    if (bit == 0) {
+                        error = relPath + ": " + entry.name + ": `" +
+                                (n.is_string() ? n.get<std::string>()
+                                               : std::string("?")) +
+                                "` is not one of lp/mp/hp/lk/mk/hk";
+                        return false;
+                    }
+                    binding.buttons |= bit;
+                }
+                entry.extraBindings.push_back(std::move(binding));
+            }
+        }
+        out.entries.push_back(std::move(entry));
+    }
+    return true;
 }
 
 } // namespace cse::data

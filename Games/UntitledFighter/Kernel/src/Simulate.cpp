@@ -15,18 +15,6 @@ namespace {
 constexpr std::int32_t kWalkSpeed   = 2 * kSubUnitsPerPixel;      //  2 px/tick
 constexpr std::int32_t kGravity     = kSubUnitsPerPixel / 4;      // .25 px/tick^2
 constexpr std::int32_t kJumpImpulse = 5 * kSubUnitsPerPixel;
-constexpr std::int32_t kStageHalfWidth = 480 * kSubUnitsPerPixel;
-
-// A player is actionable when nothing is holding them still.
-//
-// Knockdown joins hitstun and blockstun here rather than getting its own gate,
-// because "cannot act" is one idea and this is the one function that decides it.
-// Hitstop is NOT in this list and must not be: a frozen fighter does not act
-// because it does not advance at all, which is handled a level up. Folding it in
-// here would freeze the fighter's agency while still ticking its move frames.
-bool actionable(const Fighter& f) {
-    return f.hitstun == 0 && f.blockstun == 0 && f.knockdown == 0;
-}
 
 // Integer-only clamp. Deliberately not std::clamp: that would be fine here, but
 // keeping <algorithm> out of this translation unit removes an entire category of
@@ -48,11 +36,86 @@ std::uint32_t nextRandom(std::uint32_t& s) {
     return s;
 }
 
-void stepFighter(Fighter& f, Input in, const FighterData& data) {
-    // A benched tag partner keeps its health and its meter and does nothing else.
-    // Returning before the stun counters is deliberate: a fighter tagged out
-    // while stunned should still be stunned when it comes back, otherwise tagging
-    // out is a free escape from every combo in the game.
+// How far an ORIGIN may travel before the BODY reaches the wall.
+//
+// Asked for from play (2026-08-20): "we should calculate corner bounds from the
+// back edge of the collider rather than the middle ... we don't want the player
+// or enemy to disappear half into the corner." Clamping the origin let half a
+// fighter hang past the wall, which reads as the character being eaten by the
+// edge of the stage rather than standing against it.
+//
+// The allowance is the PUSHBOX rather than the hurtbox, because the pushbox is
+// the space a fighter OCCUPIES -- it is already the box that stops two of them
+// sharing ground, and the wall is the same question asked against the stage. A
+// character with no pushbox gets the plain origin clamp, which is what everybody
+// had before.
+//
+// Read off the PLACED box, so an asymmetric body is handled by facing instead of
+// by assuming the origin sits in the middle of it. A body wider than the stage
+// cannot be contained at all; the origin clamp is then the only answer that
+// keeps posX inside the world.
+// Promoted to Combat.h/.cpp as WallLimitFor when ResolveHits' corner push
+// became its second asker (M1.6's microwalk slice) -- the essay above rides
+// with it. This alias keeps the file's call sites reading as before.
+std::int32_t wallLimitFor(const FighterData& data, const Fighter& f) {
+    return WallLimitFor(data, f);
+}
+
+// --- The tick pipeline (docs/adr/ADR-012) ------------------------------------
+//
+// Four fixed stages: ReadIntent (pure -- what does this input MEAN), StepPhysics
+// (movement, stuns and the freeze), StepAttack (the move lifecycle, Combat.cpp)
+// and Resolve, whose per-fighter head is LatchInputs below. Each stage's writes
+// are its contract, listed at its definition; a field written by two stages is
+// a bug by definition, and the deliberate exceptions are named in Simulate.h's
+// audit table.
+
+// What this fighter's input means, computed ONCE and read by every stage after
+// it. Pure, so a re-simulated tick cannot re-derive it differently.
+Intent ReadIntent(const Fighter& f, Input in, const FighterData& data) {
+    Intent it{};
+    it.bits     = in.bits;
+    it.pressed  = static_cast<std::uint16_t>(in.bits & ~f.prevButtons);
+    it.released = static_cast<std::uint16_t>(~in.bits & f.prevButtons);
+
+    // ONLY BITS SOME MOVE CAN USE may enter the buffer. `pressed` carries all
+    // sixteen bits, directions included, and the buffer is replace-on-write --
+    // so without this mask a nervous forward tap during hitstun REPLACES a
+    // buffered reversal with a direction that can never match any move's
+    // button. The tap could start nothing; the press it destroyed could. Found
+    // by adversarial review (2026-08-21): it plays as "the game eats my
+    // inputs sometimes", the exact feel a buffer exists to remove. The union
+    // is re-computed each tick rather than cached in a field, because a cached
+    // union would be one more byte the connect handshake hashes.
+    if (data.inputBufferFrames > 0) {
+        std::uint16_t usable = 0;
+        for (std::int32_t i = 1; i < data.moveCount && i < kMaxMovesPerFighter; ++i)
+            usable |= data.moves[i].button;
+        it.buffable = static_cast<std::uint16_t>(it.pressed & usable);
+    }
+
+    // THE FILE'S NUMBER WHEN THERE IS ONE; zero means unauthored and the
+    // placeholder stands -- see FighterData::walkSpeedSub for why.
+    const std::int32_t walk =
+        data.walkSpeedSub != 0 ? data.walkSpeedSub : kWalkSpeed;
+    if (in.bits & kInputLeft)  it.walkWish -= walk;
+    if (in.bits & kInputRight) it.walkWish += walk;
+
+    it.jumpWish   = (in.bits & kInputUp)   != 0;
+    it.crouchWish = (in.bits & kInputDown) != 0;
+    it.frozen     = f.hitstop > 0;
+    return it;
+}
+
+// Movement, gravity, the stun clocks and the freeze. Writes: the four clocks,
+// the out-of-combo restore (comboHits/scaling/juggle), velX, velY, airborne,
+// crouching, posX, posY, pushX. The clamps that need the OTHER fighter -- the
+// invisible wall and the pushboxes -- are Resolve's.
+void StepPhysics(Fighter& f, const Intent& it, const FighterData& data) {
+    // A benched tag partner keeps its health and its meter and does nothing
+    // else. Returning before the stun clocks is deliberate: a fighter tagged
+    // out while stunned should still be stunned when it comes back, otherwise
+    // tagging out is a free escape from every combo in the game.
     if (f.active == 0) return;
 
     // HITSTOP IS A FREEZE, AND IT IS THE FIRST THING BECAUSE IT FREEZES
@@ -61,7 +124,7 @@ void stepFighter(Fighter& f, Input in, const FighterData& data) {
     // keeps Combat.h's promise that hitstop "changes the meaning of every frame
     // number" only in wall-clock terms: startup 5 is still five ticks OF THE
     // MOVE, they simply take longer to arrive.
-    if (f.hitstop > 0) {
+    if (it.frozen) {
         --f.hitstop;
         return;
     }
@@ -88,41 +151,119 @@ void stepFighter(Fighter& f, Input in, const FighterData& data) {
         f.juggle    = static_cast<std::int16_t>(data.juggleMax);
     }
 
-    const bool canAct = actionable(f);
+    const bool canAct = Actionable(f);
 
-    if (canAct) {
-        std::int32_t wish = 0;
-        if (in.bits & kInputLeft)  wish -= kWalkSpeed;
-        if (in.bits & kInputRight) wish += kWalkSpeed;
-        f.velX = wish;
+    // COMMITTED: a move that was already running at the top of this tick owns
+    // the fighter for it. No walking, no jumping, no change of posture.
+    //
+    // Asked for from play (2026-08-21): "we can move and attack and crouch and
+    // move as well ... not possible in normal fighting games (with certain moves
+    // being an exception - rather than a rule)." That is what a frame count
+    // MEANS in the genre -- startup, active and recovery are the frames you gave
+    // up on the press -- and a range measured against an attacker who can slide
+    // forward during startup is not a range.
+    //
+    // READ BEFORE StepAttack RUNS, and that one tick is what keeps aerials
+    // startable: Up+button takes off here, and StepAttack then finds an
+    // airborne fighter asking for an air move. Up pressed one tick INTO a
+    // grounded move is refused. THE EXCEPTION IS AUTHORED, NOT HERE: a lunge, a
+    // slide or a hop kick authors its own motion -- MoveDef::motion since
+    // M1.3(b2), applied below under ADR-011's rule that no mechanic is a
+    // kernel constant.
+    const bool committed = f.moveId != 0;
+    const bool free      = canAct && !committed;
 
-        if ((in.bits & kInputUp) && !f.airborne) {
-            f.velY    = kJumpImpulse;
+    // THE JUMP IS BALLISTIC. Horizontal velocity in the air was decided at
+    // takeoff -- neutral, forward or back, from the direction held on the jump
+    // tick -- and NOTHING in the air recomputes it. Not an attack: an air
+    // normal rides the jump, and zeroing velX mid-arc (the first commitment
+    // draft did) stops the fighter dead so the attack lands behind where the
+    // jump was taking it. And not a held direction: where you land is chosen
+    // when you leave the ground, which is what makes a jump a commitment and an
+    // anti-air a read rather than a chase.
+    //
+    // Asked for from play (2026-08-21): "jumping normals should not block
+    // movement ... mostly they keep their momentum during the entire jump." A
+    // divekick that changes trajectory is an authored per-move motion (ROADMAP
+    // M1.3(b)), never a rule here.
+    //
+    // Being hit still zeroes it: air hitstun replaces momentum, and the launch
+    // vector that should replace it PROPERLY is M1.3(d)'s field.
+    //
+    // THE AUTHORED EXCEPTION the commitment comment above promised (ROADMAP
+    // M1.3(b2), ADR-014): a committed fighter's velocity is zero UNLESS ITS
+    // MOVE authors motion. The active key -- the last one whose fromTick is
+    // at or before this tick's observed moveFrame -- owns BOTH velocity
+    // components for the tick: `forward` resolves against facing by a branch
+    // (never facing multiplied into a coordinate -- MirrorBox's rule), an
+    // upward key lifts the fighter off the ground, and gravity does not
+    // apply while a key owns the arc, because the keys are RESOLVED velocity
+    // states (Combat.h::MotionKey) and the segment IS the trajectory. Stun
+    // still wins: an interrupted fighter lost its move at the previous
+    // Resolve, so `committed` is already false for it here.
+    const MoveDef* const motionMove = committed ? MoveAt(data, f.moveId) : nullptr;
+    const MotionKey*     motionKey  = nullptr;
+    if (motionMove != nullptr) {
+        const std::int32_t frame = static_cast<std::int32_t>(f.moveFrame);
+        for (std::int32_t i = 0;
+             i < motionMove->motionCount && i < kMaxMotionKeys; ++i)
+            if (motionMove->motion[i].fromTick <= frame &&
+                (motionKey == nullptr ||
+                 motionMove->motion[i].fromTick >= motionKey->fromTick))
+                motionKey = &motionMove->motion[i];
+    }
+
+    if (motionKey != nullptr && canAct) {
+        f.velX = f.facing == 0 ? motionKey->velXSub : -motionKey->velXSub;
+        f.velY = motionKey->velYSub;
+        if (motionKey->velYSub > 0) f.airborne = 1;
+    } else if (f.airborne) {
+        if (!canAct) f.velX = 0;
+    } else if (free) {
+        f.velX = it.walkWish;
+        if (it.jumpWish) {
+            f.velY = data.jumpImpulseSub != 0 ? data.jumpImpulseSub : kJumpImpulse;
             f.airborne = 1;
         }
     } else {
         f.velX = 0;
     }
 
-    // Crouching is an INPUT posture and airborne is a POSITION fact, which is why
-    // they are two fields; the impossible combination is closed here, by
-    // construction, rather than by a convention somebody has to remember.
-    f.crouching = (canAct && !f.airborne && (in.bits & kInputDown)) ? 1u : 0u;
+    // Crouching is an INPUT posture and airborne is a POSITION fact, which is
+    // why they are two fields; the impossible combination is closed here by
+    // construction -- read off the LIVE airborne, so the jump above already
+    // vetoes the crouch. A committed fighter KEEPS the posture the move started
+    // in rather than dropping to standing: a crouching move's frame data was
+    // authored against the crouching body, and a hurtbox that grew back to
+    // 60 px on frame 2 of a slide is hittable by everything the slide ducks.
+    if (free)
+        f.crouching = (!f.airborne && it.crouchWish) ? 1u : 0u;
+    else if (!canAct)
+        f.crouching = 0;   // stunned or downed: nobody is holding a crouch
 
-    if (f.airborne) {
-        f.velY -= kGravity;
+    if (f.airborne && motionKey == nullptr) {
+        // The file's number when there is one; zero means unauthored and the
+        // placeholder stands. Authorable since `engine.movement` (M1.3(b1)).
+        // SKIPPED while an authored motion key owns the arc -- the key is a
+        // resolved velocity state, and gravity on top of it would bend a
+        // trajectory the transcription already integrated.
+        f.velY -= data.gravitySub != 0 ? data.gravitySub : kGravity;
     }
 
-    // Pushback rides its own field precisely so that this line survives the `else`
-    // above zeroing velX -- being hit is exactly when a fighter cannot act, so
-    // pushback stored in velX would be erased on the tick it was applied.
+    // Pushback rides its own field precisely so that this line survives the
+    // `else` above zeroing velX -- being hit is exactly when a fighter cannot
+    // act, so pushback stored in velX would be erased the tick it was applied.
     //
     // The decay is a HALVING WRITTEN AS `/ 2` AND NOT `>> 1`. D2 spells out the
     // difference and it is not stylistic: `>>` rounds toward minus infinity while
     // `/` truncates toward zero, so a shift would decay leftward pushback and
     // rightward pushback by different amounts and hand the mirror-asymmetry bug
     // this kernel is built to avoid a way back in.
-    f.posX = clampInt(f.posX + f.velX + f.pushX, -kStageHalfWidth, kStageHalfWidth);
+    //
+    // THE WALL STOPS THE BODY, NOT THE ORIGIN -- wallLimitFor above says why,
+    // in the author's words.
+    const std::int32_t limit = wallLimitFor(data, f);
+    f.posX = clampInt(f.posX + f.velX + f.pushX, -limit, limit);
     f.pushX /= 2;
 
     f.posY += f.velY;
@@ -132,26 +273,78 @@ void stepFighter(Fighter& f, Input in, const FighterData& data) {
         f.velY     = 0;
         f.airborne = 0;
     }
+}
 
-    // The attack lifecycle: end a move that has run out, CANCEL one that is still
-    // running into the follow-up the fighter is asking for, or start one from
-    // idle. It replaces the bare `if (moveId != 0) ++moveFrame;` this file used to
-    // end on, and for a moveId this character's table does not describe it does
-    // exactly that and nothing more -- which is what keeps a state driven by a
-    // harness behaving as it did before boxes existed.
-    //
-    // It runs AFTER movement so that a move started this tick sees the position
-    // the fighter actually reached, and BEFORE hit resolution, which happens once
-    // for both fighters below.
-    //
-    // THAT SECOND ORDERING IS WHAT SETS THE FASTEST CANCEL. A cancel is gated on
-    // the source having connected, and connecting is decided by ResolveHits at
-    // the bottom of this tick -- so a hit landing on tick N is first visible to a
-    // cancel test on tick N+1, and an edge with an authored delay of zero fires
-    // one tick after contact rather than on it. Moving the cancel test below
-    // ResolveHits would buy that tick back and cost something much worse: a
-    // fighter could then cancel a move on the very tick it started.
-    StepAttack(f, data, in, canAct);
+// The ONE writer of the input-bookkeeping fields: bufferedButtons, bufferAge
+// and prevButtons. The per-fighter head of the Resolve stage, and its position
+// carries three rules at once:
+//
+// AFTER StepAttack, because whether the buffer was SPENT is derived here --
+// `moveFrame == 0` with a move in progress, the same started-this-tick signal
+// ComboWatcher and the drivers key on -- rather than written by StepAttack,
+// which would make two stages writers of one field. A press that survived the
+// start it triggered would fire the next window too.
+//
+// BEFORE ResolveHits, because an interrupt zeroes moveId AND moveFrame, which
+// would read as "nothing started" and leave a spent press alive to fire again
+// out of the hitstun it caused.
+//
+// AND ON FROZEN TICKS IT STILL RECORDS. Hitstop gates the fighter's ADVANCE,
+// not the record of what the player asked for: a press made inside the freeze
+// is captured (the tap-confirm modern games are built to accept), aging is
+// suspended (frozen ticks are not time to the fighter, so not to the buffer),
+// and the prevButtons latch is withheld so a release inside the freeze still
+// reads as a falling edge on the first tick the fighter runs. Before ROADMAP
+// M1.3f the freeze skipped this entirely -- two of those by accident, and the
+// tap-confirm eaten. The three P3Input freeze tests pin all three, because the
+// crossplat golden runs no moves and no hitstop and can police none of them.
+void LatchInputs(Fighter& f, const Intent& it, const FighterData& data) {
+    if (f.active == 0) return;
+
+    if (it.frozen) {
+        if (data.inputBufferFrames > 0 && it.buffable != 0) {
+            f.bufferedButtons = it.buffable;
+            f.bufferAge       = 0;
+        }
+        return;
+    }
+
+    if (data.inputBufferFrames > 0) {
+        // A MOVE STARTED THIS TICK consumed whatever asked for it -- by press,
+        // by buffer or by release -- so the buffer is spent. `canAct` would be
+        // the wrong gate here: a fighter mid-move is actionable by that
+        // measure, and most early presses arrive mid-move, exactly when a
+        // player is trying to link.
+        const bool startedThisTick = f.moveId != 0 && f.moveFrame == 0;
+        if (startedThisTick) {
+            f.bufferedButtons = 0;
+            f.bufferAge       = 0;
+        } else if (it.buffable != 0) {
+            // A press that started nothing went unused and is worth keeping,
+            // so that a link attempted a few frames early still comes out when
+            // the fighter becomes actionable. The window is per-character
+            // (docs/adr/ADR-011 decision 1); zero means no buffering, which is
+            // the kernel that shipped before the field.
+            f.bufferedButtons = it.buffable;
+            f.bufferAge       = 0;
+        } else if (f.bufferedButtons != 0) {
+            // Aged, then dropped. A buffer that never expired would fire a move
+            // minutes after the press, which is worse than not buffering.
+            ++f.bufferAge;
+            if (static_cast<std::int32_t>(f.bufferAge) >= data.inputBufferFrames) {
+                f.bufferedButtons = 0;
+                f.bufferAge       = 0;
+            }
+        }
+    } else {
+        f.bufferedButtons = 0;
+        f.bufferAge       = 0;
+    }
+
+    // LAST of all: this tick's buttons become the next unfrozen tick's
+    // `previous`. Every edge in this tick's Intent was computed against the
+    // value from before this line ran.
+    f.prevButtons = it.bits;
 }
 
 // How many slots this match uses, clamped so a corrupt byte cannot walk the
@@ -296,6 +489,77 @@ void stepRound(GameState& state, int n) {
 
 } // namespace
 
+// --- Push boxes ---------------------------------------------------------------
+
+// Two fighters may not stand in the same place.
+//
+// Asked for from play (2026-08-20): "the enemy collider should be blocking
+// collisions rather than trigger -- we don't want to move through them ... if
+// you just run into them you should be blocked by the character's hurtbox
+// without taking damage - this prevents players and enemies overlapping
+// hurtboxes and missing attacks because of that." That last clause is the real
+// cost of not having this: two bodies in the same place make ranges meaningless
+// and attacks whiff for reasons nobody can see.
+//
+// AIRBORNE FIGHTERS PASS OVER, which is what makes a jump a way past somebody
+// rather than a bounce off them. It is also why crossing up works at all: the
+// jump arc carries you through the space the pushbox would otherwise hold.
+// Getting past a grounded opponent on the ground is left to the moves that say
+// they can -- a teleport, a lunge -- which is a per-move field when those
+// arrive, not a hole here.
+//
+// THE SPLIT IS EQUAL AND ROUNDS UP, and both halves of that are load-bearing.
+// Equal, so the resolution is a MIRROR: the same collision reflected through
+// x = 0 must produce reflected positions, which an "always push the left one"
+// rule breaks immediately. Rounds up, so an ODD overlap is actually resolved --
+// truncating leaves the two a sub-unit inside each other forever, and "never
+// overlap" would be true only for even numbers.
+void separatePushboxes(GameState& state, const MatchData& data) {
+    Fighter& a = state.p[0];
+    Fighter& b = state.p[1];
+
+    // A degenerate box is how FighterData spells "unauthored"; a character
+    // without one is not separated from anybody.
+    const Box& ba = data.p[0].pushbox;
+    const Box& bb = data.p[1].pushbox;
+    if (ba.x1 <= ba.x0 || bb.x1 <= bb.x0) return;
+    if (a.airborne != 0 || b.airborne != 0) return;
+
+    // Two passes. The first splits the overlap evenly, which is the answer
+    // whenever both fighters have room; the second exists for the CORNER, where
+    // the stage clamp undoes one fighter's share and the other has to absorb the
+    // whole of it. Two is enough because the second pass moves only one body and
+    // the stage cannot push back twice.
+    for (int pass = 0; pass < 2; ++pass) {
+        const Box pa = PlaceBox(ba, a.posX, a.posY, a.facing);
+        const Box pb = PlaceBox(bb, b.posX, b.posY, b.facing);
+
+        const std::int32_t overlap = (pa.x1 < pb.x1 ? pa.x1 : pb.x1) -
+                                     (pa.x0 > pb.x0 ? pa.x0 : pb.x0);
+        if (overlap <= 0) return;
+
+        // Who is on the left is decided by the ORIGINS, not by the boxes: the
+        // boxes are what overlap, so asking them which is left is circular when
+        // the two are nearly coincident. Equal origins fall to slot order, which
+        // is arbitrary and has to be SOMETHING -- and it is the same fixed order
+        // Simulate uses everywhere else, so it is at least the arbitrary choice
+        // this kernel already made.
+        const bool aIsLeft = a.posX <= b.posX;
+        const std::int32_t half = (overlap + 1) / 2;
+
+        Fighter& left  = aIsLeft ? a : b;
+        Fighter& right = aIsLeft ? b : a;
+
+        // The SAME body-aware limit StepPhysics uses, or separation would shove
+        // into the corner the half-body the wall clamp just refused.
+        const std::int32_t lLimit = wallLimitFor(aIsLeft ? data.p[0] : data.p[1], left);
+        const std::int32_t rLimit = wallLimitFor(aIsLeft ? data.p[1] : data.p[0], right);
+
+        left.posX  = clampInt(left.posX - half,  -lLimit, lLimit);
+        right.posX = clampInt(right.posX + half, -rLimit, rLimit);
+    }
+}
+
 void Simulate(GameState& state, const InputPair& inputs, const MatchData& data) {
     // Fixed order, always. Iterating a container whose order can vary -- the
     // hash-ordering hazard that bit SimplePhysicsBackend and ScriptWorld in this
@@ -304,8 +568,85 @@ void Simulate(GameState& state, const InputPair& inputs, const MatchData& data) 
     // rule's simplest possible form, and it is why widening from two fighters to
     // eight changed nothing about determinism.
     const int n = liveCount(state);
-    for (int i = 0; i < n; ++i) {
-        stepFighter(state.p[i], inputs.p[i], data.p[i]);
+
+    // RESOURCES ARE PRIMED ON THE FIRST TICK, not in ResetMatch, and the reason
+    // is the one already written beside the juggle restore in StepPhysics:
+    // ResetMatch does not take the character data, and "restored from the
+    // character data on the first tick, before anything can read it" is where
+    // that rule already lives.
+    //
+    // It cannot join the per-combo restore beside juggle, and that is the whole
+    // design point. Juggle is spent within one combo and restored when the
+    // defender leaves hitstun; METER IS NOT -- `fighter_a` opens with 300 of it
+    // and spends it across a round. A restore-every-idle-tick would hand the
+    // meter back the instant the defender recovered, which is not a balance
+    // choice, it is a resource that cannot be spent.
+    //
+    // Tick zero rather than a "primed" flag: GameState may not grow here, and
+    // re-running tick zero after a rollback re-primes to exactly the same
+    // numbers, which is what makes a tick-index condition safe at all.
+    if (state.tick == 0) {
+        for (int i = 0; i < n; ++i)
+            for (std::int32_t r = 0; r < kMaxResources; ++r)
+                state.p[i].res[r] = data.p[i].resources[r].initial;
+    }
+
+    // WHERE EVERYONE WAS BEFORE ANYBODY MOVED. The separation clamp below reads
+    // this snapshot rather than the live positions, and that is what makes it
+    // ORDER-INDEPENDENT: clamping p0 against p1's new position and then p1
+    // against p0's newly-clamped one would give a different answer depending on
+    // which slot was stepped first, which is the exact class of bug D3 exists to
+    // keep out of this kernel.
+    std::int32_t wasAtX[kMaxFighters];
+    for (int i = 0; i < n; ++i) wasAtX[i] = state.p[i].posX;
+
+    // The pipeline (docs/adr/ADR-012). No stage reads another fighter's fields,
+    // so the stage loops are order-independent by construction -- and StepAttack
+    // running after movement is what lets a move started this tick see the
+    // position the fighter actually reached.
+    Intent intents[kMaxFighters] = {};
+    for (int i = 0; i < n; ++i)
+        intents[i] = ReadIntent(state.p[i], inputs.p[i], data.p[i]);
+    for (int i = 0; i < n; ++i)
+        StepPhysics(state.p[i], intents[i], data.p[i]);
+    for (int i = 0; i < n; ++i)
+        StepAttack(state.p[i], data.p[i], intents[i]);
+
+    // --- Resolve: everything that needs more than one fighter ----------------
+    for (int i = 0; i < n; ++i)
+        LatchInputs(state.p[i], intents[i], data.p[i]);
+
+    // --- The invisible wall ---------------------------------------------------
+    //
+    // Neither fighter may end further than kMaxSeparationSub from where the
+    // OTHER ONE STOOD AT THE TOP OF THIS TICK. That one sentence is the whole
+    // Street Fighter behaviour the author described: a player walking backwards
+    // stops dead at the limit, and if the opponent then advances a pixel the
+    // limit follows them by a pixel and the retreat resumes. Retreat is possible
+    // for exactly as long as somebody is chasing.
+    //
+    // Reading the PRE-MOVE opponent is also what makes that true rather than
+    // approximately true. Against the post-move position a retreating player
+    // would be allowed the opponent's step in the same tick they took it, which
+    // lets two fighters walking apart drift forever at walking speed.
+    //
+    // TWO FIGHTERS ONLY. With three or more there is no "the opponent" and the
+    // rule would have to say which pair the camera belongs to -- a real question
+    // for tag modes and not one to answer by accident here. ADR-009 widened the
+    // state to eight and said the rules would arrive one at a time; this is one
+    // of them arriving for the 1v1 case.
+    //
+    // It only ever pulls INWARD, so it cannot push anyone through the stage
+    // clamp StepPhysics already applied.
+    if (n == 2) {
+        for (int i = 0; i < 2; ++i) {
+            const std::int32_t anchor = wasAtX[1 - i];
+            state.p[i].posX = clampInt(state.p[i].posX,
+                                       anchor - kMaxSeparationSub,
+                                       anchor + kMaxSeparationSub);
+        }
+
+        separatePushboxes(state, data);
     }
 
     // Facing is derived from relative position, evaluated AFTER everyone has
@@ -396,9 +737,9 @@ void ResetMatch(GameState& state, const MatchSetup& setup) {
         f.active  = in.active;
         f.facing  = in.facing;
         f.scaling = kScalingFull;
-        // juggle is deliberately left at zero: stepFighter restores it from the
-        // character data on the first tick, before anything can read it, and that
-        // is the ONE place the restore rule lives.
+        // juggle is deliberately left at zero: StepPhysics restores it from the
+        // character data on the first tick, before anything can read it, and
+        // that is the ONE place the restore rule lives.
     }
 }
 

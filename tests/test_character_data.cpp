@@ -26,6 +26,7 @@
 #include <gtest/gtest.h>
 
 #include "cse/data/CharacterData.h"
+#include "cse/data/MatchBuilder.h"
 
 #include <nlohmann/json.hpp>
 
@@ -155,6 +156,27 @@ TEST(CharacterFiles, CountsMatchTheDecisionRecord) {
     }
     EXPECT_EQ(totalMoves,   59u) << "ADR-001 transcribed 59 moves";
     EXPECT_EQ(totalCancels, 247u) << "ADR-001 transcribed 247 cancel edges";
+}
+
+// A missing file and a refused path are different diagnoses, and the loader
+// must not swap them (ROADMAP M1.8). MSVC's weakly_canonical returns a
+// RELATIVE path for a nonexistent target, so before PathIsContained
+// absolutized its base, every missing file under a relative base was reported
+// as "refused, because it is absolute, carries a drive/UNC root, or contains
+// a `..` component" -- a security refusal for a typo'd filename, on Windows
+// only (libstdc++ absolutizes, so Linux CI said "cannot be opened" all
+// along). A designer told their path escaped the sandbox will go hunting for
+// the wrong bug.
+TEST(CharacterFiles, AMissingFileIsReportedAsUnopenableNotRefused) {
+    CharacterData c{};
+    LoadReport r{};
+    ASSERT_FALSE(LoadCharacterFile(".", "no_such_character_98765.json",
+                                   phase0Options(), c, r));
+    EXPECT_TRUE(mentions(r.error, "cannot be opened"))
+        << "a plain missing file was diagnosed as something else: " << r.error;
+    EXPECT_FALSE(mentions(r.error, "refused"))
+        << "a plain missing file was reported as a containment refusal: "
+        << r.error;
 }
 
 TEST(CharacterFiles, TheProverReadSubsetSurvivesTheLoad) {
@@ -822,4 +844,46 @@ TEST(UntrustedContent, ACancelWithNoDelayAndNoKindIsWarnedAbout) {
     bool warned = false;
     for (const auto& w : r.warnings) warned = warned || mentions(w, "permissive");
     EXPECT_TRUE(warned) << "a delay-0-by-omission edge was accepted without a word";
+}
+
+// --- The modern input buffer, authored (ROADMAP M1.1e) -----------------------
+//
+// Three properties and nothing clever: an authored window is carried; a silent
+// file gets zero, which is the pre-M1.1d kernel; and a window past 255 is a
+// LOAD ERROR naming the key, never a rounding -- the kernel ages the buffer in
+// a uint8, and a wrapped age is an ETERNAL buffer, a press firing a move
+// minutes later.
+TEST(InputBuffer, TheWindowIsCarriedAbsentIsZeroAndPast255IsRefusedByName) {
+    json doc = shippedDoc("kung_fu_girl.json");
+
+    CharacterData c{};
+    LoadReport r{};
+    ASSERT_TRUE(loadDoc(doc, "silent.json", c, r)) << r.error;
+    EXPECT_EQ(c.inputBufferFrames, 0)
+        << "a file that says nothing must get the behaviour it always had";
+
+    doc["input_buffer_frames"] = 2;   // the genre's three-frame feel
+    ASSERT_TRUE(loadDoc(doc, "buffered.json", c, r)) << r.error;
+    EXPECT_EQ(c.inputBufferFrames, 2);
+
+    // ... and the bridge carries it whole into the kernel's own field, which
+    // is the half a loader test alone cannot claim.
+    {
+        BuildOptions options{};
+        options.bindings = { { "stand_lp", cse::kernel::kInputLP } };
+        MatchBuild build{};
+        ASSERT_TRUE(BuildMatchData(c, options, c, options, build))
+            << build.report[0].error;
+        EXPECT_EQ(build.data.p[0].inputBufferFrames, 2);
+        EXPECT_EQ(build.data.p[1].inputBufferFrames, 2);
+    }
+
+    doc["input_buffer_frames"] = 256;
+    EXPECT_FALSE(loadDoc(doc, "eternal.json", c, r))
+        << "a 256-tick window loaded; the kernel's uint8 age would wrap and "
+           "the buffer would never expire";
+    EXPECT_NE(r.error.find("input_buffer_frames"), std::string::npos) << r.error;
+
+    doc["input_buffer_frames"] = -1;
+    EXPECT_FALSE(loadDoc(doc, "negative.json", c, r));
 }

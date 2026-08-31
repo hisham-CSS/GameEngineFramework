@@ -398,6 +398,23 @@ private:
     // about what it costs per edit.
     double lastGapMs_  = 0.0;
 
+    // --- authoring telemetry (ROADMAP M1.7, ADR-017) ------------------------
+    //
+    // Every real run appends one JSON line through cse::data::AppendProverRun;
+    // the measurements above finally leave the process instead of dying at
+    // editor exit. Three members because the record wants three facts the run
+    // site cannot recompute: which FILE the panel's own copy was loaded from
+    // (empty for a caller-supplied character -- the staged-copy trap says a
+    // record must name which copy it read); and the NONCE-FREE fingerprint of
+    // the previous run, so changed-since-last distinguishes "the author
+    // edited" from "the author pressed Re-run" -- fingerprint_ above cannot,
+    // because forceNonce_ is folded into it. telemetryError_ latches the last
+    // append failure for the footer; an empty string is the healthy state.
+    std::string   loadedFrom_;
+    std::uint64_t contentFingerprint_     = 0;
+    bool          haveContentFingerprint_ = false;
+    std::string   telemetryError_;
+
     // Which dead-cancel list is on screen. PRE-DECAY by default, and ADR-001's
     // amendment to 5.3 is the reason: both implementations evaluate every edge
     // at the SETTLED hitstun, so a decay rule reports real cancels as dead --

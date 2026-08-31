@@ -92,6 +92,84 @@ constexpr std::uint32_t kMatchSeed = 0xA5EED17Eu;
 // unrecorded forever, and the fix is to change kMatchSeed, not to weaken this.
 constexpr std::uint32_t kGoldenUnrecorded = 0u;
 
+// RE-RECORDED 2026-08-21 (second time today) for the BALLISTIC JUMP: horizontal
+// velocity in the air is decided at takeoff and neither an attack nor a held
+// direction recomputes it. Behaviour, not layout, and again a precise one: tick
+// 1000 (the walk phases) did not move; tick 2000 did, and the jumps phase is
+// ticks 1200-1800, where this script's "air control, such as it is" ticks now
+// steer nothing. The script is kept pressing those directions on purpose -- an
+// input that must do nothing is worth driving, and the day air steering becomes
+// authorable these goldens must move again.
+//
+// ---- the previous record, kept for its reasoning ---------------------------
+//
+// RE-RECORDED 2026-08-21 from MSVC 19.44 / x64 / RelWithDebInfo, for the
+// COMMITMENT RULE: a fighter no longer walks, jumps or changes posture while a
+// move is running. Behaviour, not layout -- CrossPlatformLayout passes untouched.
+//
+// And it is a precise re-record: the tick-1000 and tick-2000 checkpoints did NOT
+// move. Only tick 3000 did, which is the reversal phase -- the one stretch of
+// the script that presses attack buttons WHILE walking (`k % 13 == 0` LP on top
+// of held directions). That is exactly where commitment bites, and nowhere
+// else, which is the shape a one-rule change should have. Had tick 1000 moved,
+// the rule would be leaking into plain walking.
+//
+// gcc has NOT checked these yet; the Linux CI leg is the cross-toolchain half.
+//
+// ---- the previous record, kept for its reasoning ---------------------------
+//
+// RE-RECORDED 2026-08-20 from MSVC 19.44 / x64 / RelWithDebInfo, for the
+// invisible wall -- and this one is a BEHAVIOUR re-record, not a layout one.
+//
+// The distinction is the whole reason this block is prose. The M1.1d record
+// below moved because `Fighter` grew and the hash covers more bytes; the
+// simulation did exactly what it did before. This one moves because the
+// SIMULATION CHANGED: two fighters may no longer be more than
+// kMaxSeparationSub apart, and the scripted match walks them apart in act 1 and
+// again in the reversal phase, so positions genuinely differ from tick 30
+// onward. `CrossPlatformLayout` passes untouched, which is what says the bytes
+// are the same shape and only their contents moved.
+//
+// ADR-005 section 3 calls this the legitimate case and asks that the commit say
+// which of the two it is. This one is behaviour.
+//
+// THE SCRIPT MOVED TOO, and it had to. Phases 1 and 2 used to walk the fighters
+// to OPPOSITE walls, which the separation limit forbids outright -- nobody can
+// reach a wall by walking away from somebody. The coverage assertions caught it
+// exactly: `minPosX` came back -48128 against the -122880 this file expects,
+// which is the test saying "your script no longer drives the -X clamp" rather
+// than "your hash is wrong". The pair now crosses, then travels to each wall
+// TOGETHER, which drives the clamp branch and the new separation branch in the
+// same stretch.
+//
+// gcc has NOT checked these yet; the Linux CI leg is the cross-toolchain half.
+//
+// ---- the previous record, kept for its reasoning ---------------------------
+//
+// RE-RECORDED 2026-08-19 from MSVC 19.44 / x64 / RelWithDebInfo, for the
+// ROADMAP M1.1d input-edge expansion.
+//
+// WHY THEY MOVED THIS TIME. Fighter went from 68 bytes to 76: an edge is
+// `bits & ~prevButtons`, and Simulate is handed only the CURRENT tick's bits, so
+// last tick's buttons and the buffered press have to live IN the state or a
+// rollback replays a press as a hold (GameState.h says this at length). Eight
+// bytes across kMaxFighters is 64, and GameState went 664 -> 728 to match.
+//
+// The layout half proves this is a byte-string move and not an arithmetic one:
+// CrossPlatformLayout's sizes, alignments and per-field offsets were updated to
+// the new shape and PASS. The scripted match here presses attack buttons but
+// still never reaches hit detection, so the run itself is unchanged in what it
+// exercises -- what changed is how many bytes each tick hashes over.
+//
+// ONE DERIVATION, and gcc has NOT yet checked these. The Linux CI leg is the
+// cross-toolchain half and it has not run at the time of writing; until it is
+// green these values prove that this toolchain is self-consistent and no more.
+// If it comes back red, the answer is NOT to re-record again -- it is that
+// something in the new fields reads differently on gcc, and the padding bytes
+// are the first place to look.
+//
+// ---- the previous record, kept because it is the reasoning, not the number ---
+//
 // RE-RECORDED 2026-08-16 from MSVC 19.44 / x64 / RelWithDebInfo, for the
 // ADR-005 P2 state expansion.
 //
@@ -118,11 +196,11 @@ constexpr std::uint32_t kGoldenUnrecorded = 0u;
 //
 // gcc has NOT yet checked these. Until the Linux CI leg runs this test, they
 // prove that this toolchain is self-consistent and nothing more.
-constexpr std::uint32_t kGoldenRollingHash = 0xF2001926u;
+constexpr std::uint32_t kGoldenRollingHash = 0xAD470388u;
 constexpr std::uint32_t kGoldenCheckpoint[kCheckpointCount] = {
-    0x5904B505u,  // tick 1000
-    0xA580ECA8u,  // tick 2000
-    0xA49479EBu,  // tick 3000
+    0x48918ACFu,  // tick 1000  (walk phases: unmoved by commitment OR ballistics)
+    0x58189F45u,  // tick 2000  (jumps phase: air control no longer steers)
+    0x46C2644Eu,  // tick 3000
 };
 
 // ============================================================================
@@ -145,8 +223,8 @@ constexpr std::uint32_t kGoldenCheckpoint[kCheckpointCount] = {
 //   GameState = 20-byte header + 8 x Fighter (416)                = 436 bytes
 // Both are multiples of 4, which is the alignment of their widest member, so a
 // conforming implementation inserts no tail padding either.
-constexpr std::size_t kGoldenSizeofFighter   = 68;
-constexpr std::size_t kGoldenSizeofGameState = 664;
+constexpr std::size_t kGoldenSizeofFighter   = 76;
+constexpr std::size_t kGoldenSizeofGameState = 728;
 constexpr std::size_t kGoldenAlignofFighter   = 4;
 constexpr std::size_t kGoldenAlignofGameState = 4;
 
@@ -232,11 +310,11 @@ struct Coverage {
 
 // --- The scripted match -----------------------------------------------------
 //
-// Six phases, chosen so that every branch in stepFighter is driven for long
+// Six phases, chosen so that every branch in StepPhysics is driven for long
 // enough to matter, and so that a human reading a divergence report can say
 // what the fighters were doing at the tick it names.
-constexpr int kPhaseWallsEnd    = 600;   // walk out to opposite walls and stay
-constexpr int kPhaseCrossEnd    = 1200;  // reverse, cross over, hit the far walls
+constexpr int kPhaseWallsEnd    = 600;   // cross over, then travel to +X together
+constexpr int kPhaseCrossEnd    = 1200;  // travel to -X together and stay pinned
 constexpr int kPhaseJumpsEnd    = 1800;  // full jump arcs, offset between players
 constexpr int kPhaseStunEnd     = 2400;  // hitstun and blockstun, air and ground
 constexpr int kPhaseReversalEnd = 3000;  // contradictory and rapidly flipping input
@@ -254,18 +332,36 @@ InputPair scriptedInputs(int t) {
     InputPair in{};
 
     if (t < kPhaseWallsEnd) {
-        // Hold, do not tap. 580 pixels at 2 pixels per tick is 290 ticks to the
-        // wall, so the back half of this phase is spent with the clamp actually
-        // clamping -- posX pinned while velX is still non-zero, which is the
-        // state a short scripted test never reaches.
-        in.p[0].bits |= kInputRight;
-        in.p[1].bits |= kInputLeft;
+        // TWO THINGS, AND THE ORDER MATTERS, because the invisible wall changed
+        // what a walk can reach. This phase used to send the pair to OPPOSITE
+        // walls, which the separation limit now forbids by construction -- two
+        // fighters may never be more than kMaxSeparationSub apart, so nobody can
+        // walk to a wall by walking away from anybody.
+        //
+        // First the two converge and CROSS, which is what flips facing for both
+        // and is still perfectly legal: the limit only ever objects to fighters
+        // getting further apart.
+        if (t < kPhaseWallsEnd / 2) {
+            in.p[0].bits |= kInputRight;
+            in.p[1].bits |= kInputLeft;
+        } else {
+            // Then they travel to +X TOGETHER, which is the only way anybody
+            // reaches a wall now. The leader pins against the clamp and the
+            // follower closes up behind, so this drives the clamp branch AND
+            // the separation branch in the same stretch.
+            //
+            // Hold, do not tap: 300 ticks at 2 px is 600 px, more than the
+            // 480 px half-width, so the back of this phase is spent with posX
+            // pinned while velX is still non-zero -- the state a short scripted
+            // test never reaches.
+            in.p[0].bits |= kInputRight;
+            in.p[1].bits |= kInputRight;
+        }
 
     } else if (t < kPhaseCrossEnd) {
-        // Reverse. The two cross at the centre, which flips facing for both, and
-        // then each runs into the wall the other one just left.
+        // And back to -X together, so the other clamp gets the same treatment.
         in.p[0].bits |= kInputLeft;
-        in.p[1].bits |= kInputRight;
+        in.p[1].bits |= kInputLeft;
 
     } else if (t < kPhaseJumpsEnd) {
         const int k = t - kPhaseCrossEnd;
@@ -846,7 +942,7 @@ TEST(CrossPlatformDeterminism, AFinalStateHashWouldHaveMissedThisEntirely) {
     //
     // p1 is idle for the whole of the last phase -- grounded, velY zero,
     // airborne clear -- so dropping its height by one sub-unit is undone on the
-    // very next tick by the floor snap in stepFighter (`if (posY <= 0) { posY =
+    // very next tick by the floor snap in StepPhysics (`if (posY <= 0) { posY =
     // 0; velY = 0; airborne = 0; }`). One tick later the two runs are byte-
     // identical again and stay that way to the end of the match.
     //
@@ -984,9 +1080,18 @@ TEST(SubUnitArithmetic, WalkingLeftAndRightAreExactMirrorsThroughSimulate) {
     const int kTicks = 1200;   // 2400 pixels of walking: far enough that the
                                // clamp is reached and then held on both sides
     for (int t = 0; t < kTicks; ++t) {
+        // BOTH FIGHTERS, SAME DIRECTION, because since the invisible wall landed
+        // nobody reaches a wall alone: a lone walker is stopped
+        // kMaxSeparationSub from a stationary opponent, six pixels short of the
+        // clamp, and the vacuity guard below would never fire again. Walking the
+        // pair together restores it and leaves the mirror property -- which is
+        // what this test is actually about -- untouched, because the separation
+        // clamp is as symmetric as everything else here.
         InputPair r{}, l{};
         r.p[0].bits |= kInputRight;
+        r.p[1].bits |= kInputRight;
         l.p[0].bits |= kInputLeft;
+        l.p[1].bits |= kInputLeft;
         Simulate(right, r);
         Simulate(left,  l);
 

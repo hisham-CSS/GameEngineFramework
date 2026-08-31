@@ -1,0 +1,17 @@
+{
+  "description": "The microwalk, made necessary and then found by walking. Four fields on stand_lp: hitstun 12 -> 34 (wide enough for the walked link: contact-to-contact through sixteen walked ticks is 31), reach 0.42 -> 0.28 (the connect margin must be NARROWER than one 8-tick walk, or a single walk lands in the unclamped band and spawns a drifting near-miss chain instead of the loop), corner_push_vel_sub 0 -> 5120 (~40 px of attacker recoil on every cornered hit, past the shortened margin plus a walk), and hitstop_ticks 8 -> 0 (the freeze is its own phenomenon; the one_frame twins' precedent). Stationary, the restart dies: the second press whiffs from where the recoil left you, and one walk is not enough either. TWO walks overshoot into the pushbox, which clamps the attacker to the one canonical adjacent state -- the wall pins the defender, the pushbox absorbs the crumbs, and the state repeats EXACTLY once the combo counter saturates. The search's movement vocabulary (ADR-013 decision 6) finds it by diving toward-longest-first: walk, walk, press, forever. The verdict pair: the MODEL says TERMINATING twice over -- the restart route is not in its graph and it has neither walks nor corners in its vocabulary -- while the search returns INFINITE with a witness whose LOOP CONTAINS THE WALKS, replayable by the same cursor. Exhibited with the link's own button bound alone: a full-roster search dives whichever long-reach heavy connects from the recoil distance and spends its budget on those unrelated strings, so the question is asked of exactly the loop's vocabulary -- one button and the walks. This is the paper's microwalk row: an infinite that exists only for a player who can walk sixteen ticks.",
+  "patch": {
+    "moves": {
+      "stand_lp": {
+        "hitstun": 34,
+        "engine": {
+          "reaction": {
+            "hitstop_ticks": 0,
+            "corner_push_vel_sub": 5120
+          }
+        },
+        "reach": 0.28
+      }
+    }
+  }
+}

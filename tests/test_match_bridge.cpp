@@ -97,6 +97,30 @@ std::string charactersDir() {
 #endif
 }
 
+// Where THIS PROJECT'S OWN characters live, as distinct from charactersDir()
+// above, which finds the MUGEN corpus in tests/fixtures. Two directories because
+// they are two kinds of thing: the corpus is evidence that cannot ship, and
+// `fighter_a` is game content that is staged beside the executables.
+//
+// A fifth copy of this walk -- test_gap_extent, test_ground_truth and
+// test_one_frame each carry one -- and the same debt ROADMAP M1.6 records
+// against the witness driver: the duplication is written down rather than
+// pretended away.
+std::string ownCharactersDir() {
+    namespace fs = std::filesystem;
+    fs::path here = fs::current_path();
+    for (int i = 0; i < 8; ++i) {
+        const fs::path staged = here / "Exported" / "Characters";
+        if (fs::exists(staged / "fighter_a.json")) return staged.string();
+        const fs::path source =
+            here / "Games" / "UntitledFighter" / "Assets" / "Characters";
+        if (fs::exists(source / "fighter_a.json")) return source.string();
+        if (!here.has_parent_path() || here.parent_path() == here) break;
+        here = here.parent_path();
+    }
+    return "Exported/Characters";
+}
+
 void loadShipped(const char* file, CharacterData& out) {
     LoadReport report{};
     ASSERT_TRUE(LoadCharacterFile(charactersDir(), file, loadOptions(), out, report))
@@ -220,6 +244,23 @@ std::vector<InputPair> scriptedMatch(int ticks) {
             if (t % 31 == 0) a |= kInputHP;
             if (t % 53 == 0) a |= kInputUp;    // a jump and its whole arc
         } else {
+            // AND p1 WALKS BACK IN FIRST, which it did not have to do before
+            // ROADMAP M1.3d wired pushback. Act 2 is 180 ticks of p0 landing
+            // hits, and every one of them knocks p1 further away; by tick 210
+            // p1 is well outside its own reach and answering from there is
+            // answering into empty air. Twenty ticks of walking is what a
+            // player does after being pushed out, and it is what makes "p1
+            // never landed a hit" a fact about the exchange rather than about
+            // the distance the previous act left them at.
+            //
+            // LEFT, and for the whole act. p0 stands on the left, and 180 ticks
+            // of taking hits pins p1 against the RIGHT wall Simulate clamps at
+            // -- so the distance to walk back is most of the stage, not the
+            // twenty ticks the first version of this guessed at. Walking on
+            // every tick costs nothing: the attacks below still come out, and a
+            // fighter already in range simply keeps walking into an opponent it
+            // cannot pass through.
+            b |= kInputLeft;
             if (t % 7  == 0) b |= kInputLK;
             if (t % 29 == 0) b |= kInputHK;
             if (t % 61 == 0) b |= kInputUp;
@@ -368,9 +409,11 @@ TEST(MatchBridgeTranscription, FrameDataMatchesTheJsonMoveForMove) {
         EXPECT_EQ(kHalfWidth + px(e.reachPx) + 1, mv.hitbox.x1);
         EXPECT_EQ(0,       mv.hitbox.y0);
         EXPECT_EQ(kHeight, mv.hitbox.y1);
-        EXPECT_EQ(0u, mv.pad_)
-            << "MoveDef::pad_ is hashed by the connect handshake; an unwritten "
-               "byte is a byte two peers can disagree about";
+        EXPECT_EQ(0u, mv.negativeEdge)
+            << "the byte that used to be MoveDef::pad_ is negativeEdge now, and "
+               "the schema does not author it yet -- so it must still be written "
+               "as zero. It is hashed by the connect handshake either way, and an "
+               "unwritten byte is a byte two peers can disagree about.";
     }
 
     // The body the caller supplied, symmetric about the origin and standing on
@@ -817,10 +860,14 @@ TEST(MatchBridgeOptions, AnUnsuppliedBodyWarnsAndUsesTheNamedDefault) {
 }
 
 TEST(MatchBridgeOptions, ABindingThatCanNeverStartIsReportedAndReallyNeverStarts) {
-    // StepAttack takes the first move in slot order whose buttons are ALL held.
-    // stand_lp is slot 1 with {LP} and crouch_lp is slot 12 with {Down, LP}, so
-    // holding Down+LP can only ever produce stand_lp. That is the natural way
-    // somebody binds crouching normals and it silently does not work.
+    // StepAttack takes the first move in slot order whose buttons are ALL held
+    // and whose stance the input selects. Kung Fu Girl's transcription authors
+    // `stance: ground` on BOTH stand_lp and crouch_lp -- MUGEN's statetype is
+    // not the standing/crouching split -- so stance cannot tell the pair apart,
+    // the shadow is real, and holding Down+LP can only ever produce stand_lp
+    // (slot 1, {LP}, against crouch_lp's {Down, LP}). A character that DOES
+    // author the split gets selection instead of a warning since ROADMAP
+    // M1.3e; this test is the case the warning still exists for.
     KfgMatch m{};
     buildKungFuGirl(m, { bind("stand_lp",  cse::kernel::kInputLP),
                          bind("crouch_lp", static_cast<std::uint16_t>(
@@ -893,17 +940,40 @@ TEST(MatchBridgeLosses, EveryDropIsCountedAgainstKungFuGirlsActualFile) {
         { "cancels (dropped)",             0, BuildLossDirection::KernelOmits   },
         { "cancels (link, not cancel)",    0, BuildLossDirection::KernelPermits },
         { "cancel.contact_frame",        132, BuildLossDirection::KernelPermits },
-        { "cancel.on",                     4, BuildLossDirection::KernelPermits },
+        // Exact since M1.3 slice (a) -- the mask carries `on` whole; the count
+        // is how many edges the old one-bit collapse used to move.
+        { "cancel.on",                     4, BuildLossDirection::Exact         },
         { "cancel.certain",              103, BuildLossDirection::KernelPermits },
         { "cancel.guard",                 41, BuildLossDirection::KernelPermits },
         { "cancel.effect",                 0, BuildLossDirection::KernelOmits   },
         { "move.cancel_window (absent)",   8, BuildLossDirection::KernelPermits },
-        { "character.walk_speed",      1, BuildLossDirection::KernelOmits   },
-        { "move.pushback",            24, BuildLossDirection::KernelOmits   },
-        { "move.stance",              25, BuildLossDirection::KernelPermits },
-        { "move.guard",                2, BuildLossDirection::KernelPermits },
-        { "move.effect",              24, BuildLossDirection::KernelOmits   },
-        { "resources",                 2, BuildLossDirection::KernelOmits   },
+        { "character.walk_speed",      1, BuildLossDirection::Exact         },
+        // Zero because her file authors no engine.movement -- she keeps the
+        // placeholder arc, and the zero-count row is the proof a check ran
+        // (ROADMAP M1.3(b1), ADR-014).
+        { "character.movement",        0, BuildLossDirection::Exact         },
+        // Zero for Kung Fu Girl and the zero is the exhibit: her transcript
+        // DISABLES MUGEN's juggle system (airjuggle 0, nojugglecheck), the
+        // resource is declared only for the positional contract, and no move
+        // spends it -- so her gate, correctly, never fires.
+        { "resource.juggle (gate)",    0, BuildLossDirection::Exact         },
+        { "character.input_buffer_frames", 0, BuildLossDirection::Exact     },
+        { "move.pushback",            24, BuildLossDirection::Exact         },
+        // Zero: her converted file authors no corner push (the microwalk
+        // slice's carry), and the zero records that somebody looked.
+        { "move.corner_push",          0, BuildLossDirection::Exact         },
+        // Zero for Kung Fu Girl and, like her juggle gate, the zero records
+        // that somebody looked: her converted file authors no impact freeze,
+        // so M1.3i's carried hitstop leaves every move of hers at 0.
+        { "move.hitstop",              0, BuildLossDirection::Exact         },
+        // Exact since ROADMAP M1.3e wired both into MoveDef and StanceAllows.
+        // Kung Fu Girl authors a stance on all 25 moves and no blocked_as at
+        // all -- the zero-count row records that somebody looked.
+        { "move.stance",              25, BuildLossDirection::Exact         },
+        { "move.blocked_as",           0, BuildLossDirection::Exact         },
+        { "move.guard",                2, BuildLossDirection::Exact         },
+        { "move.effect",              24, BuildLossDirection::Exact         },
+        { "resources",                 2, BuildLossDirection::Exact         },
         { "move.hit_condition",       17, BuildLossDirection::KernelPermits },
         { "move.escape_hatch",        15, BuildLossDirection::KernelPermits },
         { "scaling",                   6, BuildLossDirection::KernelOmits   },
@@ -911,7 +981,11 @@ TEST(MatchBridgeLosses, EveryDropIsCountedAgainstKungFuGirlsActualFile) {
         { "gap_actions",               1, BuildLossDirection::KernelOmits   },
         { "starters",                 21, BuildLossDirection::KernelOmits   },
         { "move.engine.hits",          0, BuildLossDirection::KernelOmits   },
-        { "move.engine.motion",        0, BuildLossDirection::KernelOmits   },
+        // Exact since M1.3(b2): motion keys are carried (she authors none --
+        // the zero records the check), and the uncarried pos_add teleports
+        // split into their own row.
+        { "move.engine.motion",        0, BuildLossDirection::Exact         },
+        { "move.engine.motion (pos_add)", 0, BuildLossDirection::KernelOmits },
         { "move.reach (absent)",       0, BuildLossDirection::KernelOmits   },
         { "move.reach (provenance)",  25, BuildLossDirection::KernelPermits },
         { "move.hitbox.y",            25, BuildLossDirection::KernelPermits },
@@ -992,4 +1066,651 @@ TEST(MatchBridgeLosses, AllThreeShippedCharactersBuild) {
                   build.data.p[0].moveCount);
         EXPECT_FALSE(build.report[0].playsAsAnalysed);
     }
+}
+
+// --- The edge guard the kernel cannot see ------------------------------------
+//
+// CancelEdge carries no `guard` of its own. ROADMAP M1.1b measured every
+// character in this tree -- fighter_a_infinite's ten and Kung Fu Girl's
+// forty-one -- and found that all fifty-one restate the TARGET move's own guard
+// exactly, which the cancel scan does enforce. So the field was not added and
+// CancelEdge stayed 16 bytes.
+//
+// That is an observation about today's data, not a property of the schema, and
+// an observation load-bearing enough to skip a struct on deserves a test that
+// fails when it stops being true. The build warns per offending edge; this is
+// the character that offends.
+TEST(MatchBridgeLosses, AnEdgeGuardStricterThanItsTargetIsWarnedAbout) {
+    CharacterData c = syntheticCharacter(2);
+    c.resources.push_back(ResourceDef{ "meter", 0, 0, 300, true });
+    c.RebuildIndices();
+
+    // The target asks for 50 and the EDGE into it asks for 100. The kernel
+    // checks the target, so at 50 meter this cancel is taken and the file says
+    // it should not be.
+    c.moves[1].guard.push_back(ResourceAmount{ 0, 50 });
+
+    Cancel e{};
+    e.from  = 0;
+    e.to    = 1;
+    e.delay = 0;
+    e.on    = Contact::Hit;
+    e.guard.push_back(ResourceAmount{ 0, 100 });
+    c.cancels.push_back(e);
+    c.RebuildIndices();
+
+    BuildOptions options{};
+    options.bindings = { { c.moves[0].id, cse::kernel::kInputLP },
+                         { c.moves[1].id, cse::kernel::kInputMP } };
+
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build))
+        << build.report[0].error;
+
+    bool warned = false;
+    for (const std::string& w : build.report[0].warnings)
+        if (w.find("permitted where the file refuses") != std::string::npos)
+            warned = true;
+
+    EXPECT_TRUE(warned)
+        << "an edge requiring 100 into a move requiring 50 built without a "
+           "word. The kernel will take that cancel at 50, so the only thing "
+           "standing between this file and a wrong simulation is this warning.";
+
+    // AND THE REDUNDANT CASE STAYS QUIET, because a warning that fires on all
+    // fifty-one authored edges is a warning nobody reads.
+    CharacterData quiet = c;
+    quiet.cancels[0].guard[0].value = 50;      // exactly the target's minimum
+    quiet.RebuildIndices();
+
+    MatchBuild quietBuild{};
+    ASSERT_TRUE(BuildMatchData(quiet, options, quiet, options, quietBuild))
+        << quietBuild.report[0].error;
+
+    for (const std::string& w : quietBuild.report[0].warnings)
+        EXPECT_EQ(w.find("permitted where the file refuses"), std::string::npos)
+            << "an edge guard equal to its target's was warned about: " << w;
+}
+
+// --- The bridge carries what the kernel already implements --------------------
+//
+// ROADMAP M1.3d. The kernel has applied `pushbackHit` since ADR-005 P2 and every
+// shipped move authors a `pushback`, but MatchBuilder populated ten MoveDef
+// fields and left the rest at zero -- so a built character's hits moved nobody,
+// froze nobody and knocked nobody down, however completely the kernel
+// implemented all three.
+//
+// THIS TEST IS THE ONLY THING THAT PROVES THE WIRE, and that was measured rather
+// than assumed: reverting the four lines in MatchBuilder leaves the whole
+// 58-test suite green without it. Every other test that noticed pushback was
+// FIXED to expect it -- the combo bench moved closer, the mirror match walks
+// back in, four sweeps moved to the corner. Each of those fixes is right, and
+// collectively they are a suite that stopped being able to tell whether the
+// field is carried at all.
+//
+// Written against a CharacterData for the same reason:
+// tests/test_p2_mechanics.cpp proves the kernel's half by assigning MoveDef
+// directly, and doing that here would pass against the very gap this exists to
+// find.
+TEST(MatchBridgeMechanics, PushbackReachesTheKernelAndMovesTheDefender) {
+    constexpr std::int32_t kPushback = px(12);
+
+    CharacterData c = syntheticCharacter(1);
+    c.moves[0].pushbackSub = kPushback;
+    c.RebuildIndices();
+
+    BuildOptions options{};
+    options.bindings = { { c.moves[0].id, cse::kernel::kInputLP } };
+
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build))
+        << build.report[0].error;
+
+    const cse::kernel::MoveDef& poke = build.data.p[0].moves[1];
+    EXPECT_EQ(poke.pushbackHit, static_cast<std::int16_t>(kPushback))
+        << "the file authors " << kPushback
+        << " sub-units of pushback and the bridge handed the kernel "
+        << poke.pushbackHit
+        << ". A field the bridge drops is a mechanic the game does not have, "
+           "however well the kernel implements it.";
+
+    // AND IT MOVES SOMEBODY, which a field comparison alone cannot say.
+    cse::kernel::GameState s{};
+    cse::kernel::ResetMatch(s, 0xC0FFEEu);
+    s.p[0].posX   = -px(20);
+    s.p[1].posX   =  px(20);
+    s.p[0].facing = 0;
+    s.p[1].facing = 1;
+    for (int i = 0; i < 2; ++i) {
+        s.p[i].moveId    = 1;
+        s.p[i].moveFrame = static_cast<std::uint16_t>(c.moves[0].startup);
+    }
+
+    const std::int32_t before = s.p[1].posX;
+    cse::kernel::ResolveHits(s, build.data);
+    ASSERT_NE(s.p[1].pushX, 0)
+        << "the defender was hit and no pushback was queued, so nothing will "
+           "move them on any later tick either.";
+
+    cse::kernel::Simulate(s, cse::kernel::InputPair{}, build.data);
+    EXPECT_GT(s.p[1].posX, before)
+        << "the defender stands to the RIGHT of the attacker and ended at "
+        << s.p[1].posX << " from " << before
+        << ". Pushback runs AWAY from the attacker, derived from the position "
+           "difference rather than from facing.";
+}
+
+// Knockdown, from the authored `engine.reaction` block. The kernel slot has
+// existed since ADR-005 P2 and was zero for every built character.
+//
+// Hitstop used to be read by the loader and deliberately NOT carried here,
+// because the freeze moved every frame-exact count in tests/test_gap_extent.cpp.
+// M1.4 made those counts properties, M1.3i carried the freeze, and
+// TheAuthoredFreezeReachesBothFightersAndATapInsideItBuffers below is the
+// bridge test for it.
+TEST(MatchBridgeMechanics, KnockdownReachesTheKernel) {
+    CharacterData c = syntheticCharacter(2);
+
+    // A knockdown is a PAIR here -- it knocks down and getting up takes time --
+    // because this engine keeps liedown time per MOVE where MUGEN keeps it per
+    // CHARACTER. A move that knocks down and gives no duration gets a warning
+    // and no knockdown; AOF2's punk_b_kick is the real file that does it.
+    c.moves[1].causesKnockdown  = true;
+    c.moves[1].fallRecoverTicks = 20;
+    c.RebuildIndices();
+
+    BuildOptions options{};
+    options.bindings = { { c.moves[0].id, cse::kernel::kInputLP },
+                         { c.moves[1].id, cse::kernel::kInputMP } };
+
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build))
+        << build.report[0].error;
+
+    EXPECT_EQ(build.data.p[0].moves[2].knockdownTicks, 20u)
+        << "the file says this move knocks down and that getting up takes 20 "
+           "ticks; the bridge handed the kernel "
+        << build.data.p[0].moves[2].knockdownTicks << ".";
+
+    // AND THE MOVE THAT DOES NOT KNOCK DOWN CARRIES NOTHING, which is the half
+    // that says `fall_recover_ticks` describes the knockdown rather than the
+    // move. Slot 1 authors no knockdown at all.
+    EXPECT_EQ(build.data.p[0].moves[1].knockdownTicks, 0u)
+        << "a move that does not knock down was given a knockdown duration.";
+}
+
+// THE SHIPPED SWEEP ACTUALLY KNOCKS DOWN.
+//
+// Reported from play (2026-08-20): "if I do crouch hk it seems like it just goes
+// into hitstun - doesn't show me the downed training dummy". Every test for this
+// so far used a synthetic character, which proves the WIRE and not the FILE --
+// and the file is where the answer turned out to be.
+TEST(MatchBridgeMechanics, FighterAsSweepCarriesItsKnockdownIntoTheKernel) {
+    CharacterData c{};
+    LoadReport report{};
+    ASSERT_TRUE(LoadCharacterFile(ownCharactersDir(), "fighter_a.json", loadOptions(), c, report))
+        << report.error;
+
+    const MoveIndex sweep = c.FindMove("crouch_hk");
+    ASSERT_NE(sweep, cse::data::kInvalidMove) << "fighter_a has no crouch_hk";
+
+    EXPECT_TRUE(c.moves[sweep].causesKnockdown)
+        << "the loader did not pick up crouch_hk's "
+           "engine.reaction.causes_knockdown, so nothing downstream can.";
+    EXPECT_GT(c.moves[sweep].fallRecoverTicks, 0)
+        << "crouch_hk knocks down and the loader read a recovery of "
+        << c.moves[sweep].fallRecoverTicks
+        << "; the kernel counts the knockdown down from that number, so zero is "
+           "no knockdown at all.";
+
+    BuildOptions options{};
+    options.bindings = { { "crouch_hk", cse::kernel::kInputHK } };
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build)) << build.report[0].error;
+
+    const std::uint16_t slot = build.moves[0].Find("crouch_hk");
+    ASSERT_NE(slot, 0u) << "crouch_hk did not reach the kernel's move table";
+    EXPECT_GT(build.data.p[0].moves[slot].knockdownTicks, 0u)
+        << "the bridge handed the kernel a knockdown of "
+        << build.data.p[0].moves[slot].knockdownTicks
+        << " for a move the file says knocks down.";
+}
+
+// --- The stance wire (ROADMAP M1.3e) -----------------------------------------
+//
+// The bridge finding that moved the headline: MoveDef::stance was never
+// assigned, so every built move was kStanceAny, stand_hk shadowed crouch_hk on
+// their shared button, and 12 of fighter_a's 18 normals could not be performed
+// at all. These two prove the wire on the SHIPPED file, end to end through
+// BuildMatchData and the real kernel -- the layer every earlier attempt proved
+// at the wrong one.
+
+TEST(MatchBridgeMechanics, ADirectionEstablishesTheStanceOnTheTickItIsPressed) {
+    CharacterData c{};
+    LoadReport report{};
+    ASSERT_TRUE(LoadCharacterFile(ownCharactersDir(), "fighter_a.json", loadOptions(), c, report))
+        << report.error;
+
+    // Both variants on the ONE button, standing first -- the exact shadowing
+    // pair the finding names.
+    BuildOptions options{};
+    options.bindings = { { "stand_hk",  cse::kernel::kInputHK },
+                         { "crouch_hk", cse::kernel::kInputHK } };
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build)) << build.report[0].error;
+
+    const std::uint16_t standSlot  = build.moves[0].Find("stand_hk");
+    const std::uint16_t crouchSlot = build.moves[0].Find("crouch_hk");
+    ASSERT_NE(standSlot,  0u);
+    ASSERT_NE(crouchSlot, 0u);
+
+    // Down+HK from idle: the crouching variant, on that very tick.
+    cse::kernel::GameState s{};
+    cse::kernel::ResetMatch(s, 0x1D7u);
+    cse::kernel::InputPair in{};
+    in.p[0].bits = cse::kernel::kInputDown | cse::kernel::kInputHK;
+    cse::kernel::Simulate(s, in, build.data);
+    EXPECT_EQ(s.p[0].moveId, crouchSlot)
+        << "Down+HK started move " << s.p[0].moveId << " and not crouch_hk ("
+        << crouchSlot << "). Without the stance wire the first slot sharing "
+        << "the button shadows the rest, and the sweep cannot be performed.";
+
+    // HK alone: the standing one.
+    cse::kernel::GameState s2{};
+    cse::kernel::ResetMatch(s2, 0x1D7u);
+    cse::kernel::InputPair hk{};
+    hk.p[0].bits = cse::kernel::kInputHK;
+    cse::kernel::Simulate(s2, hk, build.data);
+    EXPECT_EQ(s2.p[0].moveId, standSlot)
+        << "HK with no direction started move " << s2.p[0].moveId
+        << " and not stand_hk (" << standSlot << ").";
+}
+
+// M1.1c's central claim -- "every normal fighter_a authors is reachable" --
+// re-tested THROUGH BuildMatchData, which is the layer its original test
+// skipped. Each variant is asked for the way a player asks: its button plus
+// the stance-establishing direction, from idle, and it must start on that
+// tick under its own name.
+TEST(MatchBridgeMechanics, EveryAuthoredNormalIsReachableThroughItsButtonAndStance) {
+    CharacterData c{};
+    LoadReport report{};
+    ASSERT_TRUE(LoadCharacterFile(ownCharactersDir(), "fighter_a.json", loadOptions(), c, report))
+        << report.error;
+
+    const char* kButtons[] = { "lp", "mp", "hp", "lk", "mk", "hk" };
+    const std::uint16_t kBits[] = {
+        cse::kernel::kInputLP, cse::kernel::kInputMP, cse::kernel::kInputHP,
+        cse::kernel::kInputLK, cse::kernel::kInputMK, cse::kernel::kInputHK };
+
+    BuildOptions options{};
+    for (int b = 0; b < 6; ++b) {
+        options.bindings.push_back({ std::string("stand_")  + kButtons[b], kBits[b] });
+        options.bindings.push_back({ std::string("crouch_") + kButtons[b], kBits[b] });
+        options.bindings.push_back({ std::string("air_")    + kButtons[b], kBits[b] });
+    }
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build)) << build.report[0].error;
+
+    int reachable = 0;
+    for (int b = 0; b < 6; ++b) {
+        const struct { std::string name; std::uint16_t extra; } variants[] = {
+            { std::string("stand_")  + kButtons[b], 0 },
+            { std::string("crouch_") + kButtons[b], cse::kernel::kInputDown },
+            { std::string("air_")    + kButtons[b], cse::kernel::kInputUp },
+        };
+        for (const auto& v : variants) {
+            const std::uint16_t slot = build.moves[0].Find(v.name);
+            ASSERT_NE(slot, 0u) << v.name << " did not reach the move table";
+
+            cse::kernel::GameState s{};
+            cse::kernel::ResetMatch(s, 0x1D7u);
+            cse::kernel::InputPair in{};
+            in.p[0].bits = static_cast<std::uint16_t>(kBits[b] | v.extra);
+            cse::kernel::Simulate(s, in, build.data);
+
+            EXPECT_EQ(s.p[0].moveId, slot)
+                << v.name << " (slot " << slot << ") did not start; moveId is "
+                << s.p[0].moveId << ". A normal the player cannot perform is "
+                << "authored frame data the game does not have.";
+            if (s.p[0].moveId == slot) ++reachable;
+        }
+    }
+    EXPECT_EQ(reachable, 18)
+        << "only " << reachable << " of fighter_a's 18 normals are reachable.";
+}
+
+// --- The juggle wiring (ROADMAP M1.1f) ---------------------------------------
+//
+// The budget gate has sat in ResolveHits since ADR-005 P2 -- "the mechanism
+// the prover's ranking certificate is written in" -- and had never fired for a
+// built character because MatchBuilder set neither half. Both halves or
+// neither: a budget with no cost never depletes, a cost with no budget refuses
+// every hit. Fighter::juggle is the MIRROR of the resource the file calls
+// juggle: same authored numbers, gating where ApplyEffects only clamps.
+TEST(MatchBridgeMechanics, TheJuggleBudgetReachesTheKernelAndRefusesTheOverspendingHit) {
+    CharacterData c{};
+    LoadReport report{};
+    ASSERT_TRUE(LoadCharacterFile(ownCharactersDir(), "fighter_a.json", loadOptions(), c, report))
+        << report.error;
+
+    BuildOptions options{};
+    options.bindings = { { "air_mp", cse::kernel::kInputMP },
+                         { "air_hp", cse::kernel::kInputHP },
+                         { "stand_lp", cse::kernel::kInputLP } };
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build)) << build.report[0].error;
+
+    // The budget is the juggle resource's own initial, and each cost is the
+    // move's authored juggle spend -- the same numbers the certificate ranks.
+    EXPECT_EQ(build.data.p[0].juggleMax, 4)
+        << "fighter_a's juggle resource authors initial 4 and the bridge "
+           "handed the kernel " << build.data.p[0].juggleMax;
+    const std::uint16_t airMp = build.moves[0].Find("air_mp");
+    const std::uint16_t airHp = build.moves[0].Find("air_hp");
+    const std::uint16_t lp    = build.moves[0].Find("stand_lp");
+    ASSERT_NE(airMp, 0u); ASSERT_NE(airHp, 0u); ASSERT_NE(lp, 0u);
+    EXPECT_EQ(build.data.p[0].moves[airMp].juggleCost, 1);
+    EXPECT_EQ(build.data.p[0].moves[airHp].juggleCost, 2);
+    EXPECT_EQ(build.data.p[0].moves[lp].juggleCost, 0)
+        << "a move that spends no juggle must cost none, or every hit is gated";
+
+    // AND THE GATE FIRES: the same overlapping hit lands with budget left and
+    // is REFUSED -- not damaged, not scaled, refused -- one point short.
+    for (const std::int16_t budget : { std::int16_t{1}, std::int16_t{0} }) {
+        cse::kernel::GameState s{};
+        cse::kernel::ResetMatch(s, 0xC0FFEEu);
+        s.p[0].posX = -px(10);
+        s.p[1].posX =  px(10);
+        s.p[0].facing = 0;
+        s.p[1].facing = 1;
+        s.p[0].airborne  = 1;
+        s.p[0].posY      = px(30);
+        s.p[0].moveId    = airMp;
+        s.p[0].moveFrame = static_cast<std::uint16_t>(
+            build.data.p[0].moves[airMp].startup);
+        s.p[1].juggle    = budget;
+        s.p[1].hitstun   = 30;   // mid-juggle: the restore must not refill
+
+        const std::int32_t before = s.p[1].health;
+        cse::kernel::ResolveHits(s, build.data);
+        if (budget >= 1) {
+            EXPECT_LT(s.p[1].health, before)
+                << "a hit within the budget was refused";
+            EXPECT_EQ(s.p[1].juggle, budget - 1)
+                << "the budget was not spent by the hit that used it";
+        } else {
+            EXPECT_EQ(s.p[1].health, before)
+                << "the budget was overspent: air_mp costs 1 against a "
+                   "defender with 0 left, and the gate let it land";
+        }
+    }
+}
+
+// --- Hitstop crosses the bridge (ROADMAP M1.3i) ------------------------------
+//
+// The kernel has frozen both fighters on impact since ADR-005 P2; the bridge
+// held the authored value back until M1.4 turned the frame-exact counts into
+// properties, because the freeze moves every wall-clock number while moving no
+// frame-data relationship -- startup 5 is still five ticks OF THE MOVE. Two
+// halves proved on the shipped file: the authored freeze reaches BOTH
+// fighters, and a tap made entirely inside it still buffers -- the M1.3f
+// placement rule, exercised with a real authored value instead of a synthetic
+// one, which the crossplat golden (no moves, no hitstop) can never do.
+TEST(MatchBridgeMechanics, TheAuthoredFreezeReachesBothFightersAndATapInsideItBuffers) {
+    CharacterData c{};
+    LoadReport report{};
+    ASSERT_TRUE(LoadCharacterFile(ownCharactersDir(), "fighter_a.json", loadOptions(), c, report))
+        << report.error;
+
+    const MoveIndex lp = c.FindMove("stand_lp");
+    ASSERT_NE(lp, cse::data::kInvalidMove);
+    ASSERT_EQ(c.moves[lp].hitstopTicks, 8)
+        << "the loader no longer reads stand_lp's authored freeze";
+
+    BuildOptions options{};
+    options.bindings = { { "stand_lp", cse::kernel::kInputLP },
+                         { "stand_mp", cse::kernel::kInputMP } };
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build)) << build.report[0].error;
+
+    const std::uint16_t lpSlot = build.moves[0].Find("stand_lp");
+    ASSERT_NE(lpSlot, 0u);
+    EXPECT_EQ(build.data.p[0].moves[lpSlot].hitstop, 8)
+        << "the bridge dropped the freeze; MoveDef::hitstop is "
+        << build.data.p[0].moves[lpSlot].hitstop;
+
+    // Both fighters, with the buffer live so the tap-confirm can be watched.
+    build.data.p[0].inputBufferFrames = 2;
+    build.data.p[1].inputBufferFrames = 2;
+
+    cse::kernel::GameState s{};
+    cse::kernel::ResetMatch(s, 0x1D7u);
+    s.p[0].posX = -px(10);
+    s.p[1].posX =  px(10);
+    s.p[0].facing = 0;
+    s.p[1].facing = 1;
+
+    cse::kernel::InputPair lpPress{};
+    lpPress.p[0].bits = cse::kernel::kInputLP;
+    cse::kernel::Simulate(s, lpPress, build.data);          // stand_lp starts
+    ASSERT_EQ(s.p[0].moveId, lpSlot);
+
+    // Run to the contact tick: startup 3 means the box first lands on the
+    // move's third frame, and the freeze is set by ResolveHits that tick.
+    cse::kernel::InputPair none{};
+    while (s.p[0].hitstop == 0) {
+        cse::kernel::Simulate(s, none, build.data);
+        ASSERT_NE(s.p[0].moveId, 0u) << "stand_lp ran out before it connected";
+    }
+    // Observed on the tick ResolveHits SET it, before any decrement -- the
+    // freeze starts counting on the next tick's physics.
+    EXPECT_EQ(s.p[0].hitstop, 8)
+        << "the ATTACKER'S freeze is not the authored 8";
+    EXPECT_EQ(s.p[1].hitstop, 8)
+        << "the DEFENDER'S freeze is not the authored 8: hitstop freezes BOTH "
+           "fighters, or the impact reads as the defender lagging";
+    const std::uint16_t frameAtFreeze = s.p[0].moveFrame;
+
+    // THE TAP-CONFIRM: press and RELEASE stand_mp's button entirely inside
+    // the freeze. M1.3f's placement rule says recording runs during hitstop
+    // with aging suspended, so the tap must come out as the cancel the moment
+    // the move can take it -- eaten, it is the exact input this genre's
+    // confirm culture is built on.
+    cse::kernel::InputPair mpTap{};
+    mpTap.p[0].bits = cse::kernel::kInputMP;
+    cse::kernel::Simulate(s, mpTap, build.data);            // pressed, frozen
+    cse::kernel::Simulate(s, none, build.data);             // released, frozen
+    EXPECT_EQ(s.p[0].moveFrame, frameAtFreeze)
+        << "the move advanced during its own freeze";
+
+    const std::uint16_t mpSlot = build.moves[0].Find("stand_mp");
+    ASSERT_NE(mpSlot, 0u);
+    bool cancelled = false;
+    for (int t = 0; t < 30 && !cancelled; ++t) {
+        cse::kernel::Simulate(s, none, build.data);
+        cancelled = s.p[0].moveId == mpSlot;
+    }
+    EXPECT_TRUE(cancelled)
+        << "the tap made entirely inside the authored freeze never came out: "
+           "the freeze ate the confirm, which is the regression the three "
+           "P3Input freeze tests pin on synthetic data and this one pins on "
+           "the shipped file.";
+}
+
+// JUMP PHYSICS, from engine.movement (ROADMAP M1.3(b1), ADR-014 step one).
+// FighterData::jumpImpulseSub and gravitySub have been kernel-consulted since
+// M1.1b -- `velY = jumpImpulseSub != 0 ? authored : kJumpImpulse` -- and
+// nothing could author them until this wire. The full jump-as-move flip is
+// ADR-014's step three; THIS test owns step one's claims: the numbers arrive,
+// they change the arc the kernel actually flies, silence keeps the placeholder
+// byte for byte, and the loader refuses the sentinel zero by name.
+namespace {
+
+// Press Up once from idle and count the ticks the fighter is observably
+// airborne. The convention matches P2Movement's: the landing tick clears the
+// flag, so an arc whose clamp fires on tick n reads as n-1 airborne ticks.
+int airTicksUnder(const MatchData& data) {
+    cse::kernel::GameState s{};
+    cse::kernel::ResetMatch(s, 0xC0FFEEu);
+
+    cse::kernel::InputPair up{};
+    up.p[0].bits = cse::kernel::kInputUp;
+    cse::kernel::Simulate(s, up, data);
+    EXPECT_NE(s.p[0].airborne, 0u) << "the Up press did not take off at all";
+
+    int air = s.p[0].airborne ? 1 : 0;
+    for (int t = 0; t < 400 && s.p[0].airborne; ++t) {
+        cse::kernel::Simulate(s, cse::kernel::InputPair{}, data);
+        if (s.p[0].airborne) ++air;
+    }
+    return air;
+}
+
+}  // namespace
+
+TEST(MatchBridgeMechanics, TheAuthoredJumpPhysicsChangeTheArcAndSilenceKeepsIt) {
+    // --- the carry, and the ledger row that records it -----------------------
+    CharacterData c = syntheticCharacter(1);
+    c.jumpImpulseSub = 2560;   // 10 px/tick, double the kernel placeholder
+    c.gravitySub     = 64;     // the placeholder's own gravity, now AUTHORED
+    c.RebuildIndices();
+
+    BuildOptions options{};
+    options.bindings = { { c.moves[0].id, cse::kernel::kInputLP } };
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build))
+        << build.report[0].error;
+
+    EXPECT_EQ(build.data.p[0].jumpImpulseSub, 2560)
+        << "the authored takeoff velocity did not reach FighterData; the "
+           "kernel has consulted this slot since M1.1b and nothing arrived.";
+    EXPECT_EQ(build.data.p[0].gravitySub, 64);
+
+    const BuildLoss* row = findLoss(build.report[0], "character.movement");
+    ASSERT_NE(row, nullptr) << "the carry has no ledger row; ADR-011's five "
+                               "parts are four";
+    EXPECT_EQ(row->count, 2);
+    EXPECT_EQ(row->direction, BuildLossDirection::Exact);
+
+    // --- the physics: the arc is the AUTHORED parabola -----------------------
+    //
+    // J = 2560, G = 64: gravity applies on the takeoff tick, so the landing
+    // clamp fires on tick 2*(J/G) - 1 = 79 and the fighter reads airborne for
+    // 78 ticks -- exactly double-impulse doubling the placeholder's 38 (the
+    // arithmetic P2Movement and the crossplat script derive from J = 1280,
+    // G = 64). Asserted as the exact integer, because "longer" alone would
+    // pass a wire that dropped gravity and carried only the impulse.
+    EXPECT_EQ(airTicksUnder(build.data), 78)
+        << "the authored jump does not fly the authored parabola";
+
+    // --- silence: an unauthored file keeps the placeholder arc ---------------
+    CharacterData silent = syntheticCharacter(1);
+    silent.RebuildIndices();
+    MatchBuild silentBuild{};
+    ASSERT_TRUE(BuildMatchData(silent, options, silent, options, silentBuild))
+        << silentBuild.report[0].error;
+    EXPECT_EQ(silentBuild.data.p[0].jumpImpulseSub, 0);
+    EXPECT_EQ(silentBuild.data.p[0].gravitySub, 0);
+    EXPECT_EQ(airTicksUnder(silentBuild.data), 38)
+        << "a character that authored nothing lost the placeholder arc every "
+           "measured count in this suite was derived on";
+    const BuildLoss* silentRow = findLoss(silentBuild.report[0], "character.movement");
+    ASSERT_NE(silentRow, nullptr);
+    EXPECT_EQ(silentRow->count, 0) << "the zero-count row is the proof a check ran";
+
+    // --- and the shipped file is the silent case, on purpose -----------------
+    //
+    // ADR-014: base fighter_a does NOT author engine.movement (the M1.1e
+    // buffer precedent), so its hash, its 38-tick arc and the whole measured
+    // suite stay put; the floaty_jump VARIANT is where the authored arc shows.
+    CharacterData fa{};
+    LoadReport faReport{};
+    ASSERT_TRUE(LoadCharacterFile(ownCharactersDir(), "fighter_a.json",
+                                  loadOptions(), fa, faReport))
+        << faReport.error;
+    EXPECT_EQ(fa.jumpImpulseSub, 0);
+    EXPECT_EQ(fa.gravitySub, 0);
+
+    // --- the sentinel is unauthorable, by refusal ----------------------------
+    //
+    // Zero means "unauthored, use the placeholder" to the kernel's `!= 0`
+    // fallback; an author who writes 0 means "no jump", and silently handing
+    // them the placeholder would be the scalingReduction incident again.
+    const char* kZeroJump =
+        R"({"name":"z","stage":"corner","walk_speed":0.5,)"
+        R"("resources":[{"name":"meter","initial":0,"floor":0},)"
+        R"({"name":"juggle","initial":4,"floor":0}],)"
+        R"("scaling":{},"decay":{"kind":"none"},)"
+        R"("moves":[{"id":"jab","startup":3,"active":2,"recovery":4,)"
+        R"("hitstun":8,"damage":10.0,"stance":"standing"}],"cancels":[],)"
+        R"("engine":{"movement":{"jump_impulse_sub":0}}})";
+    CharacterData zc{};
+    LoadReport zr{};
+    EXPECT_FALSE(LoadCharacterJson("zero_jump.json", kZeroJump, loadOptions(),
+                                   zc, zr))
+        << "an explicit jump_impulse_sub of 0 loaded, and the kernel will "
+           "silently replace it with the placeholder";
+    EXPECT_NE(zr.error.find("movement"), std::string::npos) << zr.error;
+}
+
+// MOTION KEYS, and the ONE sign flip (ROADMAP M1.3(b2), ADR-014 step two).
+// Measured on fighter_a's own authored specials rather than a synthetic, so
+// the MUGEN Y-down convention in the file is the thing being tested: the
+// bridge negates velYSub exactly once, keeps velXSub as authored, sorts by
+// tick, and counts what it carried.
+TEST(MatchBridgeMechanics, TheAuthoredMotionKeysCrossWithTheirOneSignFlip) {
+    CharacterData c{};
+    LoadReport report{};
+    ASSERT_TRUE(LoadCharacterFile(ownCharactersDir(), "fighter_a.json",
+                                  loadOptions(), c, report))
+        << report.error;
+
+    const cse::data::MoveIndex up = c.FindMove("special_uppercut");
+    ASSERT_NE(up, cse::data::kInvalidMove);
+    ASSERT_FALSE(c.moves[up].motion.empty())
+        << "fighter_a's special_uppercut no longer authors motion, so this "
+           "test is measuring nothing -- pick another authored special.";
+
+    BuildOptions options{};
+    options.bindings = { { "special_uppercut", cse::kernel::kInputHP } };
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build))
+        << build.report[0].error;
+
+    const std::uint16_t slot = build.moves[0].Find("special_uppercut");
+    ASSERT_NE(slot, 0u);
+    const cse::kernel::MoveDef& m = build.data.p[0].moves[slot];
+
+    ASSERT_EQ(static_cast<std::size_t>(m.motionCount), c.moves[up].motion.size())
+        << "the bridge carried a different number of keys than the file "
+           "authors (and the file authors fewer than the kernel bound)";
+    std::int32_t prevTick = -1;
+    for (std::int32_t i = 0; i < m.motionCount; ++i) {
+        SCOPED_TRACE(i);
+        const cse::data::MotionKey& a = c.moves[up].motion[static_cast<std::size_t>(i)];
+        EXPECT_EQ(m.motion[i].fromTick, a.tick);
+        EXPECT_EQ(m.motion[i].velXSub, a.velXSub)
+            << "velX is forward-positive in BOTH conventions; nothing may "
+               "touch it";
+        EXPECT_EQ(m.motion[i].velYSub, -a.velYSub)
+            << "the MUGEN Y-down to kernel Y-up flip happens exactly once, "
+               "here -- an unflipped uppercut DIVES";
+        EXPECT_GE(m.motion[i].fromTick, prevTick)
+            << "keys must arrive sorted; the kernel takes the last "
+               "at-or-before frame and an unsorted table makes that a "
+               "different key on two builds of one file";
+        prevTick = m.motion[i].fromTick;
+    }
+
+    // The row flipped direction the day the keys crossed; the pos_add split
+    // records the one teleport the corpus authors (fighter_a_infinite, not
+    // this file).
+    const BuildLoss* motion = findLoss(build.report[0], "move.engine.motion");
+    ASSERT_NE(motion, nullptr);
+    EXPECT_EQ(motion->direction, BuildLossDirection::Exact);
+    EXPECT_GE(motion->count, 2) << "fighter_a authors motion on two specials";
+    const BuildLoss* posAdd =
+        findLoss(build.report[0], "move.engine.motion (pos_add)");
+    ASSERT_NE(posAdd, nullptr);
+    EXPECT_EQ(posAdd->count, 0) << "fighter_a authors no teleport keys";
 }

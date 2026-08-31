@@ -125,6 +125,7 @@
 
 #include "cse/data/CharacterData.h"
 #include "cse/data/MatchBuilder.h"
+#include "cse/game/WitnessCursor.h"
 #include "cse/data/ProverAdapter.h"
 #include "cse/kernel/Simulate.h"
 
@@ -329,12 +330,25 @@ constexpr std::int32_t kHeight    = px(60);
 // would be about an empty room.
 //
 // NOBODY MOVES. The attacker holds an attack button and no direction, so
-// stepFighter sets velX to 0; the defender is in hitstun, which zeroes velX
+// StepPhysics sets velX to 0; the defender is in hitstun, which zeroes velX
 // anyway; and the kernel applies no pushback on hit at all (MatchBuilder's
 // `move.pushback` row: "the kernel moves nobody on hit"). The gap is 8 px on
 // every tick of every run below.
-constexpr std::int32_t kP0X = -px(17);
-constexpr std::int32_t kP1X =  px(17);
+// IN THE CORNER, for the reason tests/test_gap_extent.cpp states at length:
+// the verdicts these combos come from were computed at `stage: corner`, where
+// the model drops horizontal position entirely. Opening midscreen was harmless
+// while nothing moved the defender; once ROADMAP M1.3d wired pushback it meant
+// measuring a sliding midscreen exchange against a corner-only analysis, and
+// every loop here died of separation the model does not model.
+constexpr std::int32_t kStageEdge = 480 * cse::kernel::kSubUnitsPerPixel;
+//
+// THE DEFENDER'S BODY IS AGAINST THE WALL, not its origin. Since ROADMAP M1.2
+// the stage clamps the BODY -- a fighter may not disappear half into the corner
+// -- so an origin placed exactly on the edge is outside its own limit and the
+// first tick shoves it inward. That is not a cornered opening, it is a fighter
+// falling into position while the test believes nothing has happened.
+constexpr std::int32_t kP1X =  kStageEdge - kHalfWidth;
+constexpr std::int32_t kP0X =  kP1X - px(34);
 
 BodySpec body() {
     BodySpec b{};
@@ -359,7 +373,24 @@ bool buildMirror(const CharacterData& c, const std::vector<MoveBinding>& binding
     BuildOptions options{};
     options.body     = body();
     options.bindings = bindings;
-    return BuildMatchData(c, options, c, options, out);
+    if (!BuildMatchData(c, options, c, options, out)) return false;
+
+    // A BUFFER WINDOW WIDE ENOUGH THAT INPUT IS NEVER THE ANSWER, because the
+    // question this file asks is "on which frame does the KERNEL take this
+    // cancel" and a driver is only allowed to supply the press, not to decide
+    // the frame. Under press-activation a driver re-presses every third tick --
+    // it must release to have an edge to press -- so without buffering a window
+    // that opens on an odd frame is taken one or two ticks late and the
+    // measured period is the driver's period, not the window's. Four covers the
+    // re-press cycle with a tick to spare; the buffered press is then consumed
+    // the exact frame the window opens.
+    //
+    // Set here rather than in `fighter_a.json` because the character file has no
+    // such field yet: authoring one is ROADMAP M1.1e, which owes it ADR-011's
+    // five parts. Until then a probe that needs the mechanism asks for it.
+    out.data.p[0].inputBufferFrames = 4;
+    out.data.p[1].inputBufferFrames = 4;
+    return true;
 }
 
 // Returns false with a reason rather than asserting, because the sweep calls
@@ -574,52 +605,16 @@ Witness witnessOf(const CharacterData& c, const ProverResult& r) {
 // advances and the trace holds one button forever. That is the correct failure
 // mode -- it stalls visibly, and the per-tick table shows what the attacker was
 // doing instead.
-class Trace {
-public:
-    Trace(const Witness& w, const MoveIndexMap& map,
-          const std::vector<MoveBinding>& bindings)
-        : loopStart_(w.loopStart) {
-        for (const std::string& id : w.sequence) {
-            slots_.push_back(map.Find(id));
-            std::uint16_t button = 0;
-            for (const MoveBinding& b : bindings)
-                if (b.moveId == id) { button = b.button; break; }
-            buttons_.push_back(button);
-            ids_.push_back(id);
-        }
-    }
+// THE witness cursor lives in CseGame now (WitnessCursor.h, ROADMAP M1.3g);
+// this file's copy -- the fifth -- is deleted with the other four, and the
+// start-before-release ordering it pioneered is the shared cursor's rule.
+using Trace = cse::game::WitnessDriver;
 
-    bool Usable(std::string& why) const {
-        for (std::size_t i = 0; i < slots_.size(); ++i) {
-            if (slots_[i] == 0) {
-                why = "this character has no move called `" + ids_[i] + "`";
-                return false;
-            }
-            if (buttons_[i] == 0) {
-                why = "`" + ids_[i] + "` was given no button, so nothing can ask for it";
-                return false;
-            }
-        }
-        return !slots_.empty();
-    }
-
-    std::uint16_t Bits() const { return buttons_.empty() ? 0 : buttons_[cursor_]; }
-
-    void Observe(std::uint16_t attackerMove, std::uint16_t attackerFrame) {
-        if (slots_.empty()) return;
-        if (attackerMove != slots_[cursor_] || attackerFrame != 0) return;
-        cursor_ = (cursor_ + 1 < slots_.size()) ? cursor_ + 1 : loopStart_;
-    }
-
-    std::size_t LoopLength() const { return slots_.size() - loopStart_; }
-
-private:
-    std::vector<std::uint16_t> slots_;
-    std::vector<std::uint16_t> buttons_;
-    std::vector<std::string>   ids_;
-    std::size_t                loopStart_ = 0;
-    std::size_t                cursor_    = 0;
-};
+Trace makeTrace(const Witness& w, const MoveIndexMap& map,
+                const cse::kernel::FighterData& data) {
+    return Trace(cse::game::WitnessCursor::FromIds(w.sequence, w.loopStart,
+                                                   map, data));
+}
 
 // Silent is the clean measurement: the defender's escapes are read straight off
 // Fighter::hitstun with nothing else moving.
@@ -673,7 +668,7 @@ struct TickLog {
     // Fighter::hitstun rather than derived from frame arithmetic.
     //
     // The tick each hit lands on is excluded and has to be: hitstun is
-    // decremented at the top of stepFighter and re-set by ResolveHits at the
+    // decremented at the top of StepPhysics and re-set by ResolveHits at the
     // bottom, so on the very first hit's tick the defender was legitimately free
     // -- that is what being hit out of neutral means.
     std::vector<std::int32_t> FreeTicks() const {
@@ -706,7 +701,12 @@ TickLog drive(const MatchData& data, Trace& trace, int ticks,
         in.p[0].bits = trace.Bits();
         if (policy == DefenderPolicy::MashesOnceHit && run.firstHitTick >= 0 &&
             t > run.firstHitTick) {
-            in.p[1].bits = defenderBits;
+            // Pulsed, not held: the defender is asking to act as often as the
+            // kernel will let it, and under press-activation that is an edge
+            // every other tick. Held bits would be one press for the whole
+            // string, so "the defender never started a move" would be a
+            // statement about this line rather than about the combo.
+            in.p[1].bits = (t % 2 == 0) ? defenderBits : 0u;
         }
 
         cse::kernel::Simulate(s, in, data);
@@ -742,8 +742,14 @@ TickLog driveProbe(const Attempt& a, int ticks, DefenderPolicy policy) {
     Witness w{};
     w.sequence.push_back(kProbeMove);
     w.loopStart = 0;
-    Trace trace(w, a.build.moves[0], probeBinding());
-    return drive(a.build.data, trace, ticks, policy, kButtonPool[0]);
+    Trace trace = makeTrace(w, a.build.moves[0], a.build.data.p[0]);
+    // The masher establishes the stance of the move it mashes -- the probe is
+    // a crouching normal, and WitnessCursor::StanceHold says why a bare button
+    // would make "the defender never acted" a statement about this line.
+    const std::uint16_t mash = static_cast<std::uint16_t>(
+        kButtonPool[0] | cse::game::WitnessCursor::StanceHold(
+                             a.build.data.p[0], a.build.moves[0].Find(kProbeMove)));
+    return drive(a.build.data, trace, ticks, policy, mash);
 }
 
 // ============================================================================
@@ -883,12 +889,16 @@ struct Row {
     std::int32_t  srcStartup  = 0;
     std::int32_t  srcHitstun  = 0;
     std::int32_t  srcDuration = 0;
+    std::int32_t  srcHitstop  = 0;
 
     // The first frame on which the kernel can BOTH see the window open and see
     // that the source connected. A hit lands on `moveFrame == startup` and
     // ResolveHits sets `alreadyHitBits` at the BOTTOM of that tick, so the cancel
     // test first sees it at `startup + 1` -- which is also, therefore, the loop's
-    // period when the window opens earlier than that.
+    // FRAME period when the window opens earlier than that. The WALL period is
+    // this plus `srcHitstop` (ROADMAP M1.3i): the contact that opens the window
+    // also freezes the move's clock, and the assertions below add that term
+    // where they measure ticks.
     std::int32_t FirstTakeableFrame() const {
         const std::int32_t contact = srcStartup + 1;
         return earliest > contact ? earliest : contact;
@@ -896,8 +906,9 @@ struct Row {
 };
 
 // How long each sweep run gets. Chosen against the file rather than picked: the
-// fastest configuration repeats every 5 ticks for 25 damage, so 120 ticks is 24
-// hits and 600 damage against 1000 health. It stays clear of the KO on purpose
+// fastest configuration repeats every 5 ticks plus 8 of freeze (M1.3i) for 25
+// damage, so 120 ticks is ~9 hits and ~225 damage against 1000 health. It
+// stays clear of the KO on purpose
 // -- Fighter::health clamps at zero and a hit that takes a clamped number to a
 // clamped number is not observable as a hit at all, so a KO inside the window
 // would silently truncate every count in the table. The sweep ASSERTS the
@@ -945,6 +956,7 @@ bool sweep(std::vector<Row>& out, std::size_t& probeOut, std::string& why) {
         row.srcStartup  = src.startup;
         row.srcHitstun  = src.hitstun;
         row.srcDuration = src.startup + src.active + src.recovery;
+        row.srcHitstop  = src.hitstopTicks;
 
         row.proverKeepsEdge = true;
         for (const ProverDeadCancel& dead : a.verdict.deadCancels)
@@ -1034,9 +1046,11 @@ constexpr std::int32_t kKernelBoundary = 6;
 constexpr std::int32_t kStartingHealth = 1000;
 
 // The payoff run. Longer than the sweep because it asserts a period holds over
-// many turns; still short of the KO, at 22 hits for 550 damage in the fastest
-// configuration it uses.
-constexpr int kPayoffTicks = 200;
+// many turns; still short of the KO. Sized for ROADMAP M1.3i's freeze: every
+// connecting hit now adds the probe's 8 authored ticks of hitstop to the wall
+// clock, so the same ~21 hits that 200 ticks used to hold need ~360 -- the HIT
+// COUNT is what the KO ceiling cares about, and it has not moved.
+constexpr int kPayoffTicks = 360;
 constexpr int kMinTurns    = 18;
 
 // The relationships between those three, as compile-time facts rather than as
@@ -1445,13 +1459,18 @@ TEST(OneFramePayoff, AtTheProversBoundaryTheKernelCannotPerformThePrintedLoop) {
         << Summary(run, a.build.moves[0]);
 
     // And the repetition that DOES happen is the move running out and the held
-    // button starting it again -- period `duration`, not period `earliest`.
+    // button starting it again -- period `duration` plus the freeze, not period
+    // `earliest`. Every repetition connects, and since ROADMAP M1.3i a
+    // connecting hit stops the move's own clock for its authored hitstop, so
+    // the WALL period gains exactly that; the move is still `duration` frames
+    // long and still ends by running out.
     const Move& src = a.character.moves[a.character.cancels[a.fileCancel].from];
     const std::int32_t duration = src.startup + src.active + src.recovery;
-    EXPECT_EQ(run.Period(), duration)
+    EXPECT_EQ(run.Period(), duration + src.hitstopTicks)
         << "the string repeats every " << run.Period() << " ticks and the move is "
-        << duration << " ticks long, so something other than the button start is "
-           "restarting it." << Summary(run, a.build.moves[0]);
+        << duration << " ticks long plus " << src.hitstopTicks << " of freeze, so "
+           "something other than the button start is restarting it."
+        << Summary(run, a.build.moves[0]);
 
     // The bridge already says the game is not the analysed character. What this
     // test adds is which edge, and in which direction.
@@ -1470,7 +1489,7 @@ TEST(OneFramePayoff, AtTheProversBoundaryTheKernelCannotPerformThePrintedLoop) {
         << "  MatchBuilder resolves the same edge to " << a.Window()
         << ", so the kernel never takes it: the\n"
         << "  string repeats every " << run.Period() << " ticks (the move's own "
-           "duration) and the defender is out of\n"
+           "duration plus its freeze) and the defender is out of\n"
         << "  hitstun on " << free.size() << " tick(s) inside it, starting a move "
            "on " << run.defenderActedTicks.size() << " of them.\n"
         << "  This is the MIRROR of test_ground_truth.cpp section 5. There the "
@@ -1549,7 +1568,7 @@ TEST(OneFramePayoff, TheLoopExecutesOnceTheKernelWindowOpens) {
     ASSERT_TRUE(buildMirror(a.character, bindings, build))
         << "p0: " << build.report[0].error << " / p1: " << build.report[1].error;
 
-    Trace trace(loopOnly, build.moves[0], bindings);
+    Trace trace = makeTrace(loopOnly, build.moves[0], build.data.p[0]);
     ASSERT_TRUE(trace.Usable(why)) << "the printed loop cannot be driven: " << why;
 
     // --- Execute -------------------------------------------------------------
@@ -1590,8 +1609,12 @@ TEST(OneFramePayoff, TheLoopExecutesOnceTheKernelWindowOpens) {
     // ties what the kernel did back to the number the bridge produced, rather than
     // to a constant somebody recorded.
     const Move& src = a.character.moves[a.character.cancels[a.fileCancel].from];
+    // Plus the freeze (ROADMAP M1.3i): the hit that opens the window also stops
+    // the move's clock for its authored hitstop, so each turn of the loop is
+    // that many wall ticks longer than the frame arithmetic alone says.
     const std::int32_t expectedPeriod =
-        a.earliest > src.startup + 1 ? a.earliest : src.startup + 1;
+        (a.earliest > src.startup + 1 ? a.earliest : src.startup + 1) +
+        src.hitstopTicks;
     ASSERT_GE(run.hitTicks.size(), loopLength + 1);
     EXPECT_EQ(run.Period(), expectedPeriod)
         << "the loop repeats every " << run.Period() << " ticks; MatchBuilder opened "
@@ -1621,7 +1644,7 @@ TEST(OneFramePayoff, TheLoopExecutesOnceTheKernelWindowOpens) {
     // character, the same bindings and a held button from the tick after the combo
     // opens, and require the kernel never to let them start a move. Unlike reading
     // Fighter::hitstun, this asks the simulation itself.
-    Trace mashTrace(loopOnly, build.moves[0], bindings);
+    Trace mashTrace = makeTrace(loopOnly, build.moves[0], build.data.p[0]);
     const TickLog mashed = drive(build.data, mashTrace, kPayoffTicks,
                                  DefenderPolicy::MashesOnceHit, bindings[0].button);
     EXPECT_TRUE(mashed.defenderActedTicks.empty())
@@ -1739,13 +1762,16 @@ TEST(OneFrameBoundary, TheSweepPutsTheAnalysisThreeFramesAheadOfTheGame) {
                 << "the edge is inert and a mashing defender never got to act";
             // What the kernel does INSTEAD: the move runs to the end of its
             // recovery and the held button starts it again, so the string repeats
-            // on the move's own duration. Asserted rather than left as "slower",
+            // on the move's own duration plus its freeze -- each repetition
+            // connects, and the contact stalls the move's clock for its authored
+            // hitstop (ROADMAP M1.3i). Asserted rather than left as "slower",
             // because it is the sentence that says the repetition is an ordinary
             // button press and not a cancel that happens to be late.
-            EXPECT_EQ(r.period, r.srcDuration)
+            EXPECT_EQ(r.period, r.srcDuration + r.srcHitstop)
                 << "the string repeats every " << r.period << " ticks and the move "
-                   "is " << r.srcDuration << " ticks long, so something other than "
-                   "the button start is restarting it.";
+                   "is " << r.srcDuration << " ticks long plus " << r.srcHitstop
+                << " of freeze, so something other than the button start is "
+                   "restarting it.";
         } else {
             EXPECT_EQ(r.verdict, KernelVerdict::Connects)
                 << "the window is [" << r.earliest << ", " << r.latest
@@ -1755,12 +1781,14 @@ TEST(OneFrameBoundary, TheSweepPutsTheAnalysisThreeFramesAheadOfTheGame) {
             EXPECT_EQ(r.defActs, 0u)
                 << "a mashing defender started " << r.defActs
                 << " move(s) inside a combo the window says is unbroken";
-            // The period is MatchBuilder's own number rather than a recorded
-            // constant: see Row::FirstTakeableFrame for the derivation.
-            EXPECT_EQ(r.period, r.FirstTakeableFrame())
+            // The period is MatchBuilder's own number plus the freeze, rather
+            // than a recorded constant: see Row::FirstTakeableFrame for both
+            // halves of the derivation.
+            EXPECT_EQ(r.period, r.FirstTakeableFrame() + r.srcHitstop)
                 << "the loop repeats every " << r.period
                 << " ticks; the window opens at frame " << r.earliest
-                << " and the source connects on frame " << r.srcStartup << ".";
+                << ", the source connects on frame " << r.srcStartup
+                << " and freezes " << r.srcHitstop << ".";
         }
     }
 

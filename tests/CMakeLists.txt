@@ -186,7 +186,7 @@ add_test(NAME test_cancels COMMAND $<TARGET_FILE:test_cancels>)
 # directory to find them and would otherwise fall through to the source tree,
 # silently testing unstaged content.
 add_executable(test_ground_truth test_ground_truth.cpp)
-target_link_libraries(test_ground_truth PRIVATE CseData CseKernel GTest::gtest_main)
+target_link_libraries(test_ground_truth PRIVATE CseGame CseData CseKernel GTest::gtest_main)
 add_dependencies(test_ground_truth test_runtime_deps)
 add_test(NAME test_ground_truth COMMAND $<TARGET_FILE:test_ground_truth>)
 
@@ -196,7 +196,7 @@ add_test(NAME test_ground_truth COMMAND $<TARGET_FILE:test_ground_truth>)
 # derived, not taken from the authoring report — and asks the same question of
 # every one of them.
 add_executable(test_gap_extent test_gap_extent.cpp)
-target_link_libraries(test_gap_extent PRIVATE CseData CseKernel GTest::gtest_main)
+target_link_libraries(test_gap_extent PRIVATE CseGame CseData CseKernel GTest::gtest_main)
 add_dependencies(test_gap_extent test_runtime_deps)
 add_test(NAME test_gap_extent COMMAND $<TARGET_FILE:test_gap_extent>)
 
@@ -222,7 +222,7 @@ add_test(NAME test_gap_extent COMMAND $<TARGET_FILE:test_gap_extent>)
 # the game's asset directory.
 add_executable(test_one_frame test_one_frame.cpp)
 target_link_libraries(test_one_frame
-    PRIVATE CseData CseKernel nlohmann_json::nlohmann_json GTest::gtest_main)
+    PRIVATE CseGame CseData CseKernel nlohmann_json::nlohmann_json GTest::gtest_main)
 add_dependencies(test_one_frame test_runtime_deps)
 add_test(NAME test_one_frame COMMAND $<TARGET_FILE:test_one_frame>)
 
@@ -237,6 +237,24 @@ add_test(NAME test_one_frame COMMAND $<TARGET_FILE:test_one_frame>)
 # machine could re-run, and a training mode whose session could only be exercised
 # by launching an editor would be the first part of the argument nobody could
 # check.
+# THE SHOWCASE MECHANISM (ADR-011 section 4). Variants as by-id patches on the
+# shipped fighter, each exhibit a verdict PAIR: the loader's refusals, the
+# hitstun diff that hands the game an infinite the model cannot see, and the
+# closed window whose dead cancels the tool names.
+add_executable(test_variants test_variants.cpp)
+target_link_libraries(test_variants PRIVATE CseGame CseData CseKernel GTest::gtest_main)
+add_dependencies(test_variants test_runtime_deps)
+add_test(NAME test_variants COMMAND $<TARGET_FILE:test_variants>)
+
+# VERDICTS BY EXECUTION (ADR-013). ComboSearch against the shipped pair: the
+# authored infinite is FOUND as a replayable witness, the safe character is
+# exhausted and its executed worst case measured, a small budget says
+# UNRESOLVED and nothing else, and the whole result is bit-identical twice.
+add_executable(test_combo_search test_combo_search.cpp)
+target_link_libraries(test_combo_search PRIVATE CseGame CseData CseKernel GTest::gtest_main)
+add_dependencies(test_combo_search test_runtime_deps)
+add_test(NAME test_combo_search COMMAND $<TARGET_FILE:test_combo_search>)
+
 add_executable(test_game_core test_game_core.cpp)
 target_link_libraries(test_game_core PRIVATE CseGame CseData CseKernel GTest::gtest_main)
 add_dependencies(test_game_core test_runtime_deps)
@@ -254,6 +272,39 @@ add_executable(test_training_mode test_training_mode.cpp)
 target_link_libraries(test_training_mode PRIVATE CseGame CseData CseKernel GTest::gtest_main)
 add_dependencies(test_training_mode test_runtime_deps)
 add_test(NAME test_training_mode COMMAND $<TARGET_FILE:test_training_mode>)
+
+# THE COOKER RECORDING (ROADMAP M1.6) — cooks a two-row subset of the showcase
+# catalogue and audits the artifacts from the files: the replay decodes,
+# matches the rebuilt bytes, and re-simulates bit-identical.
+add_executable(test_catalogue test_catalogue.cpp)
+target_link_libraries(test_catalogue PRIVATE CseGame CseData CseKernel GTest::gtest_main)
+add_dependencies(test_catalogue test_runtime_deps)
+add_test(NAME test_catalogue COMMAND $<TARGET_FILE:test_catalogue>)
+
+# CHARACTER HOT RELOAD (ROADMAP M1.5, ADR-016) — the (mtime, size) watch and
+# the keep-last-good reload discipline, against real files and a real
+# FightSession. The training mode's pollHotReload_ is thin glue over exactly
+# this sequence; the glue itself is played by a human at review point R5.
+add_executable(test_character_hotreload test_character_hotreload.cpp)
+target_link_libraries(test_character_hotreload PRIVATE CseGame CseData CseKernel GTest::gtest_main)
+add_test(NAME test_character_hotreload COMMAND $<TARGET_FILE:test_character_hotreload>)
+
+# AUTHORING TELEMETRY (ROADMAP M1.7, ADR-017) — the log grows by one line per
+# append and parses back. Pins the writer/reader pair the Combo Prover panel
+# calls; the panel's runIfStale_ is its ImGui mirror.
+add_executable(test_prover_telemetry test_prover_telemetry.cpp)
+target_link_libraries(test_prover_telemetry PRIVATE CseData GTest::gtest_main)
+add_test(NAME test_prover_telemetry COMMAND $<TARGET_FILE:test_prover_telemetry>)
+
+# PRESS DELIVERY (ROADMAP M1.3h) — the one test that links Engine AND the game
+# libraries, deliberately: the claim is that a tap crosses from the engine's
+# InputMap latch, through the accumulator, into the latched session log and the
+# kernel, and a test of either half alone is exactly the "modelled, not
+# measured" gap the buffer review found.
+add_executable(test_press_delivery test_press_delivery.cpp)
+target_link_libraries(test_press_delivery PRIVATE Engine CseGame CseData CseKernel GTest::gtest_main)
+add_dependencies(test_press_delivery test_runtime_deps)
+add_test(NAME test_press_delivery COMMAND $<TARGET_FILE:test_press_delivery>)
 
 # BUILD SETTINGS — the scene list a Build assembles from, and the refusals that
 # keep a hand-edited or copied settings file from writing somewhere it should

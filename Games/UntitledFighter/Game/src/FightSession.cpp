@@ -1,5 +1,7 @@
 #include "cse/game/FightSession.h"
 
+#include "cse/game/WitnessCursor.h"
+
 // WHAT MAY NOT APPEAR IN THIS INCLUDE LIST, and it is not a style rule.
 //
 // No <chrono>, no <ctime>, no <random>, no <cstdlib> for rand(). This file
@@ -440,6 +442,10 @@ bool BuildDemonstration(const DemonstrationRequest& request, Demonstration& out)
     // exactly this check, in exactly this order, for exactly this reason.
     for (std::size_t i = 0; i < request.moveIds.size(); ++i) {
         const std::uint16_t id = request.moveIds[i];
+        // A movement macro (ADR-013 decision 6) is a witness entry with no
+        // move to look up: WitnessCursor::Usable below validates its kind and
+        // tick count, the same one home the search and every driver use.
+        if (WitnessCursor::IsMacro(id)) continue;
         const cse::kernel::MoveDef* const move = cse::kernel::MoveAt(attacker, id);
         if (move == nullptr) {
             out.error = "witness entry " + num(i) + " names kernel move " +
@@ -530,7 +536,15 @@ bool BuildDemonstration(const DemonstrationRequest& request, Demonstration& out)
     // by hoping the witness is short.
     out.inputs.reserve(budget);
 
-    std::size_t   cursor          = 0;
+    // THE cursor -- WitnessCursor.h is the one home of every trace rule (the
+    // release between repeats, the stance hold riding through it, the two-tick
+    // re-press, start-before-release). The seam test compares this rehearsal
+    // against a WitnessDriver over the SAME step function, so the two cannot
+    // drift the way the five copies this replaced did (ROADMAP M1.3g).
+    const WitnessCursor cursor =
+        WitnessCursor::FromSlots(request.moveIds, request.loopStart, attacker);
+    WitnessCursor::State cur{};
+
     std::uint32_t ticksRun        = 0;
     bool          everAdvanced    = false;
     std::uint32_t lastAdvanceTick = 0;
@@ -554,10 +568,8 @@ bool BuildDemonstration(const DemonstrationRequest& request, Demonstration& out)
     };
 
     while (ticksRun < budget && !satisfied()) {
-        // Non-null and nonzero: every entry was checked above, and the cursor
-        // only ever holds an index inside the witness.
-        const std::uint16_t wanted = request.moveIds[cursor];
-        const std::uint16_t bits   = cse::kernel::MoveAt(attacker, wanted)->button;
+        const std::size_t   at   = cur.cursor;
+        const std::uint16_t bits = cursor.Bits(cur);
 
         cse::kernel::InputPair in{};
         in.p[request.attackerSlot].bits = bits;
@@ -575,33 +587,18 @@ bool BuildDemonstration(const DemonstrationRequest& request, Demonstration& out)
         out.inputs.push_back(cse::kernel::Input{ bits });
         ++ticksRun;
 
-        // THE CURSOR RULE, AND IT IS `moveFrame == 0` RATHER THAN A CHANGE OF
-        // `moveId`. The witness for an infinite is a move cancelling into
-        // ITSELF -- fighter_a_infinite's entire deliberate bug is
-        // `stand_lp -> stand_lp` -- so the id never changes, a transition
-        // detector would see nothing happen at all, and the trace would hold one
-        // button forever while reporting that it had never got started. The
-        // frame counter is what resets, so it is what says a move began. This
-        // trap has already been fallen into on this project; ComboWatcher.h
-        // documents it a third time.
         const cse::kernel::Fighter& f = session.State().p[request.attackerSlot];
-        if (f.moveId == wanted && f.moveFrame == 0) {
+        const WitnessCursor::StepResult step = cursor.Step(cur, f.moveId, f.moveFrame);
+        cur = step.next;
+        if (step.advanced) {
             // How far along the witness this got: the number of LEADING entries
             // entered at least once, which reaches witnessSize exactly on the
             // wrap and stays there. On a stall during the first pass it is also
             // the index of the entry the rehearsal was waiting for, which is
             // what makes it the number a progress bar and a failure message can
-            // both quote.
-            if (cursor + 1 > out.reachedIndex) out.reachedIndex = cursor + 1;
-
-            if (cursor + 1 < witnessSize) {
-                cursor = cursor + 1;
-            } else {
-                // Past the end the cursor returns to loopStart, which is what
-                // makes the loop repeat, and the wrap is what counts a turn.
-                cursor = request.loopStart;
-                ++out.turnsDone;
-            }
+            // both quote. The wrap is what counts a turn.
+            if (at + 1 > out.reachedIndex) out.reachedIndex = at + 1;
+            if (step.wrapped) ++out.turnsDone;
             everAdvanced    = true;
             lastAdvanceTick = ticksRun - 1;
         }
@@ -634,8 +631,21 @@ bool BuildDemonstration(const DemonstrationRequest& request, Demonstration& out)
     const bool ranOutMidProgress = everAdvanced && lastAdvanceTick + 1u == ticksRun;
     out.stalledAt = everAdvanced ? lastAdvanceTick + 1u : 0u;
 
-    const std::uint16_t wanted = request.moveIds[cursor];
-    const std::uint16_t bits   = cse::kernel::MoveAt(attacker, wanted)->button;
+    const std::uint16_t wanted = request.moveIds[cur.cursor];
+    // A movement macro has no MoveDef to name -- and dereferencing MoveAt for
+    // one here was a crash inside the diagnostics, the worst place to have
+    // one (found by the first full catalogue cook).
+    const cse::kernel::MoveDef* const wantedMove =
+        WitnessCursor::IsMacro(wanted) ? nullptr
+                                       : cse::kernel::MoveAt(attacker, wanted);
+    const std::string wantedWhat =
+        WitnessCursor::IsMacro(wanted)
+            ? "movement macro " + num(wanted) + " (" +
+                  num(WitnessCursor::MacroTickCount(wanted)) + " free tick(s))"
+            : "kernel move " + num(wanted) + " (button " +
+                  hex16(wantedMove != nullptr ? wantedMove->button
+                                              : std::uint16_t{0}) +
+                  ")";
 
     out.error = ranOutMidProgress
                     ? "the rehearsal ran out of budget after " + num(ticksRun) +
@@ -643,8 +653,8 @@ bool BuildDemonstration(const DemonstrationRequest& request, Demonstration& out)
                     : "the rehearsal stalled at tick " + num(out.stalledAt) +
                           " of " + num(ticksRun) + " (ticks relative to "
                           "firstTick " + num(request.firstTick) + ")";
-    out.error += ": it was waiting for kernel move " + num(wanted) + " (button " +
-                 hex16(bits) + ") and the attacker was " +
+    out.error += ": it was waiting for " + wantedWhat +
+                 " and the attacker was " +
                  describeAttacker(session.State().p[request.attackerSlot]) +
                  ". Entered " + num(out.reachedIndex) + " of " + num(witnessSize) +
                  " witness move(s) and completed " + num(out.turnsDone) + " of " +

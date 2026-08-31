@@ -76,6 +76,7 @@
 #include "FightView.h"
 
 #include "cse/data/CharacterData.h"
+#include "cse/data/CharacterFileWatch.h"
 #include "cse/data/MatchBuilder.h"
 #include "cse/data/ProverAdapter.h"
 
@@ -109,18 +110,63 @@ public:
 private:
     // Load, build, analyse and start. Returns false with setupError_ filled in;
     // Enter still succeeds, because a mode that can show something honest should
-    // (IGameMode::Enter).
+    // (IGameMode::Enter). Split into prepare/teardown/adopt since ROADMAP M1.5,
+    // because hot reload needs the same pieces in a different failure order:
+    // C is a SWAP (the old match goes even when the new file is broken), a
+    // reload is KEEP-LAST-GOOD (a broken edit leaves the match alone).
     bool startCharacter_(int index);
+
+    // Load + build into the CALLER'S temporaries, touching no member. The
+    // reload path points this at scratch objects so a half-typed save -- the
+    // normal state while editing -- cannot take the running match down with
+    // it; LoadCharacterFile zeroes its output even on a failed parse, which is
+    // why pointing it at character_ directly is not an option (ADR-016).
+    bool prepareCharacter_(const std::string& file,
+                           cse::data::CharacterData& outCharacter,
+                           cse::data::MatchBuild& outBuild, std::string& error);
+
+    // Everything the previous character owned goes, in dependency order, and
+    // the members the session borrowed are reset. Must run before build_ is
+    // reassigned -- a build_ replaced while the session still held a pointer
+    // into it would be a dangling MatchData on the very next tick.
+    void teardownMatch_();
+
+    // teardownMatch_, then move the prepared pair into the members and run
+    // the analyse / watcher / Begin tail. The one adopt path both C and hot
+    // reload restart through.
+    bool adoptPrepared_(cse::data::CharacterData&& character,
+                        cse::data::MatchBuild&& build);
+
+    // The authoring loop (ROADMAP M1.5, ADR-016): poll the loaded file's
+    // (mtime, size) stamp, and land an edit by prepare + adopt -- a restart,
+    // never a data swap under the live session. Called every fixed step; dt
+    // feeds only the watch's poll interval.
+    void pollHotReload_(float dt);
 
     // The host's named actions, bound on entry and cleared on the way out so the
     // mode does not leave its own vocabulary in the shared InputMap.
     void bindActions_();
     void clearActions_();
 
-    // The keyboard and pad as kernel bits. A LEVEL read (isDown), never an edge:
-    // the kernel takes buttons HELD, not pressed (Combat.cpp says so and calls
-    // it a real gap, named rather than papered over).
+    // The keyboard and pad as kernel bits. A LEVEL read (isDown), never an edge
+    // -- and that is right, not a shortcut. The kernel derives the edge itself
+    // from Fighter::prevButtons, because rollback re-simulates a tick from a
+    // snapshot and hands Simulate only that tick's bits: an edge computed out
+    // here would survive one replay and not the next. What this function owes
+    // the kernel is the honest LEVEL, every tick, including the release ticks --
+    // a reader that dropped them would replay a press as a hold.
     cse::kernel::Input readPad_() const;
+
+    // The press edges the same keys made THIS fixed step, noted into taps_
+    // whether or not a tick runs (ROADMAP M1.3h). This is the half a level
+    // read cannot see: a tap made and released between run ticks -- under
+    // slow motion, while paused, inside zero-tick render frames -- vanished
+    // before the kernel ever saw it. taps_.Spend ORs the pending presses into
+    // the next latched input, BEFORE the latch, so replay and rollback read
+    // the same bytes the simulation did. The rule itself is pinned against
+    // the real InputMap and session in tests/test_press_delivery.cpp; these
+    // two call sites are its mirror.
+    void notePadPresses_();
 
     // The training controls, read as EDGES in the fixed phase with
     // consumePressed. Not wasPressed: that is scoped to a rendered frame, and
@@ -128,6 +174,18 @@ private:
     // runs several -- so a fixed-tick reader of wasPressed misses most presses
     // and multiplies the rest (InputMap.h).
     void readControls_();
+
+    // Corner or midscreen, and the numbers that decide it. See the long note at
+    // the opening position in the .cpp: the corner is where the in-engine
+    // verdicts mean anything and it is also the one place knockback cannot show,
+    // so the mode does both and says which.
+    // Where the camera was last frame, world pixels. Presentation state and
+    // nothing else reads it -- see FightCamera for why the camera has memory.
+    float        cameraCentrePx_   = 0.0f;
+
+    void applyStagePosition_();
+    bool         stageMidscreen_   = false;
+    std::int32_t bodyHalfWidthSub_ = 0;
 
     void resetMatch_();
     void startDemonstration_();
@@ -204,6 +262,8 @@ private:
     cse::game::LatchedInputSource                    local_{ 0u, "YOU" };
     std::unique_ptr<cse::game::ScriptedInputSource>  demo_;
     std::unique_ptr<cse::game::FallbackInputSource>  playerSource_;
+    // The taps the run ticks never saw (see notePadPresses_ above).
+    cse::game::PressAccumulator                      taps_{};
 
     // --- the picture's own facts ---------------------------------------------
     std::vector<BindingRow> bindings_;
@@ -238,6 +298,17 @@ private:
     std::string setupError_;
     std::string analysisError_;
     std::string demoNote_;
+    // What the file watch last did -- "edit landed" or "edit refused" with the
+    // loader's own words -- and which, so the HUD can pick a colour. Cleared
+    // by teardownMatch_ (a new character or an explicit swap changes the
+    // subject) and rewritten by pollHotReload_ after the adopt.
+    std::string reloadNote_;
+    bool        reloadFailed_ = false;
+    // The (mtime, size) watch on the loaded character file. Bound in
+    // startCharacter_ BEFORE the load and regardless of its outcome, so the
+    // save that fixes a broken file is noticed and revives the honest-error
+    // screen -- previously only C could, and C advances to the NEXT character.
+    cse::data::CharacterFileWatch reloadWatch_;
     // A latching sequencing failure. Fatal to the match rather than to the
     // process: LatchedInputSource::Latch returning false means the input log
     // would have a hole in it, and its header says a caller that gets false back

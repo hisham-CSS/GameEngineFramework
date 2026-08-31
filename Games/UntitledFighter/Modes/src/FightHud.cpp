@@ -432,6 +432,14 @@ namespace {
         pen.row("hitstun", std::to_string(f.hitstun),
                 f.hitstun > 0 ? PhaseColour(Phase::Hitstun) : kDimCol);
 
+        // KNOCKDOWN GETS ITS OWN ROW, and it says what the state MEANS rather
+        // than only how long it lasts. "Cannot be hit" is the half a tick count
+        // does not convey, and it is the half that explains why an attack just
+        // passed through somebody.
+        if (f.knockdown > 0)
+            pen.row("knockdown", std::to_string(f.knockdown) + "  (cannot be hit)",
+                    PhaseColour(Phase::Knockdown));
+
         // FRAME ADVANTAGE, LATCHED, AND ONLY ON THE PLAYER'S PANEL.
         //
         // Only on the player's because there is one attacker in this mode and one
@@ -864,16 +872,36 @@ namespace {
 
         // --- what the training controls do ------------------------------------
         pen.line("SPACE pause     . step one tick     , slow motion     R reset"
-                 "     TAB demonstrate     C next character     ESC menu",
+                 "     TAB demonstrate     C next character     V corner/midscreen"
+                 "     ESC menu",
                  kDimCol);
+
+        // WHERE THE FIGHTERS ARE STANDING, and what it costs, because the
+        // verdict drawn above them is corner-only by construction.
+        //
+        // In the corner the two agree and the line is a statement of fact. At
+        // midscreen they do not, and saying so is the whole point: a player who
+        // moves the dummy out to watch knockback has to know that the TERMINATING
+        // above their head stopped applying when they pressed V.
+        if (model.stageMidscreen)
+            pen.line("MIDSCREEN -- knockback and spacing are visible here, and the "
+                     "verdict above is a CORNER verdict that does not describe "
+                     "this position. [V] returns to the corner.",
+                     kWarnCol);
+        else
+            pen.line("CORNER -- the position every verdict on this screen is "
+                     "about. Knockback has nowhere to carry the dummy here; "
+                     "[V] moves out to midscreen to watch it.",
+                     kDimCol);
 
         // --- what the colours mean --------------------------------------------
         //
         // From the SAME table the boxes use, so the legend and the picture cannot
-        // part company -- and that is now six entries rather than five, because
-        // FightView draws a spent window in its own colour.
-        const Phase order[6] = { Phase::Idle,  Phase::Startup,  Phase::Active,
-                                 Phase::Spent, Phase::Recovery, Phase::Hitstun };
+        // part company -- and that is now seven entries, because FightView draws
+        // a spent window and a knocked-down fighter in their own colours.
+        const Phase order[7] = { Phase::Idle,  Phase::Startup,  Phase::Active,
+                                 Phase::Spent, Phase::Recovery, Phase::Hitstun,
+                                 Phase::Knockdown };
         const float swatchY = pen.y();
         const float lineH   = font.Measure("", kSmallScale).y;
         float       swatchX = x;
@@ -1024,6 +1052,14 @@ Actionable TicksUntilActionable(const cse::kernel::FighterData& data,
     // At least one: the tick being observed has already run, so nothing can be
     // acted on earlier than the next one.
     if (out.ticks < 1) out.ticks = 1;
+
+    // The freeze pauses ALL of the above (see the header): every clock the
+    // three terms read stands still while StepPhysics burns hitstop down, so
+    // the pause adds to whichever term won -- after the floor, because it
+    // delays the next actionable tick too. FrameAdvantage is unmoved by this
+    // line: ResolveHits freezes both fighters by the same amount, so the two
+    // additions cancel in its subtraction.
+    out.ticks += static_cast<std::int32_t>(fighter.hitstop);
     return out;
 }
 
@@ -1111,6 +1147,14 @@ void DrawFightHud(MyCoreEngine::Renderer2D& r2d, const MyCoreEngine::Font& font,
         }
         top.line(chips, kDimCol);
     }
+
+    // What the file watch last did, from the TOP pen so it shows on both
+    // screens: over a running match ("edit landed") and over the not-started
+    // screen -- where the save that fixes the file will also land as one of
+    // these lines, which is the recovery ADR-016 promises.
+    if (model.reloadNote != nullptr && !model.reloadNote->empty())
+        top.line("hot reload: " + *model.reloadNote,
+                 model.reloadFailed ? kWarnCol : kGoodCol);
 
     // --- nothing loaded: say what broke, and stop ----------------------------
     if (!model.matchReady || model.state == nullptr || model.data == nullptr) {
