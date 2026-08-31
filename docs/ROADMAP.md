@@ -438,7 +438,7 @@ Six WPs, all landed, gate required in CI. The decision is
   `GapExtentSearch.TheExecutedWorstCaseIsInsideTheModels`; and no test asserts
   a frame the kernel did not produce.
 
-- `[~]` **M1.3i Hitstop crosses the bridge.** *(S)* Claude, 2026-08-31. The remainder M1.3d split
+- `[x]` **M1.3i Hitstop crosses the bridge.** *(S)* — `e843193`. The remainder M1.3d split
   out. `MatchBuilder` carries the authored `hitstop` into `MoveDef::hitstop`
   with a `move.hitstop` ledger row (Exact; 22 on fighter_a, 0 on Kung Fu Girl
   whose converted file authors no freeze), ResolveHits imposes it on BOTH
