@@ -89,7 +89,7 @@ is done or serves it.
 | In flight | Owner | Since |
 |---|---|---|
 | M1.6 — the showcase; slices 1–5 landed, rest blocked on walk macros + M1.3 | Claude | 2026-08-31 |
-| M1.3 — mechanics pass 1, slice (a) contact mask in flight | Claude | 2026-08-31 |
+| M1.3 — mechanics pass 1; slice (a) landed `b9b2978`, (b) movement next | Claude | 2026-08-31 |
 
 M1.6 stays open, blocked on a stated design step (walk/wait macros amend
 ADR-013) and on M1.3's mechanics. M1.1e landed inside its slice 5 — the
