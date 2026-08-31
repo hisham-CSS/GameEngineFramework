@@ -449,3 +449,52 @@ TEST(VariantExhibits, TheBufferTurnsAOneFrameLinkFromACoinIntoACertainty) {
     RecordProperty("coin_description", coin.description);
     RecordProperty("certain_description", certain.description);
 }
+
+TEST(VariantExhibits, AFloatyJumpHandsTheStringToTheBudgetAlone) {
+    // The first authored engine.movement (M1.3(b1), ADR-014): fighter_a's own
+    // MUGEN-provenance 11 px/tick impulse, finally loaded, against placeholder
+    // gravity. On the BASE file the arc and the juggle budget end the aerial
+    // string IN AGREEMENT at four (M1.1f's measurement); here the arc holds
+    // far more than four, so termination rests on the budget ALONE -- and the
+    // certificate must survive on that single authority.
+    Exhibit e{};
+    bringUpVariant("fighter_a/variants/floaty_jump.json", e);
+    ASSERT_FALSE(::testing::Test::HasFatalFailure());
+
+    ASSERT_EQ(e.character.jumpImpulseSub, 2816);
+    ASSERT_EQ(e.character.gravitySub, 64);
+    ASSERT_EQ(e.build.data.p[0].jumpImpulseSub, 2816)
+        << "the variant authored a jump and the bridge dropped it";
+
+    // The authored parabola, flown: J/G = 44, landing clamp on tick 2*44-1,
+    // airborne observably 86 ticks -- against the base file's 38.
+    {
+        cse::kernel::GameState s{};
+        cse::kernel::ResetMatch(s, 0xC0FFEEu);
+        cse::kernel::InputPair up{};
+        up.p[0].bits = cse::kernel::kInputUp;
+        cse::kernel::Simulate(s, up, e.build.data);
+        ASSERT_NE(s.p[0].airborne, 0u);
+        int air = 1;
+        for (int t = 0; t < 400 && s.p[0].airborne; ++t) {
+            cse::kernel::Simulate(s, cse::kernel::InputPair{}, e.build.data);
+            if (s.p[0].airborne) ++air;
+        }
+        EXPECT_EQ(air, 86) << "the moon jump does not fly the authored arc";
+    }
+
+    // The MODEL is blind to all of it -- no jump vocabulary -- so its verdict
+    // matches the base file's exactly. The blindness is a named ledger row.
+    EXPECT_EQ(e.verdict.status, ProverStatus::Terminating)
+        << "the prover's verdict moved on a field it cannot see";
+
+    // And the GAME still terminates: with the arc no longer running out of
+    // air at four, the wired juggle budget (M1.1f) refuses the fifth aerial
+    // by itself. If this ever reads INFINITE, the budget stopped holding the
+    // line the arc used to share -- which would be this exhibit's finding.
+    EXPECT_EQ(e.searched.verdict, ComboVerdict::Terminating)
+        << "the floaty jump opened an infinite the budget was supposed to "
+           "refuse: " << e.searched.note;
+
+    RecordProperty("variant_description", e.description);
+}

@@ -916,9 +916,11 @@ bool parseDocument(Ctx& ctx, const json& doc, CharacterData& out) {
     const std::int64_t reachScale = pxPerReach * subPerPixel;   // reach units -> sub-units
 
     // engine.constants: the block that carries this character's own physical
-    // numbers. Only the crouch height is read today (ROADMAP M1.3d); the rest --
-    // juggle_budget, gravity_sub, jump_vel_sub, walk_fwd_sub, height_px --
-    // is authored and still unread, which ROADMAP records as its own wire.
+    // numbers AS PROVENANCE -- cited, MUGEN-signed (Y-down), and mostly
+    // unread. Only the crouch height is read from it (ROADMAP M1.3d). Jump
+    // physics deliberately did NOT get loaded from here: `engine.movement`
+    // (M1.3(b1), ADR-014) is the loadable block, in the kernel's own +Y-up
+    // convention, precisely so no sign flip lives in a loader.
     if (const json* consts = engineNs ? member(*engineNs, "constants") : nullptr) {
         if (!consts->is_object())
             return ctx.fail("engine", "constants is present but is not an object");
@@ -946,6 +948,44 @@ bool parseDocument(Ctx& ctx, const json& doc, CharacterData& out) {
     const json* walkSub = quant ? member(*quant, "walk_speed_sub_per_tick") : nullptr;
     if (!readQuantized(ctx, doc, "walk_speed", "document", walkSub, reachScale,
                        out.walkSpeedSub)) return false;
+
+    // --- engine.movement (ROADMAP M1.3(b1), ADR-014). Kernel semantics on
+    // purpose -- +Y up, positive impulse, positive gravity magnitude -- so
+    // the projection into FighterData is two assignments a reader checks by
+    // eye, never a sign flip to get wrong (the Y-down trap lives in
+    // engine.constants and stays there, cited and unread). Zero is the
+    // kernel's unauthored sentinel (`!= 0` falls back to the placeholder),
+    // so an EXPLICIT zero is refused by name: an author writing 0 means "no
+    // jump" or "no gravity", and silently handing them the placeholder is a
+    // worse accident than a load error.
+    if (const json* mv = engineNs ? member(*engineNs, "movement") : nullptr) {
+        if (!mv->is_object())
+            return ctx.fail("engine", "`movement` is present but is not an object");
+        struct Field { const char* key; std::int32_t* out; };
+        const Field fields[] = {
+            { "jump_impulse_sub", &out.jumpImpulseSub },
+            { "gravity_sub",      &out.gravitySub },
+        };
+        for (const Field& fdef : fields) {
+            const json* v = member(*mv, fdef.key);
+            if (v == nullptr) continue;
+            std::int32_t n = 0;
+            if (!asInt32(*v, n) || n < 0)
+                return ctx.fail("engine.movement",
+                                std::string("`") + fdef.key +
+                                "` must be a positive integer in sub-units, "
+                                "+Y up (the kernel's convention, not "
+                                "engine.constants' Y-down one)");
+            if (n == 0)
+                return ctx.fail("engine.movement",
+                                std::string("`") + fdef.key +
+                                "` is 0, which the kernel reads as UNAUTHORED "
+                                "and replaces with its placeholder. Omit the "
+                                "key to mean that; an authored zero would be "
+                                "a silent lie.");
+            *fdef.out = n;
+        }
+    }
 
     // --- input_buffer_frames (ROADMAP M1.1e). Character-global, integer ticks,
     // zero-or-absent means no buffering. BOUNDED AT 255 and refused past it,

@@ -701,6 +701,16 @@ struct CharacterData {
 
     std::int32_t walkSpeedSub = 0;              // sub-units per tick
 
+    // Jump takeoff velocity and gravity, sub-units per tick(^2), KERNEL
+    // semantics: +Y up, both positive, gravity a magnitude the kernel
+    // subtracts. From `engine.movement` (ROADMAP M1.3(b1), ADR-014). ZERO
+    // MEANS UNAUTHORED -- the kernel's `!= 0` fallback to its placeholder --
+    // so the loader refuses an explicit 0 by name rather than letting it
+    // silently mean "the default". NOT read from `engine.constants`, whose
+    // MUGEN-provenance numbers are Y-down and cited-not-loaded.
+    std::int32_t jumpImpulseSub = 0;
+    std::int32_t gravitySub     = 0;
+
     // The modern input buffer's window, in ticks; zero-or-absent is no
     // buffering. Character-global (the schema note says why that matches the
     // genre), loaded with a hard 255 bound because the kernel ages the buffer

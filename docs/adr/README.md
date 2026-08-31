@@ -36,6 +36,7 @@ Three consequences worth knowing before you read one:
 | [011](ADR-011-mechanics-are-fields.md) | Mechanics are fields, not rules | Proposed 2026-08-17 · constrains ROADMAP M1 and M3 | Every 2.5D mechanic is opt-in data on a move, never a kernel rule; movement is a move; presentation is a pure function of frame data |
 | [012](ADR-012-the-tick-is-a-pipeline.md) | The tick is a pipeline of pure functions | Proposed 2026-08-21 · constrains ROADMAP M1.3e–M1.4 | Pure stages with fixed signatures; one writer per field; derive rather than store; posture follows the move; predictions by execution, never a parallel model |
 | [013](ADR-013-verdicts-by-execution.md) | ComboSearch: verdicts by execution | Proposed 2026-08-31 · shapes ROADMAP M1.4a+M1.4 | A bounded search over macro-actions executed on the real kernel; masked-checksum nodes; INFINITE / TERMINATING / UNRESOLVED, and a budget only ever produces the third |
+| [014](ADR-014-movement-lands-in-three-steps.md) | Movement lands in three steps, and the wire grows once | Proposed 2026-08-31 · stages ROADMAP M1.3(b) | ADR-011's jump-as-move stays the destination; the authored physics wire first, one batched MoveDef growth second (reserving (c)/(d) bytes), the level-to-edge jump flip with its golden re-record last |
 
 ## Writing one
 

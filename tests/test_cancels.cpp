@@ -860,8 +860,10 @@ TEST(CancelBridge, TheLossTableCountsWhatTheProjectionActuallyCost) {
     // 26 -> 27 when M1.3e added move.blocked_as; -> 28 when M1.1e added
     // character.input_buffer_frames; -> 29 when M1.1f wired the juggle gate;
     // -> 30 when M1.3i carried hitstop (zero for this character -- her
-    // converted file authors no impact freeze -- so `bites` above is unmoved).
-    EXPECT_EQ(30u, r.losses.size())
+    // converted file authors no impact freeze -- so `bites` above is unmoved);
+    // -> 31 when M1.3(b1) carried engine.movement (zero again: she authors
+    // none and keeps the placeholder arc).
+    EXPECT_EQ(31u, r.losses.size())
         << "the loss table grew or shrank. That is fine, and it has to be "
            "recorded here, because the point of the table is that somebody "
            "counted.";

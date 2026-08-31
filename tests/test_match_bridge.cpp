@@ -948,6 +948,10 @@ TEST(MatchBridgeLosses, EveryDropIsCountedAgainstKungFuGirlsActualFile) {
         { "cancel.effect",                 0, BuildLossDirection::KernelOmits   },
         { "move.cancel_window (absent)",   8, BuildLossDirection::KernelPermits },
         { "character.walk_speed",      1, BuildLossDirection::Exact         },
+        // Zero because her file authors no engine.movement -- she keeps the
+        // placeholder arc, and the zero-count row is the proof a check ran
+        // (ROADMAP M1.3(b1), ADR-014).
+        { "character.movement",        0, BuildLossDirection::Exact         },
         // Zero for Kung Fu Girl and the zero is the exhibit: her transcript
         // DISABLES MUGEN's juggle system (airjuggle 0, nojugglecheck), the
         // resource is declared only for the positional contract, and no move
@@ -1524,4 +1528,120 @@ TEST(MatchBridgeMechanics, TheAuthoredFreezeReachesBothFightersAndATapInsideItBu
            "the freeze ate the confirm, which is the regression the three "
            "P3Input freeze tests pin on synthetic data and this one pins on "
            "the shipped file.";
+}
+
+// JUMP PHYSICS, from engine.movement (ROADMAP M1.3(b1), ADR-014 step one).
+// FighterData::jumpImpulseSub and gravitySub have been kernel-consulted since
+// M1.1b -- `velY = jumpImpulseSub != 0 ? authored : kJumpImpulse` -- and
+// nothing could author them until this wire. The full jump-as-move flip is
+// ADR-014's step three; THIS test owns step one's claims: the numbers arrive,
+// they change the arc the kernel actually flies, silence keeps the placeholder
+// byte for byte, and the loader refuses the sentinel zero by name.
+namespace {
+
+// Press Up once from idle and count the ticks the fighter is observably
+// airborne. The convention matches P2Movement's: the landing tick clears the
+// flag, so an arc whose clamp fires on tick n reads as n-1 airborne ticks.
+int airTicksUnder(const MatchData& data) {
+    cse::kernel::GameState s{};
+    cse::kernel::ResetMatch(s, 0xC0FFEEu);
+
+    cse::kernel::InputPair up{};
+    up.p[0].bits = cse::kernel::kInputUp;
+    cse::kernel::Simulate(s, up, data);
+    EXPECT_NE(s.p[0].airborne, 0u) << "the Up press did not take off at all";
+
+    int air = s.p[0].airborne ? 1 : 0;
+    for (int t = 0; t < 400 && s.p[0].airborne; ++t) {
+        cse::kernel::Simulate(s, cse::kernel::InputPair{}, data);
+        if (s.p[0].airborne) ++air;
+    }
+    return air;
+}
+
+}  // namespace
+
+TEST(MatchBridgeMechanics, TheAuthoredJumpPhysicsChangeTheArcAndSilenceKeepsIt) {
+    // --- the carry, and the ledger row that records it -----------------------
+    CharacterData c = syntheticCharacter(1);
+    c.jumpImpulseSub = 2560;   // 10 px/tick, double the kernel placeholder
+    c.gravitySub     = 64;     // the placeholder's own gravity, now AUTHORED
+    c.RebuildIndices();
+
+    BuildOptions options{};
+    options.bindings = { { c.moves[0].id, cse::kernel::kInputLP } };
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build))
+        << build.report[0].error;
+
+    EXPECT_EQ(build.data.p[0].jumpImpulseSub, 2560)
+        << "the authored takeoff velocity did not reach FighterData; the "
+           "kernel has consulted this slot since M1.1b and nothing arrived.";
+    EXPECT_EQ(build.data.p[0].gravitySub, 64);
+
+    const BuildLoss* row = findLoss(build.report[0], "character.movement");
+    ASSERT_NE(row, nullptr) << "the carry has no ledger row; ADR-011's five "
+                               "parts are four";
+    EXPECT_EQ(row->count, 2);
+    EXPECT_EQ(row->direction, BuildLossDirection::Exact);
+
+    // --- the physics: the arc is the AUTHORED parabola -----------------------
+    //
+    // J = 2560, G = 64: gravity applies on the takeoff tick, so the landing
+    // clamp fires on tick 2*(J/G) - 1 = 79 and the fighter reads airborne for
+    // 78 ticks -- exactly double-impulse doubling the placeholder's 38 (the
+    // arithmetic P2Movement and the crossplat script derive from J = 1280,
+    // G = 64). Asserted as the exact integer, because "longer" alone would
+    // pass a wire that dropped gravity and carried only the impulse.
+    EXPECT_EQ(airTicksUnder(build.data), 78)
+        << "the authored jump does not fly the authored parabola";
+
+    // --- silence: an unauthored file keeps the placeholder arc ---------------
+    CharacterData silent = syntheticCharacter(1);
+    silent.RebuildIndices();
+    MatchBuild silentBuild{};
+    ASSERT_TRUE(BuildMatchData(silent, options, silent, options, silentBuild))
+        << silentBuild.report[0].error;
+    EXPECT_EQ(silentBuild.data.p[0].jumpImpulseSub, 0);
+    EXPECT_EQ(silentBuild.data.p[0].gravitySub, 0);
+    EXPECT_EQ(airTicksUnder(silentBuild.data), 38)
+        << "a character that authored nothing lost the placeholder arc every "
+           "measured count in this suite was derived on";
+    const BuildLoss* silentRow = findLoss(silentBuild.report[0], "character.movement");
+    ASSERT_NE(silentRow, nullptr);
+    EXPECT_EQ(silentRow->count, 0) << "the zero-count row is the proof a check ran";
+
+    // --- and the shipped file is the silent case, on purpose -----------------
+    //
+    // ADR-014: base fighter_a does NOT author engine.movement (the M1.1e
+    // buffer precedent), so its hash, its 38-tick arc and the whole measured
+    // suite stay put; the floaty_jump VARIANT is where the authored arc shows.
+    CharacterData fa{};
+    LoadReport faReport{};
+    ASSERT_TRUE(LoadCharacterFile(ownCharactersDir(), "fighter_a.json",
+                                  loadOptions(), fa, faReport))
+        << faReport.error;
+    EXPECT_EQ(fa.jumpImpulseSub, 0);
+    EXPECT_EQ(fa.gravitySub, 0);
+
+    // --- the sentinel is unauthorable, by refusal ----------------------------
+    //
+    // Zero means "unauthored, use the placeholder" to the kernel's `!= 0`
+    // fallback; an author who writes 0 means "no jump", and silently handing
+    // them the placeholder would be the scalingReduction incident again.
+    const char* kZeroJump =
+        R"({"name":"z","stage":"corner","walk_speed":0.5,)"
+        R"("resources":[{"name":"meter","initial":0,"floor":0},)"
+        R"({"name":"juggle","initial":4,"floor":0}],)"
+        R"("scaling":{},"decay":{"kind":"none"},)"
+        R"("moves":[{"id":"jab","startup":3,"active":2,"recovery":4,)"
+        R"("hitstun":8,"damage":10.0,"stance":"standing"}],"cancels":[],)"
+        R"("engine":{"movement":{"jump_impulse_sub":0}}})";
+    CharacterData zc{};
+    LoadReport zr{};
+    EXPECT_FALSE(LoadCharacterJson("zero_jump.json", kZeroJump, loadOptions(),
+                                   zc, zr))
+        << "an explicit jump_impulse_sub of 0 loaded, and the kernel will "
+           "silently replace it with the placeholder";
+    EXPECT_NE(zr.error.find("movement"), std::string::npos) << zr.error;
 }

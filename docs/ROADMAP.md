@@ -89,7 +89,7 @@ is done or serves it.
 | In flight | Owner | Since |
 |---|---|---|
 | M1.6 — the showcase; slices 1–5 landed, rest blocked on walk macros + M1.3 | Claude | 2026-08-31 |
-| M1.3 — mechanics pass 1; slice (a) landed `b9b2978`, (b) movement next | Claude | 2026-08-31 |
+| M1.3 — mechanics pass 1; (a) `b9b2978`, (b1) landed, (b2) MoveDef batch next | Claude | 2026-08-31 |
 
 M1.6 stays open, blocked on a stated design step (walk/wait macros amend
 ADR-013) and on M1.3's mechanics. M1.1e landed inside its slice 5 — the
@@ -436,13 +436,30 @@ Six WPs, all landed, gate required in CI. The decision is
   change: `on` has authored all four values since v1; the kernel caught up
   to the file. `P3Cancels.*` (5) pin it, all four mask tests red against
   the collapsed gate first;
-  (b) **movement is a move** — jump, dash, backdash as authored moves with a
-  `movement` field; the kernel's hard-coded jump is deleted; a jump cancel is an
-  ordinary cancel edge. Commitment is now the KERNEL DEFAULT (`P2Commitment.*`)
-  and the jump is BALLISTIC (`P2Ballistic.*`) — the arc is decided at takeoff
-  and neither an attack nor a held direction recomputes it. This is where the
-  authored exceptions arrive: a lunge that carries the fighter, a hop kick that
-  leaves the ground mid-move, a divekick that changes trajectory mid-arc;
+  (b) **movement is a move** — staged by
+  [ADR-014](adr/ADR-014-movement-lands-in-three-steps.md) after a consumer map
+  measured the blast radius of arriving at ADR-011's destination all at once
+  (the level→edge flip re-means every Up bit in every baked trace and golden;
+  the cursor's stance-hold and the search's air reachability need re-teaching;
+  fighter_a's jump cancels are encoded in edge delays). **Step (b1) LANDED
+  (sha at the next flip):** `engine.movement { jump_impulse_sub, gravity_sub }`
+  — kernel semantics at the boundary (+Y up, positive, explicit zero refused
+  as the kernel's unauthored sentinel), parsed, carried into the
+  `FighterData` slots the kernel has consulted since M1.1b (no layout
+  change), `character.movement` Exact ledger row. Base fighter_a does NOT
+  author it (the M1.1e precedent: hash, 38-tick arc and every measured count
+  stay put); the `floaty_jump` variant does — fighter_a's own
+  MUGEN-provenance 11 px/tick, finally flown: 86 airborne ticks, and the
+  aerial string's termination now rests on the wired juggle budget ALONE
+  (`AFloatyJumpHandsTheStringToTheBudgetAlone`), the M1.1f agreement
+  deliberately broken apart as an exhibit.
+  **Step (b2) next:** one batched MoveDef growth — the per-move motion block
+  (lunge, divekick; hop kick's physics half) bridged from the already-parsed
+  `engine.motion` keyframes, reserving (c)/(d)'s bytes in the same re-hash.
+  **Step (b3) last:** jump-as-move, the hard-coded jump deleted, jump cancels
+  retargeted, the golden re-recorded. Commitment is already the KERNEL
+  DEFAULT (`P2Commitment.*`) and the jump already BALLISTIC
+  (`P2Ballistic.*`);
   (c) **counter-hit** — per-move `counter_hit {hitstun_bonus, damage_bonus}`.
   **This is a soundness qualifier on every verdict, not just a mechanic** — see
   § Where this stands. Three ways out: qualify the verdict ("TERMINATING under

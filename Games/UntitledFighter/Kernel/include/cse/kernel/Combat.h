@@ -687,14 +687,15 @@ struct FighterData {
     // Downward acceleration and jump impulse, sub-units. ZERO MEANS UNAUTHORED
     // on both, exactly as above.
     //
-    // THESE ARRIVE AHEAD OF ANYTHING THAT CAN SET THEM, and that is deliberate.
-    // `schema.v2.json` has no key for either, so no character can author one
-    // yet and every fighter takes Simulate.cpp's placeholders -- these two
-    // fields change no behaviour today. They are here because MatchData is
-    // hashed by the connect handshake and ADR-005 section 3's rule is to batch
-    // a contract change and review it once: the alternative was to grow this
-    // struct for resources now and again for movement later. Authoring the
-    // schema keys afterwards is then purely additive and moves no bytes.
+    // These arrived AHEAD of anything that could set them (M1.1b), because
+    // MatchData is hashed by the connect handshake and ADR-005 section 3's
+    // rule is to batch a contract change and review it once -- and the bet
+    // paid: `engine.movement` (ROADMAP M1.3(b1), ADR-014) made them
+    // authorable with no byte of this struct moving. The loader enforces the
+    // kernel's own convention at the boundary (+Y up, positive, an explicit
+    // zero refused as this sentinel), so the carry is a copy. A silent file
+    // still takes Simulate.cpp's placeholders, which is every character
+    // authored before the key existed.
     std::int32_t gravitySub;
     std::int32_t jumpImpulseSub;
 

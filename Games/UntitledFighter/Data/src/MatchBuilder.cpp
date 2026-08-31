@@ -1,4 +1,4 @@
-#include "cse/data/MatchBuilder.h"
+﻿#include "cse/data/MatchBuilder.h"
 
 // <algorithm> is fine HERE and would not be fine one directory over. This is
 // CseData: it already has std::string, std::vector and nlohmann. The rule about
@@ -234,6 +234,19 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
                 if (static_cast<std::size_t>(e.resource) == r &&
                     c.resources[r].name == "juggle" && e.value < 0)
                     ++juggleSpenders;
+    addLoss(report, "character.movement", BuildLossDirection::Exact,
+            (c.jumpImpulseSub != 0 ? 1 : 0) + (c.gravitySub != 0 ? 1 : 0),
+            "engine.movement's jump_impulse_sub and gravity_sub, carried whole "
+            "into the FighterData slots the kernel has consulted since M1.1b "
+            "(ROADMAP M1.3(b1), ADR-014). Kernel semantics at load -- +Y up, "
+            "positive, explicit zero refused as the unauthored sentinel -- so "
+            "the carry is two copies. A silent file keeps the placeholder arc "
+            "(5 px/tick against 0.25 px/tick^2, 38 airborne ticks). The MODEL "
+            "has no jump vocabulary at all, so an authored arc changes the "
+            "GAME's strings and none of the prover's -- the D8 gap ADR-011 "
+            "section 2.8 assigns to this ledger, and what the floaty_jump "
+            "variant exhibits.");
+
     addLoss(report, "resource.juggle (gate)", BuildLossDirection::Exact,
             juggleSpenders,
             "The juggle budget, wired as the ranking certificate's own "
@@ -764,6 +777,15 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
     // is what lets the loss row below say `exact`. A character that authored none
     // arrives here as zero and the kernel keeps its placeholder.
     out.walkSpeedSub = character.walkSpeedSub;
+
+    // JUMP PHYSICS, CARRIED WHOLE (ROADMAP M1.3(b1), ADR-014). The loader
+    // already enforced kernel semantics (+Y up, positive, explicit-zero
+    // refused), so this is two copies into the FighterData slots the kernel
+    // has consulted since M1.1b -- `!= 0 ? authored : placeholder` -- and a
+    // silent file arrives as zero and keeps the placeholder arc every
+    // measured count was derived on.
+    out.jumpImpulseSub = character.jumpImpulseSub;
+    out.gravitySub     = character.gravitySub;
 
     // THE INPUT BUFFER WINDOW, CARRIED WHOLE (ROADMAP M1.1e). Integer ticks,
     // already bounded at 255 by the loader for the kernel's uint8 age; zero is

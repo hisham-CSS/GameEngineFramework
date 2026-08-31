@@ -708,6 +708,7 @@
         },
         "quantized_sources": { "type": "object", "description": "The integer originals of every float in the [P] section: reach_px, pushback_px, scaling_permille, decay_table_permille, damage_hundredths. This is what makes ARCHITECTURE D8 checkable -- the engine loads these and the float [P] fields exist only for the prover." },
         "constants": { "type": "object", "description": "Movement, gravity, friction, pushbox, health, meter ceiling. All integer sub-units. Must cite its source lines." },
+        "movement": { "type": "object", "description": "[G] NEW FOR ROADMAP M1.3(b1), ADR-014. The LOADED movement physics, in the kernel's own convention: +Y UP, both values positive integers in sub-units (1 px = 256), gravity a magnitude the kernel subtracts per airborne tick. Distinct from `constants` on purpose: `constants` cites MUGEN-provenance numbers (Y-DOWN, e.g. jump_vel_sub y -2816) and is never loaded; THIS block is what the engine reads into FighterData::jumpImpulseSub / gravitySub. Zero is the kernel's unauthored sentinel, so an explicit 0 is REFUSED at load -- omit a key to keep the kernel placeholder (5 px/tick impulse, 0.25 px/tick^2 gravity, the 38-tick arc every measured count was derived on). The prover has no jump vocabulary, so these are engine-only; the loss ledger row `character.movement` records the carry.", "properties": { "jump_impulse_sub": { "type": "integer" }, "gravity_sub": { "type": "integer" } } },
         "assets": { "type": "object" },
         "integrity": {
           "type": "object",

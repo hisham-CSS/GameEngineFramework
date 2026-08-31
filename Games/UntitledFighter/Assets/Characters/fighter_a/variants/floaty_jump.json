@@ -1,0 +1,11 @@
+{
+  "description": "engine.movement authored for the first time (M1.3(b1), ADR-014): jump_impulse_sub 2816 -- fighter_a's own MUGEN-provenance 11 px/tick, sitting cited-but-unread in engine.constants until this wire existed -- against the placeholder's 64 gravity, a floaty moon jump whose arc is 86 airborne ticks instead of 38. The exhibit is WHO ENDS THE STRING: on the base file the ballistic arc runs out of air at exactly the four aerials the juggle budget permits, and M1.1f measured the two bounds IN AGREEMENT. Here the arc holds far more than four, so the agreement is deliberately broken apart -- the wired juggle budget alone refuses the fifth aerial, the string still terminates, and the certificate survives on the budget's authority with the arc no longer backing it up. The MODEL has no jump vocabulary at all (the character.movement ledger row names the blindness), so its verdict and its numbers do not move while the game under it flies a different sky.",
+  "patch": {
+    "engine": {
+      "movement": {
+        "jump_impulse_sub": 2816,
+        "gravity_sub": 64
+      }
+    }
+  }
+}
