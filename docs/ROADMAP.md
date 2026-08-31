@@ -73,18 +73,19 @@ is chosen, because it changes what the tool claims.
 
 **The shortest credible path to the claim**, reordered 2026-08-21 under
 [ADR-012](adr/ADR-012-the-tick-is-a-pipeline.md) after complexity itself became
-the risk. Landed: **M1.3f** (the tick is a pipeline of pure stages — golden
-held, same bytes), **M1.3e** (posture follows the move + the stance wire — the
-third measurement above) and **M1.3g** (ONE `WitnessCursor` in `CseGame`, five
-copies deleted). Next: **M1.4a + M1.4** (`ComboSearch` runs the real kernel
-and section 3's parallel model is deleted — the paper's number is published
-there), then M1.6. Everything else is done or serves these.
+the risk, and now WALKED END TO END: **M1.3f** (the tick is a pipeline of
+pure stages — golden held), **M1.3e** (posture follows the move + the stance
+wire — the third measurement above), **M1.3g** (ONE `WitnessCursor`, five
+copies deleted) and **M1.4a + M1.4** (`ComboSearch` runs the real kernel,
+section 3's parallel model is deleted, and the paper's pair — model 21 /
+executed 7 — is printed by CI). Next: **M1.6**, the showcase. Everything else
+is done or serves it.
 
 ## Now
 
 | In flight | Owner | Since |
 |---|---|---|
-| M1.4a + M1.4 — ComboSearch runs the real kernel | Claude | 2026-08-31 |
+| *(nothing)* | | |
 
 One at a time. The next unblocked WP is always the top `[ ]` in milestone
 order — which, under the 2026-08-21 reorder, is the sequence named above.
@@ -367,8 +368,8 @@ Six WPs, all landed, gate required in CI. The decision is
   and previously existed as five drifting paraphrases; the estimate is
   rewritten to the measured number rather than the mass trimmed to meet it.
 
-- `[x]` **M1.4a Gate the combo graph on move state.** *(M)* — resolved BY
-  EXECUTION with M1.4, not by the gating calculus this entry first sketched.
+- `[x]` **M1.4a Gate the combo graph on move state.** *(M)* — `db9c3c5`
+  `c58bede`. Resolved BY EXECUTION with M1.4, not by the gating calculus this entry first sketched.
   [ADR-013](adr/ADR-013-verdicts-by-execution.md) rejects teaching the
   enumeration a stance-reachability predicate as a third implementation of
   kernel rules (the predicate's own draft here contradicted the commitment
@@ -410,8 +411,8 @@ Six WPs, all landed, gate required in CI. The decision is
   `P3Reactions.AWallBounceReturnsTheDefenderIntoRange`; a ledger row each; schema
   v3 with the fields appended.
 
-- `[~]` **M1.4 The kernel search, and the ground truth as the gate.** *(M)*
-  Claude, 2026-08-31.
+- `[x]` **M1.4 The kernel search, and the ground truth as the gate.** *(M)*
+  — `db9c3c5` `c58bede`.
   **`ComboSearch` in `CseGame`** ([ADR-013](adr/ADR-013-verdicts-by-execution.md)):
   a bounded depth-first search over macro-actions performed the way a player
   performs them (a one-entry `WitnessCursor` each), executed on the real
