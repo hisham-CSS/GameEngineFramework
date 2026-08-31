@@ -89,7 +89,6 @@ is done or serves it.
 | In flight | Owner | Since |
 |---|---|---|
 | M1.6 — the showcase; slices 1–5 landed, rest blocked on walk macros + M1.3 | Claude | 2026-08-31 |
-| M1.1f — the juggle wiring (unblocked by M1.4's property rewrite) | Claude | 2026-08-31 |
 
 M1.6 stays open, blocked on a stated design step (walk/wait macros amend
 ADR-013) and on M1.3's mechanics. M1.1e landed inside its slice 5 — the
@@ -198,8 +197,8 @@ Six WPs, all landed, gate required in CI. The decision is
   RefusedByName`); and the one-frame link test passes with a 2-frame window
   and fails at zero.
 
-- `[~]` **M1.1f The juggle wiring, and the mirror that waits on it.** *(S)*
-  Claude, 2026-08-31. Landed once M1.4's property rewrite unblocked it: both
+- `[x]` **M1.1f The juggle wiring, and the mirror that waits on it.** *(S)*
+  — `79fd8d7`. Landed once M1.4's property rewrite unblocked it: both
   halves together — `FighterData::juggleMax` from the resource the file calls
   `juggle` (found BY NAME; the positional contract fixes order, not meaning)
   and `MoveDef::juggleCost` mirrored from each spending move's authored delta
