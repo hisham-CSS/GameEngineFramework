@@ -452,7 +452,7 @@ Six WPs, all landed, gate required in CI. The decision is
   aerial string's termination now rests on the wired juggle budget ALONE
   (`AFloatyJumpHandsTheStringToTheBudgetAlone`), the M1.1f agreement
   deliberately broken apart as an exhibit.
-  **Step (b2) LANDED (sha at the next flip):** the one batched MoveDef
+  **Step (b2) LANDED, `a70ee00`:** the one batched MoveDef
   growth (164 → 284 bytes, one re-hash per ADR-005 §3): `MoveDef::motion` —
   up to 8 resolved velocity keys, the InvincibilityWindow pattern — carried
   from the already-parsed `engine.motion` with the one MUGEN-Y-down flip at
