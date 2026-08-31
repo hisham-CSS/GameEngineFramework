@@ -48,12 +48,21 @@ alone; **ZERO** with the genre's movement rules enforced — commitment, the
 ballistic jump, posture-following-the-move, stance on both start routes. Every
 cycle passes through `air_mp`, entering an aerial costs a real jump, and the
 landing hands the defender their turn: the prover says TERMINATING, and the
-executed game now agrees on all 121 — **for the game's own reason.** The model
+executed game agrees on all 121 — **for the game's own reason.** The model
 charges juggle; the kernel runs out of air (the arc holds exactly the 4
 repetitions the budget permits — `GroundTruthGap.TheArcEndsEveryStringAtThe
-CountTheModelChargesToJuggle`); juggle is still unwired (M1.1f), and the combo
-GRAPH still gates on nothing about fighter state. Making the graph agree for
-the right reason is M1.4a, and the number the paper quotes is published there.
+CountTheModelChargesToJuggle`); juggle is still unwired (M1.1f).
+
+**And since M1.4 the pair of numbers is measured by execution** (ADR-013's
+`ComboSearch`, a bounded search over macro-actions on the real kernel):
+`fighter_a`'s **model worst case is 21 hits; the executed worst case is 7**
+(`air_lp air_mp air_lp air_mp stand_lp stand_mp crouch_hk` — a jump-in air
+chain that rides the arc down, lands inside the last hit's stun, gatlings and
+ends in the sweep), so the sound half is loose by 14 hits on this character
+and **the bound held** — `GapExtentSearch.TheExecutedWorstCaseIsInsideThe
+Models` is the sentence as a test. The authored infinite is FOUND the same
+way: `fighter_a_infinite` comes back INFINITE with a witness the test replays
+(`tests/test_combo_search.cpp`). 2026-08-31.
 
 **And one qualifier the write-up does not yet carry.** `counter_hit` appears zero
 times in `schema.v2.json`. The model reads one `hitstun` per move, so a
@@ -358,32 +367,22 @@ Six WPs, all landed, gate required in CI. The decision is
   and previously existed as five drifting paraphrases; the estimate is
   rewritten to the measured number rather than the mass trimmed to meet it.
 
-- `[ ]` **M1.4a Gate the combo graph on move state.** *(M)*
-  `usableEdges` filters cancel edges by `Contact::Block`/`Whiff` and the prover's
-  dead-cancel list, and by nothing else. Neither the enumeration nor section 3
-  ever asks what state the fighter is in.
-  **Prerequisite from M1.3e's third attempt: posture follows the move.**
-  Selection reads the input; starting a move sets the fighter's posture to the
-  move's stance; commitment forbids input-driven posture change only. Without
-  this, every cross-posture cancel is refused and the graph has nothing to gate.
-  **The gating predicate:** B's stance must be reachable from A's END state.
-  Ground → air is free, even mid-move. Air → ground needs a **landing**, which no
-  cancel window covers — `Fighter::airborne` is cleared by POSITION alone, so an
-  aerial that ends in the air leaves the fighter airborne. Air → air is free
-  while the arc lasts and impossible after it.
-  **Three corrections the predicate must respect, each verified:**
-  `StanceAllows` reads `f.airborne` RAW, not `AirborneNow` — so a move's
-  `airborne_from_tick` makes it count as an aerial *attack* and does not let an
-  air move start out of it; **a fighter is COMMITTED while a move runs** — no
-  walking, no jumping, no posture change (`P2Commitment.*`, 2026-08-21), so a
-  launcher cancel into an aerial needs the jump BEFORE the source move or an
-  authored motion (M1.3(b)), not a mid-move takeoff; and a crouching move
-  **cannot start on the tick you land**, because `crouching` is computed before
-  the landing clamp.
-  **Done when:** the enumeration refuses a hop whose stance is unreachable from
-  its source's end state; the air self-loop is bounded by the arc rather than by
-  juggle; and the graph's count equals what the kernel produces with stance
-  wired.
+- `[x]` **M1.4a Gate the combo graph on move state.** *(M)* — resolved BY
+  EXECUTION with M1.4, not by the gating calculus this entry first sketched.
+  [ADR-013](adr/ADR-013-verdicts-by-execution.md) rejects teaching the
+  enumeration a stance-reachability predicate as a third implementation of
+  kernel rules (the predicate's own draft here contradicted the commitment
+  rule within one paragraph, which is the disease); whether a hop is reachable
+  is answered by PERFORMING it — `ComboSearch` and the driven sweep, where the
+  kernel is the only model of the kernel. The enumeration keeps answering what
+  the AUTHORED graph contains, which is a fact about the file.
+  **Done when (re-expressed and met):** the air self-loop is bounded by the
+  arc rather than by juggle
+  (`GroundTruthGap.TheArcEndsEveryStringAtTheCountTheModelChargesToJuggle`);
+  no unreachable hop contributes a verdict — verdicts come from execution
+  (`GapExtentKernel.ZeroOfThe121RunForever`, `GapExtentSearch.*`); and the
+  graph's performable count equals what the kernel produces: zero unescapable,
+  measured on both sides.
 
 - `[ ]` **M1.3 Mechanics, pass 1 — the ones the showcase needs.** *(M–L)* Each
   with [ADR-011](adr/ADR-011-mechanics-are-fields.md)'s five parts:
@@ -411,14 +410,24 @@ Six WPs, all landed, gate required in CI. The decision is
   `P3Reactions.AWallBounceReturnsTheDefenderIntoRange`; a ledger row each; schema
   v3 with the fields appended.
 
-- `[ ]` **M1.4 The kernel search, and the ground truth as the gate.** *(M)*
-  Promote the cancel-graph walk out of `tests/test_gap_extent.cpp` into `CseGame`
-  as **`ComboSearch`**: a bounded search over macro-actions executed on the real
-  kernel, de-duplicated by `Checksum()`, with a budget; hitting the budget
-  reports **UNRESOLVED**, never a verdict. One implementation for tests, cooker,
-  showcase and panel. Rewrite `test_ground_truth.cpp` and `test_gap_extent.cpp`
-  as properties rather than counts — which is also what makes M1.1f and the
-  hitstop half of M1.3d landable.
+- `[~]` **M1.4 The kernel search, and the ground truth as the gate.** *(M)*
+  Claude, 2026-08-31.
+  **`ComboSearch` in `CseGame`** ([ADR-013](adr/ADR-013-verdicts-by-execution.md)):
+  a bounded depth-first search over macro-actions performed the way a player
+  performs them (a one-entry `WitnessCursor` each), executed on the real
+  kernel, de-duplicated by a masked `Checksum()` (tick, the never-read RNG,
+  healths and round fields out; everything else in, so a repeated key is an
+  INDUCTION); a budget only ever reports **UNRESOLVED**, never a verdict. One
+  implementation; the cooker, showcase and panel consume it when M1.6 wires
+  them. The parallel model is gone: `test_gap_extent` section 3 is a build
+  census only (which windows MatchBuilder resolved), its two-route timing
+  account deleted rather than taught the jump, and its section 7 prints the
+  paper's pair — model 21 / executed 7, bound held.
+  **Done when:** `tests/test_combo_search.cpp`'s four verdicts (the authored
+  infinite FOUND and its witness REPLAYED; the safe character exhausted;
+  a small budget UNRESOLVED; the result bit-identical twice);
+  `GapExtentSearch.TheExecutedWorstCaseIsInsideTheModels`; and no test asserts
+  a frame the kernel did not produce.
 
 - `[ ]` **M1.3i Hitstop crosses the bridge.** *(S)* The remainder M1.3d split
   out. `MatchBuilder` copies the authored `hitstop` (it is loaded and held back

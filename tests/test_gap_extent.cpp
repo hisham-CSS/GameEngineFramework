@@ -118,6 +118,7 @@
 
 #include "cse/data/CharacterData.h"
 #include "cse/data/MatchBuilder.h"
+#include "cse/game/ComboSearch.h"
 #include "cse/game/WitnessCursor.h"
 #include "cse/data/ProverAdapter.h"
 #include "cse/kernel/Simulate.h"
@@ -519,8 +520,6 @@ enum class Block : std::uint8_t {
                    // contact is visible. StepAttack runs BEFORE ResolveHits, so a
                    // hit on tick N is first readable on N+1 and the fastest cancel
                    // is one tick after contact, never zero (Combat.h)
-    TooSlow        // takeable, but the follow-up's first active frame lands at or
-                   // after the tick the defender's hitstun runs out
 };
 
 const char* blockName(Block b) {
@@ -529,7 +528,6 @@ const char* blockName(Block b) {
         case Block::NoButton:    return "no button";
         case Block::EmptyWindow: return "empty window";
         case Block::ContactGate: return "contact gate";
-        case Block::TooSlow:     return "too slow";
     }
     return "?";
 }
@@ -551,17 +549,14 @@ struct Hop {
     std::int32_t latest   = 0;
 
     Block        block = Block::None;   // why the CANCEL cannot be taken, if it cannot
-
-    // THE SECOND ROUTE, and section 4 is why it is modelled at all. When the
-    // cancel is inert the fighter can still reach the follow-up by letting the
-    // source run out: StepAttack ends the move and runs the button scan in the
-    // same call, so a held button starts the target on frame `MoveDuration`. That
-    // is one tick later than a delay resolving to the source's last frame, and on
-    // this character that tick decides eight cycles.
-    std::int32_t startFrame = 0;        // the frame the follow-up actually begins
-    bool         viaCancel  = false;    // ... by cancel (true) or by button (false)
-    bool         connects   = false;    // ... and it lands before the defender is free
 };
+
+// (The struct used to carry a SECOND ROUTE -- the frame the follow-up begins
+// by cancel or by button-restart, and whether it connects before the stun
+// expires. That was the two-route timing model, the last parallel account of
+// the kernel's arithmetic, and M1.4 deleted it rather than teaching it the
+// jump: predictions are made by execution now, by ComboSearch and by the
+// driven sweep below. ADR-012 rule 4; ADR-013.)
 
 // The kernel's resolved window for a FILE cancel index, or null when the edge did
 // not cross into the kernel at all. MoveIndexMap::fileCancelByEdge is the inverse
@@ -590,13 +585,10 @@ Hop classify(const CharacterData& c, const cse::kernel::CancelEdge& ke,
     hop.earliest = ke.earliestFrame;
     hop.latest   = ke.latestFrame;
 
-    // The frame the source's hit lands on, in the source's own numbering, and the
-    // frame the defender is free again. Both are the kernel's own arithmetic:
-    // ResolveHits SETS hitstun on the frame the boxes overlap -- which is
-    // `startup`, the first active frame -- and StepPhysics decrements it at the
-    // top of every tick after, so it reaches zero at startup + hitstun.
+    // The frame the source's hit lands on, in the source's own numbering: the
+    // kernel's own arithmetic -- ResolveHits sets hitstun on the first active
+    // frame, which is `startup`. Needed only for the contact gate below.
     const std::int32_t contactFrame = src.startup;
-    const std::int32_t defenderFree = contactFrame + src.hitstun;
 
     // The first frame the cancel could fire on. An `onHit` edge must wait one tick
     // past contact for alreadyHitBits to be visible; a whiff edge need not. This
@@ -615,25 +607,7 @@ Hop classify(const CharacterData& c, const cse::kernel::CancelEdge& ke,
         hop.block = Block::ContactGate;
     }
 
-    if (hop.block == Block::None) {
-        hop.viaCancel  = true;
-        hop.startFrame = firstCancel;
-    } else if (hop.block == Block::NoButton) {
-        // No fallback to model: the button scan needs the same button the cancel
-        // does, so an unbound target is unreachable by BOTH routes.
-        hop.viaCancel  = false;
-        hop.startFrame = -1;
-    } else {
-        hop.viaCancel  = false;
-        hop.startFrame = src.startup + src.active + src.recovery;   // MoveDuration
-    }
-
-    // "Connects before the defender leaves hitstun". STRICTLY before: a follow-up
-    // whose first active frame IS the frame the stun expires arrives on a tick the
-    // defender was already actionable on, and section 4's detector counts that as
-    // an escape -- so the two halves of this file must agree on the boundary here.
-    hop.connects = hop.startFrame >= 0 && hop.startFrame + tgt.startup < defenderFree;
-    if (hop.block == Block::None && !hop.connects) hop.block = Block::TooSlow;
+    (void)tgt;
     return hop;
 }
 
@@ -903,7 +877,6 @@ struct CycleResult {
     bool         everyEdgeTakeable = false;
     std::size_t  blockedEdges      = 0;
     Block        firstBlock        = Block::None;
-    bool         predictedLoop     = false;   // every hop connects, by either route
 
     // What it DID (section 4)
     bool         driven  = false;
@@ -918,12 +891,6 @@ struct CycleResult {
     std::size_t  actionableTicks = 0;   // THE ONE THIS FILE DECIDES ON
     std::int32_t defenderHealth  = 0;
     std::int32_t attackerHealth  = 0;   // under the MASH, so it is a real claim
-
-    // Section 3's account, checked against the trace one transition at a time:
-    // how many move-to-move intervals were compared with the frame the hop says
-    // the follow-up begins on, and how many disagreed.
-    std::size_t  timingChecks     = 0;
-    std::size_t  timingMismatches = 0;
 
     // Kept for failure messages only: a count nobody can look into is a count
     // nobody can argue with.
@@ -982,15 +949,9 @@ std::string describe(const CharacterData& c, const CycleResult& r) {
         s << "\n    " << std::setw(18) << std::left << c.moves[h.from].id
           << " -> " << std::setw(18) << std::left << c.moves[h.to].id << std::right
           << " window [" << h.earliest << ", " << h.latest << "]  "
-          << std::setw(13) << std::left << blockName(h.block) << std::right
-          << " starts on frame " << h.startFrame
-          << " by " << (h.viaCancel ? "cancel" : "button")
-          << (h.connects ? ", connects" : ", DOES NOT CONNECT");
+          << std::setw(13) << std::left << blockName(h.block) << std::right;
     }
-    s << "\n  predicted       " << (r.predictedLoop ? "a loop" : "an escape")
-      << ", and " << r.timingChecks << " observed transition(s) were compared "
-         "with those frames: " << r.timingMismatches << " disagreed"
-      << "\n  executed        " << r.hits << " hits, " << r.turns
+    s << "\n  executed        " << r.hits << " hits, " << r.turns
       << " turns, period " << r.period
       << (r.periodic ? " (periodic)" : " (NOT periodic)")
       << (r.stateRepeats ? ", state repeats" : ", state does NOT repeat")
@@ -1031,9 +992,8 @@ void runSweep(const Subject& s, Sweep& out) {
         }
         r.map = build.moves[0];
 
-        // --- section 3: can the kernel take each hop? ------------------------
+        // --- section 3: which windows did the BUILD resolve? -----------------
         r.everyEdgeTakeable = true;
-        r.predictedLoop     = true;
         for (const CancelIndex file : cycle.edges) {
             const cse::kernel::CancelEdge* ke = kernelEdgeFor(build, file);
             if (ke == nullptr) {
@@ -1041,7 +1001,6 @@ void runSweep(const Subject& s, Sweep& out) {
                               << " did not cross into the kernel at all, which "
                                  "MatchBuilder only does for a dangling endpoint";
                 r.everyEdgeTakeable = false;
-                r.predictedLoop     = false;
                 continue;
             }
             bool bound = false;
@@ -1055,22 +1014,15 @@ void runSweep(const Subject& s, Sweep& out) {
                 ++r.blockedEdges;
                 r.everyEdgeTakeable = false;
             }
-            if (!hop.connects) r.predictedLoop = false;
             r.hops.push_back(hop);
         }
 
         // --- section 4: execute it -------------------------------------------
-        // AN AUTHORED BUFFER WINDOW, and it is what keeps the timing account
-        // exact. Edge detection alone means a re-pressing driver can only land
-        // its press within a tick or two of the fighter becoming actionable, so
-        // every transition drifts and section 3's frame-by-frame account stops
-        // matching. A buffered press is consumed the EXACT tick the fighter can
-        // act -- which is what buffering is for in every fighting game that has
-        // it, and why ROADMAP M1.1d makes the window a character field rather
-        // than a constant.
-        //
-        // Set here rather than in the character file because this sweep drives
-        // 121 synthesised cycles, not a shipped character.
+        // AN AUTHORED BUFFER WINDOW: a buffered press is consumed the EXACT
+        // tick the fighter can act, so the driven loops repeat on their own
+        // cadence rather than on re-press parity. Set here rather than in the
+        // character file because this sweep drives 121 synthesised cycles, not
+        // a shipped character.
         build.data.p[0].inputBufferFrames = 2;
         build.data.p[1].inputBufferFrames = 2;
 
@@ -1116,32 +1068,6 @@ void runSweep(const Subject& s, Sweep& out) {
             for (std::size_t i = 0; i + length < r.silent.hitTicks.size(); ++i)
                 if (r.silent.hitTicks[i + length] - r.silent.hitTicks[i] != r.period)
                     r.periodic = false;
-        }
-
-        // --- section 3's account, read back off the trace one hop at a time ---
-        //
-        // The outcome matching is not enough on its own: a cycle could loop for a
-        // reason other than the one this file gives and the counts would still
-        // agree. So every move-to-move transition the trace performed is compared
-        // with the frame the hop SAYS the follow-up begins on -- `firstCancel` for
-        // a takeable edge, `MoveDuration` for the button-start route. A trace that
-        // reached the same follow-up by some third path would disagree here.
-        //
-        // A move ENTRY is `moveFrame == 0` with a move in progress, the same
-        // signal the Driver advances its cursor on.
-        std::vector<std::pair<std::int32_t, std::uint16_t>> entries;
-        for (const Sample& sample : r.silent.samples)
-            if (sample.atkMove != 0 && sample.atkFrame == 0)
-                entries.emplace_back(sample.tick, sample.atkMove);
-        for (std::size_t i = 0; i + 1 < entries.size(); ++i) {
-            for (const Hop& h : r.hops) {
-                if (h.fromSlot != entries[i].second) continue;
-                if (h.toSlot   != entries[i + 1].second) continue;
-                ++r.timingChecks;
-                if (entries[i + 1].first - entries[i].first != h.startFrame)
-                    ++r.timingMismatches;
-                break;
-            }
         }
 
         out.results.push_back(r);
@@ -1394,12 +1320,15 @@ TEST(GapExtentModel, EveryCycleIsEndedByJuggleAndNoCycleTouchesMeter) {
 }
 
 // ============================================================================
-// 3. THE KERNEL -- how many of the 41 it can perform as the model describes them
+// 3. THE BUILD -- which cancel windows MatchBuilder actually resolved
 // ============================================================================
 
-// THE HONEST HALF. It would have been convenient for this file if all 41 cycles
-// were performable and the answer were "41 of 41 run forever". They are not, and
-// the reason is one specific edge shape appearing 40 times.
+// THE HONEST HALF, now purely a census of the BUILD: which edges crossed into
+// the kernel with a window that exists, and the one edge shape (the landing
+// link) that resolves empty 120 times. Nothing here predicts a frame -- the
+// two-route timing account that used to is deleted (M1.4, ADR-012 rule 4) --
+// so this section can never again disagree with an execution it stopped
+// modelling. What the kernel DOES with the windows is section 4's, driven.
 TEST(GapExtentKernel, ExactlyOneCycleIsPerformableThroughTheCancelSystem) {
     Subject safe{};
     bringUp(kSafe, safe);
@@ -1411,14 +1340,13 @@ TEST(GapExtentKernel, ExactlyOneCycleIsPerformableThroughTheCancelSystem) {
     ASSERT_EQ(sweep.results.size(), kUsableCycles);
 
     std::size_t fullyTakeable = 0;
-    std::size_t byEmptyWindow = 0, byContactGate = 0, byNoButton = 0, byTooSlow = 0;
+    std::size_t byEmptyWindow = 0, byContactGate = 0, byNoButton = 0;
     for (const CycleResult& r : sweep.results) {
         if (r.everyEdgeTakeable) { ++fullyTakeable; continue; }
         switch (r.firstBlock) {
             case Block::EmptyWindow: ++byEmptyWindow; break;
             case Block::ContactGate: ++byContactGate; break;
             case Block::NoButton:    ++byNoButton;    break;
-            case Block::TooSlow:     ++byTooSlow;     break;
             case Block::None:        break;
         }
     }
@@ -1444,9 +1372,9 @@ TEST(GapExtentKernel, ExactlyOneCycleIsPerformableThroughTheCancelSystem) {
            "single-bit buttons (" << kButtonPoolSize << "). That is a limit of the "
            "HARNESS rather than of the character, and it means those cycles were "
            "not measured at all.";
-    EXPECT_EQ(byTooSlow, 0u)
-        << byTooSlow << " cycle(s) have a takeable edge whose follow-up cannot "
-           "reach the defender before hitstun runs out.";
+    // (A fourth reason, TooSlow -- takeable but arriving after the stun -- was
+    // the two-route timing model's word and died with it in M1.4: whether a
+    // follow-up ARRIVES in time is answered by driving it, in section 4.)
 
     // ... and the 40 are blocked by ONE edge each, always the same shape: a
     // landing link out of an AIR move, resolved to a window that closes before it
@@ -1860,4 +1788,75 @@ TEST(GapExtentMethod, TheTwoDetectorFamiliesNowAgreeOnEveryCycle) {
     RecordProperty("unescapable_by_free_ticks", static_cast<int>(byFreeTicks));
     RecordProperty("unescapable_by_actionable", static_cast<int>(byActionable));
     RecordProperty("detector_disagreements", static_cast<int>(disagreements));
+}
+
+// ============================================================================
+// 7. THE SEARCH -- the model and the game, each asked by its own method
+// ============================================================================
+
+// The number the paper quotes, both halves measured. The prover walks the
+// FILE's configuration graph and reports a worst case; ComboSearch (ADR-013)
+// walks the GAME by performing macro-actions on the real kernel and reports
+// what it exhausted. The prover must bound the game -- it is the sound,
+// conservative half -- and the pair of numbers, printed together, is the
+// paper's comparison: how loose soundness is on this character, measured
+// rather than argued.
+TEST(GapExtentSearch, TheExecutedWorstCaseIsInsideTheModels) {
+    Subject safe{};
+    bringUp(kSafe, safe);
+    ASSERT_FALSE(::testing::Test::HasFatalFailure());
+    ASSERT_EQ(safe.verdict.status, ProverStatus::Terminating);
+    ASSERT_GT(safe.verdict.maxHits, 0);
+
+    // Every authored normal on its arcade button -- the shipped (button x
+    // stance) binding, so the search explores what a player can actually do.
+    const char* kSuffix[] = { "lp", "mp", "hp", "lk", "mk", "hk" };
+    std::vector<MoveBinding> bindings;
+    for (std::size_t b = 0; b < 6; ++b)
+        for (const char* prefix : { "stand_", "crouch_", "air_" }) {
+            const std::string id = std::string(prefix) + kSuffix[b];
+            if (safe.character.FindMove(id) != kInvalidMove)
+                bindings.push_back(bind(id, kButtonPool[b]));
+        }
+    MatchBuild build{};
+    ASSERT_TRUE(buildMirror(safe.character, bindings, build))
+        << build.report[0].error;
+
+    cse::game::ComboSearchRequest request{};
+    request.data         = &build.data;
+    request.attackerSlot = 0;
+    cse::kernel::ResetMatch(request.from, 0x1D7u);
+    request.from.p[0].posX = kP0X;
+    request.from.p[1].posX = kP1X;
+
+    const cse::game::ComboSearchResult r = cse::game::RunComboSearch(request);
+
+    ASSERT_EQ(r.verdict, cse::game::ComboVerdict::Terminating)
+        << "the search did not exhaust fighter_a: " << r.note;
+    EXPECT_LE(r.maxHits, safe.verdict.maxHits)
+        << "the game performed a string of " << r.maxHits
+        << " hits against the model's stated worst case of "
+        << safe.verdict.maxHits
+        << " -- something the sound half says cannot happen, and the paper's "
+           "central claim breaks exactly here.";
+    EXPECT_GE(r.maxHits, 4)
+        << "the arc string (four aerial repetitions per jump, ground_truth "
+           "section 5) exists, so the executed worst case cannot be under 4.";
+
+    RecordProperty("model_max_hits", safe.verdict.maxHits);
+    RecordProperty("executed_max_hits", r.maxHits);
+
+    std::string longest;
+    for (const std::uint16_t m : r.longestString)
+        longest += std::string(build.moves[0].IdOf(m)) + " ";
+    std::cout
+        << "\n[ GAP EXTENT / SEARCH ] the paper's pair of numbers, measured\n"
+        << "  the model says   worst case " << safe.verdict.maxHits
+        << " hit(s), TERMINATING, certificate present\n"
+        << "  the game does    worst case " << r.maxHits << " hit(s): "
+        << longest << "\n"
+        << "  so the sound half is loose by "
+        << (safe.verdict.maxHits - r.maxHits)
+        << " hit(s) on this character, and the bound HELD -- searched in "
+        << r.nodesExpanded << " node(s) and " << r.ticksUsed << " tick(s).\n\n";
 }
