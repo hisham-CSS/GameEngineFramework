@@ -1710,18 +1710,17 @@ bool LoadCharacterJson(const std::string& sourceName,
     return true;
 }
 
-bool LoadCharacterFile(const std::string& baseDir,
-                       const std::string& relPath,
-                       const LoadOptions& options,
-                       CharacterData& out,
-                       LoadReport& report) {
-    out = CharacterData{};
-    report = LoadReport{};
+namespace {
 
-    // Containment BEFORE the file is opened, every time. docs/MAINTENANCE.md:
-    // "anything from scene content goes through PathIsContained before the file
-    // is opened. Absolute paths and `..` are refused." A character file is
-    // authored content with a path in it and there is no exception to that rule.
+// The one authored-file read: containment BEFORE the file is opened, every
+// time (docs/MAINTENANCE.md -- "anything from scene content goes through
+// PathIsContained before the file is opened. Absolute paths and `..` are
+// refused."), then the size cap, then the bytes. Shared by the plain load and
+// the variant load so the two cannot come to disagree about what a refused
+// path is.
+bool readAuthoredFile(const std::string& baseDir, const std::string& relPath,
+                      const LoadOptions& options, std::string& text,
+                      LoadReport& report) {
     std::filesystem::path full;
     if (!MyCoreEngine::PathIsContained(baseDir, relPath, full)) {
         report.error = relPath + ": path: refused, because it is absolute, carries a "
@@ -1749,13 +1748,120 @@ bool LoadCharacterFile(const std::string& baseDir,
         report.error = relPath + ": file: cannot be opened for reading";
         return false;
     }
-    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    text.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
     if (in.bad()) {
         report.error = relPath + ": file: read failed";
         return false;
     }
+    return true;
+}
 
+} // namespace
+
+bool LoadCharacterFile(const std::string& baseDir,
+                       const std::string& relPath,
+                       const LoadOptions& options,
+                       CharacterData& out,
+                       LoadReport& report) {
+    out = CharacterData{};
+    report = LoadReport{};
+
+    std::string text;
+    if (!readAuthoredFile(baseDir, relPath, options, text, report)) return false;
     return LoadCharacterJson(relPath, text, options, out, report);
+}
+
+bool LoadCharacterVariant(const std::string& baseDir,
+                          const std::string& baseRelPath,
+                          const std::string& variantRelPath,
+                          const LoadOptions& options,
+                          CharacterData& out,
+                          LoadReport& report,
+                          std::string* description) {
+    out = CharacterData{};
+    report = LoadReport{};
+    if (description != nullptr) description->clear();
+
+    std::string baseText, variantText;
+    if (!readAuthoredFile(baseDir, baseRelPath, options, baseText, report))
+        return false;
+    if (!readAuthoredFile(baseDir, variantRelPath, options, variantText, report))
+        return false;
+
+    nlohmann::json baseDoc = nlohmann::json::parse(baseText, nullptr, false);
+    if (baseDoc.is_discarded()) {
+        report.error = baseRelPath + ": json: does not parse";
+        return false;
+    }
+    nlohmann::json variantDoc = nlohmann::json::parse(variantText, nullptr, false);
+    if (variantDoc.is_discarded()) {
+        report.error = variantRelPath + ": json: does not parse";
+        return false;
+    }
+
+    // The one-line description is REQUIRED (docs/adr/ADR-011 section 4): a
+    // catalogue entry that cannot say what it shows is a diff nobody can
+    // exhibit, and requiring it here is what keeps the rule from decaying into
+    // a convention.
+    if (!variantDoc.contains("description") ||
+        !variantDoc["description"].is_string() ||
+        variantDoc["description"].get<std::string>().empty()) {
+        report.error = variantRelPath + ": description: missing or empty. Every "
+                       "variant carries one line saying what the diff shows.";
+        return false;
+    }
+    if (description != nullptr)
+        *description = variantDoc["description"].get<std::string>();
+
+    if (!variantDoc.contains("patch") || !variantDoc["patch"].is_object()) {
+        report.error = variantRelPath + ": patch: missing or not an object. A "
+                       "variant IS its patch; a file without one exhibits "
+                       "nothing.";
+        return false;
+    }
+    nlohmann::json patch = variantDoc["patch"];
+
+    // MOVES ARE PATCHED BY ID, NOT BY RFC 7386. A merge patch treats arrays as
+    // atomic, so a standard patch touching one move would have to restate all
+    // of them and the exhibit would stop being the diff. The variant format
+    // therefore spells `moves` as an OBJECT keyed by move id, each value an
+    // RFC 7386 merge applied to that one array element; every other key merges
+    // at the top level the standard way. An id the base does not author is
+    // refused -- a patch that silently patched nothing is the worst kind of
+    // green.
+    if (patch.contains("moves")) {
+        if (!patch["moves"].is_object()) {
+            report.error = variantRelPath + ": patch.moves: must be an OBJECT "
+                           "keyed by move id (arrays are atomic under merge "
+                           "patch; restating every move is not a diff).";
+            return false;
+        }
+        if (!baseDoc.contains("moves") || !baseDoc["moves"].is_array()) {
+            report.error = baseRelPath + ": moves: missing or not an array";
+            return false;
+        }
+        for (auto it = patch["moves"].begin(); it != patch["moves"].end(); ++it) {
+            bool found = false;
+            for (nlohmann::json& m : baseDoc["moves"]) {
+                if (!m.is_object() || !m.contains("id")) continue;
+                if (m["id"] != it.key()) continue;
+                m.merge_patch(it.value());
+                found = true;
+                break;
+            }
+            if (!found) {
+                report.error = variantRelPath + ": patch.moves." + it.key() +
+                               ": the base character authors no move with this "
+                               "id, so the patch would silently change nothing.";
+                return false;
+            }
+        }
+        patch.erase("moves");
+    }
+
+    baseDoc.merge_patch(patch);
+    return LoadCharacterJson(baseRelPath + " + " + variantRelPath,
+                             baseDoc.dump(), options, out, report);
 }
 
 } // namespace cse::data

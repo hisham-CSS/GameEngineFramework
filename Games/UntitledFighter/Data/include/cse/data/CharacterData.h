@@ -869,4 +869,22 @@ bool LoadCharacterJson(const std::string& sourceName,
                        CharacterData& out,
                        LoadReport& report);
 
+// Load a base character with a VARIANT patch applied -- the showcase's
+// one-fighter-many-patches mechanism (docs/adr/ADR-011 section 4, ROADMAP
+// M1.6). The variant file is `{ "description": "<one line>", "patch": {...} }`;
+// the description is REQUIRED and is returned through `description` when the
+// caller wants it. The patch is RFC 7386 at the top level, EXCEPT that
+// `patch.moves` is an OBJECT keyed by move id, each value merged onto that one
+// array element -- merge patch treats arrays as atomic, and a variant that had
+// to restate every move would stop being the diff it exhibits. A patch naming
+// a move the base does not author is refused rather than silently inert. Both
+// paths go through the same containment rule as LoadCharacterFile.
+bool LoadCharacterVariant(const std::string& baseDir,
+                          const std::string& baseRelPath,
+                          const std::string& variantRelPath,
+                          const LoadOptions& options,
+                          CharacterData& out,
+                          LoadReport& report,
+                          std::string* description = nullptr);
+
 } // namespace cse::data

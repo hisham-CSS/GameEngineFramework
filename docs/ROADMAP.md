@@ -85,7 +85,7 @@ is done or serves it.
 
 | In flight | Owner | Since |
 |---|---|---|
-| *(nothing)* | | |
+| M1.6 — the showcase (slice 1 landed) | Claude | 2026-08-31 |
 
 One at a time. The next unblocked WP is always the top `[ ]` in milestone
 order — which, under the 2026-08-21 reorder, is the sequence named above.
@@ -444,18 +444,29 @@ Six WPs, all landed, gate required in CI. The decision is
 - `[ ]` **M1.5 Character hot reload.** *(S–M)* A frame-data edit lands in a
   running match; NORTHSTAR property (c)'s last clause.
 
-- `[ ]` **M1.6 The showcase: one fighter, many patches, a replay per verdict.**
-  *(M)* Variants as JSON merge patches under
-  `Games/UntitledFighter/Assets/Characters/fighter_a/variants/`; <!-- docs-ok: this WP creates it -->
-  the eleven
-  patches and what each shows are ADR-011 §4.
-  **Carry in one finding:** the witness-driving cursor exists in **five** copies —
-  `BuildDemonstration` plus a `Driver` in each of `test_ground_truth`,
-  `test_game_core`, `test_gap_extent` and `test_one_frame`. **Promote
-  `test_gap_extent`'s**, and not for style: it is the only copy that checks
-  whether the move has started BEFORE spending its release tick. The others are
-  safe only because they release one tick after an advance, when nothing can be
-  buffered.
+- `[~]` **M1.6 The showcase: one fighter, many patches, a replay per verdict.**
+  *(M)* Claude, 2026-08-31. Variants under
+  `Games/UntitledFighter/Assets/Characters/fighter_a/variants/`; the eleven
+  patches and what each shows are ADR-011 §4. (The cursor-copies finding this
+  entry used to carry landed early as M1.3g.)
+  **Slice 1 landed — the mechanism and the first two exhibits.**
+  `LoadCharacterVariant` (CseData): a required one-line `description`, RFC 7386
+  at the top level, and `patch.moves` as an OBJECT keyed by move id — merge
+  patch treats arrays as atomic, so a standard patch touching one move would
+  restate all of them and the exhibit would stop being the diff; an id the
+  base does not author is refused rather than silently inert. Two exhibits,
+  each a verdict PAIR in `tests/test_variants.cpp`:
+  `hitstun_plus_7` — one number on one move hands the GAME an infinite the
+  MODEL cannot see (the restart route is not in the prover's graph; the
+  ledger's `starters` row names the blindness; ComboSearch finds the loop by
+  performing it); `dead_air_window` — an authored cancel that can never
+  connect, NAMED by MatchBuilder's window resolution (the prover has no window
+  model — its dead list must not move, and the test pins that too).
+  **Still open:** the remaining feasible patches (`pushback-0`, `meter-loop`,
+  `decay-off`, `base`); `microwalk` needs walk/wait macro-actions in
+  ComboSearch; `jump-cancel`, `kara`, `counter-hit`, `wallbounce` are blocked
+  on M1.3; and the cooker recording — both verdicts, replays, `graph.dot` per
+  entry — is the "replay per verdict" half.
 
 - `[ ]` **M1.7 Authoring telemetry.** *(S)* What the author actually needed to
   know, recorded while authoring rather than reconstructed after.

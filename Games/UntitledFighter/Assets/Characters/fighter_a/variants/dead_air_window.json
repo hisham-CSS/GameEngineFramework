@@ -1,0 +1,8 @@
+{
+  "description": "air_mp's cancel window closes at 10 instead of 14 -- one tick before its first outgoing cancel can fire (startup 6 + delay 5 = 11). BOTH of air_mp's air-to-air edges (into itself and into air_hk) resolve to an EMPTY kernel window, and the tool that names them is MatchBuilder: the prover's model has no cancel windows at all (the one_frame boundary tests measure that blindness from the other side), so its verdict and dead list do not move. The character stays TERMINATING, the air chain loses its self-cancel rung, and the executed worst case must not grow.",
+  "patch": {
+    "moves": {
+      "air_mp": { "engine": { "cancel_window_ticks": [8, 10] } }
+    }
+  }
+}

@@ -237,6 +237,15 @@ add_test(NAME test_one_frame COMMAND $<TARGET_FILE:test_one_frame>)
 # machine could re-run, and a training mode whose session could only be exercised
 # by launching an editor would be the first part of the argument nobody could
 # check.
+# THE SHOWCASE MECHANISM (ADR-011 section 4). Variants as by-id patches on the
+# shipped fighter, each exhibit a verdict PAIR: the loader's refusals, the
+# hitstun diff that hands the game an infinite the model cannot see, and the
+# closed window whose dead cancels the tool names.
+add_executable(test_variants test_variants.cpp)
+target_link_libraries(test_variants PRIVATE CseGame CseData CseKernel GTest::gtest_main)
+add_dependencies(test_variants test_runtime_deps)
+add_test(NAME test_variants COMMAND $<TARGET_FILE:test_variants>)
+
 # VERDICTS BY EXECUTION (ADR-013). ComboSearch against the shipped pair: the
 # authored infinite is FOUND as a replayable witness, the safe character is
 # exhausted and its executed worst case measured, a small budget says
