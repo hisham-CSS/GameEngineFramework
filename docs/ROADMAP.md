@@ -470,12 +470,22 @@ Six WPs, all landed, gate required in CI. The decision is
   collapses to 5 — BELOW the 7 the untouched kernel performs. One model-only
   field breaks the soundness bound without touching the game; the stale asset
   note was corrected against the measurement in the same commit.
-  **Still open:** `pushback-0` and `meter-loop` (the latter needs
-  `patch.cancels` support — merge patch cannot append to an array); `base`
-  as a catalogue row; `microwalk` needs walk/wait macro-actions in
-  ComboSearch; `jump-cancel`, `kara`, `counter-hit`, `wallbounce` are blocked
-  on M1.3; and the cooker recording — both verdicts, replays, `graph.dot` per
-  entry — is the "replay per verdict" half.
+  **Slice 3:** `meter_loop` — the resource ranking story executed on BOTH
+  sides, and the loader grew `patch.cancels: {append: [...]}` for its return
+  edge (append is the one array operation the showcase needs; anything else is
+  refused with the atomic-array reason). Three diffs — stand_hp's hit builds a
+  bar, the super gains the return cancel, and the super gains `reach` because
+  the base authors none and the kernel builds a reachless move NO hitbox (the
+  `move.reach (absent)` ledger row, discovered when the first probe watched
+  the beam whiff). Gain equals spend, so the prover prints INFINITE and
+  ComboSearch performs the same loop forever — the meter guard exercised every
+  turn (meter oscillating 300↔200, measured), the super reached mid-string
+  through its cancel under a chord binding the press scan correctly shadows.
+  **Still open:** `pushback-0`; `base` as a catalogue row; `microwalk` needs
+  walk/wait macro-actions in ComboSearch; `jump-cancel`, `kara`,
+  `counter-hit`, `wallbounce` are blocked on M1.3; and the cooker recording —
+  both verdicts, replays, `graph.dot` per entry — is the "replay per verdict"
+  half.
 
 - `[ ]` **M1.7 Authoring telemetry.** *(S)* What the author actually needed to
   know, recorded while authoring rather than reconstructed after.

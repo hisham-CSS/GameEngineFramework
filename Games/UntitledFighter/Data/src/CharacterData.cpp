@@ -1859,6 +1859,33 @@ bool LoadCharacterVariant(const std::string& baseDir,
         patch.erase("moves");
     }
 
+    // CANCELS ARE APPENDED, NOT MERGED, for the same atomic-array reason as
+    // moves -- and unlike moves they have no single natural key (from, to and
+    // delay can all repeat), so the variant format supports exactly the one
+    // operation the showcase needs: `patch.cancels` is `{ "append": [edge...] }`
+    // and each edge lands at the end of the authored list. Anything else --
+    // an array, an edit, a delete -- is refused with the reason, so a future
+    // need announces itself here instead of silently restating ninety edges.
+    if (patch.contains("cancels")) {
+        if (!patch["cancels"].is_object() ||
+            !patch["cancels"].contains("append") ||
+            !patch["cancels"]["append"].is_array() ||
+            patch["cancels"].size() != 1) {
+            report.error = variantRelPath + ": patch.cancels: must be exactly "
+                           "{ \"append\": [edge, ...] } (arrays are atomic "
+                           "under merge patch, and edges have no single "
+                           "natural key to merge by).";
+            return false;
+        }
+        if (!baseDoc.contains("cancels") || !baseDoc["cancels"].is_array()) {
+            report.error = baseRelPath + ": cancels: missing or not an array";
+            return false;
+        }
+        for (const nlohmann::json& edge : patch["cancels"]["append"])
+            baseDoc["cancels"].push_back(edge);
+        patch.erase("cancels");
+    }
+
     baseDoc.merge_patch(patch);
     return LoadCharacterJson(baseRelPath + " + " + variantRelPath,
                              baseDoc.dump(), options, out, report);

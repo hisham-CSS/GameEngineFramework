@@ -1,0 +1,23 @@
+{
+  "description": "The resource ranking story, executed on both sides. Three diffs close a meter cycle the base cannot have: stand_hp's hit builds a full bar (+100 meter); super_beam gains a cancel back into stand_hp (delay 20, inside its 32 ticks of hitstun); and super_beam gains reach 0.8 -- the base authors none, so the kernel builds it NO hitbox (the ledger's `move.reach (absent)` row counts exactly this) and an executed loop through a super that cannot connect would be a story about a whiff. Per cycle the gain equals the spend -- stand_hp +100 against the super's guard and cost of 100 -- so the model's nonNegative never refuses and the prover prints INFINITE; and because meter is Exact in the kernel since M1.1b (the guard refuses on both start routes, ApplyEffects clamps at the ceiling), ComboSearch performs the same loop forever, the guard exercised every turn and never failing. Drop the gain by one point and the loop drains until the guard says no: INFINITE only if gain per cycle >= spend, the certificate's sentence with the kernel saying it too.",
+  "patch": {
+    "moves": {
+      "stand_hp": { "effect": { "meter": 100 } },
+      "super_beam": { "reach": 0.8 }
+    },
+    "cancels": {
+      "append": [
+        {
+          "from": "super_beam",
+          "to": "stand_hp",
+          "delay": 20,
+          "on": "hit",
+          "effect": {},
+          "guard": {},
+          "certain": true,
+          "label": "super_beam > stand_hp (variant: the meter loop's return edge)"
+        }
+      ]
+    }
+  }
+}

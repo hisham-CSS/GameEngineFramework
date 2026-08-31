@@ -22,6 +22,7 @@
 #include "cse/data/MatchBuilder.h"
 #include "cse/data/ProverAdapter.h"
 #include "cse/game/ComboSearch.h"
+#include "cse/game/WitnessCursor.h"
 #include "cse/kernel/Simulate.h"
 
 #include <gtest/gtest.h>
@@ -109,7 +110,8 @@ struct Exhibit {
     ComboSearchResult searched{};
 };
 
-void bringUpVariant(const std::string& variantRel, Exhibit& out) {
+void bringUpVariant(const std::string& variantRel, Exhibit& out,
+                    const std::vector<cse::data::MoveBinding>& extraBindings = {}) {
     LoadReport report{};
     ASSERT_TRUE(LoadCharacterVariant(charactersDir(), "fighter_a.json",
                                      variantRel, loadOptions(), out.character,
@@ -122,7 +124,9 @@ void bringUpVariant(const std::string& variantRel, Exhibit& out) {
     ProverReport preport{};
     ASSERT_TRUE(AnalyseCharacter(out.character, po, out.verdict, preport));
 
-    const BuildOptions options = normalBindings(out.character);
+    BuildOptions options = normalBindings(out.character);
+    for (const cse::data::MoveBinding& b : extraBindings)
+        options.bindings.push_back(b);
     ASSERT_TRUE(BuildMatchData(out.character, options, out.character, options,
                                out.build))
         << out.build.report[0].error;
@@ -342,4 +346,51 @@ TEST(VariantExhibits, ALinearDecayBreaksTheSoundnessBoundWithoutTouchingTheGame)
     RecordProperty("variant_description", e.description);
     RecordProperty("base_has_ranking", baseVerdict.hasRanking ? 1 : 0);
     RecordProperty("variant_has_ranking", e.verdict.hasRanking ? 1 : 0);
+}
+
+TEST(VariantExhibits, AMeterLoopIsInfiniteOnBothSidesBecauseGainMeetsSpend) {
+    // The super is bound as a two-attack-button chord -- the genre's own
+    // answer to six buttons and twenty-two moves, and the binding
+    // fighter_a_infinite ships. From IDLE the chord is shadowed by stand_lp
+    // (a superset mask never wins the press scan), which is fine and true to
+    // the genre: the super is reached MID-STRING through its cancel, where
+    // FindCancel reads the held chord regardless of scan order.
+    Exhibit e{};
+    bringUpVariant("fighter_a/variants/meter_loop.json", e,
+                   { { "super_beam",
+                       static_cast<std::uint16_t>(cse::kernel::kInputLP |
+                                                  cse::kernel::kInputMP) } });
+    ASSERT_FALSE(::testing::Test::HasFatalFailure());
+
+    // THE MODEL: the appended edge closes a cycle through super_beam whose
+    // per-turn meter arithmetic is exactly break-even (+100 on stand_hp's hit
+    // against the super's guard and cost of 100), so `nonNegative` never
+    // refuses and the verdict is INFINITE -- the ranking certificate's own
+    // vocabulary, exercised in the direction that keeps a loop alive.
+    EXPECT_EQ(e.verdict.status, ProverStatus::Infinite)
+        << "the model did not find the meter loop; either the appended edge "
+           "did not survive the projection or the resource arithmetic moved";
+
+    // THE GAME: meter is Exact in the kernel (M1.1b) -- the guard refuses on
+    // both start routes and ApplyEffects clamps at the ceiling -- so the SAME
+    // loop performs forever, its guard exercised every turn and never
+    // failing. The witness must actually cycle through the super: a loop that
+    // avoided it would be some other infinite wearing this exhibit's name.
+    ASSERT_EQ(e.searched.verdict, ComboVerdict::Infinite) << e.searched.note;
+    ASSERT_LT(e.searched.loopStart, e.searched.witness.size());
+    const std::uint16_t superSlot = e.build.moves[0].Find("super_beam");
+    const std::uint16_t hpSlot    = e.build.moves[0].Find("stand_hp");
+    ASSERT_NE(superSlot, 0u);
+    ASSERT_NE(hpSlot, 0u);
+    bool loopHasSuper = false, loopHasHp = false;
+    for (std::size_t i = e.searched.loopStart; i < e.searched.witness.size(); ++i) {
+        if (e.searched.witness[i] == superSlot) loopHasSuper = true;
+        if (e.searched.witness[i] == hpSlot)    loopHasHp    = true;
+    }
+    EXPECT_TRUE(loopHasSuper)
+        << "the executed loop does not pass through super_beam, so the meter "
+           "guard was never exercised and this is not the meter-loop exhibit";
+    EXPECT_TRUE(loopHasHp);
+
+    RecordProperty("variant_description", e.description);
 }
