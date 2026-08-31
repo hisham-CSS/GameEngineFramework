@@ -158,6 +158,7 @@
 
 #include "cse/game/ComboWatcher.h"
 #include "cse/game/FightSession.h"
+#include "cse/game/WitnessCursor.h"
 #include "cse/game/InputSource.h"
 
 #include "cse/data/CharacterData.h"
@@ -3191,11 +3192,8 @@ TEST(TrainingModeReadout, ASpentActiveWindowStillOffersABoxAndTheStateCannotSayW
         // asked for with the takeoff Up provides, on the same tick, and rides
         // the arc through its active window -- which is exactly how the
         // reviewer's case is performed in play.
-        std::uint16_t hold = 0;
-        if (move->stance == cse::kernel::kStanceCrouching)
-            hold = cse::kernel::kInputDown;
-        else if (move->stance == cse::kernel::kStanceAir)
-            hold = cse::kernel::kInputUp;
+        const std::uint16_t hold =
+            cse::game::WitnessCursor::StanceHold(bench.build.data.p[0], slot);
 
         std::int32_t boxFrames = 0, hitFrames = 0, deadFrames = 0;
         std::int32_t deadOverlapping = 0;

@@ -118,6 +118,7 @@
 
 #include "cse/data/CharacterData.h"
 #include "cse/data/MatchBuilder.h"
+#include "cse/game/WitnessCursor.h"
 #include "cse/data/ProverAdapter.h"
 #include "cse/kernel/Simulate.h"
 
@@ -669,104 +670,19 @@ std::vector<MoveBinding> bindingsFor(const CharacterData& c, const Cycle& cycle)
 // is the property section 4 turns on, because 40 of these 41 cycles are entered
 // by a route the cancel table does not contain, and a driver that watched for a
 // cancel specifically would have reported every one of them as a stall.
-class Driver {
-public:
-    // `data` is the BUILT fighter: the stance-establishing hold is read off
-    // MoveDef::stance, the bytes the kernel enforces since ROADMAP M1.3e --
-    // reading the authored CharacterData instead would let this driver and a
-    // mis-mapped bridge agree with each other and disagree with the game.
-    Driver(const CharacterData& c, const Cycle& cycle, const MoveIndexMap& map,
-           const std::vector<MoveBinding>& bindings,
-           const cse::kernel::FighterData& data) {
-        for (const MoveIndex m : cycle.moves) {
-            const std::string& id = c.moves[m].id;
-            const std::uint16_t slot = map.Find(id);
-            slots_.push_back(slot);
-            std::uint16_t button = 0;
-            for (const MoveBinding& b : bindings)
-                if (b.moveId == id) { button = b.button; break; }
-            buttons_.push_back(button);
-            ids_.push_back(id);
-            // SEPARATE from buttons_: folded in, it would break Usable()'s
-            // zero-button check and the same-button release predicate.
-            std::uint16_t hold = 0;
-            const cse::kernel::MoveDef* mv = cse::kernel::MoveAt(data, slot);
-            if (mv != nullptr) {
-                if (mv->stance == cse::kernel::kStanceCrouching) hold = cse::kernel::kInputDown;
-                else if (mv->stance == cse::kernel::kStanceAir)  hold = cse::kernel::kInputUp;
-            }
-            holds_.push_back(hold);
-        }
-    }
+// THE witness cursor lives in CseGame now (WitnessCursor.h, ROADMAP M1.3g).
+// This file pioneered the start-before-release ordering the shared cursor
+// carries; its copy is deleted with the other four, and BuildDemonstration
+// performs a witness by the very step function this sweep measures with.
+using Driver = cse::game::WitnessDriver;
 
-    bool Usable(std::string& why) const {
-        for (std::size_t i = 0; i < slots_.size(); ++i) {
-            if (slots_[i] == 0) {
-                why = "this character has no move called `" + ids_[i] + "`";
-                return false;
-            }
-            if (buttons_[i] == 0) {
-                why = "`" + ids_[i] + "` was given no button, so nothing can ask for it";
-                return false;
-            }
-        }
-        return !slots_.empty();
-    }
-
-    // A FOURTH COPY of this cursor -- with FightSession.cpp, test_ground_truth.cpp
-    // and test_game_core.cpp -- and the fourth place the same two input rules had
-    // to be written. Recorded as work in ROADMAP M1.6 rather than as a comment.
-    //
-    // Zero on a release tick, because a held bit is one press however long it
-    // lasts and a witness that cancels a move into itself asks for the same bit
-    // twice running. And a re-press while WAITING, because a driver that stalls
-    // on a move which never comes otherwise stops feeding the kernel anything at
-    // all -- "the cycle managed one turn" would then mean "the driver went
-    // quiet", not "the game refused".
-    std::uint16_t Bits() const {
-        if (buttons_.empty()) return 0;
-        // The button drops on a release tick, the stance hold does not: the
-        // release is of the button, not the posture (ROADMAP M1.3e), or a
-        // buffered press consumed on the silent tick would ask for a crouching
-        // move from a stand and be refused.
-        if (release_) return holds_[cursor_];
-        return static_cast<std::uint16_t>(buttons_[cursor_] | holds_[cursor_]);
-    }
-
-    // THE MOVE STARTING IS CHECKED BEFORE THE RELEASE TICK IS SPENT, and that
-    // ordering is the whole of it. Buffering exists so a press that arrived
-    // early is consumed the tick the fighter can act -- which is very often a
-    // tick this driver is spending SILENT, because it pressed two ticks ago and
-    // is now releasing so the next press has an edge to be. A driver that
-    // returned early on a release tick therefore missed precisely the
-    // transitions buffering creates: the cursor never advanced, so it went on
-    // asking for the move already running, and the move restarted from frame 0
-    // one duration later. That read as "the loop decayed" when the loop was
-    // fine and the observer was blind.
-    void Observe(std::uint16_t attackerMove, std::uint16_t attackerFrame) {
-        if (slots_.empty()) return;
-        if (attackerMove == slots_[cursor_] && attackerFrame == 0) {
-            waiting_ = 0;
-            const std::uint16_t justUsed = buttons_[cursor_];
-            cursor_ = (cursor_ + 1 < slots_.size()) ? cursor_ + 1 : 0;
-            release_ = (buttons_[cursor_] == justUsed);
-            return;
-        }
-        if (release_) { release_ = false; return; }
-        ++waiting_;
-        if (waiting_ >= kRepressAfter) { release_ = true; waiting_ = 0; }
-    }
-
-private:
-    std::vector<std::uint16_t> slots_;
-    std::vector<std::uint16_t> buttons_;
-    std::vector<std::uint16_t> holds_;   // stance direction per entry
-    std::vector<std::string>   ids_;
-    std::size_t                cursor_ = 0;
-    bool                       release_ = false;
-    int                        waiting_ = 0;
-    static constexpr int       kRepressAfter = 2;
-};
+Driver makeDriver(const CharacterData& c, const Cycle& cycle,
+                  const MoveIndexMap& map,
+                  const cse::kernel::FighterData& data) {
+    std::vector<std::string> ids;
+    for (const MoveIndex m : cycle.moves) ids.push_back(c.moves[m].id);
+    return Driver(cse::game::WitnessCursor::FromIds(ids, 0, map, data));
+}
 
 // Silent is the recipe the character files prescribe. MashesOnceHit starts LATE
 // on purpose: at tick 0 both fighters are idle and hold the same bindings, so
@@ -1158,7 +1074,7 @@ void runSweep(const Subject& s, Sweep& out) {
         build.data.p[0].inputBufferFrames = 2;
         build.data.p[1].inputBufferFrames = 2;
 
-        Driver silentDriver(c, cycle, build.moves[0], bindings, build.data.p[0]);
+        Driver silentDriver = makeDriver(c, cycle, build.moves[0], build.data.p[0]);
         std::string why;
         if (!silentDriver.Usable(why)) {
             // Not a failure: a cycle nothing can ask for is a MEASUREMENT, and
@@ -1166,25 +1082,19 @@ void runSweep(const Subject& s, Sweep& out) {
             out.results.push_back(r);
             continue;
         }
-        Driver mashDriver(c, cycle, build.moves[0], bindings, build.data.p[0]);
+        Driver mashDriver = makeDriver(c, cycle, build.moves[0], build.data.p[0]);
 
         const int budget = sweepTicksFor(cycle.moves.size());
         r.silent = drive(build.data, silentDriver, budget,
                          DefenderPolicy::Silent, 0);
         // The defender mashes the FIRST move of the cycle, which is bound by
-        // construction, WITH its stance-establishing direction -- since ROADMAP
-        // M1.3e a bare button whose binding is a crouching or air move starts
-        // nothing, and "the defender never acted" would be a fact about this
-        // line rather than about the combo.
-        std::uint16_t mashBits = bindings[0].button;
-        {
-            const cse::kernel::MoveDef* mm = cse::kernel::MoveAt(
-                build.data.p[1], build.moves[0].Find(bindings[0].moveId));
-            if (mm != nullptr) {
-                if (mm->stance == cse::kernel::kStanceCrouching) mashBits |= cse::kernel::kInputDown;
-                else if (mm->stance == cse::kernel::kStanceAir)  mashBits |= cse::kernel::kInputUp;
-            }
-        }
+        // construction, WITH its stance-establishing direction --
+        // WitnessCursor::StanceHold says why a bare button would make "the
+        // defender never acted" a fact about this line rather than the combo.
+        const std::uint16_t mashBits = static_cast<std::uint16_t>(
+            bindings[0].button |
+            cse::game::WitnessCursor::StanceHold(
+                build.data.p[1], build.moves[0].Find(bindings[0].moveId)));
         const TickLog mashed = drive(build.data, mashDriver, budget,
                                      DefenderPolicy::MashesOnceHit, mashBits);
 

@@ -64,6 +64,7 @@
 
 #include "cse/game/ComboWatcher.h"
 #include "cse/game/FightSession.h"
+#include "cse/game/WitnessCursor.h"
 #include "cse/game/InputSource.h"
 #include "cse/game/Replay.h"
 
@@ -357,99 +358,17 @@ std::vector<MoveBinding> bindingsFor(const Witness& w) {
 // Advancing on `moveFrame == 0` rather than on a change of `moveId` is the trap
 // FightSession.h writes out for BuildDemonstration and ComboWatcher.h writes out
 // again: the loop is a move cancelling into ITSELF, so the id never changes.
-class Driver {
-public:
-    // `data` is the BUILT fighter: the stance hold is read off MoveDef::stance,
-    // the same bytes the kernel enforces since ROADMAP M1.3e.
-    Driver(const Witness& w, const MoveIndexMap& map,
-           const std::vector<MoveBinding>& bindings,
-           const cse::kernel::FighterData& data)
-        : loopStart_(w.loopStart) {
-        for (const std::string& id : w.sequence) {
-            const std::uint16_t slot = map.Find(id);
-            slots_.push_back(slot);
-            std::uint16_t button = 0;
-            for (const MoveBinding& b : bindings)
-                if (b.moveId == id) { button = b.button; break; }
-            buttons_.push_back(button);
-            ids_.push_back(id);
-            // The stance-establishing direction, SEPARATE from buttons_ --
-            // folding it in would break Usable()'s zero-button check and the
-            // same-button release predicate below.
-            std::uint16_t hold = 0;
-            const cse::kernel::MoveDef* m = cse::kernel::MoveAt(data, slot);
-            if (m != nullptr) {
-                if (m->stance == cse::kernel::kStanceCrouching) hold = cse::kernel::kInputDown;
-                else if (m->stance == cse::kernel::kStanceAir)  hold = cse::kernel::kInputUp;
-            }
-            holds_.push_back(hold);
-        }
-    }
+// THE witness cursor lives in CseGame now (WitnessCursor.h, ROADMAP M1.3g);
+// this file's copy -- the one the seam test caught drifting -- is deleted, and
+// the seam below compares BuildDemonstration against a WitnessDriver over the
+// SAME step function, which is the strongest form that comparison can take.
+using Driver = cse::game::WitnessDriver;
 
-    bool Usable(std::string& why) const {
-        for (std::size_t i = 0; i < slots_.size(); ++i) {
-            if (slots_[i] == 0) {
-                why = "this character has no move called `" + ids_[i] + "`";
-                return false;
-            }
-            if (buttons_[i] == 0) {
-                why = "`" + ids_[i] + "` was given no button, so nothing can ask for it";
-                return false;
-            }
-        }
-        return !slots_.empty();
-    }
-
-    // The button drops on a release tick and the STANCE HOLD does not -- the
-    // release is of the button, not the posture (ROADMAP M1.3e). See
-    // BuildDemonstration, which this is the reference for. A witness that
-    // cancels a move into ITSELF asks for the same button twice running, and a
-    // held bit is ONE press however long it lasts.
-    //
-    // THIS IS THE THIRD COPY OF THIS RULE (here, test_ground_truth.cpp, and
-    // FightSession.cpp) and the duplication is why the seam test exists. It is
-    // recorded as work rather than left as a comment -- ROADMAP M1.3g.
-    std::uint16_t Bits() const {
-        if (buttons_.empty()) return 0;
-        if (release_) return holds_[cursor_];
-        return static_cast<std::uint16_t>(buttons_[cursor_] | holds_[cursor_]);
-    }
-
-    void Observe(std::uint16_t attackerMove, std::uint16_t attackerFrame) {
-        if (slots_.empty()) return;
-        // Spent without looking at the state, which is safe only because the
-        // release lands one tick after an advance and nothing can start there.
-        // See tests/test_ground_truth.cpp's copy of this note and ROADMAP M1.3g.
-        if (release_) { release_ = false; return; }
-        if (attackerMove != slots_[cursor_] || attackerFrame != 0) {
-            // WAITING, so alternate rather than hold -- since M1.3e a landing
-            // between turns makes waiting ROUTINE, and a held button is one
-            // press. Mirrors ground_truth's driver and BuildDemonstration
-            // exactly; the seam test compares the traces tick for tick.
-            ++waiting_;
-            if (waiting_ >= kRepressAfter) { release_ = true; waiting_ = 0; }
-            return;
-        }
-        waiting_ = 0;
-        const std::uint16_t justUsed = buttons_[cursor_];
-        cursor_ = (cursor_ + 1 < slots_.size()) ? cursor_ + 1 : loopStart_;
-        release_ = (buttons_[cursor_] == justUsed);
-    }
-
-    const std::vector<std::uint16_t>& Slots() const { return slots_; }
-    std::size_t LoopStart() const { return loopStart_; }
-
-private:
-    std::vector<std::uint16_t> slots_;
-    std::vector<std::uint16_t> buttons_;
-    std::vector<std::uint16_t> holds_;   // stance direction per entry
-    std::vector<std::string>   ids_;
-    std::size_t                loopStart_ = 0;
-    std::size_t                cursor_    = 0;
-    bool                       release_   = false;
-    int                        waiting_   = 0;
-    static constexpr int       kRepressAfter = 2;
-};
+Driver makeDriver(const Witness& w, const MoveIndexMap& map,
+                  const cse::kernel::FighterData& data) {
+    return Driver(cse::game::WitnessCursor::FromIds(w.sequence, w.loopStart,
+                                                    map, data));
+}
 
 // ============================================================================
 // 0c. WATCHING A SESSION FROM OUTSIDE
@@ -1573,7 +1492,7 @@ TEST(GameDemonstration, TheSeamProducesExactlyTheGroundTruthDriversTrace) {
 
     // The reference: the closed-loop driver copied out of test_ground_truth.cpp,
     // run against a bare Simulate loop exactly as that file runs it.
-    Driver reference(rig.witness, rig.build.moves[0], rig.bindings, rig.build.data.p[0]);
+    Driver reference = makeDriver(rig.witness, rig.build.moves[0], rig.build.data.p[0]);
     std::string why;
     ASSERT_TRUE(reference.Usable(why)) << "the witness cannot be driven: " << why;
 

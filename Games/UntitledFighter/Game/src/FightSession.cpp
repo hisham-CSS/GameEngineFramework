@@ -1,5 +1,7 @@
 #include "cse/game/FightSession.h"
 
+#include "cse/game/WitnessCursor.h"
+
 // WHAT MAY NOT APPEAR IN THIS INCLUDE LIST, and it is not a style rule.
 //
 // No <chrono>, no <ctime>, no <random>, no <cstdlib> for rand(). This file
@@ -51,20 +53,6 @@ std::string hex16(std::uint16_t v) {
 std::string describeAttacker(const cse::kernel::Fighter& f) {
     if (f.moveId == 0) return "idle";
     return "in kernel move " + num(f.moveId) + " at frame " + num(f.moveFrame);
-}
-
-// The direction that ESTABLISHES a move's stance, held with its button and kept
-// through the release ticks between repeats. Since ROADMAP M1.3e the kernel
-// enforces MoveDef::stance on both start routes, so a crouching normal needs
-// Down held on the press tick and an aerial needs the takeoff Up provides. THE
-// RELEASE IS OF THE BUTTON, NOT THE POSTURE: dropping the direction on a
-// release tick drops the stance, and a buffered press consumed on that silent
-// tick would ask for a crouching move from a stand, be refused, and repeat
-// every loop one tick late. A player holds down-back and taps the button.
-std::uint16_t stanceHold(const cse::kernel::MoveDef& m) {
-    if (m.stance == cse::kernel::kStanceCrouching) return cse::kernel::kInputDown;
-    if (m.stance == cse::kernel::kStanceAir)       return cse::kernel::kInputUp;
-    return 0;
 }
 
 } // namespace
@@ -544,23 +532,18 @@ bool BuildDemonstration(const DemonstrationRequest& request, Demonstration& out)
     // by hoping the witness is short.
     out.inputs.reserve(budget);
 
-    std::size_t   cursor          = 0;
+    // THE cursor -- WitnessCursor.h is the one home of every trace rule (the
+    // release between repeats, the stance hold riding through it, the two-tick
+    // re-press, start-before-release). The seam test compares this rehearsal
+    // against a WitnessDriver over the SAME step function, so the two cannot
+    // drift the way the five copies this replaced did (ROADMAP M1.3g).
+    const WitnessCursor cursor =
+        WitnessCursor::FromSlots(request.moveIds, request.loopStart, attacker);
+    WitnessCursor::State cur{};
+
     std::uint32_t ticksRun        = 0;
     bool          everAdvanced    = false;
-    // True when the next tick must drop the BUTTON (the stance hold stays), so
-    // the press after it is an edge.
-    bool          releasePending  = false;
     std::uint32_t lastAdvanceTick = 0;
-    // Ticks spent waiting for the expected move; a re-press follows. Mirrors
-    // the test drivers' rule exactly -- long enough that a move in progress is
-    // not interrupted by a pointless re-press, short enough to catch the
-    // actionable tick -- because the seam test compares the two traces tick
-    // for tick, and since M1.3e a landing between turns makes waiting ROUTINE
-    // rather than a failure mode: an aerial loop touches down, the fighter
-    // needs a free tick to take off again, and a trace that held one press
-    // through it would perform exactly one jump's worth of the witness.
-    int                 waitingTicks  = 0;
-    constexpr int       kRepressAfter = 2;
 
     // WHAT "DONE" MEANS, and the two sentences in the header that have to be
     // reconciled. `complete` is documented as "every move in the witness was
@@ -581,16 +564,8 @@ bool BuildDemonstration(const DemonstrationRequest& request, Demonstration& out)
     };
 
     while (ticksRun < budget && !satisfied()) {
-        // Non-null and nonzero: every entry was checked above, and the cursor
-        // only ever holds an index inside the witness.
-        const std::uint16_t wanted = request.moveIds[cursor];
-        const cse::kernel::MoveDef& move = *cse::kernel::MoveAt(attacker, wanted);
-        // A release tick drops the button and KEEPS the stance hold; see
-        // stanceHold above for why the posture must ride through it.
-        const std::uint16_t hold = stanceHold(move);
-        const std::uint16_t bits = releasePending
-            ? hold
-            : static_cast<std::uint16_t>(move.button | hold);
+        const std::size_t   at   = cur.cursor;
+        const std::uint16_t bits = cursor.Bits(cur);
 
         cse::kernel::InputPair in{};
         in.p[request.attackerSlot].bits = bits;
@@ -608,86 +583,20 @@ bool BuildDemonstration(const DemonstrationRequest& request, Demonstration& out)
         out.inputs.push_back(cse::kernel::Input{ bits });
         ++ticksRun;
 
-        // THE CURSOR RULE, AND IT IS `moveFrame == 0` RATHER THAN A CHANGE OF
-        // `moveId`. The witness for an infinite is a move cancelling into
-        // ITSELF -- fighter_a_infinite's entire deliberate bug is
-        // `stand_lp -> stand_lp` -- so the id never changes, a transition
-        // detector would see nothing happen at all, and the trace would hold one
-        // button forever while reporting that it had never got started. The
-        // frame counter is what resets, so it is what says a move began. This
-        // trap has already been fallen into on this project; ComboWatcher.h
-        // documents it a third time.
-        // A release tick is spent whatever happened: nothing starts from an input
-        // of zero, so there is nothing to test for.
-        if (releasePending) {
-            releasePending = false;
-            continue;
-        }
-
         const cse::kernel::Fighter& f = session.State().p[request.attackerSlot];
-        if (f.moveId != wanted || f.moveFrame != 0) {
-            // WAITING, so alternate rather than hold. A held button is one
-            // press, so a rehearsal that stalls on a move which never comes
-            // stops feeding the kernel anything at all -- and since M1.3e a
-            // landing between turns makes this the ROUTINE path, not the
-            // failure one. A human presses again; so does this. Mirrors the
-            // drivers' kRepressAfter exactly; the seam test checks that.
-            ++waitingTicks;
-            if (waitingTicks >= kRepressAfter) {
-                releasePending = true;
-                waitingTicks   = 0;
-            }
-            continue;
-        }
-        waitingTicks = 0;
-        {
+        const WitnessCursor::StepResult step = cursor.Step(cur, f.moveId, f.moveFrame);
+        cur = step.next;
+        if (step.advanced) {
             // How far along the witness this got: the number of LEADING entries
             // entered at least once, which reaches witnessSize exactly on the
             // wrap and stays there. On a stall during the first pass it is also
             // the index of the entry the rehearsal was waiting for, which is
             // what makes it the number a progress bar and a failure message can
-            // both quote.
-            if (cursor + 1 > out.reachedIndex) out.reachedIndex = cursor + 1;
-
-            if (cursor + 1 < witnessSize) {
-                cursor = cursor + 1;
-            } else {
-                // Past the end the cursor returns to loopStart, which is what
-                // makes the loop repeat, and the wrap is what counts a turn.
-                cursor = request.loopStart;
-                ++out.turnsDone;
-            }
+            // both quote. The wrap is what counts a turn.
+            if (at + 1 > out.reachedIndex) out.reachedIndex = at + 1;
+            if (step.wrapped) ++out.turnsDone;
             everAdvanced    = true;
             lastAdvanceTick = ticksRun - 1;
-
-            // A RELEASE FRAME BETWEEN REPEATS OF THE SAME BUTTON, and it is the
-            // difference between a trace that performs the witness and one that
-            // holds a key and hopes.
-            //
-            // The witness for an infinite is usually a move cancelling into
-            // ITSELF -- `stand_lp -> stand_lp`, `air_mp -> air_mp` -- so the next
-            // entry asks for the same bit as the one just used. Emitting that bit
-            // continuously is a HOLD, and a kernel that starts moves on a press
-            // never sees a second one: the loop stops being performable, not
-            // because the analysis was wrong but because the trace was written
-            // for a kernel that could not tell a hold from a press.
-            //
-            // Flagged rather than ticked inline, so the release lands on the NEXT
-            // iteration. tests/test_ground_truth.cpp's driver does it that way --
-            // it emits zero from Bits() on the following tick -- and the two
-            // traces are compared tick for tick by
-            // GameDemonstration.TheSeamProducesExactlyTheGroundTruthDriversTrace.
-            // The first version of this ticked immediately and that test named
-            // the disagreement at tick 1.
-            //
-            // It is free wherever it lands: the attacker is one tick into startup
-            // and cannot act whatever is held. Compared on BUTTONS, not on the
-            // emitted bits -- the stance hold rides along in `bits` since
-            // M1.3e, and a comparison against the composite would miss every
-            // same-button repeat performed from a stance.
-            releasePending =
-                cse::kernel::MoveAt(attacker, request.moveIds[cursor])->button ==
-                move.button;
         }
     }
 
@@ -718,7 +627,7 @@ bool BuildDemonstration(const DemonstrationRequest& request, Demonstration& out)
     const bool ranOutMidProgress = everAdvanced && lastAdvanceTick + 1u == ticksRun;
     out.stalledAt = everAdvanced ? lastAdvanceTick + 1u : 0u;
 
-    const std::uint16_t wanted = request.moveIds[cursor];
+    const std::uint16_t wanted = request.moveIds[cur.cursor];
     const std::uint16_t bits   = cse::kernel::MoveAt(attacker, wanted)->button;
 
     out.error = ranOutMidProgress

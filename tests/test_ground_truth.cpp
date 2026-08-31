@@ -129,6 +129,7 @@
 
 #include "cse/data/CharacterData.h"
 #include "cse/data/MatchBuilder.h"
+#include "cse/game/WitnessCursor.h"
 #include "cse/data/ProverAdapter.h"
 #include "cse/kernel/Simulate.h"
 
@@ -447,123 +448,18 @@ std::vector<MoveBinding> bindingsFor(const Witness& w) {
 // advances and the trace holds one button forever. That is the correct failure
 // mode -- it stalls visibly, and the per-tick table below shows what the attacker
 // was doing instead.
-class Driver {
-public:
-    // `data` is the BUILT fighter, because the stance hold is read off
-    // MoveDef::stance -- the same bytes the kernel enforces (ROADMAP M1.3e).
-    // Reading the authored CharacterData instead would let the two drift and
-    // this driver keep passing against a bridge that mapped the enum wrong.
-    Driver(const Witness& w, const MoveIndexMap& map,
-           const std::vector<MoveBinding>& bindings,
-           const cse::kernel::FighterData& data)
-        : loopStart_(w.loopStart) {
-        for (const std::string& id : w.sequence) {
-            const std::uint16_t slot = map.Find(id);
-            slots_.push_back(slot);
-            std::uint16_t button = 0;
-            for (const MoveBinding& b : bindings)
-                if (b.moveId == id) { button = b.button; break; }
-            buttons_.push_back(button);
-            ids_.push_back(id);
-            // The direction that ESTABLISHES the move's stance, held with the
-            // button AND through release ticks -- the release is of the
-            // button, not the posture. SEPARATE from buttons_: folding it in
-            // would break Usable()'s zero-button check and make the release
-            // predicate compare composites that never match.
-            std::uint16_t hold = 0;
-            const cse::kernel::MoveDef* m = cse::kernel::MoveAt(data, slot);
-            if (m != nullptr) {
-                if (m->stance == cse::kernel::kStanceCrouching) hold = cse::kernel::kInputDown;
-                else if (m->stance == cse::kernel::kStanceAir)  hold = cse::kernel::kInputUp;
-            }
-            holds_.push_back(hold);
-        }
-    }
+// THE witness cursor lives in CseGame now (WitnessCursor.h, ROADMAP M1.3g):
+// one home for the advance-on-frame-zero rule, the release between repeats,
+// the stance hold riding through it, and the two-tick re-press. This file's
+// copy is deleted; BuildDemonstration and every driver in the suite sit on the
+// same step function, and the seam test in test_game_core.cpp says so.
+using Driver = cse::game::WitnessDriver;
 
-    bool Usable(std::string& why) const {
-        for (std::size_t i = 0; i < slots_.size(); ++i) {
-            if (slots_[i] == 0) {
-                why = "this character has no move called `" + ids_[i] +
-                      "`, so the witness cannot be replayed against it";
-                return false;
-            }
-            if (buttons_[i] == 0) {
-                why = "`" + ids_[i] + "` was given no button, so nothing can ask for it";
-                return false;
-            }
-        }
-        return !slots_.empty();
-    }
-
-    // The button drops on a release tick and the STANCE HOLD does not. A
-    // witness that cancels a move into ITSELF asks for the same button twice
-    // running, and holding that bit is ONE press however long it lasts -- so a
-    // trace with no gap cannot perform its own loop against a kernel that
-    // starts moves on a press. The direction rides through the release because
-    // a buffered press consumed on a silent tick would otherwise ask for a
-    // crouching move from a stand and be refused (ROADMAP M1.3e): a player
-    // holds down-back and taps the button.
-    //
-    // Kept in step with BuildDemonstration deliberately, and there is a test
-    // that says so:
-    // GameDemonstration.TheSeamProducesExactlyTheGroundTruthDriversTrace
-    // compares the two traces tick for tick. Change one and it names the other.
-    std::uint16_t Bits() const {
-        if (buttons_.empty()) return 0;
-        if (release_) return holds_[cursor_];
-        return static_cast<std::uint16_t>(buttons_[cursor_] | holds_[cursor_]);
-    }
-
-    void Observe(std::uint16_t attackerMove, std::uint16_t attackerFrame) {
-        if (slots_.empty()) return;
-        // A release tick is spent without looking at the state, which is safe
-        // only because this driver releases exactly one tick after an advance:
-        // the fighter is one frame into a move it just started and the press
-        // that started it has already been consumed, so nothing can begin here.
-        // It stops being safe the moment a buffered press can land on a silent
-        // tick -- tests/test_gap_extent.cpp's copy checks the start FIRST for
-        // that reason, and ROADMAP M1.6 says that copy is the one to promote.
-        if (release_) { release_ = false; return; }
-        if (attackerMove != slots_[cursor_] || attackerFrame != 0) {
-            // WAITING, so alternate rather than hold. A held button is one press,
-            // so a driver that stalls on a move which never comes stops feeding
-            // the kernel anything at all -- and "the trace landed one hit" would
-            // then mean "the driver went quiet", not "the game refused". A human
-            // in front of the same fight presses again; so does this.
-            //
-            // Only while waiting: on the tick the expected move starts, the
-            // release below handles the repeat and this never fires.
-            ++waiting_;
-            if (waiting_ >= kRepressAfter) { release_ = true; waiting_ = 0; }
-            return;
-        }
-        waiting_ = 0;
-        const std::uint16_t justUsed = buttons_[cursor_];
-        cursor_ = (cursor_ + 1 < slots_.size()) ? cursor_ + 1 : loopStart_;
-        // Only between REPEATS. A different button is already an edge, and a gap
-        // there would cost a tick for nothing.
-        release_ = (buttons_[cursor_] == justUsed);
-    }
-
-    const std::vector<std::uint16_t>& Slots() const { return slots_; }
-    std::size_t LoopStart() const { return loopStart_; }
-    std::size_t LoopLength() const { return slots_.size() - loopStart_; }
-
-private:
-    std::vector<std::uint16_t> slots_;
-    std::vector<std::uint16_t> buttons_;
-    std::vector<std::uint16_t> holds_;    // stance direction per entry, never folded into buttons_
-    std::vector<std::string>   ids_;
-    std::size_t                loopStart_ = 0;
-    std::size_t                cursor_    = 0;
-    // True on a tick that emits nothing, so the next press is an edge.
-    bool                       release_   = false;
-    // Ticks spent waiting for the expected move; a re-press follows.
-    int                        waiting_   = 0;
-    // Long enough that a move in progress is not interrupted by a
-    // pointless re-press, short enough to catch the actionable tick.
-    static constexpr int       kRepressAfter = 2;
-};
+Driver makeDriver(const Witness& w, const MoveIndexMap& map,
+                  const cse::kernel::FighterData& data) {
+    return Driver(cse::game::WitnessCursor::FromIds(w.sequence, w.loopStart,
+                                                    map, data));
+}
 
 // ============================================================================
 // Running one, and watching from outside
@@ -1059,7 +955,7 @@ TEST(GroundTruthPayoff, ThePrintedLoopExecutesInTheKernel) {
     ASSERT_TRUE(buildMirror(bugged.character, bindings, build))
         << "p0: " << build.report[0].error << " / p1: " << build.report[1].error;
 
-    Driver driver(w, build.moves[0], bindings, build.data.p[0]);
+    Driver driver = makeDriver(w, build.moves[0], build.data.p[0]);
     std::string why;
     ASSERT_TRUE(driver.Usable(why)) << "the witness cannot be driven: " << why;
 
@@ -1208,8 +1104,8 @@ TEST(GroundTruthPayoff, TheDefenderCannotMashOutOfIt) {
     ASSERT_TRUE(buildMirror(bugged.character, bindings, build))
         << build.report[0].error;
 
-    Driver silentDriver(w, build.moves[0], bindings, build.data.p[0]);
-    Driver mashDriver(w, build.moves[0], bindings, build.data.p[0]);
+    Driver silentDriver = makeDriver(w, build.moves[0], build.data.p[0]);
+    Driver mashDriver = makeDriver(w, build.moves[0], build.data.p[0]);
     std::string why;
     ASSERT_TRUE(silentDriver.Usable(why)) << why;
 
@@ -1254,8 +1150,8 @@ TEST(GroundTruthPayoff, TheExecutedLoopIsBitIdenticalOnAReplay) {
     ASSERT_TRUE(buildMirror(bugged.character, bindings, build))
         << build.report[0].error;
 
-    Driver first(w, build.moves[0], bindings, build.data.p[0]);
-    Driver again(w, build.moves[0], bindings, build.data.p[0]);
+    Driver first = makeDriver(w, build.moves[0], build.data.p[0]);
+    Driver again = makeDriver(w, build.moves[0], build.data.p[0]);
     const TickLog a = drive(build.data, first, kPayoffTicks, DefenderPolicy::Silent, 0);
     const TickLog b = drive(build.data, again, kPayoffTicks, DefenderPolicy::Silent, 0);
 
@@ -1296,7 +1192,7 @@ TEST(GroundTruthControl, TheSameTraceAgainstTheSafeCharacterLetsTheDefenderOut) 
     ASSERT_TRUE(buildMirror(safe.character, bindings, build))
         << build.report[0].error;
 
-    Driver driver(w, build.moves[0], bindings, build.data.p[0]);
+    Driver driver = makeDriver(w, build.moves[0], build.data.p[0]);
     std::string why;
     ASSERT_TRUE(driver.Usable(why))
         << "the infinite character's witness cannot be replayed against "
@@ -1337,7 +1233,7 @@ TEST(GroundTruthControl, TheSameTraceAgainstTheSafeCharacterLetsTheDefenderOut) 
     MatchBuild buggedBuild{};
     ASSERT_TRUE(buildMirror(bugged.character, bindings, buggedBuild))
         << buggedBuild.report[0].error;
-    Driver buggedDriver(w, buggedBuild.moves[0], bindings, buggedBuild.data.p[0]);
+    Driver buggedDriver = makeDriver(w, buggedBuild.moves[0], buggedBuild.data.p[0]);
     const TickLog buggedRun = drive(buggedBuild.data, buggedDriver, kPayoffTicks,
                                 DefenderPolicy::Silent, 0);
 
@@ -1371,7 +1267,7 @@ TEST(GroundTruthControl, TheSafeCharactersDefenderReallyGetsToAct) {
     MatchBuild build{};
     ASSERT_TRUE(buildMirror(safe.character, bindings, build)) << build.report[0].error;
 
-    Driver driver(w, build.moves[0], bindings, build.data.p[0]);
+    Driver driver = makeDriver(w, build.moves[0], build.data.p[0]);
     const TickLog run = drive(build.data, driver, kPayoffTicks,
                           DefenderPolicy::MashesOnceHit, bindings[0].button);
 
@@ -1566,7 +1462,7 @@ TEST(GroundTruthGap, TheArcEndsEveryStringAtTheCountTheModelChargesToJuggle) {
     ASSERT_LE(kernelEdge->earliestFrame, kernelEdge->latestFrame)
         << "the kernel window is empty, so this edge is inert and there is no gap";
 
-    Driver driver(w, build.moves[0], bindings, build.data.p[0]);
+    Driver driver = makeDriver(w, build.moves[0], build.data.p[0]);
     std::string why;
     ASSERT_TRUE(driver.Usable(why)) << why;
 

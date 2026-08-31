@@ -125,6 +125,7 @@
 
 #include "cse/data/CharacterData.h"
 #include "cse/data/MatchBuilder.h"
+#include "cse/game/WitnessCursor.h"
 #include "cse/data/ProverAdapter.h"
 #include "cse/kernel/Simulate.h"
 
@@ -604,99 +605,16 @@ Witness witnessOf(const CharacterData& c, const ProverResult& r) {
 // advances and the trace holds one button forever. That is the correct failure
 // mode -- it stalls visibly, and the per-tick table shows what the attacker was
 // doing instead.
-class Trace {
-public:
-    // `data` is the BUILT fighter: the stance-establishing hold is read off
-    // MoveDef::stance, the bytes the kernel enforces since ROADMAP M1.3e.
-    Trace(const Witness& w, const MoveIndexMap& map,
-          const std::vector<MoveBinding>& bindings,
-          const cse::kernel::FighterData& data)
-        : loopStart_(w.loopStart) {
-        for (const std::string& id : w.sequence) {
-            const std::uint16_t slot = map.Find(id);
-            slots_.push_back(slot);
-            std::uint16_t button = 0;
-            for (const MoveBinding& b : bindings)
-                if (b.moveId == id) { button = b.button; break; }
-            buttons_.push_back(button);
-            ids_.push_back(id);
-            // SEPARATE from buttons_ -- folded in, it would break Usable()'s
-            // zero-button check above and the release predicate below.
-            std::uint16_t hold = 0;
-            const cse::kernel::MoveDef* m = cse::kernel::MoveAt(data, slot);
-            if (m != nullptr) {
-                if (m->stance == cse::kernel::kStanceCrouching) hold = cse::kernel::kInputDown;
-                else if (m->stance == cse::kernel::kStanceAir)  hold = cse::kernel::kInputUp;
-            }
-            holds_.push_back(hold);
-        }
-    }
+// THE witness cursor lives in CseGame now (WitnessCursor.h, ROADMAP M1.3g);
+// this file's copy -- the fifth -- is deleted with the other four, and the
+// start-before-release ordering it pioneered is the shared cursor's rule.
+using Trace = cse::game::WitnessDriver;
 
-    bool Usable(std::string& why) const {
-        for (std::size_t i = 0; i < slots_.size(); ++i) {
-            if (slots_[i] == 0) {
-                why = "this character has no move called `" + ids_[i] + "`";
-                return false;
-            }
-            if (buttons_[i] == 0) {
-                why = "`" + ids_[i] + "` was given no button, so nothing can ask for it";
-                return false;
-            }
-        }
-        return !slots_.empty();
-    }
-
-    // A FIFTH COPY of the same cursor, and the same two input rules -- see the
-    // note in tests/test_gap_extent.cpp and ROADMAP M1.6, which promotes one
-    // copy into CseGame and deletes the rest.
-    //
-    // The BUTTON drops on a release tick and the stance hold does not -- the
-    // release is of the button, not the posture (ROADMAP M1.3e): a buffered
-    // press consumed on a silent tick must still find the stance it was made
-    // in. A held bit is one press however long it lasts, and this file's whole
-    // subject is a move cancelled into ITSELF: the same bit, twice running,
-    // with nothing between them but a frame. Without the release the second
-    // press never happens and the string stops at one hit -- which reads as
-    // "the kernel refused the link" when nothing was ever asked of it.
-    std::uint16_t Bits() const {
-        if (buttons_.empty()) return 0;
-        if (release_) return holds_[cursor_];
-        return static_cast<std::uint16_t>(buttons_[cursor_] | holds_[cursor_]);
-    }
-
-    // The start is checked BEFORE the release tick is spent: a buffered press is
-    // consumed the tick the fighter can act, which is very often a tick this
-    // driver is deliberately silent on.
-    void Observe(std::uint16_t attackerMove, std::uint16_t attackerFrame) {
-        if (slots_.empty()) return;
-        if (attackerMove == slots_[cursor_] && attackerFrame == 0) {
-            waiting_ = 0;
-            const std::uint16_t justUsed = buttons_[cursor_];
-            cursor_ = (cursor_ + 1 < slots_.size()) ? cursor_ + 1 : loopStart_;
-            release_ = (buttons_[cursor_] == justUsed);
-            return;
-        }
-        if (release_) { release_ = false; return; }
-        // And a re-press while WAITING, because a driver that stalls holding a
-        // button feeds the kernel nothing at all, and "the string stopped" would
-        // then mean "the driver went quiet" rather than "the game refused".
-        ++waiting_;
-        if (waiting_ >= kRepressAfter) { release_ = true; waiting_ = 0; }
-    }
-
-    std::size_t LoopLength() const { return slots_.size() - loopStart_; }
-
-private:
-    std::vector<std::uint16_t> slots_;
-    std::vector<std::uint16_t> buttons_;
-    std::vector<std::uint16_t> holds_;   // stance direction per entry
-    std::vector<std::string>   ids_;
-    std::size_t                loopStart_ = 0;
-    std::size_t                cursor_    = 0;
-    bool                       release_   = false;
-    int                        waiting_   = 0;
-    static constexpr int       kRepressAfter = 2;
-};
+Trace makeTrace(const Witness& w, const MoveIndexMap& map,
+                const cse::kernel::FighterData& data) {
+    return Trace(cse::game::WitnessCursor::FromIds(w.sequence, w.loopStart,
+                                                   map, data));
+}
 
 // Silent is the clean measurement: the defender's escapes are read straight off
 // Fighter::hitstun with nothing else moving.
@@ -824,20 +742,13 @@ TickLog driveProbe(const Attempt& a, int ticks, DefenderPolicy policy) {
     Witness w{};
     w.sequence.push_back(kProbeMove);
     w.loopStart = 0;
-    Trace trace(w, a.build.moves[0], probeBinding(), a.build.data.p[0]);
-    // THE MASHER ESTABLISHES THE STANCE OF THE MOVE IT MASHES. The probe is a
-    // crouching normal, and since ROADMAP M1.3e a bare button whose only
-    // binding is a crouching move starts NOTHING -- so a mash without Down
-    // would make "the defender never acted" a statement about this line
-    // rather than about the combo, which is the unfalsifiable-control trap
-    // the reverted stance patch was caught carrying.
-    std::uint16_t mash = kButtonPool[0];
-    const cse::kernel::MoveDef* m =
-        cse::kernel::MoveAt(a.build.data.p[0], a.build.moves[0].Find(kProbeMove));
-    if (m != nullptr) {
-        if (m->stance == cse::kernel::kStanceCrouching) mash |= cse::kernel::kInputDown;
-        else if (m->stance == cse::kernel::kStanceAir)  mash |= cse::kernel::kInputUp;
-    }
+    Trace trace = makeTrace(w, a.build.moves[0], a.build.data.p[0]);
+    // The masher establishes the stance of the move it mashes -- the probe is
+    // a crouching normal, and WitnessCursor::StanceHold says why a bare button
+    // would make "the defender never acted" a statement about this line.
+    const std::uint16_t mash = static_cast<std::uint16_t>(
+        kButtonPool[0] | cse::game::WitnessCursor::StanceHold(
+                             a.build.data.p[0], a.build.moves[0].Find(kProbeMove)));
     return drive(a.build.data, trace, ticks, policy, mash);
 }
 
@@ -1644,7 +1555,7 @@ TEST(OneFramePayoff, TheLoopExecutesOnceTheKernelWindowOpens) {
     ASSERT_TRUE(buildMirror(a.character, bindings, build))
         << "p0: " << build.report[0].error << " / p1: " << build.report[1].error;
 
-    Trace trace(loopOnly, build.moves[0], bindings, build.data.p[0]);
+    Trace trace = makeTrace(loopOnly, build.moves[0], build.data.p[0]);
     ASSERT_TRUE(trace.Usable(why)) << "the printed loop cannot be driven: " << why;
 
     // --- Execute -------------------------------------------------------------
@@ -1716,7 +1627,7 @@ TEST(OneFramePayoff, TheLoopExecutesOnceTheKernelWindowOpens) {
     // character, the same bindings and a held button from the tick after the combo
     // opens, and require the kernel never to let them start a move. Unlike reading
     // Fighter::hitstun, this asks the simulation itself.
-    Trace mashTrace(loopOnly, build.moves[0], bindings, build.data.p[0]);
+    Trace mashTrace = makeTrace(loopOnly, build.moves[0], build.data.p[0]);
     const TickLog mashed = drive(build.data, mashTrace, kPayoffTicks,
                                  DefenderPolicy::MashesOnceHit, bindings[0].button);
     EXPECT_TRUE(mashed.defenderActedTicks.empty())

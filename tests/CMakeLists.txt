@@ -186,7 +186,7 @@ add_test(NAME test_cancels COMMAND $<TARGET_FILE:test_cancels>)
 # directory to find them and would otherwise fall through to the source tree,
 # silently testing unstaged content.
 add_executable(test_ground_truth test_ground_truth.cpp)
-target_link_libraries(test_ground_truth PRIVATE CseData CseKernel GTest::gtest_main)
+target_link_libraries(test_ground_truth PRIVATE CseGame CseData CseKernel GTest::gtest_main)
 add_dependencies(test_ground_truth test_runtime_deps)
 add_test(NAME test_ground_truth COMMAND $<TARGET_FILE:test_ground_truth>)
 
@@ -196,7 +196,7 @@ add_test(NAME test_ground_truth COMMAND $<TARGET_FILE:test_ground_truth>)
 # derived, not taken from the authoring report — and asks the same question of
 # every one of them.
 add_executable(test_gap_extent test_gap_extent.cpp)
-target_link_libraries(test_gap_extent PRIVATE CseData CseKernel GTest::gtest_main)
+target_link_libraries(test_gap_extent PRIVATE CseGame CseData CseKernel GTest::gtest_main)
 add_dependencies(test_gap_extent test_runtime_deps)
 add_test(NAME test_gap_extent COMMAND $<TARGET_FILE:test_gap_extent>)
 
@@ -222,7 +222,7 @@ add_test(NAME test_gap_extent COMMAND $<TARGET_FILE:test_gap_extent>)
 # the game's asset directory.
 add_executable(test_one_frame test_one_frame.cpp)
 target_link_libraries(test_one_frame
-    PRIVATE CseData CseKernel nlohmann_json::nlohmann_json GTest::gtest_main)
+    PRIVATE CseGame CseData CseKernel nlohmann_json::nlohmann_json GTest::gtest_main)
 add_dependencies(test_one_frame test_runtime_deps)
 add_test(NAME test_one_frame COMMAND $<TARGET_FILE:test_one_frame>)
 

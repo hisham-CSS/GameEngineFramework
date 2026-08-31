@@ -35,7 +35,7 @@ The paper's claim has four load-bearing parts. This is what each rests on today.
 |---|---|---|
 | **A deterministic simulation** | `tests/test_kernel.cpp` T1/T2; `tests/test_determinism_crossplat.cpp` T3, re-checked by gcc 13 on the Linux leg | Nothing. This one is done and has been re-goldened three times for stated reasons. |
 | **The prover reads the shipped files** | `tests/test_character_data.cpp` load assertions; the editor's Combo Prover panel | Nothing structural. `counter_hit` is absent from the schema entirely — see the qualifier below. |
-| **Every verdict is demonstrable as a replay** | `tests/test_ground_truth.cpp` executes the prover's own printed witness; since M1.3e the demonstration presses directions, establishes stances and performs its turns across jumps | Only one character's witness is executed; the witness cursor exists in five drifting copies (M1.3g). |
+| **Every verdict is demonstrable as a replay** | `tests/test_ground_truth.cpp` executes the prover's own printed witness; since M1.3e the demonstration presses directions, establishes stances and performs its turns across jumps; since M1.3g one `WitnessCursor` performs every witness in the repository | Only one character's witness is executed. |
 | **The game is the file** | `MatchBuilder`'s loss ledger, checked move-by-move in `tests/test_match_bridge.cpp`; stance and guard height carried since M1.3e (`EveryAuthoredNormalIsReachableThroughItsButtonAndStance`) | Juggle, hitstop, priority, chip and scaling are still authored and dropped. |
 
 **The headline, measured three times (third: 2026-08-30, M1.3e).**
@@ -64,18 +64,18 @@ is chosen, because it changes what the tool claims.
 
 **The shortest credible path to the claim**, reordered 2026-08-21 under
 [ADR-012](adr/ADR-012-the-tick-is-a-pipeline.md) after complexity itself became
-the risk: **M1.3f** (the tick becomes a pipeline of pure stages, golden-locked —
-same bytes, fewer write sites), then **M1.3e** (posture follows the move + the
-stance wire, one deliberate re-golden), then **M1.3g** (ONE witness cursor in
+the risk. Landed: **M1.3f** (the tick is a pipeline of pure stages — golden
+held, same bytes) and **M1.3e** (posture follows the move + the stance wire —
+the third measurement above). Next: **M1.3g** (ONE witness cursor in
 `CseGame`, five copies deleted), then **M1.4a + M1.4** (`ComboSearch` runs the
-real kernel and section 3's parallel model is deleted — the new headline number
-falls out of that), then M1.6. Everything else is done or serves these.
+real kernel and section 3's parallel model is deleted — the paper's number is
+published there), then M1.6. Everything else is done or serves these.
 
 ## Now
 
 | In flight | Owner | Since |
 |---|---|---|
-| *(nothing)* | | |
+| M1.3g — one witness cursor | Claude | 2026-08-30 |
 
 One at a time. The next unblocked WP is always the top `[ ]` in milestone
 order — which, under the 2026-08-21 reorder, is the sequence named above.
@@ -339,15 +339,24 @@ Six WPs, all landed, gate required in CI. The decision is
   the harness can simulate, slow motion latches taps across non-run ticks, and
   the sticky-keys gap is closed or explicitly recorded as a platform limit.
 
-- `[ ]` **M1.3g One witness cursor.** *(S–M)* ADR-012 rule 4, pulled forward
-  from M1.6 because the fifth copy drifted this week and the seam test caught
-  it: a pure step `(cursorState, observed) → (bits, cursorState')` in
-  `CseGame`, used by `BuildDemonstration` and all four test drivers; the copies
-  are deleted, and the two driver rules (the posture rides through a release;
-  re-press after two waiting ticks) live in exactly one place.
+- `[~]` **M1.3g One witness cursor.** Claude, 2026-08-30. *(S–M)* ADR-012
+  rule 4, pulled forward from M1.6 because the fifth copy drifted this week and
+  the seam test caught it. Built: `WitnessCursor` in `CseGame` — an immutable
+  table (slot/button/stance-hold per entry, read off the BUILT `MoveDef`) plus
+  a value `State` and a pure `Step(state, observed) → {state', advanced,
+  wrapped}` — with a thin stateful `WitnessDriver` over it. All five copies
+  deleted; `BuildDemonstration` and the four test drivers sit on the same
+  step; the ordering promoted is gap_extent's start-before-release (the one
+  buffering requires), which is trace-identical for the unbuffered users. The
+  masher's stance-hold lookups consolidated onto `WitnessCursor::StanceHold`.
   **Done when:** the seam test compares `BuildDemonstration` against the SAME
-  function it uses, net lines are negative by at least 300, and every M1.3e
-  driver trap has exactly one home.
+  function it uses ✓; every M1.3e driver trap has exactly one home
+  (`WitnessCursor.h`'s header essay) ✓; and net lines are negative — measured
+  **−185 net (−570 deleted, +271 for the one home)** against the entry's
+  original estimate of −300, which had charged the five copies' deletion but
+  not the shared home's documentation. The docs are a third of the new file
+  and previously existed as five drifting paraphrases; the estimate is
+  rewritten to the measured number rather than the mass trimmed to meet it.
 
 - `[ ]` **M1.4a Gate the combo graph on move state.** *(M)*
   `usableEdges` filters cancel edges by `Contact::Block`/`Whiff` and the prover's
