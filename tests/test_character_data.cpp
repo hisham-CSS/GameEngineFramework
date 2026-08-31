@@ -158,6 +158,27 @@ TEST(CharacterFiles, CountsMatchTheDecisionRecord) {
     EXPECT_EQ(totalCancels, 247u) << "ADR-001 transcribed 247 cancel edges";
 }
 
+// A missing file and a refused path are different diagnoses, and the loader
+// must not swap them (ROADMAP M1.8). MSVC's weakly_canonical returns a
+// RELATIVE path for a nonexistent target, so before PathIsContained
+// absolutized its base, every missing file under a relative base was reported
+// as "refused, because it is absolute, carries a drive/UNC root, or contains
+// a `..` component" -- a security refusal for a typo'd filename, on Windows
+// only (libstdc++ absolutizes, so Linux CI said "cannot be opened" all
+// along). A designer told their path escaped the sandbox will go hunting for
+// the wrong bug.
+TEST(CharacterFiles, AMissingFileIsReportedAsUnopenableNotRefused) {
+    CharacterData c{};
+    LoadReport r{};
+    ASSERT_FALSE(LoadCharacterFile(".", "no_such_character_98765.json",
+                                   phase0Options(), c, r));
+    EXPECT_TRUE(mentions(r.error, "cannot be opened"))
+        << "a plain missing file was diagnosed as something else: " << r.error;
+    EXPECT_FALSE(mentions(r.error, "refused"))
+        << "a plain missing file was reported as a containment refusal: "
+        << r.error;
+}
+
 TEST(CharacterFiles, TheProverReadSubsetSurvivesTheLoad) {
     CharacterData c{};
     LoadReport r{};

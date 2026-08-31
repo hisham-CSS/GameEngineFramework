@@ -16,17 +16,12 @@ namespace cse::data {
 namespace {
 
 // Shared by the writer and the reader so the two cannot drift: the reader
-// refuses exactly the paths the writer would have refused, and both resolve
-// through an ABSOLUTIZED base -- MSVC's weakly_canonical hands back a
-// RELATIVE path for a target that does not exist yet (measured; the full
-// account is in CharacterFileWatch.cpp), and a telemetry log usually does not
-// exist yet.
+// refuses exactly the paths the writer would have refused. A log that does
+// not exist yet is contained, not refused -- PathIsContained absolutizes its
+// own base; the measured MSVC weakly_canonical account is at PathSandbox.cpp.
 bool resolveContained(const std::string& baseDir, const std::string& relPath,
                       std::filesystem::path& outFull, std::string& error) {
-    std::error_code ec;
-    const std::filesystem::path absBase =
-        std::filesystem::absolute(baseDir.empty() ? "." : baseDir, ec);
-    if (ec || !MyCoreEngine::PathIsContained(absBase.string(), relPath, outFull)) {
+    if (!MyCoreEngine::PathIsContained(baseDir, relPath, outFull)) {
         error = relPath + ": path: refused, because it is absolute, carries a "
                           "drive/UNC root, or contains a `..` component that "
                           "would escape the telemetry directory";

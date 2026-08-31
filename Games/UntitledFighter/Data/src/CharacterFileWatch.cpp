@@ -12,19 +12,12 @@ namespace cse::data {
 
 bool CharacterFileWatch::Bind(const std::string& baseDir,
                               const std::string& relPath, std::string& error) {
-    // The base is ABSOLUTIZED before the containment check, and that is a
-    // measured workaround rather than tidiness: MSVC's weakly_canonical hands
-    // a RELATIVE path back for a target that does not exist yet, so
-    // PathIsContained's prefix check refuses every missing file when the base
-    // is relative -- and a missing file is precisely the state this class must
-    // bind in (the content that did not stage, the file about to appear).
-    // libstdc++ absolutizes either way, so without this the behaviour would
-    // differ by toolchain.
-    std::error_code ec;
-    const std::filesystem::path absBase =
-        std::filesystem::absolute(baseDir.empty() ? "." : baseDir, ec);
+    // A missing file must bind -- the content that did not stage, the file
+    // about to appear. PathIsContained absolutizes its own base, so a
+    // nonexistent target under a relative base is contained, not refused;
+    // the measured MSVC weakly_canonical account is at PathSandbox.cpp.
     std::filesystem::path full;
-    if (ec || !MyCoreEngine::PathIsContained(absBase.string(), relPath, full)) {
+    if (!MyCoreEngine::PathIsContained(baseDir, relPath, full)) {
         error = relPath + ": path: refused, because it is absolute, carries a "
                           "drive/UNC root, or contains a `..` component that "
                           "would escape the character directory";

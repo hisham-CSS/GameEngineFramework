@@ -59,10 +59,10 @@ struct ProverRunRecord {
 
 // Appends `record` as one JSON line to baseDir/relPath. The path goes through
 // the same containment gate as every authored read (absolute paths, drive/UNC
-// roots and `..` refused; the base absolutized first for the MSVC
-// weakly_canonical reason CharacterFileWatch.cpp records); missing parent
-// directories are created; the whole line is serialized before the file is
-// opened, so a failure costs nothing and a success is one write.
+// roots and `..` refused; a log that does not exist yet is contained, not
+// refused -- PathSandbox.cpp); missing parent directories are created; the
+// whole line is serialized before the file is opened, so a failure costs
+// nothing and a success is one write.
 bool AppendProverRun(const std::string& baseDir, const std::string& relPath,
                      const ProverRunRecord& record, std::string& error);
 
