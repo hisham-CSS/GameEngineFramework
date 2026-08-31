@@ -1934,7 +1934,7 @@ TEST(TrainingModeVerdict, ACertifiedAwayCycleNowStopsInsideTheAnalysisWorstCase)
         // Resources LANDED in ROADMAP M1.1b and this row is `exact` now. The gap
         // this test measures has NOT closed, and the distinction is the finding:
         // the kernel applies the delta and then clamps it at the authored floor,
-        // so a cost the defender cannot pay is forgiven instead of ending the
+        // so on the EFFECT path a cost that cannot be paid is forgiven there instead of ending the
         // combo. `playsAsAnalysed` below is still false, and it is false for a
         // narrower reason than when this test was written.
         EXPECT_EQ(effects->direction, BuildLossDirection::Exact)
@@ -2050,12 +2050,12 @@ TEST(TrainingModeVerdict, ACertifiedAwayCycleNowStopsInsideTheAnalysisWorstCase)
     // the certified-away cycle running forever off the ground route the
     // missing stance wire left open. That route is closed. What the kernel
     // produces now is strings the certificate can look at without flinching:
-    // the longest is exactly the certificate's own permitted turns -- an
-    // AGREEMENT OF COUNT, not of reason, because juggle is still unwired
-    // (M1.1f) and what ends the kernel's string is the ballistic arc running
-    // out of air. If maxString ever exceeds permittedTurns again, a route
-    // around the arc has opened and the infinite is back; if it falls short,
-    // the arc got shorter than the budget and the agreement was luck.
+    // the longest is exactly the certificate's own permitted turns -- and
+    // since M1.1f the agreement is of REASON too: the ballistic arc runs out
+    // of air at that count, and the wired juggle budget would refuse the next
+    // repetition in the same breath. If maxString ever exceeds permittedTurns
+    // again, a route around BOTH brakes has opened and the infinite is back;
+    // if it falls short, one brake tightened past the other.
     EXPECT_EQ(maxString, permittedTurns)
         << "the longest single string is " << maxString << " hit(s) against the "
            "certificate's " << permittedTurns << " -- the two bounds no longer "
@@ -2157,12 +2157,12 @@ TEST(TrainingModeVerdict, ACertifiedAwayCycleNowStopsInsideTheAnalysisWorstCase)
                 ? "at tick " + std::to_string(exhausted)
                 : std::string("no"))
         << " (past it only the alreadyHitBits reading is a count)\n"
-        << "  THE COUNT AGREES AND THE REASON DOES NOT: the arc ends the "
-           "kernel's string where the model's\n"
-        << "  budget ends its own. Juggle is still unwired (M1.1f); making the "
-           "graph agree for the right\n"
-        << "  reason is M1.4a. The watcher's quiet is earned now -- before "
-           "M1.3e it was a lie.\n\n";
+        << "  THE COUNT AGREES AND SINCE M1.1f SO DOES THE REASON: the arc "
+           "ends the kernel's string\n"
+        << "  where the model's budget ends its own, and the wired juggle "
+           "gate would refuse the next\n"
+        << "  repetition in the same breath. The watcher's quiet is earned "
+           "now -- before M1.3e it was a lie.\n\n";
 }
 
 // ============================================================================

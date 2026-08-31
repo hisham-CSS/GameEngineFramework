@@ -1489,15 +1489,16 @@ TEST(GroundTruthGap, TheArcEndsEveryStringAtTheCountTheModelChargesToJuggle) {
 
     // THE MEASUREMENT, all four parts of it.
     //
-    // (1) THE COUNT AGREES. The kernel's string is `permitted` hits long --
-    // the same number the model charges to juggle -- and the agreement is a
-    // COINCIDENCE OF THE DATA, not a shared mechanism: juggle is still unwired
-    // in the kernel (ROADMAP M1.1f), and what ends the string is the ballistic
-    // arc running out of air. Measured 2026-08-30: hits at ticks 6, 17, 28, 39
-    // -- four per jump, the cancel period is 11 -- then a landing, a free
-    // tick, and the next jump opens at 62. If this assertion ever fails
-    // because the two numbers DIVERGED, that is the paper's number moving:
-    // say which of the arc or the budget changed, and why.
+    // (1) THE COUNT AGREES, AND SINCE M1.1f SO DOES THE MECHANISM. The
+    // kernel's string is `permitted` hits long -- the same number the model
+    // charges to juggle -- and it is now DOUBLY enforced: the ballistic arc
+    // runs out of air at four, and the wired juggle budget (juggleMax 4,
+    // air_mp costing 1) would refuse the fifth in the same breath. Measured
+    // 2026-08-30: hits at ticks 6, 17, 28, 39 -- four per jump, the cancel
+    // period is 11 -- then a landing, a free tick, and the next jump opens at
+    // 62; the wire moved none of these numbers, only the reason. If this
+    // assertion ever fails, the arc and the budget have PARTED: say which
+    // moved, and why.
     ASSERT_GE(run.hitTicks.size(), static_cast<std::size_t>(permitted) + 1)
         << "the loop did not even reach a second string" << Summary(run, build.moves[0]);
     const std::int32_t period = run.hitTicks[1] - run.hitTicks[0];
@@ -1529,7 +1530,7 @@ TEST(GroundTruthGap, TheArcEndsEveryStringAtTheCountTheModelChargesToJuggle) {
 
     // (4) WHY, in the loss table's own words -- and the reason has narrowed
     // twice. M1.1b: effects ARE applied, and what keeps a string alive at the
-    // floor is the clamp (a juggle cost the defender cannot pay is forgiven,
+    // floor is the clamp (on the EFFECT path a cost that cannot be paid is forgiven,
     // not refused -- M1.1f's decision). M1.3e: stance IS enforced, so the
     // ground route to this air loop is closed and both rows read Exact. What
     // remains is exactly the explanation gap the assertions above measure:
@@ -1564,15 +1565,15 @@ TEST(GroundTruthGap, TheArcEndsEveryStringAtTheCountTheModelChargesToJuggle) {
     // XML for a harness; this is for the human reading the console.
     std::cout
         << "\n[ GROUND TRUTH ] the model/game count AGREES on `"
-        << safe.character.id << "`, for different reasons\n"
+        << safe.character.id << "`, twice over since M1.1f\n"
         << "  the decision procedure says TERMINATING; its certificate charges "
            "juggle and permits " << permitted << " repetition(s).\n"
         << "  the kernel performs `" << moveId << "` -> itself " << permitted
-        << " time(s) per jump (period " << period << "), then the ARC ends the "
-           "string --\n"
-        << "  juggle is still unwired (M1.1f). The defender was free on "
-        << freeTicks.size() << " tick(s) between strings, so no string is an "
-           "infinite.\n"
-        << "  Making the graph agree for the right reason is M1.4a. "
+        << " time(s) per jump (period " << period << "): the ARC runs out of "
+           "air there,\n"
+        << "  and the wired juggle budget would refuse the next one in the "
+           "same breath. The defender\n"
+        << "  was free on " << freeTicks.size()
+        << " tick(s) between strings, so no string is an infinite. "
            "ARCHITECTURE.md 5.5 item 4.\n\n";
 }

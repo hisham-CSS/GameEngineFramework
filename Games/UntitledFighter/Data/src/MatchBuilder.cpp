@@ -215,6 +215,23 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
             "and is why a silent file plays as it always did. Authored value, "
             "sub-units per tick: " + num(c.walkSpeedSub) + ".");
 
+    std::int32_t juggleSpenders = 0;
+    for (const Move& m : c.moves)
+        for (const ResourceAmount& e : m.effect)
+            for (std::size_t r = 0; r < c.resources.size(); ++r)
+                if (static_cast<std::size_t>(e.resource) == r &&
+                    c.resources[r].name == "juggle" && e.value < 0)
+                    ++juggleSpenders;
+    addLoss(report, "resource.juggle (gate)", BuildLossDirection::Exact,
+            juggleSpenders,
+            "The juggle budget, wired as the ranking certificate's own "
+            "mechanism (M1.1f): FighterData::juggleMax carries the resource's "
+            "authored initial and each spending move's cost mirrors its "
+            "authored delta, so ResolveHits REFUSES the overspending hit -- "
+            "the one thing the clamped effect path never could. A character "
+            "with no resource named `juggle` keeps zero on both halves and "
+            "the gate never fires.");
+
     addLoss(report, "character.input_buffer_frames", BuildLossDirection::Exact,
             c.inputBufferFrames != 0 ? 1 : 0,
             "The modern input buffer's window, carried whole into "
@@ -705,6 +722,31 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
     // no buffering, the behaviour every silent file has always had.
     out.inputBufferFrames = character.inputBufferFrames;
 
+    // THE JUGGLE BUDGET (ROADMAP M1.1f): Fighter::juggle becomes the MIRROR of
+    // the resource the file calls `juggle` -- the same authored numbers the
+    // ranking certificate is computed from, wired into the one gate that can
+    // REFUSE a hit where ApplyEffects only clamps. Found BY NAME, because the
+    // positional contract (A03) fixes order across files of one build but says
+    // nothing about which slot juggling lives in; a character with no resource
+    // named juggle keeps zero on both halves, and the gate -- juggleCost > 0 --
+    // never fires for it, which is every character before this wire.
+    //
+    // BOTH HALVES OR NEITHER, per the ROADMAP entry: a budget with no cost
+    // never depletes, a cost with no budget refuses every hit. The costs land
+    // in the per-move loop below, from the same resource index.
+    std::int32_t juggleResource = -1;
+    for (std::size_t r = 0; r < character.resources.size() &&
+                            r < static_cast<std::size_t>(cse::kernel::kMaxResources); ++r)
+        if (character.resources[r].name == "juggle")
+            juggleResource = static_cast<std::int32_t>(r);
+    if (juggleResource >= 0) {
+        constexpr std::int32_t kMaxBudget = 32767;   // Fighter::juggle is int16
+        std::int32_t budget = character.resources[juggleResource].initial;
+        if (budget < 0) budget = 0;
+        if (budget > kMaxBudget) budget = kMaxBudget;
+        out.juggleMax = budget;
+    }
+
     // The resource declarations, in FILE ORDER, which is the whole contract:
     // slot i here is slot i of Fighter::res, of MoveDef::effect and of the
     // prover's own vector (ADR-001 section 8 item 7, assertion A03). Nothing
@@ -891,9 +933,21 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
         // on slot 0 would silently spend the wrong resource, and A03 already
         // guarantees the loader resolved every name against this character's own
         // declaration. A count that exceeded kMaxResources is a load error.
-        for (const cse::data::ResourceAmount& e : src.effect)
+        for (const cse::data::ResourceAmount& e : src.effect) {
             if (e.resource < cse::kernel::kMaxResources)
                 m.effect[e.resource] = e.value;
+            // The juggle SPEND doubles as the gate's cost (M1.1f): the same
+            // authored number, mirrored into the field ResolveHits can refuse
+            // on, where the effect path only clamps at the floor. A juggle
+            // GAIN is not a cost and gates nothing.
+            if (juggleResource >= 0 &&
+                static_cast<std::int32_t>(e.resource) == juggleResource &&
+                e.value < 0) {
+                std::int32_t cost = -e.value;
+                if (cost > 32767) cost = 32767;   // MoveDef::juggleCost is int16
+                m.juggleCost = static_cast<std::int16_t>(cost);
+            }
+        }
         for (const cse::data::ResourceAmount& g : src.guard)
             if (g.resource < cse::kernel::kMaxResources) {
                 m.guard[g.resource] = g.value;

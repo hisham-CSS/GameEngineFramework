@@ -848,8 +848,8 @@ TEST(CancelBridge, TheLossTableCountsWhatTheProjectionActuallyCost) {
            "landing does not by itself make that sentence true.";
 
     // 26 -> 27 when M1.3e added move.blocked_as; -> 28 when M1.1e added
-    // character.input_buffer_frames.
-    EXPECT_EQ(28u, r.losses.size())
+    // character.input_buffer_frames; -> 29 when M1.1f wired the juggle gate.
+    EXPECT_EQ(29u, r.losses.size())
         << "the loss table grew or shrank. That is fine, and it has to be "
            "recorded here, because the point of the table is that somebody "
            "counted.";

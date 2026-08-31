@@ -9,10 +9,11 @@
 // posture-following-the-move and stance on both start routes made every cycle
 // take a real jump each turn -- and the landing hands the defender their turn.
 // `fighter_a` is TERMINATING, its ranking certificate says so because JUGGLE
-// RUNS DOWN, the kernel still never spends juggle (`MatchBuilder` sets neither
-// `juggleMax` nor `juggleCost`; M1.1f) -- and the executed game now terminates
-// every cycle anyway, for its own reason. The count agrees; the mechanism does
-// not; M1.4a makes the graph agree for the right one.
+// RUNS DOWN -- and since M1.1f the kernel runs it down TOO: `MatchBuilder`
+// wires `juggleMax` and `juggleCost` from the same authored numbers, so the
+// budget gate refuses the overspending hit exactly where the certificate says
+// it must. On this character the arc and the budget coincide at four aerials,
+// so the wire moved no measured number; it aligned the REASON.
 //
 // ---------------------------------------------------------------------------
 // THE QUESTION, AND THE FOUR THINGS IT DECOMPOSES INTO
@@ -47,8 +48,9 @@
 //                        (1 self-loop / 8 of length 3 / 48 of 4 / 64 of 5)
 //   ended by juggle      121 of 121 in the model. Every cycle's total juggle
 //                        effect is strictly negative and NO cycle touches
-//                        meter -- and the kernel still never spends juggle
-//                        (M1.1b: tracked, clamped at the floor, gate unwired).
+//                        meter -- and since M1.1f the kernel spends AND gates
+//                        the same budget (juggleMax 4, costs mirrored from
+//                        the authored effects).
 //   performable as the   1 of 121, the self-loop. The other 120 each contain
 //   model describes it   exactly one edge the kernel cannot take: a landing
 //                        link out of `air_mp`, resolved to the EMPTY window
@@ -1645,10 +1647,10 @@ TEST(GapExtentKernel, ZeroOfThe121RunForever) {
         << "                  derived here rather than believed.\n"
         << "  ended by juggle " << endedByJuggle << " of " << sweep.usable.size()
         << ". Every cycle spends juggle strictly and none touches\n"
-        << "                  meter, and `move.effect` is a "
-        << BuildLossDirectionName(effects->direction) << " loss over "
-        << effects->count << " move(s):\n"
-        << "                  the kernel never spends juggle. `move.stance` is "
+        << "                  meter; `move.effect` is "
+        << BuildLossDirectionName(effects->direction) << " over "
+        << effects->count << " move(s) and since M1.1f\n"
+        << "                  the budget GATES too. `move.stance` is "
         << BuildLossDirectionName(stance->direction) << " over "
         << stance->count << " move(s):\n"
         << "                  an aerial needs the takeoff Up provides.\n"

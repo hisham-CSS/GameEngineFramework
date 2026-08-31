@@ -946,6 +946,11 @@ TEST(MatchBridgeLosses, EveryDropIsCountedAgainstKungFuGirlsActualFile) {
         { "cancel.effect",                 0, BuildLossDirection::KernelOmits   },
         { "move.cancel_window (absent)",   8, BuildLossDirection::KernelPermits },
         { "character.walk_speed",      1, BuildLossDirection::Exact         },
+        // Zero for Kung Fu Girl and the zero is the exhibit: her transcript
+        // DISABLES MUGEN's juggle system (airjuggle 0, nojugglecheck), the
+        // resource is declared only for the positional contract, and no move
+        // spends it -- so her gate, correctly, never fires.
+        { "resource.juggle (gate)",    0, BuildLossDirection::Exact         },
         { "character.input_buffer_frames", 0, BuildLossDirection::Exact     },
         { "move.pushback",            24, BuildLossDirection::Exact         },
         // Exact since ROADMAP M1.3e wired both into MoveDef and StanceAllows.
@@ -1356,4 +1361,71 @@ TEST(MatchBridgeMechanics, EveryAuthoredNormalIsReachableThroughItsButtonAndStan
     }
     EXPECT_EQ(reachable, 18)
         << "only " << reachable << " of fighter_a's 18 normals are reachable.";
+}
+
+// --- The juggle wiring (ROADMAP M1.1f) ---------------------------------------
+//
+// The budget gate has sat in ResolveHits since ADR-005 P2 -- "the mechanism
+// the prover's ranking certificate is written in" -- and had never fired for a
+// built character because MatchBuilder set neither half. Both halves or
+// neither: a budget with no cost never depletes, a cost with no budget refuses
+// every hit. Fighter::juggle is the MIRROR of the resource the file calls
+// juggle: same authored numbers, gating where ApplyEffects only clamps.
+TEST(MatchBridgeMechanics, TheJuggleBudgetReachesTheKernelAndRefusesTheOverspendingHit) {
+    CharacterData c{};
+    LoadReport report{};
+    ASSERT_TRUE(LoadCharacterFile(ownCharactersDir(), "fighter_a.json", loadOptions(), c, report))
+        << report.error;
+
+    BuildOptions options{};
+    options.bindings = { { "air_mp", cse::kernel::kInputMP },
+                         { "air_hp", cse::kernel::kInputHP },
+                         { "stand_lp", cse::kernel::kInputLP } };
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build)) << build.report[0].error;
+
+    // The budget is the juggle resource's own initial, and each cost is the
+    // move's authored juggle spend -- the same numbers the certificate ranks.
+    EXPECT_EQ(build.data.p[0].juggleMax, 4)
+        << "fighter_a's juggle resource authors initial 4 and the bridge "
+           "handed the kernel " << build.data.p[0].juggleMax;
+    const std::uint16_t airMp = build.moves[0].Find("air_mp");
+    const std::uint16_t airHp = build.moves[0].Find("air_hp");
+    const std::uint16_t lp    = build.moves[0].Find("stand_lp");
+    ASSERT_NE(airMp, 0u); ASSERT_NE(airHp, 0u); ASSERT_NE(lp, 0u);
+    EXPECT_EQ(build.data.p[0].moves[airMp].juggleCost, 1);
+    EXPECT_EQ(build.data.p[0].moves[airHp].juggleCost, 2);
+    EXPECT_EQ(build.data.p[0].moves[lp].juggleCost, 0)
+        << "a move that spends no juggle must cost none, or every hit is gated";
+
+    // AND THE GATE FIRES: the same overlapping hit lands with budget left and
+    // is REFUSED -- not damaged, not scaled, refused -- one point short.
+    for (const std::int16_t budget : { std::int16_t{1}, std::int16_t{0} }) {
+        cse::kernel::GameState s{};
+        cse::kernel::ResetMatch(s, 0xC0FFEEu);
+        s.p[0].posX = -px(10);
+        s.p[1].posX =  px(10);
+        s.p[0].facing = 0;
+        s.p[1].facing = 1;
+        s.p[0].airborne  = 1;
+        s.p[0].posY      = px(30);
+        s.p[0].moveId    = airMp;
+        s.p[0].moveFrame = static_cast<std::uint16_t>(
+            build.data.p[0].moves[airMp].startup);
+        s.p[1].juggle    = budget;
+        s.p[1].hitstun   = 30;   // mid-juggle: the restore must not refill
+
+        const std::int32_t before = s.p[1].health;
+        cse::kernel::ResolveHits(s, build.data);
+        if (budget >= 1) {
+            EXPECT_LT(s.p[1].health, before)
+                << "a hit within the budget was refused";
+            EXPECT_EQ(s.p[1].juggle, budget - 1)
+                << "the budget was not spent by the hit that used it";
+        } else {
+            EXPECT_EQ(s.p[1].health, before)
+                << "the budget was overspent: air_mp costs 1 against a "
+                   "defender with 0 left, and the gate let it land";
+        }
+    }
 }

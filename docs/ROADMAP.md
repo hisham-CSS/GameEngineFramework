@@ -51,7 +51,10 @@ landing hands the defender their turn: the prover says TERMINATING, and the
 executed game agrees on all 121 — **for the game's own reason.** The model
 charges juggle; the kernel runs out of air (the arc holds exactly the 4
 repetitions the budget permits — `GroundTruthGap.TheArcEndsEveryStringAtThe
-CountTheModelChargesToJuggle`); juggle is still unwired (M1.1f).
+CountTheModelChargesToJuggle`) -- and since M1.1f the budget is wired too,
+so the arc and the juggle gate refuse the fifth aerial IN AGREEMENT: the
+kernel now terminates the string for the model's own reason as well as its
+own.
 
 **And since M1.4 the pair of numbers is measured by execution** (ADR-013's
 `ComboSearch`, a bounded search over macro-actions on the real kernel):
@@ -86,6 +89,7 @@ is done or serves it.
 | In flight | Owner | Since |
 |---|---|---|
 | M1.6 — the showcase; slices 1–5 landed, rest blocked on walk macros + M1.3 | Claude | 2026-08-31 |
+| M1.1f — the juggle wiring (unblocked by M1.4's property rewrite) | Claude | 2026-08-31 |
 
 M1.6 stays open, blocked on a stated design step (walk/wait macros amend
 ADR-013) and on M1.3's mechanics. M1.1e landed inside its slice 5 — the
@@ -194,19 +198,28 @@ Six WPs, all landed, gate required in CI. The decision is
   RefusedByName`); and the one-frame link test passes with a 2-frame window
   and fails at zero.
 
-- `[ ]` **M1.1f The juggle wiring, and the mirror that waits on it.** *(S)*
-  `MatchBuilder` sets neither `FighterData::juggleMax` nor `MoveDef::juggleCost`,
-  so the budget gate in `Combat.cpp` — which refuses a hit that would overspend,
-  and whose comment says its absence "let 33 of them run forever" — has never
-  fired for a built character. **Both fields or neither:** a budget with no cost
-  never depletes, a cost with no budget refuses every hit. Then `Fighter::juggle`
-  becomes the mirror of the slot the file calls juggle.
-  **Needs the author:** `tests/test_gap_extent.cpp` exists partly to quantify the
-  absence of this wire. Sequence it with M1.4, which rewrites that file as
-  properties.
-  **Done when:** a built `fighter_a` spends juggle on the moves that author it,
-  the budget refuses the overspending hit, and the gap-extent file asserts the
-  new relationship rather than the old count.
+- `[~]` **M1.1f The juggle wiring, and the mirror that waits on it.** *(S)*
+  Claude, 2026-08-31. Landed once M1.4's property rewrite unblocked it: both
+  halves together — `FighterData::juggleMax` from the resource the file calls
+  `juggle` (found BY NAME; the positional contract fixes order, not meaning)
+  and `MoveDef::juggleCost` mirrored from each spending move's authored delta
+  — so the budget gate that had never fired for a built character now REFUSES
+  the overspending hit, with an Exact `resource.juggle (gate)` ledger row
+  (zero for Kung Fu Girl, and the zero is right: her transcript disables
+  MUGEN's juggle system and the resource is declared only for the positional
+  contract).
+  **The wire moved no measured number, and that is the finding:** on
+  `fighter_a` the ballistic arc and the juggle budget both stop the aerial
+  string at four, so ground_truth's count-agreement became an agreement of
+  REASON — the kernel now terminates for the certificate's own mechanism as
+  well as its own. The nine "juggle is still unwired" claims across docs and
+  test prose were swept in the same commit.
+  **Done when (met):** a built `fighter_a` spends juggle on the moves that
+  author it, the budget refuses the overspending hit
+  (`MatchBridgeMechanics.TheJuggleBudgetReachesTheKernelAndRefusesThe
+  OverspendingHit`, failing-first), and the gap-extent file asserts the
+  relationship — its census and headline speak the doubly-enforced bound —
+  rather than the old count.
 
 - `[x]` **M1.1g The stage constants are exported.** *(S)* — `595aa71`.
   `kStageHalfWidthSub` and `kMaxSeparationSub` are public; `Simulate` clamps
