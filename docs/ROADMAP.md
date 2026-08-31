@@ -164,8 +164,8 @@ Six WPs, all landed, gate required in CI. The decision is
   a two-frame link is performable by a human.
   **Done when:** the seven `P3Input` tests. All exist and pass.
 
-- `[~]` **M1.1e The modern input buffer, authored.** *(S–M)* Claude,
-  2026-08-31. Asked for 2026-08-21 in the author's words: *"a 3 frame buffer
+- `[x]` **M1.1e The modern input buffer, authored.** *(S–M)* — `83555d6`.
+  Asked for 2026-08-21 in the author's words: *"a 3 frame buffer
   that makes a tightly timed link much easier"* — adversarially reviewed then,
   landed now. `input_buffer_frames` is in `schema.v2.json` (character-global,
   the genre note says why; the window arithmetic N = N+1 ticks documented
