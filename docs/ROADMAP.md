@@ -581,8 +581,7 @@ Six WPs, all landed, gate required in CI. The decision is
   are ~5 px against 30–68 px reaches, too small to end a string early), so
   the row waits for a character whose pushback matters rather than being
   authored to exhibit nothing.
-  **Slice 6 (sha at the next flip) — the movement macros, ADR-013 decision
-  6.** From the realistic ±100 px opening the search used to measure ZERO
+  **Slice 6, `03c99bf` — the movement macros, ADR-013 decision 6.** From the realistic ±100 px opening the search used to measure ZERO
   hits — nothing reached and no macro walked. Now it walks: `WitnessCursor`
   carries walk/wait entries (absolute directions, counted ticks, replayable
   in the same demonstrations — `AWalkedWitnessReplaysAndItsFirstHitLands`),
