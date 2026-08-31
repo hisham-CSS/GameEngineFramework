@@ -35,6 +35,7 @@ Three consequences worth knowing before you read one:
 | [010](ADR-010-one-roadmap-one-rule.md) | One roadmap, one rule | Proposed 2026-08-17 · being executed as ROADMAP M0 | Five milestones, six living documents, and one five-line rule with a CI gate under it |
 | [011](ADR-011-mechanics-are-fields.md) | Mechanics are fields, not rules | Proposed 2026-08-17 · constrains ROADMAP M1 and M3 | Every 2.5D mechanic is opt-in data on a move, never a kernel rule; movement is a move; presentation is a pure function of frame data |
 | [012](ADR-012-the-tick-is-a-pipeline.md) | The tick is a pipeline of pure functions | Proposed 2026-08-21 · constrains ROADMAP M1.3e–M1.4 | Pure stages with fixed signatures; one writer per field; derive rather than store; posture follows the move; predictions by execution, never a parallel model |
+| [013](ADR-013-verdicts-by-execution.md) | ComboSearch: verdicts by execution | Proposed 2026-08-31 · shapes ROADMAP M1.4a+M1.4 | A bounded search over macro-actions executed on the real kernel; masked-checksum nodes; INFINITE / TERMINATING / UNRESOLVED, and a budget only ever produces the third |
 
 ## Writing one
 

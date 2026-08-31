@@ -43,6 +43,7 @@ add_library(CseGame STATIC
     src/Replay.cpp          # HashMatchData, the format, recorder, reader, verifier
     src/ComboWatcher.cpp    # the live judge
     src/WitnessCursor.cpp   # THE witness cursor; the five copies died for it (M1.3g)
+    src/ComboSearch.cpp     # verdicts by execution on the real kernel (ADR-013)
 )
 
 target_include_directories(CseGame

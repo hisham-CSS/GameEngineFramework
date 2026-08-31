@@ -237,6 +237,15 @@ add_test(NAME test_one_frame COMMAND $<TARGET_FILE:test_one_frame>)
 # machine could re-run, and a training mode whose session could only be exercised
 # by launching an editor would be the first part of the argument nobody could
 # check.
+# VERDICTS BY EXECUTION (ADR-013). ComboSearch against the shipped pair: the
+# authored infinite is FOUND as a replayable witness, the safe character is
+# exhausted and its executed worst case measured, a small budget says
+# UNRESOLVED and nothing else, and the whole result is bit-identical twice.
+add_executable(test_combo_search test_combo_search.cpp)
+target_link_libraries(test_combo_search PRIVATE CseGame CseData CseKernel GTest::gtest_main)
+add_dependencies(test_combo_search test_runtime_deps)
+add_test(NAME test_combo_search COMMAND $<TARGET_FILE:test_combo_search>)
+
 add_executable(test_game_core test_game_core.cpp)
 target_link_libraries(test_game_core PRIVATE CseGame CseData CseKernel GTest::gtest_main)
 add_dependencies(test_game_core test_runtime_deps)

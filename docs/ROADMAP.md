@@ -65,17 +65,17 @@ is chosen, because it changes what the tool claims.
 **The shortest credible path to the claim**, reordered 2026-08-21 under
 [ADR-012](adr/ADR-012-the-tick-is-a-pipeline.md) after complexity itself became
 the risk. Landed: **M1.3f** (the tick is a pipeline of pure stages — golden
-held, same bytes) and **M1.3e** (posture follows the move + the stance wire —
-the third measurement above). Next: **M1.3g** (ONE witness cursor in
-`CseGame`, five copies deleted), then **M1.4a + M1.4** (`ComboSearch` runs the
-real kernel and section 3's parallel model is deleted — the paper's number is
-published there), then M1.6. Everything else is done or serves these.
+held, same bytes), **M1.3e** (posture follows the move + the stance wire — the
+third measurement above) and **M1.3g** (ONE `WitnessCursor` in `CseGame`, five
+copies deleted). Next: **M1.4a + M1.4** (`ComboSearch` runs the real kernel
+and section 3's parallel model is deleted — the paper's number is published
+there), then M1.6. Everything else is done or serves these.
 
 ## Now
 
 | In flight | Owner | Since |
 |---|---|---|
-| *(nothing)* | | |
+| M1.4a + M1.4 — ComboSearch runs the real kernel | Claude | 2026-08-31 |
 
 One at a time. The next unblocked WP is always the top `[ ]` in milestone
 order — which, under the 2026-08-21 reorder, is the sequence named above.
