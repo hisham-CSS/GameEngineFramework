@@ -88,7 +88,6 @@ is done or serves it.
 
 | In flight | Owner | Since |
 |---|---|---|
-| M1.5 — character hot reload (ADR-016: a reload restarts the match) | Claude | 2026-08-31 |
 | M1.6 — the showcase; slices 1–8 landed (8 = the cooker recording + base row) | Claude | 2026-08-31 |
 | M1.3 — mechanics pass 1; (a) (b1) (b2) landed; (c)+(d) blocked on ADR-015 (human) | Claude | 2026-08-31 |
 
@@ -536,7 +535,7 @@ Six WPs, all landed, gate required in CI. The decision is
   (`TheAuthoredFreezeReachesBothFightersAndATapInsideItBuffers`); no gap-extent
   count is re-derived by hand.
 
-- `[~]` **M1.5 Character hot reload.** *(S–M)* Claude, 2026-08-31. A frame-data
+- `[x]` `68f0747` **M1.5 Character hot reload.** *(S–M)* Claude, 2026-08-31. A frame-data
   edit lands in a running match; NORTHSTAR property (c)'s last clause. The
   semantics are ADR-016: the training mode polls the loaded character file's
   (mtime, size) stamp and a change RESTARTS the match with the freshly built
