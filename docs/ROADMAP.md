@@ -441,8 +441,7 @@ Six WPs, all landed, gate required in CI. The decision is
   measured the blast radius of arriving at ADR-011's destination all at once
   (the level→edge flip re-means every Up bit in every baked trace and golden;
   the cursor's stance-hold and the search's air reachability need re-teaching;
-  fighter_a's jump cancels are encoded in edge delays). **Step (b1) LANDED
-  (sha at the next flip):** `engine.movement { jump_impulse_sub, gravity_sub }`
+  fighter_a's jump cancels are encoded in edge delays). **Step (b1) LANDED, `975e529`:** `engine.movement { jump_impulse_sub, gravity_sub }`
   — kernel semantics at the boundary (+Y up, positive, explicit zero refused
   as the kernel's unauthored sentinel), parsed, carried into the
   `FighterData` slots the kernel has consulted since M1.1b (no layout
