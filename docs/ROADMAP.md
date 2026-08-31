@@ -336,7 +336,7 @@ Six WPs, all landed, gate required in CI. The decision is
   re-golden; the freeze tests; kernel files did not grow (739 and 800 lines,
   from 739 and 800).
 
-- `[~]` **M1.3h The host delivers every press.** *(S–M)* Claude, 2026-08-31. From the buffer
+- `[x]` **M1.3h The host delivers every press.** *(S–M)* — `2cb599a`. From the buffer
   review's host strand: the kernel buffer cannot fix what never arrives, and
   it did not always arrive — `readPad_` level-read the pad only on the fixed
   steps a tick actually ran, so a tap made and released between run ticks
