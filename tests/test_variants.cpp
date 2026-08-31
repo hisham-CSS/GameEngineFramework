@@ -394,3 +394,46 @@ TEST(VariantExhibits, AMeterLoopIsInfiniteOnBothSidesBecauseGainMeetsSpend) {
 
     RecordProperty("variant_description", e.description);
 }
+
+TEST(VariantExhibits, TheBufferTurnsAOneFrameLinkFromACoinIntoACertainty) {
+    // The pair differs by ONE field -- input_buffer_frames 2 -- on top of the
+    // same one-tick link (stand_lp hitstun 15 against its 14-tick duration:
+    // the re-press must land on exactly the tick the move ends). This is
+    // ROADMAP M1.1e's feature as a catalogue row, in the author's own words:
+    // "a 3 frame buffer that makes a tightly timed link much easier."
+    Exhibit coin{};
+    bringUpVariant("fighter_a/variants/one_frame_link.json", coin);
+    ASSERT_FALSE(::testing::Test::HasFatalFailure());
+
+    Exhibit certain{};
+    bringUpVariant("fighter_a/variants/one_frame_link_buffered.json", certain);
+    ASSERT_FALSE(::testing::Test::HasFatalFailure());
+
+    // Without the buffer, the search's held early press never has an edge on
+    // the one tick the link needs: the loop never closes.
+    EXPECT_EQ(coin.searched.verdict, ComboVerdict::Terminating)
+        << "the unbuffered one-frame link closed after all: " << coin.searched.note;
+
+    // With the two-tick window, the same press is consumed on exactly that
+    // tick, and the restart loop is found by performing it.
+    ASSERT_EQ(certain.searched.verdict, ComboVerdict::Infinite)
+        << certain.searched.note;
+    const std::uint16_t lpSlot = certain.build.moves[0].Find("stand_lp");
+    ASSERT_LT(certain.searched.loopStart, certain.searched.witness.size());
+    for (std::size_t i = certain.searched.loopStart;
+         i < certain.searched.witness.size(); ++i)
+        EXPECT_EQ(certain.searched.witness[i], lpSlot)
+            << "the buffered loop is not the stand_lp restart link this pair "
+               "exists to demonstrate";
+
+    // The MODEL is blind to the whole story twice over: the restart route is
+    // not in its graph and the buffer is deliberately not in its vocabulary
+    // (edgeUsable already assumes an ideal first-frame player). Both files
+    // must therefore read TERMINATING to the prover -- the exhibit's gap is
+    // the kernel's alone, and the ledger's `starters` row names the blindness.
+    EXPECT_EQ(coin.verdict.status, ProverStatus::Terminating);
+    EXPECT_EQ(certain.verdict.status, ProverStatus::Terminating);
+
+    RecordProperty("coin_description", coin.description);
+    RecordProperty("certain_description", certain.description);
+}

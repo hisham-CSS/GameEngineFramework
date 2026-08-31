@@ -213,6 +213,7 @@ TEST(ComboSearchVerdicts, TheSafeCharacterTerminatesAndTheWorstCaseIsMeasured) {
 
     std::cout << "\n[ COMBO SEARCH ] fighter_a, by execution:"
               << describe(b.build, r) << "\n";
+
 }
 
 TEST(ComboSearchVerdicts, ABudgetProducesUnresolvedAndNeverAVerdict) {

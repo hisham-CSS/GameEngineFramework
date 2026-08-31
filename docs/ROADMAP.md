@@ -85,7 +85,11 @@ is done or serves it.
 
 | In flight | Owner | Since |
 |---|---|---|
-| M1.6 — the showcase (slice 1 landed) | Claude | 2026-08-31 |
+| M1.6 — the showcase; slices 1–5 landed, rest blocked on walk macros + M1.3 | Claude | 2026-08-31 |
+
+M1.6 stays open, blocked on a stated design step (walk/wait macros amend
+ADR-013) and on M1.3's mechanics. M1.1e landed inside its slice 5 — the
+buffer pair is a catalogue row.
 
 One at a time. The next unblocked WP is always the top `[ ]` in milestone
 order — which, under the 2026-08-21 reorder, is the sequence named above.
@@ -160,43 +164,35 @@ Six WPs, all landed, gate required in CI. The decision is
   a two-frame link is performable by a human.
   **Done when:** the seven `P3Input` tests. All exist and pass.
 
-- `[ ]` **M1.1e The modern input buffer, authored.** *(S–M)* Asked for
-  2026-08-21: *"holding inputs for a few frames before consumption so things
-  like one frame links become easier ... a 3 frame buffer that makes a tightly
-  timed link much easier"* — and adversarially reviewed the same day, six
-  agents, every claim refuted-or-confirmed against the code. **The mechanism is
-  in and mostly right:** reversal buffering out of hitstun works (fires on the
-  first actionable tick, zero added delay), wake-up from knockdown works,
-  rollback replays buffering identically by construction, overwrite is
-  last-wins, and buffering is INVISIBLE to the prover — `edgeUsable` already
-  assumes first-frame cancels, so a buffer only makes the kernel match the
-  model's ideal player. What remains is authoring and the verified checklist:
-  (a) `input_buffer_frames` in `schema.v2.json` (character-global matches the
-  genre — SF6/GGST use a game-global 4–5f; the real exceptions are
-  per-SITUATION, wakeup/jump/tech windows, which no per-move field expresses
-  either — say so in the schema note), the load with an A-assertion, the
-  `MatchBuilder` copy, a ledger row;
-  (b) **window N accepts N+1 ticks** — the "3-frame feel" is
-  `input_buffer_frames: 2`; document it where the field is defined;
-  (c) **loader bound ≤ 255**: `bufferAge` is uint8 against an int32 window — a
-  window past 255 wraps the age and the buffer becomes eternal;
-  (d) fixed 2026-08-21: a direction tap no longer clobbers a buffered attack
-  (`P3Input.ADirectionTapDoesNotClobberABufferedReversal`) — capture masks to
-  the union of move buttons;
-  (e) **a decision, the author's:** a cancel fired by a HELD button consumes an
-  unrelated buffered press (`FindCancel` clears on any edge). Clear-on-any-start
-  is simple and slightly lossy; clear-only-when-used keeps a buffered link
-  alive through an unrelated cancel. Genre feel, not mechanics;
-  (f) **negative edge is never buffered** — releases get 1 tick where presses
-  get N+1, inverted relative to why negative edge exists; extend or document;
-  (g) authoring the field **moves the replay/handshake content hash** for that
-  file (by design — it is character data) and `test_ground_truth`'s counts
-  re-derive; `test_gap_extent`'s post-build override then measures a number the
-  shipped file does not use — reconcile, do not leave both.
-  **Done when:** a file authoring `input_buffer_frames` produces a `FighterData`
-  carrying it; none produces zero; out of range (or > 255) is a load error
-  naming the key; and a one-frame link test passes with a 2-frame window and
-  fails at zero.
+- `[~]` **M1.1e The modern input buffer, authored.** *(S–M)* Claude,
+  2026-08-31. Asked for 2026-08-21 in the author's words: *"a 3 frame buffer
+  that makes a tightly timed link much easier"* — adversarially reviewed then,
+  landed now. `input_buffer_frames` is in `schema.v2.json` (character-global,
+  the genre note says why; the window arithmetic N = N+1 ticks documented
+  where the field is defined), loaded with a HARD 255 refusal naming the key
+  (the kernel ages the buffer in a uint8; past 255 the age wraps and the
+  buffer is eternal), carried whole by `MatchBuilder` with an Exact ledger
+  row. The Done-when's link test is
+  `P3Input.AOneFrameLinkNeedsTheWindowAHumanCannotHitAlone`: a press two
+  ticks early and HELD — what a human does — never edges the one tick the
+  link needs at window 0, and is consumed on exactly that tick at window 2.
+  The catalogue got the feature as a row: the `one_frame_link` /
+  `one_frame_link_buffered` variant pair differs by the single field and
+  flips the search's verdict TERMINATING → INFINITE on the same one-tick
+  link, both invisible to the model (no restart route, no buffer vocabulary
+  — deliberate, `edgeUsable` already assumes the ideal player).
+  **Checklist residue, named:** (e) proceeded under clear-on-any-start (a
+  cancel consumes an unrelated buffered press) — the simple default, the
+  author may prefer clear-only-when-used; (f) negative edge is NOT buffered —
+  documented as the current rule, extension is its own decision; (g) the
+  SHIPPED base does not author the field, so no hash moved — the variants
+  carry it, and `test_gap_extent`'s post-build override is reconciled by its
+  own comment (synthesised cycles, not a shipped file).
+  **Done when (met):** a file authoring `input_buffer_frames` produces a
+  `FighterData` carrying it; none produces zero; out of range is a load error
+  naming the key (`InputBuffer.TheWindowIsCarriedAbsentIsZeroAndPast255Is
+  RefusedByName`); and the one-frame link test passes with a 2-frame window
+  and fails at zero.
 
 - `[ ]` **M1.1f The juggle wiring, and the mirror that waits on it.** *(S)*
   `MatchBuilder` sets neither `FighterData::juggleMax` nor `MoveDef::juggleCost`,
@@ -481,11 +477,20 @@ Six WPs, all landed, gate required in CI. The decision is
   ComboSearch performs the same loop forever — the meter guard exercised every
   turn (meter oscillating 300↔200, measured), the super reached mid-string
   through its cancel under a chord binding the press scan correctly shadows.
-  **Still open:** `pushback-0`; `base` as a catalogue row; `microwalk` needs
-  walk/wait macro-actions in ComboSearch; `jump-cancel`, `kara`,
-  `counter-hit`, `wallbounce` are blocked on M1.3; and the cooker recording —
-  both verdicts, replays, `graph.dot` per entry — is the "replay per verdict"
-  half.
+  **Slice 4 measured two rows out of the catalogue (2026-08-31):**
+  `pushback-0` has nothing to show on this data — the executed worst case is
+  7 from the corner AND 7 from an in-reach midscreen opening (the pushbacks
+  are ~5 px against 30–68 px reaches, too small to end a string early), so
+  the row waits for a character whose pushback matters rather than being
+  authored to exhibit nothing. And from the REALISTIC ±100 px opening the
+  search measures 0 hits — nothing reaches and no macro walks — which is the
+  measured form of ADR-011 §5's requirement: `microwalk` and every midscreen
+  claim need walk/wait macro-actions in ComboSearch first (an ADR-013
+  amendment, not a patch).
+  **Still open:** walk/wait macros, then `microwalk`; `base` as a catalogue
+  row; `jump-cancel`, `kara`, `counter-hit`, `wallbounce` are blocked on
+  M1.3; and the cooker recording — both verdicts, replays, `graph.dot` per
+  entry — is the "replay per verdict" half.
 
 - `[ ]` **M1.7 Authoring telemetry.** *(S)* What the author actually needed to
   know, recorded while authoring rather than reconstructed after.

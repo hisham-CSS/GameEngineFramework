@@ -2255,6 +2255,61 @@ TEST(P3Input, ABufferedPressOutlivesAFreezeLongerThanItsWindow) {
            "nothing.";
 }
 
+// THE DONE-WHEN OF ROADMAP M1.1e, at the kernel: a one-frame link is a coin
+// without the buffer and a certainty with the genre's two-tick window. The
+// press is made two ticks early and HELD -- what a human trying a tight link
+// actually does -- so without a buffer there is never an edge on the one tick
+// that matters, and with one the press is consumed on exactly that tick.
+TEST(P3Input, AOneFrameLinkNeedsTheWindowAHumanCannotHitAlone) {
+    for (const std::int32_t window : { 0, 2 }) {
+        auto data = twoFighters();
+        data->p[0].inputBufferFrames = window;
+
+        GameState s{};
+        ResetMatch(s, 0x1D7u);
+        s.p[0].posX = kLeftX;
+        s.p[1].posX = kRightX;
+
+        InputPair press{}, none{};
+        press.p[0].bits = kInputLP;
+
+        // t0: the opener. attack() is 1+2+5 = 8 ticks, hits on t1, stun 12 --
+        // so the RESTART route connects only when the second press lands on
+        // exactly t8, the tick the move ends and the button scan runs in the
+        // same StepAttack call.
+        Simulate(s, press, *data);
+        ASSERT_EQ(s.p[0].moveId, 1u);
+
+        Simulate(s, none, *data);   // t1: the hit lands; the button released
+        ASSERT_LT(s.p[1].health, 1000) << "the opener whiffed; fix the bench";
+        for (int t = 2; t < 6; ++t) Simulate(s, none, *data);
+
+        // t6: the early press, then HELD. Two ticks before the link's one
+        // usable tick.
+        int secondHitTick = -1;
+        for (int t = 6; t < 14; ++t) {
+            const std::int32_t before = s.p[1].health;
+            Simulate(s, press, *data);
+            if (s.p[1].health < before && secondHitTick < 0) secondHitTick = t;
+        }
+
+        if (window == 0) {
+            EXPECT_EQ(secondHitTick, -1)
+                << "with no buffer the early held press produced a second hit "
+                   "at t" << secondHitTick
+                << "; a hold is one press and the link's tick had no edge";
+        } else {
+            EXPECT_EQ(secondHitTick, 9)
+                << "with a 2-tick window the buffered press must be consumed "
+                   "on exactly t8 -- the link's one tick -- and hit on t9, "
+                   "inside the defender's stun";
+            EXPECT_GT(s.p[1].hitstun, 0u)
+                << "the second hit landed after the stun expired, so this "
+                   "was a reset rather than the link";
+        }
+    }
+}
+
 // --- Stance: selection reads the input, posture follows the move ------------
 //
 // The design hole that killed the third stance attempt (ROADMAP M1.3e), as

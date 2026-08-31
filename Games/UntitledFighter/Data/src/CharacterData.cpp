@@ -947,6 +947,25 @@ bool parseDocument(Ctx& ctx, const json& doc, CharacterData& out) {
     if (!readQuantized(ctx, doc, "walk_speed", "document", walkSub, reachScale,
                        out.walkSpeedSub)) return false;
 
+    // --- input_buffer_frames (ROADMAP M1.1e). Character-global, integer ticks,
+    // zero-or-absent means no buffering. BOUNDED AT 255 and refused past it,
+    // never rounded: the kernel ages the buffer in a uint8, so a window of 256
+    // wraps the age and the buffer becomes ETERNAL -- a press firing a move
+    // minutes later -- which is a worse authoring accident than a load error.
+    if (const json* buf = member(doc, "input_buffer_frames")) {
+        std::int32_t v = 0;
+        if (!asInt32(*buf, v) || v < 0)
+            return ctx.fail("document",
+                            "`input_buffer_frames` must be an integer >= 0");
+        if (v > 255)
+            return ctx.fail("document",
+                            "`input_buffer_frames` is " + toString(v) +
+                            "; the kernel ages the buffer in a uint8, so "
+                            "windows past 255 wrap into an eternal buffer and "
+                            "are refused rather than rounded");
+        out.inputBufferFrames = v;
+    }
+
     // --- scaling ------------------------------------------------------------
     {
         const json* permille = quant ? member(*quant, "scaling_permille") : nullptr;

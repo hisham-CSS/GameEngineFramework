@@ -215,6 +215,16 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
             "and is why a silent file plays as it always did. Authored value, "
             "sub-units per tick: " + num(c.walkSpeedSub) + ".");
 
+    addLoss(report, "character.input_buffer_frames", BuildLossDirection::Exact,
+            c.inputBufferFrames != 0 ? 1 : 0,
+            "The modern input buffer's window, carried whole into "
+            "FighterData::inputBufferFrames; the kernel keeps a press made "
+            "while the fighter cannot act for this many ticks and consumes it "
+            "the exact tick they can, on both start routes. A window of N "
+            "accepts N+1 ticks (the press tick plus N), so the genre's "
+            "three-frame feel is authored as 2. Zero is no buffering. "
+            "Authored value: " + num(c.inputBufferFrames) + ".");
+
     addLoss(report, "move.pushback", BuildLossDirection::Exact, withPushback,
             "Defender displacement on hit, carried whole into MoveDef::pushbackHit "
             "and applied by ResolveHits. ADR-001 section 6.3 records that this "
@@ -689,6 +699,11 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
     // is what lets the loss row below say `exact`. A character that authored none
     // arrives here as zero and the kernel keeps its placeholder.
     out.walkSpeedSub = character.walkSpeedSub;
+
+    // THE INPUT BUFFER WINDOW, CARRIED WHOLE (ROADMAP M1.1e). Integer ticks,
+    // already bounded at 255 by the loader for the kernel's uint8 age; zero is
+    // no buffering, the behaviour every silent file has always had.
+    out.inputBufferFrames = character.inputBufferFrames;
 
     // The resource declarations, in FILE ORDER, which is the whole contract:
     // slot i here is slot i of Fighter::res, of MoveDef::effect and of the

@@ -946,6 +946,7 @@ TEST(MatchBridgeLosses, EveryDropIsCountedAgainstKungFuGirlsActualFile) {
         { "cancel.effect",                 0, BuildLossDirection::KernelOmits   },
         { "move.cancel_window (absent)",   8, BuildLossDirection::KernelPermits },
         { "character.walk_speed",      1, BuildLossDirection::Exact         },
+        { "character.input_buffer_frames", 0, BuildLossDirection::Exact     },
         { "move.pushback",            24, BuildLossDirection::Exact         },
         // Exact since ROADMAP M1.3e wired both into MoveDef and StanceAllows.
         // Kung Fu Girl authors a stance on all 25 moves and no blocked_as at

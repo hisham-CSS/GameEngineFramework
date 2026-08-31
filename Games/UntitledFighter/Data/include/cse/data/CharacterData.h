@@ -700,6 +700,14 @@ struct CharacterData {
     std::string stage;   // "midscreen" or "corner": which model the file's verdict answers
 
     std::int32_t walkSpeedSub = 0;              // sub-units per tick
+
+    // The modern input buffer's window, in ticks; zero-or-absent is no
+    // buffering. Character-global (the schema note says why that matches the
+    // genre), loaded with a hard 255 bound because the kernel ages the buffer
+    // in a uint8. A window of N accepts a press on the actionable tick plus
+    // the N before it -- N+1 ticks in all, so the modern "3-frame feel" is
+    // authored as 2. ROADMAP M1.1e.
+    std::int32_t inputBufferFrames = 0;
     std::vector<std::int32_t> scalingPermille;  // damage scaling by combo depth
     Decay decay;
 

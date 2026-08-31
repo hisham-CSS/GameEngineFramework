@@ -847,8 +847,9 @@ TEST(CancelBridge, TheLossTableCountsWhatTheProjectionActuallyCost) {
            "analysed. It does not -- see the loss table -- and the cancel system "
            "landing does not by itself make that sentence true.";
 
-    // 26 -> 27 when M1.3e added the move.blocked_as row beside move.stance.
-    EXPECT_EQ(27u, r.losses.size())
+    // 26 -> 27 when M1.3e added move.blocked_as; -> 28 when M1.1e added
+    // character.input_buffer_frames.
+    EXPECT_EQ(28u, r.losses.size())
         << "the loss table grew or shrank. That is fine, and it has to be "
            "recorded here, because the point of the table is that somebody "
            "counted.";

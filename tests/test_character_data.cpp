@@ -26,6 +26,7 @@
 #include <gtest/gtest.h>
 
 #include "cse/data/CharacterData.h"
+#include "cse/data/MatchBuilder.h"
 
 #include <nlohmann/json.hpp>
 
@@ -822,4 +823,46 @@ TEST(UntrustedContent, ACancelWithNoDelayAndNoKindIsWarnedAbout) {
     bool warned = false;
     for (const auto& w : r.warnings) warned = warned || mentions(w, "permissive");
     EXPECT_TRUE(warned) << "a delay-0-by-omission edge was accepted without a word";
+}
+
+// --- The modern input buffer, authored (ROADMAP M1.1e) -----------------------
+//
+// Three properties and nothing clever: an authored window is carried; a silent
+// file gets zero, which is the pre-M1.1d kernel; and a window past 255 is a
+// LOAD ERROR naming the key, never a rounding -- the kernel ages the buffer in
+// a uint8, and a wrapped age is an ETERNAL buffer, a press firing a move
+// minutes later.
+TEST(InputBuffer, TheWindowIsCarriedAbsentIsZeroAndPast255IsRefusedByName) {
+    json doc = shippedDoc("kung_fu_girl.json");
+
+    CharacterData c{};
+    LoadReport r{};
+    ASSERT_TRUE(loadDoc(doc, "silent.json", c, r)) << r.error;
+    EXPECT_EQ(c.inputBufferFrames, 0)
+        << "a file that says nothing must get the behaviour it always had";
+
+    doc["input_buffer_frames"] = 2;   // the genre's three-frame feel
+    ASSERT_TRUE(loadDoc(doc, "buffered.json", c, r)) << r.error;
+    EXPECT_EQ(c.inputBufferFrames, 2);
+
+    // ... and the bridge carries it whole into the kernel's own field, which
+    // is the half a loader test alone cannot claim.
+    {
+        BuildOptions options{};
+        options.bindings = { { "stand_lp", cse::kernel::kInputLP } };
+        MatchBuild build{};
+        ASSERT_TRUE(BuildMatchData(c, options, c, options, build))
+            << build.report[0].error;
+        EXPECT_EQ(build.data.p[0].inputBufferFrames, 2);
+        EXPECT_EQ(build.data.p[1].inputBufferFrames, 2);
+    }
+
+    doc["input_buffer_frames"] = 256;
+    EXPECT_FALSE(loadDoc(doc, "eternal.json", c, r))
+        << "a 256-tick window loaded; the kernel's uint8 age would wrap and "
+           "the buffer would never expire";
+    EXPECT_NE(r.error.find("input_buffer_frames"), std::string::npos) << r.error;
+
+    doc["input_buffer_frames"] = -1;
+    EXPECT_FALSE(loadDoc(doc, "negative.json", c, r));
 }

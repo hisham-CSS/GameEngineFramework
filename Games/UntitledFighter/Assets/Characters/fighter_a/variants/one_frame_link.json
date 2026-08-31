@@ -1,0 +1,8 @@
+{
+  "description": "stand_lp hitstun 12 -> 15: the restart link exists by exactly one tick -- the re-press must land on the very tick the move ends -- and this file authors NO input buffer, so the search's held early press never has an edge on that tick and the loop never closes: TERMINATING, the one-frame link as a coin that always lands wrong. The buffered twin (one_frame_link_buffered) differs by a single field and turns the same coin into a certainty.",
+  "patch": {
+    "moves": {
+      "stand_lp": { "hitstun": 15 }
+    }
+  }
+}
