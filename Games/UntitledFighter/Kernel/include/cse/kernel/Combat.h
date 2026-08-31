@@ -290,6 +290,34 @@ struct InvincibilityWindow {
 // growth in anything the simulation reads.
 inline constexpr std::int32_t kMaxInvulnWindows = 4;
 
+// One velocity state in a move's authored motion (ROADMAP M1.3(b2), ADR-014).
+//
+// RESOLVED, NOT SYMBOLIC: each key is a complete velocity the fighter flies
+// from `fromTick` until the next key or the move's end -- friction and any
+// authored curve were pre-evaluated into these numbers at transcription, which
+// is what lets a rollback resume mid-move from state alone. While a key owns
+// the fighter, gravity does NOT apply (the segment IS the trajectory); a move
+// that wants ballistics back before it ends authors a final key saying so.
+//
+// `velXSub` is TOWARD THE FIGHTER'S FACING, applied by a branch and never by
+// multiplying facing into a coordinate (MirrorBox's rule). `velYSub` is +Y UP,
+// the kernel's convention -- the bridge flips the file's MUGEN Y-down sign, in
+// MatchBuilder, once. `fromTick` compares against Fighter::moveFrame as
+// observed at the TOP of the tick, so a key at 0 first moves the fighter on
+// the tick after the press -- the press tick's physics ran before the move
+// existed, the same ordering that makes commitment readable.
+struct MotionKey {
+    std::int32_t fromTick;
+    std::int32_t velXSub;
+    std::int32_t velYSub;
+};
+
+// Eight keys per move. Measured against the corpus rather than picked: the
+// largest authored motion is five keys (fighter_a_infinite's
+// special_dash_punch), so this is comfortable headroom and still the fixed
+// bound D4 demands of anything the simulation reads.
+inline constexpr std::int32_t kMaxMotionKeys = 8;
+
 // One attack. Frame numbers are ticks from the start of the move, where the tick
 // the move starts is frame 0. The hitbox is live on frames
 // [startup, startup + active) and the move ends after
@@ -459,8 +487,39 @@ struct MoveDef {
     std::uint8_t guardMask;      // bit i set = guard[i] is checked
 
     // Explicit, because a hashed POD may not carry indeterminate bytes: the
-    // connect handshake compares these bytes across two machines.
+    // connect handshake compares these bytes across two machines. No longer
+    // the tail -- M1.3(b2) appended below it -- but a hole is a hole wherever
+    // it sits.
     std::uint8_t pad2_[3];
+
+    // --- Authored motion (ROADMAP M1.3(b2), ADR-014 step two) ---------------
+    //
+    // THE EXCEPTION COMMITMENT PROMISED: a committed fighter's velocity is
+    // zero unless ITS MOVE says otherwise, and this is where a move says so --
+    // the lunge that carries the fighter, the hop kick that leaves the ground
+    // mid-move (velYSub > 0 sets `airborne`), the divekick that rewrites an
+    // arc it is already flying. Zero keys means the move does not move, which
+    // is every move authored before this field and every hand-built bench.
+    // StepPhysics::ActiveMotion is the one reader.
+    MotionKey    motion[kMaxMotionKeys];
+    std::int32_t motionCount;
+
+    // --- RESERVED for M1.3(c) and (d), semantics deliberately unchosen ------
+    //
+    // Bytes only, reserved in the SAME growth as the motion block so the
+    // hashed contract pays its re-hash once (ADR-005 section 3, ADR-014).
+    // Counter-hit's three-ways-out question (ROADMAP M1.3(c)) is NOT decided
+    // by these fields existing -- zero is inert, nothing reads them, and the
+    // (c) ADR still owes the choice. Same for the launch vector and reaction
+    // id (d): Simulate.cpp's air-hit velX zeroing stands until they land.
+    std::int32_t counterHitstunBonus;
+    std::int32_t counterDamageBonus;
+    std::int32_t launchVelXSub;
+    std::int32_t launchVelYSub;
+    std::uint8_t onHitReaction;
+
+    // Explicit tail padding, hashed like everything else here.
+    std::uint8_t pad3_[3];
 };
 
 // 32 moves per fighter. A hard cap, deliberately: D4 forbids unbounded growth in
@@ -753,17 +812,27 @@ static_assert(std::is_trivially_copyable_v<InvincibilityWindow>,
 static_assert(sizeof(InvincibilityWindow) == 12,
               "InvincibilityWindow grew, shrank, or acquired implicit padding. "
               "Same handshake, same hazard as MoveDef below.");
-static_assert(sizeof(MoveDef) == 128 + 2 * kMaxResources * sizeof(std::int32_t) + 4,
+static_assert(std::is_trivially_copyable_v<MotionKey>,
+              "MatchData is hashed and compared as bytes");
+static_assert(sizeof(MotionKey) == 12,
+              "MotionKey grew, shrank, or acquired implicit padding. Same "
+              "handshake, same hazard as MoveDef below.");
+static_assert(sizeof(MoveDef) == 128 + 2 * kMaxResources * sizeof(std::int32_t) + 4 +
+                                     kMaxMotionKeys * sizeof(MotionKey) + 4 +
+                                     4 * sizeof(std::int32_t) + 4,
               "MoveDef grew, shrank, or acquired implicit padding. The connect "
               "handshake hashes these bytes (ARCHITECTURE.md 4.8), so a padding "
               "hole would make two peers with identical characters disagree. "
-              "This was 40 before ADR-005 P2 and 128 before M1.1b; the growth is "
-              "priority, blockstun, chip, pushback, juggle, hitstop, knockdown, "
-              "scaling, stance, blockedAs, the hurtbox override, the "
-              "invincibility windows, and then the resource effect and guard "
-              "vectors with their mask. Written as the OLD SIZE PLUS THE NEW "
-              "MEMBERS rather than as a fresh round number, so it still asks "
-              "'did padding appear' and not 'is this what I last wrote down'.");
+              "This was 40 before ADR-005 P2, 128 before M1.1b and 164 before "
+              "M1.3(b2); the growth is priority, blockstun, chip, pushback, "
+              "juggle, hitstop, knockdown, scaling, stance, blockedAs, the "
+              "hurtbox override, the invincibility windows, the resource effect "
+              "and guard vectors with their mask, and then the authored motion "
+              "block with the reserved (c)/(d) fields -- one batched re-hash, "
+              "per ADR-005 section 3 and ADR-014. Written as the OLD SIZE PLUS "
+              "THE NEW MEMBERS rather than as a fresh round number, so it still "
+              "asks 'did padding appear' and not 'is this what I last wrote "
+              "down'.");
 static_assert(std::is_trivially_copyable_v<CancelEdge>, "MatchData is hashed and compared as bytes");
 static_assert(sizeof(CancelEdge) == 16,
               "CancelEdge grew, shrank, or acquired implicit padding. Same "

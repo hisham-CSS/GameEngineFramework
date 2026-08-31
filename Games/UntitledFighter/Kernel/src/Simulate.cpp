@@ -171,8 +171,9 @@ void StepPhysics(Fighter& f, const Intent& it, const FighterData& data) {
     // startable: Up+button takes off here, and StepAttack then finds an
     // airborne fighter asking for an air move. Up pressed one tick INTO a
     // grounded move is refused. THE EXCEPTION IS AUTHORED, NOT HERE: a lunge, a
-    // slide or a hop kick authors its own motion -- ROADMAP M1.3(b), under
-    // ADR-011's rule that no mechanic is a kernel constant.
+    // slide or a hop kick authors its own motion -- MoveDef::motion since
+    // M1.3(b2), applied below under ADR-011's rule that no mechanic is a
+    // kernel constant.
     const bool committed = f.moveId != 0;
     const bool free      = canAct && !committed;
 
@@ -192,7 +193,35 @@ void StepPhysics(Fighter& f, const Intent& it, const FighterData& data) {
     //
     // Being hit still zeroes it: air hitstun replaces momentum, and the launch
     // vector that should replace it PROPERLY is M1.3(d)'s field.
-    if (f.airborne) {
+    //
+    // THE AUTHORED EXCEPTION the commitment comment above promised (ROADMAP
+    // M1.3(b2), ADR-014): a committed fighter's velocity is zero UNLESS ITS
+    // MOVE authors motion. The active key -- the last one whose fromTick is
+    // at or before this tick's observed moveFrame -- owns BOTH velocity
+    // components for the tick: `forward` resolves against facing by a branch
+    // (never facing multiplied into a coordinate -- MirrorBox's rule), an
+    // upward key lifts the fighter off the ground, and gravity does not
+    // apply while a key owns the arc, because the keys are RESOLVED velocity
+    // states (Combat.h::MotionKey) and the segment IS the trajectory. Stun
+    // still wins: an interrupted fighter lost its move at the previous
+    // Resolve, so `committed` is already false for it here.
+    const MoveDef* const motionMove = committed ? MoveAt(data, f.moveId) : nullptr;
+    const MotionKey*     motionKey  = nullptr;
+    if (motionMove != nullptr) {
+        const std::int32_t frame = static_cast<std::int32_t>(f.moveFrame);
+        for (std::int32_t i = 0;
+             i < motionMove->motionCount && i < kMaxMotionKeys; ++i)
+            if (motionMove->motion[i].fromTick <= frame &&
+                (motionKey == nullptr ||
+                 motionMove->motion[i].fromTick >= motionKey->fromTick))
+                motionKey = &motionMove->motion[i];
+    }
+
+    if (motionKey != nullptr && canAct) {
+        f.velX = f.facing == 0 ? motionKey->velXSub : -motionKey->velXSub;
+        f.velY = motionKey->velYSub;
+        if (motionKey->velYSub > 0) f.airborne = 1;
+    } else if (f.airborne) {
         if (!canAct) f.velX = 0;
     } else if (free) {
         f.velX = it.walkWish;
@@ -216,10 +245,12 @@ void StepPhysics(Fighter& f, const Intent& it, const FighterData& data) {
     else if (!canAct)
         f.crouching = 0;   // stunned or downed: nobody is holding a crouch
 
-    if (f.airborne) {
+    if (f.airborne && motionKey == nullptr) {
         // The file's number when there is one; zero means unauthored and the
-        // placeholder above stands. No schema key sets this yet -- see
-        // FighterData::gravitySub for why the field exists ahead of its author.
+        // placeholder stands. Authorable since `engine.movement` (M1.3(b1)).
+        // SKIPPED while an authored motion key owns the arc -- the key is a
+        // resolved velocity state, and gravity on top of it would bend a
+        // trajectory the transcription already integrated.
         f.velY -= data.gravitySub != 0 ? data.gravitySub : kGravity;
     }
 

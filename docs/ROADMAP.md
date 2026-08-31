@@ -89,7 +89,7 @@ is done or serves it.
 | In flight | Owner | Since |
 |---|---|---|
 | M1.6 — the showcase; slices 1–5 landed, rest blocked on walk macros + M1.3 | Claude | 2026-08-31 |
-| M1.3 — mechanics pass 1; (a) `b9b2978`, (b1) landed, (b2) MoveDef batch next | Claude | 2026-08-31 |
+| M1.3 — mechanics pass 1; (a) (b1) (b2) landed; next: (c)'s ADR or (d) | Claude | 2026-08-31 |
 
 M1.6 stays open, blocked on a stated design step (walk/wait macros amend
 ADR-013) and on M1.3's mechanics. M1.1e landed inside its slice 5 — the
@@ -452,9 +452,23 @@ Six WPs, all landed, gate required in CI. The decision is
   aerial string's termination now rests on the wired juggle budget ALONE
   (`AFloatyJumpHandsTheStringToTheBudgetAlone`), the M1.1f agreement
   deliberately broken apart as an exhibit.
-  **Step (b2) next:** one batched MoveDef growth — the per-move motion block
-  (lunge, divekick; hop kick's physics half) bridged from the already-parsed
-  `engine.motion` keyframes, reserving (c)/(d)'s bytes in the same re-hash.
+  **Step (b2) LANDED (sha at the next flip):** the one batched MoveDef
+  growth (164 → 284 bytes, one re-hash per ADR-005 §3): `MoveDef::motion` —
+  up to 8 resolved velocity keys, the InvincibilityWindow pattern — carried
+  from the already-parsed `engine.motion` with the one MUGEN-Y-down flip at
+  load, sorted, teleport `pos_add` components split into their own
+  KernelOmits row; the SAME growth reserves (c) counter-hit and (d)
+  launch/reaction bytes, zeroed and unread, so their semantics stay unchosen
+  while the wire pays once. In the kernel the active key owns a committed
+  fighter's velocity (facing by branch, never multiply), an upward key
+  leaves the ground, gravity skips while a key owns the arc. `P3Movement`'s
+  lunge / hop kick / divekick / silence quartet pins it (three red before
+  the physics branch existed), and
+  `TheAuthoredMotionKeysCrossWithTheirOneSignFlip` measures the flip on
+  fighter_a's own uppercut. fighter_a's two motion-authoring specials now
+  genuinely move — the file honoured — and nothing measured shifted (no
+  test binds them); ledger 31 → 32 rows, `move.engine.motion` KernelOmits →
+  Exact.
   **Step (b3) last:** jump-as-move, the hard-coded jump deleted, jump cancels
   retargeted, the golden re-recorded. Commitment is already the KERNEL
   DEFAULT (`P2Commitment.*`) and the jump already BALLISTIC

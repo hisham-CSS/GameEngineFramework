@@ -133,7 +133,7 @@ There are two overloads:
 The tick is a **pipeline of fixed stages** ([ADR-012](../adr/ADR-012-the-tick-is-a-pipeline.md)), each run for every fighter in fixed slot order — never over a container whose order can vary, the hash-ordering hazard that has already bitten `SimplePhysicsBackend` and `ScriptWorld` in this repository. From `Games/UntitledFighter/Kernel/src/Simulate.cpp`:
 
 1. **`ReadIntent`** — pure. What this input *means*: press and release edges against the latched `prevButtons`, the walk/jump/crouch wish, the buffer-eligible bits, and whether hitstop froze this fighter. Computed once, so no two stages can disagree about what was pressed.
-2. **`StepPhysics`** — the freeze (a frozen fighter only counts its `hitstop` down), the stun clocks, then movement: the walk wish lands in `velX`, up sets `velY` and `airborne` when grounded, gravity applies while airborne, position integrates, `posX` clamps the **body** to the stage, landing at `posY <= 0` zeroes `posY`, `velY` and `airborne`.
+2. **`StepPhysics`** — the freeze (a frozen fighter only counts its `hitstop` down), the stun clocks, then movement: the walk wish lands in `velX`, up sets `velY` and `airborne` when grounded, gravity applies while airborne, position integrates, `posX` clamps the **body** to the stage, landing at `posY <= 0` zeroes `posY`, `velY` and `airborne`. Since M1.3(b2), a committed fighter whose move authors **motion keys** (`MoveDef::motion`) flies them instead: the active key owns both velocity components, an upward key leaves the ground, and gravity is skipped while a key owns the arc — the lunge, the hop kick and the divekick are authored fields, exactly as ADR-011 demands.
 3. **`StepAttack`** (declared in `Combat.h`, implemented in `Games/UntitledFighter/Kernel/src/Combat.cpp`) ends a move that has run out and starts one the fighter is asking for. It runs *after* movement so a move started this tick sees the position the fighter reached.
 4. **Resolve** — everything that needs more than one fighter, plus the input latch. `LatchInputs` (the one writer of `prevButtons` and the buffer, and it records **during hitstop** — see the buffer note below) · the invisible wall and the push boxes, read off top-of-tick positions · **facing** derived from relative position, after everyone moved so it cannot depend on step order · guard · **`ResolveHits`** · the round rule · the RNG advances every tick whether or not anything consumed it, so its position is a function of the tick count alone · `++state.tick`.
 
@@ -457,13 +457,14 @@ Here is the full table for Kung Fu Girl; `MatchBridgeLosses.EveryDropIsCountedAg
 | `gap_actions` | 1 | KernelOmits |
 | `starters` | 21 | KernelOmits |
 | `move.engine.hits` | 0 | KernelOmits |
-| `move.engine.motion` | 0 | KernelOmits |
+| `move.engine.motion` | 0 | Exact |
+| `move.engine.motion (pos_add)` | 0 | KernelOmits |
 | `move.reach (absent)` | 0 | KernelOmits |
 | `move.reach (provenance)` | 25 | KernelPermits |
 | `move.hitbox.y` | 25 | KernelPermits |
 | `hurtbox` | 1 | KernelPermits |
 
-Nineteen entries bite, so `lossesThatBite == 19` — nonzero `Exact` rows count too, because a nonzero row of any direction is a place somebody has to have looked. Her five zero-count `Exact` rows (juggle gate, input buffer, hitstop, blocked_as, movement) are the why-zero exhibits: her converted file authors none of those mechanics, and the row is the proof a check ran.
+Nineteen entries bite, so `lossesThatBite == 19` — nonzero `Exact` rows count too, because a nonzero row of any direction is a place somebody has to have looked. Her six zero-count `Exact` rows (juggle gate, input buffer, hitstop, blocked_as, movement, motion keys) are the why-zero exhibits: her converted file authors none of those mechanics, and the row is the proof a check ran.
 
 The first eight rows replaced what used to be a single `cancels` entry with a count of 134. **All 134 of her edges are now carried**; what remains listed is the part of each edge the kernel cannot yet honour, and every row still short errs `KernelPermits` — the game chains in situations the file does not allow. A combo system uniformly more permissive than the analysed one is exactly how a `TERMINATING` verdict becomes a game with an infinite in it, which is the next section. `cancel.on` left that list at M1.3 slice (a): the contact mask carries the file's `on` whole — `on: hit` no longer fires off a blocked contact, `on: block` no longer off a clean hit, and `on: whiff` (the kara) is expressible at all — so its row reads `Exact`, with the count recording how many edges the old one-bit collapse used to move.
 

@@ -978,7 +978,11 @@ TEST(MatchBridgeLosses, EveryDropIsCountedAgainstKungFuGirlsActualFile) {
         { "gap_actions",               1, BuildLossDirection::KernelOmits   },
         { "starters",                 21, BuildLossDirection::KernelOmits   },
         { "move.engine.hits",          0, BuildLossDirection::KernelOmits   },
-        { "move.engine.motion",        0, BuildLossDirection::KernelOmits   },
+        // Exact since M1.3(b2): motion keys are carried (she authors none --
+        // the zero records the check), and the uncarried pos_add teleports
+        // split into their own row.
+        { "move.engine.motion",        0, BuildLossDirection::Exact         },
+        { "move.engine.motion (pos_add)", 0, BuildLossDirection::KernelOmits },
         { "move.reach (absent)",       0, BuildLossDirection::KernelOmits   },
         { "move.reach (provenance)",  25, BuildLossDirection::KernelPermits },
         { "move.hitbox.y",            25, BuildLossDirection::KernelPermits },
@@ -1644,4 +1648,66 @@ TEST(MatchBridgeMechanics, TheAuthoredJumpPhysicsChangeTheArcAndSilenceKeepsIt) 
         << "an explicit jump_impulse_sub of 0 loaded, and the kernel will "
            "silently replace it with the placeholder";
     EXPECT_NE(zr.error.find("movement"), std::string::npos) << zr.error;
+}
+
+// MOTION KEYS, and the ONE sign flip (ROADMAP M1.3(b2), ADR-014 step two).
+// Measured on fighter_a's own authored specials rather than a synthetic, so
+// the MUGEN Y-down convention in the file is the thing being tested: the
+// bridge negates velYSub exactly once, keeps velXSub as authored, sorts by
+// tick, and counts what it carried.
+TEST(MatchBridgeMechanics, TheAuthoredMotionKeysCrossWithTheirOneSignFlip) {
+    CharacterData c{};
+    LoadReport report{};
+    ASSERT_TRUE(LoadCharacterFile(ownCharactersDir(), "fighter_a.json",
+                                  loadOptions(), c, report))
+        << report.error;
+
+    const cse::data::MoveIndex up = c.FindMove("special_uppercut");
+    ASSERT_NE(up, cse::data::kInvalidMove);
+    ASSERT_FALSE(c.moves[up].motion.empty())
+        << "fighter_a's special_uppercut no longer authors motion, so this "
+           "test is measuring nothing -- pick another authored special.";
+
+    BuildOptions options{};
+    options.bindings = { { "special_uppercut", cse::kernel::kInputHP } };
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build))
+        << build.report[0].error;
+
+    const std::uint16_t slot = build.moves[0].Find("special_uppercut");
+    ASSERT_NE(slot, 0u);
+    const cse::kernel::MoveDef& m = build.data.p[0].moves[slot];
+
+    ASSERT_EQ(static_cast<std::size_t>(m.motionCount), c.moves[up].motion.size())
+        << "the bridge carried a different number of keys than the file "
+           "authors (and the file authors fewer than the kernel bound)";
+    std::int32_t prevTick = -1;
+    for (std::int32_t i = 0; i < m.motionCount; ++i) {
+        SCOPED_TRACE(i);
+        const cse::data::MotionKey& a = c.moves[up].motion[static_cast<std::size_t>(i)];
+        EXPECT_EQ(m.motion[i].fromTick, a.tick);
+        EXPECT_EQ(m.motion[i].velXSub, a.velXSub)
+            << "velX is forward-positive in BOTH conventions; nothing may "
+               "touch it";
+        EXPECT_EQ(m.motion[i].velYSub, -a.velYSub)
+            << "the MUGEN Y-down to kernel Y-up flip happens exactly once, "
+               "here -- an unflipped uppercut DIVES";
+        EXPECT_GE(m.motion[i].fromTick, prevTick)
+            << "keys must arrive sorted; the kernel takes the last "
+               "at-or-before frame and an unsorted table makes that a "
+               "different key on two builds of one file";
+        prevTick = m.motion[i].fromTick;
+    }
+
+    // The row flipped direction the day the keys crossed; the pos_add split
+    // records the one teleport the corpus authors (fighter_a_infinite, not
+    // this file).
+    const BuildLoss* motion = findLoss(build.report[0], "move.engine.motion");
+    ASSERT_NE(motion, nullptr);
+    EXPECT_EQ(motion->direction, BuildLossDirection::Exact);
+    EXPECT_GE(motion->count, 2) << "fighter_a authors motion on two specials";
+    const BuildLoss* posAdd =
+        findLoss(build.report[0], "move.engine.motion (pos_add)");
+    ASSERT_NE(posAdd, nullptr);
+    EXPECT_EQ(posAdd->count, 0) << "fighter_a authors no teleport keys";
 }

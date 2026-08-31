@@ -2649,3 +2649,177 @@ TEST(P3Cancels, TheBlockedMirrorLivesAndDiesWithTheContactRecord) {
     EXPECT_EQ(s.p[0].flags & kFlagsBlockedBits, 0u)
         << "the blocked mirror outlived the contact record it mirrors";
 }
+
+// --- Authored motion (ROADMAP M1.3(b2), ADR-014 step two) --------------------
+//
+// Commitment's promise had two halves: a committed fighter's velocity is zero,
+// UNLESS ITS MOVE SAYS OTHERWISE. The first half landed with M1.3f's pipeline;
+// this is the second -- MoveDef::motion, the fixed-bound velocity keys that
+// let a lunge carry the fighter, a hop kick leave the ground mid-move, and a
+// divekick rewrite an arc it is already flying. Zero keys is every move
+// authored before the field: the silent test at the bottom is the regression
+// guard the other four lean on.
+namespace {
+
+// Far enough apart that nothing connects: these tests are about the ATTACKER's
+// own body, and a hit would drag pushback, hitstop and interrupts into what
+// should be pure kinematics.
+constexpr std::int32_t kFarLeft  = -px(300);
+constexpr std::int32_t kFarRight =  px(300);
+
+std::unique_ptr<MatchData> motionBench(std::initializer_list<MotionKey> keys) {
+    auto d = twoFighters();
+    MoveDef& m = d->p[0].moves[1];
+    std::int32_t n = 0;
+    for (const MotionKey& k : keys) {
+        m.motion[n] = k;
+        ++n;
+    }
+    m.motionCount = n;
+    return d;
+}
+
+GameState apartState() {
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+    s.p[0].posX = kFarLeft;
+    s.p[1].posX = kFarRight;
+    return s;
+}
+
+}  // namespace
+
+TEST(P3Movement, ALungeCarriesTheFighterAndTheStickSteersNothing) {
+    // One key from tick 0: 2 px/tick toward the fighter's facing, for the
+    // move's whole 8-tick life.
+    auto data = motionBench({ { 0, 512, 0 } });
+
+    GameState s = apartState();
+    InputPair in{};
+    in.p[0].bits = kInputLP;
+    Simulate(s, in, *data);
+    ASSERT_EQ(s.p[0].moveId, 1u);
+    const std::int32_t start = s.p[0].posX;
+
+    // Held AWAY for the whole move: if the stick could steer, the lunge would
+    // shorten. Motion owns the velocity; the stick owns nothing.
+    in.p[0].bits = kInputLeft;
+    for (int t = 0; t < 8; ++t) Simulate(s, in, *data);
+
+    EXPECT_EQ(s.p[0].moveId, 0u) << "precondition: the 8-tick move has ended";
+    EXPECT_EQ(s.p[0].posX, start + 8 * 512)
+        << "the lunge did not carry the fighter its authored 2 px on each of "
+           "the move's 8 ticks -- either motion is not applied or the held "
+           "stick steered a committed fighter.";
+
+    // And the mirror: the same key on a left-facing fighter travels -X. A
+    // branch, never facing multiplied into a coordinate -- but the OUTCOME is
+    // what a player sees, so the outcome is what is asserted.
+    GameState mirrored = apartState();
+    mirrored.p[0].posX   = kFarRight;
+    mirrored.p[1].posX   = kFarLeft;
+    mirrored.p[0].facing = 1;
+    mirrored.p[1].facing = 0;
+    in.p[0].bits = kInputLP;
+    Simulate(mirrored, in, *data);
+    ASSERT_EQ(mirrored.p[0].moveId, 1u);
+    const std::int32_t mStart = mirrored.p[0].posX;
+    in.p[0].bits = 0;
+    for (int t = 0; t < 8; ++t) Simulate(mirrored, in, *data);
+    EXPECT_EQ(mirrored.p[0].posX, mStart - 8 * 512)
+        << "a left-facing lunge did not mirror; `forward` is the fighter's "
+           "own forward or the mechanic is unusable on half the screen.";
+}
+
+TEST(P3Movement, AHopKickLeavesTheGroundMidMoveAndLandsBackIntoIt) {
+    // Up at 3 px/tick from frame 1, down at the same rate from frame 4: a
+    // four-tick hop inside an 8-tick move. `airborneFromTick` is the
+    // CLASSIFICATION half (attack kinds, invulnerability); this is the
+    // PHYSICS half the map recorded as missing.
+    auto data = motionBench({ { 1, 0, 768 }, { 4, 0, -768 } });
+
+    GameState s = apartState();
+    InputPair in{};
+    in.p[0].bits = kInputLP;
+    Simulate(s, in, *data);
+    ASSERT_EQ(s.p[0].moveId, 1u);
+
+    in.p[0].bits = 0;
+    bool leftGround = false;
+    std::int32_t apex = 0;
+    for (int t = 0; t < 12; ++t) {
+        Simulate(s, in, *data);
+        if (s.p[0].airborne) leftGround = true;
+        if (s.p[0].posY > apex) apex = s.p[0].posY;
+    }
+
+    EXPECT_TRUE(leftGround)
+        << "the hop's upward key never set `airborne`; a positive authored "
+           "velY IS leaving the ground.";
+    EXPECT_EQ(apex, 768 * 3)
+        << "three ticks of +768 should peak at 2304 sub-units (9 px); the "
+           "apex says gravity or the stick interfered with an authored arc.";
+    EXPECT_EQ(s.p[0].airborne, 0u) << "the hop did not land";
+    EXPECT_EQ(s.p[0].posY, 0);
+    EXPECT_EQ(s.p[0].moveId, 0u)
+        << "the move should have run out grounded; a hop is not a knockdown";
+}
+
+TEST(P3Movement, ADivekickRewritesTheArcItIsFlying) {
+    // The move is startable in the air (stance Any) and dives: forward 2 px,
+    // down 4 px, every tick, gravity-free -- the segment IS the trajectory.
+    auto data = motionBench({ { 0, 512, -1024 } });
+
+    GameState s = apartState();
+    InputPair in{};
+    in.p[0].bits = kInputUp;
+    Simulate(s, in, *data);
+    ASSERT_NE(s.p[0].airborne, 0u);
+
+    // Ride the ballistic arc for 5 ticks, then press the dive.
+    in.p[0].bits = 0;
+    for (int t = 0; t < 5; ++t) Simulate(s, in, *data);
+    ASSERT_NE(s.p[0].airborne, 0u);
+    const std::int32_t ballisticVelY = s.p[0].velY;
+
+    in.p[0].bits = kInputLP;
+    Simulate(s, in, *data);
+    ASSERT_EQ(s.p[0].moveId, 1u) << "the dive did not start in the air";
+
+    const std::int32_t beforeX = s.p[0].posX;
+    Simulate(s, in, *data);
+    EXPECT_EQ(s.p[0].velY, -1024)
+        << "the divekick's authored velY did not replace the ballistic "
+        << ballisticVelY << "; the arc is supposed to be REWRITTEN.";
+    EXPECT_EQ(s.p[0].posX - beforeX, 512)
+        << "the dive's forward component did not carry";
+
+    const std::int32_t velYFirst = s.p[0].velY;
+    Simulate(s, InputPair{}, *data);
+    if (s.p[0].airborne)
+        EXPECT_EQ(s.p[0].velY, velYFirst)
+            << "velY changed between two ticks of one motion segment, so "
+               "gravity is being applied under an authored trajectory -- the "
+               "keys are RESOLVED states, not impulses.";
+}
+
+TEST(P3Movement, ASilentMoveStillDoesNotMove) {
+    // motionCount 0: commitment's zero velocity, byte for byte -- every move
+    // authored before this field, and every hand-built bench in this suite.
+    auto data = twoFighters();
+
+    GameState s = apartState();
+    InputPair in{};
+    in.p[0].bits = kInputLP;
+    Simulate(s, in, *data);
+    ASSERT_EQ(s.p[0].moveId, 1u);
+    const std::int32_t start = s.p[0].posX;
+
+    in.p[0].bits = kInputRight;   // held toward the opponent, the whole move
+    for (int t = 0; t < 8; ++t) Simulate(s, in, *data);
+
+    EXPECT_EQ(s.p[0].posX, start)
+        << "a move with no motion keys moved, so either commitment broke or "
+           "a zero-initialised motion block is not inert -- the "
+           "scalingReduction incident wearing a new field.";
+}

@@ -104,9 +104,11 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
     std::int32_t stanced = 0, withEffect = 0, withGuard = 0, withPushback = 0;
     std::int32_t withHitCondition = 0, noReach = 0, withReach = 0;
     std::int32_t withHits = 0, withMotion = 0, withEscapeHatch = 0;
-    std::int32_t offMid = 0, withHitstop = 0;
+    std::int32_t offMid = 0, withHitstop = 0, withPosAdd = 0;
 
     for (const Move& m : c.moves) {
+        for (const MotionKey& k : m.motion)
+            if (k.posAddXSub != 0 || k.posAddYSub != 0) { ++withPosAdd; break; }
         if (m.stance != Stance::Any)        ++stanced;
         if (m.blockedAs != BlockHeight::Mid) ++offMid;
         if (!m.effect.empty())              ++withEffect;
@@ -371,10 +373,26 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
             "(startup, active, hitstun, damage) tuple and ResolveHits applies at "
             "most one hit per active window, so a multi-hit move lands once.");
 
-    addLoss(report, "move.engine.motion", BuildLossDirection::KernelOmits, withMotion,
-            "The attacker's own displacement keys. The kernel's fighters do not "
-            "move during a move, so a special that travels forward connects only "
-            "from where it started.");
+    addLoss(report, "move.engine.motion", BuildLossDirection::Exact, withMotion,
+            "The attacker's own velocity keys, carried whole since ROADMAP "
+            "M1.3(b2): MoveDef::motion owns a committed fighter's velocity "
+            "from each key's tick to the next -- the lunge, the hop kick's "
+            "physics, the divekick -- with the one Y-sign flip (MUGEN "
+            "Y-down to kernel Y-up) applied here at load. A move authoring "
+            "none keeps commitment's zero velocity, which is every move "
+            "before this wire. The MODEL never reads motion -- a special "
+            "that travels forward still connects, to the prover, only from "
+            "where it started -- so the D8 gap moved from the GAME lacking "
+            "the mechanic to the MODEL lacking the vocabulary.");
+
+    addLoss(report, "move.engine.motion (pos_add)", BuildLossDirection::KernelOmits,
+            withPosAdd,
+            "Teleport components (MUGEN PosAdd) on motion keys. NOT carried: "
+            "a position ADD interacts with the wall clamp and the pushbox "
+            "separation in ways nothing has pinned, and carrying it as a "
+            "velocity would smear a step across a tick. One authored key in "
+            "the corpus (fighter_a_infinite's special_dash_punch, a 2 px "
+            "step); its dash still flies the velocity half of its keys.");
 
     // Reach: two entries, because "the file declined to state one" and "the file
     // stated one measured from somewhere else" are different problems pointing in
@@ -992,6 +1010,50 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
             const std::int32_t fall = src.causesKnockdown ? src.fallRecoverTicks : 0;
             m.knockdownTicks = static_cast<std::uint16_t>(
                 fall < 0 ? 0 : (fall > kMaxTicks ? kMaxTicks : fall));
+        }
+
+        // AUTHORED MOTION, CARRIED AS VELOCITIES (ROADMAP M1.3(b2), ADR-014).
+        // The file's keys are MUGEN-signed -- velYSub DOWN-positive -- and the
+        // kernel's velY is +Y up, so the ONE sign flip happens here, at load,
+        // where D8 says the one documented conversion lives. Keys are taken in
+        // ascending fromTick order (sorted here, stably, so an unsorted file
+        // and a sorted one build the same bytes); negative ticks are refused
+        // as meaning nothing; keys past the kernel's fixed bound are dropped
+        // with a warning naming the count. `pos_add` teleport components are
+        // NOT carried -- a teleport interacts with the wall clamp in ways no
+        // test has pinned yet -- and the `move.engine.motion (pos_add)` row
+        // counts what that drops.
+        {
+            std::vector<cse::data::MotionKey> keys = src.motion;
+            std::stable_sort(keys.begin(), keys.end(),
+                             [](const cse::data::MotionKey& a,
+                                const cse::data::MotionKey& b) {
+                                 return a.tick < b.tick;
+                             });
+            std::int32_t kept = 0;
+            for (const cse::data::MotionKey& k : keys) {
+                if (k.tick < 0) {
+                    report.error = where + ": motion key at tick " +
+                                   num(k.tick) + " -- a key before the move "
+                                   "starts is not a thing the file means.";
+                    return false;
+                }
+                if (kept >= cse::kernel::kMaxMotionKeys) {
+                    report.warnings.push_back(
+                        where + ": authors " +
+                        num(static_cast<std::int64_t>(keys.size())) +
+                        " motion keys and the kernel holds " +
+                        num(cse::kernel::kMaxMotionKeys) +
+                        "; the extra keys are dropped from the end of the "
+                        "sorted list, so the move flies its opening.");
+                    break;
+                }
+                m.motion[kept].fromTick = k.tick;
+                m.motion[kept].velXSub  = k.velXSub;
+                m.motion[kept].velYSub  = -k.velYSub;   // MUGEN Y-down -> kernel Y-up
+                ++kept;
+            }
+            m.motionCount = kept;
         }
 
 
