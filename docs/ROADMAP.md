@@ -415,8 +415,7 @@ Six WPs, all landed, gate required in CI. The decision is
   and (c) counter-hit is entered only behind its own ADR — the entry itself
   says the choice changes what the tool claims. Each
   with [ADR-011](adr/ADR-011-mechanics-are-fields.md)'s five parts:
-  (a) **contact mask** — LANDED (sha in the slice commit below this entry's
-  next flip). `CancelEdge::contactMask` replaces the collapsed `onHit`:
+  (a) **contact mask** — LANDED, `b9b2978`. `CancelEdge::contactMask` replaces the collapsed `onHit`:
   hit=1 / block=2 / whiff=4, 0 staying UNGATED (`on: always` and every
   hand-built bench), with `hit` keeping the collapse's byte so fighter_a's
   all-hit MatchData hash did not move. The attacker OBSERVES the outcome: a
