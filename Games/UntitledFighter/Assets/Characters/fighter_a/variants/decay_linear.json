@@ -1,0 +1,6 @@
+{
+  "description": "decay.kind none -> linear (step 2, floor 10): one MODEL-ONLY field breaks the soundness bound without touching the game. Both implementations evaluate every edge at the SETTLED hitstun, so the floor guts the model's cancel table -- 88 usable edges become 35 -- and its stated worst case collapses from 21 hits to 5. The kernel carries no decay at all, so the executed game is bit-for-bit the base game and still performs its 7-hit string: the model now claims a worst case BELOW what the game demonstrably does. The ranking certificate survives on the six-aerial roster (enough juggle-spending edges outlive the floor; the base file's older two-aerial note predicted its loss and was corrected against this measurement) -- which makes it worse, not better: a certificate over a mis-authored model certifies the wrong game. D8's rule, exhibited: do not invent a decay rule by eye.",
+  "patch": {
+    "decay": { "kind": "linear", "step": 2, "floor": 10 }
+  }
+}

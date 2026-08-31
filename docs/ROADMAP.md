@@ -462,8 +462,17 @@ Six WPs, all landed, gate required in CI. The decision is
   performing it); `dead_air_window` — an authored cancel that can never
   connect, NAMED by MatchBuilder's window resolution (the prover has no window
   model — its dead list must not move, and the test pins that too).
-  **Still open:** the remaining feasible patches (`pushback-0`, `meter-loop`,
-  `decay-off`, `base`); `microwalk` needs walk/wait macro-actions in
+  **Slice 2:** `decay_linear` — ADR-011's `decay-off` row realised as its
+  inverse (the base already authors none), and the measurement flipped the
+  exhibit's caption twice: the base file's own engine note predicted the
+  certificate's LOSS (measured on the 73-edge two-aerial file) and the
+  six-aerial remeasurement says it SURVIVES while the model's worst case
+  collapses to 5 — BELOW the 7 the untouched kernel performs. One model-only
+  field breaks the soundness bound without touching the game; the stale asset
+  note was corrected against the measurement in the same commit.
+  **Still open:** `pushback-0` and `meter-loop` (the latter needs
+  `patch.cancels` support — merge patch cannot append to an array); `base`
+  as a catalogue row; `microwalk` needs walk/wait macro-actions in
   ComboSearch; `jump-cancel`, `kara`, `counter-hit`, `wallbounce` are blocked
   on M1.3; and the cooker recording — both verdicts, replays, `graph.dot` per
   entry — is the "replay per verdict" half.

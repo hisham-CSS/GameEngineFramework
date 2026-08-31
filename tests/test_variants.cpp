@@ -275,3 +275,71 @@ TEST(VariantExhibits, AnAuthoredCancelThatCanNeverConnectIsNamedDead) {
     RecordProperty("dead_cancels", static_cast<int>(e.verdict.deadCancels.size()));
     RecordProperty("executed_max_hits", e.searched.maxHits);
 }
+
+TEST(VariantExhibits, ALinearDecayBreaksTheSoundnessBoundWithoutTouchingTheGame) {
+    // The base pair, for the deltas -- including its executed worst case.
+    CharacterData base{};
+    LoadReport lreport{};
+    ASSERT_TRUE(cse::data::LoadCharacterFile(charactersDir(), "fighter_a.json",
+                                             loadOptions(), base, lreport))
+        << lreport.error;
+    ProverOptions po;
+    po.expectedResources = kBuildResources;
+    ProverResult baseVerdict{};
+    ProverReport preport{};
+    ASSERT_TRUE(AnalyseCharacter(base, po, baseVerdict, preport));
+    ASSERT_TRUE(baseVerdict.hasRanking)
+        << "the base character no longer carries the ranking certificate this "
+           "exhibit exists to delete";
+
+    Exhibit e{};
+    bringUpVariant("fighter_a/variants/decay_linear.json", e);
+    ASSERT_FALSE(::testing::Test::HasFatalFailure());
+
+    // THE MODEL'S TABLE IS GUTTED. Both implementations evaluate every edge at
+    // the SETTLED hitstun, so the floor of 10 kills every edge slower than it:
+    // 88 usable edges become 35, and the model's stated worst case collapses
+    // from 21 to 5. Measured 2026-08-31; the counts are asserted so the day a
+    // prover change moves them, this exhibit's caption moves with it.
+    EXPECT_EQ(e.verdict.usableCancels, 35)
+        << "the settled-hitstun rule changed; re-measure the exhibit";
+    EXPECT_EQ(e.verdict.maxHits, 5);
+
+    // THE CERTIFICATE SURVIVES -- the six-aerial roster keeps enough
+    // juggle-spending edges above the floor. The base file's older note
+    // (written against the 73-edge two-aerial file) predicted its loss and
+    // was corrected against this measurement; if this flips, that note is
+    // stale again.
+    EXPECT_TRUE(e.verdict.hasRanking);
+
+    // AND THAT IS THE EXHIBIT: the game is UNTOUCHED -- the kernel carries no
+    // decay (the ledger row is the record) -- so the executed worst case still
+    // stands at 7, ABOVE the mis-authored model's stated 5. One model-only
+    // field made the sound half claim a bound the game demonstrably beats. A
+    // certificate over a mis-authored model certifies the wrong game.
+    ASSERT_EQ(e.searched.verdict, ComboVerdict::Terminating) << e.searched.note;
+    EXPECT_GT(e.searched.maxHits, e.verdict.maxHits)
+        << "the exhibit's whole point is the executed worst case standing "
+           "ABOVE the decayed model's stated bound; if the two agree again, "
+           "either the kernel grew a decay wire or the model recovered.";
+
+    MatchBuild baseBuild{};
+    const BuildOptions baseOptions = normalBindings(base);
+    ASSERT_TRUE(BuildMatchData(base, baseOptions, base, baseOptions, baseBuild))
+        << baseBuild.report[0].error;
+    ComboSearchRequest request{};
+    request.data         = &baseBuild.data;
+    request.attackerSlot = 0;
+    cse::kernel::ResetMatch(request.from, 0x1D7u);
+    request.from.p[0].posX = kP0X;
+    request.from.p[1].posX = kP1X;
+    const ComboSearchResult baseSearched = RunComboSearch(request);
+    EXPECT_EQ(e.searched.maxHits, baseSearched.maxHits)
+        << "the executed worst case moved on a model-only patch; the kernel "
+           "has grown a decay wire and this exhibit's caption is stale";
+    EXPECT_EQ(e.searched.longestString, baseSearched.longestString);
+
+    RecordProperty("variant_description", e.description);
+    RecordProperty("base_has_ranking", baseVerdict.hasRanking ? 1 : 0);
+    RecordProperty("variant_has_ranking", e.verdict.hasRanking ? 1 : 0);
+}
