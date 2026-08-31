@@ -318,59 +318,10 @@ void UntitledFighterMode::Exit() {
 
 // --- Bringing a character up ---------------------------------------------------
 
-bool UntitledFighterMode::startCharacter_(int index) {
-    // Everything the previous character owned goes first, in dependency order:
-    // the session stops pointing at the watcher and the sources, then those are
-    // freed, then the data they borrowed is replaced. A build_ reassigned while
-    // the session still held a pointer into it would be a dangling MatchData on
-    // the very next tick.
-    session_.ClearObservers();
-    session_.SetInputSource(kPlayerSlot, nullptr);
-    session_.SetInputSource(kDummySlot, nullptr);
-    playerSource_.reset();
-    demo_.reset();
-    watcher_.reset();
-
-    matchReady_    = false;
-    analysisReady_ = false;
-    setupError_.clear();
-    analysisError_.clear();
-    demoNote_.clear();
-    fatal_.clear();
-    bindings_.clear();
-    hitAdvantage_ = LatchedAdvantage{};
-    paused_       = false;
-    slowDivisor_  = 1;
-    slowCounter_  = 0;
-    pendingSteps_ = 0;
-
-    character_ = cse::data::CharacterData{};
-    build_     = cse::data::MatchBuild{};
-    analysis_  = cse::data::ProverResult{};
-    setup_     = cse::game::FightSetup{};
-
-    // Wraps in both directions, so one key can walk the list forwards and a
-    // negative index cannot land outside it.
-    characterIndex_ = ((index % kCharacterCount) + kCharacterCount) % kCharacterCount;
-    const std::string file = kCharacters[characterIndex_].file;
-
-    // --- load ---------------------------------------------------------------
-    cse::data::LoadReport  loadReport{};
-    cse::data::LoadOptions loadOptions{};
-    // expectedResources deliberately empty: assertion A03 is a CROSS-FILE rule
-    // about a whole build's resource ORDER, and this mode loads one file at a
-    // time. Naming an order here would be this file inventing a build-wide
-    // contract. The check is SKIPPED rather than passed, and CharacterData.h
-    // records that as a warning for exactly this reason.
-    if (!cse::data::LoadCharacterFile(ctx_.contentRoot, file, loadOptions,
-                                      character_, loadReport)) {
-        setupError_ = "load " + file + ": " +
-                      (loadReport.rule.empty() ? "" : loadReport.rule + ": ") +
-                      loadReport.error;
-        return false;
-    }
-
-    // --- build ---------------------------------------------------------------
+// The options every match this mode starts is built with. One function rather
+// than a block inside the start path, because prepare and adopt both need the
+// SAME answer -- two assemblies would be two binding tables one edit apart.
+static cse::data::BuildOptions matchBuildOptions() {
     cse::data::BuildOptions options{};
     // The documented defaults, PASSED BY NAME rather than left at zero. Omitting
     // them gets the same numbers plus a warning nobody would draw; naming them
@@ -392,21 +343,130 @@ bool UntitledFighterMode::startCharacter_(int index) {
             options.bindings.push_back(binding);
         }
     }
+    return options;
+}
+
+bool UntitledFighterMode::startCharacter_(int index) {
+    // Wraps in both directions, so one key can walk the list forwards and a
+    // negative index cannot land outside it.
+    characterIndex_ = ((index % kCharacterCount) + kCharacterCount) % kCharacterCount;
+    const std::string file = kCharacters[characterIndex_].file;
+
+    // The watch is bound BEFORE the load and regardless of its outcome
+    // (ADR-016): the file that failed to load is exactly the file whose next
+    // save must be noticed, or the honest-error screen can only be revived by
+    // C -- which advances to the NEXT character. A containment refusal here is
+    // impossible for the constants above, and ignored the same way the load's
+    // own refusal would report it one line later.
+    {
+        std::string watchError;
+        (void)reloadWatch_.Bind(ctx_.contentRoot, file, watchError);
+    }
+
+    cse::data::CharacterData character{};
+    cse::data::MatchBuild    build{};
+    std::string              error;
+    const bool prepared = prepareCharacter_(file, character, build, error);
+    if (!prepared) {
+        // A swap is a SWAP: the old match goes even when the new file is
+        // broken, and the honest-error screen says why. (A hot reload of the
+        // SAME file makes the other choice -- keep-last-good -- and
+        // pollHotReload_ says why there.)
+        teardownMatch_();
+        setupError_ = error;
+        return false;
+    }
+    return adoptPrepared_(std::move(character), std::move(build));
+}
+
+bool UntitledFighterMode::prepareCharacter_(const std::string& file,
+                                            cse::data::CharacterData& outCharacter,
+                                            cse::data::MatchBuild& outBuild,
+                                            std::string& error) {
+    // --- load ---------------------------------------------------------------
+    cse::data::LoadReport  loadReport{};
+    cse::data::LoadOptions loadOptions{};
+    // expectedResources deliberately empty: assertion A03 is a CROSS-FILE rule
+    // about a whole build's resource ORDER, and this mode loads one file at a
+    // time. Naming an order here would be this file inventing a build-wide
+    // contract. The check is SKIPPED rather than passed, and CharacterData.h
+    // records that as a warning for exactly this reason.
+    if (!cse::data::LoadCharacterFile(ctx_.contentRoot, file, loadOptions,
+                                      outCharacter, loadReport)) {
+        error = "load " + file + ": " +
+                (loadReport.rule.empty() ? "" : loadReport.rule + ": ") +
+                loadReport.error;
+        return false;
+    }
+
+    // --- build ---------------------------------------------------------------
+    const cse::data::BuildOptions options = matchBuildOptions();
     // BOTH SIDES GET THE SAME TABLE. A mirror match is the setup in which nothing
     // that happens can be blamed on the two sides having different data, and the
     // dummy having the same bindings is what makes "the dummy never acted" a fact
     // about the combo rather than about the binding table -- the same reason
     // tests/test_gap_extent.cpp's harness mirrors. It presses nothing today; that
     // is a decision about its INPUT and not about its data.
-    if (!cse::data::BuildMatchData(character_, options, character_, options,
-                                   build_)) {
+    if (!cse::data::BuildMatchData(outCharacter, options, outCharacter, options,
+                                   outBuild)) {
         // Both sides are the same character, so a per-side report cannot
         // disagree; take whichever one actually says something.
-        const std::string& first = build_.report[0].error;
-        setupError_ = "build match: " +
-                      (first.empty() ? build_.report[1].error : first);
+        const std::string& first = outBuild.report[0].error;
+        error = "build match: " +
+                (first.empty() ? outBuild.report[1].error : first);
         return false;
     }
+    return true;
+}
+
+void UntitledFighterMode::teardownMatch_() {
+    // Everything the previous character owned goes first, in dependency order:
+    // the session stops pointing at the watcher and the sources, then those are
+    // freed, then the data they borrowed is replaced. A build_ reassigned while
+    // the session still held a pointer into it would be a dangling MatchData on
+    // the very next tick.
+    session_.ClearObservers();
+    session_.SetInputSource(kPlayerSlot, nullptr);
+    session_.SetInputSource(kDummySlot, nullptr);
+    playerSource_.reset();
+    demo_.reset();
+    watcher_.reset();
+
+    matchReady_    = false;
+    analysisReady_ = false;
+    setupError_.clear();
+    analysisError_.clear();
+    demoNote_.clear();
+    reloadNote_.clear();
+    reloadFailed_  = false;
+    fatal_.clear();
+    bindings_.clear();
+    hitAdvantage_ = LatchedAdvantage{};
+    paused_       = false;
+    slowDivisor_  = 1;
+    slowCounter_  = 0;
+    pendingSteps_ = 0;
+    // A pending tap was aimed at the match that is going away; delivered later
+    // it would start a move on tick 0 of a match nobody pressed anything in.
+    // resetMatch_ has always cleared these; the swap path silently keeping
+    // them was the stale-press leak the M1.5 seam mapping found.
+    taps_.Clear();
+
+    character_ = cse::data::CharacterData{};
+    build_     = cse::data::MatchBuild{};
+    analysis_  = cse::data::ProverResult{};
+    setup_     = cse::game::FightSetup{};
+}
+
+bool UntitledFighterMode::adoptPrepared_(cse::data::CharacterData&& character,
+                                         cse::data::MatchBuild&& build) {
+    // Teardown BEFORE the members move: the session must not hold a pointer
+    // into a build_ that is being replaced, even for the length of this call.
+    teardownMatch_();
+    character_ = std::move(character);
+    build_     = std::move(build);
+
+    const cse::data::BuildOptions options = matchBuildOptions();
 
     // The binding table AS BUILT, which is not the same thing as the table asked
     // for: a move this character does not have got no slot (Find returns 0, its
@@ -519,6 +579,59 @@ bool UntitledFighterMode::startCharacter_(int index) {
     matchReady_ = true;
     refreshDemoNote_();
     return true;
+}
+
+// The authoring loop (ROADMAP M1.5). ADR-016 in four sentences: a change to
+// the loaded character file RESTARTS the match with the freshly built data,
+// through the same adopt path C uses; it never swaps MatchData under the live
+// session, because rollback across the edit is undefined (FightSession.h),
+// `resimulated` would never flag the changed ticks, and a replay's single
+// matchDataHash would describe a match nobody simulated; a broken edit -- the
+// normal state while typing -- keeps the last good match and says so; and the
+// author's time posture (pause, slow motion) survives, because the person
+// saving the file is usually frame-stepping the very move they are editing.
+//
+// The property is pinned headlessly in tests/test_character_hotreload.cpp,
+// against real files and a real FightSession; this function is its mirror
+// with the hardware attached, the same division test_press_delivery.cpp draws
+// for the tap accumulator.
+//
+// NOTE THE FILE IT WATCHES: the STAGED copy under the content root, beside the
+// executable -- the only copy the sandbox lets this mode read. An edit to the
+// authoring source under Games/UntitledFighter/Assets/ lands when the build
+// restages it (or when it is copied by hand); docs/manual/fighting-core.md
+// says so where the authoring loop is described.
+void UntitledFighterMode::pollHotReload_(float dt) {
+    if (!reloadWatch_.Update(dt)) return;
+
+    const std::string file = kCharacters[characterIndex_].file;
+    cse::data::CharacterData character{};
+    cse::data::MatchBuild    build{};
+    std::string              error;
+    if (!prepareCharacter_(file, character, build, error)) {
+        // KEEP-LAST-GOOD: nothing was adopted, so the running match (or the
+        // honest-error screen) stands exactly as it was. The watch refreshed
+        // its stamps when it reported, so this says its piece ONCE and the
+        // save that fixes the file lands like any other edit.
+        reloadNote_   = "edit refused, keeping the last good match -- " + error;
+        reloadFailed_ = true;
+        return;
+    }
+
+    // The author's decisions about time survive the reload; everything that
+    // names an ABSOLUTE TICK of the old match dies with it in teardownMatch_
+    // (demonstration, pending taps, pending steps, latched advantage), for
+    // resetMatch_'s own reasons.
+    const bool keepPaused = paused_;
+    const int  keepSlow   = slowDivisor_;
+    if (!adoptPrepared_(std::move(character), std::move(build))) return;
+    paused_      = keepPaused;
+    slowDivisor_ = keepSlow;
+
+    reloadNote_   = "edit landed -- " + file +
+                    " rebuilt, match restarted at tick 0"
+                    + (paused_ ? std::string(", still paused") : std::string());
+    reloadFailed_ = false;
 }
 
 // Where the two fighters start, for whichever position the mode is in. The GAP
@@ -920,7 +1033,8 @@ void UntitledFighterMode::bindPlayerSource_() {
 // --- The tick -------------------------------------------------------------------
 
 void UntitledFighterMode::FixedTick(float dt) {
-    (void)dt;   // the session takes no dt at all: it is a tick index, not a clock
+    // dt feeds ONLY the hot-reload poll interval below. The session itself
+    // takes no dt at all: it is a tick index, not a clock.
     ++modeTicks_;
 
     // BEFORE the match check, so the character key still works on a machine where
@@ -930,6 +1044,13 @@ void UntitledFighterMode::FixedTick(float dt) {
     // running match -- being called early buys C and R their reach and buys the
     // rest of them nothing.
     readControls_();
+
+    // AFTER the controls, so an explicit C or R this step acts first and a
+    // just-swapped character starts from fresh stamps; ALSO before the match
+    // check, so a fixed or newly staged file revives the honest-error screen
+    // without a keypress (ADR-016) -- and clears `fatal_`, which is about an
+    // input log this restart has just replaced.
+    pollHotReload_(dt);
 
     if (!matchReady_ || !fatal_.empty()) return;
 
@@ -1078,6 +1199,8 @@ FightHudModel UntitledFighterMode::hudModel_() const {
     model.setupError    = &setupError_;
     model.analysisError = &analysisError_;
     model.demoNote      = &demoNote_;
+    model.reloadNote    = &reloadNote_;
+    model.reloadFailed  = reloadFailed_;
     model.fatal         = &fatal_;
 
     model.modeTicks   = modeTicks_;

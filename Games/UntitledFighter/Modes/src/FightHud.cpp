@@ -1148,6 +1148,14 @@ void DrawFightHud(MyCoreEngine::Renderer2D& r2d, const MyCoreEngine::Font& font,
         top.line(chips, kDimCol);
     }
 
+    // What the file watch last did, from the TOP pen so it shows on both
+    // screens: over a running match ("edit landed") and over the not-started
+    // screen -- where the save that fixes the file will also land as one of
+    // these lines, which is the recovery ADR-016 promises.
+    if (model.reloadNote != nullptr && !model.reloadNote->empty())
+        top.line("hot reload: " + *model.reloadNote,
+                 model.reloadFailed ? kWarnCol : kGoodCol);
+
     // --- nothing loaded: say what broke, and stop ----------------------------
     if (!model.matchReady || model.state == nullptr || model.data == nullptr) {
         Pen pen(r2d, font, kMarginPx, top.y() + 14.0f, full);

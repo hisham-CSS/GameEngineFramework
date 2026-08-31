@@ -678,6 +678,22 @@ the printed loop to `BuildDemonstration`, and swaps the attacker's input source
 for the resulting script through a `FallbackInputSource` — so when the
 demonstration ends, the pad takes over mid-match with no seam.
 
+**Hot reload** is the authoring loop ([ADR-016](../adr/ADR-016-a-reload-restarts-the-match.md)):
+the mode polls the loaded character file's (mtime, size) stamp every 0.25 s and
+a change **restarts the match with the freshly built data** — health, position
+and combo history do not survive, because after a frame-data edit they describe
+a match that no longer exists. A broken save (the normal state while typing)
+keeps the last good match running and puts the loader's own error on the HUD's
+`hot reload:` line; the save that fixes it lands like any other edit. Pause and
+slow motion survive a reload — the person saving the file is usually
+frame-stepping the move they are editing. Two things to know when it seems not
+to work: the watch reads the **staged** copy under the content root beside the
+executable, so an edit to the source under `Games/UntitledFighter/Assets/`
+lands when a build restages it (or copy it by hand); and `C` still swaps
+characters while `R` still restarts without re-reading — hot reload replaces
+neither. The property test is `tests/test_character_hotreload.cpp`; the mode's
+poll is its mirror.
+
 ---
 
 ## What a verdict promises, and what it does not

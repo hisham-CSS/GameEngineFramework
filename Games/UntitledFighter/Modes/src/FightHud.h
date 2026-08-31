@@ -302,6 +302,12 @@ struct FightHudModel {
     const std::string* setupError    = nullptr;
     const std::string* analysisError = nullptr;
     const std::string* demoNote      = nullptr;
+    // What the hot-reload watch last did (ROADMAP M1.5, ADR-016): "edit
+    // landed" or "edit refused" in the loader's own words. `reloadFailed`
+    // exists because the HUD colours a refusal as a warning and must not
+    // parse the sentence to decide.
+    const std::string* reloadNote    = nullptr;
+    bool               reloadFailed  = false;
     const std::string* fatal         = nullptr;
 
     const std::vector<BindingRow>* bindings = nullptr;

@@ -76,6 +76,7 @@
 #include "FightView.h"
 
 #include "cse/data/CharacterData.h"
+#include "cse/data/CharacterFileWatch.h"
 #include "cse/data/MatchBuilder.h"
 #include "cse/data/ProverAdapter.h"
 
@@ -109,8 +110,38 @@ public:
 private:
     // Load, build, analyse and start. Returns false with setupError_ filled in;
     // Enter still succeeds, because a mode that can show something honest should
-    // (IGameMode::Enter).
+    // (IGameMode::Enter). Split into prepare/teardown/adopt since ROADMAP M1.5,
+    // because hot reload needs the same pieces in a different failure order:
+    // C is a SWAP (the old match goes even when the new file is broken), a
+    // reload is KEEP-LAST-GOOD (a broken edit leaves the match alone).
     bool startCharacter_(int index);
+
+    // Load + build into the CALLER'S temporaries, touching no member. The
+    // reload path points this at scratch objects so a half-typed save -- the
+    // normal state while editing -- cannot take the running match down with
+    // it; LoadCharacterFile zeroes its output even on a failed parse, which is
+    // why pointing it at character_ directly is not an option (ADR-016).
+    bool prepareCharacter_(const std::string& file,
+                           cse::data::CharacterData& outCharacter,
+                           cse::data::MatchBuild& outBuild, std::string& error);
+
+    // Everything the previous character owned goes, in dependency order, and
+    // the members the session borrowed are reset. Must run before build_ is
+    // reassigned -- a build_ replaced while the session still held a pointer
+    // into it would be a dangling MatchData on the very next tick.
+    void teardownMatch_();
+
+    // teardownMatch_, then move the prepared pair into the members and run
+    // the analyse / watcher / Begin tail. The one adopt path both C and hot
+    // reload restart through.
+    bool adoptPrepared_(cse::data::CharacterData&& character,
+                        cse::data::MatchBuild&& build);
+
+    // The authoring loop (ROADMAP M1.5, ADR-016): poll the loaded file's
+    // (mtime, size) stamp, and land an edit by prepare + adopt -- a restart,
+    // never a data swap under the live session. Called every fixed step; dt
+    // feeds only the watch's poll interval.
+    void pollHotReload_(float dt);
 
     // The host's named actions, bound on entry and cleared on the way out so the
     // mode does not leave its own vocabulary in the shared InputMap.
@@ -267,6 +298,17 @@ private:
     std::string setupError_;
     std::string analysisError_;
     std::string demoNote_;
+    // What the file watch last did -- "edit landed" or "edit refused" with the
+    // loader's own words -- and which, so the HUD can pick a colour. Cleared
+    // by teardownMatch_ (a new character or an explicit swap changes the
+    // subject) and rewritten by pollHotReload_ after the adopt.
+    std::string reloadNote_;
+    bool        reloadFailed_ = false;
+    // The (mtime, size) watch on the loaded character file. Bound in
+    // startCharacter_ BEFORE the load and regardless of its outcome, so the
+    // save that fixes a broken file is noticed and revives the honest-error
+    // screen -- previously only C could, and C advances to the NEXT character.
+    cse::data::CharacterFileWatch reloadWatch_;
     // A latching sequencing failure. Fatal to the match rather than to the
     // process: LatchedInputSource::Latch returning false means the input log
     // would have a hole in it, and its header says a caller that gets false back

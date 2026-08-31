@@ -281,6 +281,14 @@ target_link_libraries(test_catalogue PRIVATE CseGame CseData CseKernel GTest::gt
 add_dependencies(test_catalogue test_runtime_deps)
 add_test(NAME test_catalogue COMMAND $<TARGET_FILE:test_catalogue>)
 
+# CHARACTER HOT RELOAD (ROADMAP M1.5, ADR-016) — the (mtime, size) watch and
+# the keep-last-good reload discipline, against real files and a real
+# FightSession. The training mode's pollHotReload_ is thin glue over exactly
+# this sequence; the glue itself is played by a human at review point R5.
+add_executable(test_character_hotreload test_character_hotreload.cpp)
+target_link_libraries(test_character_hotreload PRIVATE CseGame CseData CseKernel GTest::gtest_main)
+add_test(NAME test_character_hotreload COMMAND $<TARGET_FILE:test_character_hotreload>)
+
 # PRESS DELIVERY (ROADMAP M1.3h) — the one test that links Engine AND the game
 # libraries, deliberately: the claim is that a tap crosses from the engine's
 # InputMap latch, through the accumulator, into the latched session log and the

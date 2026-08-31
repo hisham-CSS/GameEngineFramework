@@ -88,6 +88,7 @@ is done or serves it.
 
 | In flight | Owner | Since |
 |---|---|---|
+| M1.5 — character hot reload (ADR-016: a reload restarts the match) | Claude | 2026-08-31 |
 | M1.6 — the showcase; slices 1–8 landed (8 = the cooker recording + base row) | Claude | 2026-08-31 |
 | M1.3 — mechanics pass 1; (a) (b1) (b2) landed; (c)+(d) blocked on ADR-015 (human) | Claude | 2026-08-31 |
 
@@ -535,8 +536,17 @@ Six WPs, all landed, gate required in CI. The decision is
   (`TheAuthoredFreezeReachesBothFightersAndATapInsideItBuffers`); no gap-extent
   count is re-derived by hand.
 
-- `[ ]` **M1.5 Character hot reload.** *(S–M)* A frame-data edit lands in a
-  running match; NORTHSTAR property (c)'s last clause.
+- `[~]` **M1.5 Character hot reload.** *(S–M)* Claude, 2026-08-31. A frame-data
+  edit lands in a running match; NORTHSTAR property (c)'s last clause. The
+  semantics are ADR-016: the training mode polls the loaded character file's
+  (mtime, size) stamp and a change RESTARTS the match with the freshly built
+  data — never a live swap under the session, which would break the replay
+  hash, `Restore`'s same-data contract and the high-water/`resimulated` signal.
+  A broken edit keeps the last good match running and says so on the HUD.
+  **Done when:** a test proves an edited character file is noticed and lands in
+  a running `FightSession` while a broken edit keeps the last good data
+  (`AFrameDataEditLandsInARunningMatchAndABrokenEditKeepsTheLastGoodData`,
+  tests/test_character_hotreload.cpp).
 
 - `[~]` **M1.6 The showcase: one fighter, many patches, a replay per verdict.**
   *(M)* Claude, 2026-08-31. Variants under

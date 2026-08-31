@@ -25,6 +25,10 @@ add_library(CseData STATIC
     # CharacterData -> the kernel's MatchData. See the include-directory note
     # below for why this does not make CseData link the kernel.
     src/MatchBuilder.cpp
+    # The (mtime, size) stamp poll hot reload runs on (ROADMAP M1.5, ADR-016).
+    # Here rather than in the mode because it opens an authored path, and every
+    # authored path goes through the sandbox this library already compiles.
+    src/CharacterFileWatch.cpp
     # Compiled in rather than linked. Character files are authored content and
     # docs/MAINTENANCE.md admits no exceptions: an authored path goes through
     # PathIsContained before anything opens it. The alternative to compiling this
