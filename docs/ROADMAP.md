@@ -88,7 +88,6 @@ is done or serves it.
 
 | In flight | Owner | Since |
 |---|---|---|
-| M1.7 — authoring telemetry (ADR-017: one line per prover run) | Claude | 2026-08-31 |
 | M1.6 — the showcase; slices 1–8 landed (8 = the cooker recording + base row) | Claude | 2026-08-31 |
 | M1.3 — mechanics pass 1; (a) (b1) (b2) landed; (c)+(d) blocked on ADR-015 (human) | Claude | 2026-08-31 |
 
@@ -661,7 +660,7 @@ Six WPs, all landed, gate required in CI. The decision is
   **Still open:** `jump-cancel`, `kara` blocked on M1.3(b3)/the kara
   close-frame note; `counter-hit`, `wallbounce` blocked on ADR-015.
 
-- `[~]` **M1.7 Authoring telemetry.** *(S)* Claude, 2026-08-31. What the author
+- `[x]` `e3a1d45` **M1.7 Authoring telemetry.** *(S)* Claude, 2026-08-31. What the author
   actually needed to know, recorded while authoring rather than reconstructed
   after. The contract is ADR-017 (which restores the Done-when the `9c4dbd1`
   rewrite dropped): the Combo Prover panel appends **one JSON line per real
