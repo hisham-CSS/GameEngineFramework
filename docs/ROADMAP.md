@@ -91,9 +91,9 @@ is done or serves it.
 | M1.6 — the showcase; slices 1–7 landed (7 = microwalk + corner push); rest listed in the entry | Claude | 2026-08-31 |
 | M1.3 — mechanics pass 1; (a) (b1) (b2) landed; (c)+(d) blocked on ADR-015 (human) | Claude | 2026-08-31 |
 
-M1.6 stays open on its listed remainder (microwalk row, cooker recording,
-and the variants blocked on M1.3(b3)/ADR-015). M1.1e landed inside its
-slice 5 — the buffer pair is a catalogue row.
+M1.6 stays open on its listed remainder (the base catalogue row, the cooker
+recording, and the variants blocked on M1.3(b3)/ADR-015). M1.1e landed
+inside its slice 5 — the buffer pair is a catalogue row.
 
 One at a time. The next unblocked WP is always the top `[ ]` in milestone
 order — which, under the 2026-08-21 reorder, is the sequence named above.
