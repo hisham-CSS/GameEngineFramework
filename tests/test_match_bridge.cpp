@@ -940,7 +940,9 @@ TEST(MatchBridgeLosses, EveryDropIsCountedAgainstKungFuGirlsActualFile) {
         { "cancels (dropped)",             0, BuildLossDirection::KernelOmits   },
         { "cancels (link, not cancel)",    0, BuildLossDirection::KernelPermits },
         { "cancel.contact_frame",        132, BuildLossDirection::KernelPermits },
-        { "cancel.on",                     4, BuildLossDirection::KernelPermits },
+        // Exact since M1.3 slice (a) -- the mask carries `on` whole; the count
+        // is how many edges the old one-bit collapse used to move.
+        { "cancel.on",                     4, BuildLossDirection::Exact         },
         { "cancel.certain",              103, BuildLossDirection::KernelPermits },
         { "cancel.guard",                 41, BuildLossDirection::KernelPermits },
         { "cancel.effect",                 0, BuildLossDirection::KernelOmits   },

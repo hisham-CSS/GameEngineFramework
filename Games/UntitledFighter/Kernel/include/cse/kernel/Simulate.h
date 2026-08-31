@@ -36,7 +36,10 @@ namespace cse::kernel {
 //                the four clocks counting DOWN (hitstop hitstun blockstun
 //                knockdown) and the out-of-combo restore (comboHits scaling
 //                juggle).
-//   StepAttack   moveId moveFrame alreadyHitBits · crouching ON A MOVE START
+//   StepAttack   moveId moveFrame alreadyHitBits · flags' LOW BYTE, cleared
+//                wherever alreadyHitBits clears (the blocked mirror, M1.3
+//                slice (a): the two travel together or the subset invariant
+//                in GameState.h breaks) · crouching ON A MOVE START
 //                (the move-start rule, ADR-012 rule 3: the started move's
 //                stance imposes the posture its frame data was authored
 //                against -- `crouching`'s second authorized writer).
@@ -47,8 +50,11 @@ namespace cse::kernel {
 //                top-of-tick snapshot no single fighter's step can own) · the
 //                round fields, rng and tick · and the IMPOSED side of a hit:
 //                the clocks being SET, resources spent, pushback added,
-//                scaling/juggle/comboHits charged, and the defender's
-//                moveId/moveFrame/alreadyHitBits interrupt.
+//                scaling/juggle/comboHits charged, the ATTACKER's blocked
+//                mirror (flags' low byte SET in the blocked arm -- the
+//                attacker learning how its contact went is a fact only the
+//                cross-fighter stage can know), and the defender's
+//                moveId/moveFrame/alreadyHitBits(+mirror) interrupt.
 //   tick 0       res[] primed from the character data, in Simulate itself,
 //                before the stages -- ResetMatch does not take the data.
 //

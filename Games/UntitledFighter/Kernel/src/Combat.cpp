@@ -1,4 +1,4 @@
-#include "cse/kernel/Combat.h"
+﻿#include "cse/kernel/Combat.h"
 
 // Nothing is included here. Not <cstring>, not <algorithm>, not <cstdlib>. The
 // whole file is integer comparisons, negation and addition, which is the entire
@@ -89,7 +89,7 @@ Box MirrorBox(const Box& local) {
 
 Box PlaceBox(const Box& local, std::int32_t posX, std::int32_t posY,
              std::uint8_t facing) {
-    // RANGE ANALYSIS, which §4.3 requires rather than trusting:
+    // RANGE ANALYSIS, which Â§4.3 requires rather than trusting:
     // every coordinate below is bounded by kMaxBoxCoord (2^20) and every origin
     // by kMaxWorldCoord (2^24), so each sum is at most 2^24 + 2^20 = 17,825,792
     // in magnitude, against an int32 range of 2,147,483,647. Signed overflow is
@@ -320,10 +320,28 @@ bool CancelIsOpen(const Fighter& f, const CancelEdge& edge) {
     if (f.moveId == 0) return false;
     if (edge.from != f.moveId) return false;
 
-    // The contact gate. `onHit` collapses the schema's four Contact values into
-    // the one distinction the kernel can actually observe -- see CancelEdge in
-    // Combat.h -- and alreadyHitBits is the observation.
-    if (edge.onHit != 0 && f.alreadyHitBits == 0) return false;
+    // The contact gate (M1.3 slice (a)). A nonzero mask names the outcomes
+    // that open this edge, and the edge is open when ANY recorded outcome is
+    // in it: whiff is `alreadyHitBits == 0` (nothing has connected -- which
+    // is also what makes a kara, `on: whiff` in the startup frames, work
+    // with no extra state), a clean hit is a contact bit WITHOUT its blocked
+    // mirror, and a block is a contact bit WITH it. Any-of over the
+    // per-defender bits, because one window can meet two defenders and land
+    // differently on each; a mask of 0 is UNGATED, the byte `on: always`
+    // and every hand-built bench already carry.
+    if (edge.contactMask != 0) {
+        const std::uint8_t contact = f.alreadyHitBits;
+        const std::uint8_t stopped =
+            static_cast<std::uint8_t>(f.flags & kFlagsBlockedBits);
+        bool open = false;
+        if ((edge.contactMask & kContactWhiff) != 0)
+            open = open || contact == 0;
+        if ((edge.contactMask & kContactHit) != 0)
+            open = open || (contact & static_cast<std::uint8_t>(~stopped)) != 0;
+        if ((edge.contactMask & kContactBlock) != 0)
+            open = open || (contact & stopped) != 0;
+        if (!open) return false;
+    }
 
     // Both bounds inclusive. An edge whose earliest is past its latest matches
     // nothing for any frame, which is how an authored delay longer than the
@@ -448,8 +466,11 @@ void StepAttack(Fighter& f, const FighterData& data, const Intent& it) {
             // Clearing the record of who this window already hit is what makes
             // the NEXT repetition of the same move able to hit again. The bug on
             // the other side of this line is the one where a jab connects once
-            // per match.
+            // per match. The blocked mirror travels with it, here and at the
+            // other three clear sites: a blocked bit outliving its hit bit
+            // would break the subset invariant GameState.h promises.
             f.alreadyHitBits = 0;
+            f.flags = static_cast<std::uint16_t>(f.flags & ~kFlagsBlockedBits);
         }
     }
 
@@ -485,10 +506,11 @@ void StepAttack(Fighter& f, const FighterData& data, const Intent& it) {
             // and can never connect on the same defender -- the whole combo would
             // consist of one hit and a lot of animation. It is the same clear
             // that a normal move start does, and it is deliberately the same
-            // three assignments, because a cancel that started a move by a
-            // slightly different route than StepAttack's other start is a bug
-            // waiting for the fourth field.
+            // assignments, because a cancel that started a move by a slightly
+            // different route than StepAttack's other start is a bug waiting
+            // for the next field.
             f.alreadyHitBits = 0;
+            f.flags = static_cast<std::uint16_t>(f.flags & ~kFlagsBlockedBits);
         }
         return;
     }
@@ -545,6 +567,7 @@ void StepAttack(Fighter& f, const FighterData& data, const Intent& it) {
         f.moveId         = static_cast<std::uint16_t>(i);
         f.moveFrame      = 0;
         f.alreadyHitBits = 0;
+        f.flags = static_cast<std::uint16_t>(f.flags & ~kFlagsBlockedBits);
         adoptStance(f, m);
         return;
     }
@@ -730,6 +753,13 @@ void ResolveHits(GameState& state, const MatchData& data) {
         }
 
         if (blocked[a]) {
+            // The attacker's half of the outcome (M1.3 slice (a)): the contact
+            // recorded in alreadyHitBits above was STOPPED, and the blocked
+            // mirror is what lets an `on: hit` cancel refuse it and an
+            // `on: block` cancel accept it. Set only here, in the arm that
+            // knows; cleared wherever alreadyHitBits clears.
+            atk.flags = static_cast<std::uint16_t>(atk.flags | bitForSlot(d));
+
             std::int32_t stun = m->blockstun;
             if (stun < 0) stun = 0;
             if (stun > kMaxStunTicks) stun = kMaxStunTicks;
@@ -822,6 +852,8 @@ void ResolveHits(GameState& state, const MatchData& data) {
         state.p[d].moveId         = 0;
         state.p[d].moveFrame      = 0;
         state.p[d].alreadyHitBits = 0;
+        state.p[d].flags =
+            static_cast<std::uint16_t>(state.p[d].flags & ~kFlagsBlockedBits);
     }
 }
 

@@ -492,6 +492,18 @@ inline constexpr std::int32_t kMaxMovesPerFighter = 32;
 // wearing the schema's cancel shape. The kernel simply never takes it, which is
 // the correct behaviour, and MatchBuilder counts it rather than pretending the
 // character has 26 cancels it can perform.
+// The contact outcomes a cancel edge may name (ROADMAP M1.3 slice (a)). Bit
+// values, so an edge can name any set of them.
+//
+// kContactHit is 1 ON PURPOSE: the pre-mask kernel collapsed the schema's four
+// Contact values into one bit whose value for an `on: hit` edge was 1, and
+// every shipped fighter_a edge authors `on: hit` -- so the mask keeps those
+// bytes (and the character's MatchData hash, which the replay format and the
+// connect handshake compare) exactly where they were.
+inline constexpr std::uint8_t kContactHit   = 1;  // a guard did NOT stop it
+inline constexpr std::uint8_t kContactBlock = 2;  // contact a guard stopped
+inline constexpr std::uint8_t kContactWhiff = 4;  // no contact (yet)
+
 struct CancelEdge {
     // Kernel move ids, i.e. direct indices into FighterData::moves. An edge
     // naming slot 0 on either end can never fire: slot 0 is idle, a fighter with
@@ -503,16 +515,23 @@ struct CancelEdge {
     std::int32_t earliestFrame;
     std::int32_t latestFrame;
 
-    // 1 when the source must have CONNECTED for this edge to be available; 0
-    // when it may be taken on a whiff.
+    // Which contact outcomes open this edge: a mask of kContactHit /
+    // kContactBlock / kContactWhiff, or 0 for UNGATED (the schema's
+    // `on: always`, and the hand-built harness default -- a raw zero must keep
+    // meaning "no contact condition", not "no outcome allowed").
     //
-    // This is one bit where the schema has four values (Contact: Hit, Block,
-    // Whiff, Always), and the collapse is forced rather than chosen: the kernel
-    // has no blocking at all -- Fighter::blockstun exists and nothing ever writes
-    // it -- so "connected as a hit" and "connected as a block" are the same
-    // observation here. Hit and Block both become 1, Whiff and Always both become
-    // 0, and MatchBuilder counts the edges that reading moves.
-    std::uint8_t onHit;
+    // This byte used to be `onHit`, one bit collapsing the schema's four
+    // Contact values because the kernel could not tell a hit from a blocked
+    // contact -- both set alreadyHitBits and nothing else reached the
+    // attacker. That stopped being true when blocking landed (ResolveHits has
+    // written Fighter::blockstun since 41ea6e5), and since M1.3(a) the
+    // attacker also keeps the BLOCKED mirror of alreadyHitBits in the low
+    // byte of Fighter::flags -- so all three outcomes are attacker-observable
+    // and the file's `on` crosses whole: hit fires only on a clean hit (a
+    // blocked contact no longer opens an `on: hit` chain), block only on a
+    // stopped one, whiff only while nothing has connected. CancelIsOpen is
+    // the one reader.
+    std::uint8_t contactMask;
 
     // Explicit, for the same reason: the connect handshake hashes these
     // bytes, and an indeterminate byte is a byte two peers can disagree about.

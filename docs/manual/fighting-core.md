@@ -434,7 +434,7 @@ Here is the full table for Kung Fu Girl; `MatchBridgeLosses.EveryDropIsCountedAg
 | `cancels (dropped)` | 0 | KernelOmits |
 | `cancels (link, not cancel)` | 0 | KernelPermits |
 | `cancel.contact_frame` | 132 | KernelPermits |
-| `cancel.on` | 4 | KernelPermits |
+| `cancel.on` | 4 | Exact |
 | `cancel.certain` | 103 | KernelPermits |
 | `cancel.guard` | 41 | KernelPermits |
 | `cancel.effect` | 0 | KernelOmits |
@@ -464,7 +464,7 @@ Here is the full table for Kung Fu Girl; `MatchBridgeLosses.EveryDropIsCountedAg
 
 Nineteen entries bite, so `lossesThatBite == 19` — nonzero `Exact` rows count too, because a nonzero row of any direction is a place somebody has to have looked. Her four zero-count `Exact` rows (juggle gate, input buffer, hitstop, blocked_as) are the why-zero exhibits: her converted file authors none of those mechanics, and the row is the proof a check ran.
 
-The first eight rows replaced what used to be a single `cancels` entry with a count of 134. **All 134 of her edges are now carried**; what is listed instead is the part of each edge the kernel cannot yet honour, and every one of those errs `KernelPermits` — the game chains in situations the file does not allow. A combo system uniformly more permissive than the analysed one is exactly how a `TERMINATING` verdict becomes a game with an infinite in it, which is the next section.
+The first eight rows replaced what used to be a single `cancels` entry with a count of 134. **All 134 of her edges are now carried**; what remains listed is the part of each edge the kernel cannot yet honour, and every row still short errs `KernelPermits` — the game chains in situations the file does not allow. A combo system uniformly more permissive than the analysed one is exactly how a `TERMINATING` verdict becomes a game with an infinite in it, which is the next section. `cancel.on` left that list at M1.3 slice (a): the contact mask carries the file's `on` whole — `on: hit` no longer fires off a blocked contact, `on: block` no longer off a clean hit, and `on: whiff` (the kara) is expressible at all — so its row reads `Exact`, with the count recording how many edges the old one-bit collapse used to move.
 
 ### `playsAsAnalysed`
 

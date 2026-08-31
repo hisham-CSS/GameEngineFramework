@@ -592,14 +592,18 @@ Hop classify(const CharacterData& c, const cse::kernel::CancelEdge& ke,
     // frame, which is `startup`. Needed only for the contact gate below.
     const std::int32_t contactFrame = src.startup;
 
-    // The first frame the cancel could fire on. An `onHit` edge must wait one tick
-    // past contact for alreadyHitBits to be visible; a whiff edge need not. This
-    // character authors none of the latter, but the distinction is written out
-    // rather than assumed away, because a file that grew one would otherwise be
-    // classified against a rule it does not obey.
+    // The first frame the cancel could fire on. A contact-gated edge (any bit
+    // of the M1.3(a) mask that waits for contact -- this character authors
+    // only `on: hit`) must wait one tick past contact for alreadyHitBits to
+    // be visible; a whiff or ungated edge need not. The distinction is
+    // written out rather than assumed away, because a file that grew one
+    // would otherwise be classified against a rule it does not obey.
+    const bool gatedOnContact =
+        (ke.contactMask &
+         (cse::kernel::kContactHit | cse::kernel::kContactBlock)) != 0;
     const std::int32_t firstCancel =
-        ke.onHit != 0 ? std::max<std::int32_t>(ke.earliestFrame, contactFrame + 1)
-                      : ke.earliestFrame;
+        gatedOnContact ? std::max<std::int32_t>(ke.earliestFrame, contactFrame + 1)
+                       : ke.earliestFrame;
 
     if (!bound) {
         hop.block = Block::NoButton;

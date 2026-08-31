@@ -2483,7 +2483,8 @@ TEST(TrainingModeReadout, ACancelIsAThirdWayOutOfAMoveAndTheTwoTermRuleMissesIt)
            "cancel for the rule to be missing and this test is about nothing.";
     EXPECT_EQ(edge->earliestFrame, 5);
     EXPECT_EQ(edge->latestFrame, 9);
-    EXPECT_EQ(edge->onHit, 1u) << "the file authors this edge `on: hit`";
+    EXPECT_EQ(edge->contactMask, cse::kernel::kContactHit)
+        << "the file authors this edge `on: hit`";
     EXPECT_EQ(duration, 14) << "stand_lp is 3 + 2 + 9 in this file";
 
     // THE FASTEST THE KERNEL CAN TAKE A CONTACT-GATED EDGE. StepAttack runs

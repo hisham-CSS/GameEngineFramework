@@ -89,6 +89,7 @@ is done or serves it.
 | In flight | Owner | Since |
 |---|---|---|
 | M1.6 — the showcase; slices 1–5 landed, rest blocked on walk macros + M1.3 | Claude | 2026-08-31 |
+| M1.3 — mechanics pass 1, slice (a) contact mask in flight | Claude | 2026-08-31 |
 
 M1.6 stays open, blocked on a stated design step (walk/wait macros amend
 ADR-013) and on M1.3's mechanics. M1.1e landed inside its slice 5 — the
@@ -409,10 +410,33 @@ Six WPs, all landed, gate required in CI. The decision is
   graph's performable count equals what the kernel produces: zero unescapable,
   measured on both sides.
 
-- `[ ]` **M1.3 Mechanics, pass 1 — the ones the showcase needs.** *(M–L)* Each
+- `[~]` **M1.3 Mechanics, pass 1 — the ones the showcase needs.** *(M–L)* Claude,
+  2026-08-31, sliced (a) first: the contact mask is the smallest of the four,
+  and (c) counter-hit is entered only behind its own ADR — the entry itself
+  says the choice changes what the tool claims. Each
   with [ADR-011](adr/ADR-011-mechanics-are-fields.md)'s five parts:
-  (a) **contact mask** on `CancelEdge` — `hit | block | whiff` replacing the
-  collapsed `onHit`, so kara and whiff cancels are expressible;
+  (a) **contact mask** — LANDED (sha in the slice commit below this entry's
+  next flip). `CancelEdge::contactMask` replaces the collapsed `onHit`:
+  hit=1 / block=2 / whiff=4, 0 staying UNGATED (`on: always` and every
+  hand-built bench), with `hit` keeping the collapse's byte so fighter_a's
+  all-hit MatchData hash did not move. The attacker OBSERVES the outcome: a
+  blocked mirror of `alreadyHitBits` in `Fighter::flags`' low byte (a
+  reserved M1.3 field — layout untouched, crossplat golden untouched),
+  written in ResolveHits' blocked arm, cleared at the four
+  `alreadyHitBits` clear sites. `on: hit` no longer chains off a blocked
+  contact (the free block-confirm the collapse permitted), `on: block` is
+  the authorable block-confirm, and a kara is expressible: whiff edges
+  anchor `delay` at frame 0 (nothing to count contact from; `always` keeps
+  its shipped startup anchor — 89 corpus edges, zero of which want earlier
+  frames). `cancel.on` reads Exact; the PROVER keeps its own collapse
+  ({hit,always} usable), so a whiff edge the kernel honours is an edge the
+  model's graph skips — the D8 gap the kara showcase variant will
+  demonstrate (blocked on M1.6's variant slice; note the kara's CLOSE frame
+  needs the source's `cancel_window_ticks`, which clamps all edges from
+  that source — acceptable for a dedicated exhibit source). No schema
+  change: `on` has authored all four values since v1; the kernel caught up
+  to the file. `P3Cancels.*` (5) pin it, all four mask tests red against
+  the collapsed gate first;
   (b) **movement is a move** — jump, dash, backdash as authored moves with a
   `movement` field; the kernel's hard-coded jump is deleted; a jump cancel is an
   ordinary cancel edge. Commitment is now the KERNEL DEFAULT (`P2Commitment.*`)

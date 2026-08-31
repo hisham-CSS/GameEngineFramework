@@ -363,7 +363,8 @@ TEST(CancelCombo, StandLpIsCancelledIntoStandMpAndBothHitsLand) {
     ASSERT_NE(nullptr, edge) << "the stand_lp -> stand_mp edge did not survive the build";
     EXPECT_EQ(5, edge->earliestFrame);
     EXPECT_EQ(10, edge->latestFrame);
-    EXPECT_EQ(1u, edge->onHit) << "her file authors this edge `on: hit`";
+    EXPECT_EQ(cse::kernel::kContactHit, edge->contactMask)
+        << "her file authors this edge `on: hit`";
 
     const std::int32_t lpDuration = cse::kernel::MoveDuration(d.moves[k.lp]);
     ASSERT_EQ(11, lpDuration)
@@ -622,7 +623,7 @@ TEST(CancelContact, AlreadyHitBitsIsTheContactRecordAndAClearedOneRefuses) {
     const CancelEdge* edge = findEdge(build.data.p[0], build.moves[0].Find("a"),
                                       build.moves[0].Find("b"));
     ASSERT_NE(nullptr, edge);
-    ASSERT_EQ(1u, edge->onHit);
+    ASSERT_EQ(cse::kernel::kContactHit, edge->contactMask);
 
     Fighter f{};
     f.moveId    = build.moves[0].Find("a");
@@ -743,10 +744,16 @@ TEST(CancelBridge, EveryOneOfKungFuGirlsAuthoredEdgesSurvivesTheMapping) {
         EXPECT_EQ(MoveIndexMap::KernelMoveIdOf(src.from), built.from);
         EXPECT_EQ(MoveIndexMap::KernelMoveIdOf(src.to),   built.to);
 
-        // The contact collapse, move for move: Hit and Block require contact,
-        // Whiff and Always do not. See CancelEdge::onHit.
-        const bool requiresContact = src.on == Contact::Hit || src.on == Contact::Block;
-        EXPECT_EQ(requiresContact ? 1u : 0u, built.onHit);
+        // The contact MASK, move for move, since M1.3 slice (a) uncollapsed
+        // the old one-bit onHit: each of the schema's four values crosses as
+        // its own byte, `always` keeping the ungated 0 and `hit` keeping the
+        // 1 the collapse used, so an all-hit character's bytes did not move.
+        const std::uint8_t wantMask =
+            src.on == Contact::Hit     ? cse::kernel::kContactHit
+            : src.on == Contact::Block ? cse::kernel::kContactBlock
+            : src.on == Contact::Whiff ? cse::kernel::kContactWhiff
+                                       : std::uint8_t{0};
+        EXPECT_EQ(wantMask, built.contactMask);
 
         // Padding is hashed by the connect handshake, so an unwritten byte is a
         // byte two peers can disagree about.
@@ -801,7 +808,10 @@ TEST(CancelBridge, TheLossTableCountsWhatTheProjectionActuallyCost) {
         { "cancels (dropped)",           0, BuildLossDirection::KernelOmits   },
         { "cancels (link, not cancel)",  0, BuildLossDirection::KernelPermits },
         { "cancel.contact_frame",      132, BuildLossDirection::KernelPermits },
-        { "cancel.on",                   4, BuildLossDirection::KernelPermits },
+        // Exact since M1.3 slice (a): the contact mask carries all four `on`
+        // values whole and the kernel observes all three outcomes. The count
+        // still says how many edges the old one-bit collapse used to move.
+        { "cancel.on",                   4, BuildLossDirection::Exact         },
         { "cancel.certain",            103, BuildLossDirection::KernelPermits },
         { "cancel.guard",               41, BuildLossDirection::KernelPermits },
         { "cancel.effect",               0, BuildLossDirection::KernelOmits   },

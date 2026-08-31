@@ -160,14 +160,25 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
             "could have landed, so the follow-up becomes available up to "
             "`active - 1` ticks before the file allows it.");
 
-    addLoss(report, "cancel.on", BuildLossDirection::KernelPermits,
+    addLoss(report, "cancel.on", BuildLossDirection::Exact,
             cancels.onBlockOrWhiff,
-            "Edges authored `on: block` or `on: whiff`. The kernel has no "
-            "blocking at all -- Fighter::blockstun exists and nothing writes it "
-            "-- so the only contact fact it can observe is whether the attack "
-            "landed. A block-only edge is therefore taken after a HIT, and a "
-            "whiff-only edge is taken after a hit as well as after a whiff. "
-            "`on: hit` and `on: always` cross exactly and are not counted here.");
+            "Edges authored `on: block` or `on: whiff`, carried whole since "
+            "ROADMAP M1.3 slice (a): CancelEdge::contactMask keeps all four "
+            "Contact values (hit / block / whiff as bits; `always` is the "
+            "ungated 0), and the attacker can now OBSERVE all three outcomes "
+            "-- alreadyHitBits for contact, its blocked mirror in "
+            "Fighter::flags' low byte for how the contact went. `on: hit` no "
+            "longer fires off a blocked contact, which the old one-bit "
+            "collapse permitted. Counted so the row still says how many edges "
+            "the OLD reading used to move. The MODEL keeps its own collapse "
+            "({hit, always} usable) and its own `cancel.on` ledger row -- a "
+            "whiff edge the kernel honours is still an edge the prover's "
+            "graph skips, the D8 gap the kara showcase variant exists to "
+            "demonstrate. Conversion caveat: MUGEN's Movecontact means hit OR "
+            "block, and the corpus transcribed it as `hit` (schema KNOWN "
+            "GAP), so a converted character may now refuse a chain MUGEN "
+            "allowed on block -- that is the FILE's claim honoured, not a "
+            "kernel choice.");
 
     addLoss(report, "cancel.certain", BuildLossDirection::KernelPermits,
             cancels.uncertain,
@@ -480,9 +491,9 @@ bool buildCancels(const CharacterData& c, const std::string& who,
 
         if (e.delay < 0) {
             report.error = where + ": negative delay (" + num(e.delay) +
-                           " ticks). A cancel that becomes legal before the move "
-                           "it cancels has connected is not a thing the file "
-                           "means to say.";
+                           " ticks). A cancel that becomes legal before its "
+                           "own anchor frame is not a thing the file means to "
+                           "say.";
             return false;
         }
 
@@ -493,8 +504,23 @@ bool buildCancels(const CharacterData& c, const std::string& who,
                                       static_cast<std::int64_t>(src.active) +
                                       static_cast<std::int64_t>(src.recovery);
 
-        std::int64_t earliest = static_cast<std::int64_t>(src.startup) +
-                                static_cast<std::int64_t>(e.delay);
+        // WHERE `delay` COUNTS FROM depends on what the edge waits for. A
+        // hit- or block-gated edge waits for CONTACT, so its delay anchors at
+        // the source's first active frame (the earliest a contact exists to
+        // count from -- the `cancel.contact_frame` row is the cost of that
+        // reading). A WHIFF edge waits for nothing: the move is whiffing from
+        // its first frame, so its delay anchors at frame 0 -- which is what
+        // makes a kara (`on: whiff` in the first startup frames) authorable
+        // at all, since startup anchoring puts every frame below `startup`
+        // out of reach. `always` KEEPS the startup anchor it has shipped
+        // with since v1: no authored `always` edge exists that wants earlier
+        // frames (measured across the corpus: 89, all with this reading),
+        // and moving 89 edges' windows to fix zero of them is churn, not
+        // fidelity.
+        std::int64_t earliest =
+            (e.on == Contact::Whiff ? std::int64_t{0}
+                                    : static_cast<std::int64_t>(src.startup)) +
+            static_cast<std::int64_t>(e.delay);
         std::int64_t latest   = duration - 1;
 
         if (src.hasCancelWindow) {
@@ -574,7 +600,17 @@ bool buildCancels(const CharacterData& c, const std::string& who,
         edge.to            = MoveIndexMap::KernelMoveIdOf(e.to);
         edge.earliestFrame = static_cast<std::int32_t>(earliest);
         edge.latestFrame   = static_cast<std::int32_t>(latest);
-        edge.onHit         = requiresContact ? std::uint8_t{1} : std::uint8_t{0};
+        // The four Contact values, BY NAME (the M1.3e enum lesson: the data
+        // and kernel orders must never be cast into each other). `always` is
+        // the ungated 0 -- the byte the old collapse gave it -- and `hit`
+        // is kContactHit == 1, the byte the old collapse gave it, so an
+        // all-hit character's MatchData hash does not move.
+        switch (e.on) {
+            case Contact::Hit:    edge.contactMask = cse::kernel::kContactHit;   break;
+            case Contact::Block:  edge.contactMask = cse::kernel::kContactBlock; break;
+            case Contact::Whiff:  edge.contactMask = cse::kernel::kContactWhiff; break;
+            case Contact::Always: edge.contactMask = 0;                          break;
+        }
         edge.pad_[0] = 0;   // explicit: these bytes are hashed by the handshake
         edge.pad_[1] = 0;
         edge.pad_[2] = 0;

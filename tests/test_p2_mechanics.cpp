@@ -1033,7 +1033,7 @@ std::unique_ptr<MatchData> chainBench() {
     e.to            = 2;
     e.earliestFrame = kCancelOpens;
     e.latestFrame   = kCancelCloses;
-    e.onHit         = 0;
+    e.contactMask   = 0;   // ungated: no contact condition
     d->p[0].cancelCount = 1;
     return d;
 }
@@ -1276,7 +1276,7 @@ TEST(P3Resources, AGuardedCancelRefusesBelowTheMinimum) {
     e.to            = 2;
     e.earliestFrame = 1;
     e.latestFrame   = 6;
-    e.onHit         = 0;
+    e.contactMask   = 0;   // ungated: no contact condition
     fd.cancelCount  = 1;
 
     // --- the button route, broke ---------------------------------------------
@@ -2337,7 +2337,7 @@ std::unique_ptr<MatchData> stanceBench() {
     back.to            = 1;
     back.earliestFrame = kCancelOpens;
     back.latestFrame   = kCancelCloses;
-    back.onHit         = 0;
+    back.contactMask   = 0;   // ungated: no contact condition
     d->p[0].cancelCount = 2;
     return d;
 }
@@ -2471,4 +2471,181 @@ TEST(P3Input, AReleaseInsideTheFreezeStillFiresTheNegativeEdge) {
            "falling edge must survive to the first tick the fighter runs -- "
            "which is why the previous-buttons latch may not advance while the "
            "fighter is frozen.";
+}
+
+// --- The contact mask (ROADMAP M1.3 slice (a)) -------------------------------
+//
+// CancelEdge::contactMask uncollapses the schema's four `on` values: an edge
+// names the contact outcomes that open it -- kContactHit, kContactBlock,
+// kContactWhiff, any set of them -- and 0 stays UNGATED, the byte every
+// hand-built bench and every `on: always` file already carries. The attacker
+// observes the outcome through two fields: alreadyHitBits says a contact
+// happened, and the low byte of Fighter::flags -- the blocked mirror, written
+// only in ResolveHits' blocked arm -- says whether a guard stopped it.
+//
+// Why it matters enough to be the slice that goes first: under the old one-bit
+// collapse an `on: hit` chain fired off a BLOCKED contact (block confirms into
+// full strings for free), an `on: block` edge fired off a clean HIT, and a
+// kara -- `on: whiff` in the first frames of a move -- was not expressible at
+// all, because any nonzero gate demanded contact.
+namespace {
+
+// The shared chain bench with a configurable contact condition on its one
+// edge. Source slot 1 (LP, 1+2+5), follow-up slot 2 (MP); the window spans
+// [1, 6] so both the pre-contact frames and the post-contact frames are
+// inside it, and which of them the edge accepts is entirely the mask's call.
+std::unique_ptr<MatchData> contactBench(std::uint8_t mask) {
+    auto d = twoFighters();
+    MoveDef follow = attack();
+    follow.button  = kInputMP;
+    d->p[0].moves[2]  = follow;
+    d->p[0].moveCount = 3;
+
+    CancelEdge& e   = d->p[0].cancels[0];
+    e.from          = 1;
+    e.to            = 2;
+    e.earliestFrame = 1;
+    e.latestFrame   = 6;
+    e.contactMask   = mask;
+    d->p[0].cancelCount = 1;
+    return d;
+}
+
+// Press LP on tick 0, press MP on tick `pressTick`, and report whether the
+// cancel was taken by then. The defender holds `defenderBits` throughout --
+// kInputRight is p1's "back", i.e. a standing guard. Frame arithmetic, for
+// reading the call sites: the source starts on tick 0 at frame 0; on tick N
+// (N >= 1) the frame becomes N and the cancel test runs at that frame BEFORE
+// ResolveHits -- so contact lands on the frame-1 tick and is first visible to
+// a cancel on the frame-2 tick.
+bool cancelTaken(MatchData& data, int pressTick, std::uint16_t defenderBits) {
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+    s.p[0].posX = kLeftX;
+    s.p[1].posX = kRightX;
+
+    InputPair in{};
+    in.p[0].bits = kInputLP;
+    in.p[1].bits = defenderBits;
+    Simulate(s, in, data);
+    EXPECT_EQ(s.p[0].moveId, 1u) << "the source move did not start";
+
+    bool taken = false;
+    for (int t = 1; t <= pressTick + 1 && !taken; ++t) {
+        in.p[0].bits = (t == pressTick) ? kInputMP : 0u;
+        Simulate(s, in, data);
+        taken = s.p[0].moveId == 2u;
+    }
+    return taken;
+}
+
+}  // namespace
+
+// The Done-when test. `on: whiff` inside the source's first frames is the
+// kara: the move has connected on nothing yet, alreadyHitBits is 0, and that
+// IS the whiff observation -- no new state needed for this third of the mask.
+// Fighters far apart so the whole life of the move is an honest whiff.
+TEST(P3Cancels, AKaraCancelFiresOnWhiffInsideItsWindow) {
+    auto data = contactBench(kContactWhiff);
+
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+    s.p[0].posX = -px(300);   // nowhere near the 40 px reach
+    s.p[1].posX =  px(300);
+
+    InputPair in{};
+    in.p[0].bits = kInputLP;
+    Simulate(s, in, *data);
+    ASSERT_EQ(s.p[0].moveId, 1u);
+
+    in.p[0].bits = kInputMP;   // frame 1: startup, nothing connected
+    Simulate(s, in, *data);
+
+    EXPECT_EQ(s.p[0].moveId, 2u)
+        << "an `on: whiff` edge inside its window did not fire while the move "
+           "had connected on nothing. The kara is the mechanic this mask "
+           "exists for, and the whiff bit is its authorable form.";
+    EXPECT_EQ(s.p[0].moveFrame, 0u);
+}
+
+// The other half of `on: whiff`: contact CLOSES it. Same edge, same window,
+// fighters in range -- the press arrives one tick after the hit lands, the
+// window is still open, and the edge must refuse.
+TEST(P3Cancels, AWhiffOnlyEdgeClosesTheTickContactBecomesVisible) {
+    auto data = contactBench(kContactWhiff);
+    EXPECT_FALSE(cancelTaken(*data, /*pressTick=*/2, /*defenderBits=*/0))
+        << "an `on: whiff` edge fired AFTER its move connected. Whiff means "
+           "whiff: once alreadyHitBits records a contact, this gate is shut "
+           "for the rest of the window.";
+}
+
+// `on: hit` refuses a blocked contact. This is the behaviour change the mask
+// exists to make: under the old collapse both outcomes set the same bit and a
+// block-confirm chained for free.
+TEST(P3Cancels, AHitOnlyEdgeRefusesABlockedContact) {
+    auto data = contactBench(kContactHit);
+
+    EXPECT_TRUE(cancelTaken(*data, /*pressTick=*/2, /*defenderBits=*/0))
+        << "an `on: hit` edge did not fire off a clean hit, so the mask broke "
+           "the ordinary hit-confirm while distinguishing outcomes.";
+
+    // kInputRight is "back" for the right-hand fighter: a standing guard, and
+    // attack()'s blockedAs defaults to mid, which high guard stops.
+    EXPECT_FALSE(cancelTaken(*data, /*pressTick=*/2, /*defenderBits=*/kInputRight))
+        << "an `on: hit` edge fired off a BLOCKED contact. The file said hit; "
+           "a guard stopped this one; chaining anyway is the one-bit collapse "
+           "this mask deleted.";
+}
+
+// And the mirror image: `on: block` is the block-confirm the genre authors
+// (a blocked string that stays safe by cancelling into a safer follow-up),
+// and it must NOT be reachable off a clean hit.
+TEST(P3Cancels, ABlockOnlyEdgeFiresOnBlockAndRefusesACleanHit) {
+    auto data = contactBench(kContactBlock);
+
+    EXPECT_TRUE(cancelTaken(*data, /*pressTick=*/2, /*defenderBits=*/kInputRight))
+        << "an `on: block` edge did not fire off a blocked contact, so the "
+           "block bit is not being observed at all.";
+
+    EXPECT_FALSE(cancelTaken(*data, /*pressTick=*/2, /*defenderBits=*/0))
+        << "an `on: block` edge fired off a clean HIT. Block means block; the "
+           "outcome the guard decides is the outcome the mask reads.";
+}
+
+// The observation's bookkeeping: the blocked mirror is a subset of
+// alreadyHitBits while the window lives, and both die together when the move
+// ends -- GameState.h promises the invariant, so a test owns it.
+TEST(P3Cancels, TheBlockedMirrorLivesAndDiesWithTheContactRecord) {
+    auto data = contactBench(kContactBlock);
+
+    GameState s{};
+    ResetMatch(s, 0x1D7u);
+    s.p[0].posX = kLeftX;
+    s.p[1].posX = kRightX;
+
+    InputPair in{};
+    in.p[0].bits = kInputLP;
+    in.p[1].bits = kInputRight;   // guard up the whole time
+    Simulate(s, in, *data);
+
+    in.p[0].bits = 0;
+    Simulate(s, in, *data);       // frame 1: the blocked contact lands
+
+    const std::uint16_t blockedBits =
+        static_cast<std::uint16_t>(s.p[0].flags & kFlagsBlockedBits);
+    ASSERT_NE(s.p[0].alreadyHitBits, 0u) << "precondition: contact happened";
+    EXPECT_NE(blockedBits, 0u)
+        << "a guard stopped the contact and the attacker's blocked mirror "
+           "says nothing did";
+    EXPECT_EQ(static_cast<std::uint8_t>(blockedBits),
+              static_cast<std::uint8_t>(s.p[0].alreadyHitBits))
+        << "the blocked mirror is not a subset of alreadyHitBits";
+
+    // Run the source out. Both records clear on the same tick, so the next
+    // performance of the same move starts with a clean slate.
+    for (int t = 0; t < 10; ++t) Simulate(s, InputPair{}, *data);
+    ASSERT_EQ(s.p[0].moveId, 0u) << "precondition: the move has ended";
+    EXPECT_EQ(s.p[0].alreadyHitBits, 0u);
+    EXPECT_EQ(s.p[0].flags & kFlagsBlockedBits, 0u)
+        << "the blocked mirror outlived the contact record it mirrors";
 }

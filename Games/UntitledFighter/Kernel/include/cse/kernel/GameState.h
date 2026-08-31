@@ -155,6 +155,11 @@ inline constexpr std::uint8_t kGuardNone = 0;
 inline constexpr std::uint8_t kGuardHigh = 1;  // standing block: stops high + mid
 inline constexpr std::uint8_t kGuardLow  = 2;  // crouching block: stops low + mid
 
+// The low byte of Fighter::flags: the BLOCKED mirror of alreadyHitBits (M1.3
+// slice (a) -- see the field). Named so its writers and its four clear sites
+// spell the same mask.
+inline constexpr std::uint16_t kFlagsBlockedBits = 0x00FF;
+
 // GameState::roundState.
 inline constexpr std::uint8_t kRoundFighting = 0;
 inline constexpr std::uint8_t kRoundOver     = 1;  // this round is decided
@@ -296,14 +301,25 @@ struct Fighter {
 
     // --- Reserved for the pass-1 mechanics (ROADMAP M1.3) ------------------
     //
-    // Nothing writes these yet, and they are here anyway: M1.3 adds wall
+    // Reserved in the layout before anything wrote them: M1.3 adds wall
     // bounce, wall splat, ground bounce and counter-hit as per-hit reactions,
     // and every one of them needs state on the DEFENDER. Reserving them costs
     // three bytes now; adding them later costs a second wire-format change and
     // a second cross-toolchain re-golden (ADR-005 section 3).
     std::uint8_t reaction;   // which on_hit reaction is playing out; 0 = none
     std::uint8_t bounces;    // bounces spent, so a loop cannot bounce forever
-    std::uint16_t flags;     // per-fighter reaction bits, defined by M1.3
+    // Per-fighter mechanic bits. The LOW BYTE is defined by M1.3 slice (a):
+    // the BLOCKED mirror of alreadyHitBits -- bit i set when the contact this
+    // window recorded on slot i was stopped by a guard, clear when it landed
+    // clean. Written only in ResolveHits' blocked arm and cleared at exactly
+    // the four sites alreadyHitBits clears (move start, move end, cancel
+    // taken, attacker interrupted), so the invariant `blocked bits are a
+    // subset of alreadyHitBits` holds by construction. It exists because the
+    // attacker's own bytes used to be identical after a clean hit and a
+    // blocked one, which made the schema's `on: hit` / `on: block` cancel
+    // distinction unobservable in the kernel. The high byte stays reserved
+    // for the M1.3 reactions.
+    std::uint16_t flags;
 
     // --- Input edges and buffering (ROADMAP M1.1d) -------------------------
     //
