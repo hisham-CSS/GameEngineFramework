@@ -969,6 +969,11 @@ TEST(MatchBridgeLosses, EveryDropIsCountedAgainstKungFuGirlsActualFile) {
         // Zero again: her converted file authors no counter_hit (M1.3(c)'s
         // carry), and the zero records that somebody looked.
         { "move.counter_hit",          0, BuildLossDirection::Exact         },
+        // Both zero for Kung Fu Girl (M1.3(d)'s carries): her converted file
+        // authors air_hitstun_ticks nowhere nonzero -- fighter_a is the one
+        // that authors it on all 22 moves -- and no launch anywhere.
+        { "move.air_hitstun",          0, BuildLossDirection::Exact         },
+        { "move.launch",               0, BuildLossDirection::Exact         },
         // Exact since ROADMAP M1.3e wired both into MoveDef and StanceAllows.
         // Kung Fu Girl authors a stance on all 25 moves and no blocked_as at
         // all -- the zero-count row records that somebody looked.
@@ -1776,4 +1781,40 @@ TEST(MatchBridgeMechanics, TheAuthoredCounterBonusCrossesAndNegativeIsRefused) {
     CharacterData neg{};
     EXPECT_FALSE(LoadCharacterJson("negative.json", kNegative, loadOptions(), neg, lr));
     EXPECT_NE(lr.error.find("counter_hit"), std::string::npos) << lr.error;
+}
+
+// AIR HITSTUN crosses on every move that authors it (ROADMAP M1.3(d)) -- on
+// fighter_a that is ALL 22, the number the file has carried unread since it
+// was written. The launch rows records zero: no shipped move launches yet;
+// the showcase variant is where the field first bites.
+TEST(MatchBridgeMechanics, TheAuthoredAirHitstunCrossesOnEveryMoveThatAuthorsIt) {
+    CharacterData c{};
+    LoadReport report{};
+    ASSERT_TRUE(LoadCharacterFile(ownCharactersDir(), "fighter_a.json",
+                                  loadOptions(), c, report))
+        << report.error;
+
+    BuildOptions options{};
+    options.bindings = { { "stand_lp", cse::kernel::kInputLP } };
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build))
+        << build.report[0].error;
+
+    const BuildLoss* air = findLoss(build.report[0], "move.air_hitstun");
+    ASSERT_NE(air, nullptr);
+    EXPECT_EQ(air->count, 22)
+        << "fighter_a authors air_hitstun_ticks on every move; the carry "
+           "counted differently";
+    const BuildLoss* launch = findLoss(build.report[0], "move.launch");
+    ASSERT_NE(launch, nullptr);
+    EXPECT_EQ(launch->count, 0) << "no shipped move authors a launch yet";
+
+    // One concrete number, not just a census: stand_lp's own air value
+    // reaches its kernel slot.
+    const cse::data::MoveIndex lp = c.FindMove("stand_lp");
+    ASSERT_NE(lp, cse::data::kInvalidMove);
+    ASSERT_GT(c.moves[lp].airHitstunTicks, 0);
+    const std::uint16_t slot = build.moves[0].Find("stand_lp");
+    ASSERT_NE(slot, 0u);
+    EXPECT_EQ(build.data.p[0].moves[slot].airHitstun, c.moves[lp].airHitstunTicks);
 }

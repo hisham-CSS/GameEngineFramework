@@ -867,8 +867,10 @@ TEST(CancelBridge, TheLossTableCountsWhatTheProjectionActuallyCost) {
     // row (zero for her on both); -> 33 when the microwalk slice carried
     // corner push (zero once more: her converted file authors none); -> 34
     // when M1.3(c) carried counter_hit (zero yet again: no MUGEN transcription
-    // authors a counter bonus, so `bites` above is unmoved).
-    EXPECT_EQ(34u, r.losses.size())
+    // authors a counter bonus, so `bites` above is unmoved); -> 36 when
+    // M1.3(d) carried air_hitstun and the launch (zero and zero for her: no
+    // transcription authors a nonzero air number and none authors a launch).
+    EXPECT_EQ(36u, r.losses.size())
         << "the loss table grew or shrank. That is fine, and it has to be "
            "recorded here, because the point of the table is that somebody "
            "counted.";

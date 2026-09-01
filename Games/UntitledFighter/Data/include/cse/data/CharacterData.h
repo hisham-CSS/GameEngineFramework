@@ -488,6 +488,16 @@ struct Move {
     // the Permissive loss row says so).
     std::int32_t counterHitstunBonus         = 0;
     std::int32_t counterDamageBonusHundredths = 0;
+    // THE LAUNCH (ROADMAP M1.3(d)): a clean hit takes the defender off the
+    // ground with this velocity. Authored as `engine.reaction.launch
+    // { vel_x_sub, vel_y_sub }`, +Y up like engine.movement (ADR-014's
+    // convention for NEW fields -- the MUGEN Y-down flip is for transcribed
+    // ones). vel_y_sub must be positive (a hit that sends the defender DOWN
+    // is a knockdown, already authorable) and vel_x_sub non-negative: the
+    // file authors a MAGNITUDE and the kernel points it away from the
+    // attacker, for MirrorBox's reason. Zero-zero is "no launch".
+    std::int32_t launchVelXSub = 0;
+    std::int32_t launchVelYSub = 0;
 
     // WHICH BLOCK STOPS THIS MOVE. Mid by default, which is what an absent field
     // means and what every move written before this field existed is.

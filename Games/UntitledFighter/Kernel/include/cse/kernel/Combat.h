@@ -534,6 +534,24 @@ struct MoveDef {
 
     // Explicit tail padding, hashed like everything else here.
     std::uint8_t pad3_[1];
+
+    // --- M1.3(d): the air number, and the second MoveDef growth -------------
+    //
+    // Hitstun against an AIRBORNE defender -- what makes a juggle last, and
+    // the number every fighter_a move has authored since the file was written
+    // (engine.reaction.air_hitstun_ticks, differing from ground on all 22).
+    // Zero means "the file did not say": ResolveHits falls back to `hitstun`,
+    // so a character that authors nothing plays exactly as before.
+    //
+    // APPENDED AT THE TAIL, after the (b2) block's explicit padding, because
+    // (b2)'s reservation covered counter and launch and missed this one --
+    // recorded so the next reservation reserves by enumerating the schema's
+    // waiting fields instead of the mechanics' names. Appending keeps every
+    // existing offset; the hashed wire still changes size (284 -> 288), which
+    // is the second re-hash ADR-005 section 3 permits when batched -- and it
+    // is batched: (d) is the openings wave's one MoveDef change, landing
+    // between (c)'s zero-growth reads and (b3)'s golden re-record.
+    std::int32_t airHitstun;
 };
 
 // 32 moves per fighter. A hard cap, deliberately: D4 forbids unbounded growth in
@@ -833,18 +851,20 @@ static_assert(sizeof(MotionKey) == 12,
               "handshake, same hazard as MoveDef below.");
 static_assert(sizeof(MoveDef) == 128 + 2 * kMaxResources * sizeof(std::int32_t) + 4 +
                                      kMaxMotionKeys * sizeof(MotionKey) + 4 +
-                                     4 * sizeof(std::int32_t) + 4,
+                                     4 * sizeof(std::int32_t) + 4 +
+                                     sizeof(std::int32_t),
               "MoveDef grew, shrank, or acquired implicit padding. The connect "
               "handshake hashes these bytes (ARCHITECTURE.md 4.8), so a padding "
               "hole would make two peers with identical characters disagree. "
-              "This was 40 before ADR-005 P2, 128 before M1.1b and 164 before "
-              "M1.3(b2); the growth is priority, blockstun, chip, pushback, "
-              "juggle, hitstop, knockdown, scaling, stance, blockedAs, the "
-              "hurtbox override, the invincibility windows, the resource effect "
-              "and guard vectors with their mask, and then the authored motion "
-              "block with the reserved (c)/(d) fields -- one batched re-hash, "
-              "per ADR-005 section 3 and ADR-014. Written as the OLD SIZE PLUS "
-              "THE NEW MEMBERS rather than as a fresh round number, so it still "
+              "This was 40 before ADR-005 P2, 128 before M1.1b, 164 before "
+              "M1.3(b2) and 284 before M1.3(d); the growth is priority, "
+              "blockstun, chip, pushback, juggle, hitstop, knockdown, scaling, "
+              "stance, blockedAs, the hurtbox override, the invincibility "
+              "windows, the resource effect and guard vectors with their mask, "
+              "the authored motion block with the (c)/launch fields, and then "
+              "(d)'s tail-appended airHitstun -- two batched re-hashes, per "
+              "ADR-005 section 3 and ADR-014. Written as the OLD SIZE PLUS THE "
+              "NEW MEMBERS rather than as a fresh round number, so it still "
               "asks 'did padding appear' and not 'is this what I last wrote "
               "down'.");
 static_assert(std::is_trivially_copyable_v<CancelEdge>, "MatchData is hashed and compared as bytes");

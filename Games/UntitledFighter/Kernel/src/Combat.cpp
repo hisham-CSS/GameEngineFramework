@@ -49,9 +49,9 @@ bool defenderBlocks(const Fighter& def, const MoveDef& m) {
 // sign multiplier, and ADR-006 section 3.4 names this as precisely the place
 // somebody reaches for `pos * facing`.
 std::int32_t pushAwayFrom(const Fighter& atk, const Fighter& def,
-                          std::int16_t amount) {
+                          std::int32_t amount) {
     if (amount == 0) return 0;
-    const std::int32_t v = static_cast<std::int32_t>(amount);
+    const std::int32_t v = amount;
 
     if (def.posX < atk.posX) return -v;
     if (def.posX > atk.posX) return  v;
@@ -806,7 +806,15 @@ void ResolveHits(GameState& state, const MatchData& data) {
             def.moveId > 0 && def.moveId < dd.moveCount &&
             def.moveFrame < dd.moves[def.moveId].startup;
 
-        std::int32_t stun = m->hitstun;
+        // The base stun is chosen by the DEFENDER'S AIR STATE (M1.3(d)): an
+        // airborne defender takes the move's authored air number -- what makes
+        // a juggle last -- falling back to the ground number where the file
+        // authors none, so a character that says nothing plays as before. The
+        // counter bonus then lands on whichever base applied: one composition,
+        // air-or-ground first, counter second, decay over the sum.
+        std::int32_t stun = (def.airborne != 0 && m->airHitstun != 0)
+                                ? m->airHitstun
+                                : m->hitstun;
         if (stun < 0) stun = 0;
         if (counter && m->counterHitstunBonus > 0) stun += m->counterHitstunBonus;
 
@@ -884,6 +892,25 @@ void ResolveHits(GameState& state, const MatchData& data) {
             const std::int32_t lim = WallLimitFor(data.p[d], def);
             if (def.posX <= -lim || def.posX >= lim)
                 atk.pushX += pushAwayFrom(def, atk, m->cornerPushHit);
+        }
+
+        // THE LAUNCH (M1.3(d)): a clean hit whose move authors an upward
+        // launch takes the defender off the ground with the authored
+        // velocity. The X component is pointed AWAY from the attacker by the
+        // same position rule pushback uses -- the file authors a magnitude,
+        // never a direction, for MirrorBox's reason. It writes VELOCITY, not
+        // pushX: the defender is now a ballistic body and StepPhysics owns
+        // the arc from here (gravity down, the wall clamp, landing clearing
+        // `airborne`) exactly as it owns a jump. Zero is every move authored
+        // before the field. The loader refuses a non-positive vel_y_sub, so
+        // `> 0` here is the kernel declining to depend on that.
+        if (m->launchVelYSub > 0) {
+            def.airborne  = 1;
+            def.crouching = 0;
+            def.reaction  = kReactionLaunched;   // StepPhysics clears on landing
+            def.velY      = m->launchVelYSub;
+            if (m->launchVelXSub != 0)
+                def.velX = pushAwayFrom(atk, def, m->launchVelXSub);
         }
     }
 

@@ -1336,6 +1336,27 @@ bool parseDocument(Ctx& ctx, const json& doc, CharacterData& out) {
                     // that REDUCES the price is not a counter, and a negative
                     // that meant "shorter stun on counter" would deserve its
                     // own named field rather than a sign convention.
+                    // THE LAUNCH (M1.3(d)): +Y up (ADR-014's convention for
+                    // NEW fields), vel_y_sub required and positive -- a hit
+                    // that sends the defender DOWN is a knockdown, already
+                    // authorable -- and vel_x_sub a non-negative MAGNITUDE
+                    // the kernel points away from the attacker.
+                    if (const json* la = member(*r, "launch")) {
+                        if (!la->is_object())
+                            return ctx.fail(where, "`engine.reaction.launch` is not an object");
+                        if (!readInt(ctx, *la, "vel_x_sub", where, mv.launchVelXSub, false))
+                            return false;
+                        if (!readInt(ctx, *la, "vel_y_sub", where, mv.launchVelYSub, true))
+                            return false;
+                        if (mv.launchVelYSub <= 0)
+                            return ctx.fail(where, "launch.vel_y_sub must be positive (+Y is up): "
+                                                   "a launch that does not rise is a knockdown, "
+                                                   "and causes_knockdown already authors one");
+                        if (mv.launchVelXSub < 0)
+                            return ctx.fail(where, "launch.vel_x_sub must not be negative: the "
+                                                   "file authors a magnitude and the kernel points "
+                                                   "it away from the attacker");
+                    }
                     if (const json* ch = member(*r, "counter_hit")) {
                         if (!ch->is_object())
                             return ctx.fail(where, "`engine.reaction.counter_hit` is not an object");

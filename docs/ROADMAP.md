@@ -514,8 +514,24 @@ Six WPs, all landed, gate required in CI. The decision is
   The launch MoveDef bytes stay reserved (b2), zeroed and unread; the paper's
   measured pair is re-derived per opening.
   (d) **wall bounce / wall splat / launch vector** as per-hit `on_hit` reactions
-  using the fields M1.1a reserved. `air_hitstun_ticks` is already loaded and
-  waiting for a launcher to put someone in the air.
+  using the fields M1.1a reserved. **(d1) LANDED — the launcher and the air
+  number:** `engine.reaction.launch {vel_x_sub, vel_y_sub}` (+Y up, X a
+  magnitude the kernel points away from the attacker; non-positive Y refused —
+  a launch that does not rise is a knockdown, already authorable) takes the
+  defender off the ground, `Fighter::reaction` marks the launched body so the
+  airborne-stun rule keeps ITS arc while an un-launched air hit still drops
+  straight — the first draft kept both and the crossplat golden caught it,
+  ticks 1000..2000, exactly its job — and `air_hitstun_ticks`, loaded-and-
+  thrown-away since the reaction block landed, is carried into the SECOND
+  batched MoveDef growth (284 → 288, tail-appended: (b2)'s reservation missed
+  it) and charged by ResolveHits as the base stun against an airborne
+  defender. Ledger 34 → 36 (`move.air_hitstun` ×22 on fighter_a,
+  `move.launch` ×0); the air opening's model rows split its
+  whole-string charge by direction, alarming where air < ground
+  (`ALauncherPutsTheDefenderInTheAirAndAirHitstunTakesOver`,
+  `TheAuthoredAirHitstunCrossesOnEveryMoveThatAuthorsIt`).
+  **(d2) next:** wall bounce / wall splat off `MoveDef::onHitReaction` and
+  `Fighter::bounces` (`AWallBounceReturnsTheDefenderIntoRange`).
   Everything defaults off; `fighter_a` unpatched must hash as before.
   **Done when:** `P3Cancels.AKaraCancelFiresOnWhiffInsideItsWindow`,
   `P3Movement.AJumpIsAMoveAndAJumpCancelIsAnEdge`,

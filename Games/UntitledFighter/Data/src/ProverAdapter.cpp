@@ -933,6 +933,34 @@ static bool analyseForOpening(const CharacterData&  character,
                 "the loss cannot bite");
     }
 
+    // The air opening's own charge rule (M1.3(d)). This opening substitutes
+    // the air number for the WHOLE string; the game charges it only while the
+    // defender is actually airborne, and a juggled body that LANDS mid-string
+    // reverts to ground numbers. Which way that errs depends on which number
+    // is bigger, so the two directions are counted separately -- the same
+    // split the decay float check uses -- and a move whose air stun is
+    // SHORTER than its ground stun makes this opening's TERMINATING silent
+    // about grounded tails: CONSERVATIVE, and the alarm goes up.
+    if (opening == ProverOpening::Air) {
+        std::int32_t airLonger = 0, airShorter = 0;
+        for (const Move& m : character.moves) {
+            if (m.airHitstunTicks <= 0) continue;
+            if (m.airHitstunTicks > m.hitstun) ++airLonger;
+            if (m.airHitstunTicks < m.hitstun) ++airShorter;
+        }
+        addLoss(out, "air number charged for the whole string",
+                LossDirection::Permissive, airLonger,
+                "moves whose air stun EXCEEDS their ground stun: charging air "
+                "everywhere over-permits the grounded tail after a landing, which "
+                "can invent an infinite and cannot hide one");
+        addLoss(out, "air number charged for the whole string",
+                LossDirection::Conservative, airShorter,
+                "SOUNDNESS BUG IF NONZERO for this opening: moves whose air stun "
+                "is SHORTER than their ground stun. A defender who lands "
+                "mid-string reverts to the longer ground number, so the game has "
+                "links after a landing that this opening's graph is missing");
+    }
+
     return true;
 }
 

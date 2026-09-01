@@ -106,6 +106,7 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
     std::int32_t withHits = 0, withMotion = 0, withEscapeHatch = 0;
     std::int32_t offMid = 0, withHitstop = 0, withPosAdd = 0;
     std::int32_t withCornerPush = 0, withCounter = 0;
+    std::int32_t withAirHitstun = 0, withLaunch = 0;
 
     for (const Move& m : c.moves) {
         if (m.cornerPushSub != 0) ++withCornerPush;
@@ -119,6 +120,8 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
         if (m.hitstopTicks != 0)            ++withHitstop;
         if (m.counterHitstunBonus != 0 || m.counterDamageBonusHundredths != 0)
             ++withCounter;
+        if (m.airHitstunTicks > 0)          ++withAirHitstun;
+        if (m.launchVelYSub > 0)            ++withLaunch;
         if (!m.hitConditionProse.empty())   ++withHitCondition;
         if (m.reachSub == kNoReach)         ++noReach; else ++withReach;
         if (!m.hits.empty())                ++withHits;
@@ -303,6 +306,26 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
             "3): its counter verdict charges every hit, first hit in the game, "
             "which is the Permissive direction and is named in the prover's own "
             "loss table rather than here.");
+
+    addLoss(report, "move.air_hitstun", BuildLossDirection::Exact, withAirHitstun,
+            "engine.reaction.air_hitstun_ticks, carried whole into "
+            "MoveDef::airHitstun (ROADMAP M1.3(d)): ResolveHits charges it as "
+            "the BASE stun against an AIRBORNE defender, falling back to the "
+            "ground number where the file authors none. It was loaded and "
+            "thrown away from the day the reaction block landed; the launcher "
+            "is what made it reachable. fighter_a authors it on all 22 moves; "
+            "no MUGEN transcription authors a nonzero value.");
+
+    addLoss(report, "move.launch", BuildLossDirection::Exact, withLaunch,
+            "engine.reaction.launch {vel_x_sub, vel_y_sub}, carried whole "
+            "(ROADMAP M1.3(d)): a clean hit takes the defender off the ground "
+            "with the authored velocity, X pointed away from the attacker by "
+            "the kernel's position rule, the arc then owned by StepPhysics "
+            "like a jump -- and kept through stun (Fighter::reaction marks a "
+            "launched body; an UN-launched air hit still drops straight, the "
+            "behaviour the crossplat golden pins). The MODEL has no defender "
+            "position at all; the air OPENING is where the file's air numbers "
+            "reach a verdict.");
 
     addLoss(report, "move.hitstop", BuildLossDirection::Exact, withHitstop,
             "Impact freeze on hit, carried whole into MoveDef::hitstop (ROADMAP "
@@ -1025,6 +1048,19 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
         // a damage of 0.5 does.
         m.counterHitstunBonus = src.counterHitstunBonus;
         m.counterDamageBonus  = damagePointsFromHundredths(src.counterDamageBonusHundredths);
+
+        // AIR HITSTUN AND THE LAUNCH (ROADMAP M1.3(d)), carried whole. The
+        // air number was loaded-and-uncarried from the day the reaction block
+        // landed -- the D8 gap ADR-015's air opening reads the file about --
+        // and the launcher is what makes it REACHABLE: ResolveHits reads the
+        // air number only off an airborne defender, and nothing put one there
+        // until launch crossed. Negative air stun clamps to zero (a negative
+        // means "no stun" at the schema level and the kernel's fallback wants
+        // zero as its sentinel); the loader already refused a non-positive
+        // launch Y and a negative launch X.
+        m.airHitstun    = src.airHitstunTicks > 0 ? src.airHitstunTicks : 0;
+        m.launchVelXSub = src.launchVelXSub;
+        m.launchVelYSub = src.launchVelYSub;
 
         // HITSTOP, CARRIED WHOLE (ROADMAP M1.3i). It was held back from M1.3d
         // for a measured reason -- the freeze moves every frame-exact count in

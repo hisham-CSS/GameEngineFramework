@@ -2917,3 +2917,91 @@ TEST(P3Reactions, CounterHitAddsTheAuthoredStun) {
         EXPECT_EQ(s.p[1].health, 1000 - 100);
     }
 }
+
+TEST(P3Reactions, ALauncherPutsTheDefenderInTheAirAndAirHitstunTakesOver) {
+    auto data = twoFighters();
+    data->p[0].moves[1].launchVelYSub = 2000;
+    data->p[0].moves[1].launchVelXSub = 500;
+    data->p[0].moves[1].airHitstun    = 30;
+
+    // THE LAUNCH: a clean hit on a GROUNDED defender leaves the ground with
+    // the authored velocity, X pointed away from the attacker by the same
+    // position rule pushback uses. The launching hit itself is charged the
+    // GROUND number -- the defender was grounded when it connected.
+    GameState s = facingOff();
+    s.p[1].moveId    = 0;
+    s.p[1].moveFrame = 0;
+    ResolveHits(s, *data);
+    EXPECT_EQ(s.p[1].airborne, 1) << "the launcher did not launch";
+    EXPECT_EQ(s.p[1].velY, 2000);
+    EXPECT_EQ(s.p[1].velX, 500) << "launch X did not point away from the attacker";
+    EXPECT_EQ(s.p[1].hitstun, 12)
+        << "the launching hit was charged air hitstun; the defender was "
+           "grounded when it landed";
+
+    // THE ARC SURVIVES THE NEXT TICK. A launched body is marked
+    // (Fighter::reaction) so the airborne-stun straight-drop rule leaves its
+    // velocity alone -- without the mark, StepPhysics would eat the launch
+    // one tick after the launcher connected.
+    EXPECT_EQ(s.p[1].reaction, kReactionLaunched);
+    {
+        const std::int32_t xBefore = s.p[1].posX;
+        InputPair in{};
+        Simulate(s, in, *data);
+        EXPECT_EQ(s.p[1].velX, 500)
+            << "the airborne-stun rule zeroed a LAUNCHED body's arc";
+        EXPECT_GT(s.p[1].posX, xBefore) << "the launched body did not travel";
+    }
+
+    // THE JUGGLE: a fresh contact on the now-airborne defender reads the
+    // move's authored AIR number instead of its ground one.
+    s.p[0].alreadyHitBits = 0;
+    s.p[0].flags          = 0;
+    s.p[0].moveId         = 1;
+    s.p[0].moveFrame      = 1;
+    ResolveHits(s, *data);
+    EXPECT_EQ(s.p[1].hitstun, 30)
+        << "an airborne defender was charged ground hitstun";
+
+    // AND A BODY MERELY HIT OUT OF ITS JUMP STILL DROPS STRAIGHT -- the
+    // behaviour the crossplat golden pins: no launch authored, so no mark,
+    // and the next physics tick zeroes the jump's velX.
+    {
+        GameState j = facingOff();
+        j.p[1].moveId    = 0;
+        j.p[1].moveFrame = 0;
+        j.p[1].airborne  = 1;
+        j.p[1].posY      = px(30);
+        j.p[1].velX      = 700;
+        auto plainAir = twoFighters();
+        ResolveHits(j, *plainAir);
+        ASSERT_GT(j.p[1].hitstun, 0);
+        EXPECT_EQ(j.p[1].reaction, 0)
+            << "an ordinary air hit was marked as a launch";
+        InputPair in{};
+        Simulate(j, in, *plainAir);
+        EXPECT_EQ(j.p[1].velX, 0)
+            << "an air-reset kept its arc; the straight drop is recorded "
+               "golden behaviour, not a free variable";
+    }
+
+    // OFF BY DEFAULT, both halves: no launch authored keeps the defender on
+    // the ground; no air number authored charges an airborne defender the
+    // ground number -- ADR-011's silence rule, at the kernel layer.
+    auto plain = twoFighters();
+    GameState g = facingOff();
+    g.p[1].moveId    = 0;
+    g.p[1].moveFrame = 0;
+    ResolveHits(g, *plain);
+    EXPECT_EQ(g.p[1].airborne, 0) << "a move that authors no launch launched";
+
+    GameState a = facingOff();
+    a.p[1].moveId    = 0;
+    a.p[1].moveFrame = 0;
+    a.p[1].airborne  = 1;
+    a.p[1].posY      = px(30);
+    ResolveHits(a, *plain);
+    EXPECT_EQ(a.p[1].hitstun, 12)
+        << "a move with no air number changed its stun against an airborne "
+           "defender";
+}

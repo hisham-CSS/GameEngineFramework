@@ -218,7 +218,18 @@ void StepPhysics(Fighter& f, const Intent& it, const FighterData& data) {
         f.velY = motionKey->velYSub;
         if (motionKey->velYSub > 0) f.airborne = 1;
     } else if (f.airborne) {
-        if (!canAct) f.velX = 0;
+        // A HIT RE-DECIDES AN AIRBORNE ARC (M1.3(d)). A body merely hit out
+        // of its jump drops straight -- velX zeroed, the behaviour the
+        // crossplat golden has always pinned -- but a LAUNCHED body keeps the
+        // arc, because the hit itself authored it (ResolveHits wrote the
+        // launch velocity and marked Fighter::reaction); zeroing that on the
+        // next tick would turn every juggle into a straight drop the tick
+        // after the launcher connected. The first draft of (d) kept velX for
+        // BOTH cases under the ballistic doctrine and the golden moved --
+        // ticks 1000..2000, the hitstun window -- which is the golden doing
+        // its job: air-reset-drops-straight is simulated behaviour somebody
+        // recorded, not a free variable.
+        if (!canAct && f.reaction != kReactionLaunched) f.velX = 0;
     } else if (free) {
         f.velX = it.walkWish;
         if (it.jumpWish) {
@@ -272,6 +283,11 @@ void StepPhysics(Fighter& f, const Intent& it, const FighterData& data) {
         f.posY     = 0;
         f.velY     = 0;
         f.airborne = 0;
+        // The launch's arc ends where the ground begins: reaction is set by
+        // ResolveHits and cleared HERE, the alreadyHitBits one-setter-known-
+        // clearers shape, so a landed body is an ordinary grounded one and
+        // the next launch starts clean.
+        f.reaction = 0;
     }
 }
 

@@ -879,6 +879,25 @@ TEST(ProverOpenings, AnAirOpeningReadsTheAuthoredAirHitstunAndUnauthoredFallsBac
     EXPECT_EQ(result.openings[2].status, ProverStatus::Infinite)
         << "the air opening did not read the authored air_hitstun_ticks";
 
+    // And the opening names its own charge rule (M1.3(d)): air is charged for
+    // the WHOLE string while the game reverts to ground on a landing. Here
+    // air (20) exceeds ground (4), so the direction is Permissive, count 1,
+    // and the Conservative row -- air shorter than ground, the one that would
+    // raise the alarm -- is present with count 0: the check ran and found
+    // nothing, which is different from nobody looking.
+    const ProjectionLoss* airLonger =
+        findLoss(result.openings[2], "air number charged for the whole string",
+                 LossDirection::Permissive);
+    ASSERT_NE(airLonger, nullptr);
+    EXPECT_EQ(airLonger->count, 1);
+    const ProjectionLoss* airShorter =
+        findLoss(result.openings[2], "air number charged for the whole string",
+                 LossDirection::Conservative);
+    ASSERT_NE(airShorter, nullptr);
+    EXPECT_EQ(airShorter->count, 0);
+    EXPECT_FALSE(result.openings[2].soundnessAlarm)
+        << "a zero-count conservative row raised the alarm";
+
     // Silence: no air numbers, no divergence.
     CharacterData silent = c;
     silent.moves[0].airHitstunTicks = 0;
