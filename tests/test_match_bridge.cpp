@@ -1869,3 +1869,54 @@ TEST(MatchBridgeMechanics, WallBounceCrossesAndWallSplatIsRefusedByName) {
         << "wall_splat loaded as a silent no-op";
     EXPECT_NE(lr.error.find("wall_splat"), std::string::npos) << lr.error;
 }
+
+// THE JUMP MOVE IS A BINDING FACT (M1.3(b3), ADR-018): the slot bound to
+// exactly Up becomes FighterData::jumpMoveSlot, which gates off the kernel's
+// built-in level jump for that character; a second Up-bound move is refused
+// by name, because the button scan would race them. A chord that merely
+// includes Up stays an attack.
+TEST(MatchBridgeMechanics, TheUpBoundMoveBecomesTheJumpSlotAndTwoAreRefused) {
+    const char* kJumper =
+        R"({"name":"j","stage":"corner","walk_speed":0.5,)"
+        R"("resources":[{"name":"meter","initial":0,"floor":0},)"
+        R"({"name":"juggle","initial":4,"floor":0}],)"
+        R"("scaling":[],"decay":{"kind":"none"},)"
+        R"("moves":[{"id":"jab","startup":3,"active":2,"recovery":4,)"
+        R"("hitstun":8,"damage":10.0,"stance":"standing"},)"
+        R"({"id":"jump","startup":4,"active":0,"recovery":2,)"
+        R"("hitstun":0,"damage":0.0,"stance":"standing"}],"cancels":[]})";
+
+    CharacterData c{};
+    LoadReport lr{};
+    ASSERT_TRUE(LoadCharacterJson("jumper.json", kJumper, loadOptions(), c, lr))
+        << lr.error;
+
+    BuildOptions options{};
+    options.bindings = { { "jab",  cse::kernel::kInputLP },
+                        { "jump", cse::kernel::kInputUp } };
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build))
+        << build.report[0].error;
+    const std::uint16_t slot = build.moves[0].Find("jump");
+    ASSERT_NE(slot, 0u);
+    EXPECT_EQ(build.data.p[0].jumpMoveSlot, static_cast<std::int32_t>(slot))
+        << "the Up binding did not become the jump slot";
+
+    // No Up binding, no jump slot: the fallback jump stays on.
+    BuildOptions plain{};
+    plain.bindings = { { "jab", cse::kernel::kInputLP } };
+    MatchBuild plainBuild{};
+    ASSERT_TRUE(BuildMatchData(c, plain, c, plain, plainBuild))
+        << plainBuild.report[0].error;
+    EXPECT_EQ(plainBuild.data.p[0].jumpMoveSlot, 0);
+
+    // Two moves bound to exactly Up: refused, naming both.
+    BuildOptions twice{};
+    twice.bindings = { { "jab",  cse::kernel::kInputUp },
+                       { "jump", cse::kernel::kInputUp } };
+    MatchBuild twiceBuild{};
+    EXPECT_FALSE(BuildMatchData(c, twice, c, twice, twiceBuild))
+        << "two Up-bound moves built; the button scan will race them";
+    EXPECT_NE(twiceBuild.report[0].error.find("jump"), std::string::npos)
+        << twiceBuild.report[0].error;
+}

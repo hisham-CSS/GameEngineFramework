@@ -96,9 +96,10 @@ is done or serves it.
 
 M1.6 stays open only on the variants the openings wave delivers (jump-cancel,
 kara, counter-hit, wallbounce). The wave's order, per ADR-015's consequence
-list and ADR-014's batching rule: per-opening prover surface first → (c)
-counter-hit → (d) reactions → (b3) jump-as-move with the ONE golden
-re-record, human-reviewed → the four variants → M1.9 doc consolidation.
+list and ADR-014's batching rule: per-opening prover surface → (c) → (d) →
+(b3) — ALL LANDED; the golden re-record (b3) was expected to need DISSOLVED
+under ADR-018's opt-in design, so no re-record review is pending — → the
+four variants with the cursor/search jump teaching → M1.9 doc consolidation.
 M1.1e landed inside its slice 5 — the buffer pair is a catalogue row.
 
 One at a time. The next unblocked WP is always the top `[ ]` in milestone
@@ -475,9 +476,25 @@ Six WPs, all landed, gate required in CI. The decision is
   genuinely move — the file honoured — and nothing measured shifted (no
   test binds them); ledger 31 → 32 rows, `move.engine.motion` KernelOmits →
   Exact.
-  **Step (b3) last:** jump-as-move, the hard-coded jump deleted, jump cancels
-  retargeted, the golden re-recorded. Commitment is already the KERNEL
-  DEFAULT (`P2Commitment.*`) and the jump already BALLISTIC
+  **Step (b3) LANDED, per [ADR-018](adr/ADR-018-the-jump-move-is-opt-in.md)
+  (the amendment to ADR-014's frozen plan): the jump move is OPT-IN, and the
+  hard-coded jump is demoted — not deleted — to the unauthored fallback**,
+  the walk-speed doctrine. `FighterData::jumpMoveSlot` (tail-appended, the
+  binding bound to exactly Up; two refused by name) gates off the level jump,
+  so the Up press reaches StepAttack grounded and the jump starts on its
+  EDGE: held Up does not re-jump on landing, the double jump refuses itself
+  through StanceAllows, prejump is the move's own startup frames, the
+  launching key with no authored X takes the direction held on the takeoff
+  tick, and a jump cancel is an ordinary on-hit edge into the jump move.
+  **The golden re-record DISSOLVED**: the crossplat script's kNoMoves authors
+  no jump move, so its Up bits keep their recorded meaning and the
+  cross-toolchain evidence survives — the fallback it pins still exists and
+  is still the path it exercises. Base fighter_a does not opt in (hash, arc
+  counts, census all stand); the jump-cancel/kara variant is where the jump
+  move first bites, with the cursor/search taught alongside it
+  (`P3Movement.AJumpIsAMoveAndAJumpCancelIsAnEdge`,
+  `TheUpBoundMoveBecomesTheJumpSlotAndTwoAreRefused`). Commitment is already
+  the KERNEL DEFAULT (`P2Commitment.*`) and the jump already BALLISTIC
   (`P2Ballistic.*`);
   (c) **counter-hit** — per-move `counter_hit {hitstun_bonus, damage_bonus}`.
   **This is a soundness qualifier on every verdict, not just a mechanic** — see

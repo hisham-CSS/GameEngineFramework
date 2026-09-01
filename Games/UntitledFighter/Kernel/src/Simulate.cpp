@@ -214,7 +214,22 @@ void StepPhysics(Fighter& f, const Intent& it, const FighterData& data) {
     }
 
     if (motionKey != nullptr && canAct) {
-        f.velX = f.facing == 0 ? motionKey->velXSub : -motionKey->velXSub;
+        // THE JUMP MOVE'S TAKEOFF KEY (M1.3(b3), ADR-018): a launching key
+        // that authors NO horizontal component, on the character's own jump
+        // move. The takeoff tick takes the direction HELD -- walkWish, the
+        // same feel the fallback jump has always had, confirmable through
+        // prejump -- and afterwards the key deliberately does not own X, so
+        // the arc is ballistic from takeoff exactly as a fallback jump's is.
+        // Scoped to the jump move: an uppercut's rising key keeps (b2)'s
+        // both-component ownership, authored zero X meaning straight up.
+        const bool jumpTakeoffKey =
+            f.moveId == data.jumpMoveSlot && data.jumpMoveSlot != 0 &&
+            motionKey->velYSub > 0 && motionKey->velXSub == 0;
+        if (jumpTakeoffKey) {
+            if (!f.airborne) f.velX = it.walkWish;
+        } else {
+            f.velX = f.facing == 0 ? motionKey->velXSub : -motionKey->velXSub;
+        }
         f.velY = motionKey->velYSub;
         if (motionKey->velYSub > 0) f.airborne = 1;
     } else if (f.airborne) {
@@ -232,7 +247,14 @@ void StepPhysics(Fighter& f, const Intent& it, const FighterData& data) {
         if (!canAct && f.reaction == 0) f.velX = 0;
     } else if (free) {
         f.velX = it.walkWish;
-        if (it.jumpWish) {
+        // THE FALLBACK JUMP, for a character that authors no jump move
+        // (ADR-018): the level-triggered takeoff every character had before
+        // M1.3(b3), demoted -- not deleted -- so the data-less kernel, the
+        // crossplat golden's script and every character that has not opted in
+        // keep exactly the behaviour their recorded evidence pins. A nonzero
+        // jumpMoveSlot switches this off, which is what lets the Up press
+        // reach StepAttack grounded and start the authored jump on its EDGE.
+        if (it.jumpWish && data.jumpMoveSlot == 0) {
             f.velY = data.jumpImpulseSub != 0 ? data.jumpImpulseSub : kJumpImpulse;
             f.airborne = 1;
         }

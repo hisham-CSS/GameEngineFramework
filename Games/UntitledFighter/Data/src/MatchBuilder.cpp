@@ -1260,6 +1260,25 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
     out.moveCount = static_cast<std::int32_t>(moveCount) + 1;   // slot 0 included
     moves.moveCount = out.moveCount;
 
+    // THE JUMP MOVE (M1.3(b3), ADR-018): the slot whose button is EXACTLY the
+    // Up bit -- a chord that merely includes Up (a flash-kick input, say) is
+    // an attack that wants Up held, not the character's jump. Nonzero gates
+    // off the kernel's built-in level jump for this fighter, so the Up press
+    // starts this move on its EDGE. Two such moves would race the button
+    // scan, so a second one is refused by name rather than shadow-resolved.
+    out.jumpMoveSlot = 0;
+    for (std::int32_t i = 1; i < out.moveCount; ++i) {
+        if (out.moves[i].button != cse::kernel::kInputUp) continue;
+        if (out.jumpMoveSlot != 0) {
+            report.error = "two moves are bound to exactly Up (`" +
+                           moves.idByMoveId[out.jumpMoveSlot] + "` and `" +
+                           moves.idByMoveId[i] + "`): a character has ONE jump "
+                           "move, because the button scan would race them";
+            return false;
+        }
+        out.jumpMoveSlot = i;
+    }
+
     std::sort(moves.byId.begin(), moves.byId.end(),
               [](const std::pair<std::string, std::uint16_t>& a,
                  const std::pair<std::string, std::uint16_t>& b) {

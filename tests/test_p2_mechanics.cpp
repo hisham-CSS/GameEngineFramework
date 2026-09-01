@@ -3063,3 +3063,99 @@ TEST(P3Reactions, AWallBounceReturnsTheDefenderIntoRange) {
     }
     EXPECT_EQ(g.p[1].bounces, 0);
 }
+
+// --- Jump-as-move (ROADMAP M1.3(b3), ADR-014 executed per ADR-018) -----------
+//
+// A character may author a JUMP MOVE bound to Up; the built-in level jump is
+// the fallback for everyone who does not (the walk-speed doctrine). The move
+// starts on the press EDGE, its startup is the prejump, its launching key
+// takes the direction held on the takeoff tick, and a grounded stance makes
+// the double jump refuse itself through StanceAllows rather than a rule.
+
+TEST(P3Movement, AJumpIsAMoveAndAJumpCancelIsAnEdge) {
+    auto data = twoFighters();
+    MoveDef jump{};
+    jump.startup  = 4;      // the prejump, finally literal frames
+    jump.active   = 0;
+    jump.recovery = 2;
+    jump.button   = kInputUp;
+    jump.stance   = kStanceStanding;
+    jump.motion[0].fromTick = 4;
+    jump.motion[0].velXSub  = 0;      // no authored X: takeoff direction chooses
+    jump.motion[0].velYSub  = 2000;
+    jump.motionCount = 1;
+    data->p[0].moves[2]        = jump;
+    data->p[0].moveCount       = 3;
+    data->p[0].jumpMoveSlot    = 2;
+    // A cancel edge INTO the jump move: the jump cancel as an EDGE, at last.
+    data->p[0].cancels[0].from          = 1;
+    data->p[0].cancels[0].to            = 2;
+    data->p[0].cancels[0].earliestFrame = 0;
+    data->p[0].cancels[0].latestFrame   = 60;
+    data->p[0].cancels[0].contactMask   = kContactHit;
+    data->p[0].cancelCount = 1;
+
+    // THE PRESS EDGE STARTS IT, AND PREJUMP IS GROUNDED. Up held from tick 0
+    // (an edge on the first tick), four grounded frames, then the key lifts
+    // with the held direction.
+    GameState s{};
+    ResetMatch(s, 1u);
+    s.p[0].posX = kLeftX;
+    s.p[1].posX = px(200);   // far away: nothing connects, this is movement
+    InputPair in{};
+    in.p[0].bits = kInputUp | kInputRight;
+    Simulate(s, in, *data);
+    ASSERT_EQ(s.p[0].moveId, 2) << "the Up press did not start the jump move";
+    // moveFrame is observed at the top of the tick and advanced after, so the
+    // fromTick-4 key first owns the arc on the SIXTH call: press, frames
+    // 0-1-2-3 grounded, then takeoff.
+    for (int t = 0; t < 4; ++t) {
+        Simulate(s, in, *data);
+        EXPECT_EQ(s.p[0].airborne, 0) << "prejump left the ground at frame " << t;
+    }
+    Simulate(s, in, *data);   // the takeoff tick
+    EXPECT_EQ(s.p[0].airborne, 1) << "the key never lifted";
+    EXPECT_EQ(s.p[0].velY, 2000);
+    EXPECT_GT(s.p[0].velX, 0)
+        << "the direction held at takeoff did not choose the arc";
+
+    // HELD UP DOES NOT RE-JUMP ON LANDING (the level jump is gone for this
+    // character), and a mid-air re-press is refused by the STANCE.
+    for (int t = 0; t < 200 && s.p[0].airborne; ++t) Simulate(s, in, *data);
+    ASSERT_EQ(s.p[0].airborne, 0) << "never landed";
+    Simulate(s, in, *data);
+    EXPECT_EQ(s.p[0].moveId, 0)
+        << "held Up re-jumped on landing; the jump move is an EDGE";
+
+    // THE FALLBACK STANDS for a character that authors no jump move: the same
+    // held Up takes off exactly as it always has.
+    auto plain = twoFighters();
+    GameState g{};
+    ResetMatch(g, 1u);
+    g.p[0].posX = kLeftX;
+    g.p[1].posX = px(200);
+    InputPair gin{};
+    gin.p[0].bits = kInputUp;
+    Simulate(g, gin, *plain);
+    EXPECT_EQ(g.p[0].airborne, 1)
+        << "the fallback level jump died for a character that authored no "
+           "jump move";
+    EXPECT_EQ(g.p[0].moveId, 0);
+
+    // A JUMP CANCEL IS AN EDGE: the attack connects and Up in the window
+    // starts the jump move THROUGH THE CANCEL TABLE, mid-move, grounded.
+    GameState c = facingOff();
+    c.p[1].moveId    = 0;
+    c.p[1].moveFrame = 0;
+    ResolveHits(c, *data);                     // the hit that opens the window
+    ASSERT_LT(c.p[1].health, 1000);
+    InputPair cin{};
+    cin.p[0].bits = kInputUp;
+    int cancelTicks = 0;
+    for (; cancelTicks < 3 && c.p[0].moveId != 2; ++cancelTicks)
+        Simulate(c, cin, *data);               // Up inside the window
+    EXPECT_EQ(c.p[0].moveId, 2)
+        << "the on-hit edge into the jump move did not fire; the jump cancel "
+           "is supposed to be an ordinary cancel now";
+    EXPECT_LE(cancelTicks, 2) << "the cancel took implausibly long";
+}

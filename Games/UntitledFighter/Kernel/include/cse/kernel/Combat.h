@@ -823,6 +823,17 @@ struct FighterData {
     // authored order makes that rule one a designer can see in their own file,
     // rather than one that emerged from a sort nobody wrote down.
     CancelEdge cancels[kMaxCancelsPerFighter];
+
+    // THE JUMP MOVE, if this character authors one (M1.3(b3), ADR-018): the
+    // slot whose button is exactly kInputUp, or 0 for none. Nonzero GATES OFF
+    // StepPhysics' built-in level-triggered jump -- the built-in is the
+    // unauthored placeholder, the walk-speed doctrine -- so the Up press
+    // reaches StepAttack still grounded and the jump starts on the press EDGE
+    // like every move since M1.1d. The bridge sets it and refuses a character
+    // with two Up-bound moves, which would race the button scan. Tail-
+    // appended: FighterData is handshake-hashed wire, and appending keeps
+    // every existing offset.
+    std::int32_t jumpMoveSlot;
 };
 
 // The read-only data for every slot in a match, indexed by the same slot as
