@@ -8,10 +8,19 @@ namespace {
 // The stance-establishing direction for a built move: Down for a crouching
 // move, the takeoff Up for an aerial, nothing for a move that states no
 // posture. Read off MoveDef::stance -- the enforced bytes -- and nowhere else.
-std::uint16_t stanceHold(const cse::kernel::MoveDef* m) {
+//
+// THE UP HOLD IS FOR FALLBACK CHARACTERS ONLY (ADR-018). Their takeoff is the
+// level response a held Up trips, which is exactly what an aerial's witness
+// entry needs. A character that authors a JUMP MOVE has no level response --
+// and a held Up would BUFFER jump-move presses the witness never asked for
+// (Up joins the buffable union the moment a move binds it) -- so the witness
+// carries the jump move ITSELF as an ordinary entry and holds nothing.
+std::uint16_t stanceHold(const cse::kernel::FighterData& data,
+                         const cse::kernel::MoveDef* m) {
     if (m == nullptr) return 0;
     if (m->stance == cse::kernel::kStanceCrouching) return cse::kernel::kInputDown;
-    if (m->stance == cse::kernel::kStanceAir)       return cse::kernel::kInputUp;
+    if (m->stance == cse::kernel::kStanceAir)
+        return data.jumpMoveSlot != 0 ? std::uint16_t{0} : cse::kernel::kInputUp;
     return 0;
 }
 
@@ -45,7 +54,7 @@ WitnessCursor WitnessCursor::FromSlots(const std::vector<std::uint16_t>& slots,
         const cse::kernel::MoveDef* m = cse::kernel::MoveAt(data, slot);
         c.slots_.push_back(slot);
         c.buttons_.push_back(m != nullptr ? m->button : std::uint16_t{0});
-        c.holds_.push_back(stanceHold(m));
+        c.holds_.push_back(stanceHold(data, m));
         c.macroTicks_.push_back(0);
         c.ids_.push_back("slot " + std::to_string(slot));
     }
@@ -63,7 +72,7 @@ WitnessCursor WitnessCursor::FromIds(const std::vector<std::string>& ids,
         const cse::kernel::MoveDef* m = cse::kernel::MoveAt(data, slot);
         c.slots_.push_back(slot);
         c.buttons_.push_back(m != nullptr ? m->button : std::uint16_t{0});
-        c.holds_.push_back(stanceHold(m));
+        c.holds_.push_back(stanceHold(data, m));
         c.macroTicks_.push_back(0);   // an id names a move; macros are slot-coded
         c.ids_.push_back(id);
     }
@@ -72,7 +81,7 @@ WitnessCursor WitnessCursor::FromIds(const std::vector<std::string>& ids,
 
 std::uint16_t WitnessCursor::StanceHold(const cse::kernel::FighterData& data,
                                         std::uint16_t slot) {
-    return stanceHold(cse::kernel::MoveAt(data, slot));
+    return stanceHold(data, cse::kernel::MoveAt(data, slot));
 }
 
 bool WitnessCursor::Usable(std::string& why) const {

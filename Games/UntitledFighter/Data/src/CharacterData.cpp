@@ -1944,6 +1944,19 @@ bool LoadCharacterVariant(const std::string& baseDir,
     }
     nlohmann::json patch = variantDoc["patch"];
 
+    // THE CLOSED MOVE-LEVEL KEY SET, shared by the by-id patcher and the
+    // append below so the two validators cannot drift: this list mirrors
+    // exactly the names the move loop in LoadCharacterJson reads off a move
+    // object -- a reader added there adds its name here, or the first variant
+    // to touch the new field is refused and says so out loud.
+    static const char* const kMovePatchKeys[] = {
+        "id",         "label",    "startup",       "active",
+        "recovery",   "hitstun",  "stance",        "blocked_as",
+        "priority",   "invincibility",             "damage",
+        "reach",      "pushback", "effect",        "guard",
+        "hit_condition",          "engine",
+    };
+
     // MOVES ARE PATCHED BY ID, NOT BY RFC 7386. A merge patch treats arrays as
     // atomic, so a standard patch touching one move would have to restate all
     // of them and the exhibit would stop being the diff. The variant format
@@ -1979,13 +1992,6 @@ bool LoadCharacterVariant(const std::string& baseDir,
         // namespace carries MUGEN transcription and authoring notes by
         // documented design (fighter_a authors twenty-six keys there), so a
         // closed list would refuse the file's own conventions.
-        static const char* const kMovePatchKeys[] = {
-            "id",         "label",    "startup",       "active",
-            "recovery",   "hitstun",  "stance",        "blocked_as",
-            "priority",   "invincibility",             "damage",
-            "reach",      "pushback", "effect",        "guard",
-            "hit_condition",          "engine",
-        };
         for (auto it = patch["moves"].begin(); it != patch["moves"].end(); ++it) {
             if (!it.value().is_object()) {
                 report.error = variantRelPath + ": patch.moves." + it.key() +
@@ -2028,6 +2034,57 @@ bool LoadCharacterVariant(const std::string& baseDir,
             }
         }
         patch.erase("moves");
+    }
+
+    // A VARIANT MAY APPEND A WHOLE MOVE (the jump-cancel exhibit's need: the
+    // base deliberately does not author the opt-in jump move, and the by-id
+    // patcher above refuses unknown ids -- correctly, for EDITS). The append
+    // is the cancels.append shape for the moves array: full move objects, an
+    // id the base already authors refused by name (that is an edit wearing an
+    // append's clothes), and the SAME closed move-level key validation a
+    // patch gets -- a typo in a brand-new move is the same coin-flip as one
+    // in an edit.
+    if (patch.contains("moves_append")) {
+        if (!patch["moves_append"].is_array()) {
+            report.error = variantRelPath + ": patch.moves_append: must be an "
+                           "ARRAY of full move objects";
+            return false;
+        }
+        if (!baseDoc.contains("moves") || !baseDoc["moves"].is_array()) {
+            report.error = baseRelPath + ": moves: missing or not an array";
+            return false;
+        }
+        for (const nlohmann::json& added : patch["moves_append"]) {
+            if (!added.is_object() || !added.contains("id") ||
+                !added["id"].is_string()) {
+                report.error = variantRelPath + ": patch.moves_append: every "
+                               "entry is a move object with an `id`";
+                return false;
+            }
+            const std::string id = added["id"].get<std::string>();
+            for (const nlohmann::json& m : baseDoc["moves"]) {
+                if (m.is_object() && m.contains("id") && m["id"] == id) {
+                    report.error = variantRelPath + ": patch.moves_append." + id +
+                                   ": the base already authors this move; an "
+                                   "append of an existing id is an edit in "
+                                   "disguise -- patch it under patch.moves";
+                    return false;
+                }
+            }
+            for (auto f = added.begin(); f != added.end(); ++f) {
+                bool known = false;
+                for (const char* k : kMovePatchKeys)
+                    if (f.key() == k) { known = true; break; }
+                if (known) continue;
+                report.error = variantRelPath + ": patch.moves_append." + id +
+                               ": unknown key `" + f.key() + "` -- the loader "
+                               "reads no such move field. (Engine-specific "
+                               "fields nest under `engine`.)";
+                return false;
+            }
+            baseDoc["moves"].push_back(added);
+        }
+        patch.erase("moves_append");
     }
 
     // CANCELS ARE APPENDED, NOT MERGED, for the same atomic-array reason as
@@ -2101,7 +2158,9 @@ bool LoadCatalogueManifest(const std::string& charactersDir,
     }
 
     // The six arcade buttons, by the names the binding vocabulary has used
-    // since M1.1c. Anything else is refused by name.
+    // since M1.1c -- plus `up` since M1.3(b3): the opt-in jump move binds to
+    // exactly the Up bit (ADR-018), and a variant that appends one needs a
+    // way to say so. Anything else is refused by name.
     const auto buttonBit = [](const std::string& b) -> std::uint16_t {
         if (b == "lp") return cse::kernel::kInputLP;
         if (b == "mp") return cse::kernel::kInputMP;
@@ -2109,6 +2168,7 @@ bool LoadCatalogueManifest(const std::string& charactersDir,
         if (b == "lk") return cse::kernel::kInputLK;
         if (b == "mk") return cse::kernel::kInputMK;
         if (b == "hk") return cse::kernel::kInputHK;
+        if (b == "up") return cse::kernel::kInputUp;
         return 0;
     };
 
@@ -2161,7 +2221,7 @@ bool LoadCatalogueManifest(const std::string& charactersDir,
                         error = relPath + ": " + entry.name + ": `" +
                                 (n.is_string() ? n.get<std::string>()
                                                : std::string("?")) +
-                                "` is not one of lp/mp/hp/lk/mk/hk";
+                                "` is not one of lp/mp/hp/lk/mk/hk/up";
                         return false;
                     }
                     binding.buttons |= bit;

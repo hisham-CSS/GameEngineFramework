@@ -647,3 +647,65 @@ TEST(VariantExhibits, TheMicrowalkInfiniteNeedsTheWalkAndTheSearchWalksIt) {
 
     RecordProperty("variant_description", e.description);
 }
+
+// A variant may APPEND a move (ROADMAP M1.6 variants slice): the jump-cancel
+// exhibit needs a `jump` move the base deliberately does not author
+// (ADR-018's opt-in), and the by-id patcher refuses unknown ids -- correctly,
+// for EDITS. The append is the cancels.append shape for the moves array, and
+// an appended move passes the SAME closed-key validation a patch does: a
+// typo'd key in a brand-new move is the same coin-flip as one in an edit.
+TEST(VariantLoader, AVariantMayAppendAMoveAndTheAppendIsValidatedLikeAPatch) {
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::path(::testing::TempDir()) / "cse_variants";
+    fs::create_directories(dir);
+    {
+        std::ofstream b(dir / "base_parses.json", std::ios::binary);
+        b << R"({"name":"b","stage":"corner","walk_speed":0.5,)"
+             R"("resources":[{"name":"meter","initial":0,"floor":0},)"
+             R"({"name":"juggle","initial":4,"floor":0}],)"
+             R"("scaling":[],"decay":{"kind":"none"},)"
+             R"("moves":[{"id":"jab","startup":3,"active":2,"recovery":4,)"
+             R"("hitstun":8,"damage":10.0,"stance":"standing"}],"cancels":[]})";
+    }
+    {
+        std::ofstream v(dir / "adds_jump.json", std::ios::binary);
+        v << R"({"description":"appends the opt-in jump move",)"
+             R"("patch":{"moves_append":[{"id":"jump","startup":4,"active":0,)"
+             R"("recovery":2,"hitstun":0,"damage":0.0,"stance":"standing"}]}})";
+    }
+    {
+        // Appending an id the base already authors is an EDIT wearing an
+        // append's clothes -- refused, or the merge silently duplicates.
+        std::ofstream v(dir / "adds_duplicate.json", std::ios::binary);
+        v << R"({"description":"appends an id the base already has",)"
+             R"("patch":{"moves_append":[{"id":"jab","startup":9}]}})";
+    }
+    {
+        std::ofstream v(dir / "adds_typo.json", std::ios::binary);
+        v << R"({"description":"appends a move with a key nothing reads",)"
+             R"("patch":{"moves_append":[{"id":"jump","startup":4,)"
+             R"("hitstop_ticks":0}]}})";
+    }
+
+    CharacterData c{};
+    LoadReport report{};
+    LoadOptions o = loadOptions();
+
+    ASSERT_TRUE(LoadCharacterVariant(dir.string(), "base_parses.json",
+                                     "adds_jump.json", o, c, report))
+        << report.error;
+    EXPECT_NE(c.FindMove("jump"), cse::data::kInvalidMove)
+        << "the appended move did not land";
+    EXPECT_EQ(c.moves.size(), 2u);
+
+    EXPECT_FALSE(LoadCharacterVariant(dir.string(), "base_parses.json",
+                                      "adds_duplicate.json", o, c, report))
+        << "an append of an existing id loaded; that is an edit in disguise";
+    EXPECT_NE(report.error.find("jab"), std::string::npos) << report.error;
+
+    EXPECT_FALSE(LoadCharacterVariant(dir.string(), "base_parses.json",
+                                      "adds_typo.json", o, c, report))
+        << "an appended move with an unknown key loaded";
+    EXPECT_NE(report.error.find("hitstop_ticks"), std::string::npos)
+        << report.error;
+}
