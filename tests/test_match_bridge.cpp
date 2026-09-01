@@ -974,6 +974,7 @@ TEST(MatchBridgeLosses, EveryDropIsCountedAgainstKungFuGirlsActualFile) {
         // that authors it on all 22 moves -- and no launch anywhere.
         { "move.air_hitstun",          0, BuildLossDirection::Exact         },
         { "move.launch",               0, BuildLossDirection::Exact         },
+        { "move.on_hit",               0, BuildLossDirection::Exact         },
         // Exact since ROADMAP M1.3e wired both into MoveDef and StanceAllows.
         // Kung Fu Girl authors a stance on all 25 moves and no blocked_as at
         // all -- the zero-count row records that somebody looked.
@@ -1817,4 +1818,54 @@ TEST(MatchBridgeMechanics, TheAuthoredAirHitstunCrossesOnEveryMoveThatAuthorsIt)
     const std::uint16_t slot = build.moves[0].Find("stand_lp");
     ASSERT_NE(slot, 0u);
     EXPECT_EQ(build.data.p[0].moves[slot].airHitstun, c.moves[lp].airHitstunTicks);
+}
+
+// ON_HIT crosses, and the enumerated-but-unsimulated value is REFUSED rather
+// than accepted-and-ignored (ROADMAP M1.3(d2)) -- a key that loads and does
+// nothing is the one_frame_link coin-flip again, and silence is never a
+// default.
+TEST(MatchBridgeMechanics, WallBounceCrossesAndWallSplatIsRefusedByName) {
+    const char* kBounce =
+        R"({"name":"b","stage":"corner","walk_speed":0.5,)"
+        R"("resources":[{"name":"meter","initial":0,"floor":0},)"
+        R"({"name":"juggle","initial":4,"floor":0}],)"
+        R"("scaling":[],"decay":{"kind":"none"},)"
+        R"("moves":[{"id":"jab","startup":3,"active":2,"recovery":4,)"
+        R"("hitstun":8,"damage":10.0,"stance":"standing",)"
+        R"("engine":{"reaction":{"launch":{"vel_x_sub":500,"vel_y_sub":2000},)"
+        R"("on_hit":"wall_bounce"}}}],"cancels":[]})";
+
+    CharacterData c{};
+    LoadReport lr{};
+    ASSERT_TRUE(LoadCharacterJson("bounce.json", kBounce, loadOptions(), c, lr))
+        << lr.error;
+    EXPECT_EQ(c.moves[0].onHitReaction, 1);
+    EXPECT_EQ(c.moves[0].launchVelXSub, 500);
+    EXPECT_EQ(c.moves[0].launchVelYSub, 2000);
+
+    BuildOptions options{};
+    options.bindings = { { "jab", cse::kernel::kInputLP } };
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build))
+        << build.report[0].error;
+    const std::uint16_t slot = build.moves[0].Find("jab");
+    ASSERT_NE(slot, 0u);
+    EXPECT_EQ(build.data.p[0].moves[slot].onHitReaction, cse::kernel::kOnHitWallBounce);
+    EXPECT_EQ(build.data.p[0].moves[slot].launchVelYSub, 2000);
+    const BuildLoss* row = findLoss(build.report[0], "move.on_hit");
+    ASSERT_NE(row, nullptr);
+    EXPECT_EQ(row->count, 1);
+
+    const char* kSplat =
+        R"({"name":"s","stage":"corner","walk_speed":0.5,)"
+        R"("resources":[{"name":"meter","initial":0,"floor":0},)"
+        R"({"name":"juggle","initial":4,"floor":0}],)"
+        R"("scaling":[],"decay":{"kind":"none"},)"
+        R"("moves":[{"id":"jab","startup":3,"active":2,"recovery":4,)"
+        R"("hitstun":8,"damage":10.0,"stance":"standing",)"
+        R"("engine":{"reaction":{"on_hit":"wall_splat"}}}],"cancels":[]})";
+    CharacterData s{};
+    EXPECT_FALSE(LoadCharacterJson("splat.json", kSplat, loadOptions(), s, lr))
+        << "wall_splat loaded as a silent no-op";
+    EXPECT_NE(lr.error.find("wall_splat"), std::string::npos) << lr.error;
 }

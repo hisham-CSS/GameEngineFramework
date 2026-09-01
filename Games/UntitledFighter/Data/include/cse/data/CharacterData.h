@@ -498,6 +498,12 @@ struct Move {
     // attacker, for MirrorBox's reason. Zero-zero is "no launch".
     std::int32_t launchVelXSub = 0;
     std::int32_t launchVelYSub = 0;
+    // Which on_hit reaction this move arms (M1.3(d2)): 0 none, 1 wall bounce
+    // (`engine.reaction.on_hit: "wall_bounce"` -- the wall that stops the
+    // stunned defender gives it back, once per arming hit). "wall_splat" is
+    // enumerated in the schema and REFUSED at load until it is simulated, so
+    // a file cannot author a no-op.
+    std::int32_t onHitReaction = 0;
 
     // WHICH BLOCK STOPS THIS MOVE. Mid by default, which is what an absent field
     // means and what every move written before this field existed is.

@@ -106,7 +106,7 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
     std::int32_t withHits = 0, withMotion = 0, withEscapeHatch = 0;
     std::int32_t offMid = 0, withHitstop = 0, withPosAdd = 0;
     std::int32_t withCornerPush = 0, withCounter = 0;
-    std::int32_t withAirHitstun = 0, withLaunch = 0;
+    std::int32_t withAirHitstun = 0, withLaunch = 0, withOnHit = 0;
 
     for (const Move& m : c.moves) {
         if (m.cornerPushSub != 0) ++withCornerPush;
@@ -122,6 +122,7 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
             ++withCounter;
         if (m.airHitstunTicks > 0)          ++withAirHitstun;
         if (m.launchVelYSub > 0)            ++withLaunch;
+        if (m.onHitReaction != 0)           ++withOnHit;
         if (!m.hitConditionProse.empty())   ++withHitCondition;
         if (m.reachSub == kNoReach)         ++noReach; else ++withReach;
         if (!m.hits.empty())                ++withHits;
@@ -326,6 +327,15 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
             "behaviour the crossplat golden pins). The MODEL has no defender "
             "position at all; the air OPENING is where the file's air numbers "
             "reach a verdict.");
+
+    addLoss(report, "move.on_hit", BuildLossDirection::Exact, withOnHit,
+            "engine.reaction.on_hit, carried whole into MoveDef::onHitReaction "
+            "(ROADMAP M1.3(d2)): wall_bounce arms the defender and StepPhysics' "
+            "wall clamp fires and spends it -- one arming hit, one bounce, the "
+            "return arc an ordinary launch. The corner MODEL needs no range, so "
+            "a bounce that returns the defender into range moves nothing it can "
+            "see; the executed search plays it for real. wall_splat is refused "
+            "at load until it is simulated.");
 
     addLoss(report, "move.hitstop", BuildLossDirection::Exact, withHitstop,
             "Impact freeze on hit, carried whole into MoveDef::hitstop (ROADMAP "
@@ -1061,6 +1071,10 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
         m.airHitstun    = src.airHitstunTicks > 0 ? src.airHitstunTicks : 0;
         m.launchVelXSub = src.launchVelXSub;
         m.launchVelYSub = src.launchVelYSub;
+        // The on_hit reaction id, byte-sized on the wire; the loader admits
+        // only values the kernel simulates, so the cast cannot truncate a
+        // meaning.
+        m.onHitReaction = static_cast<std::uint8_t>(src.onHitReaction);
 
         // HITSTOP, CARRIED WHOLE (ROADMAP M1.3i). It was held back from M1.3d
         // for a measured reason -- the freeze moves every frame-exact count in

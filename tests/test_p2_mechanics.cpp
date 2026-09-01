@@ -3005,3 +3005,61 @@ TEST(P3Reactions, ALauncherPutsTheDefenderInTheAirAndAirHitstunTakesOver) {
         << "a move with no air number changed its stun against an airborne "
            "defender";
 }
+
+TEST(P3Reactions, AWallBounceReturnsTheDefenderIntoRange) {
+    auto data = twoFighters();
+    data->p[0].moves[1].launchVelYSub = 2000;
+    data->p[0].moves[1].launchVelXSub = 800;
+    data->p[0].moves[1].hitstun       = 60;   // long enough to fly the whole arc stunned
+    data->p[0].moves[1].airHitstun    = 60;
+    data->p[0].moves[1].onHitReaction = kOnHitWallBounce;
+
+    // The corner geometry the exhibit is about: the defender is nearly AT its
+    // wall, so the launch drives it in and the wall must give it back.
+    GameState s = facingOff();
+    s.p[1].moveId    = 0;
+    s.p[1].moveFrame = 0;
+    s.p[1].posX      = kStageHalfWidthSub - px(2);
+    s.p[0].posX      = s.p[1].posX - px(34);
+
+    ResolveHits(s, *data);
+    ASSERT_EQ(s.p[1].reaction, kReactionWallBounceArmed)
+        << "the hit did not arm the bounce";
+    ASSERT_EQ(s.p[1].velX, 800);
+
+    InputPair in{};
+    bool bounced = false;
+    for (int t = 0; t < 20 && !bounced; ++t) {
+        Simulate(s, in, *data);
+        if (s.p[1].velX < 0) bounced = true;
+    }
+    EXPECT_TRUE(bounced) << "the wall never returned the defender";
+    EXPECT_EQ(s.p[1].velX, -800)
+        << "the bounce changed the speed as well as the direction";
+    EXPECT_EQ(s.p[1].bounces, 1) << "the spend was not recorded";
+    EXPECT_EQ(s.p[1].reaction, kReactionLaunched)
+        << "the bounce did not spend itself -- a second wall would bounce "
+           "again with no fresh arming hit";
+
+    // OFF BY DEFAULT: the same launch with no on_hit authored just rams the
+    // wall -- the clamp holds the body and nothing comes back.
+    auto plain = twoFighters();
+    plain->p[0].moves[1].launchVelYSub = 2000;
+    plain->p[0].moves[1].launchVelXSub = 800;
+    plain->p[0].moves[1].hitstun       = 60;
+    plain->p[0].moves[1].airHitstun    = 60;
+
+    GameState g = facingOff();
+    g.p[1].moveId    = 0;
+    g.p[1].moveFrame = 0;
+    g.p[1].posX      = kStageHalfWidthSub - px(2);
+    g.p[0].posX      = g.p[1].posX - px(34);
+    ResolveHits(g, *plain);
+    ASSERT_EQ(g.p[1].reaction, kReactionLaunched);
+    for (int t = 0; t < 20; ++t) {
+        Simulate(g, in, *plain);
+        EXPECT_GE(g.p[1].velX, 0)
+            << "a move that authors no on_hit reaction bounced at tick " << t;
+    }
+    EXPECT_EQ(g.p[1].bounces, 0);
+}

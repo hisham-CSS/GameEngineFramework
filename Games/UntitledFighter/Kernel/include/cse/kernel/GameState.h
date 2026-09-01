@@ -161,8 +161,12 @@ inline constexpr std::uint8_t kGuardLow  = 2;  // crouching block: stops low + m
 inline constexpr std::uint16_t kFlagsBlockedBits = 0x00FF;
 
 // Fighter::reaction values (M1.3(d)). Zero is "no reaction playing out" and is
-// what every state before the mechanic holds.
-inline constexpr std::uint8_t kReactionLaunched = 1;
+// what every state before the mechanic holds. WALL-BOUNCE-ARMED implies
+// launched -- the arc-keep rule reads "any nonzero reaction" -- and SPENDS
+// down to plain LAUNCHED when the wall fires it, so one arming hit buys one
+// bounce and the return arc is an ordinary launch.
+inline constexpr std::uint8_t kReactionLaunched        = 1;
+inline constexpr std::uint8_t kReactionWallBounceArmed = 2;
 
 // GameState::roundState.
 inline constexpr std::uint8_t kRoundFighting = 0;

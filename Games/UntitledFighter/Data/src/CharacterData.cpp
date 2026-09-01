@@ -1357,6 +1357,27 @@ bool parseDocument(Ctx& ctx, const json& doc, CharacterData& out) {
                                                    "file authors a magnitude and the kernel points "
                                                    "it away from the attacker");
                     }
+                    // WHICH on_hit REACTION (M1.3(d2)). wall_splat is refused
+                    // BY NAME rather than accepted-and-ignored: a key that
+                    // loads and does nothing is the coin-flip trap again, and
+                    // the loader's whole doctrine is that silence is never a
+                    // default.
+                    if (const json* oh = member(*r, "on_hit")) {
+                        if (!oh->is_string())
+                            return ctx.fail(where, "`engine.reaction.on_hit` is not a string");
+                        const std::string v = oh->get<std::string>();
+                        if (v == "wall_bounce") {
+                            mv.onHitReaction = 1;
+                        } else if (v == "wall_splat") {
+                            return ctx.fail(where, "on_hit `wall_splat` is enumerated but not "
+                                                   "yet simulated; refused so the file cannot "
+                                                   "author a no-op. wall_bounce is live.");
+                        } else {
+                            return ctx.fail(where, "on_hit is `" + v + "`, which is not "
+                                                   "wall_bounce (live) or wall_splat "
+                                                   "(enumerated, not yet simulated)");
+                        }
+                    }
                     if (const json* ch = member(*r, "counter_hit")) {
                         if (!ch->is_object())
                             return ctx.fail(where, "`engine.reaction.counter_hit` is not an object");

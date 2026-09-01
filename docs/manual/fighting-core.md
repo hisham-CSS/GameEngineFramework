@@ -448,6 +448,7 @@ Here is the full table for Kung Fu Girl; `MatchBridgeLosses.EveryDropIsCountedAg
 | `move.counter_hit` | 0 | Exact |
 | `move.air_hitstun` | 0 | Exact |
 | `move.launch` | 0 | Exact |
+| `move.on_hit` | 0 | Exact |
 | `move.hitstop` | 0 | Exact |
 | `move.stance` | 25 | Exact |
 | `move.blocked_as` | 0 | Exact |

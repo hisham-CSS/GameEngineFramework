@@ -912,6 +912,13 @@ void ResolveHits(GameState& state, const MatchData& data) {
             if (m->launchVelXSub != 0)
                 def.velX = pushAwayFrom(atk, def, m->launchVelXSub);
         }
+
+        // WALL BOUNCE ARMED (M1.3(d2)), after the launch so it wins the byte:
+        // armed implies launched (the arc-keep rule reads any nonzero
+        // reaction), and StepPhysics' wall clamp fires and SPENDS it -- one
+        // arming hit, one bounce, and the return arc is an ordinary launch.
+        if (m->onHitReaction == kOnHitWallBounce)
+            def.reaction = kReactionWallBounceArmed;
     }
 
     // --- INTERRUPT ----------------------------------------------------------

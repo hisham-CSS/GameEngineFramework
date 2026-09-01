@@ -530,6 +530,12 @@ struct MoveDef {
     // int16 like pushbackHit. Zero is every move authored before the wire,
     // including all 22 of fighter_a's (the file authors the key at 0).
     std::int16_t cornerPushHit;
+    // WHICH on_hit REACTION this move arms on the defender (M1.3(d2)):
+    // kOnHitNone, or kOnHitWallBounce -- the wall that stops the stunned body
+    // gives it back (Fighter::reaction is armed here in ResolveHits, fired
+    // and spent at StepPhysics' wall clamp). Wall SPLAT is enumerated in the
+    // schema and REFUSED at the loader until it is simulated, so a file
+    // cannot author a no-op; when it lands it takes the next value.
     std::uint8_t onHitReaction;
 
     // Explicit tail padding, hashed like everything else here.
@@ -558,6 +564,10 @@ struct MoveDef {
 // anything the simulation reads, and a cap that is checked at load is a lobby
 // error, while a cap that is not is a buffer overrun.
 inline constexpr std::int32_t kMaxMovesPerFighter = 32;
+
+// MoveDef::onHitReaction values (M1.3(d2)).
+inline constexpr std::uint8_t kOnHitNone       = 0;
+inline constexpr std::uint8_t kOnHitWallBounce = 1;
 
 // --- Cancels ----------------------------------------------------------------
 

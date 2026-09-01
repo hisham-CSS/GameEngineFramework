@@ -229,7 +229,7 @@ void StepPhysics(Fighter& f, const Intent& it, const FighterData& data) {
         // ticks 1000..2000, the hitstun window -- which is the golden doing
         // its job: air-reset-drops-straight is simulated behaviour somebody
         // recorded, not a free variable.
-        if (!canAct && f.reaction != kReactionLaunched) f.velX = 0;
+        if (!canAct && f.reaction == 0) f.velX = 0;
     } else if (free) {
         f.velX = it.walkWish;
         if (it.jumpWish) {
@@ -273,9 +273,26 @@ void StepPhysics(Fighter& f, const Intent& it, const FighterData& data) {
     //
     // THE WALL STOPS THE BODY, NOT THE ORIGIN -- wallLimitFor above says why,
     // in the author's words.
-    const std::int32_t limit = wallLimitFor(data, f);
-    f.posX = clampInt(f.posX + f.velX + f.pushX, -limit, limit);
+    const std::int32_t limit     = wallLimitFor(data, f);
+    const std::int32_t unclamped = f.posX + f.velX + f.pushX;
+    f.posX = clampInt(unclamped, -limit, limit);
     f.pushX /= 2;
+
+    // WALL BOUNCE (M1.3(d2)): the wall that just stopped a stunned body
+    // carrying an ARMED bounce gives it back -- velocity reversed whole (a
+    // magnitude rule here would be a second authored number wearing a
+    // constant's clothes), the spend recorded in `bounces`, and the reaction
+    // dropped to plain LAUNCHED so the return arc is kept and a second wall
+    // does nothing without a fresh arming hit. The loop bound is NOT a bounce
+    // cap: each bounce needs its own arming hit, and hits are what the juggle
+    // budget already bounds -- a kernel bounce constant a file cannot set is
+    // exactly what CLAUDE.md's never-list forbids.
+    if (f.reaction == kReactionWallBounceArmed && !canAct &&
+        (unclamped < -limit || unclamped > limit)) {
+        f.velX     = -f.velX;
+        f.reaction = kReactionLaunched;
+        if (f.bounces < 0xFF) ++f.bounces;
+    }
 
     f.posY += f.velY;
 
@@ -286,8 +303,11 @@ void StepPhysics(Fighter& f, const Intent& it, const FighterData& data) {
         // The launch's arc ends where the ground begins: reaction is set by
         // ResolveHits and cleared HERE, the alreadyHitBits one-setter-known-
         // clearers shape, so a landed body is an ordinary grounded one and
-        // the next launch starts clean.
+        // the next launch starts clean. The bounce tally lands with it: the
+        // byte records spends within ONE airtime, which is what the search's
+        // induction keys on.
         f.reaction = 0;
+        f.bounces  = 0;
     }
 }
 

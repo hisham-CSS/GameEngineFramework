@@ -530,8 +530,20 @@ Six WPs, all landed, gate required in CI. The decision is
   whole-string charge by direction, alarming where air < ground
   (`ALauncherPutsTheDefenderInTheAirAndAirHitstunTakesOver`,
   `TheAuthoredAirHitstunCrossesOnEveryMoveThatAuthorsIt`).
-  **(d2) next:** wall bounce / wall splat off `MoveDef::onHitReaction` and
-  `Fighter::bounces` (`AWallBounceReturnsTheDefenderIntoRange`).
+  **(d2) LANDED — the wall gives the body back:**
+  `engine.reaction.on_hit: "wall_bounce"` arms the defender
+  (`Fighter::reaction`, armed-implies-launched so the arc survives stun) and
+  StepPhysics' wall clamp fires and SPENDS it — velocity reversed whole, the
+  spend recorded in `Fighter::bounces` (cleared on landing), the return arc an
+  ordinary launch, a second wall inert without a fresh arming hit. The loop
+  bound is the juggle budget's, not a bounce constant a file cannot set.
+  `wall_splat` is enumerated in the schema and REFUSED at load until it is
+  simulated — a key that loads and does nothing is the coin-flip trap. Ledger
+  36 → 37 (`move.on_hit` ×0 everywhere shipped; the wallbounce showcase
+  variant is where it first bites)
+  (`AWallBounceReturnsTheDefenderIntoRange`,
+  `WallBounceCrossesAndWallSplatIsRefusedByName`). **(d) is CLOSED**; M1.3's
+  remaining letter is (b3).
   Everything defaults off; `fighter_a` unpatched must hash as before.
   **Done when:** `P3Cancels.AKaraCancelFiresOnWhiffInsideItsWindow`,
   `P3Movement.AJumpIsAMoveAndAJumpCancelIsAnEdge`,
