@@ -71,8 +71,11 @@ way: `fighter_a_infinite` comes back INFINITE with a witness the test replays
 times in `schema.v2.json`. The model reads one `hitstun` per move, so a
 TERMINATING verdict says nothing about the same string opened with a counter hit,
 and `air_hitstun_ticks` — authored on every move and differing from ground
-hitstun on all of them — has the same shape. Three ways out are in M1.3(c); none
-is chosen, because it changes what the tool claims.
+hitstun on all of them — has the same shape. **Decided 2026-09-01:
+[ADR-015](adr/ADR-015-what-a-verdict-claims-about-hitstun.md) Accepted, option
+3 — one verdict per opening.** The tool will answer per hit type; the prover
+surface changes first, then (c) and (d) land against the new vocabulary, and
+this paragraph's successor states the re-derived pair.
 
 **The shortest credible path to the claim**, reordered 2026-08-21 under
 [ADR-012](adr/ADR-012-the-tick-is-a-pipeline.md) after complexity itself became
@@ -89,11 +92,14 @@ is done or serves it.
 | In flight | Owner | Since |
 |---|---|---|
 | M1.6 — the showcase; slices 1–8 landed (8 = the cooker recording + base row) | Claude | 2026-08-31 |
-| M1.3 — mechanics pass 1; (a) (b1) (b2) landed; (c)+(d) blocked on ADR-015 (human) | Claude | 2026-08-31 |
+| M1.3 — mechanics pass 1; (a) (b1) (b2) landed; **the openings wave unblocked 2026-09-01** (ADR-015 accepted, option 3; (b3) go given) | Claude | 2026-08-31 |
 
-M1.6 stays open only on the variants blocked on M1.3(b3)/ADR-015 (jump-
-cancel, kara, counter-hit, wallbounce). M1.1e landed inside its slice 5 —
-the buffer pair is a catalogue row.
+M1.6 stays open only on the variants the openings wave delivers (jump-cancel,
+kara, counter-hit, wallbounce). The wave's order, per ADR-015's consequence
+list and ADR-014's batching rule: per-opening prover surface first → (c)
+counter-hit → (d) reactions → (b3) jump-as-move with the ONE golden
+re-record, human-reviewed → the four variants → M1.9 doc consolidation.
+M1.1e landed inside its slice 5 — the buffer pair is a catalogue row.
 
 One at a time. The next unblocked WP is always the top `[ ]` in milestone
 order — which, under the 2026-08-21 reorder, is the sequence named above.
@@ -475,14 +481,17 @@ Six WPs, all landed, gate required in CI. The decision is
   (`P2Ballistic.*`);
   (c) **counter-hit** — per-move `counter_hit {hitstun_bonus, damage_bonus}`.
   **This is a soundness qualifier on every verdict, not just a mechanic** — see
-  § Where this stands. Three ways out: qualify the verdict ("TERMINATING under
-  neutral hit"), take the worst case over hit types, or one verdict per hit type.
-  **Not chosen; it changes what the tool claims — now written as
-  [ADR-015](adr/ADR-015-what-a-verdict-claims-about-hitstun.md) (Proposed,
-  recommended default: qualification) and BLOCKED on the human accepting it.
-  (d) shares the block: `air_hitstun_ticks` has the same one-model-number,
-  two-game-numbers shape, and the launcher is what makes it reachable. The
-  MoveDef bytes for both are already reserved (b2), zeroed and unread.**
+  § Where this stands. **UNBLOCKED 2026-09-01:
+  [ADR-015](adr/ADR-015-what-a-verdict-claims-about-hitstun.md) Accepted,
+  option 3 — one verdict per opening** ("the most robust; each hit qualified
+  appropriately rather than swallowed"). Enactment order is the ADR's: (c-pre)
+  the prover surface answers PER OPENING first — `AnalyseCharacter`'s result,
+  the panel, `DescribeVerdict`, the cooker's replay-per-verdict and the ledger
+  all speak the new vocabulary while the kernel still implements one hitstun
+  (every opening's verdict initially identical, which is itself the honest
+  statement) — then (c) and (d) land as fields and the openings genuinely
+  diverge. The MoveDef bytes for both are already reserved (b2), zeroed and
+  unread; the paper's measured pair is re-derived per opening.
   (d) **wall bounce / wall splat / launch vector** as per-hit `on_hit` reactions
   using the fields M1.1a reserved. `air_hitstun_ticks` is already loaded and
   waiting for a launcher to put someone in the air.
@@ -657,8 +666,10 @@ Six WPs, all landed, gate required in CI. The decision is
   learned movement macros (its entry validation predated them — and its
   stall DIAGNOSTICS dereferenced a macro as a move, a crash the first full
   cook found).
-  **Still open:** `jump-cancel`, `kara` blocked on M1.3(b3)/the kara
-  close-frame note; `counter-hit`, `wallbounce` blocked on ADR-015.
+  **Still open:** `jump-cancel`, `kara` (land with M1.3(b3) + the kara
+  close-frame authoring); `counter-hit`, `wallbounce` (land with M1.3(c)+(d)
+  — ADR-015 accepted 2026-09-01, so these are now ordinary wave work, not
+  decision-blocked).
 
 - `[x]` `e3a1d45` **M1.7 Authoring telemetry.** *(S)* Claude, 2026-08-31. What the author
   actually needed to know, recorded while authoring rather than reconstructed
@@ -687,6 +698,19 @@ Six WPs, all landed, gate required in CI. The decision is
     CLOSED 17-key set, unlike the annotation-tolerant `engine` namespace, so
     an unknown move-patch key is now a load error naming the key and listing
     what exists (`AMovePatchKeyTheLoaderDoesNotReadIsRefusedByName`).
+
+- `[ ]` **M1.9 One home per current rule.** *(S–M)* Asked for by the human,
+  2026-09-01: "consolidate documentation so it isn't so spread out over
+  different ADRs." The ADRs stay frozen — they are why-records and the house
+  rules forbid rewriting them — so the consolidation is the five-line rule
+  enforced in the other direction: every rule that is CURRENTLY in force must
+  have its one statement in a living doc (fighting-core.md for the title's
+  mechanics and tools, DETERMINISM.md for the invariants, ARCHITECTURE.md for
+  the seams), with the ADR cited only as the decision's history. Runs LAST in
+  the openings wave, so the consolidated pages state the post-wave truth once
+  rather than twice. **Done when:** a sweep of ADR-011..017's operative rules
+  finds each stated in exactly one living doc (link, not restatement,
+  everywhere else), and `check_docs.py` stays green.
 
 ## M2 — Two people, one match *(size L)* — ARCHITECTURE Phase 4
 
@@ -772,6 +796,13 @@ honestly labelled) · R5 after M1.5 (the authoring loop) · **R6 after M1.6 — 
 showcase, the one to judge the project on** · R7 after M2.5 (two people, one
 match) · R8 after M3.4/M3.5 (it looks like a fighting game) · R9 after M4.1 (the
 reel).
+
+**R5 and R6 reviewed 2026-09-01: "behaving as expected."** The authoring loop
+(edit lands mid-match, broken save keeps the last good match, pause survives)
+and the cooked showcase (nine rows, the three deliberate verdict
+disagreements) both passed the human's play session with nothing reported
+wrong. R6 will be worth a second look once the openings wave re-cooks the
+catalogue with the four remaining variants.
 
 ## Not scheduled, on purpose
 

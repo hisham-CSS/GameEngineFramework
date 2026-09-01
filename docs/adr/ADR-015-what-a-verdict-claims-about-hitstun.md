@@ -1,8 +1,11 @@
 # ADR-015: What a verdict claims when hitstun stops being one number
 
-Status: Proposed (2026-08-31). Blocks ROADMAP M1.3(c) and M1.3(d). This one
-needs the human: every option changes what the published tool claims, which
-CLAUDE.md lists under "publishing" rather than under "safe and reversible".
+Status: **Accepted 2026-09-01 — option 3, one verdict per opening.** Decided
+by the human, over the recommended default: "the most robust; each hit
+qualified appropriately rather than swallowed" — the production-tool reading.
+Consequence order per §Consequences: the prover surface changes first, the
+mechanics (M1.3(c), M1.3(d)) land against the new vocabulary, and the paper's
+measured pair is re-derived.
 
 ## Context
 

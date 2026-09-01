@@ -1,9 +1,7 @@
 # ADR-017: Authoring telemetry is one appended line per prover run
 
-Status: Proposed (2026-08-31), with a recommended default the session proceeds
-under: it is safe (a new file beside the content root; no published claim, no
-sim byte, no schema field changes) and reversible (one writer/reader pair and
-one call site; `git revert` undoes it).
+Status: **Accepted 2026-09-01** (the recommended default stands). Originally
+Proposed 2026-08-31 and proceeded under as safe and reversible.
 
 ## Context
 
