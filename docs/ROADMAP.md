@@ -484,14 +484,21 @@ Six WPs, all landed, gate required in CI. The decision is
   § Where this stands. **UNBLOCKED 2026-09-01:
   [ADR-015](adr/ADR-015-what-a-verdict-claims-about-hitstun.md) Accepted,
   option 3 — one verdict per opening** ("the most robust; each hit qualified
-  appropriately rather than swallowed"). Enactment order is the ADR's: (c-pre)
-  the prover surface answers PER OPENING first — `AnalyseCharacter`'s result,
-  the panel, `DescribeVerdict`, the cooker's replay-per-verdict and the ledger
-  all speak the new vocabulary while the kernel still implements one hitstun
-  (every opening's verdict initially identical, which is itself the honest
-  statement) — then (c) and (d) land as fields and the openings genuinely
-  diverge. The MoveDef bytes for both are already reserved (b2), zeroed and
-  unread; the paper's measured pair is re-derived per opening.
+  appropriately rather than swallowed"). Enactment order is the ADR's, and
+  **(c-pre) — the per-opening surface — is LANDED**: `ProverOpening`
+  {neutral, counter, air}, a full `ProverResult` per opening with the
+  top-level fields staying the neutral mirror verbatim (every legacy assert
+  passes unchanged), counter identical-by-construction until (c) authors the
+  bonus (`ACounterOpeningWithNothingAuthoredIsIdenticalToNeutral`), air
+  reading the file's own `air_hitstun_ticks` today — provably divergent on a
+  synthetic (ground-dead, air-alive self-cancel:
+  `AnAirOpeningReadsTheAuthoredAirHitstunAndUnauthoredFallsBackToNeutral`) —
+  and the panel, `DescribeVerdict` and the telemetry record all speaking the
+  vocabulary. The cooker's pair stays singular (neutral-corner, named) until
+  the executed side can produce the other openings, which is (c)/(d)'s work.
+  Next: (c) and (d) land as fields and the openings genuinely diverge. The
+  MoveDef bytes for both are already reserved (b2), zeroed and unread; the
+  paper's measured pair is re-derived per opening.
   (d) **wall bounce / wall splat / launch vector** as per-hit `on_hit` reactions
   using the fields M1.1a reserved. `air_hitstun_ticks` is already loaded and
   waiting for a launcher to put someone in the air.

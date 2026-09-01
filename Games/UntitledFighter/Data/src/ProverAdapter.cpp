@@ -284,6 +284,15 @@ const char* ProverStatusName(ProverStatus status) {
     return "UNRESOLVED";
 }
 
+const char* ProverOpeningName(ProverOpening opening) {
+    switch (opening) {
+        case ProverOpening::Neutral: return "neutral";
+        case ProverOpening::Counter: return "counter";
+        case ProverOpening::Air:     return "air";
+    }
+    return "neutral";
+}
+
 const char* RankingAbsenceName(RankingAbsence absence) {
     switch (absence) {
         case RankingAbsence::Present:                 return "present";
@@ -308,13 +317,48 @@ const char* LossDirectionName(LossDirection direction) {
 // The analysis
 // ---------------------------------------------------------------------------
 
-bool AnalyseCharacter(const CharacterData&  character,
-                      const ProverOptions&  options,
-                      ProverResult&         out,
-                      ProverReport&         report) {
+namespace {
+
+// THE ONE PLACE AN OPENING TOUCHES THE PROJECTION (ADR-015 option 3). The
+// model reads one hitstun per move; the opening decides which authored number
+// that is, and everything downstream -- the settling index, the usable-edge
+// graph, the dead-cancel lists, the verdict -- moves with it.
+std::int32_t hitstunForOpening(const Move& m, ProverOpening opening) {
+    switch (opening) {
+        case ProverOpening::Neutral:
+            return m.hitstun;
+        case ProverOpening::Counter:
+            // The transform exists, the field does not: M1.3(c) adds the
+            // authored `counter_hit` bonus on this line, and until then a
+            // counter opening restates neutral -- the identity
+            // ProverOpenings.ACounterOpeningWithNothingAuthoredIsIdenticalToNeutral
+            // pins, so semantics nobody authored cannot leak in early.
+            return m.hitstun;
+        case ProverOpening::Air:
+            // The file's own air number, falling back to ground where none is
+            // authored (zero is the loaded default; a move with no air number
+            // stuns airborne defenders exactly as it stuns grounded ones,
+            // which is ADR-011's off-by-default at the model layer).
+            return m.airHitstunTicks != 0 ? m.airHitstunTicks : m.hitstun;
+    }
+    return m.hitstun;
+}
+
+} // namespace
+
+// The single-opening analysis -- the whole pipeline from validation through
+// the loss table, exactly as it ran when there was only one opening to ask
+// about. Static because the public AnalyseCharacter below runs it once per
+// opening; the ONLY line that reads `opening` is the projection's hitstun.
+static bool analyseForOpening(const CharacterData&  character,
+                              const ProverOptions&  options,
+                              ProverOpening         opening,
+                              ProverResult&         out,
+                              ProverReport&         report) {
     out    = ProverResult{};
     report = ProverReport{};
 
+    out.opening   = opening;
     out.fileStage = character.stage;
     out.stage     = ProverStage::Corner;
 
@@ -394,7 +438,7 @@ bool AnalyseCharacter(const CharacterData&  character,
         pm.startup  = m.startup;
         pm.active   = m.active;
         pm.recovery = m.recovery;
-        pm.hitstun  = m.hitstun;
+        pm.hitstun  = hitstunForOpening(m, opening);
         pm.damage   = static_cast<float>(m.damageHundredths) / 100.0f;
         pm.effect   = dense(m.effect, resCount, indicesOk);
         pm.guard    = dense(m.guard,  resCount, indicesOk);
@@ -531,11 +575,15 @@ bool AnalyseCharacter(const CharacterData&  character,
         for (std::size_t hitIndex = 0; hitIndex < character.decay.tablePermille.size(); ++hitIndex) {
             const std::int64_t permille = character.decay.tablePermille[hitIndex];
             for (const Move& m : character.moves) {
+                // The bases THIS opening's verdict used, not the neutral ones:
+                // an air run whose faithfulness check quoted ground hitstun
+                // would be checking numbers its own search never touched.
+                const std::int32_t base = hitstunForOpening(m, opening);
                 const std::int64_t exact =
                     std::max<std::int64_t>(character.decay.floor,
-                                           (static_cast<std::int64_t>(m.hitstun) * permille) / 1000);
+                                           (static_cast<std::int64_t>(base) * permille) / 1000);
                 const std::int64_t viaFloat =
-                    c.decay.hitstun(m.hitstun, static_cast<int>(hitIndex));
+                    c.decay.hitstun(base, static_cast<int>(hitIndex));
                 if (viaFloat < exact) ++decayUnfaithfulLow;
                 if (viaFloat > exact) ++decayUnfaithfulHigh;
             }
@@ -857,6 +905,44 @@ bool AnalyseCharacter(const CharacterData&  character,
     return true;
 }
 
+// The public entry: ONE FULL ANALYSIS PER OPENING (ADR-015, accepted
+// 2026-09-01, option 3). Neutral runs first, straight into the caller's own
+// slots -- the top-level result IS the neutral opening, so every call site
+// written against the single-verdict surface keeps reading the bytes it
+// always read -- and its report is THE report: the other two runs repeat the
+// same structural checks over the same character and would only duplicate
+// the warnings.
+bool AnalyseCharacter(const CharacterData&  character,
+                      const ProverOptions&  options,
+                      ProverResult&         out,
+                      ProverReport&         report) {
+    if (!analyseForOpening(character, options, ProverOpening::Neutral, out, report))
+        return false;
+
+    // Copied BEFORE anything lands in out.openings, so the neutral element
+    // cannot alias the vector it is being pushed into.
+    ProverResult neutralCopy = out;
+
+    out.openings.reserve(kProverOpeningCount);
+    out.openings.push_back(std::move(neutralCopy));
+
+    for (ProverOpening opening : { ProverOpening::Counter, ProverOpening::Air }) {
+        ProverResult sub{};
+        ProverReport scratch{};   // same character, same checks, same words
+        if (!analyseForOpening(character, options, opening, sub, scratch)) {
+            // Structurally unreachable today -- the failure paths validate
+            // indices and counts the neutral run already passed -- but a
+            // future transform could change that, and a half-answered result
+            // must be refused loudly rather than returned with a hole in it.
+            out    = ProverResult{};
+            report = scratch;
+            return false;
+        }
+        out.openings.push_back(std::move(sub));
+    }
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // Reporting
 // ---------------------------------------------------------------------------
@@ -936,6 +1022,30 @@ std::string DescribeVerdict(const CharacterData& character, const ProverResult& 
         if (loss.count == 0) continue;
         out += "\n  lost: " + loss.field + " x" + toString(loss.count) + " -- " +
                LossDirectionName(loss.direction);
+    }
+
+    // One verdict per opening (ADR-015 option 3), APPENDED so every sentence
+    // above keeps its exact spelling -- tests and bug reports quote this text.
+    // Empty on a result that predates openings or never ran, and that absence
+    // is worth a reader noticing, so nothing is printed in that case.
+    if (!result.openings.empty()) {
+        out += "\n  by opening (every line above answers the neutral one):";
+        for (const ProverResult& o : result.openings) {
+            switch (o.opening) {
+                case ProverOpening::Neutral: out += "\n    under a NEUTRAL opening: ";  break;
+                case ProverOpening::Counter: out += "\n    under a COUNTER opening: "; break;
+                case ProverOpening::Air:     out += "\n    under an AIR opening: ";    break;
+            }
+            out += ProverStatusName(o.status);
+            if (o.status == ProverStatus::Terminating)
+                out += " -- worst case " + toString(o.maxHits) + " hits";
+            if (o.opening == ProverOpening::Counter)
+                out += " (no counter_hit is authorable yet; identical to "
+                       "neutral by construction)";
+            if (o.opening == ProverOpening::Air)
+                out += " (the file's authored air_hitstun numbers; the loss "
+                       "ledger says what the kernel carries)";
+        }
     }
 
     out += "\n";
