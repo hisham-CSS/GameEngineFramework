@@ -504,14 +504,17 @@ struct MoveDef {
     MotionKey    motion[kMaxMotionKeys];
     std::int32_t motionCount;
 
-    // --- RESERVED for M1.3(c) and (d), semantics deliberately unchosen ------
+    // --- M1.3(c) counter-hit, LIVE; (d) launch fields still RESERVED --------
     //
-    // Bytes only, reserved in the SAME growth as the motion block so the
-    // hashed contract pays its re-hash once (ADR-005 section 3, ADR-014).
-    // Counter-hit's three-ways-out question (ROADMAP M1.3(c)) is NOT decided
-    // by these fields existing -- zero is inert, nothing reads them, and the
-    // (c) ADR still owes the choice. Same for the launch vector and reaction
-    // id (d): Simulate.cpp's air-hit velX zeroing stands until they land.
+    // Reserved in the SAME growth as the motion block so the hashed contract
+    // paid its re-hash once (ADR-005 section 3, ADR-014). The counter pair
+    // stopped being reserved when ADR-015 was accepted (option 3, per-opening
+    // verdicts) and M1.3(c) landed: ResolveHits adds both bonuses when the
+    // defender is caught MID-STARTUP -- startup only, a trade is a trade and
+    // a punish is its own reward -- and zero stays inert, which is every move
+    // authored before the field. The launch pair remains bytes only for (d):
+    // nothing reads them, and Simulate.cpp's air-hit velX zeroing stands
+    // until they land.
     std::int32_t counterHitstunBonus;
     std::int32_t counterDamageBonus;
     std::int32_t launchVelXSub;

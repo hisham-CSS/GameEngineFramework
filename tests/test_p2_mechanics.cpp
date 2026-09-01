@@ -2859,3 +2859,61 @@ TEST(P3Movement, ACornerPushRecoilsTheAttackerOnlyAtTheWall) {
         EXPECT_LT(s.p[1].health, 1000) << "precondition: the hit landed";
     }
 }
+
+// --- Counter-hit (ROADMAP M1.3(c), the first mechanic under ADR-015) ---------
+//
+// The reserved MoveDef bytes stop being reserved: a move may author a price
+// for catching the defender STARTING something. Startup only -- not active (a
+// trade is a trade, and charging it as a counter would make every trade a
+// counter for both sides), not recovery (a punish is already its own reward)
+// -- and off by default: zero bonus is every move authored before the field,
+// and the unpatched MatchData hash must not move.
+
+TEST(P3Reactions, CounterHitAddsTheAuthoredStun) {
+    auto data = twoFighters();
+    data->p[0].moves[1].counterHitstunBonus = 7;
+    data->p[0].moves[1].counterDamageBonus  = 50;
+
+    // COUNTER: the defender is mid-startup when the hit lands. attack() has
+    // startup 1, so moveFrame 0 is the startup frame -- and a fighter whose
+    // move has not reached active has no hitbox, so only p0 connects.
+    {
+        GameState s = facingOff();
+        s.p[1].moveFrame = 0;
+        ResolveHits(s, *data);
+        EXPECT_EQ(s.p[1].hitstun, 12 + 7)
+            << "the authored counter bonus did not reach the stun";
+        EXPECT_EQ(s.p[1].health, 1000 - (100 + 50))
+            << "the authored counter damage bonus did not reach the health";
+    }
+
+    // NOT a counter: the defender is idle. Base numbers exactly.
+    {
+        GameState s = facingOff();
+        s.p[1].moveId    = 0;
+        s.p[1].moveFrame = 0;
+        ResolveHits(s, *data);
+        EXPECT_EQ(s.p[1].hitstun, 12) << "an idle defender was charged as a counter";
+        EXPECT_EQ(s.p[1].health, 1000 - 100);
+    }
+
+    // NOT a counter: the defender is ACTIVE -- this is a trade, both connect,
+    // and a trade charged as a counter would hand both sides a bonus for the
+    // same instant.
+    {
+        GameState s = facingOff();   // both mid-active by construction
+        ResolveHits(s, *data);
+        EXPECT_EQ(s.p[1].hitstun, 12) << "a trade was charged as a counter";
+    }
+
+    // OFF BY DEFAULT: no bonus authored, the same mid-startup catch pays base.
+    {
+        auto plain = twoFighters();
+        GameState s = facingOff();
+        s.p[1].moveFrame = 0;
+        ResolveHits(s, *plain);
+        EXPECT_EQ(s.p[1].hitstun, 12)
+            << "a move that authors no counter_hit grew counter semantics";
+        EXPECT_EQ(s.p[1].health, 1000 - 100);
+    }
+}

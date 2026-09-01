@@ -495,10 +495,24 @@ Six WPs, all landed, gate required in CI. The decision is
   `AnAirOpeningReadsTheAuthoredAirHitstunAndUnauthoredFallsBackToNeutral`) —
   and the panel, `DescribeVerdict` and the telemetry record all speaking the
   vocabulary. The cooker's pair stays singular (neutral-corner, named) until
-  the executed side can produce the other openings, which is (c)/(d)'s work.
-  Next: (c) and (d) land as fields and the openings genuinely diverge. The
-  MoveDef bytes for both are already reserved (b2), zeroed and unread; the
-  paper's measured pair is re-derived per opening.
+  the executed side can produce the other openings.
+  **(c) itself LANDED**: `engine.reaction.counter_hit { hitstun_bonus,
+  damage_bonus }` (negative refused; damage through the one hundredths rule),
+  carried whole into the (b2)-reserved MoveDef pair, ledger row
+  `move.counter_hit` (34 rows now), and ResolveHits charges both when the
+  defender is caught MID-STARTUP — startup only, a trade is a trade, a punish
+  is its own reward; bonus on the base stun, decay applies to the sum; damage
+  bonus added before scaling so it prorates with its hit. The COUNTER
+  opening's model verdict now charges the authored bonus — on every hit of
+  that opening's search, first hit in the game, the Permissive direction, in
+  the opening's own loss row (`counter bonus charged per hit`). Off by
+  default everywhere: unpatched characters hash as before, the crossplat
+  golden untouched (`P3Reactions.CounterHitAddsTheAuthoredStun`,
+  `ACounterOpeningChargesTheAuthoredBonusAndNamesItsChargeRule`,
+  `TheAuthoredCounterBonusCrossesAndNegativeIsRefused`).
+  Next: (d) reactions land and the air opening's executed half becomes real.
+  The launch MoveDef bytes stay reserved (b2), zeroed and unread; the paper's
+  measured pair is re-derived per opening.
   (d) **wall bounce / wall splat / launch vector** as per-hit `on_hit` reactions
   using the fields M1.1a reserved. `air_hitstun_ticks` is already loaded and
   waiting for a launcher to put someone in the air.

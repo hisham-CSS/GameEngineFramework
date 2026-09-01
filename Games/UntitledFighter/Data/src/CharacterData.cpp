@@ -1329,6 +1329,25 @@ bool parseDocument(Ctx& ctx, const json& doc, CharacterData& out) {
                         return false;
                     if (!readInt(ctx, *r, "fall_recover_ticks", where, mv.fallRecoverTicks, false))
                         return false;
+                    // COUNTER HIT (M1.3(c)): the price for catching the
+                    // defender mid-startup. An object, so the two halves
+                    // travel together and a bare number cannot be ambiguous
+                    // about which one it is. Negative is refused -- a counter
+                    // that REDUCES the price is not a counter, and a negative
+                    // that meant "shorter stun on counter" would deserve its
+                    // own named field rather than a sign convention.
+                    if (const json* ch = member(*r, "counter_hit")) {
+                        if (!ch->is_object())
+                            return ctx.fail(where, "`engine.reaction.counter_hit` is not an object");
+                        if (!readInt(ctx, *ch, "hitstun_bonus", where,
+                                     mv.counterHitstunBonus, false))
+                            return false;
+                        if (!readQuantized(ctx, *ch, "damage_bonus", where, nullptr, 100,
+                                           mv.counterDamageBonusHundredths))
+                            return false;
+                        if (mv.counterHitstunBonus < 0 || mv.counterDamageBonusHundredths < 0)
+                            return ctx.fail(where, "counter_hit bonuses must not be negative");
+                    }
                     if (member(*r, "causes_knockdown") &&
                         !readBool(ctx, *r, "causes_knockdown", where, mv.causesKnockdown))
                         return false;

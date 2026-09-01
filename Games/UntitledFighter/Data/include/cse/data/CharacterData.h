@@ -476,6 +476,18 @@ struct Move {
     // shipped move today (fighter_a authors the key at 0 on all 22).
     std::int32_t cornerPushSub    = 0;
     bool         causesKnockdown  = false;
+    // COUNTER HIT (ROADMAP M1.3(c), the first mechanic under ADR-015): the
+    // price this move charges for catching the defender mid-STARTUP.
+    // Authored as `engine.reaction.counter_hit { hitstun_bonus, damage_bonus }`
+    // -- the bonus damage in the same float units as `damage`, quantized
+    // through the same hundredths rule so there is still exactly one
+    // documented quantization. Zero is "the file did not say", which is every
+    // move authored before the block and why the unpatched hash holds. Read
+    // by ResolveHits (kernel) and by the COUNTER opening's projection
+    // (ProverAdapter -- charged on every hit there, first hit in the game;
+    // the Permissive loss row says so).
+    std::int32_t counterHitstunBonus         = 0;
+    std::int32_t counterDamageBonusHundredths = 0;
 
     // WHICH BLOCK STOPS THIS MOVE. Mid by default, which is what an absent field
     // means and what every move written before this field existed is.

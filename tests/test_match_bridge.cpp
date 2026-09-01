@@ -966,6 +966,9 @@ TEST(MatchBridgeLosses, EveryDropIsCountedAgainstKungFuGirlsActualFile) {
         // that somebody looked: her converted file authors no impact freeze,
         // so M1.3i's carried hitstop leaves every move of hers at 0.
         { "move.hitstop",              0, BuildLossDirection::Exact         },
+        // Zero again: her converted file authors no counter_hit (M1.3(c)'s
+        // carry), and the zero records that somebody looked.
+        { "move.counter_hit",          0, BuildLossDirection::Exact         },
         // Exact since ROADMAP M1.3e wired both into MoveDef and StanceAllows.
         // Kung Fu Girl authors a stance on all 25 moves and no blocked_as at
         // all -- the zero-count row records that somebody looked.
@@ -1713,4 +1716,64 @@ TEST(MatchBridgeMechanics, TheAuthoredMotionKeysCrossWithTheirOneSignFlip) {
         findLoss(build.report[0], "move.engine.motion (pos_add)");
     ASSERT_NE(posAdd, nullptr);
     EXPECT_EQ(posAdd->count, 0) << "fighter_a authors no teleport keys";
+}
+
+// COUNTER HIT crosses the bridge whole (ROADMAP M1.3(c), ADR-015 enacted).
+// The stun bonus in ticks; the damage bonus through the SAME hundredths rule
+// as the damage it rides on -- authored equal to the move's own damage below,
+// so the equality of the two kernel fields IS the proof the conversion is the
+// same one, with no unit re-derived by hand.
+TEST(MatchBridgeMechanics, TheAuthoredCounterBonusCrossesAndNegativeIsRefused) {
+    const char* kCounter =
+        R"({"name":"c","stage":"corner","walk_speed":0.5,)"
+        R"("resources":[{"name":"meter","initial":0,"floor":0},)"
+        R"({"name":"juggle","initial":4,"floor":0}],)"
+        R"("scaling":[],"decay":{"kind":"none"},)"
+        R"("moves":[{"id":"jab","startup":3,"active":2,"recovery":4,)"
+        R"("hitstun":8,"damage":10.0,"stance":"standing",)"
+        R"("engine":{"reaction":{"counter_hit":)"
+        R"({"hitstun_bonus":6,"damage_bonus":10.0}}}}],"cancels":[]})";
+
+    CharacterData c{};
+    LoadReport lr{};
+    ASSERT_TRUE(LoadCharacterJson("counter.json", kCounter, loadOptions(), c, lr))
+        << lr.error;
+    ASSERT_EQ(c.moves.size(), 1u);
+    EXPECT_EQ(c.moves[0].counterHitstunBonus, 6);
+    EXPECT_EQ(c.moves[0].counterDamageBonusHundredths, 1000);
+
+    BuildOptions options{};
+    options.bindings = { { "jab", cse::kernel::kInputLP } };
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build))
+        << build.report[0].error;
+    const std::uint16_t slot = build.moves[0].Find("jab");
+    ASSERT_NE(slot, 0u);
+    const cse::kernel::MoveDef& m = build.data.p[0].moves[slot];
+    EXPECT_EQ(m.counterHitstunBonus, 6);
+    EXPECT_EQ(m.counterDamageBonus, m.damage)
+        << "damage_bonus authored equal to damage crossed through a DIFFERENT "
+           "conversion";
+
+    // The ledger row: the zero-count row on an unauthored character is the
+    // proof the check ran; the count here is the proof it counted.
+    const BuildLoss* row = findLoss(build.report[0], "move.counter_hit");
+    ASSERT_NE(row, nullptr) << "no move.counter_hit ledger row";
+    EXPECT_EQ(row->count, 1);
+    EXPECT_EQ(row->direction, cse::data::BuildLossDirection::Exact);
+
+    // Negative is refused by name: a counter that REDUCES the price is not a
+    // counter.
+    const char* kNegative =
+        R"({"name":"c","stage":"corner","walk_speed":0.5,)"
+        R"("resources":[{"name":"meter","initial":0,"floor":0},)"
+        R"({"name":"juggle","initial":4,"floor":0}],)"
+        R"("scaling":[],"decay":{"kind":"none"},)"
+        R"("moves":[{"id":"jab","startup":3,"active":2,"recovery":4,)"
+        R"("hitstun":8,"damage":10.0,"stance":"standing",)"
+        R"("engine":{"reaction":{"counter_hit":{"hitstun_bonus":-1}}}}],)"
+        R"("cancels":[]})";
+    CharacterData neg{};
+    EXPECT_FALSE(LoadCharacterJson("negative.json", kNegative, loadOptions(), neg, lr));
+    EXPECT_NE(lr.error.find("counter_hit"), std::string::npos) << lr.error;
 }

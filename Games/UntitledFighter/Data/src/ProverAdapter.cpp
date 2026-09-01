@@ -328,12 +328,14 @@ std::int32_t hitstunForOpening(const Move& m, ProverOpening opening) {
         case ProverOpening::Neutral:
             return m.hitstun;
         case ProverOpening::Counter:
-            // The transform exists, the field does not: M1.3(c) adds the
-            // authored `counter_hit` bonus on this line, and until then a
-            // counter opening restates neutral -- the identity
-            // ProverOpenings.ACounterOpeningWithNothingAuthoredIsIdenticalToNeutral
-            // pins, so semantics nobody authored cannot leak in early.
-            return m.hitstun;
+            // The authored M1.3(c) bonus, charged on EVERY hit of this
+            // opening's search -- the game grants it on the opening hit only,
+            // which is the Permissive direction and is named in this
+            // opening's own loss row. A character that authors no bonus
+            // restates neutral exactly
+            // (ProverOpenings.ACounterOpeningWithNothingAuthoredIsIdenticalToNeutral).
+            return m.hitstun +
+                   (m.counterHitstunBonus > 0 ? m.counterHitstunBonus : 0);
         case ProverOpening::Air:
             // The file's own air number, falling back to ground where none is
             // authored (zero is the loaded default; a move with no air number
@@ -439,7 +441,16 @@ static bool analyseForOpening(const CharacterData&  character,
         pm.active   = m.active;
         pm.recovery = m.recovery;
         pm.hitstun  = hitstunForOpening(m, opening);
-        pm.damage   = static_cast<float>(m.damageHundredths) / 100.0f;
+        // The counter's damage half rides the same uniform charge as its stun
+        // half (and only inflates maxDamage reporting -- no verdict turns on
+        // damage).
+        pm.damage   = static_cast<float>(
+                          m.damageHundredths +
+                          (opening == ProverOpening::Counter &&
+                                   m.counterDamageBonusHundredths > 0
+                               ? m.counterDamageBonusHundredths
+                               : 0)) /
+                      100.0f;
         pm.effect   = dense(m.effect, resCount, indicesOk);
         pm.guard    = dense(m.guard,  resCount, indicesOk);
         c.moves.push_back(std::move(pm));
@@ -902,6 +913,26 @@ static bool analyseForOpening(const CharacterData&  character,
     addLoss(out, "decay.table float multiply", LossDirection::Permissive, decayUnfaithfulHigh,
             "the same check, in the direction that hands the attacker a frame they do not have");
 
+    // The counter opening's own charge rule (M1.3(c)). The game grants the
+    // bonus on the OPENING hit only; this opening's search charges it on every
+    // hit, because first-hit-only state does not exist in Config and the exact
+    // encoding (delay-reduced opener edges behind a spend-once resource) is
+    // deferred until a verdict actually turns on it. Permissive: the model can
+    // invent an infinite the counter-opened game does not have and cannot hide
+    // one, so a TERMINATING under this opening still holds in the game.
+    if (opening == ProverOpening::Counter) {
+        std::int32_t counterCharged = 0;
+        for (const Move& m : character.moves)
+            if (m.counterHitstunBonus > 0 || m.counterDamageBonusHundredths > 0)
+                ++counterCharged;
+        addLoss(out, "counter bonus charged per hit", LossDirection::Permissive,
+                counterCharged,
+                "every hit of this opening's search carries the counter bonus; the "
+                "game grants it on the opening hit only. The count is the moves "
+                "authoring a bonus: zero means this opening restates neutral and "
+                "the loss cannot bite");
+    }
+
     return true;
 }
 
@@ -1039,9 +1070,16 @@ std::string DescribeVerdict(const CharacterData& character, const ProverResult& 
             out += ProverStatusName(o.status);
             if (o.status == ProverStatus::Terminating)
                 out += " -- worst case " + toString(o.maxHits) + " hits";
-            if (o.opening == ProverOpening::Counter)
-                out += " (no counter_hit is authorable yet; identical to "
-                       "neutral by construction)";
+            if (o.opening == ProverOpening::Counter) {
+                bool anyBonus = false;
+                for (const Move& m : character.moves)
+                    if (m.counterHitstunBonus > 0 ||
+                        m.counterDamageBonusHundredths > 0) { anyBonus = true; break; }
+                out += anyBonus
+                           ? " (bonus charged on every hit of this opening; "
+                             "the game grants it on the opening hit only)"
+                           : " (no counter_hit authored; identical to neutral)";
+            }
             if (o.opening == ProverOpening::Air)
                 out += " (the file's authored air_hitstun numbers; the loss "
                        "ledger says what the kernel carries)";

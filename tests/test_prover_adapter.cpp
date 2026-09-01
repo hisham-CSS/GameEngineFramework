@@ -904,3 +904,43 @@ TEST(ProverOpenings, DescribeVerdictNamesEachOpening) {
     EXPECT_NE(described.find("under a COUNTER opening"), std::string::npos);
     EXPECT_NE(described.find("under an AIR opening"), std::string::npos);
 }
+
+// M1.3(c) enacted: the counter opening charges the authored bonus, and its
+// loss table names HOW it charges (every hit here, opening hit only in the
+// game -- Permissive). The synthetic is the air-opening one's shape with the
+// divergence moved to the counter field: the self-cancel is dead at base
+// hitstun and alive once the bonus lands.
+TEST(ProverOpenings, ACounterOpeningChargesTheAuthoredBonusAndNamesItsChargeRule) {
+    CharacterData c{};
+    c.id   = "synthetic_counter_opening";
+    c.name = "Counter Opening";
+    c.resources.push_back(resource("meter", 0, false, 0));
+    c.resources.push_back(resource("juggle", 0, false, 0));
+    Move jab = move("jab", 3, 4);
+    jab.counterHitstunBonus = 16;   // 4+16=20 -> advantage 18 >= startup 3
+    c.moves.push_back(jab);
+    c.cancels.push_back(cancel(0, 0, 2));
+    c.starters.push_back(0);
+    c.RebuildIndices();
+
+    ProverResult result{};
+    ProverReport report{};
+    ASSERT_TRUE(AnalyseCharacter(c, ProverOptions{}, result, report)) << report.error;
+    ASSERT_EQ(result.openings.size(), 3u);
+
+    EXPECT_EQ(result.openings[0].status, ProverStatus::Terminating)
+        << "the base link (advantage 2 < startup 3) connected without the bonus";
+    EXPECT_EQ(result.openings[1].status, ProverStatus::Infinite)
+        << "the counter opening did not charge the authored bonus";
+
+    const ProjectionLoss* charge =
+        findLoss(result.openings[1], "counter bonus charged per hit",
+                 LossDirection::Permissive);
+    ASSERT_NE(charge, nullptr)
+        << "the counter opening does not name its every-hit charge rule";
+    EXPECT_EQ(charge->count, 1);
+    EXPECT_EQ(findLoss(result, "counter bonus charged per hit",
+                       LossDirection::Permissive),
+              nullptr)
+        << "the neutral opening grew the counter opening's loss row";
+}

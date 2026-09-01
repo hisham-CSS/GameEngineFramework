@@ -790,15 +790,31 @@ void ResolveHits(GameState& state, const MatchData& data) {
             continue;
         }
 
+        // COUNTER HIT (ROADMAP M1.3(c), the first mechanic under ADR-015's
+        // per-opening vocabulary): the defender was caught STARTING a move --
+        // moveFrame still inside the startup of the move it committed to --
+        // and this move authors a price for that. STARTUP ONLY, deliberately:
+        // active is a trade (charging it as a counter would hand both sides a
+        // bonus for the same instant) and recovery is a punish, already its
+        // own reward. Both bonuses are per-move fields, off by default -- a
+        // zero is every move authored before the field existed, so the
+        // unpatched MatchData hash does not move. The bonus lands on the BASE
+        // stun and the decay rule then applies to the sum: one composition,
+        // stated here, rather than two rules that meet in an unstated order.
+        const FighterData& dd = data.p[d];
+        const bool counter =
+            def.moveId > 0 && def.moveId < dd.moveCount &&
+            def.moveFrame < dd.moves[def.moveId].startup;
+
         std::int32_t stun = m->hitstun;
         if (stun < 0) stun = 0;
+        if (counter && m->counterHitstunBonus > 0) stun += m->counterHitstunBonus;
 
         // HITSTUN DECAY, and it reads def.comboHits BEFORE this hit increments it
         // -- so the first hit of a combo decays by nothing, which is the only
         // reading under which "the third hit stuns less than the first" is what
         // the sentence means. The rule belongs to the DEFENDER, because it
         // describes how much stun this body suffers.
-        const FighterData& dd = data.p[d];
         if (dd.hitstunDecayStep > 0) {
             stun -= dd.hitstunDecayStep * static_cast<std::int32_t>(def.comboHits);
             if (stun < dd.hitstunDecayFloor) stun = dd.hitstunDecayFloor;
@@ -817,6 +833,9 @@ void ResolveHits(GameState& state, const MatchData& data) {
         // having exactly one documented quantization.
         std::int32_t dmg = m->damage;
         if (dmg < 0) dmg = 0;          // a negative damage value does not heal
+        // The counter's damage half, added to the base BEFORE scaling so the
+        // bonus prorates exactly as the hit it rides on does.
+        if (counter && m->counterDamageBonus > 0) dmg += m->counterDamageBonus;
         dmg = (dmg * static_cast<std::int32_t>(def.scaling)) / kScalingFull;
         def.health = def.health > dmg ? def.health - dmg : 0;
 

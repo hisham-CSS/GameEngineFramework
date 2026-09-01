@@ -716,10 +716,11 @@ void ComboProverPanel::drawVerdict_(const CharacterData& character,
     // One verdict per opening (ADR-015 option 3). The banner above and every
     // section below answer the NEUTRAL opening -- the top-level result is its
     // mirror -- and these lines are where the other openings get their say.
-    // A counter line that differs from neutral is impossible until M1.3(c)
-    // makes the bonus authorable; an air line that differs is the file's own
-    // authored air numbers talking, and the projection table below still says
-    // what the kernel carries of them.
+    // A counter line that differs is the authored M1.3(c) bonus talking
+    // (charged on every hit of that opening's search; the game grants it on
+    // the opening hit only, and the opening's own loss row says so); an air
+    // line that differs is the file's authored air numbers, and the
+    // projection table below still says what the kernel carries of them.
     if (result_.openings.size() > 1) {
         ImGui::Spacing();
         for (const ProverResult& o : result_.openings) {

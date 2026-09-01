@@ -105,7 +105,7 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
     std::int32_t withHitCondition = 0, noReach = 0, withReach = 0;
     std::int32_t withHits = 0, withMotion = 0, withEscapeHatch = 0;
     std::int32_t offMid = 0, withHitstop = 0, withPosAdd = 0;
-    std::int32_t withCornerPush = 0;
+    std::int32_t withCornerPush = 0, withCounter = 0;
 
     for (const Move& m : c.moves) {
         if (m.cornerPushSub != 0) ++withCornerPush;
@@ -117,6 +117,8 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
         if (!m.guard.empty())               ++withGuard;
         if (m.pushbackSub != 0)             ++withPushback;
         if (m.hitstopTicks != 0)            ++withHitstop;
+        if (m.counterHitstunBonus != 0 || m.counterDamageBonusHundredths != 0)
+            ++withCounter;
         if (!m.hitConditionProse.empty())   ++withHitCondition;
         if (m.reachSub == kNoReach)         ++noReach; else ++withReach;
         if (!m.hits.empty())                ++withHits;
@@ -291,6 +293,16 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
             "field first bites. The MODEL has no corner in its vocabulary at "
             "all; its midscreen/corner split is a stage choice, not a rule "
             "per hit.");
+
+    addLoss(report, "move.counter_hit", BuildLossDirection::Exact, withCounter,
+            "engine.reaction.counter_hit {hitstun_bonus, damage_bonus}, carried "
+            "whole into MoveDef::counterHitstunBonus/counterDamageBonus (ROADMAP "
+            "M1.3(c)): ResolveHits adds both when the defender is caught "
+            "MID-STARTUP -- startup only; a trade is a trade and a punish is its "
+            "own reward. The MODEL charges the bonus per OPENING (ADR-015 option "
+            "3): its counter verdict charges every hit, first hit in the game, "
+            "which is the Permissive direction and is named in the prover's own "
+            "loss table rather than here.");
 
     addLoss(report, "move.hitstop", BuildLossDirection::Exact, withHitstop,
             "Impact freeze on hit, carried whole into MoveDef::hitstop (ROADMAP "
@@ -1005,6 +1017,14 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
             if (recoil < -kMaxPushback) recoil = -kMaxPushback;
             m.cornerPushHit = static_cast<std::int16_t>(recoil);
         }
+
+        // COUNTER HIT (ROADMAP M1.3(c)), carried whole: the stun bonus in
+        // ticks, the damage bonus through the SAME hundredths-to-points rule
+        // as the damage it rides on -- one documented quantization, applied
+        // identically, so a bonus of 0.5 loses its half-point exactly where
+        // a damage of 0.5 does.
+        m.counterHitstunBonus = src.counterHitstunBonus;
+        m.counterDamageBonus  = damagePointsFromHundredths(src.counterDamageBonusHundredths);
 
         // HITSTOP, CARRIED WHOLE (ROADMAP M1.3i). It was held back from M1.3d
         // for a measured reason -- the freeze moves every frame-exact count in

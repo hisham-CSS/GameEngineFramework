@@ -57,9 +57,12 @@ enum class ProverStage : std::uint8_t { Corner };
 // one hitstun per move; WHICH number that is depends on the opening:
 //
 //   NEUTRAL  the grounded hit every verdict answered before this enum existed.
-//   COUNTER  the first hit lands as a counter hit. Identical to NEUTRAL until
-//            M1.3(c) makes `counter_hit` authorable -- the transform exists,
-//            the field does not, and the tests pin the identity.
+//   COUNTER  the first hit lands as a counter hit, charging the move's
+//            authored M1.3(c) bonus. The search charges it on EVERY hit --
+//            the game grants it on the opening hit only -- which is the
+//            Permissive direction and is named in this opening's own loss
+//            row; a character authoring no bonus restates NEUTRAL exactly,
+//            and the tests pin that identity.
 //   AIR      the defender is airborne: every move's `air_hitstun_ticks`
 //            replaces its ground hitstun (falling back to ground where the
 //            file authors none). This answers the FILE's numbers today; the
