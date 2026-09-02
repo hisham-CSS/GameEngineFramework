@@ -1,6 +1,6 @@
 # ROADMAP — the one place status lives
 
-Verified: 2026-08-21 @ db8dd1a
+Verified: 2026-09-01 @ 59fd462
 
 This is the **only** roadmap. `README.md` carries one paragraph and a link;
 `docs/manual/` never lists gaps; ADRs record why, not what is next. If a fact
@@ -17,8 +17,8 @@ the *published* prover on the *shipped* files inside a working editor. The
 engine's job is to make that proof **visible and convincing**: every verdict the
 prover prints must be demonstrable in the running game, frame-perfectly, by a
 tool-assisted player, as a replay anyone can watch — and the **same fighter,
-loaded with different frame data, must show different infinites** (microwalk,
-jump cancels, wall bounces, counter-hit links, meter loops), because every
+loaded with different frame data, must show different verdicts** (the cooked
+thirteen-row catalogue; NORTHSTAR names the exhibits), because every
 mechanic is an opt-in field on a move, never a rule in the kernel
 ([ADR-011](adr/ADR-011-mechanics-are-fields.md)). Visuals are a pure function of
 frame data; return-to-idle tails are always cancelable. Everything is provable
@@ -34,7 +34,7 @@ The paper's claim has four load-bearing parts. This is what each rests on today.
 | The claim needs | Evidence in CI today | What is missing |
 |---|---|---|
 | **A deterministic simulation** | `tests/test_kernel.cpp` T1/T2; `tests/test_determinism_crossplat.cpp` T3, re-checked by gcc 13 on the Linux leg | Nothing. This one is done and has been re-goldened three times for stated reasons. |
-| **The prover reads the shipped files** | `tests/test_character_data.cpp` load assertions; the editor's Combo Prover panel | Nothing structural. `counter_hit` is absent from the schema entirely — see the qualifier below. |
+| **The prover reads the shipped files** | `tests/test_character_data.cpp` load assertions; the editor's Combo Prover panel | Nothing structural. `counter_hit` and the air numbers are authored, simulated and answered per opening since the openings wave (ADR-015); what remains is the cooker's executed pair, still singular neutral-corner until a bench can produce the other openings. |
 | **Every verdict is demonstrable as a replay** | `tests/test_ground_truth.cpp` executes the prover's own printed witness; since M1.3e the demonstration presses directions, establishes stances and performs its turns across jumps; since M1.3g one `WitnessCursor` performs every witness in the repository | Only one character's witness is executed. |
 | **The game is the file** | `MatchBuilder`'s loss ledger, checked move-by-move in `tests/test_match_bridge.cpp`; stance and guard height carried since M1.3e (`EveryAuthoredNormalIsReachableThroughItsButtonAndStance`); juggle since M1.1f, hitstop since M1.3i | Priority, chip and scaling are still authored and dropped. |
 
@@ -67,15 +67,17 @@ Models` is the sentence as a test. The authored infinite is FOUND the same
 way: `fighter_a_infinite` comes back INFINITE with a witness the test replays
 (`tests/test_combo_search.cpp`). 2026-08-31.
 
-**And one qualifier the write-up does not yet carry.** `counter_hit` appears zero
-times in `schema.v2.json`. The model reads one `hitstun` per move, so a
-TERMINATING verdict says nothing about the same string opened with a counter hit,
-and `air_hitstun_ticks` — authored on every move and differing from ground
-hitstun on all of them — has the same shape. **Decided 2026-09-01:
-[ADR-015](adr/ADR-015-what-a-verdict-claims-about-hitstun.md) Accepted, option
-3 — one verdict per opening.** The tool will answer per hit type; the prover
-surface changes first, then (c) and (d) land against the new vocabulary, and
-this paragraph's successor states the re-derived pair.
+**And the qualifier landed as a vocabulary.** Since the openings wave
+([ADR-015](adr/ADR-015-what-a-verdict-claims-about-hitstun.md) Accepted,
+option 3, enacted 2026-09-01) **the tool answers one verdict per opening** —
+neutral, counter, air — with the legacy surface staying the neutral answer
+verbatim. The re-derived pair, per the tests: the base pair stands at **model
+21 / executed 7**; the **counter opening** charges the authored bonus (on the
+`counter_hit` exhibit it revives one dead cancel, 88 → 89 usable, and holds
+the 21 bound); the **air opening** reads each move's authored
+`air_hitstun_ticks`, simulated since (d); and the **jump_cancel** exhibit's
+executed worst case is **13** against the model's held 21 — the bound
+stretched from the other side, through an edge the model prices dead.
 
 **The shortest credible path to the claim**, reordered 2026-08-21 under
 [ADR-012](adr/ADR-012-the-tick-is-a-pipeline.md) after complexity itself became
@@ -84,8 +86,8 @@ pure stages — golden held), **M1.3e** (posture follows the move + the stance
 wire — the third measurement above), **M1.3g** (ONE `WitnessCursor`, five
 copies deleted) and **M1.4a + M1.4** (`ComboSearch` runs the real kernel,
 section 3's parallel model is deleted, and the paper's pair — model 21 /
-executed 7 — is printed by CI). Next: **M1.6**, the showcase. Everything else
-is done or serves it.
+executed 7 — is printed by CI). The showcase (**M1.6**) closed 2026-09-01 at
+thirteen rows; next is **M1.9** (the consolidation), then **M2**.
 
 ## Now
 
@@ -94,9 +96,9 @@ is done or serves it.
 | M1.9 — one home per current rule (the human's consolidation ask; the wave's last WP) | Claude | 2026-09-01 |
 
 The openings wave is landed end to end: per-opening prover surface → (c) →
-(d) → (b3) — with the golden re-record (b3) was expected to need DISSOLVED
-under ADR-018's opt-in design, so no re-record review was ever pending — →
-the four exhibits with the cursor/search jump teaching. M1.3 and M1.6 are
+(d) → (b3) — the golden re-record (b3) was expected to need DISSOLVED under
+ADR-018's opt-in design, so no re-record review was ever pending — then the
+four exhibits with the cursor/search jump teaching. M1.3 and M1.6 are
 closed above; M1.9 (the consolidation) is the wave's last WP. M1.1e landed
 inside slice 5 — the buffer pair is a catalogue row.
 
@@ -613,11 +615,8 @@ Six WPs, all landed, gate required in CI. The decision is
 
 - `[x]` `68f0747` **M1.5 Character hot reload.** *(S–M)* Claude, 2026-08-31. A frame-data
   edit lands in a running match; NORTHSTAR property (c)'s last clause. The
-  semantics are ADR-016: the training mode polls the loaded character file's
-  (mtime, size) stamp and a change RESTARTS the match with the freshly built
-  data — never a live swap under the session, which would break the replay
-  hash, `Restore`'s same-data contract and the high-water/`resimulated` signal.
-  A broken edit keeps the last good match running and says so on the HUD.
+  rule is DETERMINISM.md T8 (never a swap under a live session), the authoring
+  loop is the manual's hot-reload section, and ADR-016 is the decision record.
   **Done when:** a test proves an edited character file is noticed and lands in
   a running `FightSession` while a broken edit keeps the last good data
   (`AFrameDataEditLandsInARunningMatchAndABrokenEditKeepsTheLastGoodData`,
@@ -627,8 +626,9 @@ Six WPs, all landed, gate required in CI. The decision is
   *(M)* Claude, 2026-08-31 → 2026-09-01; slices 1–8 through `60de3b5`, the
   openings-wave machinery `a386c9c`, the four exhibits `9137599` — thirteen
   rows, all cooked, every caption pinned. Variants under
-  `Games/UntitledFighter/Assets/Characters/fighter_a/variants/`; the eleven
-  patches and what each shows are ADR-011 §4. (The cursor-copies finding this
+  `Games/UntitledFighter/Assets/Characters/fighter_a/variants/`; the rows,
+  captions and bindings are `variants/catalogue.json` (ADR-011 §4 was the
+  original plan). (The cursor-copies finding this
   entry used to carry landed early as M1.3g.)
   **Slice 1 landed — the mechanism and the first two exhibits.**
   `LoadCharacterVariant` (CseData): a required one-line `description`, RFC 7386
@@ -753,14 +753,10 @@ Six WPs, all landed, gate required in CI. The decision is
 
 - `[x]` `e3a1d45` **M1.7 Authoring telemetry.** *(S)* Claude, 2026-08-31. What the author
   actually needed to know, recorded while authoring rather than reconstructed
-  after. The contract is ADR-017 (which restores the Done-when the `9c4dbd1`
-  rewrite dropped): the Combo Prover panel appends **one JSON line per real
-  analysis run** — wall time, file read, character, nonce-free content hash,
-  changed-since-last, move/cancel counts, resource ranges, `explored`, run ms
-  with the resource-check ms kept as its own field, verdict — to
-  `telemetry/prover_runs.jsonl` beside the content root, through a sandboxed
-  append-only writer/reader pair in CseData. **Done when:** the log grows by
-  one line per append and a test parses it back
+  after — one JSON line per real prover run. The line contract and sink live
+  in the manual's Combo Prover section; ADR-017 (which restored the Done-when
+  the `9c4dbd1` rewrite dropped) is the decision record. **Done when:** the
+  log grows by one line per append and a test parses it back
   (`TheLogGrowsByOneAppendAndRoundTripsItsFields`,
   tests/test_prover_telemetry.cpp); the panel's run site is the mirror.
 
@@ -788,7 +784,7 @@ Six WPs, all landed, gate required in CI. The decision is
   mechanics and tools, DETERMINISM.md for the invariants, ARCHITECTURE.md for
   the seams), with the ADR cited only as the decision's history. Runs LAST in
   the openings wave, so the consolidated pages state the post-wave truth once
-  rather than twice. **Done when:** a sweep of ADR-011..017's operative rules
+  rather than twice. **Done when:** a sweep of ADR-011..018's operative rules
   finds each stated in exactly one living doc (link, not restatement,
   everywhere else), and `check_docs.py` stays green.
 
@@ -879,10 +875,10 @@ reel).
 
 **R5 and R6 reviewed 2026-09-01: "behaving as expected."** The authoring loop
 (edit lands mid-match, broken save keeps the last good match, pause survives)
-and the cooked showcase (nine rows, the three deliberate verdict
+and the cooked showcase (then nine rows, the three deliberate verdict
 disagreements) both passed the human's play session with nothing reported
-wrong. R6 will be worth a second look once the openings wave re-cooks the
-catalogue with the four remaining variants.
+wrong. R6's second look is now due: the catalogue stands at thirteen rows
+since `9137599`, with the four openings-wave exhibits cooked and captioned.
 
 ## Not scheduled, on purpose
 

@@ -806,17 +806,26 @@ struct CharacterData {
 // Also not loaded, for the same "no data behind it" reason:
 // engine.projectile, engine.transitions (the on_land kind), engine.invuln,
 // engine.freeze, engine.min_reach_sub, engine.proximity_variant,
-// engine.motion_physics, engine.reaction, engine.anim, engine.fx.
+// engine.motion_physics, engine.anim, engine.fx.
 //
-// TWO ENGINE FIELDS ARE LOADED, AND THE EXCEPTION IS THE POINT.
-// engine.airborne_from_tick and engine.hurtbox_sub cross into this header while
-// their neighbours do not, because they are not waiting on Phase 5 or on a
-// hitbox editor: they are the entire mechanism behind two behaviours the design
-// asks for by name -- a crouching attack low-profiling a high one, and a
-// grounded attack hopping over a low. Both fall out of a shape and a tick, both
-// are authorable today with a tape measure, and neither means anything if it
-// stops at the file. Leaving them unloaded would have left the two headline
-// features of this schema revision as documentation.
+// engine.reaction LEFT THIS LIST ACROSS ROADMAP M1, one mechanic at a time:
+// the loader now reads hitstop_ticks, air_hitstun_ticks, corner_push_vel_sub,
+// fall_recover_ticks, counter_hit, launch and on_hit -- each key landed in the
+// same commit as the kernel behaviour that consumes it, never ahead of one.
+// `priority` inside the block stays unread (the Move::priority note above says
+// why), and `causes_knockdown` is recognised only to be refused with a
+// pointer to fall_recover_ticks. engine.movement (the character-level jump
+// physics, +Y up) loads too, since M1.3(b1).
+//
+// TWO ENGINE FIELDS OPENED THAT DOOR, AND THE EXCEPTION WAS THE POINT.
+// engine.airborne_from_tick and engine.hurtbox_sub crossed into this header
+// first, while their neighbours did not, because they were not waiting on
+// Phase 5 or on a hitbox editor: they are the entire mechanism behind two
+// behaviours the design asks for by name -- a crouching attack low-profiling
+// a high one, and a grounded attack hopping over a low. Both fall out of a
+// shape and a tick, both are authorable with a tape measure, and neither
+// means anything if it stops at the file. Leaving them unloaded would have
+// left the two headline features of that schema revision as documentation.
 //
 // AND engine.invuln STAYS ON THE UNLOADED LIST WHILE Move::invincibility IS
 // LOADED, WHICH LOOKS LIKE AN INCONSISTENCY AND IS NOT. They are two fields
