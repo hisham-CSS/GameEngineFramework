@@ -98,7 +98,7 @@ M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
 
 | In flight | Owner | Since |
 |---|---|---|
-| — (next: M3.0b, the top `[ ]` — the bridge carries blockstun) | | |
+| — (next: M3.2a, the top `[ ]` — glTF enters the static model path) | | |
 
 The openings wave is landed end to end: per-opening prover surface → (c) →
 (d) → (b3) — the golden re-record (b3) was expected to need DISSOLVED under
@@ -853,7 +853,7 @@ mannequin wait on that one-line answer; every WP before them does not.
   `PoseSelect.NeverTouchesTheChecksum`, and
   `CycleFrame.FloorModKeepsANegativePositionOnTheCycle`.
 
-- `[~]` **M3.0b The bridge carries blockstun, with its ledger row.** *(S)* Found
+- `[x]` `c09e67e` **M3.0b The bridge carries blockstun, with its ledger row.** *(S)* Found
   by M3.4a's blockstun test (2026-09-02): `fighter_a.json` authors
   `engine.reaction.blockstun_ticks` on all 22 moves, `Combat.cpp` applies
   `MoveDef::blockstun`, the loader read the key only inside the `engine.hits[]`
