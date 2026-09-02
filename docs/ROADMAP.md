@@ -98,7 +98,7 @@ M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
 
 | In flight | Owner | Since |
 |---|---|---|
-| M3.4a — `PoseSelect`, and the presentation library spike | Claude | 2026-09-02 |
+| — (next: M3.0b, the top `[ ]` — the bridge carries blockstun) | | |
 
 The openings wave is landed end to end: per-opening prover surface → (c) →
 (d) → (b3) — the golden re-record (b3) was expected to need DISSOLVED under
@@ -832,7 +832,7 @@ mannequin wait on that one-line answer; every WP before them does not.
   carries a Done-when that names a test under `tests/` or a script under
   `scripts/`.
 
-- `[~]` **M3.4a `PoseSelect`, and the presentation library spike.** *(M)*
+- `[x]` `1d0beb4` **M3.4a `PoseSelect`, and the presentation library spike.** *(M)*
   First because it is headless, Claude-paced and needs no Blender. `SelectPose(
   const MatchData&, const GameState&, slot)` in `CseGame` returns kinds and
   integers only — `{kind, moveSlot, frame, remaining, tick, posXSub, posYSub,
