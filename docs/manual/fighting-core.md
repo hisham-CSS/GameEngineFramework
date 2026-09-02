@@ -1,10 +1,10 @@
 # The Fighting-Game Core
 
-Verified: 2026-09-01 @ 59fd462
+Verified: 2026-09-02 @ 1d51d9e
 
 Cat Splat Engine is being built toward a deterministic, rollback-capable fighting game. That work does not live in `Engine/`. It is a **title** — `Games/UntitledFighter/` — and the engine does not depend on any of it. The link direction is a configure-time error, not a convention.
 
-Six libraries, and the order of this table is the dependency order:
+Seven libraries, and the order of this table is the dependency order:
 
 | Piece | Directory | Links | What it does |
 |---|---|---|---|
@@ -12,7 +12,8 @@ Six libraries, and the order of this table is the dependency order:
 | **`CseData`** | `Games/UntitledFighter/Data/` | nlohmann_json, comboprover | Loads a character file; projects it into the combo prover; bridges it into the kernel. |
 | **`CseGame`** | `Games/UntitledFighter/Game/` | `CseKernel`, `CseData` — and nothing else, by an exact whitelist | The headless game layer: the session, tick-indexed input sources, the replay format and its verifier, and the live combo judge. No GL, no window, so its claims are testable without a context. |
 | **`CseNet`** | `Net/` | GekkoNet (`PRIVATE`) | The rollback session seam. General-purpose, so it sits outside the title. |
-| **`UntitledFighterModes`** | `Games/UntitledFighter/Modes/` | `Engine`, `CseGame` | The game modes the Player and the editor's Game view both run: training mode, the box overlay, the HUD. |
+| **`UntitledFighterPresentation`** | `Games/UntitledFighter/Presentation/` | `CseGame` — and nothing else, by an exact whitelist | The GL-free half of the picture — today the stateless cycle phases. Headless, so DETERMINISM P4 stays a test. |
+| **`UntitledFighterModes`** | `Games/UntitledFighter/Modes/` | `Engine`, `CseGame`, `UntitledFighterPresentation` | The game modes the Player and the editor's Game view both run: training mode, the box overlay, the HUD. |
 | **`UntitledFighterEditor`** | `Games/UntitledFighter/Editor/` | `CseData`, ImGui | The Combo Prover panel — the decision procedure's verdict in front of a designer. |
 
 This page explains how to use them. It is not the design rationale — that lives in [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md) (decisions D1–D9) and in the [ADRs](../adr/README.md), and this page links to them rather than restating them.
@@ -753,9 +754,53 @@ before it is written.
 
 ---
 
+### `PoseSelect` — the pose is a kind and an integer
+
+`SelectPose(const MatchData&, const GameState&, slot)`
+(`Games/UntitledFighter/Game/include/cse/game/PoseSelect.h`) decides which clip a
+fighter wears and at which frame, from the state alone, and returns kinds and
+integers — `{kind, moveSlot, frame, remaining, tick, posXSub, posYSub, mirror,
+visible}` — never a clip name, never a float. The mode maps `(kind, moveSlot)`
+to a clip; the selector never learns that clips exist. It is the second reader
+of the decision `FightView::PhaseOf` makes for the box colours, placed in the
+library held to the sim's arithmetic rules; the two share the knockdown-over-stun
+ordering, and ROADMAP M3.4c makes `PhaseOf` read `SelectPose` so the decision
+has one home.
+
+The precedence is the kernel's own, and each step names the kernel fact behind
+it: an inactive slot is `None`; `knockdown` outranks stun; `hitstun` reads as
+air or standing by `AirborneNow` and there is deliberately **no crouching hit
+reaction**, because `StepPhysics` clears `crouching` on the first unfrozen tick a
+fighter cannot act; `blockstun` reads crouching while `guard == kGuardLow`, which
+the kernel recomputes from held input on every unfrozen tick — release Down
+mid-blockstun and the pose stands up with the guard — and, on a frozen tick,
+where the kernel zeroes `guard` without reading the pad, from the preserved
+`crouching` byte instead, so a crouch-blocked hit does not flicker inside its
+own hitstop; a described `moveId` is `Move` at `frame == moveFrame` exactly, so
+hitstop freezes the pose for free and a move start is never a frame late; `Ko`
+and `Win` dress only a fighter doing **nothing** after `roundState` leaves
+`kRoundFighting` — `Win` on a KO'd opposing team or on a time-out with strictly
+more team health, summed as `stepRound` sums it — because the training host
+keeps simulating past a KO and a winner who walks must be posed by the walk;
+then air by the sign of `velY`, crouch, walk by the sign of `velX` against
+`facing`, idle. Countdown kinds carry `remaining` so a clip is indexed **from
+the end** (`frame = N − remaining`), the only pure function of a ticks-remaining
+counter that lands a getup on counter 0 whatever the authored length.
+
+What is pinned, headless, against the shipped `fighter_a`
+(`tests/test_pose_select.cpp`): a `Restore` followed by a re-run reproduces every
+pose byte for byte; the frame is `moveFrame` from 0 on the move's first tick;
+hitstop freezes both fighters' poses; the precedence, the released guard and the
+acting-after-KO cases; and asking never changes the state's bytes or its
+checksum. The GL-free composition layer above it — cycle phases now
+(`cse::presentation::CycleFrame`, floor-mod so half a stage of negative `posX`
+never yields a negative frame), the clip table and matrices as ROADMAP M3.4b–c
+land — is `UntitledFighterPresentation` under `Games/UntitledFighter/Presentation/`,
+which links `CseGame` and nothing else by configure-time assertion.
+
 ## The modes: training, frame step, HUD
 
-`Games/UntitledFighter/Modes/` is the title's presentation, and it is a
+`Games/UntitledFighter/Modes/` is the title's drawing layer, and it is a
 `MyCoreEngine::IGameMode` — so the **shipped Player and the editor's Game view
 enter the same object**, which is the "Play == Player" property in one sentence.
 `RegisterTitleGameModes` is the seam: the engine never names a title, the title

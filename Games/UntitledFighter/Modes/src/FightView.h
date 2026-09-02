@@ -80,7 +80,10 @@ inline float WorldPx(std::int32_t subUnits) {
 
 // The six states a training mode colours by. Not an enum the kernel has -- it
 // has no such field -- but every one of them is decided by a kernel field or by
-// a kernel function, and PhaseOf below is the only place that decision is made.
+// a kernel function. PhaseOf below decides the frame split (startup / active /
+// spent / recovery); the ORDERING of knockdown over stun over move is the same
+// rule cse::game::SelectPose applies for the 3D presentation (ROADMAP M3.4a),
+// and M3.4c makes PhaseOf read it so that decision has one home.
 //
 // SPENT IS THE ONE THAT IS NOT ABOUT THE MOVE. The other five are properties of
 // the move and the frame; `Spent` is a property of THIS PERFORMANCE of it -- the

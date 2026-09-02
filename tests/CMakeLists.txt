@@ -289,6 +289,24 @@ add_executable(test_character_hotreload test_character_hotreload.cpp)
 target_link_libraries(test_character_hotreload PRIVATE CseGame CseData CseKernel GTest::gtest_main)
 add_test(NAME test_character_hotreload COMMAND $<TARGET_FILE:test_character_hotreload>)
 
+# POSE SELECTION (ROADMAP M3.4a, ADR-019 D3/D9, DETERMINISM P4) — which clip a
+# fighter wears and at which frame, as a pure function of GameState: a Restore
+# reproduces every pose, the frame IS moveFrame, hitstop freezes it, and the
+# precedence is the kernel's own. Headless, against the shipped fighter_a.
+add_executable(test_pose_select test_pose_select.cpp)
+target_link_libraries(test_pose_select PRIVATE CseGame CseData CseKernel GTest::gtest_main)
+add_dependencies(test_pose_select test_runtime_deps)
+add_test(NAME test_pose_select COMMAND $<TARGET_FILE:test_pose_select>)
+
+# THE PRESENTATION LIBRARY, LINKED HEADLESS (ROADMAP M3.4a's spike) — proves
+# UntitledFighterPresentation links into a test with no GL context in every CI
+# job before M3.4b-c put the clip table and the P4 acceptance tests into it.
+# Deliberately no Engine on the link line: the day it needs one, P4 stops being
+# a headless property and that is a decision, not a drive-by.
+add_executable(test_fight_presentation test_fight_presentation.cpp)
+target_link_libraries(test_fight_presentation PRIVATE UntitledFighterPresentation GTest::gtest_main)
+add_test(NAME test_fight_presentation COMMAND $<TARGET_FILE:test_fight_presentation>)
+
 # AUTHORING TELEMETRY (ROADMAP M1.7, ADR-017) — the log grows by one line per
 # append and parses back. Pins the writer/reader pair the Combo Prover panel
 # calls; the panel's runIfStale_ is its ImGui mirror.

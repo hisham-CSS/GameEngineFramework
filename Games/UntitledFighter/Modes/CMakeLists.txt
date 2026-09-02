@@ -115,22 +115,26 @@ target_compile_definitions(UntitledFighterModes PRIVATE GLFW_INCLUDE_NONE)
 # concept of entering a mode, which is what the Editor was until it grew one.
 target_compile_definitions(UntitledFighterModes PUBLIC CSE_HOST_TITLE_MODES=1)
 
-# BOTH PRIVATE, and that is a statement about this library rather than a default.
+# ALL THREE PRIVATE, and that is a statement about this library rather than a default.
 #
 # THIS TARGET EXPORTS NO HEADERS AT ALL -- there is no target_include_directories
 # with a PUBLIC entry above, deliberately. UntitledFighterMode.h is internal;
 # the entire surface a host sees is MyCoreEngine::RegisterTitleGameModes, which
 # the ENGINE declares. So a host that links this needs neither Engine.h paths nor
-# cse/ paths on account of this library, and PRIVATE says exactly that. (Both
-# still reach the consumer's LINK line -- CMake propagates a static library's
-# private dependencies as link-only -- so nothing is missing at link time; it is
-# only the include paths and the compile definitions that stop here.)
+# cse/ paths on account of this library, and PRIVATE says exactly that. (All
+# three still reach the consumer's LINK line -- CMake propagates a static
+# library's private dependencies as link-only -- so nothing is missing at link
+# time; it is only the include paths and the compile definitions that stop here.)
 #
 #   Engine   the mode derives from IGameMode, draws through Renderer2D, measures
 #            with Font and reads Application's InputMap.
 #   CseGame  the fight itself. PUBLIC CseKernel CseData in its own file, so this
 #            one line brings the simulation, the character loader and
 #            MatchBuilder with it.
+#   UntitledFighterPresentation
+#            the GL-free half of the picture (ROADMAP M3.4a, ADR-019 D9): the
+#            mode composes what it computes and draws the result. Linked from
+#            the first WP so the link line is proven before anything rides on it.
 #
 # What crosses from here to a host is an IGameMode pointer and one function call.
 # Nothing of cse::game, cse::data or cse::kernel appears in it -- which is what
@@ -139,4 +143,4 @@ target_compile_definitions(UntitledFighterModes PUBLIC CSE_HOST_TITLE_MODES=1)
 # sources. The root's boundary assertion checks exactly that distinction: a host
 # may link this thin library, and may not reach past it to CseKernel, CseData or
 # CseGame directly.
-target_link_libraries(UntitledFighterModes PRIVATE Engine CseGame)
+target_link_libraries(UntitledFighterModes PRIVATE Engine CseGame UntitledFighterPresentation)

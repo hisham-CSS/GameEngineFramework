@@ -70,12 +70,19 @@ add_subdirectory(Data)
 # testable without a window and a GL context.
 add_subdirectory(Game)
 
+# The presentation arithmetic with no GL in it (ROADMAP M3.4a, ADR-019 D9):
+# cycle phases now; the clip table, matrices, palettes and camera as M3.4b-c
+# land. Links CseGame and nothing else -- asserted at configure time -- so that
+# DETERMINISM.md P4 stays a headless test. The mode below links it.
+add_subdirectory(Presentation)
+
 # ---------------------------------------------------------------------------
 # THE TITLE'S HALVES OF THE HOST SEAMS
 # ---------------------------------------------------------------------------
-# The three libraries above are the GAME: they know nothing about a window, a
-# renderer or an editor, and two of them spend a configure-time assertion each
-# keeping it that way. The three below are how that game REACHES a host, and they
+# The four libraries above are the GAME: they know nothing about a window, a
+# renderer or an editor, and each spends a configure-time assertion keeping it
+# that way (Kernel links nothing, Data never acquires the kernel, Game and
+# Presentation link exact whitelists). The three below are how that game REACHES a host, and they
 # exist because the hosts are general-purpose and must stay that way.
 #
 # The pattern is the same in all three, and it is the pattern a second title
