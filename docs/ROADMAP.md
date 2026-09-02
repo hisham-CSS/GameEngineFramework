@@ -87,20 +87,21 @@ wire — the third measurement above), **M1.3g** (ONE `WitnessCursor`, five
 copies deleted) and **M1.4a + M1.4** (`ComboSearch` runs the real kernel,
 section 3's parallel model is deleted, and the paper's pair — model 21 /
 executed 7 — is printed by CI). The showcase (**M1.6**) closed 2026-09-01 at
-thirteen rows; next is **M1.9** (the consolidation), then **M2**.
+thirteen rows; the consolidation (**M1.9**) closed the wave; next is **M2**.
 
 ## Now
 
 | In flight | Owner | Since |
 |---|---|---|
-| M1.9 — one home per current rule (the human's consolidation ask; the wave's last WP) | Claude | 2026-09-01 |
+| — | | |
 
 The openings wave is landed end to end: per-opening prover surface → (c) →
 (d) → (b3) — the golden re-record (b3) was expected to need DISSOLVED under
 ADR-018's opt-in design, so no re-record review was ever pending — then the
-four exhibits with the cursor/search jump teaching. M1.3 and M1.6 are
-closed above; M1.9 (the consolidation) is the wave's last WP. M1.1e landed
-inside slice 5 — the buffer pair is a catalogue row.
+four exhibits with the cursor/search jump teaching, then M1.9 (the
+consolidation). M1.3, M1.6 and M1.9 are closed above; M1.1e landed inside
+slice 5 — the buffer pair is a catalogue row. What remains in M1 is
+human-gated only: the R6 second look at thirteen rows, and PR #7's merge.
 
 One at a time. The next unblocked WP is always the top `[ ]` in milestone
 order — which, under the 2026-08-21 reorder, is the sequence named above.
@@ -775,7 +776,7 @@ Six WPs, all landed, gate required in CI. The decision is
     an unknown move-patch key is now a load error naming the key and listing
     what exists (`AMovePatchKeyTheLoaderDoesNotReadIsRefusedByName`).
 
-- `[ ]` **M1.9 One home per current rule.** *(S–M)* Asked for by the human,
+- `[x]` `1868fa3` **M1.9 One home per current rule.** *(S–M)* Asked for by the human,
   2026-09-01: "consolidate documentation so it isn't so spread out over
   different ADRs." The ADRs stay frozen — they are why-records and the house
   rules forbid rewriting them — so the consolidation is the five-line rule
