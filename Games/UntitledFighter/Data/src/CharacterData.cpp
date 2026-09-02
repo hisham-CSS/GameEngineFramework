@@ -1329,6 +1329,67 @@ bool parseDocument(Ctx& ctx, const json& doc, CharacterData& out) {
                         return false;
                     if (!readInt(ctx, *r, "fall_recover_ticks", where, mv.fallRecoverTicks, false))
                         return false;
+                    // COUNTER HIT (M1.3(c)): the price for catching the
+                    // defender mid-startup. An object, so the two halves
+                    // travel together and a bare number cannot be ambiguous
+                    // about which one it is. Negative is refused -- a counter
+                    // that REDUCES the price is not a counter, and a negative
+                    // that meant "shorter stun on counter" would deserve its
+                    // own named field rather than a sign convention.
+                    // THE LAUNCH (M1.3(d)): +Y up (ADR-014's convention for
+                    // NEW fields), vel_y_sub required and positive -- a hit
+                    // that sends the defender DOWN is a knockdown, already
+                    // authorable -- and vel_x_sub a non-negative MAGNITUDE
+                    // the kernel points away from the attacker.
+                    if (const json* la = member(*r, "launch")) {
+                        if (!la->is_object())
+                            return ctx.fail(where, "`engine.reaction.launch` is not an object");
+                        if (!readInt(ctx, *la, "vel_x_sub", where, mv.launchVelXSub, false))
+                            return false;
+                        if (!readInt(ctx, *la, "vel_y_sub", where, mv.launchVelYSub, true))
+                            return false;
+                        if (mv.launchVelYSub <= 0)
+                            return ctx.fail(where, "launch.vel_y_sub must be positive (+Y is up): "
+                                                   "a launch that does not rise is a knockdown, "
+                                                   "and causes_knockdown already authors one");
+                        if (mv.launchVelXSub < 0)
+                            return ctx.fail(where, "launch.vel_x_sub must not be negative: the "
+                                                   "file authors a magnitude and the kernel points "
+                                                   "it away from the attacker");
+                    }
+                    // WHICH on_hit REACTION (M1.3(d2)). wall_splat is refused
+                    // BY NAME rather than accepted-and-ignored: a key that
+                    // loads and does nothing is the coin-flip trap again, and
+                    // the loader's whole doctrine is that silence is never a
+                    // default.
+                    if (const json* oh = member(*r, "on_hit")) {
+                        if (!oh->is_string())
+                            return ctx.fail(where, "`engine.reaction.on_hit` is not a string");
+                        const std::string v = oh->get<std::string>();
+                        if (v == "wall_bounce") {
+                            mv.onHitReaction = 1;
+                        } else if (v == "wall_splat") {
+                            return ctx.fail(where, "on_hit `wall_splat` is enumerated but not "
+                                                   "yet simulated; refused so the file cannot "
+                                                   "author a no-op. wall_bounce is live.");
+                        } else {
+                            return ctx.fail(where, "on_hit is `" + v + "`, which is not "
+                                                   "wall_bounce (live) or wall_splat "
+                                                   "(enumerated, not yet simulated)");
+                        }
+                    }
+                    if (const json* ch = member(*r, "counter_hit")) {
+                        if (!ch->is_object())
+                            return ctx.fail(where, "`engine.reaction.counter_hit` is not an object");
+                        if (!readInt(ctx, *ch, "hitstun_bonus", where,
+                                     mv.counterHitstunBonus, false))
+                            return false;
+                        if (!readQuantized(ctx, *ch, "damage_bonus", where, nullptr, 100,
+                                           mv.counterDamageBonusHundredths))
+                            return false;
+                        if (mv.counterHitstunBonus < 0 || mv.counterDamageBonusHundredths < 0)
+                            return ctx.fail(where, "counter_hit bonuses must not be negative");
+                    }
                     if (member(*r, "causes_knockdown") &&
                         !readBool(ctx, *r, "causes_knockdown", where, mv.causesKnockdown))
                         return false;
@@ -1883,6 +1944,19 @@ bool LoadCharacterVariant(const std::string& baseDir,
     }
     nlohmann::json patch = variantDoc["patch"];
 
+    // THE CLOSED MOVE-LEVEL KEY SET, shared by the by-id patcher and the
+    // append below so the two validators cannot drift: this list mirrors
+    // exactly the names the move loop in LoadCharacterJson reads off a move
+    // object -- a reader added there adds its name here, or the first variant
+    // to touch the new field is refused and says so out loud.
+    static const char* const kMovePatchKeys[] = {
+        "id",         "label",    "startup",       "active",
+        "recovery",   "hitstun",  "stance",        "blocked_as",
+        "priority",   "invincibility",             "damage",
+        "reach",      "pushback", "effect",        "guard",
+        "hit_condition",          "engine",
+    };
+
     // MOVES ARE PATCHED BY ID, NOT BY RFC 7386. A merge patch treats arrays as
     // atomic, so a standard patch touching one move would have to restate all
     // of them and the exhibit would stop being the diff. The variant format
@@ -1918,13 +1992,6 @@ bool LoadCharacterVariant(const std::string& baseDir,
         // namespace carries MUGEN transcription and authoring notes by
         // documented design (fighter_a authors twenty-six keys there), so a
         // closed list would refuse the file's own conventions.
-        static const char* const kMovePatchKeys[] = {
-            "id",         "label",    "startup",       "active",
-            "recovery",   "hitstun",  "stance",        "blocked_as",
-            "priority",   "invincibility",             "damage",
-            "reach",      "pushback", "effect",        "guard",
-            "hit_condition",          "engine",
-        };
         for (auto it = patch["moves"].begin(); it != patch["moves"].end(); ++it) {
             if (!it.value().is_object()) {
                 report.error = variantRelPath + ": patch.moves." + it.key() +
@@ -1967,6 +2034,57 @@ bool LoadCharacterVariant(const std::string& baseDir,
             }
         }
         patch.erase("moves");
+    }
+
+    // A VARIANT MAY APPEND A WHOLE MOVE (the jump-cancel exhibit's need: the
+    // base deliberately does not author the opt-in jump move, and the by-id
+    // patcher above refuses unknown ids -- correctly, for EDITS). The append
+    // is the cancels.append shape for the moves array: full move objects, an
+    // id the base already authors refused by name (that is an edit wearing an
+    // append's clothes), and the SAME closed move-level key validation a
+    // patch gets -- a typo in a brand-new move is the same coin-flip as one
+    // in an edit.
+    if (patch.contains("moves_append")) {
+        if (!patch["moves_append"].is_array()) {
+            report.error = variantRelPath + ": patch.moves_append: must be an "
+                           "ARRAY of full move objects";
+            return false;
+        }
+        if (!baseDoc.contains("moves") || !baseDoc["moves"].is_array()) {
+            report.error = baseRelPath + ": moves: missing or not an array";
+            return false;
+        }
+        for (const nlohmann::json& added : patch["moves_append"]) {
+            if (!added.is_object() || !added.contains("id") ||
+                !added["id"].is_string()) {
+                report.error = variantRelPath + ": patch.moves_append: every "
+                               "entry is a move object with an `id`";
+                return false;
+            }
+            const std::string id = added["id"].get<std::string>();
+            for (const nlohmann::json& m : baseDoc["moves"]) {
+                if (m.is_object() && m.contains("id") && m["id"] == id) {
+                    report.error = variantRelPath + ": patch.moves_append." + id +
+                                   ": the base already authors this move; an "
+                                   "append of an existing id is an edit in "
+                                   "disguise -- patch it under patch.moves";
+                    return false;
+                }
+            }
+            for (auto f = added.begin(); f != added.end(); ++f) {
+                bool known = false;
+                for (const char* k : kMovePatchKeys)
+                    if (f.key() == k) { known = true; break; }
+                if (known) continue;
+                report.error = variantRelPath + ": patch.moves_append." + id +
+                               ": unknown key `" + f.key() + "` -- the loader "
+                               "reads no such move field. (Engine-specific "
+                               "fields nest under `engine`.)";
+                return false;
+            }
+            baseDoc["moves"].push_back(added);
+        }
+        patch.erase("moves_append");
     }
 
     // CANCELS ARE APPENDED, NOT MERGED, for the same atomic-array reason as
@@ -2040,7 +2158,9 @@ bool LoadCatalogueManifest(const std::string& charactersDir,
     }
 
     // The six arcade buttons, by the names the binding vocabulary has used
-    // since M1.1c. Anything else is refused by name.
+    // since M1.1c -- plus `up` since M1.3(b3): the opt-in jump move binds to
+    // exactly the Up bit (ADR-018), and a variant that appends one needs a
+    // way to say so. Anything else is refused by name.
     const auto buttonBit = [](const std::string& b) -> std::uint16_t {
         if (b == "lp") return cse::kernel::kInputLP;
         if (b == "mp") return cse::kernel::kInputMP;
@@ -2048,6 +2168,7 @@ bool LoadCatalogueManifest(const std::string& charactersDir,
         if (b == "lk") return cse::kernel::kInputLK;
         if (b == "mk") return cse::kernel::kInputMK;
         if (b == "hk") return cse::kernel::kInputHK;
+        if (b == "up") return cse::kernel::kInputUp;
         return 0;
     };
 
@@ -2100,7 +2221,7 @@ bool LoadCatalogueManifest(const std::string& charactersDir,
                         error = relPath + ": " + entry.name + ": `" +
                                 (n.is_string() ? n.get<std::string>()
                                                : std::string("?")) +
-                                "` is not one of lp/mp/hp/lk/mk/hk";
+                                "` is not one of lp/mp/hp/lk/mk/hk/up";
                         return false;
                     }
                     binding.buttons |= bit;

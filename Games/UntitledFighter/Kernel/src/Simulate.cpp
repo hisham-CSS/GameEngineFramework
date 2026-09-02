@@ -214,14 +214,47 @@ void StepPhysics(Fighter& f, const Intent& it, const FighterData& data) {
     }
 
     if (motionKey != nullptr && canAct) {
-        f.velX = f.facing == 0 ? motionKey->velXSub : -motionKey->velXSub;
+        // THE JUMP MOVE'S TAKEOFF KEY (M1.3(b3), ADR-018): a launching key
+        // that authors NO horizontal component, on the character's own jump
+        // move. The takeoff tick takes the direction HELD -- walkWish, the
+        // same feel the fallback jump has always had, confirmable through
+        // prejump -- and afterwards the key deliberately does not own X, so
+        // the arc is ballistic from takeoff exactly as a fallback jump's is.
+        // Scoped to the jump move: an uppercut's rising key keeps (b2)'s
+        // both-component ownership, authored zero X meaning straight up.
+        const bool jumpTakeoffKey =
+            f.moveId == data.jumpMoveSlot && data.jumpMoveSlot != 0 &&
+            motionKey->velYSub > 0 && motionKey->velXSub == 0;
+        if (jumpTakeoffKey) {
+            if (!f.airborne) f.velX = it.walkWish;
+        } else {
+            f.velX = f.facing == 0 ? motionKey->velXSub : -motionKey->velXSub;
+        }
         f.velY = motionKey->velYSub;
         if (motionKey->velYSub > 0) f.airborne = 1;
     } else if (f.airborne) {
-        if (!canAct) f.velX = 0;
+        // A HIT RE-DECIDES AN AIRBORNE ARC (M1.3(d)). A body merely hit out
+        // of its jump drops straight -- velX zeroed, the behaviour the
+        // crossplat golden has always pinned -- but a LAUNCHED body keeps the
+        // arc, because the hit itself authored it (ResolveHits wrote the
+        // launch velocity and marked Fighter::reaction); zeroing that on the
+        // next tick would turn every juggle into a straight drop the tick
+        // after the launcher connected. The first draft of (d) kept velX for
+        // BOTH cases under the ballistic doctrine and the golden moved --
+        // ticks 1000..2000, the hitstun window -- which is the golden doing
+        // its job: air-reset-drops-straight is simulated behaviour somebody
+        // recorded, not a free variable.
+        if (!canAct && f.reaction == 0) f.velX = 0;
     } else if (free) {
         f.velX = it.walkWish;
-        if (it.jumpWish) {
+        // THE FALLBACK JUMP, for a character that authors no jump move
+        // (ADR-018): the level-triggered takeoff every character had before
+        // M1.3(b3), demoted -- not deleted -- so the data-less kernel, the
+        // crossplat golden's script and every character that has not opted in
+        // keep exactly the behaviour their recorded evidence pins. A nonzero
+        // jumpMoveSlot switches this off, which is what lets the Up press
+        // reach StepAttack grounded and start the authored jump on its EDGE.
+        if (it.jumpWish && data.jumpMoveSlot == 0) {
             f.velY = data.jumpImpulseSub != 0 ? data.jumpImpulseSub : kJumpImpulse;
             f.airborne = 1;
         }
@@ -262,9 +295,26 @@ void StepPhysics(Fighter& f, const Intent& it, const FighterData& data) {
     //
     // THE WALL STOPS THE BODY, NOT THE ORIGIN -- wallLimitFor above says why,
     // in the author's words.
-    const std::int32_t limit = wallLimitFor(data, f);
-    f.posX = clampInt(f.posX + f.velX + f.pushX, -limit, limit);
+    const std::int32_t limit     = wallLimitFor(data, f);
+    const std::int32_t unclamped = f.posX + f.velX + f.pushX;
+    f.posX = clampInt(unclamped, -limit, limit);
     f.pushX /= 2;
+
+    // WALL BOUNCE (M1.3(d2)): the wall that just stopped a stunned body
+    // carrying an ARMED bounce gives it back -- velocity reversed whole (a
+    // magnitude rule here would be a second authored number wearing a
+    // constant's clothes), the spend recorded in `bounces`, and the reaction
+    // dropped to plain LAUNCHED so the return arc is kept and a second wall
+    // does nothing without a fresh arming hit. The loop bound is NOT a bounce
+    // cap: each bounce needs its own arming hit, and hits are what the juggle
+    // budget already bounds -- a kernel bounce constant a file cannot set is
+    // exactly what CLAUDE.md's never-list forbids.
+    if (f.reaction == kReactionWallBounceArmed && !canAct &&
+        (unclamped < -limit || unclamped > limit)) {
+        f.velX     = -f.velX;
+        f.reaction = kReactionLaunched;
+        if (f.bounces < 0xFF) ++f.bounces;
+    }
 
     f.posY += f.velY;
 
@@ -272,6 +322,14 @@ void StepPhysics(Fighter& f, const Intent& it, const FighterData& data) {
         f.posY     = 0;
         f.velY     = 0;
         f.airborne = 0;
+        // The launch's arc ends where the ground begins: reaction is set by
+        // ResolveHits and cleared HERE, the alreadyHitBits one-setter-known-
+        // clearers shape, so a landed body is an ordinary grounded one and
+        // the next launch starts clean. The bounce tally lands with it: the
+        // byte records spends within ONE airtime, which is what the search's
+        // induction keys on.
+        f.reaction = 0;
+        f.bounces  = 0;
     }
 }
 

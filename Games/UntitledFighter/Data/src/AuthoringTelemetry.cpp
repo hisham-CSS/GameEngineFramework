@@ -50,6 +50,8 @@ nlohmann::json toJson(const ProverRunRecord& r) {
     line["run_ms"]    = r.runMs;
     line["gap_ms"]    = r.gapMs;
     line["verdict"]   = r.verdict;
+    line["verdict_counter"] = r.verdictCounter;
+    line["verdict_air"]     = r.verdictAir;
     return line;
 }
 
@@ -76,6 +78,8 @@ ProverRunRecord fromJson(const nlohmann::json& line) {
     r.runMs    = line.value("run_ms", 0.0);
     r.gapMs    = line.value("gap_ms", 0.0);
     r.verdict  = line.value("verdict", std::string{});
+    r.verdictCounter = line.value("verdict_counter", std::string{});
+    r.verdictAir     = line.value("verdict_air", std::string{});
     return r;
 }
 

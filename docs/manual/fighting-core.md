@@ -1,6 +1,6 @@
 # The Fighting-Game Core
 
-Verified: 2026-08-31 @ 6036b00
+Verified: 2026-09-01 @ 59fd462
 
 Cat Splat Engine is being built toward a deterministic, rollback-capable fighting game. That work does not live in `Engine/`. It is a **title** — `Games/UntitledFighter/` — and the engine does not depend on any of it. The link direction is a configure-time error, not a convention.
 
@@ -122,7 +122,7 @@ There are two overloads:
 | Call | When |
 |---|---|
 | `Simulate(state, inputs, data)` (`Simulate.h:29`) | The real one. `data` is the read-only `MatchData` both fighters are fought with. |
-| `Simulate(state, inputs)` (`Simulate.h:36`) | No characters loaded. Delegates to `kNoMoves` (`Combat.h`), which has `moveCount 0` and a degenerate hurtbox, so nothing can start, no box can be live, and nothing can hit. This is **exactly** the pre-hitbox kernel, not approximately — the cross-toolchain golden hashes were recorded against it. |
+| `Simulate(state, inputs)` (`Simulate.h:36`) | No characters loaded. Delegates to `kNoMoves` (`Combat.h`), which has `moveCount 0` and a degenerate hurtbox, so nothing can start, no box can be live, and nothing can hit. This is **exactly** the pre-hitbox kernel, not approximately — the cross-toolchain golden hashes were recorded against it, and since the jump move is opt-in ([ADR-018](../adr/ADR-018-the-jump-move-is-opt-in.md)) the golden also pins the *fallback* jump: `kNoMoves` authors none. |
 
 `ResetMatch` is a free function rather than a constructor because `GameState` must stay an aggregate with no user-provided constructors; that is what keeps it trivially copyable, and trivially copyable is what makes the snapshot a `memcpy`.
 
@@ -133,13 +133,13 @@ There are two overloads:
 The tick is a **pipeline of fixed stages** ([ADR-012](../adr/ADR-012-the-tick-is-a-pipeline.md)), each run for every fighter in fixed slot order — never over a container whose order can vary, the hash-ordering hazard that has already bitten `SimplePhysicsBackend` and `ScriptWorld` in this repository. From `Games/UntitledFighter/Kernel/src/Simulate.cpp`:
 
 1. **`ReadIntent`** — pure. What this input *means*: press and release edges against the latched `prevButtons`, the walk/jump/crouch wish, the buffer-eligible bits, and whether hitstop froze this fighter. Computed once, so no two stages can disagree about what was pressed.
-2. **`StepPhysics`** — the freeze (a frozen fighter only counts its `hitstop` down), the stun clocks, then movement: the walk wish lands in `velX`, up sets `velY` and `airborne` when grounded, gravity applies while airborne, position integrates, `posX` clamps the **body** to the stage, landing at `posY <= 0` zeroes `posY`, `velY` and `airborne`. Since M1.3(b2), a committed fighter whose move authors **motion keys** (`MoveDef::motion`) flies them instead: the active key owns both velocity components, an upward key leaves the ground, and gravity is skipped while a key owns the arc — the lunge, the hop kick and the divekick are authored fields, exactly as ADR-011 demands.
+2. **`StepPhysics`** — the freeze (a frozen fighter only counts its `hitstop` down), the stun clocks, then movement: the walk wish lands in `velX`, up sets `velY` and `airborne` when grounded **for a character that authors no jump move** (`jumpMoveSlot == 0`; an opting-in character's Up press reaches `StepAttack` still grounded and starts the authored jump on its edge — see *How a fighter moves*), gravity applies while airborne, position integrates, `posX` clamps the **body** to the stage, landing at `posY <= 0` zeroes `posY`, `velY` and `airborne`. Since M1.3(b2), a committed fighter whose move authors **motion keys** (`MoveDef::motion`) flies them instead: the active key owns both velocity components, an upward key leaves the ground, and gravity is skipped while a key owns the arc — the lunge, the hop kick and the divekick are authored fields, exactly as ADR-011 demands.
 3. **`StepAttack`** (declared in `Combat.h`, implemented in `Games/UntitledFighter/Kernel/src/Combat.cpp`) ends a move that has run out and starts one the fighter is asking for. It runs *after* movement so a move started this tick sees the position the fighter reached.
 4. **Resolve** — everything that needs more than one fighter, plus the input latch. `LatchInputs` (the one writer of `prevButtons` and the buffer, and it records **during hitstop** — see the buffer note below) · the invisible wall and the push boxes, read off top-of-tick positions · **facing** derived from relative position, after everyone moved so it cannot depend on step order · guard · **`ResolveHits`** · the round rule · the RNG advances every tick whether or not anything consumed it, so its position is a function of the tick count alone · `++state.tick`.
 
 Each field of `Fighter` has **one writing stage** — the audit table is in `Simulate.h`, with the two named exceptions (imposed facts like `hitstun`, written by physics as a clock and by `ResolveHits` as a consequence; and ADR-012's own two-writer rule for `crouching`).
 
-Most movement numbers are **placeholders**, not character data. `Simulate.cpp`'s tuning block declares gravity 0.25 px/tick², jump impulse 5 px/tick and the exported `kStageHalfWidthSub` of 480 px, with a comment saying so. Walk speed is the exception: `FighterData::walkSpeedSub` is authored and the kernel reads it, falling back to 2 px/tick when a file says nothing. `engine.constants` authors `gravity_sub` and `jump_vel_sub` too, and the loader does not read them yet — [ROADMAP.md](../ROADMAP.md) M1.3d.
+Movement numbers follow one doctrine: **an authored number displaces a placeholder fallback.** `Simulate.cpp`'s tuning block declares the fallbacks — gravity 0.25 px/tick², jump impulse 5 px/tick, walk 2 px/tick — and the exported `kStageHalfWidthSub` of 480 px. Walk speed authors through `walk_speed`; gravity and jump impulse through `engine.movement { jump_impulse_sub, gravity_sub }` — kernel semantics at the boundary, +Y up, both positive, **an explicit 0 refused by name** because 0 is the kernel's unauthored sentinel (M1.3(b1), ADR-014). Base fighter_a authors none of it (the `floaty_jump` variant does); its MUGEN-provenance numbers stay recorded in `engine.constants`, Y-down, cited and deliberately unread.
 
 ### How a fighter moves
 
@@ -147,8 +147,9 @@ The genre's movement rules, each landed 2026-08-20/30 with the test that owns it
 
 - **Selection reads the input; posture follows the move** ([ADR-012](../adr/ADR-012-the-tick-is-a-pipeline.md) rule 3, ROADMAP M1.3e). Which stance variant a press asks for is decided by what is **held now** — Down for a crouching normal, the takeoff Up provides for an aerial — never by the posture commitment froze, so an ordinary gatling like `stand_mp → crouch_hp` works mid-move. Starting a crouching move makes the fighter crouching and a standing move stands them up (the frame data was authored against that body); a move that states no posture imposes none. `P2Stance.*`, and end-to-end on the shipped file `MatchBridgeMechanics.ADirectionEstablishesTheStanceOnTheTickItIsPressed` and `.EveryAuthoredNormalIsReachableThroughItsButtonAndStance`.
 
-- **Commitment.** A fighter whose move was already running at the top of the tick does not walk, does not jump and does not change posture — the frames were given up on the press. The one-tick edge matters: `Up`+button on a single tick still takes off and attacks, because `StepPhysics` runs before `StepAttack`, so no aerial needs a scripted jump. Per-move exceptions (a lunge, a hop kick) are authored motion, ROADMAP M1.3(b), never a kernel rule. `P2Commitment.*` in `tests/test_p2_mechanics.cpp`.
-- **The jump is ballistic.** Horizontal velocity is decided at takeoff from the direction held on the jump tick, and nothing in the air recomputes it — not an air normal (it rides the arc), not a held direction (no air steering). Being hit still zeroes it, until M1.3(d)'s launch vector replaces that properly. The arc is ~38 ticks against `air_mp`'s 22, which is why an air self-cancel yields repetitions per jump rather than an infinite. `P2Ballistic.*`.
+- **Commitment.** A fighter whose move was already running at the top of the tick does not walk, does not jump and does not change posture — the frames were given up on the press. The one-tick edge matters: `Up`+button on a single tick still takes off and attacks, because `StepPhysics` runs before `StepAttack`, so no aerial needs a scripted jump. Per-move exceptions (a lunge, a hop kick) are authored motion keys — `MoveDef::motion`, the stage-2 rule above — never a kernel rule. `P2Commitment.*` in `tests/test_p2_mechanics.cpp`.
+- **The jump is ballistic.** Horizontal velocity is decided at takeoff from the direction held on the jump tick, and nothing in the air recomputes it — not an air normal (it rides the arc), not a held direction (no air steering). Being hit zeroes it **unless the hit authors a launch**: `engine.reaction.launch` gives the defender its own arc and `Fighter::reaction` keeps it through stun, while an un-launched air hit still drops straight — recorded golden behaviour, not a pending placeholder. The fallback arc is ~38 ticks against `air_mp`'s 22, which is why an air self-cancel yields repetitions per jump rather than an infinite. `P2Ballistic.*`.
+- **The jump move is opt-in** ([ADR-018](../adr/ADR-018-the-jump-move-is-opt-in.md)). A character may author its jump as a move: the move bound to **exactly Up** becomes `FighterData::jumpMoveSlot` (two are refused by name — the button scan would race them) and gates off the built-in jump. It starts on the **press edge** like every move since M1.1d — held Up does not re-jump on landing, a grounded stance makes the mid-air re-press refuse itself through `StanceAllows` (the double jump is authored data, not a kernel concept), prejump is the move's own startup frames on the ground, and a launching key with no authored X takes the direction held on the takeoff tick, ballistic from there. A jump cancel is an ordinary on-hit edge into the jump move. Characters authoring none keep the fallback — the same doctrine as walk speed. `P3Movement.AJumpIsAMoveAndAJumpCancelIsAnEdge`.
 - **The invisible wall.** Two fighters are never further apart than `kMaxSeparationSub` (374 px), anchored to where the opponent stood at the top of the tick — so retreat resumes for exactly as long as the chaser advances, and stops when they stop. Simulation, not camera: it decides whether a move reaches. It is currently a kernel constant, named as a debt in ROADMAP M1.1g. `P2Stage.*`.
 - **Push boxes.** Fighters cannot occupy the same ground: the overlap splits equally, rounds up (an odd overlap must resolve), and is an exact mirror. Airborne fighters pass over — that is what a cross-up is. The wall clamps the **body**, not the origin, so nobody stands half inside a corner; `wallLimitFor` is shared by the walk clamp and the separation pass so neither can undo the other. `P3Pushbox.*`.
 - **Knockdown.** A downed fighter cannot act, cannot be hit (`InvulnerableTo` answers before the move lookup, because a downed fighter has no move), and **is lying down** — the kernel's own `Hurtbox` returns the standing box tipped over, floor edge at zero, so the state reads in silhouette and not just in the overlay's colour. OTG will arrive as an authored per-move field, not a loosening. `P2Knockdown.*`.
@@ -183,7 +184,16 @@ Half-open removes the off-by-one that inclusive bounds smuggle into every width 
 
 If p0's hit were applied before p1's overlap were tested, a trade would stop being a trade — p1 would already be in hitstun, and whether it landed its own blow would depend on which slot was checked first. That is worse than a rounding bug, because it is *stable*: it never looks like nondeterminism locally, it just makes player 1 lose trades.
 
-The rule today is the **symmetric** one: both fighters land. Counter-hit is an opt-in per-move field, not a kernel rule -- [ROADMAP.md](../ROADMAP.md) M1.3.
+The rule today is the **symmetric** one: both fighters land.
+
+**A hit's consequences beyond stun are opt-in `engine.reaction` fields** — per move, off by default, a hit authoring none behaves exactly as before (ADR-011's rule, cited as history):
+
+- **`counter_hit { hitstun_bonus, damage_bonus }`** — charged by `ResolveHits` only when the defender is caught **mid-startup** of the move it committed to. Startup only, deliberately: active is a trade (a counter there would hand both sides a bonus for the same instant) and recovery is a punish, already its own reward. The stun bonus lands on the base and decay applies to the sum; the damage bonus is added before scaling so it prorates with its hit. Negative values refused. `P3Reactions.CounterHitAddsTheAuthoredStun`.
+- **`launch { vel_x_sub, vel_y_sub }`** — +Y up, X a magnitude the kernel points *away from the attacker*; a non-positive Y refused (a launch that does not rise is a knockdown, already authorable). A clean hit takes the defender off the ground, `Fighter::reaction` marks the launched body so its arc survives stun, and `StepPhysics` owns the arc from there like a jump's.
+- **`air_hitstun_ticks`** — the base stun against an **airborne** defender, falling back to the ground number where unauthored. What makes a juggle last; the launcher is what makes it reachable. `P3Reactions.ALauncherPutsTheDefenderInTheAirAndAirHitstunTakesOver`.
+- **`on_hit: "wall_bounce"`** — arms the defender so the wall that stops the stunned body gives it back: velocity reversed whole, the spend recorded in `Fighter::bounces` (cleared on landing), the reaction dropped to plain launched so a second wall does nothing without a fresh arming hit. The loop bound is the **juggle budget's**, never a bounce constant a file cannot set. `wall_splat` is enumerated in the schema and refused at load until it is simulated — a key that loads and does nothing is the coin-flip trap. `P3Reactions.AWallBounceReturnsTheDefenderIntoRange`.
+
+**Every cancel is one mechanism.** `CancelEdge` — from, to, window, delay, a contact mask (`on: hit | block | whiff | always`; 0 is ungated, and whiff edges anchor their delay at frame 0, there being no contact to count from) and resource guards/effects. Chain, link, special, kara, whiff, jump and empty cancels are the same edge with different data; a new cancel *kind* is new data, never new code. `P3Cancels.*`.
 
 Three behaviours to design against:
 
@@ -195,7 +205,7 @@ Three behaviours to design against:
 
 Two routes reach a move besides that press, both opt-in per character or per move:
 
-- **A buffered press.** `FighterData::inputBufferFrames` — zero, and so off, unless a file asks for it — remembers a press made while the fighter could not act, and **consumes** it the tick they can. It feeds the button scan *and* the cancel scan: a buffered press takes a cancel the tick its window opens, which is what makes a two-frame link something a human can hit. Consumed rather than aged, or one press would walk a fighter down a chain. Only bits some move can use are recorded, so a direction tap cannot clobber a buffered reversal. **Hitstop does not eat it**: recording runs during the freeze, aging is suspended (frozen ticks are not time), and the `prevButtons` latch is withheld so a release inside the freeze still fires a negative edge on thaw — the three `P3Input` freeze tests in `tests/test_p2_mechanics.cpp` pin all of this.
+- **A buffered press.** `FighterData::inputBufferFrames` — zero, and so off, unless a file asks for it — remembers a press made while the fighter could not act, and **consumes** it the tick they can. It feeds the button scan *and* the cancel scan: a buffered press takes a cancel the tick its window opens, which is what makes a two-frame link something a human can hit. Consumed rather than aged, or one press would walk a fighter down a chain. Only bits some move can use are recorded, so a direction tap cannot clobber a buffered reversal — with one deliberate admission: a character that binds Up (a jump move, ADR-018) admits Up to that union, so an Up tap in hitstun buffers the *jump* and may replace a buffered attack. Replace-on-write with a real input is a choice the player made, not the clobber bug the mask fixed. **Hitstop does not eat it**: recording runs during the freeze, aging is suspended (frozen ticks are not time), and the `prevButtons` latch is withheld so a release inside the freeze still fires a negative edge on thaw — the three `P3Input` freeze tests in `tests/test_p2_mechanics.cpp` pin all of this.
 - **A release.** `MoveDef::negativeEdge`, off by default, lets a move fire on `~bits & prevButtons` — the SF-lineage hold-motion-release special. Nothing distinguishes a "normal" from a "special" in the schema, so the rule *no normal fires on release* holds by construction: a normal that opts in is an authoring error, not a kernel one.
 
 > **Gotcha — a move whose mask is a superset of an earlier slot's can never start.** Slot order still decides, so `{Down, LP}` in a later slot is unreachable if `{LP}` sits in an earlier one; see the binding warning below. A test that wants a single hit now simply presses, but a test that wants the *same* move twice must release between the two presses — two presses on consecutive ticks is one hold.
@@ -244,6 +254,41 @@ next to every executable — holds:
 
 > **Gotcha — the three MUGEN characters are not here and are not staged.** `kung_fu_girl.json`, `kung_fu_man.json`, `aof2_strength_training.json` and `schema.v1.json` live in `tests/fixtures/characters/`: they are Phase-0 *evidence*, they are somebody else's characters, and staging them would put them in front of a designer as though they were content. Tests reach them by fixture path. Anything else — the Combo Prover panel included — will not find them, and that is the intent.
 
+### Variants — a character diff is a patch
+
+`Characters/fighter_a/variants/` holds the showcase exhibits: each is an RFC 7386
+merge patch with a **required one-line `description`**, and `LoadCharacterVariant`
+treats base + patch as an ordinary character — the *diff* is the exhibit.
+
+- `patch.moves` is an **object keyed by move id** — merge patch treats arrays as
+  atomic, so a standard array patch would restate every move and stop being a
+  diff. An id the base does not author is refused (a patch that patches nothing
+  is the worst kind of green), and so is a **move-level key the loader does not
+  read** — the move level is a closed 17-key set, unlike the annotation-tolerant
+  `engine.*` namespace, and a typo'd key merging silently is how an exhibit once
+  measured the base character while its caption claimed a diff.
+- `patch.moves_append` adds **whole new moves** (the jump-cancel exhibit's
+  route to the opt-in jump move), same key validation, an existing id refused —
+  that is an edit wearing an append's clothes.
+- `patch.cancels` supports exactly `{ "append": [edge, ...] }` — edges have no
+  natural merge key.
+
+The catalogue's rows, order, captions and per-row bindings live in
+`variants/catalogue.json`; `UntitledFighterCatalogue` cooks them, and **every
+cooked replay is verified bit-identical by `ReplayVerifier` before it is
+written**.
+
+### Adding a mechanic — the five parts
+
+A mechanic lands only as its five parts together (ADR-011 decision 5, as
+history): a **schema field** (appended, never inserted), a **kernel slot**
+(`MoveDef`/`FighterData` — hashed wire, so growth batches into planned
+expansions with bytes reserved for undecided neighbours), a **loss-ledger row**
+in `MatchBuilder` (zero-count rows included — the zero records that somebody
+looked), a **kernel property test**, and — when the mechanic can create or kill
+an infinite — a **showcase variant** that demonstrates it. Everything defaults
+off: an unpatched character must hash as before.
+
 ### What is in a character
 
 `Games/UntitledFighter/Data/include/cse/data/CharacterData.h` is the whole in-memory model. It is a plain vector-of-struct: no hash containers anywhere, because this repository has twice had iteration order over a hash container leak into a simulation.
@@ -261,7 +306,7 @@ next to every executable — holds:
 
 **Every field is an integer.** The authored files carry damage, reach, pushback, walk speed and the scaling table as JSON floats; the loader converts once, at load. Distances are sub-units (1 px = 256), durations are ticks, damage is **hundredths** of a point, meter is in units of 10 MUGEN power, and scaling/decay tables are permille (`CharacterData.h:35-41`). Where a file ships a pre-quantized integer beside the float — `engine.quantized_sources` — the **integer wins**, because it is the number the author actually derived.
 
-Two things are deliberately **not** loaded (`CharacterData.h:301-316`): the structured predicate form of `hit_condition` / `engine.condition` (every file in the tree authors prose instead, and evaluating one needs an opponent namespace that the trigger expression language would have owned -- and that language is deliberately not being built; see [ARCHITECTURE.md](../ARCHITECTURE.md) section 2), and nine `engine.*` sub-objects with no data behind them yet — including `engine.constants`, which is why you have to supply a body to the bridge yourself.
+Two things are deliberately **not** loaded (`CharacterData.h:301-316`): the structured predicate form of `hit_condition` / `engine.condition` (every file in the tree authors prose instead, and evaluating one needs an opponent namespace that the trigger expression language would have owned -- and that language is deliberately not being built; see [ARCHITECTURE.md](../ARCHITECTURE.md) section 2), and the remaining unread `engine.*` sub-objects — the header note in `CharacterData.h` is their one list, and it has been shrinking: `engine.movement` loads since M1.3(b1) and `engine.reaction`'s counter/launch/air/on_hit fields since (c)/(d). `engine.constants` stays deliberately unread forever, which is why you have to supply a body to the bridge yourself.
 
 ### Loading one
 
@@ -445,6 +490,10 @@ Here is the full table for Kung Fu Girl; `MatchBridgeLosses.EveryDropIsCountedAg
 | `character.input_buffer_frames` | 0 | Exact |
 | `move.pushback` | 24 | Exact |
 | `move.corner_push` | 0 | Exact |
+| `move.counter_hit` | 0 | Exact |
+| `move.air_hitstun` | 0 | Exact |
+| `move.launch` | 0 | Exact |
+| `move.on_hit` | 0 | Exact |
 | `move.hitstop` | 0 | Exact |
 | `move.stance` | 25 | Exact |
 | `move.blocked_as` | 0 | Exact |
@@ -465,7 +514,7 @@ Here is the full table for Kung Fu Girl; `MatchBridgeLosses.EveryDropIsCountedAg
 | `move.hitbox.y` | 25 | KernelPermits |
 | `hurtbox` | 1 | KernelPermits |
 
-Nineteen entries bite, so `lossesThatBite == 19` — nonzero `Exact` rows count too, because a nonzero row of any direction is a place somebody has to have looked. Her seven zero-count `Exact` rows (juggle gate, input buffer, hitstop, blocked_as, movement, motion keys, corner push) are the why-zero exhibits: her converted file authors none of those mechanics, and the row is the proof a check ran.
+Nineteen entries bite, so `lossesThatBite == 19` — nonzero `Exact` rows count too, because a nonzero row of any direction is a place somebody has to have looked. Her eleven zero-count `Exact` rows (juggle gate, input buffer, hitstop, blocked_as, movement, motion keys, corner push, and since M1.3(c)/(d) counter-hit, air hitstun, launch and on_hit) are the why-zero exhibits: her converted file authors none of those mechanics, and the row is the proof a check ran.
 
 The first eight rows replaced what used to be a single `cancels` entry with a count of 134. **All 134 of her edges are now carried**; what remains listed is the part of each edge the kernel cannot yet honour, and every row still short errs `KernelPermits` — the game chains in situations the file does not allow. A combo system uniformly more permissive than the analysed one is exactly how a `TERMINATING` verdict becomes a game with an infinite in it, which is the next section. `cancel.on` left that list at M1.3 slice (a): the contact mask carries the file's `on` whole — `on: hit` no longer fires off a blocked contact, `on: block` no longer off a clean hit, and `on: whiff` (the kara) is expressible at all — so its row reads `Exact`, with the count recording how many edges the old one-bit collapse used to move.
 
@@ -487,7 +536,8 @@ Exactly one conversion happens here, because D8 says a quantization happens once
 |---|---|
 | Frame data (startup / active / recovery / hitstun) | **Identity.** Schema v2 authors ticks at 60 Hz already. |
 | Distances | **Identity.** The loader already produced sub-units. |
-| Damage | **hundredths → points**, rounded half away from zero, matching D2's `scaleBy`. Exact for every character in the tree. |
+| Damage | **hundredths → points**, rounded half away from zero, matching D2's `scaleBy`. Exact for every character in the tree (and the counter-hit `damage_bonus` crosses through the same rule, proven by authoring it equal to a move's damage and asserting the two kernel fields agree). |
+| Motion keys | **One sign flip**: the file's MUGEN-provenance Y-down velocities become the kernel's +Y-up at load, sorted by tick (`TheAuthoredMotionKeysCrossWithTheirOneSignFlip`); `pos_add` teleports are not carried and get their own KernelOmits row. The *new* fields (`engine.movement`, `launch`) author +Y-up directly and cross with no flip. |
 
 The hitbox is built so that `Move::reachSub` — documented as "maximum gap at which the move connects" — is literally true: the box starts at the front of the body and extends the authored reach, plus one sub-unit converting the file's inclusive maximum into the kernel's half-open bound. `MatchBridgeReach.TheAuthoredReachIsTheExactMaximumGap` tests that boundary to the sub-unit, and `MatchBridgeReach.ReachIsExactlyMirroredForALeftFacingFighter` tests it again mirrored.
 
@@ -642,6 +692,54 @@ repeated. `ComboReport` carries the performed edges up to `kMaxComboSequence`
 `GameState` — which is exactly why the determinism gate holds this module to the
 same integer rules as the kernel ([DETERMINISM.md](../DETERMINISM.md) §1): a float
 here would leave the simulation bit-identical and make the *verdict* drift.
+
+### `WitnessCursor` — one implementation of "perform this witness"
+
+An immutable entry table read off the built `MoveDef`s plus a pure step
+`(state, observed) → (bits, state')`. `BuildDemonstration`, `ComboSearch` and
+every test driver sit on the **same step** — a second cursor is the drift
+ADR-012 rule 4 exists to stop. The driver rules (a stance hold is pressed with
+the button and kept through releases; for a fallback character an aerial's hold
+is Up, while a character with a jump move holds nothing and carries the jump as
+an ordinary entry; a stall re-presses after two waiting ticks; movement macros
+are counted in **free ticks only**) have their one detailed home in
+`WitnessCursor.h`'s header essay.
+
+### `ComboSearch` — verdicts by execution
+
+The second prover ([ADR-013](../adr/ADR-013-verdicts-by-execution.md) as
+history): a bounded depth-first search over **macro-actions performed the way a
+player performs them** — a one-entry `WitnessCursor` per ask, the silent dummy
+on the other side — executed on the real kernel. One implementation answers
+tests, the cooker, the showcase and the panel; the budget is the caller's, and
+the default keeps the shipped roster resolvable in test time.
+
+- **Induction, not resemblance.** States de-duplicate on a masked `Checksum()`
+  — tick, the never-consulted RNG, both healths and the round fields excluded —
+  so a key that repeats along a live path proves an infinite: identical bytes
+  meet identical rules and continue identically. A visited key is never
+  re-expanded.
+- **A string lives while the defender is never actionable** — in hitstun at
+  the end of the previous tick, `ComboWatcher`'s own rule — and a macro-action
+  that frees the defender ends it.
+- **The movement menu.** Walks of 1/2/4/8 ticks in each absolute direction and
+  waits of 1/2/4, encoded above the move-slot range and replayed by the same
+  cursor; only **free ticks** count toward a walk, and a movement entry scores
+  no hit — `maxHits` keeps meaning hits. The approach walks at most eight
+  entries, only toward the opponent; a live string at most two per **link**
+  (the genre's microwalk is one or two), the counter reset on every connect. A
+  character's **jump move** spends the same movement allowance: it connects
+  nothing and succeeds by completing at the first airborne actionable tick,
+  where an aerial can be asked (ADR-018).
+- **Expansion order is a pure function of the node** — moves in slot order,
+  walks toward longest-first, away, then waits — and a repeat is a verdict
+  only while the string is live: approach movement restarts the key chain, so
+  walking in place at neutral proves nothing.
+- **Deterministic by construction** — fixed order, integer state, no clock, no
+  randomness — so the same character and budget reproduce the same verdict,
+  witness and counts on any machine ([DETERMINISM.md](../DETERMINISM.md) §1);
+  a verdict can be a golden the way a hash can. `UNRESOLVED` is a budget
+  statement and never becomes a verdict.
 
 ### `BuildDemonstration` — the tool-assisted attacker, headless
 
@@ -806,6 +904,8 @@ How to read the corner answer: it is the attacker's best case. **A combo that di
 | **TERMINATING** | No loop **in the file**. `maxHits`, `maxFrames` and `maxDamageHundredths` bound the worst case. | Read the two qualifications drawn with it: the soundness alarm, which changes the verdict's colour rather than adding small print, and [the resource warning](#the-resource-warning-under-the-verdict) directly beneath it. Absent both, nothing. |
 | **UNRESOLVED** | The search hit `ProverOptions::limit` (`ProverAdapter.h:211`, default 200 000). | Raise the budget with the control the panel provides. An unfinished search dressed up as a clean bill of health is worse than no answer at all. |
 
+**And since ADR-015 (accepted 2026-09-01, option 3), every analysis answers PER OPENING.** `ProverOpening` (`ProverAdapter.h`) names the three ways a string can start — **neutral** (the grounded hit every verdict above describes), **counter**, and **air** — and `ProverResult::openings` carries a complete result for each; the top-level fields stay the *neutral* answer verbatim, so nothing that reads the single-verdict surface changed meaning. Which numbers differ: **counter charges each move's authored `counter_hit` bonus** (M1.3(c), authored as `engine.reaction.counter_hit { hitstun_bonus, damage_bonus }` and simulated by `ResolveHits` when the defender is caught mid-startup — startup only, a trade is a trade; the *model* charges the bonus on every hit of that opening's search while the game grants it on the opening hit only, the Permissive direction, named in the opening's own loss row; a character authoring no bonus restates neutral exactly, and the tests pin that identity); **air substitutes each move's authored `air_hitstun_ticks`** — simulated since M1.3(d): `ResolveHits` charges the air number as the base stun against an airborne defender (falling back to ground where unauthored), a launcher (`engine.reaction.launch { vel_x_sub, vel_y_sub }`, +Y up, X pointed away from the attacker) is what puts one there, and a launched body keeps its arc through stun (`Fighter::reaction` marks it; an un-launched air hit still drops straight — recorded golden behaviour). The air opening's own loss rows name the charge rule: air for the whole string in the model, only while airborne in the game, split Permissive/Conservative by which number is larger — a move whose air stun is *shorter* than ground raises the alarm on that opening. `AnalyseCharacter` runs the model once per opening — three runs cost well under a millisecond.
+
 Two caveats the panel surfaces for INFINITE:
 
 - **`loopEntryKnown`** (`ProverAdapter.h:139`). When the loop is not entered on the very first move, the prover omits the opening move from both lists.
@@ -888,7 +988,7 @@ The road not taken is a dirty flag set by whoever edits the character. It is che
 
 The footer (`ComboProverPanel.cpp:1078`) shows run count, last / worst / mean milliseconds, and a **Copy verdict** button that produces `DescribeVerdict` text (`ProverAdapter.h:253`) — the same text the tests assert on, so a bug report and a test can never describe the character differently.
 
-**And every real run is recorded** ([ADR-017](../adr/ADR-017-one-line-per-prover-run.md)): one JSON line — wall time, the file read, character, nonce-free content hash, changed-since-last (`false` for a Re-run on unchanged bytes), move/cancel counts, resource ranges, `explored`, run ms with the resource-check ms as its own field, verdict — appended to `telemetry/prover_runs.jsonl` beside the content root, through the sandboxed writer/reader pair in `cse::data::AuthoringTelemetry.h`. The footer says `recorded:` or shows the writer's error; a failed append never blocks the analysis. The reader skips-and-counts torn lines, and `tests/test_prover_telemetry.cpp` pins the round trip.
+**And every real run is recorded** ([ADR-017](../adr/ADR-017-one-line-per-prover-run.md)): one JSON line — wall time, the file read, character, nonce-free content hash, changed-since-last (`false` for a Re-run on unchanged bytes), move/cancel counts, resource ranges, `explored`, run ms with the resource-check ms as its own field, verdict — appended to `telemetry/prover_runs.jsonl` beside the content root, through the sandboxed writer/reader pair in `cse::data::AuthoringTelemetry.h`. The footer says `recorded:` or shows the writer's error; a failed append never blocks the analysis. The reader skips-and-counts torn lines, and `tests/test_prover_telemetry.cpp` pins the round trip. The log lives with the working directory and dies with a build-tree wipe — copy it out before cleaning if you mean to keep it; the honest limits on harvesting it (the recording began 2026-09-01, and lines bucket by machine) are in [ARCHITECTURE.md](../ARCHITECTURE.md)'s research section.
 
 ### Two wiring caveats
 
