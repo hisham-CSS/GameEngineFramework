@@ -574,14 +574,15 @@ TEST(PoseSelect, KnockdownOutranksStunOutranksMoveOutranksFree) {
 // arrives (holding back is also walking back -- a dummy that backs off from tick
 // 0 is out of the jab's reach before its active frames, which is how this test's
 // first draft found nothing), and the contact is proven by the hitstop freeze,
-// the attacker's BLOCKED flag bit and the absence of hitstun. It does NOT drive
-// blockstun, because THE SHIPPED GAME HAS NONE: CharacterData reads
-// `blockstun_ticks` (CharacterData.h HitWindow::blockstunTicks) and Combat.cpp
-// applies MoveDef::blockstun, but MatchBuilder never carries the one into the
-// other and has no loss-ledger row saying so -- found by this test, 2026-09-02,
-// recorded as ROADMAP M3.0b. Until that lands, the selector's blockstun rule is
-// pinned from a state the session produced with blockstun set to what the file
-// authors, so this test keeps meaning the same thing before and after the fix.
+// the attacker's BLOCKED flag bit and the absence of hitstun. The selector's
+// blockstun rule is then pinned from that contact state with blockstun set
+// EXPLICITLY to what the file authors, so the test means the same thing whether
+// or not the bridge carries it -- which matters, because when this test was
+// first written the bridge did not: the schema authored
+// `engine.reaction.blockstun_ticks` on every move, Combat.cpp applied
+// MoveDef::blockstun, and MatchBuilder carried neither the value nor a ledger
+// row, so every block in the shipped game gave zero blockstun. Found here on
+// 2026-09-02 and closed by ROADMAP M3.0b in the next commit.
 TEST(PoseSelect, AReleasedGuardMidBlockstunFallsBackToTheStandingBlock) {
     Rig rig;
     rig.Load();
@@ -630,8 +631,9 @@ TEST(PoseSelect, AReleasedGuardMidBlockstunFallsBackToTheStandingBlock) {
     ASSERT_TRUE(blockedContact) << "the jab never made contact with the crouch-blocking dummy" << trace;
 
     // Now the rule, on the state the block produced, with the blockstun the file
-    // authors (fighter_a's stand_lp: blockstun 10). Hitstop is cleared so
-    // resolveGuard's own early return does not hide the guard.
+    // authors (fighter_a's stand_lp: blockstun 10) set explicitly. Hitstop is
+    // cleared here so this half is about the GUARD; the frozen half below keeps
+    // it.
     const MatchData& data = session.Data();
     GameState s = atContact;
     cse::kernel::Fighter& d = s.p[1];
@@ -665,8 +667,9 @@ TEST(PoseSelect, AReleasedGuardMidBlockstunFallsBackToTheStandingBlock) {
     // THE FROZEN TICKS, ON THE KERNEL ITSELF. resolveGuard zeroes guard on every
     // tick that starts in hitstop, without reading the pad; StepPhysics returns
     // on the same ticks before its posture write, so `crouching` survives. From
-    // the contact state, give the dummy the blockstun the file authors (what
-    // M3.0b will carry), keep the hitstop the kernel set, hold Down + back, and
+    // the contact state, give the dummy the blockstun the file authors (set
+    // explicitly, so the pin does not depend on the bridge's carry), keep the
+    // hitstop the kernel set, hold Down + back, and
     // drive Simulate through the freeze: the pose must be BlockstunCrouch on
     // every frozen tick -- guard None, crouching 1 -- and still crouch on the
     // first unfrozen tick, when the pad resolves Low again. A selector reading

@@ -535,7 +535,7 @@ Exactly one conversion happens here, because D8 says a quantization happens once
 
 | Quantity | Conversion |
 |---|---|
-| Frame data (startup / active / recovery / hitstun) | **Identity.** Schema v2 authors ticks at 60 Hz already. |
+| Frame data (startup / active / recovery / hitstun / blockstun / hitstop) | **Identity.** Schema v2 authors ticks at 60 Hz already. Blockstun crosses since M3.0b, which found it authored on every move, applied by the kernel, and carried by nothing (`BlockstunIsCarriedAndCountedInTheLedger`). |
 | Distances | **Identity.** The loader already produced sub-units. |
 | Damage | **hundredths → points**, rounded half away from zero, matching D2's `scaleBy`. Exact for every character in the tree (and the counter-hit `damage_bonus` crosses through the same rule, proven by authoring it equal to a move's damage and asserting the two kernel fields agree). |
 | Motion keys | **One sign flip**: the file's MUGEN-provenance Y-down velocities become the kernel's +Y-up at load, sorted by tick (`TheAuthoredMotionKeysCrossWithTheirOneSignFlip`); `pos_add` teleports are not carried and get their own KernelOmits row. The *new* fields (`engine.movement`, `launch`) author +Y-up directly and cross with no flip. |

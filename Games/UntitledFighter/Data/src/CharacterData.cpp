@@ -1323,6 +1323,12 @@ bool parseDocument(Ctx& ctx, const json& doc, CharacterData& out) {
                         return ctx.fail(where, "`engine.reaction` is not an object");
                     if (!readInt(ctx, *r, "hitstop_ticks", where, mv.hitstopTicks, false))
                         return false;
+                    // BLOCKSTUN (ROADMAP M3.0b): what a block costs the defender.
+                    // Read here, at the move level, in the same commit as the
+                    // bridge carry that consumes it -- a null (Kung Fu Man's
+                    // transcription) reads as absent, which is zero.
+                    if (!readInt(ctx, *r, "blockstun_ticks", where, mv.blockstunTicks, false))
+                        return false;
                     if (!readInt(ctx, *r, "air_hitstun_ticks", where, mv.airHitstunTicks, false))
                         return false;
                     if (!readInt(ctx, *r, "corner_push_vel_sub", where, mv.cornerPushSub, false))

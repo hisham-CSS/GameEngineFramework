@@ -39,7 +39,7 @@ The paper's claim has four load-bearing parts. This is what each rests on today.
 | **A deterministic simulation** | `tests/test_kernel.cpp` T1/T2; `tests/test_determinism_crossplat.cpp` T3, re-checked by gcc 13 on the Linux leg | Nothing. This one is done and has been re-goldened three times for stated reasons. |
 | **The prover reads the shipped files** | `tests/test_character_data.cpp` load assertions; the editor's Combo Prover panel | Nothing structural. `counter_hit` and the air numbers are authored, simulated and answered per opening since the openings wave (ADR-015); what remains is the cooker's executed pair, still singular neutral-corner until a bench can produce the other openings. |
 | **Every verdict is demonstrable as a replay** | `tests/test_ground_truth.cpp` executes the prover's own printed witness; since M1.3e the demonstration presses directions, establishes stances and performs its turns across jumps; since M1.3g one `WitnessCursor` performs every witness in the repository | Only one character's witness is executed. |
-| **The game is the file** | `MatchBuilder`'s loss ledger, checked move-by-move in `tests/test_match_bridge.cpp`; stance and guard height carried since M1.3e (`EveryAuthoredNormalIsReachableThroughItsButtonAndStance`); juggle since M1.1f, hitstop since M1.3i | Priority, chip and scaling are still authored and dropped — and so is **blockstun**, found 2026-09-02 by M3.4a's test: the loader reads it, the kernel applies it, the bridge never carries it and the ledger has no row for it (M3.0b). |
+| **The game is the file** | `MatchBuilder`'s loss ledger, checked move-by-move in `tests/test_match_bridge.cpp`; stance and guard height carried since M1.3e (`EveryAuthoredNormalIsReachableThroughItsButtonAndStance`); juggle since M1.1f, hitstop since M1.3i | Priority, chip and scaling are still authored and dropped. Blockstun was on that list without a ledger row to say so until M3.0b carried it (found by M3.4a's pose test, 2026-09-02, and closed the same day). |
 
 **The headline, measured three times (third: 2026-08-30, M1.3e).**
 
@@ -853,14 +853,17 @@ mannequin wait on that one-line answer; every WP before them does not.
   `PoseSelect.NeverTouchesTheChecksum`, and
   `CycleFrame.FloorModKeepsANegativePositionOnTheCycle`.
 
-- `[ ]` **M3.0b The bridge carries blockstun, with its ledger row.** *(S)* Found
-  by M3.4a's blockstun test (2026-09-02): `CharacterData` reads
-  `blockstun_ticks`, `Combat.cpp` applies `MoveDef::blockstun`, and
-  `MatchBuilder` carries neither the value nor a loss-ledger row — so every
-  block in the shipped game gives zero blockstun and nothing says so. A bridge
-  carry, not a mechanic (the kernel slot exists): the carry, its census row, and
-  a check that the prover's projection is unmoved (blockstun is not a hit). It
-  changes `MatchData` bytes, so it lands alone. **Done when:**
+- `[~]` **M3.0b The bridge carries blockstun, with its ledger row.** *(S)* Found
+  by M3.4a's blockstun test (2026-09-02): `fighter_a.json` authors
+  `engine.reaction.blockstun_ticks` on all 22 moves, `Combat.cpp` applies
+  `MoveDef::blockstun`, the loader read the key only inside the `engine.hits[]`
+  records the kernel omits, and `MatchBuilder` carried neither the value nor a
+  loss-ledger row — so every block in the shipped game gave zero blockstun and
+  nothing said so. A loader read plus a bridge carry into an existing kernel
+  slot, not a mechanic: the read and the carry in one commit, the census row,
+  and the prover's projection unmoved by construction (it never reads
+  blockstun, and a blocked hit is no link). It changes `MatchData` bytes, so it
+  lands alone. **Done when:**
   `test_match_bridge.cpp` gains `BlockstunIsCarriedAndCountedInTheLedger` and
   the census pins the new row; `PoseSelect.AReleasedGuardMidBlockstunFallsBackToTheStandingBlock`
   is unchanged and still green — in particular its frozen-tick half, which

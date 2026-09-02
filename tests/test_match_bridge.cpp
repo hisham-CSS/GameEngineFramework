@@ -966,6 +966,10 @@ TEST(MatchBridgeLosses, EveryDropIsCountedAgainstKungFuGirlsActualFile) {
         // that somebody looked: her converted file authors no impact freeze,
         // so M1.3i's carried hitstop leaves every move of hers at 0.
         { "move.hitstop",              0, BuildLossDirection::Exact         },
+        // Zero for Kung Fu Girl (M3.0b's carry): her converted file authors
+        // no blockstun_ticks at all -- fighter_a authors it on all 22 moves --
+        // and the zero records that somebody looked.
+        { "move.blockstun",            0, BuildLossDirection::Exact         },
         // Zero again: her converted file authors no counter_hit (M1.3(c)'s
         // carry), and the zero records that somebody looked.
         { "move.counter_hit",          0, BuildLossDirection::Exact         },
@@ -1544,6 +1548,74 @@ TEST(MatchBridgeMechanics, TheAuthoredFreezeReachesBothFightersAndATapInsideItBu
            "the freeze ate the confirm, which is the regression the three "
            "P3Input freeze tests pin on synthetic data and this one pins on "
            "the shipped file.";
+}
+
+// --- Blockstun crosses the bridge (ROADMAP M3.0b) ----------------------------
+//
+// Found by M3.4a's pose test, not by design: fighter_a.json authors
+// `engine.reaction.blockstun_ticks` on all 22 moves, Combat.cpp's blocked arm
+// has applied MoveDef::blockstun since the guard landed, and MatchBuilder
+// carried neither the value nor a ledger row -- so every block in the shipped
+// game gave zero blockstun and this table did not say so, which is the one
+// failure a loss ledger exists to make impossible. Three halves on the shipped
+// file: the loader reads it, the bridge carries it and counts it, and a
+// crouch-blocking dummy on the real kernel takes exactly the authored number.
+TEST(MatchBridgeMechanics, BlockstunIsCarriedAndCountedInTheLedger) {
+    CharacterData c{};
+    LoadReport report{};
+    ASSERT_TRUE(LoadCharacterFile(ownCharactersDir(), "fighter_a.json", loadOptions(), c, report))
+        << report.error;
+
+    const MoveIndex lp = c.FindMove("stand_lp");
+    ASSERT_NE(lp, cse::data::kInvalidMove);
+    ASSERT_EQ(c.moves[lp].blockstunTicks, 10)
+        << "the loader does not read stand_lp's authored engine.reaction.blockstun_ticks";
+
+    BuildOptions options{};
+    options.bindings = { { "stand_lp", cse::kernel::kInputLP } };
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build)) << build.report[0].error;
+
+    const std::uint16_t lpSlot = build.moves[0].Find("stand_lp");
+    ASSERT_NE(lpSlot, 0u);
+    EXPECT_EQ(build.data.p[0].moves[lpSlot].blockstun, 10)
+        << "the bridge dropped blockstun; MoveDef::blockstun is "
+        << build.data.p[0].moves[lpSlot].blockstun;
+
+    // The ledger says so, move by move: all 22 of fighter_a's moves author it.
+    const BuildLoss* row = findLoss(build.report[0], "move.blockstun");
+    ASSERT_NE(nullptr, row) << "the loss table has no blockstun row -- the gap M3.0b closed";
+    EXPECT_EQ(22, row->count);
+    EXPECT_EQ(BuildLossDirection::Exact, row->direction);
+
+    // The kernel half. The dummy crouch-blocks (Down + back; back for a
+    // fighter facing -X is Right) and takes the authored 10, with no hitstun
+    // and its move untouched -- a block does not interrupt.
+    cse::kernel::GameState s{};
+    cse::kernel::ResetMatch(s, 0x1D7u);
+    s.p[0].posX = -px(10);
+    s.p[1].posX =  px(10);
+    s.p[0].facing = 0;
+    s.p[1].facing = 1;
+
+    cse::kernel::InputPair press{};
+    press.p[0].bits = cse::kernel::kInputLP;
+    press.p[1].bits = cse::kernel::kInputDown | cse::kernel::kInputRight;
+    cse::kernel::InputPair hold{};
+    hold.p[1].bits = press.p[1].bits;
+
+    cse::kernel::Simulate(s, press, build.data);
+    ASSERT_EQ(s.p[0].moveId, lpSlot) << "stand_lp did not start";
+    for (int t = 0; t < 30 && s.p[1].blockstun == 0; ++t) {
+        cse::kernel::Simulate(s, hold, build.data);
+        ASSERT_NE(s.p[0].moveId, 0u) << "stand_lp ran out before it connected";
+    }
+    EXPECT_EQ(s.p[1].blockstun, 10)
+        << "the crouch-blocking dummy did not take the authored blockstun; it took "
+        << s.p[1].blockstun;
+    EXPECT_EQ(s.p[1].hitstun, 0) << "the block was resolved as a hit";
+    EXPECT_EQ(s.p[1].guard, cse::kernel::kGuardLow);
+    EXPECT_GT(s.p[1].hitstop, 0) << "no impact freeze on the block: the contact never happened";
 }
 
 // JUMP PHYSICS, from engine.movement (ROADMAP M1.3(b1), ADR-014 step one).

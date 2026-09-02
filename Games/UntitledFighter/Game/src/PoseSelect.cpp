@@ -86,8 +86,8 @@ PoseRequest SelectPose(const cse::kernel::MatchData& data,
         // the posture the block was resolved with for exactly those ticks. Read
         // it there and a crouch-blocked hit does not flicker crouch -> stand ->
         // crouch inside its own hitstop. Both are kernel bytes; nothing is
-        // remembered. (Unreachable in the shipped title until ROADMAP M3.0b
-        // carries blockstun; test_pose_select.cpp drives it on Simulate.)
+        // remembered. (Reachable in the shipped title since ROADMAP M3.0b
+        // carried blockstun; test_pose_select.cpp drives it on Simulate.)
         const bool crouchBlock = f.guard == cse::kernel::kGuardLow ||
                                  (f.hitstop > 0 && f.crouching != 0);
         r.kind      = crouchBlock ? PoseKind::BlockstunCrouch : PoseKind::BlockstunStand;

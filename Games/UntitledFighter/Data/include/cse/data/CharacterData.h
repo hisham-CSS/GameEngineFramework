@@ -466,6 +466,15 @@ struct Move {
     // before this block existed gets and is why wiring them changes no character
     // that does not use them.
     std::int32_t hitstopTicks    = 0;   // impact freeze, BOTH fighters
+    // Ticks the DEFENDER cannot act after BLOCKING this move, from
+    // `engine.reaction.blockstun_ticks`. Zero means the file authors none.
+    // Read since ROADMAP M3.0b, which found the schema authoring it on every
+    // fighter_a move, the kernel applying MoveDef::blockstun, and nothing
+    // carrying the one into the other -- so every block in the shipped game
+    // gave zero blockstun and no ledger row said so. Distinct from the
+    // HitRecord field of the same name: that one belongs to engine.hits[],
+    // the multi-HitDef transcription the kernel omits.
+    std::int32_t blockstunTicks  = 0;
     std::int32_t airHitstunTicks = 0;   // hitstun when the defender is AIRBORNE;
                                         // it is what makes a juggle last
     std::int32_t fallRecoverTicks = 0;  // ticks on the floor after a knockdown
@@ -809,9 +818,10 @@ struct CharacterData {
 // engine.motion_physics, engine.anim, engine.fx.
 //
 // engine.reaction LEFT THIS LIST ACROSS ROADMAP M1, one mechanic at a time:
-// the loader now reads hitstop_ticks, air_hitstun_ticks, corner_push_vel_sub,
-// fall_recover_ticks, counter_hit, launch and on_hit -- each key landed in the
-// same commit as the kernel behaviour that consumes it, never ahead of one.
+// the loader now reads hitstop_ticks, blockstun_ticks, air_hitstun_ticks,
+// corner_push_vel_sub, fall_recover_ticks, counter_hit, launch and on_hit --
+// each key landed in the same commit as the kernel behaviour (or the bridge
+// carry into an existing kernel slot) that consumes it, never ahead of one.
 // `priority` inside the block stays unread (the Move::priority note above says
 // why), and `causes_knockdown` is recognised only to be refused with a
 // pointer to fall_recover_ticks. engine.movement (the character-level jump
