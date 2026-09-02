@@ -91,16 +91,14 @@ is done or serves it.
 
 | In flight | Owner | Since |
 |---|---|---|
-| M1.6 — the showcase; slices 1–8 landed (8 = the cooker recording + base row) | Claude | 2026-08-31 |
-| M1.3 — mechanics pass 1; (a) (b1) (b2) landed; **the openings wave unblocked 2026-09-01** (ADR-015 accepted, option 3; (b3) go given) | Claude | 2026-08-31 |
+| M1.9 — one home per current rule (the human's consolidation ask; the wave's last WP) | Claude | 2026-09-01 |
 
-M1.6 stays open only on the variants the openings wave delivers (jump-cancel,
-kara, counter-hit, wallbounce). The wave's order, per ADR-015's consequence
-list and ADR-014's batching rule: per-opening prover surface → (c) → (d) →
-(b3) — ALL LANDED; the golden re-record (b3) was expected to need DISSOLVED
-under ADR-018's opt-in design, so no re-record review is pending — → the
-four variants with the cursor/search jump teaching → M1.9 doc consolidation.
-M1.1e landed inside its slice 5 — the buffer pair is a catalogue row.
+The openings wave is landed end to end: per-opening prover surface → (c) →
+(d) → (b3) — with the golden re-record (b3) was expected to need DISSOLVED
+under ADR-018's opt-in design, so no re-record review was ever pending — →
+the four exhibits with the cursor/search jump teaching. M1.3 and M1.6 are
+closed above; M1.9 (the consolidation) is the wave's last WP. M1.1e landed
+inside slice 5 — the buffer pair is a catalogue row.
 
 One at a time. The next unblocked WP is always the top `[ ]` in milestone
 order — which, under the 2026-08-21 reorder, is the sequence named above.
@@ -417,8 +415,11 @@ Six WPs, all landed, gate required in CI. The decision is
   graph's performable count equals what the kernel produces: zero unescapable,
   measured on both sides.
 
-- `[~]` **M1.3 Mechanics, pass 1 — the ones the showcase needs.** *(M–L)* Claude,
-  2026-08-31, sliced (a) first: the contact mask is the smallest of the four,
+- `[x]` **M1.3 Mechanics, pass 1 — the ones the showcase needs.** *(M–L)* Claude,
+  2026-08-31 → 2026-09-01, all six letters landed: (a) `b9b2978` · (b1)
+  `975e529` · (b2) `a70ee00` · (b3) `2e50e1a` (per ADR-018) · (c) `c92901d`
+  (with the (c-pre) surface `c7e007f`) · (d) `2f25e71` + `73ed46d`.
+  Sliced (a) first: the contact mask is the smallest of the four,
   and (c) counter-hit is entered only behind its own ADR — the entry itself
   says the choice changes what the tool claims. Each
   with [ADR-011](adr/ADR-011-mechanics-are-fields.md)'s five parts:
@@ -622,8 +623,10 @@ Six WPs, all landed, gate required in CI. The decision is
   (`AFrameDataEditLandsInARunningMatchAndABrokenEditKeepsTheLastGoodData`,
   tests/test_character_hotreload.cpp).
 
-- `[~]` **M1.6 The showcase: one fighter, many patches, a replay per verdict.**
-  *(M)* Claude, 2026-08-31. Variants under
+- `[x]` **M1.6 The showcase: one fighter, many patches, a replay per verdict.**
+  *(M)* Claude, 2026-08-31 → 2026-09-01; slices 1–8 through `60de3b5`, the
+  openings-wave machinery `a386c9c`, the four exhibits `9137599` — thirteen
+  rows, all cooked, every caption pinned. Variants under
   `Games/UntitledFighter/Assets/Characters/fighter_a/variants/`; the eleven
   patches and what each shows are ADR-011 §4. (The cursor-copies finding this
   entry used to carry landed early as M1.3g.)
