@@ -1,10 +1,10 @@
 # ADR-020: The bounded lift — skinned placeholders before netcode, and one modeled body before M4
 
-Status: Proposed (2026-09-02), with a recommended default that the session
-does NOT proceed under. This is the human's decision alone: the order it lifts
-is the author's stated order, written in three living places, and only the
-author can lift it. Until it is answered, nothing in ROADMAP M3 below M3.0
-starts; M2.1 remains the standing next WP.
+Status: Accepted 2026-09-02 by the author, both clauses, as recommended —
+(i) M3.2–M3.5a run before M2.1, with M3.1, M3.5b and M3.6 after M2; (ii) one
+modeled body (M3.3e) precedes M4, started after R8 on the mannequin. The
+reversal condition below is in force. ROADMAP and NORTHSTAR were rewritten in
+the same commit; ADR-010 and ADR-005 carry one Status-line clause each.
 
 ## Context
 

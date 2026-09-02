@@ -1,6 +1,6 @@
 # North star
 
-Verified: 2026-09-01 @ 59fd462
+Verified: 2026-09-02 @ 0e2d423
 
 What this engine is for, and how anyone can check whether it has got there. One
 screen on purpose. Where the work stands is [ROADMAP.md](ROADMAP.md) and nowhere
@@ -44,15 +44,18 @@ Each is a test, a number or a demo — never an adjective.
 | **(d) Reusable** | a second game links `Engine` with no edit to `Engine/`; no fighting-game type appears in an engine header; and the editor's Play mode and the shipped Player run the **same** code path | configure-time boundary guards in `Games/UntitledFighter/CMakeLists.txt` and the root `CMakeLists.txt` — a title may depend on the engine, never the reverse. Play == Player becomes a hash test in ROADMAP M2.6 |
 | **The paper** | contribution #9 — the analysis inside a working editor — plus ground-truth reproduction of a printed loop, plus a showcase catalogue anyone can watch | `Games/UntitledFighter/Editor/src/ComboProverPanel.cpp`; `tests/test_ground_truth.cpp` executes the prover's own printed witness rather than a hand-written one. The catalogue is ROADMAP M1.6 |
 
-## The order, and why it is not negotiable
+## The order, and who may bend it
 
 **Provable and showcased before any art.** Evidence first — the kernel's own
-bounded search and a verified replay catalogue — then a real link between two
-machines, then placeholder Mixamo rigs to make the evidence legible, then
-publication, and only then SF6-tier art, as content, through a pipeline that
-already exists. The reasoning is
-[ADR-010](adr/ADR-010-one-roadmap-one-rule.md) §3; the milestones are
-[ROADMAP.md](ROADMAP.md).
+bounded search and a verified replay catalogue — then skinned placeholders
+generated through Blender to make the evidence legible, then a real link
+between two machines, then publication, and only then SF6-tier art, as
+content, through a pipeline that already exists. The reasoning is
+[ADR-010](adr/ADR-010-one-roadmap-one-rule.md) §3; the one bend in it — the
+placeholders ahead of the link, and one modeled body ahead of publication — is
+the author's own, recorded with its reversal condition in
+[ADR-020](adr/ADR-020-the-bounded-lift.md); the milestones are
+[ROADMAP.md](ROADMAP.md). Nobody else bends it.
 
 Two consequences that are easy to lose and expensive to recover:
 

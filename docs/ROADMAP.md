@@ -1,6 +1,6 @@
 # ROADMAP — the one place status lives
 
-Verified: 2026-09-02 @ a51aefb
+Verified: 2026-09-02 @ 0e2d423
 
 This is the **only** roadmap. `README.md` carries one paragraph and a link;
 `docs/manual/` never lists gaps; ADRs record why, not what is next. If a fact
@@ -24,9 +24,10 @@ mechanic is an opt-in field on a move, never a rule in the kernel
 frame data; return-to-idle tails are always cancelable. Everything is provable
 and showcased **before** any real art is made; placeholder rigs (generated
 through Blender, [ADR-019](adr/ADR-019-placeholders-through-blender.md)) come
-first, SF6-tier art last, and only after the showcase already sells the paper
-without it — with the one bounded exception
-[ADR-020](adr/ADR-020-the-bounded-lift.md) puts to the human. Details, tests and proofs of the four properties:
+first — ahead of the netcode link, by the author's
+[ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted 2026-09-02), which also
+lets one modeled body precede M4 — and SF6-tier art last, only after the
+showcase already sells the paper without it. Details, tests and proofs of the four properties:
 [NORTHSTAR.md](NORTHSTAR.md).
 
 ## Where this stands against the paper
@@ -89,16 +90,15 @@ wire — the third measurement above), **M1.3g** (ONE `WitnessCursor`, five
 copies deleted) and **M1.4a + M1.4** (`ComboSearch` runs the real kernel,
 section 3's parallel model is deleted, and the paper's pair — model 21 /
 executed 7 — is printed by CI). The showcase (**M1.6**) closed 2026-09-01 at
-thirteen rows; the consolidation (**M1.9**) closed the wave. Next is **M2** by
-the standing order — or **M3** first, if the human accepts
-[ADR-020](adr/ADR-020-the-bounded-lift.md); the M3 plan itself is written
-either way.
+thirteen rows; the consolidation (**M1.9**) closed the wave. Next is **M3**, from
+M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
+2026-09-02); **M2** follows M3.5a, and M3.1, M3.5b and M3.6 follow M2.
 
 ## Now
 
 | In flight | Owner | Since |
 |---|---|---|
-| — (awaiting the human: [ADR-020](adr/ADR-020-the-bounded-lift.md) decides whether M3.4a or M2.1 is next) | | |
+| M3.4a — `PoseSelect`, and the presentation library spike | Claude | 2026-09-02 |
 
 The openings wave is landed end to end: per-opening prover surface → (c) →
 (d) → (b3) — the golden re-record (b3) was expected to need DISSOLVED under
@@ -794,7 +794,7 @@ Six WPs, all landed, gate required in CI. The decision is
   finds each stated in exactly one living doc (link, not restatement,
   everywhere else), and `check_docs.py` stays green.
 
-## M2 — Two people, one match *(size L)* — ARCHITECTURE Phase 4
+## M2 — Two people, one match *(size L)* — ARCHITECTURE Phase 4 — after M3.5a ([ADR-020](adr/ADR-020-the-bounded-lift.md))
 
 - `[ ]` **M2.1 Transport — spike, then an ADR.**
 - `[ ]` **M2.2 Handshake** — hash the loaded POD arrays, never canonicalised text.
@@ -811,13 +811,19 @@ one glTF pipeline, stepped clips at exactly `startup + active + recovery`, a
 manifest-pinned Rigify deform skeleton, T0 — no presentation state — an
 orthographic fight camera as the one admitted camera field, Blender and its
 MCP server as dev-machine tools never in CI) and
-[ADR-020](adr/ADR-020-the-bounded-lift.md) (when: the human's). The
+[ADR-020](adr/ADR-020-the-bounded-lift.md) (when: accepted 2026-09-02 —
+M3.2–M3.5a before M2.1, one modeled body before M4). The
 placeholder is a bpy-generated mannequin; the modeled shoto the human asked
 for is that mannequin's mesh swap on the same skeleton (M3.3e). The list is
 in recommended execution order — headless engine work first against
 stdlib-generated fixtures, the training room as the first visible artifact,
 the first swing at M3.4c — and every Done-when reads committed exported bytes,
 never a `.blend`. M3.1, M3.5b and M3.6 sit after M2 in either ordering.
+
+ADR-019 D10 — the licence for project-authored assets — is **deferred** by the
+human (2026-09-02): only code-adjacent test fixtures under the repository's
+MIT may be committed until it is answered, so M3.5a's room and M3.3b's
+mannequin wait on that one-line answer; every WP before them does not.
 
 - `[x]` `97ec6c2` **M3.0 Two ADRs and the M3 rewrite, on paper.** *(S)*
   **Done when:** `python scripts/check_docs.py` is green; ADR-019 and ADR-020
@@ -826,7 +832,7 @@ never a `.blend`. M3.1, M3.5b and M3.6 sit after M2 in either ordering.
   carries a Done-when that names a test under `tests/` or a script under
   `scripts/`.
 
-- `[ ]` **M3.4a `PoseSelect`, and the presentation library spike.** *(M)*
+- `[~]` **M3.4a `PoseSelect`, and the presentation library spike.** *(M)*
   First because it is headless, Claude-paced and needs no Blender. `SelectPose(
   const MatchData&, const GameState&, slot)` in `CseGame` returns kinds and
   integers only — `{kind, moveSlot, frame, remaining, tick, posXSub, posYSub,
