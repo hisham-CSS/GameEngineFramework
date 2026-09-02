@@ -732,10 +732,21 @@ Six WPs, all landed, gate required in CI. The decision is
   learned movement macros (its entry validation predated them — and its
   stall DIAGNOSTICS dereferenced a macro as a move, a crash the first full
   cook found).
-  **Still open:** `jump-cancel`, `kara` (land with M1.3(b3) + the kara
-  close-frame authoring); `counter-hit`, `wallbounce` (land with M1.3(c)+(d)
-  — ADR-015 accepted 2026-09-01, so these are now ordinary wave work, not
-  decision-blocked).
+  **The four openings-wave exhibits LANDED — the catalogue is 13 rows, all
+  cooked, exit 0:** `counter_hit` (the per-opening verdict at work: neutral
+  pair stands at base, the COUNTER opening revives one dead cancel — 88
+  usable → 89 — and carries the damage bonus while the 21-hit bound holds);
+  `wallbounce` (the measured NULL: the corner grants for free what the
+  bounce exists to return, so the pair stands at 7/7 and the caption states
+  the mechanic's midscreen scope instead of growing bench numbers);
+  `jump_cancel` (the wave's headline: the model prices the hk→jump edge
+  dead — jump's hitstun is 0 — and the GAME walks through it, executed
+  worst case 7 → 13, the bound held from the other side at nearly twice
+  the distance); `kara` (whiff edge honoured by the kernel, honestly
+  invisible to BOTH instruments — the model drops whiff by doctrine, the
+  search asks one connect at a time — and the caption says the shared gap
+  out loud). Exhibit tests pin every number
+  (`VariantExhibits.ACounterOpening…`/`AJumpCancel…`/`AWallBounce…`/`AKara…`).
 
 - `[x]` `e3a1d45` **M1.7 Authoring telemetry.** *(S)* Claude, 2026-08-31. What the author
   actually needed to know, recorded while authoring rather than reconstructed

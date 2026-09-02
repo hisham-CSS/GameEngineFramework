@@ -1,0 +1,17 @@
+{
+  "description": "Counter-hit as a field, and the verdict that answers per opening (M1.3(c), ADR-015 option 3). One object on stand_lp: counter_hit { hitstun_bonus 7, damage_bonus 10.0 }, charged by ResolveHits when the defender is caught mid-startup -- startup only; a trade is a trade. The NEUTRAL pair stands exactly at base (TERMINATING / TERMINATING, executed worst 7): a corner bench against a silent dummy cannot open with a counter, and an exhibit that pretended otherwise would be the lie option 3 was chosen to end. The diff lives in the COUNTER OPENING's model verdict: the +7 revives ONE dead cancel (88 usable edges become 89 -- the bonus exceeds that edge's shortfall) and the worst-case damage carries the bonus, while the hit bound does not move (21 both ways: every edge the bonus lengthens was already alive at the settled index). The charge rule is in the opening's own loss row: the model charges the bonus on EVERY hit where the game grants it on the opening hit only -- Permissive, so a TERMINATING under this opening still holds in the game.",
+  "patch": {
+    "moves": {
+      "stand_lp": {
+        "engine": {
+          "reaction": {
+            "counter_hit": {
+              "hitstun_bonus": 7,
+              "damage_bonus": 10.0
+            }
+          }
+        }
+      }
+    }
+  }
+}

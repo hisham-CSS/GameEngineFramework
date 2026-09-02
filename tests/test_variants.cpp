@@ -709,3 +709,113 @@ TEST(VariantLoader, AVariantMayAppendAMoveAndTheAppendIsValidatedLikeAPatch) {
     EXPECT_NE(report.error.find("hitstop_ticks"), std::string::npos)
         << report.error;
 }
+
+// --- The openings-wave exhibits (ROADMAP M1.6 variants slice) ---------------
+
+TEST(VariantExhibits, ACounterOpeningRaisesTheModelsWorstCaseAndTheNeutralPairStandsStill) {
+    Exhibit e{};
+    bringUpVariant("fighter_a/variants/counter_hit.json", e);
+    ASSERT_FALSE(::testing::Test::HasFatalFailure());
+
+    // The NEUTRAL pair is the base pair exactly: a corner bench cannot open
+    // with a counter, so the executed side must not move.
+    EXPECT_EQ(e.verdict.status, ProverStatus::Terminating);
+    EXPECT_EQ(e.searched.verdict, ComboVerdict::Terminating);
+    EXPECT_EQ(e.searched.maxHits, 7);
+
+    // The COUNTER opening is where the diff lives (ADR-015 option 3).
+    ASSERT_EQ(e.verdict.openings.size(), 3u);
+    // The bonus REVIVES ONE DEAD CANCEL under the counter opening -- 88
+    // usable edges become 89, because +7 on stand_lp's stun is more than one
+    // dead edge's shortfall -- and the worst-case damage carries the bonus;
+    // the hit bound does NOT move (21 both ways: every edge the bonus
+    // lengthens was already alive at the settled index).
+    EXPECT_EQ(e.verdict.openings[0].usableCancels, 88);
+    EXPECT_EQ(e.verdict.openings[1].usableCancels, 89)
+        << "the counter opening did not revive the dead edge the +7 covers";
+    EXPECT_GT(e.verdict.openings[1].maxDamageHundredths,
+              e.verdict.openings[0].maxDamageHundredths);
+    EXPECT_EQ(e.verdict.openings[1].maxHits, e.verdict.openings[0].maxHits)
+        << "the hit bound moved; the caption's claim needs re-deriving";
+}
+
+TEST(VariantExhibits, AJumpCancelNearlyDoublesTheExecutedWorstCaseThroughAnEdgeTheModelPricesDead) {
+    Exhibit e{};
+    std::vector<cse::data::MoveBinding> jumpBinding;
+    cse::data::MoveBinding b{};
+    b.moveId = "jump";
+    b.button = cse::kernel::kInputUp;
+    jumpBinding.push_back(b);
+    bringUpVariant("fighter_a/variants/jump_cancel.json", e, jumpBinding);
+    ASSERT_FALSE(::testing::Test::HasFatalFailure());
+
+    // The MODEL's bound stands (its graph has the hk->jump edge, but jump's
+    // hitstun is 0 so everything OUT of jump is dead to it) ...
+    EXPECT_EQ(e.verdict.status, ProverStatus::Terminating);
+    EXPECT_EQ(e.verdict.maxHits, 21);
+
+    // ... and the GAME nearly doubles its executed worst case through it:
+    // stand_hk, cancel into the jump, ride the arc, chain aerials, land,
+    // continue. 7 -> 13, the bound still held from the other side.
+    EXPECT_EQ(e.searched.verdict, ComboVerdict::Terminating);
+    EXPECT_EQ(e.searched.maxHits, 13)
+        << "the jump cancel's executed worst case moved; re-measure the "
+           "caption. " << e.searched.note;
+
+    const std::uint16_t jumpSlot = e.build.moves[0].Find("jump");
+    ASSERT_NE(jumpSlot, 0u);
+    EXPECT_EQ(e.build.data.p[0].jumpMoveSlot,
+              static_cast<std::int32_t>(jumpSlot));
+    bool usedJump = false;
+    for (const std::uint16_t s : e.searched.longestString)
+        if (s == jumpSlot) usedJump = true;
+    EXPECT_TRUE(usedJump)
+        << "the longest string never performed the jump move";
+}
+
+TEST(VariantExhibits, AWallBounceIsSimulatedAndTheCornerBenchCannotBeExtendedByIt) {
+    Exhibit e{};
+    bringUpVariant("fighter_a/variants/wallbounce.json", e);
+    ASSERT_FALSE(::testing::Test::HasFatalFailure());
+
+    // The fields cross whole -- the kernel half is pinned move-by-move in
+    // P3Reactions -- and the MEASURED null is the exhibit: at the corner
+    // bench the defender is already permanently in range, so the bounce's
+    // whole value (returning a body the wall would have kept) buys the
+    // string nothing the corner had not already granted. 7 both ways.
+    const std::uint16_t hk = e.build.moves[0].Find("stand_hk");
+    ASSERT_NE(hk, 0u);
+    EXPECT_EQ(e.build.data.p[0].moves[hk].launchVelYSub, 700);
+    EXPECT_EQ(e.build.data.p[0].moves[hk].onHitReaction,
+              cse::kernel::kOnHitWallBounce);
+    EXPECT_EQ(e.verdict.status, ProverStatus::Terminating);
+    EXPECT_EQ(e.searched.verdict, ComboVerdict::Terminating);
+    EXPECT_EQ(e.searched.maxHits, 7)
+        << "the corner-null claim broke; the caption needs re-deriving";
+}
+
+TEST(VariantExhibits, AKaraCrossesWholeAndBothInstrumentsAreHonestlyBlindToIt) {
+    Exhibit e{};
+    bringUpVariant("fighter_a/variants/kara.json", e);
+    ASSERT_FALSE(::testing::Test::HasFatalFailure());
+
+    // The whiff edge crossed with its mask -- the KERNEL honours it
+    // (P3Cancels pins whiff-anchored cancels directly) -- and NEITHER
+    // instrument can see it: the model collapses {hit, always} and drops
+    // whiff edges by doctrine; the search asks moves one connect at a time,
+    // so a whiffed source is a closed branch, never a kara. The pair
+    // therefore stands exactly at base, and the caption says the gap out
+    // loud instead of leaving two green verdicts to imply coverage.
+    const std::uint16_t lp = e.build.moves[0].Find("stand_lp");
+    ASSERT_NE(lp, 0u);
+    bool whiffEdge = false;
+    const cse::kernel::FighterData& d = e.build.data.p[0];
+    for (std::int32_t i = 0; i < d.cancelCount; ++i)
+        if (d.cancels[i].from == lp &&
+            d.cancels[i].contactMask == cse::kernel::kContactWhiff)
+            whiffEdge = true;
+    EXPECT_TRUE(whiffEdge) << "the authored whiff edge did not cross";
+    EXPECT_EQ(e.verdict.status, ProverStatus::Terminating);
+    EXPECT_EQ(e.searched.verdict, ComboVerdict::Terminating);
+    EXPECT_EQ(e.searched.maxHits, 7);
+}
