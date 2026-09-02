@@ -98,7 +98,7 @@ either way.
 
 | In flight | Owner | Since |
 |---|---|---|
-| M3.0 — the art pipeline on paper: ADR-019 (how), ADR-020 (when, the human's call), this M3 rewrite | Claude | 2026-09-02 |
+| — (awaiting the human: [ADR-020](adr/ADR-020-the-bounded-lift.md) decides whether M3.4a or M2.1 is next) | | |
 
 The openings wave is landed end to end: per-opening prover surface → (c) →
 (d) → (b3) — the golden re-record (b3) was expected to need DISSOLVED under
@@ -819,7 +819,7 @@ stdlib-generated fixtures, the training room as the first visible artifact,
 the first swing at M3.4c — and every Done-when reads committed exported bytes,
 never a `.blend`. M3.1, M3.5b and M3.6 sit after M2 in either ordering.
 
-- `[~]` **M3.0 Two ADRs and the M3 rewrite, on paper.** *(S)* This entry.
+- `[x]` `97ec6c2` **M3.0 Two ADRs and the M3 rewrite, on paper.** *(S)*
   **Done when:** `python scripts/check_docs.py` is green; ADR-019 and ADR-020
   exist with a `Status:` line in their first ten lines and a stated reversal
   condition each, and are rows in `docs/adr/README.md`; every M3 WP below
