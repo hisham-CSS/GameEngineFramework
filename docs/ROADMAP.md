@@ -98,7 +98,7 @@ M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
 
 | In flight | Owner | Since |
 |---|---|---|
-| — (next: M3.3a, the top `[ ]` — Blender tooling of record, the paddle, `check_clips.py`) | | |
+| — (next: M3.2b, skeleton and skin weights decode — M3.5a, the room, waits on ADR-019 D10) | | |
 
 The openings wave is landed end to end: per-opening prover surface → (c) →
 (d) → (b3) — the golden re-record (b3) was expected to need DISSOLVED under
@@ -888,7 +888,7 @@ mannequin wait on that one-line answer; every WP before them does not.
   `ModelDecode.AGltfAndAnObjOfTheSameQuadSampleTheSameTexel`; fixtures
   committed with a README naming the generator.
 
-- `[~]` **M3.3a Blender tooling of record, the pinned export, the paddle,
+- `[x]` `3d86070` **M3.3a Blender tooling of record, the pinned export, the paddle,
   `check_clips.py`.** *(S)* `Games/UntitledFighter/tools/blender/{README.md,
   common.py, export_gltf.py, make_paddle.py}`: one export function pins the
   contract (60 fps, Actions mode with every action stashed, Always Sample step
