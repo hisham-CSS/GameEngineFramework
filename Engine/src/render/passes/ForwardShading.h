@@ -47,16 +47,30 @@ inline void ApplyForwardShadingState(Shader& shader, const PassContext& ctx,
         shader.setInt(name, unit);
     }
 
+    // Every sampler gets its own unit EVERY frame, whether or not a map is
+    // bound there. An unset sampler uniform defaults to unit 0 -- the albedo's
+    // -- and a samplerCube (irradianceMap) sharing a unit with a sampler2D
+    // (diffuseMap) is a program-validation failure: Mesa refuses the draw
+    // with GL_INVALID_OPERATION and renders nothing, silently. NVIDIA draws
+    // anyway, which is why this passed on every desktop for two years and
+    // failed the moment a test rendered frag.glsl on the CI GL job (llvmpipe,
+    // run 33717737684). The optional 2D maps are the same type as the albedo
+    // and would validate, but they take their units here for the same reason.
+    shader.setInt("diffuseMap", 0);
+    shader.setInt("normalMap", 1);
+    shader.setInt("metallicMap", 2);
+    shader.setInt("roughnessMap", 3);
+    shader.setInt("aoMap", 4);
+    shader.setInt("irradianceMap", 5);
+    shader.setInt("prefilteredMap", 6);
+    shader.setInt("brdfLUT", 7);
     if (ctx.ibl.irradiance && ctx.ibl.prefiltered && ctx.ibl.brdfLUT) {
         glActiveTexture(GL_TEXTURE5);
         glBindTexture(GL_TEXTURE_CUBE_MAP, ctx.ibl.irradiance);
-        shader.setInt("irradianceMap", 5);
         glActiveTexture(GL_TEXTURE6);
         glBindTexture(GL_TEXTURE_CUBE_MAP, ctx.ibl.prefiltered);
-        shader.setInt("prefilteredMap", 6);
         glActiveTexture(GL_TEXTURE7);
         glBindTexture(GL_TEXTURE_2D, ctx.ibl.brdfLUT);
-        shader.setInt("brdfLUT", 7);
         shader.setFloat("uPrefilterMipCount", ctx.ibl.mipCount);
     }
     else {

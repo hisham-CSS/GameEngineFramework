@@ -456,7 +456,7 @@ TEST_F(SkinnedDrawFixture, TwoFightersSharingOneMeshNeverShareOnePose) {
                     (int)hdr.litAround({ 0.f, 1.0f, 0.f }, fp), hdr.litPixels(), scene.GetRenderStats().draws);
         // Control 2: the fixture's own skinned test program into the SAME
         // target -- isolates the RGBA16F target + float readback from frag.glsl.
-        auto flat = program("skinned_test_frag.glsl");
+        auto flat = program("skinned_test_flat_frag.glsl");
         if (flat) {
             glBindFramebuffer(GL_FRAMEBUFFER, hdr.ctx.hdrFBO);
             glViewport(0, 0, kW, kH);
