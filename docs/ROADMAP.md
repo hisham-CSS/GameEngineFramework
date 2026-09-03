@@ -98,7 +98,7 @@ M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
 
 | In flight | Owner | Since |
 |---|---|---|
-| — (next: M3.2b, skeleton and skin weights decode — M3.5a, the room, waits on ADR-019 D10) | | |
+| — (next: M3.2c, clip decode on the 60 Hz grid — M3.5a, the room, waits on ADR-019 D10) | | |
 
 The openings wave is landed end to end: per-opening prover surface → (c) →
 (d) → (b3) — the golden re-record (b3) was expected to need DISSOLVED under
@@ -925,7 +925,7 @@ mannequin wait on that one-line answer; every WP before them does not.
   carries), `Assets.EveryModelHasALicenceBesideIt`,
   `AssetValidator.WarnsOnAModelDirectoryWithoutCredits`.
 
-- `[~]` **M3.2b Skeleton and skin weights decode (CPU, GL-free).** *(M)*
+- `[x]` `17bb075` **M3.2b Skeleton and skin weights decode (CPU, GL-free).** *(M)*
   `Skeleton` from the `aiNode` hierarchy, `aiMesh::mBones` for offsets and
   weights only (one list per mesh); a parallel `SkinData` stream so the static
   `Vertex` stays byte-identical; `aiProcess_LimitBoneWeights` lands here, with
