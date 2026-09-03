@@ -428,6 +428,47 @@ TEST_F(SkinnedDrawFixture, TwoFightersSharingOneMeshNeverShareOnePose) {
     EXPECT_FALSE(hdr.litAround({ -0.5f, 1.875f, 0.f }, fp)) << "the top of A moved: A was drawn with the pose of B";
     EXPECT_FALSE(hdr.litAround({ 1.0f, 1.875f, 0.f }, fp))  << "the top of B stayed at rest: B was drawn with the pose of A";
     EXPECT_TRUE(hdr.litAround({ 1.5f, 1.875f, 0.f }, fp))   << "the top of B did not arrive half a unit right";
+
+    // On a failure, say WHICH stage went dark. A software rasteriser (the CI
+    // GL job runs Mesa llvmpipe) can refuse a program, an FBO format or a
+    // readback that a desktop driver accepts, and the four probes above only
+    // say "unlit". These lines cost nothing when the test passes.
+    if (::testing::Test::HasFailure()) {
+        glBindFramebuffer(GL_FRAMEBUFFER, hdr.ctx.hdrFBO);
+        const GLenum fboStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        const GLenum err = glGetError();
+        std::vector<float> buf(static_cast<std::size_t>(kW) * kH * 4);
+        glReadPixels(0, 0, kW, kH, GL_RGBA, GL_FLOAT, buf.data());
+        float maxC = 0.f; for (float v : buf) maxC = std::max(maxC, v);
+        std::printf("DIAG posed frame: fbo=0x%x (complete=0x%x) glError=0x%x lit=%d maxChannel=%g draws=%u culled=%u skinnedShader=%p\n",
+                    fboStatus, GL_FRAMEBUFFER_COMPLETE, err, hdr.litPixels(), maxC,
+                    st.draws, st.culled, (void*)scene.SkinnedShader());
+        // Control 1: the same scene through the STATIC path -- a third entity
+        // with no pose. Lit here and dark above = the skinned path; dark here
+        // too = the forward shader or the target on this driver.
+        Entity ctl = scene.createEntity();
+        { Transform t{}; t.position = { 0.f, 0.f, 0.f }; t.dirty = true; ctl.addComponent<Transform>(t); }
+        ctl.addComponent<ModelComponent>(ModelComponent{ shared });
+        ctl.addComponent<AABB>(generateAABB(*shared));
+        scene.UpdateTransforms();
+        fwd.execute(hdr.ctx, scene, cam, fp);
+        std::printf("DIAG static control: litAt(0,1,0)=%d lit=%d draws=%u\n",
+                    (int)hdr.litAround({ 0.f, 1.0f, 0.f }, fp), hdr.litPixels(), scene.GetRenderStats().draws);
+        // Control 2: the fixture's own skinned test program into the SAME
+        // target -- isolates the RGBA16F target + float readback from frag.glsl.
+        auto flat = program("skinned_test_frag.glsl");
+        if (flat) {
+            glBindFramebuffer(GL_FRAMEBUFFER, hdr.ctx.hdrFBO);
+            glViewport(0, 0, kW, kH);
+            glClearColor(0, 0, 0, 1); glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            flat->use();
+            flat->setMat4("projection", fp.proj);
+            flat->setMat4("view", fp.view);
+            const glm::mat4 rest[2] = { glm::mat4(1.0f), glm::mat4(1.0f) };
+            drawStrip(*flat, rest, 2);
+            std::printf("DIAG flat program into the HDR target: lit=%d\n", hdr.litPixels());
+        }
+    }
     hdr.destroy();
 }
 
