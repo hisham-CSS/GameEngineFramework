@@ -357,6 +357,7 @@ engine_test(test_asset_index)      # asset filesystem domain: scan/cache/find (p
 engine_test(test_job_system)       # P4-3 thread pool + main-thread completion pump (pure CPU)
 engine_test(test_model_decode)     # P4-3 model decode stage (pure CPU — no GL by design)
 engine_test(test_clip_sampler)     # M3.2d frame-indexed sampler: same frame same bytes, clamp, rest identity (pure CPU)
+engine_test(test_skinned_draw)     # M3.2e skinned GPU path: skin VBO, uBones palette, SKINNED variants (GL, probe pixels)
 engine_test(test_asset_manager_async) # P4-3 async RequestModel: states/dedupe/cap (pure CPU)
 engine_test(test_lights)           # punctual light selection + culling (pure CPU)
 engine_test(test_physics)          # backend-conformance suite + PhysicsWorld/ECS (pure CPU)
@@ -448,6 +449,7 @@ set_tests_properties(
     test_render_passes
     test_renderer2d
     test_scene_details
+    test_skinned_draw
     test_ui_layout
     test_ui_pass
   PROPERTIES LABELS "gl")

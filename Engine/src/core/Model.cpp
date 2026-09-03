@@ -68,6 +68,7 @@ namespace MyCoreEngine {
         deleteLodBuffers_(lods_, EBO_);
         if (EBO_) glDeleteBuffers(1, &EBO_);
         if (VBO_) glDeleteBuffers(1, &VBO_);
+        if (skinVBO_) glDeleteBuffers(1, &skinVBO_);
         if (VAO_) glDeleteVertexArrays(1, &VAO_);
     }
 
@@ -77,9 +78,9 @@ namespace MyCoreEngine {
           textures_(std::move(other.textures_)),
           material_(std::move(other.material_)),
           materialIndex_(other.materialIndex_),
-          VAO_(other.VAO_), VBO_(other.VBO_), EBO_(other.EBO_) {
+          VAO_(other.VAO_), VBO_(other.VBO_), EBO_(other.EBO_), skinVBO_(other.skinVBO_) {
         for (int l = 0; l < kLodCount; ++l) { lods_[l] = other.lods_[l]; other.lods_[l] = {}; }
-        other.VAO_ = other.VBO_ = other.EBO_ = 0;
+        other.VAO_ = other.VBO_ = other.EBO_ = other.skinVBO_ = 0;
     }
 
     Mesh& Mesh::operator=(Mesh&& other) noexcept {
@@ -88,6 +89,7 @@ namespace MyCoreEngine {
                 deleteLodBuffers_(lods_, EBO_);
                 if (EBO_) glDeleteBuffers(1, &EBO_);
                 if (VBO_) glDeleteBuffers(1, &VBO_);
+                if (skinVBO_) glDeleteBuffers(1, &skinVBO_);
                 if (VAO_) glDeleteVertexArrays(1, &VAO_);
             }
             vertices_ = std::move(other.vertices_);
@@ -95,11 +97,35 @@ namespace MyCoreEngine {
             textures_ = std::move(other.textures_);
             material_ = std::move(other.material_);
             materialIndex_ = other.materialIndex_;
-            VAO_ = other.VAO_; VBO_ = other.VBO_; EBO_ = other.EBO_;
+            VAO_ = other.VAO_; VBO_ = other.VBO_; EBO_ = other.EBO_; skinVBO_ = other.skinVBO_;
             for (int l = 0; l < kLodCount; ++l) { lods_[l] = other.lods_[l]; other.lods_[l] = {}; }
-            other.VAO_ = other.VBO_ = other.EBO_ = 0;
+            other.VAO_ = other.VBO_ = other.EBO_ = other.skinVBO_ = 0;
         }
         return *this;
+    }
+
+    void Mesh::UploadSkin(const SkinData& skin) {
+        if (skin.Empty() || skin.joints.size() != vertices_.size() || !VAO_) return;
+        if (skinVBO_) glDeleteBuffers(1, &skinVBO_);
+        // Interleaved {ivec4 joints, vec4 weights} = 32 bytes per vertex, in a
+        // buffer of its own: the static VBO keeps its 56-byte Vertex stride,
+        // so a shipped OBJ, the LOD EBOs and the instancing attributes see
+        // nothing new.
+        struct SkinVertex { glm::ivec4 j; glm::vec4 w; };
+        std::vector<SkinVertex> data(vertices_.size());
+        for (std::size_t i = 0; i < data.size(); ++i) data[i] = { skin.joints[i], skin.weights[i] };
+
+        glBindVertexArray(VAO_);
+        glGenBuffers(1, &skinVBO_);
+        glBindBuffer(GL_ARRAY_BUFFER, skinVBO_);
+        glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(data.size() * sizeof(SkinVertex)),
+                     data.data(), GL_STATIC_DRAW);
+        glEnableVertexAttribArray(5);
+        glVertexAttribIPointer(5, 4, GL_INT, sizeof(SkinVertex), (void*)offsetof(SkinVertex, j));
+        glEnableVertexAttribArray(6);
+        glVertexAttribPointer(6, 4, GL_FLOAT, GL_FALSE, sizeof(SkinVertex), (void*)offsetof(SkinVertex, w));
+        glBindVertexArray(0);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
     }
     void Mesh::setupBuffers_() {
         glGenVertexArrays(1, &VAO_);
@@ -1001,6 +1027,13 @@ namespace MyCoreEngine {
             materials_[i] = std::move(mat);
         }
 
+        // The skinning data rides along (M3.2e): the sampler and the
+        // reconciler read it from the Model, and a skinned mesh gets its
+        // joints/weights beside the static buffer.
+        skeleton_   = std::move(cpu.skeleton);
+        clips_      = std::move(cpu.clips);
+        poseBounds_ = cpu.poseBounds;
+
         meshes_.reserve(cpu.meshes.size());
         for (auto& md : cpu.meshes) {
             Mesh mesh(std::move(md.vertices), std::move(md.indices), std::move(md.lodIndices));
@@ -1010,9 +1043,11 @@ namespace MyCoreEngine {
                 // editor keys per-entity material overrides by this index.
                 mesh.SetMaterial(materials_[md.materialIndex], (size_t)md.materialIndex);
             }
+            if (!md.skin.Empty() && !skeleton_.Empty()) mesh.UploadSkin(md.skin);
             meshes_.push_back(std::move(mesh));
         }
-        MLOG("finalize end: meshes_=%zu", meshes_.size());
+        MLOG("finalize end: meshes_=%zu joints=%zu clips=%zu", meshes_.size(),
+             skeleton_.joints.size(), clips_.clips.size());
     }
 
     std::unordered_set<std::string> Model::CachedTextureKeys()

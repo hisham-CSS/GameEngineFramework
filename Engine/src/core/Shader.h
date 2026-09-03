@@ -14,7 +14,17 @@ namespace MyCoreEngine
     public:
         // constructor generates the shader on the fly
         Shader(const char* vertexPath, const char* fragmentPath);
+        // The same two files with a preprocessor preamble injected after each
+        // stage's `#version` line -- "#define SKINNED 1" is how ONE vertex.glsl
+        // yields the static and the skinned program of a pass (ROADMAP M3.2e),
+        // so the two can never disagree about anything but the skin.
+        Shader(const char* vertexPath, const char* fragmentPath, const char* defines);
         ~Shader();
+
+        // Route a named uniform block to a binding point (a std140 UBO bound
+        // with glBindBufferBase at the same index). False if the program has
+        // no such block -- a static program asked for `uBones`, say.
+        bool bindUniformBlock(const std::string& blockName, unsigned binding) const;
 
         // GL program handles can't be shared; allow moves, forbid copies
         Shader(const Shader&) = delete;
@@ -51,6 +61,7 @@ namespace MyCoreEngine
         // ------------------------------------------------------------------------
         void setMat4(const std::string& name, const glm::mat4& mat) const;
     private:
+        void build_(const char* vertexPath, const char* fragmentPath, const char* defines);
         // cached glGetUniformLocation (driver lookups are expensive per frame)
         int loc_(const std::string& name) const;
 

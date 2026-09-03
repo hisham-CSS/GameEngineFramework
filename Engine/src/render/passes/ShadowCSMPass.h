@@ -156,6 +156,9 @@ private:
     std::array<glm::mat4, kMaxCascades>   lightVP_{ {glm::mat4(1),glm::mat4(1),glm::mat4(1),glm::mat4(1)} };
 
     std::unique_ptr<MyCoreEngine::Shader> depthProg_; // "shadow_depth_*.glsl"
+    // The skinned depth program (ROADMAP M3.2e): the same vertex source with
+    // "#define SKINNED 1", so a posed fighter casts the shadow of its pose.
+    std::unique_ptr<MyCoreEngine::Shader> depthProgSkinned_;
 
     // helpers
     void ensureTargets_();

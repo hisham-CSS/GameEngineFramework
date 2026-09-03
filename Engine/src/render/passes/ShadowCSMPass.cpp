@@ -1,5 +1,6 @@
 ﻿// Engine/src/render/passes/ShadowCSMPass.cpp
 #include "ShadowCSMPass.h"
+#include "../SkinPalette.h"
 #include <glad/glad.h>
 #include <cfloat>
 #include <cmath>
@@ -23,6 +24,15 @@ void ShadowCSMPass::setup(PassContext& ctx) {
         depthProg_ = std::make_unique<Shader>(
             "Exported/Shaders/shadow_depth_vert.glsl",
             "Exported/Shaders/shadow_depth_frag.glsl");
+    }
+    if (!depthProgSkinned_) {
+        depthProgSkinned_ = std::make_unique<Shader>(
+            "Exported/Shaders/shadow_depth_vert.glsl",
+            "Exported/Shaders/shadow_depth_frag.glsl",
+            "#define SKINNED 1");
+        if (depthProgSkinned_->isValid())
+            depthProgSkinned_->bindUniformBlock(MyCoreEngine::SkinPaletteUBO::kBlockName,
+                                                MyCoreEngine::SkinPaletteUBO::kBinding);
     }
     ensureTargets_();
 }
@@ -424,6 +434,9 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
     };
 
     // Execute combined pass
+    // The skinned depth program, for the casters the Scene routes to it (M3.2f).
+    scene.SetSkinnedShadowShader(
+        (depthProgSkinned_ && depthProgSkinned_->isValid()) ? depthProgSkinned_.get() : nullptr);
     scene.RenderShadowsCombined(*depthProg_, params, preDraw);
 
     // you already have this overload: Scene::RenderDepthCascade(...). :contentReference[oaicite:0]{index=0}

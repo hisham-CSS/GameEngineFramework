@@ -256,6 +256,19 @@ namespace MyCoreEngine {
         // Non-owning; set each frame by the forward pass (same vertex shader as
         // the color pass so gl_Position matches bit-for-bit under GL_EQUAL).
         void  SetDepthPrepassShader(Shader* s) { depthPrepassShader_ = s; }
+        // Non-owning, set each frame by the passes that build them (ROADMAP
+        // M3.2e): the SKINNED variants of the forward colour program, its
+        // depth prepass, the CSM depth program and the transparent forward
+        // program. The draw paths route skinned items to them (M3.2f); a null
+        // means the variant failed to compile and skinned items fall back to
+        // the static program in their rest pose.
+        void  SetSkinnedShaders(Shader* color, Shader* prepass) { skinnedShader_ = color; skinnedPrepassShader_ = prepass; }
+        void  SetSkinnedShadowShader(Shader* s) { skinnedShadowShader_ = s; }
+        void  SetSkinnedTransparentShader(Shader* s) { skinnedTransparentShader_ = s; }
+        Shader* SkinnedShader() const { return skinnedShader_; }
+        Shader* SkinnedPrepassShader() const { return skinnedPrepassShader_; }
+        Shader* SkinnedShadowShader() const { return skinnedShadowShader_; }
+        Shader* SkinnedTransparentShader() const { return skinnedTransparentShader_; }
 
         // True if the SHADOW FOOTPRINT of any caster whose transform changed
         // this frame overlaps the camera view-depth range [zNear, zFar].
@@ -456,6 +469,10 @@ namespace MyCoreEngine {
          // with heavy fragment cost + bad depth ordering.
          bool depthPrepassEnabled_ = false;
          Shader* depthPrepassShader_ = nullptr; // non-owning (forward pass owns it)
+         Shader* skinnedShader_            = nullptr; // non-owning (forward pass owns it), M3.2e
+         Shader* skinnedPrepassShader_     = nullptr; // non-owning (forward pass owns it)
+         Shader* skinnedShadowShader_      = nullptr; // non-owning (CSM pass owns it)
+         Shader* skinnedTransparentShader_ = nullptr; // non-owning (transparent pass owns it)
 
          // Per-frame scratch: instanced-run table + gathered instance matrices
          // (single buffer upload per frame; per-run map/unmap cycles were the

@@ -90,6 +90,12 @@ namespace MyCoreEngine {
         Mesh(std::vector<Vertex> vertices, std::vector<unsigned int> indices,
              LodIndexArrays precomputedLods);
 
+        // Upload the per-vertex joint indices and weights beside the static
+        // vertex buffer, at attributes 5 (ivec4) and 6 (vec4) -- the layout
+        // the SKINNED shader variants read (ROADMAP M3.2e). MAIN THREAD.
+        void UploadSkin(const SkinData& skin);
+        bool Skinned() const { return skinVBO_ != 0; }
+
         // split draw into bind vs issue
         void BindForDraw(MyCoreEngine::Shader& shader) const; // bind textures + VAO (no draw)
         void BindForDrawWith(MyCoreEngine::Shader& shader, const MyCoreEngine::Material& mat) const;
@@ -116,6 +122,7 @@ namespace MyCoreEngine {
         MyCoreEngine::MaterialHandle material_; // optional
         size_t materialIndex_ = 0;
         unsigned int VAO_ = 0, VBO_ = 0, EBO_ = 0;
+        unsigned int skinVBO_ = 0;   // 0 for an unskinned mesh
         LodRange lods_[kLodCount]{};
 
         void setupBuffers_();                       // VAO/VBO/EBO upload (GL)
@@ -234,10 +241,20 @@ namespace MyCoreEngine {
         // Path this model was loaded from (normalized) — used by serialization
         const std::string& SourcePath() const { return sourcePath_; }
 
+        // The skinning data Decode produced, kept for the sampler and the
+        // reconciler (ROADMAP M3.2e): empty / invalid for an unskinned model.
+        bool IsSkinned() const { return !skeleton_.Empty(); }
+        const Skeleton& GetSkeleton() const { return skeleton_; }
+        const ClipSet&  GetClips() const { return clips_; }
+        const ModelCPUData::PoseBounds& GetPoseBounds() const { return poseBounds_; }
+
     private:
         std::vector<Mesh> meshes_;
         std::string       directory_;
         std::string       sourcePath_;
+        Skeleton          skeleton_;
+        ClipSet           clips_;
+        ModelCPUData::PoseBounds poseBounds_;
 
         // Global cache keyed by (normalized path + "|srgb"/"|lin").
         // MAIN-THREAD-ONLY (unsynchronized): workers deliver pixels, the

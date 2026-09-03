@@ -1,5 +1,6 @@
 // Engine/src/render/passes/ForwardOpaquePass.cpp
 #include "ForwardOpaquePass.h"
+#include "../SkinPalette.h"
 #include <glad/glad.h>
 
 void ForwardOpaquePass::setup(PassContext&) {
@@ -7,6 +8,26 @@ void ForwardOpaquePass::setup(PassContext&) {
 		prepassShader_ = std::make_unique<Shader>(
 			"Exported/Shaders/vertex.glsl",
 			"Exported/Shaders/prepass_frag.glsl");
+	}
+	// The skinned variants (M3.2e): same files, one define. Their `uBones`
+	// block is routed to the palette's binding point once, here.
+	if (!skinnedShader_) {
+		skinnedShader_ = std::make_unique<Shader>(
+			"Exported/Shaders/vertex.glsl",
+			"Exported/Shaders/frag.glsl",
+			"#define SKINNED 1");
+		if (skinnedShader_->isValid())
+			skinnedShader_->bindUniformBlock(MyCoreEngine::SkinPaletteUBO::kBlockName,
+			                                 MyCoreEngine::SkinPaletteUBO::kBinding);
+	}
+	if (!prepassSkinnedShader_) {
+		prepassSkinnedShader_ = std::make_unique<Shader>(
+			"Exported/Shaders/vertex.glsl",
+			"Exported/Shaders/prepass_frag.glsl",
+			"#define SKINNED 1");
+		if (prepassSkinnedShader_->isValid())
+			prepassSkinnedShader_->bindUniformBlock(MyCoreEngine::SkinPaletteUBO::kBlockName,
+			                                        MyCoreEngine::SkinPaletteUBO::kBinding);
 	}
 }
 
@@ -28,6 +49,13 @@ bool ForwardOpaquePass::execute(PassContext& ctx, Scene& scene, Camera& cam, con
 	else {
 		scene.SetDepthPrepassShader(nullptr);
 	}
+	// The skinned pair, for the items the Scene routes to them (M3.2f). A
+	// variant that failed to compile is handed over as null, and a skinned
+	// item then draws through the static program in its rest pose -- visible
+	// and logged, never a crash.
+	scene.SetSkinnedShaders(
+		(skinnedShader_ && skinnedShader_->isValid()) ? skinnedShader_.get() : nullptr,
+		(prepassSkinnedShader_ && prepassSkinnedShader_->isValid()) ? prepassSkinnedShader_.get() : nullptr);
 
 	// main shader
 	shader_->use();

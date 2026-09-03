@@ -956,7 +956,7 @@ mannequin wait on that one-line answer; every WP before them does not.
   `ModelDecode.TheSkinnedBoundsContainEveryVertexOfEveryClipFrame`, and the
   compile-time property that no `SamplePalette` overload accepts a double.
 
-- `[ ]` **M3.2e The skinned GPU path.** *(L)* A skin VBO at attributes 5 and
+- `[~]` **M3.2e The skinned GPU path.** *(L)* A skin VBO at attributes 5 and
   6; a std140 UBO `uBones { mat4 bones[128]; }`; `#ifdef SKINNED` blocks in
   `vertex.glsl` and `shadow_depth_vert.glsl` that keep `invariant gl_Position`
   and transform normals and tangents by the skin matrix (toon bands read the

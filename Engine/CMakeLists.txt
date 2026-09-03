@@ -91,6 +91,8 @@ add_library(Engine SHARED
     src/render/passes/SkyboxPass.cpp
     src/render/passes/TransparentPass.h
     src/render/passes/TransparentPass.cpp
+    src/render/SkinPalette.h
+    src/render/SkinPalette.cpp
     src/render/passes/ForwardShading.h
     src/render/passes/FXAAPass.h
     src/render/passes/FXAAPass.cpp
