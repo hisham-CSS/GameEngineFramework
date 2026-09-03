@@ -98,7 +98,7 @@ M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
 
 | In flight | Owner | Since |
 |---|---|---|
-| — (next: M3.2c, clip decode on the 60 Hz grid — M3.5a, the room, waits on ADR-019 D10) | | |
+| — (next: M3.2d, the frame-indexed sampler — M3.5a, the room, waits on ADR-019 D10) | | |
 
 The openings wave is landed end to end: per-opening prover surface → (c) →
 (d) → (b3) — the golden re-record (b3) was expected to need DISSOLVED under
@@ -935,7 +935,7 @@ mannequin wait on that one-line answer; every WP before them does not.
   `ModelDecode.AnObjDecodeCarriesNoSkeletonAndItsVertexBytesAreUnchanged`,
   `AssetValidator.RefusesARigOverThePaletteCap`.
 
-- `[~]` **M3.2c Clip decode on the 60 Hz grid, integer frames only.** *(M)*
+- `[x]` `190805a` **M3.2c Clip decode on the 60 Hz grid, integer frames only.** *(M)*
   Every key time × 60/1000 within 1e-3 of an integer; every channel with more
   than one key carries exactly `N`, a single-key channel is constant (Assimp
   synthesises one for un-animated components); sample `k` is key `k`; the
