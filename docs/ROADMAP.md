@@ -98,7 +98,7 @@ M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
 
 | In flight | Owner | Since |
 |---|---|---|
-| M3.4e Overlay modes for validation over the mesh | Claude | 2026-09-03 |
+| — (next: M3.3b, the mannequin — waits on ADR-019 D10, the asset-licence decision only the human can take; M3.3c, M3.3d, M3.3e and M3.5a follow it, and M2.1 follows M3.5a under ADR-020) | | |
 
 The openings wave is landed end to end: per-opening prover surface → (c) →
 (d) → (b3) — the golden re-record (b3) was expected to need DISSOLVED under
@@ -1061,7 +1061,7 @@ mannequin wait on that one-line answer; every WP before them does not.
   `Presentation.MoveStartIsNeverDelayed`,
   `Presentation.ABoxNeverMovesWithThePose`; P4's row cites all three.
 
-- `[~]` **M3.4e Overlay modes for validation over the mesh.** *(S)* Boxes over
+- `[x] 3d592bd` **M3.4e Overlay modes for validation over the mesh.** *(S)* Boxes over
   mesh (default) · boxes over translucent mesh (a `MaterialOverrides` blend, an
   existing feature) · mesh only; the 2D ruler draws only with boxes on, because
   the room's grid is the ruler. **Done when:**
