@@ -3,6 +3,7 @@
 #include "Material.h"
 #include "Core.h"
 #include "../anim/Skeleton.h"
+#include "../anim/ClipSet.h"
 
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
@@ -162,6 +163,10 @@ namespace MyCoreEngine {
         // empty when no mesh has bones. One skeleton per model: two meshes
         // that name the same bones share it (M3.2b).
         Skeleton skeleton;
+        // Every animation in the file, resampled to nothing: sample k is key
+        // k, asserted on the 60 Hz grid at decode (M3.2c). Empty when the
+        // file carries no animation or no skeleton.
+        ClipSet clips;
         std::string sourcePath;            // normalized
         std::string directory;
         bool valid = false;                // Assimp import succeeded

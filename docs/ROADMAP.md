@@ -935,7 +935,7 @@ mannequin wait on that one-line answer; every WP before them does not.
   `ModelDecode.AnObjDecodeCarriesNoSkeletonAndItsVertexBytesAreUnchanged`,
   `AssetValidator.RefusesARigOverThePaletteCap`.
 
-- `[ ]` **M3.2c Clip decode on the 60 Hz grid, integer frames only.** *(M)*
+- `[~]` **M3.2c Clip decode on the 60 Hz grid, integer frames only.** *(M)*
   Every key time × 60/1000 within 1e-3 of an integer; every channel with more
   than one key carries exactly `N`, a single-key channel is constant (Assimp
   synthesises one for un-animated components); sample `k` is key `k`; the

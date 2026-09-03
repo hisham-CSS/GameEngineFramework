@@ -4,6 +4,9 @@
 #include <meshoptimizer.h>
 
 #include <algorithm>
+#include <cmath>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include "stb_image.h"   // declarations only; implementation is in stb_image_impl.cpp
 #include <iostream>
@@ -575,6 +578,109 @@ namespace MyCoreEngine {
                 collectJoints(node->mChildren[i], self, carry, bones, out);
         }
 
+        // THE CLIPS (ROADMAP M3.2c): every aiAnimation, key by key, onto the
+        // 60 Hz grid. The rule, stated once (ClipSet.h says why):
+        //   * a channel component with ONE key is a constant;
+        //   * every component with MORE than one key carries exactly N keys,
+        //     the clip's frame count, and key i sits at i/60 s within 1e-3 of
+        //     a frame -- else the import is refused naming clip and key;
+        //   * a joint with no channel wears its bind pose in every frame;
+        //   * channels on nodes that are not joints are ignored.
+        // Nothing interpolates and nothing resamples: sample k IS key k.
+        constexpr double kGridHz  = 60.0;
+        constexpr double kGridTol = 1e-3;
+
+        template <typename Key>
+        bool keysOnGrid(const Key* keys, unsigned int count, double tps, std::uint32_t N,
+                        const char* clipName, const char* channel, const char* component,
+                        std::string& error) {
+            if (count != N) {
+                error = std::string("clip '") + clipName + "': channel '" + channel + "' " + component +
+                        " has " + std::to_string(count) + " keys but the clip has " +
+                        std::to_string(N) + " frames -- every animated component must be keyed on "
+                        "every frame (Optimize Animation Size left on? a key dropped?)";
+                return false;
+            }
+            for (unsigned int i = 0; i < count; ++i) {
+                const double k = keys[i].mTime * kGridHz / tps;
+                if (std::fabs(k - static_cast<double>(i)) > kGridTol) {
+                    error = std::string("clip '") + clipName + "': channel '" + channel + "' " +
+                            component + " key " + std::to_string(i) + " is at frame " +
+                            std::to_string(k) + ", off the 60 Hz grid (the scene was not exported at "
+                            "60 fps, or the first key is not at 0)";
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        glm::mat4 trs(const ::aiVector3D& t, const ::aiQuaternion& r, const ::aiVector3D& s) {
+            const glm::mat4 T = glm::translate(glm::mat4(1.0f), glm::vec3(t.x, t.y, t.z));
+            const glm::mat4 R = glm::mat4_cast(glm::quat(r.w, r.x, r.y, r.z));
+            const glm::mat4 S = glm::scale(glm::mat4(1.0f), glm::vec3(s.x, s.y, s.z));
+            return T * R * S;
+        }
+
+        void buildClips(const ::aiScene* scene, ModelCPUData& cpu) {
+            if (cpu.skeleton.Empty() || scene->mNumAnimations == 0) return;
+            const std::uint32_t joints = static_cast<std::uint32_t>(cpu.skeleton.joints.size());
+            for (unsigned int a = 0; a < scene->mNumAnimations; ++a) {
+                const ::aiAnimation* anim = scene->mAnimations[a];
+                const double tps = anim->mTicksPerSecond > 0.0 ? anim->mTicksPerSecond : 1000.0;
+                const char* clipName = anim->mName.C_Str();
+
+                // Which channel drives which joint, and the frame count N.
+                std::vector<const ::aiNodeAnim*> byJoint(joints, nullptr);
+                std::uint32_t N = 1;
+                for (unsigned int c = 0; c < anim->mNumChannels; ++c) {
+                    const ::aiNodeAnim* ch = anim->mChannels[c];
+                    const int j = cpu.skeleton.Find(ch->mNodeName.C_Str());
+                    if (j < 0) continue;
+                    byJoint[j] = ch;
+                    N = std::max({ N, ch->mNumPositionKeys > 1 ? ch->mNumPositionKeys : 1u,
+                                      ch->mNumRotationKeys > 1 ? ch->mNumRotationKeys : 1u,
+                                      ch->mNumScalingKeys  > 1 ? ch->mNumScalingKeys  : 1u });
+                }
+                // Every multi-key component agrees with N and sits on the grid.
+                for (std::uint32_t j = 0; j < joints; ++j) {
+                    const ::aiNodeAnim* ch = byJoint[j];
+                    if (!ch) continue;
+                    const char* name = cpu.skeleton.joints[j].name.c_str();
+                    if (ch->mNumPositionKeys > 1 &&
+                        !keysOnGrid(ch->mPositionKeys, ch->mNumPositionKeys, tps, N, clipName, name, "position", cpu.importError))
+                        return;
+                    if (ch->mNumRotationKeys > 1 &&
+                        !keysOnGrid(ch->mRotationKeys, ch->mNumRotationKeys, tps, N, clipName, name, "rotation", cpu.importError))
+                        return;
+                    if (ch->mNumScalingKeys > 1 &&
+                        !keysOnGrid(ch->mScalingKeys, ch->mNumScalingKeys, tps, N, clipName, name, "scale", cpu.importError))
+                        return;
+                }
+                if (cpu.clips.Find(clipName) != nullptr) {
+                    cpu.importError = std::string("clip '") + clipName + "' appears twice";
+                    return;
+                }
+
+                Clip clip;
+                clip.name   = clipName;
+                clip.frames = N;
+                clip.joints = joints;
+                clip.local.resize(static_cast<std::size_t>(N) * joints);
+                for (std::uint32_t k = 0; k < N; ++k) {
+                    for (std::uint32_t j = 0; j < joints; ++j) {
+                        const ::aiNodeAnim* ch = byJoint[j];
+                        glm::mat4& out = clip.local[static_cast<std::size_t>(k) * joints + j];
+                        if (!ch) { out = cpu.skeleton.joints[j].localBind; continue; }
+                        const ::aiVector3D&   t = ch->mPositionKeys[ch->mNumPositionKeys > 1 ? k : 0].mValue;
+                        const ::aiQuaternion& r = ch->mRotationKeys[ch->mNumRotationKeys > 1 ? k : 0].mValue;
+                        const ::aiVector3D&   s = ch->mScalingKeys[ch->mNumScalingKeys > 1 ? k : 0].mValue;
+                        out = trs(t, r, s);
+                    }
+                }
+                cpu.clips.clips.push_back(std::move(clip));
+            }
+        }
+
         void buildSkeleton(const ::aiScene* scene, ModelCPUData& cpu) {
             std::unordered_map<std::string, const ::aiBone*> bones;
             for (unsigned int m = 0; m < scene->mNumMeshes; ++m) {
@@ -736,14 +842,17 @@ namespace MyCoreEngine {
         }
 
         buildSkeleton(scene, cpu);
+        if (cpu.importError.empty()) buildClips(scene, cpu);
         if (!cpu.importError.empty()) {
             std::cerr << "ERROR::MODEL::LOAD_REFUSED '" << path << "': " << cpu.importError << std::endl;
             cpu.valid = false;
+            cpu.skeleton.joints.clear();
+            cpu.clips.clips.clear();
             return cpu;
         }
         collectMeshes(scene, scene->mRootNode, cpu, ::aiMatrix4x4());
-        MLOG("decode end: meshes=%zu textures=%zu joints=%zu", cpu.meshes.size(), cpu.textures.size(),
-             cpu.skeleton.joints.size());
+        MLOG("decode end: meshes=%zu textures=%zu joints=%zu clips=%zu", cpu.meshes.size(),
+             cpu.textures.size(), cpu.skeleton.joints.size(), cpu.clips.clips.size());
         return cpu;
     }
 

@@ -485,3 +485,81 @@ TEST(ModelDecodeSkin, ARigOverThePaletteCapIsRefusedNamingTheCount) {
         << "the refusal must name the cap; it says: " << cpu.importError;
     EXPECT_TRUE(cpu.skeleton.Empty());
 }
+
+// ============================================================================
+// Clips on the 60 Hz grid, integer frames only (ROADMAP M3.2c; ADR-019 D2)
+// ============================================================================
+//
+// Sample k IS key k. The decoder asserts the grid so a clip exported at the
+// wrong rate, or with Optimize Animation Size left on, is refused at import
+// naming the clip and the key -- never shown a frame late.
+
+TEST(ModelDecodeClips, AClipAuthoredAtFourteenFramesDecodesToFourteenFrames) {
+    const ModelCPUData cpu = Model::Decode(modelFixturesDir() + "/two_bone_strip.gltf");
+    ASSERT_TRUE(cpu.valid) << cpu.importError;
+    ASSERT_EQ(cpu.clips.clips.size(), 2u) << "the strip carries 'fourteen' and 'held'";
+
+    const Clip* fourteen = cpu.clips.Find("fourteen");
+    ASSERT_NE(fourteen, nullptr);
+    EXPECT_EQ(fourteen->frames, 14u) << "14 keys on the grid are 14 frames, no more, no fewer";
+    EXPECT_EQ(fourteen->joints, 2u);
+    EXPECT_EQ(fourteen->local.size(), 14u * 2u);
+
+    const Clip* held = cpu.clips.Find("held");
+    ASSERT_NE(held, nullptr);
+    EXPECT_EQ(held->frames, 5u)
+        << "five identical keys are five frames: a held pose is not collapsed into one";
+    for (std::uint32_t k = 1; k < held->frames; ++k)
+        EXPECT_EQ(held->LocalAt(k, 1), held->LocalAt(0, 1))
+            << "held frame " << k << " differs from frame 0";
+
+    // Frame k of 'fourteen' rotates tip by 5k degrees about X: frames differ,
+    // and the first is the rest orientation.
+    EXPECT_NE(fourteen->LocalAt(1, 1), fourteen->LocalAt(0, 1));
+    EXPECT_NE(fourteen->LocalAt(13, 1), fourteen->LocalAt(12, 1));
+    EXPECT_EQ(cpu.clips.Find("nobody"), nullptr);
+}
+
+TEST(ModelDecodeClips, ARotationOnlyJointIsConstantNotRefused) {
+    const ModelCPUData cpu = Model::Decode(modelFixturesDir() + "/two_bone_strip.gltf");
+    ASSERT_TRUE(cpu.valid) << "a joint with a rotation channel and no position/scale channel must decode: "
+                           << cpu.importError;
+    const Clip* fourteen = cpu.clips.Find("fourteen");
+    ASSERT_NE(fourteen, nullptr);
+    // root has NO channel: it wears its bind pose in every frame.
+    for (std::uint32_t k = 0; k < fourteen->frames; ++k)
+        EXPECT_EQ(fourteen->LocalAt(k, 0), cpu.skeleton.joints[0].localBind)
+            << "root, which the clip never animates, left its bind pose at frame " << k;
+    // tip's translation stays (0, 1, 0) on every frame -- the single synthesised
+    // position key is a constant -- while its rotation changes.
+    for (std::uint32_t k = 0; k < fourteen->frames; ++k) {
+        const glm::mat4& m = fourteen->LocalAt(k, 1);
+        EXPECT_NEAR(m[3][0], 0.f, 1e-5f);
+        EXPECT_NEAR(m[3][1], 1.f, 1e-5f) << "tip's constant translation moved at frame " << k;
+        EXPECT_NEAR(m[3][2], 0.f, 1e-5f);
+    }
+}
+
+TEST(ModelDecodeClips, AClipWhoseKeysAreOffTheSixtyHertzGridIsRefusedNamingTheClipAndTheKey) {
+    const ModelCPUData cpu = Model::Decode(modelFixturesDir() + "/off_grid.gltf");
+    EXPECT_FALSE(cpu.valid) << "a key at 1/50 s is off the 60 Hz grid and must be refused";
+    EXPECT_NE(cpu.importError.find("offgrid"), std::string::npos)
+        << "the refusal must name the clip; it says: " << cpu.importError;
+    EXPECT_NE(cpu.importError.find("key 1"), std::string::npos)
+        << "the refusal must name the key; it says: " << cpu.importError;
+    EXPECT_TRUE(cpu.clips.Empty());
+}
+
+TEST(ModelDecodeClips, AClipCarriesNoTimeOnlyFrames) {
+    // The compile-time half of "the sampler has no clock": the frame count is
+    // an integer, and the fixture's clips read back as integers that agree
+    // with the file's key counts. A Clip with a duration in seconds could not
+    // pass the second half without the first.
+    static_assert(std::is_same_v<decltype(Clip::frames), std::uint32_t>, "Clip::frames is an integer");
+    static_assert(!std::is_floating_point_v<decltype(Clip::frames)>, "no seconds in a Clip");
+    const ModelCPUData cpu = Model::Decode(modelFixturesDir() + "/two_bone_strip.gltf");
+    ASSERT_TRUE(cpu.valid);
+    for (const Clip& c : cpu.clips.clips)
+        EXPECT_EQ(c.local.size(), static_cast<std::size_t>(c.frames) * c.joints)
+            << "clip " << c.name << " does not hold exactly frames x joints transforms";
+}
