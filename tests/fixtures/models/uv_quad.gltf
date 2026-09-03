@@ -7,20 +7,20 @@
  "scenes": [
   {
    "nodes": [
-    0
+    1
    ]
   }
  ],
  "nodes": [
   {
-   "name": "Root",
-   "children": [
-    1
-   ]
-  },
-  {
    "name": "Child",
    "mesh": 0
+  },
+  {
+   "name": "Root",
+   "children": [
+    0
+   ]
   }
  ],
  "meshes": [

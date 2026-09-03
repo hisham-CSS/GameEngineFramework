@@ -2,6 +2,7 @@
 
 #include "Material.h"
 #include "Core.h"
+#include "../anim/Skeleton.h"
 
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
@@ -148,13 +149,26 @@ namespace MyCoreEngine {
             std::vector<unsigned int> indices;
             Mesh::LodIndexArrays lodIndices; // precomputed on the worker
             int materialIndex = -1;          // into `materials`
+            // Per-vertex joint indices and weights, parallel to `vertices`;
+            // empty for an unskinned mesh. Kept beside Vertex, not inside it,
+            // so the static layout and every shipped OBJ stay byte-identical
+            // (ROADMAP M3.2b).
+            SkinData skin;
         };
         std::vector<TextureData> textures; // unique by key
         std::vector<MaterialData> materials;
         std::vector<MeshData> meshes;
+        // The joints every skinned mesh in this model binds to, parent-first;
+        // empty when no mesh has bones. One skeleton per model: two meshes
+        // that name the same bones share it (M3.2b).
+        Skeleton skeleton;
         std::string sourcePath;            // normalized
         std::string directory;
         bool valid = false;                // Assimp import succeeded
+        // Why `valid` is false, when Decode itself refused (a rig over the
+        // joint cap, an off-grid clip): a sentence for the validator's ERR
+        // line rather than a guess about what Assimp disliked.
+        std::string importError;
     };
 
     // ----- Model -----

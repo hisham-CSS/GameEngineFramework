@@ -364,3 +364,124 @@ TEST(ModelDecodeGltf, AGltfAndAnObjOfTheSameQuadSampleTheSameTexel) {
     EXPECT_NEAR(farLeft->TexCoords.y, 0.f, 1e-5f)
         << "the far-left corner must decode to v = 0; the renderer's convention moved";
 }
+
+// ============================================================================
+// Skeleton and skin weights (ROADMAP M3.2b; ADR-019 D1/D2)
+// ============================================================================
+//
+// Skinning is the one renderer feature the showcase freeze admits, and this is
+// its CPU half: one Skeleton per model from the node tree (parent-first), and
+// per-vertex joints/weights BESIDE the vertices so the static Vertex, the LOD
+// stride and every shipped OBJ stay byte for byte what they were.
+
+namespace {
+
+const Vertex* firstAtY(const std::vector<Vertex>& vs, float y) {
+    for (const Vertex& v : vs)
+        if (std::fabs(v.Position.y - y) < 1e-4f) return &v;
+    return nullptr;
+}
+
+std::size_t indexOf(const std::vector<Vertex>& vs, const Vertex* v) {
+    return static_cast<std::size_t>(v - vs.data());
+}
+
+} // namespace
+
+TEST(ModelDecodeSkin, TwoBoneStripYieldsTwoNamedJointsWithNormalisedWeights) {
+    const ModelCPUData cpu = Model::Decode(modelFixturesDir() + "/two_bone_strip.gltf");
+    ASSERT_TRUE(cpu.valid) << "two_bone_strip.gltf did not decode: " << cpu.importError;
+
+    ASSERT_EQ(cpu.skeleton.joints.size(), 2u) << "the strip binds to exactly root and tip";
+    EXPECT_EQ(cpu.skeleton.joints[0].name, "root");
+    EXPECT_EQ(cpu.skeleton.joints[0].parent, -1);
+    EXPECT_EQ(cpu.skeleton.joints[1].name, "tip");
+    EXPECT_EQ(cpu.skeleton.joints[1].parent, 0) << "tip's parent is root";
+    EXPECT_TRUE(cpu.skeleton.ParentsPrecedeChildren());
+    EXPECT_EQ(cpu.skeleton.Find("tip"), 1);
+    EXPECT_EQ(cpu.skeleton.Find("nobody"), -1);
+    // tip sits one unit above root: its local bind translates by +1 in y, and
+    // its inverse bind undoes exactly that.
+    EXPECT_NEAR(cpu.skeleton.joints[1].localBind[3][1], 1.0f, 1e-5f)
+        << "tip's local bind pose lost its (0, 1, 0) translation";
+    EXPECT_NEAR(cpu.skeleton.joints[1].inverseBind[3][1], -1.0f, 1e-5f)
+        << "tip's inverse bind matrix is not the inverse of its bind pose";
+
+    ASSERT_EQ(cpu.meshes.size(), 1u);
+    const auto& m = cpu.meshes[0];
+    ASSERT_FALSE(m.skin.Empty()) << "a mesh with bones decoded with no skin stream";
+    ASSERT_EQ(m.skin.joints.size(), m.vertices.size());
+    ASSERT_EQ(m.skin.weights.size(), m.vertices.size());
+    for (std::size_t i = 0; i < m.vertices.size(); ++i) {
+        const glm::vec4& w = m.skin.weights[i];
+        EXPECT_NEAR(w.x + w.y + w.z + w.w, 1.0f, 1e-5f)
+            << "vertex " << i << "'s weights do not sum to one";
+        for (int s = 0; s < 4; ++s)
+            EXPECT_LT(m.skin.joints[i][s], 2) << "vertex " << i << " names a joint that does not exist";
+    }
+    // The bottom row is root's alone, the top row tip's alone, and the middle
+    // row -- authored 0.3 / 0.3 -- is half and half after normalisation.
+    const Vertex* bottom = firstAtY(m.vertices, 0.f);
+    const Vertex* middle = firstAtY(m.vertices, 1.f);
+    const Vertex* top    = firstAtY(m.vertices, 2.f);
+    ASSERT_NE(bottom, nullptr); ASSERT_NE(middle, nullptr); ASSERT_NE(top, nullptr);
+    {
+        const glm::ivec4& j = m.skin.joints[indexOf(m.vertices, bottom)];
+        const glm::vec4&  w = m.skin.weights[indexOf(m.vertices, bottom)];
+        EXPECT_EQ(j.x, 0); EXPECT_NEAR(w.x, 1.f, 1e-5f);
+    }
+    {
+        const glm::ivec4& j = m.skin.joints[indexOf(m.vertices, top)];
+        const glm::vec4&  w = m.skin.weights[indexOf(m.vertices, top)];
+        EXPECT_EQ(j.x, 1) << "the top row must bind to tip";
+        EXPECT_NEAR(w.x, 1.f, 1e-5f);
+    }
+    {
+        const glm::vec4& w = m.skin.weights[indexOf(m.vertices, middle)];
+        float wRoot = 0.f, wTip = 0.f;
+        const glm::ivec4& j = m.skin.joints[indexOf(m.vertices, middle)];
+        for (int s = 0; s < 4; ++s) {
+            if (w[s] == 0.f) continue;
+            if (j[s] == 0) wRoot += w[s]; else if (j[s] == 1) wTip += w[s];
+        }
+        EXPECT_NEAR(wRoot, 0.5f, 1e-5f) << "0.3/0.3 authored must normalise to 0.5/0.5";
+        EXPECT_NEAR(wTip,  0.5f, 1e-5f);
+    }
+}
+
+TEST(ModelDecodeSkin, TwoMeshesSharingOneSkinShareOneSkeleton) {
+    const ModelCPUData cpu = Model::Decode(modelFixturesDir() + "/two_meshes_one_skin.gltf");
+    ASSERT_TRUE(cpu.valid) << cpu.importError;
+    ASSERT_EQ(cpu.meshes.size(), 2u);
+    ASSERT_EQ(cpu.skeleton.joints.size(), 2u)
+        << "two meshes on one skin must yield ONE skeleton, not one per mesh's aiBone list";
+    for (const auto& m : cpu.meshes) {
+        ASSERT_FALSE(m.skin.Empty());
+        const Vertex* top = firstAtY(m.vertices, 2.f);
+        ASSERT_NE(top, nullptr);
+        EXPECT_EQ(m.skin.joints[indexOf(m.vertices, top)].x, 1)
+            << "both meshes must name tip by the same index";
+    }
+}
+
+TEST(ModelDecodeSkin, AnObjDecodeCarriesNoSkeletonAndItsVertexBytesAreUnchanged) {
+    static_assert(sizeof(Vertex) == 14 * sizeof(float),
+                  "the static Vertex grew: skinning must live BESIDE it, not inside it "
+                  "(every shipped OBJ and the LOD stride depend on this)");
+    const ModelCPUData cpu = Model::Decode(modelFixturesDir() + "/uv_quad.obj");
+    ASSERT_TRUE(cpu.valid);
+    EXPECT_TRUE(cpu.skeleton.Empty()) << "an OBJ has no bones and must carry no skeleton";
+    EXPECT_TRUE(cpu.importError.empty());
+    for (const auto& m : cpu.meshes)
+        EXPECT_TRUE(m.skin.Empty()) << "an unskinned mesh must carry no skin stream";
+}
+
+TEST(ModelDecodeSkin, ARigOverThePaletteCapIsRefusedNamingTheCount) {
+    const ModelCPUData cpu = Model::Decode(modelFixturesDir() + "/too_many_joints.gltf");
+    EXPECT_FALSE(cpu.valid) << "a 129-joint rig must be refused, never truncated";
+    EXPECT_NE(cpu.importError.find("129"), std::string::npos)
+        << "the refusal must name the count; it says: " << cpu.importError;
+    EXPECT_NE(cpu.importError.find("128"), std::string::npos)
+        << "the refusal must name the cap; it says: " << cpu.importError;
+    EXPECT_TRUE(cpu.skeleton.Empty());
+}

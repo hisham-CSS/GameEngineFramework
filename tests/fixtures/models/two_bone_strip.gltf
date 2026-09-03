@@ -1,0 +1,279 @@
+{
+ "asset": {
+  "version": "2.0",
+  "generator": "tests/fixtures/models/make_fixtures.py"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "nodes": [
+    1,
+    2
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "name": "tip",
+   "translation": [
+    0.0,
+    1.0,
+    0.0
+   ]
+  },
+  {
+   "name": "root",
+   "children": [
+    0
+   ]
+  },
+  {
+   "name": "Strip",
+   "mesh": 0,
+   "skin": 0
+  }
+ ],
+ "meshes": [
+  {
+   "name": "Strip",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1,
+      "TEXCOORD_0": 2,
+      "JOINTS_0": 3,
+      "WEIGHTS_0": 4
+     },
+     "indices": 5,
+     "material": 0,
+     "mode": 4
+    }
+   ]
+  }
+ ],
+ "materials": [
+  {
+   "name": "strip",
+   "pbrMetallicRoughness": {
+    "baseColorFactor": [
+     1,
+     1,
+     1,
+     1
+    ],
+    "metallicFactor": 0.0,
+    "roughnessFactor": 1.0
+   }
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5126,
+   "count": 6,
+   "type": "VEC3",
+   "min": [
+    -0.25,
+    0.0,
+    0.0
+   ],
+   "max": [
+    0.25,
+    2.0,
+    0.0
+   ]
+  },
+  {
+   "bufferView": 1,
+   "componentType": 5126,
+   "count": 6,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 2,
+   "componentType": 5126,
+   "count": 6,
+   "type": "VEC2"
+  },
+  {
+   "bufferView": 3,
+   "componentType": 5121,
+   "count": 6,
+   "type": "VEC4"
+  },
+  {
+   "bufferView": 4,
+   "componentType": 5126,
+   "count": 6,
+   "type": "VEC4"
+  },
+  {
+   "bufferView": 5,
+   "componentType": 5123,
+   "count": 12,
+   "type": "SCALAR"
+  },
+  {
+   "bufferView": 6,
+   "componentType": 5126,
+   "count": 2,
+   "type": "MAT4"
+  },
+  {
+   "bufferView": 7,
+   "componentType": 5126,
+   "count": 14,
+   "type": "SCALAR",
+   "min": [
+    0.0
+   ],
+   "max": [
+    0.21666666666666667
+   ]
+  },
+  {
+   "bufferView": 8,
+   "componentType": 5126,
+   "count": 14,
+   "type": "VEC4"
+  },
+  {
+   "bufferView": 9,
+   "componentType": 5126,
+   "count": 5,
+   "type": "SCALAR",
+   "min": [
+    0.0
+   ],
+   "max": [
+    0.06666666666666667
+   ]
+  },
+  {
+   "bufferView": 10,
+   "componentType": 5126,
+   "count": 5,
+   "type": "VEC4"
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteOffset": 0,
+   "byteLength": 72,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 72,
+   "byteLength": 72,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 144,
+   "byteLength": 48,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 192,
+   "byteLength": 24,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 216,
+   "byteLength": 96,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 312,
+   "byteLength": 24,
+   "target": 34963
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 336,
+   "byteLength": 128
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 464,
+   "byteLength": 56
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 520,
+   "byteLength": 224
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 744,
+   "byteLength": 20
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 764,
+   "byteLength": 80
+  }
+ ],
+ "buffers": [
+  {
+   "byteLength": 844,
+   "uri": "data:application/octet-stream;base64,AACAvgAAAAAAAAAAAACAPgAAAAAAAAAAAACAvgAAgD8AAAAAAACAPgAAgD8AAAAAAACAvgAAAEAAAAAAAACAPgAAAEAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAAA/AACAPwAAAD8AAAAAAACAPwAAgD8AAIA/AAAAAAAAAAAAAQAAAAEAAAEAAAABAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAACamZk+mpmZPgAAAAAAAAAAmpmZPpqZmT4AAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAABAAMAAAADAAIAAgADAAUAAgAFAAQAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAIC/AAAAAAAAgD8AAAAAiYiIPImICD3NzEw9iYiIPauqqj3NzMw97+7uPYmICD6amRk+q6oqPry7Oz7NzEw+3t1dPgAAAAAAAAAAAAAAAAAAgD8+qjI9AAAAAAAAAACgwX8/tn6yPQAAAAAAAAAAngZ/P6ioBT4AAAAAAAAAAFXPfT/U0DE+AAAAAAAAAABcHHw/WaJdPgAAAAAAAAAAie55P+6DhD4AAAAAAAAAAOpGdz8c9pk+AAAAAAAAAADLJnQ/RB2vPgAAAAAAAAAAso9wPxXvwz4AAAAAAAAAAF6DbD9sYdg+AAAAAAAAAADKA2g/UGrsPgAAAAAAAAAAJBNjPwAAAD8AAAAAAAAAANezXT94jAk/AAAAAAAAAACA6Fc/AAAAAImIiDyJiAg9zcxMPYmIiD3ug4Q+AAAAAAAAAADqRnc/7oOEPgAAAAAAAAAA6kZ3P+6DhD4AAAAAAAAAAOpGdz/ug4Q+AAAAAAAAAADqRnc/7oOEPgAAAAAAAAAA6kZ3Pw=="
+  }
+ ],
+ "skins": [
+  {
+   "joints": [
+    1,
+    0
+   ],
+   "inverseBindMatrices": 6,
+   "skeleton": 1
+  }
+ ],
+ "animations": [
+  {
+   "name": "fourteen",
+   "samplers": [
+    {
+     "input": 7,
+     "output": 8,
+     "interpolation": "STEP"
+    }
+   ],
+   "channels": [
+    {
+     "sampler": 0,
+     "target": {
+      "node": 0,
+      "path": "rotation"
+     }
+    }
+   ]
+  },
+  {
+   "name": "held",
+   "samplers": [
+    {
+     "input": 9,
+     "output": 10,
+     "interpolation": "STEP"
+    }
+   ],
+   "channels": [
+    {
+     "sampler": 0,
+     "target": {
+      "node": 0,
+      "path": "rotation"
+     }
+    }
+   ]
+  }
+ ]
+}

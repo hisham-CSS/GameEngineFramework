@@ -925,7 +925,7 @@ mannequin wait on that one-line answer; every WP before them does not.
   carries), `Assets.EveryModelHasALicenceBesideIt`,
   `AssetValidator.WarnsOnAModelDirectoryWithoutCredits`.
 
-- `[ ]` **M3.2b Skeleton and skin weights decode (CPU, GL-free).** *(M)*
+- `[~]` **M3.2b Skeleton and skin weights decode (CPU, GL-free).** *(M)*
   `Skeleton` from the `aiNode` hierarchy, `aiMesh::mBones` for offsets and
   weights only (one list per mesh); a parallel `SkinData` stream so the static
   `Vertex` stays byte-identical; `aiProcess_LimitBoneWeights` lands here, with

@@ -476,6 +476,42 @@ namespace MyCoreEngine {
                     }
                     md.vertices.push_back(vert);
                 }
+
+                // THE SKIN (ROADMAP M3.2b): per-vertex joint indices and
+                // weights, beside the vertices. Assimp emits one aiBone list
+                // per mesh even when several meshes share one skeleton, so a
+                // bone is resolved BY NAME into the one skeleton Decode built
+                // from the node tree, and only its weights and offset are read
+                // from here. At most four influences per vertex: the four
+                // LARGEST are kept (a fifth, smaller one is dropped, never the
+                // one that happened to arrive last), then the weights are
+                // re-normalised, because a file that authored 0.3 + 0.3 for a
+                // vertex would otherwise skin it to a shrunken point.
+                if (mesh->HasBones() && !cpu.skeleton.Empty()) {
+                    md.skin.joints.assign(mesh->mNumVertices, glm::ivec4(0));
+                    md.skin.weights.assign(mesh->mNumVertices, glm::vec4(0.0f));
+                    for (unsigned int b = 0; b < mesh->mNumBones; ++b) {
+                        const ::aiBone* bone = mesh->mBones[b];
+                        const int joint = cpu.skeleton.Find(bone->mName.C_Str());
+                        if (joint < 0) continue;   // a bone the node tree does not name: nothing to bind to
+                        for (unsigned int w = 0; w < bone->mNumWeights; ++w) {
+                            const ::aiVertexWeight& vw = bone->mWeights[w];
+                            if (vw.mVertexId >= mesh->mNumVertices || vw.mWeight <= 0.0f) continue;
+                            glm::ivec4& j = md.skin.joints[vw.mVertexId];
+                            glm::vec4&  k = md.skin.weights[vw.mVertexId];
+                            // Insert into the smallest slot if this weight beats it.
+                            int smallest = 0;
+                            for (int s = 1; s < kMaxJointInfluences; ++s)
+                                if (k[s] < k[smallest]) smallest = s;
+                            if (vw.mWeight > k[smallest]) { j[smallest] = joint; k[smallest] = vw.mWeight; }
+                        }
+                    }
+                    for (glm::vec4& k : md.skin.weights) {
+                        const float sum = k.x + k.y + k.z + k.w;
+                        if (sum > 0.0f) k /= sum;
+                    }
+                }
+
                 for (unsigned int f = 0; f < mesh->mNumFaces; f++) {
                     const ::aiFace& face = mesh->mFaces[f];
                     for (unsigned int j = 0; j < face.mNumIndices; j++)
@@ -489,6 +525,71 @@ namespace MyCoreEngine {
             }
             for (unsigned int i = 0; i < node->mNumChildren; i++) {
                 collectMeshes(scene, node->mChildren[i], cpu, xf);
+            }
+        }
+
+        glm::mat4 toGlm(const ::aiMatrix4x4& m) {
+            // Assimp is row-major, glm column-major: element [r][c] lands at [c][r].
+            glm::mat4 g;
+            for (int r = 0; r < 4; ++r)
+                for (int c = 0; c < 4; ++c)
+                    g[c][r] = m[r][c];
+            return g;
+        }
+
+        // THE SKELETON (ROADMAP M3.2b): the joints every skinned mesh in the
+        // scene binds to, in node-tree (parent-first) order.
+        //
+        // Built from the NODE TREE, not from any one mesh's bone list: Assimp
+        // gives each aiMesh its own aiBone array, so two meshes that share one
+        // skin would otherwise yield two skeletons that disagree about
+        // indices. A node is a joint when some mesh names it as a bone; its
+        // parent is the nearest joint ancestor, and its local bind pose is the
+        // product of the node transforms between them, so an exporter that
+        // leaves a non-deform node between two deform bones (Rigify's ORG/MCH
+        // layers, when they are exported at all) still yields one connected
+        // chain. The inverse bind matrix comes from the first aiBone that
+        // names the joint; every mesh's copy is the same matrix.
+        //
+        // Refuses a rig over kMaxSkeletonJoints, naming the count: the palette
+        // (M3.2e) is a fixed uniform block, and truncation would skin vertices
+        // to a joint that does not exist.
+        void collectJoints(const ::aiNode* node, int parentJoint, const ::aiMatrix4x4& sinceParent,
+                           const std::unordered_map<std::string, const ::aiBone*>& bones,
+                           Skeleton& out) {
+            const ::aiMatrix4x4 local = sinceParent * node->mTransformation;
+            const auto it = bones.find(node->mName.C_Str());
+            int self = parentJoint;
+            ::aiMatrix4x4 carry = local;
+            if (it != bones.end()) {
+                Skeleton::Joint j;
+                j.name        = node->mName.C_Str();
+                j.parent      = parentJoint;
+                j.localBind   = toGlm(local);
+                j.inverseBind = toGlm(it->second->mOffsetMatrix);
+                out.joints.push_back(std::move(j));
+                self  = static_cast<int>(out.joints.size()) - 1;
+                carry = ::aiMatrix4x4();
+            }
+            for (unsigned int i = 0; i < node->mNumChildren; ++i)
+                collectJoints(node->mChildren[i], self, carry, bones, out);
+        }
+
+        void buildSkeleton(const ::aiScene* scene, ModelCPUData& cpu) {
+            std::unordered_map<std::string, const ::aiBone*> bones;
+            for (unsigned int m = 0; m < scene->mNumMeshes; ++m) {
+                const ::aiMesh* mesh = scene->mMeshes[m];
+                for (unsigned int b = 0; b < mesh->mNumBones; ++b)
+                    bones.emplace(mesh->mBones[b]->mName.C_Str(), mesh->mBones[b]);
+            }
+            if (bones.empty()) return;
+            collectJoints(scene->mRootNode, -1, ::aiMatrix4x4(), bones, cpu.skeleton);
+            if (cpu.skeleton.joints.size() > static_cast<std::size_t>(kMaxSkeletonJoints)) {
+                cpu.importError = "rig has " + std::to_string(cpu.skeleton.joints.size()) +
+                                  " joints; the skinning palette holds " +
+                                  std::to_string(kMaxSkeletonJoints) +
+                                  " (Engine/src/anim/Skeleton.h kMaxSkeletonJoints)";
+                cpu.skeleton.joints.clear();
             }
         }
     } // namespace
@@ -560,6 +661,13 @@ namespace MyCoreEngine {
             aiProcess_JoinIdenticalVertices |
             aiProcess_GenNormals |
             aiProcess_CalcTangentSpace |
+            // NOT aiProcess_LimitBoneWeights (ROADMAP M3.2b). It would cap the
+            // influences at four, which is wanted -- but it also DELETES every
+            // bone left with no nonzero weight, and the glTF importer gives an
+            // unweighted skin joint exactly one zero weight, so a 129-joint
+            // chain came out as four joints and a hips bone that only drives
+            // children would lose its animation channel. The four-influence
+            // cap lives in collectMeshes instead, where every joint survives.
             // Untrusted-input hardening. The scene serializer already refuses
             // to point us at a file outside the project (see PathSandbox), but
             // a hostile mesh *inside* the tree can still carry face indices
@@ -627,8 +735,15 @@ namespace MyCoreEngine {
             md.emissive  = decodeTextureSlot_(cpu, aim, aiTextureType_EMISSIVE, aiTextureType_EMISSIVE, /*srgb=*/true, cpu.directory, skipDecodeKeys);
         }
 
+        buildSkeleton(scene, cpu);
+        if (!cpu.importError.empty()) {
+            std::cerr << "ERROR::MODEL::LOAD_REFUSED '" << path << "': " << cpu.importError << std::endl;
+            cpu.valid = false;
+            return cpu;
+        }
         collectMeshes(scene, scene->mRootNode, cpu, ::aiMatrix4x4());
-        MLOG("decode end: meshes=%zu textures=%zu", cpu.meshes.size(), cpu.textures.size());
+        MLOG("decode end: meshes=%zu textures=%zu joints=%zu", cpu.meshes.size(), cpu.textures.size(),
+             cpu.skeleton.joints.size());
         return cpu;
     }
 
