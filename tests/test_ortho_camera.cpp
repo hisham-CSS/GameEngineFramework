@@ -56,10 +56,16 @@ TEST(OrthoCamera, TheProjectionMapsHalfHeightToTheViewportEdge) {
 
     Camera persp;
     EXPECT_EQ(persp.Projection, CameraProjection::Perspective) << "a default camera is perspective";
-    persp.Zoom = 60.f;
+    // The reference is built the way the renderer always built it: radians of
+    // a RUNTIME fov. A literal here lets GCC fold glm::radians(60.f) at higher
+    // precision and the two differ by one ULP in one element (measured on the
+    // Linux CI job) -- which would be a fact about the test, not the camera.
+    volatile float fovDeg = 60.f;
+    persp.Zoom = fovDeg;
     persp.NearClip = 0.1f;
     persp.FarClip = 1000.f;
-    EXPECT_EQ(persp.GetProjectionMatrix(1.5f), glm::perspective(glm::radians(60.f), 1.5f, 0.1f, 1000.f))
+    const float fovRuntime = fovDeg;
+    EXPECT_EQ(persp.GetProjectionMatrix(1.5f), glm::perspective(glm::radians(fovRuntime), 1.5f, 0.1f, 1000.f))
         << "the perspective matrix must not change: every scene rendered before this mode existed relies on it";
 }
 
