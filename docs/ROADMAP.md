@@ -98,7 +98,7 @@ M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
 
 | In flight | Owner | Since |
 |---|---|---|
-| M3.4c The reconciler — the first swing | Claude | 2026-09-03 |
+| — (next: M3.4d, P4 acceptance — M3.3b, the mannequin, M3.3c, its clips, and M3.5a, the room, wait on ADR-019 D10) | | |
 
 The openings wave is landed end to end: per-opening prover surface → (c) →
 (d) → (b3) — the golden re-record (b3) was expected to need DISSOLVED under
@@ -1032,7 +1032,7 @@ mannequin wait on that one-line answer; every WP before them does not.
   `CharacterData.AMissingReservedCycleIsALoadErrorNamingIt`,
   `FighterClips.AReloadThatReordersMovesRebindsEveryClipByName`.
 
-- `[~]` **M3.4c The reconciler — the first swing.** *(L)* When the character
+- `[x] 4ea73a2` **M3.4c The reconciler — the first swing.** *(L)* When the character
   authors a model, `adoptPrepared_` creates presentation entities (two
   fighters with `ModelComponent` + `SkinnedPose` + `Transform`, the room, an
   orthographic camera driven by `FightCamera` at priority 100) and applies a
