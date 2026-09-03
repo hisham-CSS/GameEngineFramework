@@ -250,3 +250,117 @@ TEST_F(ModelDecodeTest, ConcurrentTexturedGridDecodesAreIdentical) {
     std::error_code ec;
     std::filesystem::remove_all("decode_hl", ec);
 }
+
+// ============================================================================
+// glTF enters the static model path (ROADMAP M3.2a; ADR-019 D1)
+// ============================================================================
+//
+// Two things a Blender export does that OBJ never did, each pinned on a
+// committed fixture that tests/fixtures/models/make_fixtures.py writes with the
+// standard library alone (no Blender, no GPU, nothing an artist's machine has to
+// provide): meshes sit under TRANSFORMED nodes, and UVs are authored with the
+// origin at the image's top-left. The first used to be silently ignored -- the
+// vertices were copied verbatim and every part of a hierarchy landed at the
+// origin; the second is the one where "fix" it and you break it: Assimp's glTF2
+// importer already flips V on import, aiProcess_FlipUVs flips it again, and the
+// OBJ importer flips once through the same flag, so BOTH formats arrive in one
+// convention. The second test exists so nobody "corrects" one flip and ships
+// upside-down textures for one format.
+#include <cmath>
+#include <string>
+
+namespace {
+
+std::string modelFixturesDir() {
+    namespace fs = std::filesystem;
+    fs::path here = fs::current_path();
+    for (int i = 0; i < 8; ++i) {
+        // Committed fixtures, deliberately NOT staged next to an executable:
+        // they are test evidence, not content. Walking up keeps this runnable
+        // from a build tree or a shell.
+        const fs::path candidate = here / "tests" / "fixtures" / "models";
+        if (fs::exists(candidate / "child_offset.gltf")) return candidate.string();
+        if (!here.has_parent_path() || here.parent_path() == here) break;
+        here = here.parent_path();
+    }
+    return "tests/fixtures/models";
+}
+
+const Vertex* findAt(const std::vector<Vertex>& vs, float x, float y, float z) {
+    for (const Vertex& v : vs)
+        if (std::fabs(v.Position.x - x) < 1e-4f && std::fabs(v.Position.y - y) < 1e-4f &&
+            std::fabs(v.Position.z - z) < 1e-4f)
+            return &v;
+    return nullptr;
+}
+
+} // namespace
+
+TEST(ModelDecodeGltf, AChildNodesTransformLandsItsVerticesInWorldSpace) {
+    const ModelCPUData cpu = Model::Decode(modelFixturesDir() + "/child_offset.gltf");
+    ASSERT_TRUE(cpu.valid) << "child_offset.gltf did not decode from " << modelFixturesDir();
+    ASSERT_EQ(cpu.meshes.size(), 1u);
+    const std::vector<Vertex>& vs = cpu.meshes[0].vertices;
+    ASSERT_EQ(vs.size(), 4u) << "JoinIdenticalVertices should leave the quad its four corners";
+
+    // Authored at +-0.5 under a node translated (10, 0, 0) and scaled 2: the
+    // corners must land at x in {9, 11}, z in {-1, 1}, y = 0.
+    for (float x : { 9.f, 11.f })
+        for (float z : { -1.f, 1.f })
+            EXPECT_NE(findAt(vs, x, 0.f, z), nullptr)
+                << "no vertex at (" << x << ", 0, " << z
+                << "): the node's transform did not reach the vertices";
+    for (const Vertex& v : vs) {
+        EXPECT_NEAR(v.Normal.y, 1.f, 1e-4f)
+            << "a translate plus a uniform scale must leave the normal +Y";
+        EXPECT_NEAR(glm::length(v.Normal), 1.f, 1e-4f) << "the baked normal is not unit";
+    }
+
+    // Assimp's glTF2 importer prepends a default material of its own, so the
+    // authored one is found by NAME -- which is the whole point of carrying it
+    // -- and the mesh must point at that one, not at the importer's default.
+    ASSERT_GE(cpu.materials.size(), 1u);
+    int authored = -1;
+    for (size_t i = 0; i < cpu.materials.size(); ++i)
+        if (cpu.materials[i].name == "grid_heavy") authored = (int)i;
+    ASSERT_NE(authored, -1) << "no material named grid_heavy survived Decode; the authored "
+                               "name was lost (materials: " << cpu.materials.size() << ")";
+    EXPECT_EQ(cpu.meshes[0].materialIndex, authored)
+        << "the quad is bound to material " << cpu.meshes[0].materialIndex
+        << " but the authored material is " << authored;
+}
+
+TEST(ModelDecodeGltf, AGltfAndAnObjOfTheSameQuadSampleTheSameTexel) {
+    const ModelCPUData g = Model::Decode(modelFixturesDir() + "/uv_quad.gltf");
+    const ModelCPUData o = Model::Decode(modelFixturesDir() + "/uv_quad.obj");
+    ASSERT_TRUE(g.valid) << "uv_quad.gltf did not decode";
+    ASSERT_TRUE(o.valid) << "uv_quad.obj did not decode";
+    ASSERT_EQ(g.meshes.size(), 1u);
+    ASSERT_EQ(o.meshes.size(), 1u);
+    ASSERT_EQ(g.meshes[0].vertices.size(), 4u);
+    ASSERT_EQ(o.meshes[0].vertices.size(), 4u);
+
+    int matched = 0;
+    for (const Vertex& gv : g.meshes[0].vertices) {
+        const Vertex* ov = findAt(o.meshes[0].vertices, gv.Position.x, gv.Position.y, gv.Position.z);
+        ASSERT_NE(ov, nullptr) << "the OBJ has no vertex at the glTF corner ("
+                               << gv.Position.x << ", " << gv.Position.z << ")";
+        EXPECT_NEAR(gv.TexCoords.x, ov->TexCoords.x, 1e-5f)
+            << "u differs at (" << gv.Position.x << ", " << gv.Position.z << ")";
+        EXPECT_NEAR(gv.TexCoords.y, ov->TexCoords.y, 1e-5f)
+            << "v differs at (" << gv.Position.x << ", " << gv.Position.z
+            << "): the importers' flips and aiProcess_FlipUVs no longer cancel into "
+               "one convention, and one format's textures are upside down";
+        ++matched;
+    }
+    EXPECT_EQ(matched, 4);
+
+    // The convention itself, so a change cannot flip BOTH and pass: the
+    // far-left corner carries the image's TOP-left texel, and the decoded v
+    // there is 0 -- top-left origin, against the rows stbi flips on load.
+    const Vertex* farLeft = findAt(g.meshes[0].vertices, -0.5f, 0.f, -0.5f);
+    ASSERT_NE(farLeft, nullptr);
+    EXPECT_NEAR(farLeft->TexCoords.x, 0.f, 1e-5f);
+    EXPECT_NEAR(farLeft->TexCoords.y, 0.f, 1e-5f)
+        << "the far-left corner must decode to v = 0; the renderer's convention moved";
+}

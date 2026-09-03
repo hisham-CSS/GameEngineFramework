@@ -1,6 +1,6 @@
 # Assets
 
-Verified: 2026-08-17 @ e2f08bd
+Verified: 2026-09-02 @ b502fa9
 
 Assets are the files your game loads at runtime: models, their textures, shaders and saved scenes. This page covers where they live, how the engine loads them (synchronously and asynchronously), how the editor sees them, and how to validate them before you ship.
 
@@ -29,13 +29,13 @@ Source content lives in `Editor/src/Exported/` and is staged into the runtime `E
 
 | Extension | `AssetIndex::Kind` | Browser tag |
 | --- | --- | --- |
-| `.obj` | `Model` | `[MDL]` |
+| `.obj` `.gltf` `.glb` | `Model` | `[MDL]` |
 | `.json` (except `project.json`) | `SceneJson` | `[SCN]` |
 | `.png` `.jpg` `.jpeg` `.hdr` `.tga` `.bmp` | `Texture` | `[TEX]` |
 | `.glsl` | `Shader` | `[SHD]` |
 | anything else | `Other` | `[ - ]` |
 
-A `.fbx` or `.gltf` file dropped into `Exported/` shows up as `Other`: you cannot spawn it from the browser and `AssetCooker validate` will not check it, even though `Model::Decode` would probably load it if you passed the path by hand. Extend `classify()` if you need more model formats surfaced.
+A `.fbx` file dropped into `Exported/` shows up as `Other`: you cannot spawn it from the browser and `AssetCooker validate` will not check it, even though `Model::Decode` would probably load it if you passed the path by hand. glTF (`.gltf`, `.glb`) is classified since ROADMAP M3.2a because it is the interchange the art pipeline exports ([ADR-019](../adr/ADR-019-placeholders-through-blender.md) D1); `AssetIndex.ClassifiesGltfAndGlbAsModels` pins it. Extend `classify()` if you need another format surfaced — and mean it, because surfacing a format is a promise the cooker then keeps.
 
 ## Materials and colour space
 
@@ -197,6 +197,10 @@ aiProcess_FlipUVs
 > The flag only deduplicates positions, it never moves them, so AABBs are unchanged. If you ever touch this flag list, keep it.
 
 If you suspect this has regressed, `AssetCooker validate` reports it directly (see below).
+
+**Node transforms are baked into unskinned vertices** (since ROADMAP M3.2a). glTF and FBX place meshes under transformed nodes; `collectMeshes` used to copy vertices verbatim, so a Blender export with unapplied transforms landed every part at the origin — unnoticed for as long as every shipped asset was OBJ, which has no node tree. Decode now accumulates each node's transform down the hierarchy and applies it to positions (normals and tangents by the inverse transpose) when the accumulated transform is not the identity and the mesh has no bones; a skinned mesh stays in bind space, because its placement is the skeleton's job. Identity means bit-identical: nothing already shipped moves. `ModelDecodeGltf.AChildNodesTransformLandsItsVerticesInWorldSpace` pins it on `tests/fixtures/models/child_offset.gltf`.
+
+**Both formats decode to one UV convention, and `aiProcess_FlipUVs` stays.** glTF authors texture coordinates with the origin at the image's top-left and Assimp's glTF2 importer flips V on import; OBJ authors them bottom-left and its importer does not. `aiProcess_FlipUVs` then flips both once more, so a glTF quad and an OBJ quad of the same corners arrive with the same `v` — top-left origin, matched against the rows `stbi` flips on load. Removing the flag "because glTF is already flipped" would ship one format's textures upside down; `ModelDecodeGltf.AGltfAndAnObjOfTheSameQuadSampleTheSameTexel` pins the agreement and the convention on `tests/fixtures/models/uv_quad.*`.
 
 ## The AssetIndex
 

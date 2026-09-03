@@ -137,6 +137,7 @@ namespace MyCoreEngine {
             bool decoded = false; // false: stbi failed — finalize caches id 0
         };
         struct MaterialData {
+            std::string name;   // the file's own material name (AI_MATKEY_NAME); empty if none
             Material base;      // scalar values; texture ids stay 0 until finalize
             // indices into `textures` (-1 = slot absent on the material)
             int albedo = -1, normal = -1, metallic = -1, roughness = -1,

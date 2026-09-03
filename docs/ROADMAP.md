@@ -871,16 +871,18 @@ mannequin wait on that one-line answer; every WP before them does not.
   every hitstop tick of a crouch-blocked hit; that is the one place a
   crouch → stand → crouch flicker would show, and the carry makes it reachable.
 
-- `[ ]` **M3.2a glTF enters the static model path; stdlib fixtures.** *(S)*
+- `[~]` **M3.2a glTF enters the static model path; stdlib fixtures.** *(S)*
   `AssetIndex::classify` learns `.gltf`/`.glb`; `collectMeshes` accumulates
-  node transforms for unskinned meshes; the V flip becomes conditional on the
-  importer (Assimp's glTF2 importer already flips); `MaterialData` carries the
-  material name; `.gitattributes` gains `*.gltf *.glb *.bin binary`;
-  `tests/fixtures/models/make_fixtures.py` — stdlib-only Python — writes the <!-- docs-ok: planned by this WP, does not exist yet -->
-  committed fixtures every later engine WP uses (child offset, two-bone strip
-  with a 14-key clip and a held clip and a rotation-only joint, an off-grid
-  key, two meshes one skin, 129 joints, a textured quad), so no engine WP waits
-  on Blender. **Done when:**
+  node transforms for unskinned meshes (identity stays bit-identical; bones
+  stay in bind space); the two formats' UV conventions are PINNED to agree
+  rather than "fixed" — Assimp's glTF2 importer flips V and `aiProcess_FlipUVs`
+  flips again, landing exactly where OBJ lands, so the flag stays;
+  `MaterialData` carries the authored material name; `.gitattributes` marks
+  `.gltf` text and `.glb`/`.bin`/`.png` binary;
+  `tests/fixtures/models/make_fixtures.py` — stdlib-only Python, data-URI
+  buffers — writes this WP's committed fixtures (the child-offset quad, the
+  glTF/OBJ UV pair and its 2×2 PNG); M3.2b–c extend the same writer with the
+  skinned and animated ones, so no engine WP waits on Blender. **Done when:**
   `ModelDecode.AChildNodesTransformLandsItsVerticesInWorldSpace`,
   `AssetIndex.ClassifiesGltfAndGlbAsModels`,
   `ModelDecode.AGltfAndAnObjOfTheSameQuadSampleTheSameTexel`; fixtures

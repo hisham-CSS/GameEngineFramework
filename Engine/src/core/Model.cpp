@@ -433,23 +433,46 @@ namespace MyCoreEngine {
             return {};
         }
 
-        // vertex/index extraction — unchanged from the old processMesh
-        void collectMeshes(const ::aiScene* scene, ::aiNode* node, ModelCPUData& cpu) {
+        // vertex/index extraction. `parent` is the accumulated transform of the
+        // node ABOVE this one: glTF and FBX place meshes under transformed
+        // nodes, and a Blender export with unapplied transforms landed every
+        // part at the origin while this function copied vertices verbatim --
+        // for years, unnoticed, because OBJ has no node tree and every shipped
+        // asset was OBJ. Baking is skipped when the accumulated transform is
+        // the identity, so nothing already shipped moves by a bit, and for
+        // meshes with bones, whose placement is the skeleton's job (ROADMAP
+        // M3.2b; glTF says a skinned mesh's own node transform is ignored).
+        // Pinned by ModelDecode.AChildNodesTransformLandsItsVerticesInWorldSpace.
+        void collectMeshes(const ::aiScene* scene, ::aiNode* node, ModelCPUData& cpu,
+                           const ::aiMatrix4x4& parent) {
+            const ::aiMatrix4x4 xf = parent * node->mTransformation;
+            ::aiMatrix3x3 nrm(xf);      // normals move by the inverse transpose,
+            nrm.Inverse().Transpose();  // which is the matrix itself for a pure rotation
             for (unsigned int i = 0; i < node->mNumMeshes; i++) {
                 ::aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
                 ModelCPUData::MeshData md;
+                const bool bake = !xf.IsIdentity() && !mesh->HasBones();
 
                 md.vertices.reserve(mesh->mNumVertices);
                 for (unsigned int v = 0; v < mesh->mNumVertices; v++) {
                     Vertex vert{};
-                    vert.Position = { mesh->mVertices[v].x, mesh->mVertices[v].y, mesh->mVertices[v].z };
-                    vert.Normal   = mesh->HasNormals()
-                                  ? glm::vec3{ mesh->mNormals[v].x, mesh->mNormals[v].y, mesh->mNormals[v].z }
-                                  : glm::vec3{ 0,0,0 };
+                    ::aiVector3D p = mesh->mVertices[v];
+                    if (bake) p = xf * p;
+                    vert.Position = { p.x, p.y, p.z };
+                    if (mesh->HasNormals()) {
+                        ::aiVector3D n = mesh->mNormals[v];
+                        if (bake) n = (nrm * n).NormalizeSafe();
+                        vert.Normal = { n.x, n.y, n.z };
+                    } else {
+                        vert.Normal = { 0, 0, 0 };
+                    }
                     if (mesh->mTextureCoords[0]) {
                         vert.TexCoords = { mesh->mTextureCoords[0][v].x, mesh->mTextureCoords[0][v].y };
-                        vert.Tangent   = { mesh->mTangents[v].x, mesh->mTangents[v].y, mesh->mTangents[v].z };
-                        vert.Bitangent = { mesh->mBitangents[v].x, mesh->mBitangents[v].y, mesh->mBitangents[v].z };
+                        ::aiVector3D t = mesh->mTangents[v];
+                        ::aiVector3D b = mesh->mBitangents[v];
+                        if (bake) { t = (nrm * t).NormalizeSafe(); b = (nrm * b).NormalizeSafe(); }
+                        vert.Tangent   = { t.x, t.y, t.z };
+                        vert.Bitangent = { b.x, b.y, b.z };
                     }
                     md.vertices.push_back(vert);
                 }
@@ -465,7 +488,7 @@ namespace MyCoreEngine {
                 cpu.meshes.push_back(std::move(md));
             }
             for (unsigned int i = 0; i < node->mNumChildren; i++) {
-                collectMeshes(scene, node->mChildren[i], cpu);
+                collectMeshes(scene, node->mChildren[i], cpu, xf);
             }
         }
     } // namespace
@@ -577,6 +600,13 @@ namespace MyCoreEngine {
             ::aiMaterial* aim = scene->mMaterials[i];
             ModelCPUData::MaterialData& md = cpu.materials[i];
 
+            // The authored name, kept so a test (and one day a tool) can find
+            // "the heavy grid lines" by the name the artist gave them rather
+            // than by a colour that happens to match (ROADMAP M3.2a / M3.5a).
+            aiString authoredName;
+            if (AI_SUCCESS == aim->Get(AI_MATKEY_NAME, authoredName))
+                md.name = authoredName.C_Str();
+
             aiColor3D col;
             if (AI_SUCCESS == aim->Get(AI_MATKEY_COLOR_DIFFUSE, col)) {
                 md.base.baseColor = { col.r, col.g, col.b };
@@ -597,7 +627,7 @@ namespace MyCoreEngine {
             md.emissive  = decodeTextureSlot_(cpu, aim, aiTextureType_EMISSIVE, aiTextureType_EMISSIVE, /*srgb=*/true, cpu.directory, skipDecodeKeys);
         }
 
-        collectMeshes(scene, scene->mRootNode, cpu);
+        collectMeshes(scene, scene->mRootNode, cpu, ::aiMatrix4x4());
         MLOG("decode end: meshes=%zu textures=%zu", cpu.meshes.size(), cpu.textures.size());
         return cpu;
     }
