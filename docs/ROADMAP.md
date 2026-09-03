@@ -98,7 +98,7 @@ M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
 
 | In flight | Owner | Since |
 |---|---|---|
-| M3.2g Orthographic camera mode | Claude | 2026-09-03 |
+| — (next: M3.4b, `engine.anim3d` with its consumer — M3.3b, the mannequin, M3.3c, its clips, and M3.5a, the room, wait on ADR-019 D10) | | |
 
 The openings wave is landed end to end: per-opening prover surface → (c) →
 (d) → (b3) — the golden re-record (b3) was expected to need DISSOLVED under
@@ -980,7 +980,7 @@ mannequin wait on that one-line answer; every WP before them does not.
   `SkinnedDraw.AFighterAnimatingInPlaceRedrawsItsShadowCascade`; headless
   `SceneSerializer.SkinnedPoseIsDerivedAndNeverSaved`.
 
-- `[~]` **M3.2g Orthographic camera mode.** *(M)* The one camera-side
+- `[x] 471c8c2` **M3.2g Orthographic camera mode.** *(M)* The one camera-side
   addition ADR-019 D4 admits: `CameraComponent` gains an appended projection
   mode and orthographic half-height; `Renderer`'s projection branches; CSM
   slice fitting and the culling frustum handle the orthographic view; the
