@@ -365,12 +365,14 @@ void DrawFightWorld(MyCoreEngine::Renderer2D& r2d,
                     const cse::kernel::GameState& state,
                     const cse::kernel::MatchData& data,
                     std::int32_t stageHalfWidthSub,
-                    bool boxesOnly) {
+                    bool boxesOnly, bool drawBoxes) {
     const float corner = WorldPx(stageHalfWidthSub);
 
     // Over a presentation model (M3.4c) the scene is the floor and the room's
-    // grid is the ruler (M3.5a); only the boxes are drawn here.
+    // grid is the ruler (M3.5a); only the boxes are drawn here -- and in the
+    // mesh-only overlay mode (M3.4e), nothing.
     if (boxesOnly) {
+        if (!drawBoxes) return;
         for (int slot = 0; slot < 2; ++slot)
             drawFighter(r2d, data, state, slot, /*boxesOnly*/ true);
         return;
@@ -390,7 +392,7 @@ void DrawFightWorld(MyCoreEngine::Renderer2D& r2d,
     //
     // Drawn only across the stage proper. Past the corner is not stage, and
     // tiling the out-of-bounds band would suggest there is somewhere to stand.
-    {
+    if (drawBoxes) {   // the ruler draws only with the boxes on (M3.4e)
         const int cells = static_cast<int>(corner / kCellPx) + 1;
         for (int i = -cells; i < cells; ++i) {
             const float x = static_cast<float>(i) * kCellPx;
@@ -449,8 +451,9 @@ void DrawFightWorld(MyCoreEngine::Renderer2D& r2d,
     // decides nothing here -- these are quads -- and it is written the same way
     // so that a reader comparing this loop with the tick's does not have to
     // wonder whether the difference means something.
-    for (int slot = 0; slot < 2; ++slot)
-        drawFighter(r2d, data, state, slot, /*boxesOnly*/ false);
+    if (drawBoxes)
+        for (int slot = 0; slot < 2; ++slot)
+            drawFighter(r2d, data, state, slot, /*boxesOnly*/ false);
 }
 
 } // namespace untitledfighter

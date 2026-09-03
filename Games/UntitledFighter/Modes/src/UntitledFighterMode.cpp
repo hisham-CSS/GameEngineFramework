@@ -167,6 +167,7 @@ namespace {
     constexpr const char* kActDemo  = "Fight.Demonstrate";
     constexpr const char* kActSwap  = "Fight.NextCharacter";
     constexpr const char* kActStage = "Fight.StagePosition";
+    constexpr const char* kActOverlay = "Fight.Overlay";
 
     struct ControlKey {
         const char* action;
@@ -181,6 +182,7 @@ namespace {
         { kActDemo,  GLFW_KEY_TAB,    -1 },
         { kActSwap,  GLFW_KEY_C,      -1 },
         { kActStage, GLFW_KEY_V,      -1 },
+        { kActOverlay, GLFW_KEY_B,    -1 },
     };
 
     // 1 -> 1/2 -> 1/4 -> 1/8 -> 1. Integer division of the host's fixed steps,
@@ -713,6 +715,7 @@ void UntitledFighterMode::reconcile_() {
     // scene camera and the box overlay scroll together.
     cameraCentrePx_ = frame.camera.framing.centreX;
     scene3d_.Apply(*ctx_.scene, frame);
+    scene3d_.SetOpacity(cse::presentation::OverlayLookFor(overlay_, true).meshOpacity);
 }
 
 // The authoring loop (ROADMAP M1.5). ADR-016 in four sentences: a change to
@@ -960,6 +963,13 @@ void UntitledFighterMode::readControls_() {
         applyStagePosition_();
         resetMatch_();
     }
+
+    // The overlay cycle (M3.4e): boxes over mesh -> boxes over translucent
+    // mesh -> mesh only. It changes what is DRAWN and never a tick, but it is
+    // read with the other controls so one press is one step at any frame
+    // rate, and it is meaningful with no match loaded.
+    if (map.consumePressed(kActOverlay))
+        overlay_ = cse::presentation::NextOverlayMode(overlay_);
 
     // --- FROM HERE DOWN, EVERY CONTROL ACTS ON A MATCH THAT IS RUNNING --------
     //
@@ -1353,6 +1363,8 @@ FightHudModel UntitledFighterMode::hudModel_() const {
     model.analysisError = &analysisError_;
     model.demoNote      = &demoNote_;
     model.reloadNote    = &reloadNote_;
+    model.presentationNote = &presentationNote_;
+    model.overlayMode   = cse::presentation::OverlayModeName(overlay_);
     model.reloadFailed  = reloadFailed_;
     model.fatal         = &fatal_;
 
@@ -1439,8 +1451,9 @@ void UntitledFighterMode::Draw(MyCoreEngine::Renderer2D& r2d, int widthPx,
         cameraCentrePx_ = cam.position.x;   // the deadzone's memory
         r2d.BeginWorld(cam, widthPx,
                        heightPx);
+        const cse::presentation::OverlayLook overlay = cse::presentation::OverlayLookFor(overlay_, scene3d);
         DrawFightWorld(r2d, session_.State(), session_.Data(), stageHalfWidthSub_,
-                       /*boxesOnly*/ scene3d);
+                       /*boxesOnly*/ scene3d, overlay.drawBoxes);
         r2d.End();
         r2d.BeginScreen(widthPx, heightPx);
     }

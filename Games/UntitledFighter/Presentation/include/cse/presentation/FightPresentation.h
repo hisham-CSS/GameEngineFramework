@@ -184,4 +184,30 @@ glm::mat4 SceneCameraView(const CameraFrame& cam);
 glm::mat4 OverlayProjection(const CameraFraming& framing, int viewportW, int viewportH);
 glm::mat4 OverlayView(const CameraFraming& framing);
 
+// --- Overlay modes for validation over the mesh (ROADMAP M3.4e) ----------------
+//
+// Judging the fist against the box wants three views of one frame: the boxes
+// over the body (default), the boxes over a TRANSLUCENT body (the fist inside
+// the box, seen through the arm), and the body alone. The state is the mode's
+// -- one byte the author cycles -- and this is what each value means. Nothing
+// here changes a tick: the same frame is composed whatever is drawn over it.
+enum class OverlayMode : std::uint8_t { BoxesOverMesh = 0, BoxesOverTranslucentMesh = 1, MeshOnly = 2 };
+inline constexpr OverlayMode kDefaultOverlayMode = OverlayMode::BoxesOverMesh;
+// How see-through the translucent body is: enough to read the box edge through
+// the limb, not so much that the silhouette is lost.
+inline constexpr float kTranslucentMeshOpacity = 0.35f;
+
+OverlayMode NextOverlayMode(OverlayMode mode);   // three states, then round
+const char* OverlayModeName(OverlayMode mode);
+
+struct OverlayLook {
+    bool  drawBoxes = true;     // the kernel's Hurtbox and ActiveHitbox outlines
+    float meshOpacity = 1.0f;   // 1 opaque; below 1 the fighters' materials blend
+    // The 2D checkerboard. Only with the boxes on and no model on screen: the
+    // room's grid is the ruler once there is a room, and a ruler under a body
+    // with its boxes hidden is a measurement of nothing.
+    bool  drawRuler = true;
+};
+OverlayLook OverlayLookFor(OverlayMode mode, bool modelOnScreen);
+
 } // namespace cse::presentation

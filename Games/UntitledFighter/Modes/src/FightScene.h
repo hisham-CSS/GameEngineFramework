@@ -80,6 +80,10 @@ public:
 
     // Write one composed frame: transforms (position, yaw), palettes, camera.
     void Apply(MyCoreEngine::Scene& scene, const cse::presentation::FrameComposition& frame);
+    // The fighters' material opacity (M3.4e): below 1 the per-slot materials
+    // switch to the Blend alpha mode -- the renderer's existing transparent
+    // path -- so the boxes read through the body; 1 is opaque again.
+    void SetOpacity(float opacity);
 
     entt::entity CameraEntity() const { return camera_; }
     entt::entity FighterEntity(int slot) const { return fighters_[slot]; }

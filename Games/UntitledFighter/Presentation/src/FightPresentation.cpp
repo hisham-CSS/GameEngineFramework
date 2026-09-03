@@ -297,4 +297,31 @@ glm::mat4 OverlayView(const CameraFraming& framing) {
     return glm::translate(glm::mat4(1.0f), glm::vec3(-framing.centreX, -framing.heightPx, 0.0f));
 }
 
+// --- Overlay modes (M3.4e) ---------------------------------------------------------
+
+OverlayMode NextOverlayMode(OverlayMode mode) {
+    switch (mode) {
+    case OverlayMode::BoxesOverMesh:            return OverlayMode::BoxesOverTranslucentMesh;
+    case OverlayMode::BoxesOverTranslucentMesh: return OverlayMode::MeshOnly;
+    default:                                    return OverlayMode::BoxesOverMesh;
+    }
+}
+
+const char* OverlayModeName(OverlayMode mode) {
+    switch (mode) {
+    case OverlayMode::BoxesOverMesh:            return "boxes over mesh";
+    case OverlayMode::BoxesOverTranslucentMesh: return "boxes over translucent mesh";
+    case OverlayMode::MeshOnly:                 return "mesh only";
+    }
+    return "boxes over mesh";
+}
+
+OverlayLook OverlayLookFor(OverlayMode mode, bool modelOnScreen) {
+    OverlayLook look;
+    look.drawBoxes = (mode != OverlayMode::MeshOnly);
+    look.meshOpacity = (mode == OverlayMode::BoxesOverTranslucentMesh) ? kTranslucentMeshOpacity : 1.0f;
+    look.drawRuler = look.drawBoxes && !modelOnScreen;
+    return look;
+}
+
 } // namespace cse::presentation

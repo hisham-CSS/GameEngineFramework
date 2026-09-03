@@ -154,6 +154,15 @@ bool FightScene::Valid(const Scene& scene) const {
            scene.registry.all_of<Transform, CameraComponent>(camera_);
 }
 
+void FightScene::SetOpacity(float opacity) {
+    const float o = std::clamp(opacity, 0.0f, 1.0f);
+    for (auto& mat : materials_) {
+        if (!mat) continue;
+        mat->alphaMode = (o < 1.0f) ? AlphaMode::Blend : AlphaMode::Opaque;
+        mat->opacity = o;
+    }
+}
+
 void FightScene::Apply(Scene& scene, const cse::presentation::FrameComposition& frame) {
     if (!Valid(scene) || !model_) return;
     for (int slot = 0; slot < cse::kernel::kMaxFighters; ++slot) {

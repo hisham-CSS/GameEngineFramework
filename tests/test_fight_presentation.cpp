@@ -418,3 +418,56 @@ TEST(FightPresentation, CountdownClipsLandOnTheirLastFrameAsTheCounterReachesZer
     r.kind = cse::game::PoseKind::Idle; r.tick = 23;    EXPECT_EQ(cse::presentation::ClipFrameFor(r, clip, 0), 3u);
     r.kind = cse::game::PoseKind::WalkFwd; r.posXSub = subPx(7); EXPECT_EQ(cse::presentation::ClipFrameFor(r, clip, subPx(2)), 3u) << "one frame per tick of walking: 7 px / 2 px per tick = frame 3";
 }
+
+
+// ============================================================================
+// Overlay modes for validation over the mesh (ROADMAP M3.4e)
+// ============================================================================
+
+// Three views of one frame, cycled from the default: boxes over the mesh,
+// boxes over a translucent mesh, mesh only, and round again. Each says what is
+// drawn; none changes a tick. The 2D ruler draws only with the boxes on and no
+// model on screen, because the room's grid is the ruler.
+TEST(FightPresentation, OverlayModeCyclesThreeStatesAndStartsWithBoxes) {
+    using cse::presentation::kDefaultOverlayMode;
+    using cse::presentation::NextOverlayMode;
+    using cse::presentation::OverlayLook;
+    using cse::presentation::OverlayLookFor;
+    using cse::presentation::OverlayMode;
+    using cse::presentation::OverlayModeName;
+
+    EXPECT_EQ(kDefaultOverlayMode, OverlayMode::BoxesOverMesh) << "the default is the boxes over the body";
+    OverlayMode m = kDefaultOverlayMode;
+    m = NextOverlayMode(m); EXPECT_EQ(m, OverlayMode::BoxesOverTranslucentMesh);
+    m = NextOverlayMode(m); EXPECT_EQ(m, OverlayMode::MeshOnly);
+    m = NextOverlayMode(m); EXPECT_EQ(m, OverlayMode::BoxesOverMesh) << "three states, then round";
+
+    // with a model on screen
+    const OverlayLook boxes = OverlayLookFor(OverlayMode::BoxesOverMesh, /*modelOnScreen*/ true);
+    EXPECT_TRUE(boxes.drawBoxes);
+    EXPECT_FLOAT_EQ(boxes.meshOpacity, 1.0f);
+    EXPECT_FALSE(boxes.drawRuler) << "the room's grid is the ruler once there is a model";
+
+    const OverlayLook through = OverlayLookFor(OverlayMode::BoxesOverTranslucentMesh, true);
+    EXPECT_TRUE(through.drawBoxes);
+    EXPECT_LT(through.meshOpacity, 1.0f) << "translucent means the material blends";
+    EXPECT_GT(through.meshOpacity, 0.0f) << "but the silhouette must survive";
+    EXPECT_FALSE(through.drawRuler);
+
+    const OverlayLook mesh = OverlayLookFor(OverlayMode::MeshOnly, true);
+    EXPECT_FALSE(mesh.drawBoxes);
+    EXPECT_FLOAT_EQ(mesh.meshOpacity, 1.0f) << "mesh only is the opaque body, nothing over it";
+    EXPECT_FALSE(mesh.drawRuler);
+
+    // over the 2D placeholders (no model): the ruler follows the boxes
+    EXPECT_TRUE(OverlayLookFor(OverlayMode::BoxesOverMesh, false).drawRuler);
+    EXPECT_TRUE(OverlayLookFor(OverlayMode::BoxesOverTranslucentMesh, false).drawRuler);
+    EXPECT_FALSE(OverlayLookFor(OverlayMode::MeshOnly, false).drawRuler) << "no boxes, no ruler";
+    EXPECT_FLOAT_EQ(OverlayLookFor(OverlayMode::BoxesOverTranslucentMesh, false).meshOpacity,
+                    cse::presentation::kTranslucentMeshOpacity);
+
+    // three distinct names for the HUD
+    EXPECT_STRNE(OverlayModeName(OverlayMode::BoxesOverMesh), OverlayModeName(OverlayMode::BoxesOverTranslucentMesh));
+    EXPECT_STRNE(OverlayModeName(OverlayMode::BoxesOverTranslucentMesh), OverlayModeName(OverlayMode::MeshOnly));
+    EXPECT_STRNE(OverlayModeName(OverlayMode::MeshOnly), OverlayModeName(OverlayMode::BoxesOverMesh));
+}

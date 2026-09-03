@@ -215,10 +215,14 @@ MyCoreEngine::Camera2D FightCamera(const cse::kernel::GameState& state,
 // the floor and the bodies, so only the kernel's boxes -- the Hurtbox outline,
 // the ActiveHitbox, the origin -- are drawn over it. The floor, the ruler, the
 // body fill and the facing wedge stay 2D-placeholder furniture.
+// `drawBoxes` (M3.4e): the overlay mode's answer. Off, the kernel's boxes are
+// not drawn -- and with them, over the 2D placeholders, the ruler, which is a
+// measurement of nothing without a box to measure.
 void DrawFightWorld(MyCoreEngine::Renderer2D& r2d,
                     const cse::kernel::GameState& state,
                     const cse::kernel::MatchData& data,
                     std::int32_t stageHalfWidthSub,
-                    bool boxesOnly = false);
+                    bool boxesOnly = false,
+                    bool drawBoxes = true);
 
 } // namespace untitledfighter

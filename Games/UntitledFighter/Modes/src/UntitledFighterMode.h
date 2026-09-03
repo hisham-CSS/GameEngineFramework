@@ -190,6 +190,10 @@ private:
 
     void applyStagePosition_();
     bool         stageMidscreen_   = false;
+    // Which overlay the author is looking through (M3.4e): boxes over the
+    // mesh, boxes over a translucent mesh, or the mesh alone. Presentation
+    // state of the author's choice -- it changes what is drawn, never a tick.
+    cse::presentation::OverlayMode overlay_ = cse::presentation::kDefaultOverlayMode;
     std::int32_t bodyHalfWidthSub_ = 0;
 
     void resetMatch_();
