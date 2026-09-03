@@ -252,6 +252,36 @@ namespace MyCoreEngine {
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, lr.ebo);
         glDrawElementsInstanced(GL_TRIANGLES, lr.indexCount, GL_UNSIGNED_INT, 0, instanceCount);
     }
+
+namespace {
+    // The albedo an untextured material samples. frag.glsl multiplies the
+    // bound diffuseMap by uBaseColor, and a material with no albedo map used
+    // to bind texture 0 -- which in a core profile samples as (0,0,0,1), so
+    // every untextured mesh rendered black whatever its base colour, with no
+    // error and nothing logged. The glTF fixtures and the bpy mannequin
+    // (ROADMAP M3.3b) are all untextured; the first Scene-driven skinned test
+    // found it. One 1x1 opaque white per GL context, made on first use --
+    // Renderer2D keeps its own for the same reason. The owner context is
+    // remembered and the id re-validated so a texture from a destroyed
+    // context (tests open several) is never bound by mistake.
+    GLuint FallbackWhiteTexture() {
+        static GLuint      tex = 0;
+        static GLFWwindow* owner = nullptr;
+        GLFWwindow* ctx = glfwGetCurrentContext();
+        if (!ctx || !glad_glGenTextures) return 0;
+        if (tex != 0 && owner == ctx && glIsTexture(tex)) return tex;
+        const unsigned char white[4] = { 255, 255, 255, 255 };
+        glGenTextures(1, &tex);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, white);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        owner = ctx;
+        return tex;
+    }
+} // namespace
+
     void Mesh::BindForDraw(MyCoreEngine::Shader& shader) const {
 
         if (material_) {
@@ -264,7 +294,7 @@ namespace MyCoreEngine {
             // Fixed units: 0 albedo, 1 normal, 2 metal, 3 rough, 4 ao, 5 emissive (optional)
             // Albedo
             glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, material_->albedoTex);
+            glBindTexture(GL_TEXTURE_2D, material_->albedoTex ? material_->albedoTex : FallbackWhiteTexture());
             shader.setInt("diffuseMap", 0); // your shader uses this name
             // Normal
             const bool hasNormal = material_->hasNormal();
@@ -418,7 +448,7 @@ namespace MyCoreEngine {
         const bool hasRoughness = (m.roughnessTex != 0);
         const bool hasAO = (m.aoTex != 0);
 
-        glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, m.albedoTex);    shader.setInt("diffuseMap", 0);
+        glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, m.albedoTex ? m.albedoTex : FallbackWhiteTexture()); shader.setInt("diffuseMap", 0);
         if (hasNormal) { glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, m.normalTex);    shader.setInt("normalMap", 1); }
         if (hasMetallic) { glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, m.metallicTex);  shader.setInt("metallicMap", 2); }
         if (hasRoughness) { glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, m.roughnessTex); shader.setInt("roughnessMap", 3); }

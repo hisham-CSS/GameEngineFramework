@@ -91,6 +91,22 @@ struct MaterialOverrides {
 	std::unordered_map<size_t, MyCoreEngine::MaterialHandle> byIndex;
 };
 
+// THE POSE A SKINNED ENTITY WEARS THIS FRAME (ROADMAP M3.2f; ADR-019 D3, D9).
+//
+// DERIVED, NEVER AUTHORED, NEVER SAVED. The presentation writes it from
+// GameState every rendered frame (cse::game::SelectPose -> the clip -> a
+// SamplePalette call), the renderer reads it for the draw, SceneSerializer
+// never writes it, and the Inspector shows it read-only with a debug-only
+// scrub in edit mode. That is the whole of ARCHITECTURE.md D1 for skinning:
+// the registry is derived from the simulation each frame and never read
+// back, so a rollback that rewinds the state rewinds the pose for free and
+// there is no second copy of "where the fighter is" to disagree with the
+// first. An entity whose pose is not `valid` draws in its rest pose.
+struct SkinnedPose {
+	std::vector<glm::mat4> palette;   // one per joint, parent-first: world * inverseBind
+	bool valid = false;
+};
+
 struct Transform {
     // position/rotation/scale are LOCAL when the entity has a Parent,
     // world-space otherwise. modelMatrix is always the WORLD matrix
@@ -378,6 +394,13 @@ inline Frustum createFrustumFromCamera(const Camera& cam, float aspect, float fo
 
 inline AABB generateAABB(const Model& model)
 {
+	// A skinned model's box is the one every pose of every clip stays inside
+	// (ModelCPUData::poseBounds, ROADMAP M3.2d/f), never the rest mesh's:
+	// culling reads this box, and a limb posed outside the rest box would
+	// otherwise vanish the frame it extends.
+	if (model.IsSkinned() && model.GetPoseBounds().valid)
+		return AABB(model.GetPoseBounds().min, model.GetPoseBounds().max);
+
 	glm::vec3 minAABB = glm::vec3(std::numeric_limits<float>::max());
 	// lowest(), not min(): min() is the smallest POSITIVE float, which breaks
 	// the max-reduction for meshes whose vertices are all negative on an axis

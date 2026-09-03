@@ -19,10 +19,12 @@
 #include <GLFW/glfw3.h>
 
 #include "Engine.h"
+#include "../src/render/passes/ForwardOpaquePass.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <array>
+#include <cfloat>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
@@ -295,4 +297,212 @@ TEST_F(SkinnedDrawFixture, ALitSkinnedQuadShadesByItsPosedNormal) {
         << "posed: the tilted top of the strip still shades as if facing +Z exactly";
     EXPECT_GT(bottomPosed[2], 200) << "posed: root's normal moved although only tip was posed";
     EXPECT_LT(bottomPosed[1], 30);
+}
+
+// ============================================================================
+// Submission, bounds and shadows for posed items (ROADMAP M3.2f)
+// ============================================================================
+//
+// The Scene now routes a posed entity through the skinned program with its own
+// palette, culls it on its pose bounds, and counts it as a dynamic caster every
+// frame. These drive the real ForwardOpaquePass over a real Scene.
+
+namespace {
+
+struct HdrTarget {
+    PassContext ctx{};
+    GLuint depthTex = 0;
+    void make() {
+        glGenFramebuffers(1, &ctx.hdrFBO);
+        glBindFramebuffer(GL_FRAMEBUFFER, ctx.hdrFBO);
+        glGenTextures(1, &ctx.hdrColorTex);
+        glBindTexture(GL_TEXTURE_2D, ctx.hdrColorTex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, kW, kH, 0, GL_RGBA, GL_FLOAT, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glGenTextures(1, &depthTex);
+        glBindTexture(GL_TEXTURE_2D, depthTex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, kW, kH, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, ctx.hdrColorTex, 0);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthTex, 0);
+        ctx.hdrDepthTex = depthTex;
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        ctx.csm.enabled = false;
+        ctx.csm.cascades = 0;
+    }
+    void destroy() {
+        if (ctx.hdrFBO) glDeleteFramebuffers(1, &ctx.hdrFBO);
+        if (ctx.hdrColorTex) glDeleteTextures(1, &ctx.hdrColorTex);
+        if (depthTex) glDeleteTextures(1, &depthTex);
+        ctx.hdrFBO = ctx.hdrColorTex = depthTex = 0;
+    }
+    // True when any of the 3x3 pixels around the projection of `world` is lit.
+    bool litAround(const glm::vec3& world, const FrameParams& fp) const {
+        const glm::vec3 p = glm::project(world, fp.view, fp.proj, glm::vec4(0, 0, kW, kH));
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, ctx.hdrFBO);
+        for (int dy = -1; dy <= 1; ++dy)
+            for (int dx = -1; dx <= 1; ++dx) {
+                const int x = (int)p.x + dx, y = (int)p.y + dy;
+                if (x < 0 || y < 0 || x >= kW || y >= kH) continue;
+                float px[4] = { 0, 0, 0, 0 };
+                glReadPixels(x, y, 1, 1, GL_RGBA, GL_FLOAT, px);
+                if (px[0] + px[1] + px[2] > 0.005f) return true;
+            }
+        return false;
+    }
+    int litPixels() const {
+        std::vector<float> buf(static_cast<std::size_t>(kW) * kH * 4);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, ctx.hdrFBO);
+        glReadPixels(0, 0, kW, kH, GL_RGBA, GL_FLOAT, buf.data());
+        int n = 0;
+        for (std::size_t i = 0; i < buf.size(); i += 4)
+            if (buf[i] + buf[i + 1] + buf[i + 2] > 0.005f) ++n;
+        return n;
+    }
+};
+
+Entity addPosed(Scene& scene, const std::shared_ptr<Model>& model, float x, const glm::mat4& tip) {
+    Entity e = scene.createEntity();
+    Transform t{};
+    t.position = { x, 0.f, 0.f };
+    t.dirty = true;
+    e.addComponent<Transform>(t);
+    e.addComponent<ModelComponent>(ModelComponent{ model });
+    e.addComponent<AABB>(generateAABB(*model));
+    SkinnedPose sp;
+    sp.palette = { glm::mat4(1.0f), tip };
+    sp.valid = true;
+    scene.registry.emplace<SkinnedPose>(e, std::move(sp));
+    return e;
+}
+
+FrameParams frameFor(Camera& cam, float nearClip, float farClip) {
+    cam.NearClip = nearClip;
+    cam.FarClip = farClip;
+    FrameParams fp{};
+    fp.view = cam.GetViewMatrix();
+    fp.proj = glm::perspective(glm::radians(cam.Zoom), 1.0f, nearClip, farClip);
+    fp.viewportW = kW;
+    fp.viewportH = kH;
+    return fp;
+}
+
+} // namespace
+
+TEST_F(SkinnedDrawFixture, TwoFightersSharingOneMeshNeverShareOnePose) {
+    auto shared = std::make_shared<Model>(modelFixturesDir() + "/two_bone_strip.gltf");
+    ASSERT_TRUE(shared->IsSkinned());
+    Shader forward("Exported/Shaders/vertex.glsl", "Exported/Shaders/frag.glsl");
+    ASSERT_TRUE(forward.isValid());
+
+    Scene scene;
+    // A at rest on the left; B on the right with its tip shifted half a unit right.
+    addPosed(scene, shared, -1.0f, glm::mat4(1.0f));
+    addPosed(scene, shared, +1.0f, glm::translate(glm::mat4(1.0f), glm::vec3(0.5f, 0.0f, 0.0f)));
+    scene.UpdateTransforms();
+
+    HdrTarget hdr;
+    hdr.make();
+    Camera cam;
+    cam.Position = { 0.f, 1.f, 6.f };
+    cam.Front = { 0.f, 0.f, -1.f };
+    cam.Zoom = 45.f;
+    const FrameParams fp = frameFor(cam, 0.1f, 100.f);
+
+    hdr.ctx.sunDir = glm::normalize(glm::vec3(-0.3f, -1.0f, -0.2f));
+    ForwardOpaquePass fwd(forward);
+    fwd.setup(hdr.ctx);
+    ASSERT_TRUE(fwd.execute(hdr.ctx, scene, cam, fp));
+
+    // The top of A is where it rests; the top of B left its rest spot and
+    // arrived half a unit right. Drawing both with the pose of A leaves the top
+    // of B at rest; drawing both with the pose of B moves the top of A to -0.5.
+    // Two posed entities on one mesh are two draws, never one instanced
+    // draw with one palette, and neither was culled.
+    const auto& st = scene.GetRenderStats();
+    EXPECT_EQ(st.culled, 0u);
+    EXPECT_EQ(st.draws, 2u) << "a posed run must be one item drawn on its own";
+    EXPECT_EQ(st.instancedDraws, 0u) << "posed items must never instance-collapse";
+
+    EXPECT_TRUE(hdr.litAround({ -1.0f, 1.875f, 0.f }, fp))  << "the top of A is not drawn at its rest position";
+    EXPECT_FALSE(hdr.litAround({ -0.5f, 1.875f, 0.f }, fp)) << "the top of A moved: A was drawn with the pose of B";
+    EXPECT_FALSE(hdr.litAround({ 1.0f, 1.875f, 0.f }, fp))  << "the top of B stayed at rest: B was drawn with the pose of A";
+    EXPECT_TRUE(hdr.litAround({ 1.5f, 1.875f, 0.f }, fp))   << "the top of B did not arrive half a unit right";
+    hdr.destroy();
+}
+
+TEST_F(SkinnedDrawFixture, APosedLimbOutsideTheRestBoxIsStillDrawn) {
+    auto shared = std::make_shared<Model>(modelFixturesDir() + "/two_bone_strip.gltf");
+    ASSERT_TRUE(shared->IsSkinned());
+    const Clip* fourteen = shared->GetClips().Find("fourteen");
+    ASSERT_NE(fourteen, nullptr);
+    Shader forward("Exported/Shaders/vertex.glsl", "Exported/Shaders/frag.glsl");
+    ASSERT_TRUE(forward.isValid());
+
+    // Frame 13 tilts tip 65 degrees about X around (0, 1, 0): the top of the
+    // strip swings out to z ~ 0.9, well outside the rest mesh, which is flat
+    // at z = 0.
+    std::vector<glm::mat4> palette(2);
+    SamplePalette(shared->GetSkeleton(), *fourteen, 13, palette.data());
+
+    Scene scene;
+    Entity e = addPosed(scene, shared, 0.0f, palette[1]);
+    scene.UpdateTransforms();
+
+    // A camera whose FAR plane sits between the rest plane and the swung
+    // limb: z = 0 is 4 units away (beyond 3.55), the limb is inside.
+    HdrTarget hdr;
+    hdr.make();
+    Camera cam;
+    cam.Position = { 0.f, 1.5f, 4.f };
+    cam.Front = { 0.f, 0.f, -1.f };
+    cam.Zoom = 60.f;
+    const FrameParams fp = frameFor(cam, 0.1f, 3.55f);
+    hdr.ctx.sunDir = glm::normalize(glm::vec3(-0.3f, -1.0f, -0.2f));
+    ForwardOpaquePass fwd(forward);
+    fwd.setup(hdr.ctx);
+
+    // With the pose-bounds AABB (what generateAABB gives a skinned model), the
+    // entity survives the frustum cull and its swung limb is drawn.
+    ASSERT_TRUE(fwd.execute(hdr.ctx, scene, cam, fp));
+    const int litPosed = hdr.litPixels();
+    EXPECT_GT(litPosed, 0) << "the swung limb was culled although its pose bounds reach the camera";
+
+    // Control: with the REST box (flat at z = 0, beyond the far plane) the
+    // same entity is culled and nothing is drawn -- the bug this WP removes.
+    glm::vec3 lo(FLT_MAX), hi(-FLT_MAX);
+    for (const auto& m : shared->Meshes())
+        for (const auto& v : m.Vertices()) { lo = glm::min(lo, v.Position); hi = glm::max(hi, v.Position); }
+    scene.registry.emplace_or_replace<AABB>(e, AABB(lo, hi));
+    ASSERT_TRUE(fwd.execute(hdr.ctx, scene, cam, fp));
+    EXPECT_EQ(hdr.litPixels(), 0) << "the rest box should have culled the entity; the control is wrong";
+    hdr.destroy();
+}
+
+TEST_F(SkinnedDrawFixture, AFighterAnimatingInPlaceRedrawsItsShadowCascade) {
+    auto shared = std::make_shared<Model>(modelFixturesDir() + "/two_bone_strip.gltf");
+    ASSERT_TRUE(shared->IsSkinned());
+
+    Scene scene;
+    Entity posed = addPosed(scene, shared, 0.0f, glm::mat4(1.0f));
+    Entity still = scene.createEntity();
+    {
+        Transform t{}; t.position = { 3.f, 0.f, 0.f }; t.dirty = true;
+        still.addComponent<Transform>(t);
+        still.addComponent<ModelComponent>(ModelComponent{ shared });
+        still.addComponent<AABB>(generateAABB(*shared));
+    }
+    const glm::vec3 camPos{ 0.f, 1.f, 6.f }, camFwd{ 0.f, 0.f, -1.f };
+    const glm::vec3 sun = glm::normalize(glm::vec3(-0.3f, -1.0f, -0.2f));
+
+    scene.UpdateTransforms();   // first frame: every transform is dirty anyway
+    scene.UpdateTransforms();   // second frame: transforms clean, nothing moved
+    EXPECT_TRUE(scene.HasDynamicCasterInViewRange(camPos, camFwd, 0.1f, 100.f, sun))
+        << "a posed caster with a clean transform must still count as dynamic: its pose "
+           "changes every tick and the cascade would otherwise keep a stale shadow";
+
+    scene.registry.get<SkinnedPose>(posed).valid = false;
+    scene.UpdateTransforms();
+    EXPECT_FALSE(scene.HasDynamicCasterInViewRange(camPos, camFwd, 0.1f, 100.f, sun))
+        << "with no valid pose and no transform change, nothing is dynamic";
 }

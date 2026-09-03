@@ -968,7 +968,7 @@ mannequin wait on that one-line answer; every WP before them does not.
   `SkinnedDraw.ALitSkinnedQuadShadesByItsPosedNormal`; the existing
   `test_render_passes` probe assertions still pass.
 
-- `[ ]` **M3.2f Submission, bounds and shadows for skinned items; the
+- `[~]` **M3.2f Submission, bounds and shadows for skinned items; the
   `SkinnedPose` component.** *(M)* A derived, never-serialized `SkinnedPose`;
   a pose identity in the `DrawItem` sort and run key so two fighters sharing
   one model never share one pose; palette upload in every geometry pass;

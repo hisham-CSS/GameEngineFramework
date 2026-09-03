@@ -27,5 +27,4 @@ private:
     // which routes skinned items to them (M3.2f).
     std::unique_ptr<Shader> skinnedShader_;
     std::unique_ptr<Shader> prepassSkinnedShader_;
-    static constexpr int kBaseUnit = 8; // uShadowCascade[] start at texture unit 8
 };

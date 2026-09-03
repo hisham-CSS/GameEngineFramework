@@ -5,11 +5,13 @@
 #include <vector>
 #include <algorithm>
 #include <cstdint>
+#include <memory>
 
 #include "Entity.h"
 #include "Components.h"
 #include "Shader.h"
 #include "Model.h"
+#include "../render/SkinPalette.h"
 #include "Scene.h"
 
 //forward declaration of glad unit
@@ -35,6 +37,10 @@ struct DrawItem {
     // whichever item happened to be first after culling -- a whole batch of
     // objects flipping PBR<->Toon as the camera moved.
     int       shadingModel = 0;
+    // The pose this item is drawn in (ROADMAP M3.2f), null for a static or
+    // unposed item. Part of the run key by IDENTITY: two fighters sharing one
+    // Model must never instance-collapse into one draw with one palette.
+    const SkinnedPose* pose = nullptr;
 };
 
 // Tag component: add to an entity to skip it from shadow maps.
@@ -485,8 +491,13 @@ namespace MyCoreEngine {
              std::size_t count;
              std::size_t matOffset; // index into instanceMats_
              int alphaMode = 0;     // homogeneous within a run (0 Opaque, 1 Mask)
+             const SkinnedPose* pose = nullptr; // a posed run is one item, drawn skinned (M3.2f)
          };
          std::vector<DrawRun> runs_;
+         // The one palette buffer every skinned draw uploads into, created on
+         // first use on the main thread (a Scene can be built headless).
+         std::unique_ptr<SkinPaletteUBO> palette_;
+         void ensurePalette_();
          std::vector<glm::mat4> instanceMats_;
          // per-frame scratch for the selected punctual lights (reused so the
          // light upload does not allocate every frame)

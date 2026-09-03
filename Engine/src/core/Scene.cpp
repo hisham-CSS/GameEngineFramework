@@ -325,6 +325,21 @@ void Scene::UpdateTransforms()
             for (auto c : itc->second) stack.push_back({ c, it.e, needs });
         }
     }
+
+    // A posed caster is a dynamic caster EVERY frame it wears a valid pose
+    // (M3.2f): a fighter animating in place leaves its Transform clean, and
+    // a cascade refreshed only on transform dirtiness would keep the shadow
+    // of a pose from several frames ago.
+    {
+        auto posed = registry.view<SkinnedPose, Transform, AABB>();
+        for (auto e : posed) {
+            const auto& sp = posed.get<SkinnedPose>(e);
+            if (!sp.valid) continue;
+            const auto* mcPtr = registry.try_get<ModelComponent>(e);
+            if (!mcPtr || !mcPtr->model || registry.any_of<NoShadow>(e)) continue;
+            dirtyCasters_.push_back(worldSphere(posed.get<Transform>(e).modelMatrix, posed.get<AABB>(e)));
+        }
+    }
 }
 
 bool Scene::HasDynamicCasterInViewRange(const glm::vec3& camPos, const glm::vec3& camFwd,
@@ -488,6 +503,16 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
             lod = (ratio > 60.f) ? 2 : (ratio > 25.f) ? 1 : 0;
         }
 
+        // A skinned model draws in the pose its SkinnedPose carries this frame
+        // (M3.2f) -- only when the pose is valid and sized for this skeleton;
+        // anything else draws at rest through the static program.
+        const SkinnedPose* skinnedPose = nullptr;
+        if (mc.model->IsSkinned()) {
+            if (const auto* sp = registry.try_get<SkinnedPose>(entity);
+                sp && sp->valid && sp->palette.size() == mc.model->GetSkeleton().joints.size())
+                skinnedPose = sp;
+        }
+
         // Push one DrawItem per mesh in the model
         for (const auto& mesh : mc.model->Meshes()) {
             DrawItem di;
@@ -495,6 +520,7 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
             di.mesh = &mesh;
             di.model = t.modelMatrix;
             di.lod = lod;
+            di.pose = skinnedPose;
             di.depth = glm::dot(glm::vec3(di.model[3]) - camera.Position, camera.Front);
             // Batch key is derived from the material actually used by this entity
             if (const Material* m = chooseMaterial_(entity, mesh)) {
@@ -527,6 +553,11 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
     // byte unchanged.
     std::sort(items_.begin(), items_.end(),
         [](const DrawItem& a, const DrawItem& b) {
+            // Posed (skinned) items form a SUFFIX (M3.2f): they draw through
+            // the skinned program after every static run, skip the depth
+            // prepass, and never merge -- the pose pointer is part of the key.
+            if ((a.pose != nullptr) != (b.pose != nullptr)) return a.pose == nullptr;
+            if (a.pose != b.pose) return (uintptr_t)a.pose < (uintptr_t)b.pose;
             if (a.alphaMode != b.alphaMode) return a.alphaMode < b.alphaMode;  // opaque prefix, masked suffix
             // Single-sided before double-sided so the prepass-covered runs
             // (opaque + single-sided) form a contiguous prefix. All-false for a
@@ -553,6 +584,7 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
         const int amode = items_[i].alphaMode;
         const bool ds = items_[i].doubleSided;
         const int sm = items_[i].shadingModel;
+        const SkinnedPose* pose = items_[i].pose;
         std::size_t runEnd = i + 1;
         while (runEnd < items_.size() &&
             items_[runEnd].texKey == key &&
@@ -560,12 +592,13 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
             items_[runEnd].lod == lod &&
             items_[runEnd].alphaMode == amode &&
             items_[runEnd].doubleSided == ds &&
-            items_[runEnd].shadingModel == sm) { // homogeneous in mode, cull state AND shading
+            items_[runEnd].shadingModel == sm &&
+            items_[runEnd].pose == pose) { // homogeneous in mode, cull state, shading AND pose
             ++runEnd;
         }
         const std::size_t count = runEnd - i;
-        runs_.push_back({ key, mesh, lod, i, count, instanceMats_.size(), amode });
-        if (instancingEnabled_ && count >= 2) {
+        runs_.push_back({ key, mesh, lod, i, count, instanceMats_.size(), amode, pose });
+        if (instancingEnabled_ && count >= 2 && pose == nullptr) {
             for (std::size_t k = 0; k < count; ++k)
                 instanceMats_.push_back(items_[i + k].model);
         }
@@ -596,8 +629,12 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
             //    prepass), so their back-face depth would be missing and the
             //    color pass's back faces would fail GL_EQUAL and vanish.
             // Both depth-test and write normally in the color pass instead.
+            // Posed items skip the prepass too (M3.2f): two fighters are two
+            // draws, and the prepass exists to bound overdraw across thousands
+            // of static instances; a posed item drawn here through the static
+            // program would write its REST depth and then fail GL_EQUAL.
             const bool inPrepass = (r.alphaMode == static_cast<int>(AlphaMode::Opaque))
-                                   && !items_[r.first].doubleSided;
+                                   && !items_[r.first].doubleSided && r.pose == nullptr;
             if (!inPrepass) continue;
             if (r.mesh != prevMesh) {
                 glBindVertexArray(r.mesh->VAO());
@@ -633,6 +670,7 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
     int  boundShadingModel = -1;   // shading model of the last-bound material
     bool cullOff = false;
     bool depthSwitchedToNormal = false;
+    bool skinnedReady = false;     // the skinned program's per-frame uniforms uploaded
 
     for (const auto& r : runs_) {
         // The prepass covered only opaque + single-sided runs and left the
@@ -642,7 +680,7 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
         // prefix, so this one-way switch fires at most once. No-op when the
         // prepass is off (that state is already active).
         const bool inPrepass = (r.alphaMode == static_cast<int>(AlphaMode::Opaque))
-                               && !items_[r.first].doubleSided;
+                               && !items_[r.first].doubleSided && r.pose == nullptr;
         if (prepass && !inPrepass && !depthSwitchedToNormal) {
             glDepthFunc(GL_LESS);
             glDepthMask(GL_TRUE);
@@ -656,6 +694,46 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
         if (wantCullOff != cullOff) {
             if (wantCullOff) glDisable(GL_CULL_FACE); else glEnable(GL_CULL_FACE);
             cullOff = wantCullOff;
+        }
+
+        // A POSED RUN (M3.2f): one item, drawn through the skinned program with
+        // its own palette. The per-frame uniforms are uploaded to that program
+        // once, on the first posed run; the material binds on it too (uniform
+        // locations are per program); then the static program is made current
+        // again and the bind caches are dropped, because they described binds
+        // on the other program. If the skinned variant failed to build, the
+        // item falls through and draws at rest through the static program.
+        if (r.pose != nullptr && skinnedShader_ != nullptr) {
+            Shader& sk = *skinnedShader_;
+            sk.use();
+            if (!skinnedReady) {
+                sk.setVec3("uCamPos", camera.Position);
+                sk.setInt("uUseInstancing", 0);
+                uploadGlobalShadingUniforms_(sk, camera, stats);
+                skinnedReady = true;
+            }
+            ensurePalette_();
+            for (std::size_t k = 0; k < r.count; ++k) {
+                const DrawItem& di = items_[r.first + k];
+                bindMaterialForItem_(di, sk);
+                if (palette_) {
+                    palette_->Upload(di.pose->palette.data(), di.pose->palette.size());
+                    palette_->Bind();
+                }
+                sk.setMat4("model", di.model);
+                r.mesh->IssueDraw(r.lod);
+                stats.draws++;
+                stats.submitted++;
+                stats.lodInstances[glm::clamp(r.lod, 0, 2)]++;
+            }
+            stats.textureBinds++;
+            stats.vaoBinds++;
+            shader.use();
+            currentKey = ~0ull;
+            currentMesh = nullptr;
+            boundAlphaMode = -1;
+            boundShadingModel = -1;
+            continue;
         }
 
         // bind textures+VAO bucket. Also re-bind when the alpha mode changes
@@ -804,6 +882,29 @@ void Scene::RenderTransparent(Shader& shader, Camera& camera) {
     // true multi-layer needs order-independent transparency (tracked
     // separately). No material bind here -- the depth pre-pass only needs the
     // geometry, and the main shader is already current with view/proj set.
+    // A posed translucent item (M3.2f) goes through the skinned transparent
+    // program -- the pass already gave it the per-frame shading state -- with
+    // its palette bound; the static program is made current again after it.
+    bool skinnedReady = false;
+    auto skinnedFor = [&](const DrawItem& di) -> Shader* {
+        if (di.pose == nullptr || skinnedTransparentShader_ == nullptr) return nullptr;
+        Shader* sk = skinnedTransparentShader_;
+        sk->use();
+        if (!skinnedReady) {
+            sk->setVec3("uCamPos", camera.Position);
+            sk->setInt("uUseInstancing", 0);
+            RenderStats scratch2{};
+            uploadGlobalShadingUniforms_(*sk, camera, scratch2);
+            skinnedReady = true;
+        }
+        ensurePalette_();
+        if (palette_) {
+            palette_->Upload(di.pose->palette.data(), di.pose->palette.size());
+            palette_->Bind();
+        }
+        return sk;
+    };
+
     glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
     glDepthMask(GL_TRUE);
     glDepthFunc(GL_LESS);
@@ -815,9 +916,12 @@ void Scene::RenderTransparent(Shader& shader, Camera& camera) {
                 if (wantCullOff) glDisable(GL_CULL_FACE); else glEnable(GL_CULL_FACE);
                 cullOff = wantCullOff;
             }
+            Shader* sk = skinnedFor(di);
+            Shader& prog = sk ? *sk : shader;
             glBindVertexArray(di.mesh->VAO());
-            shader.setMat4("model", di.model);
+            prog.setMat4("model", di.model);
             di.mesh->IssueDraw(di.lod);
+            if (sk) shader.use();
         }
         if (cullOff) glEnable(GL_CULL_FACE);
     }
@@ -839,10 +943,13 @@ void Scene::RenderTransparent(Shader& shader, Camera& camera) {
             if (wantCullOff) glDisable(GL_CULL_FACE); else glEnable(GL_CULL_FACE);
             cullOff = wantCullOff;
         }
-        bindMaterialForItem_(di, shader); // sets uAlphaMode=Blend, uOpacity, VAO
+        Shader* sk = skinnedFor(di);
+        Shader& prog = sk ? *sk : shader;
+        bindMaterialForItem_(di, prog); // sets uAlphaMode=Blend, uOpacity, VAO
         if (di.mesh != currentMesh) currentMesh = di.mesh; // BindForDraw set the VAO
-        shader.setMat4("model", di.model);
+        prog.setMat4("model", di.model);
         di.mesh->IssueDraw(di.lod);
+        if (sk) shader.use();
     }
 
     // Restore the state the rest of the pipeline assumes.
@@ -929,6 +1036,16 @@ void Scene::RenderShadowsCombined(Shader& shadowShader, const std::vector<Cascad
         const auto& t = view.get<Transform>(e);
         const auto& b = view.get<AABB>(e);
 
+        // A posed caster casts the shadow of its pose (M3.2f), through the
+        // skinned depth program; its box is the pose bounds, so no cascade
+        // drops a limb that swung outside the rest mesh.
+        const SkinnedPose* pose = nullptr;
+        if (mc.model->IsSkinned()) {
+            if (const auto* sp = registry.try_get<SkinnedPose>(e);
+                sp && sp->valid && sp->palette.size() == mc.model->GetSkeleton().joints.size())
+                pose = sp;
+        }
+
         // Test against each cascade.
         // NOTE: casters are culled against the LIGHT frustum only. Culling by
         // the camera's Z-slice is wrong for casters — an object outside the
@@ -943,9 +1060,10 @@ void Scene::RenderShadowsCombined(Shader& shadowShader, const std::vector<Cascad
 
             // 2c. Add to bucket
             for (const auto& m : mc.model->Meshes()) {
-                DrawItem di; 
-                di.mesh = &m; 
+                DrawItem di;
+                di.mesh = &m;
                 di.model = t.modelMatrix;
+                di.pose = pose;
                 shadowCascadeItems_[c].push_back(di);
             }
         }
@@ -986,9 +1104,13 @@ void Scene::RenderShadowsCombined(Shader& shadowShader, const std::vector<Cascad
         // Set cascade-specific uniform
         shadowShader.setMat4("uLightVP", cascades[c].lightVP);
 
-        // Sort by mesh for instancing
+        // Sort by mesh for instancing; posed items form a suffix and never
+        // merge (each is its own run, drawn skinned).
         std::sort(bucket.begin(), bucket.end(),
-            [](const DrawItem& a, const DrawItem& b) { return a.mesh < b.mesh; });
+            [](const DrawItem& a, const DrawItem& b) {
+                if ((a.pose != nullptr) != (b.pose != nullptr)) return a.pose == nullptr;
+                return a.mesh < b.mesh;
+            });
 
         // Gather every instanced matrix in this bucket and upload once
         // (per-run map/unmap cycles were a driver sync each).
@@ -996,7 +1118,8 @@ void Scene::RenderShadowsCombined(Shader& shadowShader, const std::vector<Cascad
         for (size_t i = 0; i < bucket.size();) {
             const Mesh* mesh = bucket[i].mesh;
             size_t j = i + 1;
-            while (j < bucket.size() && bucket[j].mesh == mesh) ++j;
+            while (j < bucket.size() && bucket[j].mesh == mesh &&
+                   bucket[i].pose == nullptr && bucket[j].pose == nullptr) ++j;
             if (j - i >= 2) {
                 for (size_t k = i; k < j; ++k) instanceMats_.push_back(bucket[k].model);
             }
@@ -1009,12 +1132,29 @@ void Scene::RenderShadowsCombined(Shader& shadowShader, const std::vector<Cascad
         for (size_t i = 0; i < bucket.size();) {
             const Mesh* mesh = bucket[i].mesh;
             size_t j = i + 1;
-            while (j < bucket.size() && bucket[j].mesh == mesh) ++j;
+            while (j < bucket.size() && bucket[j].mesh == mesh &&
+                   bucket[i].pose == nullptr && bucket[j].pose == nullptr) ++j;
             const size_t run = j - i;
 
             glBindVertexArray(mesh->VAO());
 
-            if (run >= 2) {
+            if (bucket[i].pose != nullptr && skinnedShadowShader_ != nullptr) {
+                // The skinned depth program: same light matrix, its own
+                // palette, then back to the static program (M3.2f).
+                Shader& sk = *skinnedShadowShader_;
+                sk.use();
+                sk.setMat4("uLightVP", cascades[c].lightVP);
+                sk.setInt("uUseInstancing", 0);
+                ensurePalette_();
+                if (palette_) {
+                    palette_->Upload(bucket[i].pose->palette.data(), bucket[i].pose->palette.size());
+                    palette_->Bind();
+                }
+                sk.setMat4("model", bucket[i].model);
+                mesh->IssueDraw(shadowLod);
+                shadowShader.use();
+            }
+            else if (run >= 2) {
                 bindInstanceAttribs_(matOffset * sizeof(glm::mat4));
                 matOffset += run;
                 shadowShader.setInt("uUseInstancing", 1);
@@ -1029,6 +1169,10 @@ void Scene::RenderShadowsCombined(Shader& shadowShader, const std::vector<Cascad
         }
     }
     glBindVertexArray(0);
+}
+
+void Scene::ensurePalette_() {
+    if (!palette_ || !palette_->Valid()) palette_ = std::make_unique<SkinPaletteUBO>();
 }
 
 void Scene::RenderDepth(Shader& prog, const glm::mat4& lightVP)

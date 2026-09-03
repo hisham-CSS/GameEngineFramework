@@ -6,6 +6,8 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
+#include <string>
 #include <vector>
 #include <nlohmann/json.hpp>
 
@@ -1464,4 +1466,39 @@ TEST(ProjectSettingsLoad, AMissingFileIsNotAnError) {
     EXPECT_TRUE(ps.Load("Exported/definitely_not_here_9e3f.json"))
         << "no settings file yet is the normal first-run case, not a failure";
     EXPECT_EQ(ps.startupScene, before);
+}
+
+// A SkinnedPose is DERIVED (ROADMAP M3.2f, ADR-019 D3): the fight mode writes
+// it from GameState every frame and the file must never carry one, or a saved
+// scene would ship a pose the simulation did not produce -- the second copy of
+// "where the fighter is" that D1 forbids.
+TEST(SceneSerializer, SkinnedPoseIsDerivedAndNeverSaved) {
+    const char* path = "test_scene_skinnedpose.json";
+
+    Scene a;
+    Entity e = a.createEntity();
+    e.addComponent<Name>(Name{ "Posed" });
+    e.addComponent<Transform>(Transform{});
+    SkinnedPose sp;
+    sp.palette.assign(2, glm::mat4(1.0f));
+    sp.valid = true;
+    a.registry.emplace<SkinnedPose>(e, std::move(sp));
+
+    AssetManager assets;
+    SceneSerializer save(a, assets);
+    ASSERT_TRUE(save.Save(path));
+
+    std::ifstream in(path);
+    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    EXPECT_EQ(text.find("skinnedPose"), std::string::npos) << "the file carries a pose";
+    EXPECT_EQ(text.find("palette"), std::string::npos) << "the file carries a palette";
+    EXPECT_NE(text.find("Posed"), std::string::npos) << "the entity itself must still be saved";
+
+    Scene b;
+    SceneSerializer load(b, assets);
+    ASSERT_TRUE(load.Load(path));
+    int posed = 0;
+    for (auto ent : b.registry.view<SkinnedPose>()) { (void)ent; ++posed; }
+    EXPECT_EQ(posed, 0) << "a loaded scene must carry no pose until the simulation writes one";
+    std::remove(path);
 }

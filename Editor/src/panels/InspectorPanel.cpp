@@ -5,6 +5,8 @@
 #include "imgui_stdlib.h"
 #include "Engine.h"
 
+#include <algorithm>
+#include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <string>
@@ -219,6 +221,44 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
                 else {
                     ImGui::TextDisabled("(no model loaded — set a path or use the Assets panel)");
                 }
+                // A skinned model, read-only (ROADMAP M3.2f): what it carries,
+                // and a DEBUG scrub that writes a SkinnedPose from a clip and
+                // a frame. The pose is derived data -- the fight mode overwrites
+                // it every frame and the serializer never saves it -- so the
+                // scrub is for looking at a clip in the editor, nothing more.
+                if (mc->model && mc->model->IsSkinned()) {
+                    const auto& skel  = mc->model->GetSkeleton();
+                    const auto& clips = mc->model->GetClips();
+                    ImGui::Text("Skinned: %zu joints, %zu clips", skel.joints.size(), clips.clips.size());
+                    if (!clips.clips.empty()) {
+                        static int clipIdx = 0;
+                        static int frame = 0;
+                        clipIdx = std::clamp(clipIdx, 0, (int)clips.clips.size() - 1);
+                        const Clip& clip = clips.clips[clipIdx];
+                        if (ImGui::BeginCombo("Clip (debug scrub)", clip.name.c_str())) {
+                            for (int i = 0; i < (int)clips.clips.size(); ++i) {
+                                const bool sel = (i == clipIdx);
+                                if (ImGui::Selectable(clips.clips[i].name.c_str(), sel)) { clipIdx = i; frame = 0; }
+                                if (sel) ImGui::SetItemDefaultFocus();
+                            }
+                            ImGui::EndCombo();
+                        }
+                        const int last = std::max(0, (int)clips.clips[clipIdx].frames - 1);
+                        frame = std::clamp(frame, 0, last);
+                        ImGui::SliderInt("Frame", &frame, 0, last);
+                        if (ImGui::SmallButton("Apply pose")) {
+                            SkinnedPose sp;
+                            sp.palette.resize(skel.joints.size());
+                            SamplePalette(skel, clips.clips[clipIdx], (std::uint32_t)frame, sp.palette.data());
+                            sp.valid = true;
+                            reg.emplace_or_replace<SkinnedPose>(selected, std::move(sp));
+                        }
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("Rest")) reg.remove<SkinnedPose>(selected);
+                        ImGui::TextDisabled("Derived, never saved: the fight mode overwrites it every frame.");
+                    }
+                }
+
                 if (assets) {
                     static char modelPath[260] = "Exported/Model/backpack.obj";
                     ImGui::InputText("##modelpath", modelPath, sizeof(modelPath));
