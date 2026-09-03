@@ -33,3 +33,9 @@ Testing/
 # It is build OUTPUT: a player exe, every runtime DLL, and a copy of the whole
 # Exported/ tree. `git add -A` swept 67 of those files into a commit once.
 Builds/
+
+# Blender sources are never committed (ADR-019 D8): every asset is regenerable
+# from the scripts under Games/UntitledFighter/tools/blender/ plus the pose data
+# they read, and a hand-edited .blend kept on purpose would be an LFS decision.
+*.blend
+*.blend1

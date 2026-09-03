@@ -888,7 +888,7 @@ mannequin wait on that one-line answer; every WP before them does not.
   `ModelDecode.AGltfAndAnObjOfTheSameQuadSampleTheSameTexel`; fixtures
   committed with a README naming the generator.
 
-- `[ ]` **M3.3a Blender tooling of record, the pinned export, the paddle,
+- `[~]` **M3.3a Blender tooling of record, the pinned export, the paddle,
   `check_clips.py`.** *(S)* `Games/UntitledFighter/tools/blender/{README.md,
   common.py, export_gltf.py, make_paddle.py}`: one export function pins the
   contract (60 fps, Actions mode with every action stashed, Always Sample step
@@ -897,10 +897,10 @@ mannequin wait on that one-line answer; every WP before them does not.
   influences, glTF Separate, Draco off) and writes `<stem>.clips.json` from the
   same actions. The paddle has TWO actions (`paddle_swing` 14, `paddle_hold`
   5) so multi-action export is proven by the committed fixture.
-  `scripts/check_clips.py` (stdlib) derives frame counts from accessor count <!-- docs-ok: planned by this WP, does not exist yet -->
+  `scripts/check_clips.py` (stdlib) derives frame counts from accessor count
   and time span, fails if they disagree, and shares the `MoveDuration` clamp
   fixture with the C++; wired into the determinism-flags job.
-  `docs/manual/art-pipeline.md` carries the install, the user-scope MCP <!-- docs-ok: planned by this WP, does not exist yet -->
+  `docs/manual/art-pipeline.md` carries the install, the user-scope MCP
   registration with telemetry off, save-before-exec, the headless
   scripts-of-record rule, the banned integrations, the no-`.blend` rule and
   the per-session checklist (add-on install on 5.x, Start MCP Server, confirm
