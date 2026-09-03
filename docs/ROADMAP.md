@@ -98,7 +98,7 @@ M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
 
 | In flight | Owner | Since |
 |---|---|---|
-| M3.4d P4 acceptance | Claude | 2026-09-03 |
+| — (next: M3.4e, overlay modes over the mesh — M3.3b, the mannequin, M3.3c, its clips, and M3.5a, the room, wait on ADR-019 D10) | | |
 
 The openings wave is landed end to end: per-opening prover surface → (c) →
 (d) → (b3) — the golden re-record (b3) was expected to need DISSOLVED under
@@ -1055,7 +1055,7 @@ mannequin wait on that one-line answer; every WP before them does not.
   `FightPresentation.ThePaletteBytesEqualSamplePaletteAtTheSelectedFrame`,
   `FightPresentation.ReconcilingAFrameLeavesTheGameStateBytesUntouched`.
 
-- `[~]` **M3.4d P4 acceptance.** *(S)* The three tests that flip DETERMINISM
+- `[x] 7ea1ba6` **M3.4d P4 acceptance.** *(S)* The three tests that flip DETERMINISM
   P4 from "not yet" to enforced under T0. **Done when:**
   `Presentation.HoldsNothingARestoreCannotRebuild`,
   `Presentation.MoveStartIsNeverDelayed`,
