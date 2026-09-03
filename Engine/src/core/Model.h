@@ -167,6 +167,16 @@ namespace MyCoreEngine {
         // k, asserted on the 60 Hz grid at decode (M3.2c). Empty when the
         // file carries no animation or no skeleton.
         ClipSet clips;
+        // The box every skinned vertex stays inside across EVERY frame of
+        // EVERY clip (and the rest pose), computed at decode from per-joint
+        // rest-space bounds swept through the sampled joint transforms
+        // (M3.2d). What frustum and light-frustum culling read for a skinned
+        // entity, since the rest-mesh AABB would cull a posed limb.
+        struct PoseBounds {
+            glm::vec3 min{ 0.0f };
+            glm::vec3 max{ 0.0f };
+            bool      valid = false;
+        } poseBounds;
         std::string sourcePath;            // normalized
         std::string directory;
         bool valid = false;                // Assimp import succeeded

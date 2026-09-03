@@ -945,7 +945,7 @@ mannequin wait on that one-line answer; every WP before them does not.
   `ModelDecode.AClipWhoseKeysAreOffTheSixtyHertzGridIsRefusedNamingTheClipAndTheKey`,
   and the compile-time property that `Clip` carries no float.
 
-- `[ ]` **M3.2d The frame-indexed sampler and pose bounds.** *(S)*
+- `[~]` **M3.2d The frame-indexed sampler and pose bounds.** *(S)*
   `SamplePalette(skeleton, clip, uint32 frame, out)` — pure, clamped, no
   clock, no `dt`, no overload taking a floating-point frame; `PoseBounds` at
   decode from per-joint rest bounds skinned by their eight corners per frame

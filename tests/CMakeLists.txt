@@ -356,6 +356,7 @@ engine_test(test_camera_director)  # Cinemachine-style selection/blending (pure 
 engine_test(test_asset_index)      # asset filesystem domain: scan/cache/find (pure CPU)
 engine_test(test_job_system)       # P4-3 thread pool + main-thread completion pump (pure CPU)
 engine_test(test_model_decode)     # P4-3 model decode stage (pure CPU — no GL by design)
+engine_test(test_clip_sampler)     # M3.2d frame-indexed sampler: same frame same bytes, clamp, rest identity (pure CPU)
 engine_test(test_asset_manager_async) # P4-3 async RequestModel: states/dedupe/cap (pure CPU)
 engine_test(test_lights)           # punctual light selection + culling (pure CPU)
 engine_test(test_physics)          # backend-conformance suite + PhysicsWorld/ECS (pure CPU)

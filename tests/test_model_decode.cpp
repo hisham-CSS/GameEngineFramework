@@ -563,3 +563,61 @@ TEST(ModelDecodeClips, AClipCarriesNoTimeOnlyFrames) {
         EXPECT_EQ(c.local.size(), static_cast<std::size_t>(c.frames) * c.joints)
             << "clip " << c.name << " does not hold exactly frames x joints transforms";
 }
+
+// ============================================================================
+// Pose bounds (ROADMAP M3.2d): the box culling reads for a skinned entity
+// ============================================================================
+//
+// Skinned by hand, every vertex of every frame of every clip must lie inside
+// the bounds Decode computed from swept per-joint boxes -- the property the
+// frustum cull will rely on so a posed limb outside the rest AABB still draws.
+TEST(ModelDecodeSkin, TheSkinnedBoundsContainEveryVertexOfEveryClipFrame) {
+    const ModelCPUData cpu = Model::Decode(modelFixturesDir() + "/two_bone_strip.gltf");
+    ASSERT_TRUE(cpu.valid) << cpu.importError;
+    ASSERT_TRUE(cpu.poseBounds.valid) << "a skinned model must carry pose bounds";
+    ASSERT_FALSE(cpu.clips.Empty());
+
+    const std::size_t n = cpu.skeleton.joints.size();
+    std::vector<glm::mat4> palette(n);
+    int checked = 0;
+    auto check = [&](const char* clipName, std::uint32_t frame) {
+        for (const auto& m : cpu.meshes) {
+            if (m.skin.Empty()) continue;
+            for (std::size_t v = 0; v < m.vertices.size(); ++v) {
+                glm::vec4 p(0.f);
+                for (int s = 0; s < 4; ++s) {
+                    const float w = m.skin.weights[v][s];
+                    if (w <= 0.f) continue;
+                    p += w * (palette[m.skin.joints[v][s]] * glm::vec4(m.vertices[v].Position, 1.f));
+                }
+                for (int axis = 0; axis < 3; ++axis) {
+                    EXPECT_GE(p[axis], cpu.poseBounds.min[axis] - 1e-4f)
+                        << clipName << " frame " << frame << " vertex " << v << " axis " << axis << " below the bounds";
+                    EXPECT_LE(p[axis], cpu.poseBounds.max[axis] + 1e-4f)
+                        << clipName << " frame " << frame << " vertex " << v << " axis " << axis << " above the bounds";
+                }
+                ++checked;
+            }
+        }
+    };
+    RestPalette(cpu.skeleton, palette.data());
+    check("rest", 0);
+    for (const Clip& c : cpu.clips.clips)
+        for (std::uint32_t k = 0; k < c.frames; ++k) {
+            SamplePalette(cpu.skeleton, c, k, palette.data());
+            check(c.name.c_str(), k);
+        }
+    EXPECT_GT(checked, 0);
+
+    // And the bounds are not simply enormous: 'fourteen' swings tip by at most
+    // 65 degrees about X from a 2-unit-tall strip, so nothing reaches past 3
+    // units from the origin on any axis.
+    for (int axis = 0; axis < 3; ++axis) {
+        EXPECT_GT(cpu.poseBounds.min[axis], -3.f);
+        EXPECT_LT(cpu.poseBounds.max[axis], 3.f);
+    }
+    // An unskinned model carries none.
+    const ModelCPUData obj = Model::Decode(modelFixturesDir() + "/uv_quad.obj");
+    ASSERT_TRUE(obj.valid);
+    EXPECT_FALSE(obj.poseBounds.valid);
+}

@@ -1,5 +1,8 @@
 #include "Model.h"
 #include "Shader.h"
+#include "../anim/ClipSampler.h"
+
+#include <cfloat>
 
 #include <meshoptimizer.h>
 
@@ -681,6 +684,75 @@ namespace MyCoreEngine {
             }
         }
 
+        // THE POSE BOUNDS (ROADMAP M3.2d). Culling reads one box per entity,
+        // and for a skinned mesh the rest-pose AABB is wrong the moment a limb
+        // extends past it. Rather than skin every vertex of every frame of
+        // every clip (tens of thousands of vertices times hundreds of frames,
+        // on every hot reload, in Debug), this takes each joint's bounds in
+        // its own rest space -- the vertices it influences, transformed by
+        // its inverse bind -- and sweeps those eight corners through the
+        // joint's sampled world transform on every frame of every clip, plus
+        // the rest pose. A vertex influenced by several joints lies inside the
+        // convex hull of its per-joint positions, so the union of the swept
+        // boxes contains it; the test skins every vertex to prove it.
+        void computePoseBounds(ModelCPUData& cpu) {
+            cpu.poseBounds.valid = false;
+            if (cpu.skeleton.Empty()) return;
+            const std::size_t n = cpu.skeleton.joints.size();
+            struct Box { glm::vec3 lo{ FLT_MAX }; glm::vec3 hi{ -FLT_MAX }; bool any = false; };
+            std::vector<Box> jointRest(n);
+            for (const ModelCPUData::MeshData& md : cpu.meshes) {
+                if (md.skin.Empty()) continue;
+                for (std::size_t v = 0; v < md.vertices.size(); ++v) {
+                    const glm::vec4 p(md.vertices[v].Position, 1.0f);
+                    for (int s = 0; s < kMaxJointInfluences; ++s) {
+                        if (md.skin.weights[v][s] <= 0.0f) continue;
+                        const int j = md.skin.joints[v][s];
+                        if (j < 0 || j >= static_cast<int>(n)) continue;
+                        const glm::vec3 q = glm::vec3(cpu.skeleton.joints[j].inverseBind * p);
+                        Box& b = jointRest[j];
+                        b.lo = glm::min(b.lo, q);
+                        b.hi = glm::max(b.hi, q);
+                        b.any = true;
+                    }
+                }
+            }
+            glm::vec3 lo(FLT_MAX), hi(-FLT_MAX);
+            bool any = false;
+            std::vector<glm::mat4> world(n);
+            auto sweep = [&](const glm::mat4* w) {
+                for (std::size_t j = 0; j < n; ++j) {
+                    const Box& b = jointRest[j];
+                    if (!b.any) continue;
+                    for (int c = 0; c < 8; ++c) {
+                        const glm::vec3 corner((c & 1) ? b.hi.x : b.lo.x, (c & 2) ? b.hi.y : b.lo.y,
+                                               (c & 4) ? b.hi.z : b.lo.z);
+                        const glm::vec3 p = glm::vec3(w[j] * glm::vec4(corner, 1.0f));
+                        lo = glm::min(lo, p);
+                        hi = glm::max(hi, p);
+                        any = true;
+                    }
+                }
+            };
+            static const Clip kRest{};
+            SampleWorld(cpu.skeleton, kRest, 0, world.data());
+            sweep(world.data());
+            for (const Clip& clip : cpu.clips.clips) {
+                for (std::uint32_t k = 0; k < clip.frames; ++k) {
+                    SampleWorld(cpu.skeleton, clip, k, world.data());
+                    sweep(world.data());
+                }
+            }
+            if (!any) return;
+            // Lightly padded: a joint's box is exact for its own vertices and
+            // the hull argument is exact too, but a renderer that culls on the
+            // boundary pixel is a renderer that flickers on it.
+            const glm::vec3 pad = (hi - lo) * 0.01f + glm::vec3(1e-3f);
+            cpu.poseBounds.min   = lo - pad;
+            cpu.poseBounds.max   = hi + pad;
+            cpu.poseBounds.valid = true;
+        }
+
         void buildSkeleton(const ::aiScene* scene, ModelCPUData& cpu) {
             std::unordered_map<std::string, const ::aiBone*> bones;
             for (unsigned int m = 0; m < scene->mNumMeshes; ++m) {
@@ -851,6 +923,7 @@ namespace MyCoreEngine {
             return cpu;
         }
         collectMeshes(scene, scene->mRootNode, cpu, ::aiMatrix4x4());
+        computePoseBounds(cpu);
         MLOG("decode end: meshes=%zu textures=%zu joints=%zu clips=%zu", cpu.meshes.size(),
              cpu.textures.size(), cpu.skeleton.joints.size(), cpu.clips.clips.size());
         return cpu;

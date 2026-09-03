@@ -1,6 +1,6 @@
 # Rendering
 
-Verified: 2026-08-17 @ e2f08bd
+Verified: 2026-09-02 @ 8cf211b
 
 The renderer draws one frame as a fixed sequence of passes: cascaded shadow
 maps, a forward PBR pass into an HDR target, the sky, sorted transparency,
@@ -650,6 +650,14 @@ which is on by default with Unity-like values (`yaw -30°`, `pitch 50°`).
 > **Note** — `setSunDir` compares against the current direction with an epsilon
 > and only marks shadow params dirty if it actually changed, so calling it
 > every frame with a constant value is free.
+
+## Skinning — the CPU half
+
+Skinning is the one renderer feature the showcase freeze admits ([ADR-019](../adr/ADR-019-placeholders-through-blender.md) D1; ARCHITECTURE §2). Its CPU half is in place since ROADMAP M3.2b–d and needs no GL: a model's `Skeleton` (joints parent-first, with bind and inverse bind), each skinned mesh's `SkinData` (four joint indices and weights per vertex, beside the static `Vertex`), and its `ClipSet` (integer frames of local transforms) all come out of `Model::Decode` — how, and what is refused, is in [Assets](assets.md).
+
+**The sampler** (`Engine/src/anim/ClipSampler.h`) is one pure function: `SamplePalette(skeleton, clip, frame, out)` composes each joint's local transform under its parent in a single pass (the skeleton is parent-first) and multiplies by the inverse bind. It takes an **integer** frame — the overloads for `float` and `double` are deleted, so a caller who computes "elapsed seconds × 60" gets a compile error rather than a pose that drifts from the frame data by a rounding — clamps a frame past the end to the last sample (holding is the honest picture of a clip authored one frame short, wrapping would hide it), and has no clock, no delta time and no state: the same frame yields the same bytes whatever was sampled before it, which is what a rollback host and a frame-stepping playtester both need. `RestPalette` is the identity for a skeleton whose inverse bind matrices invert its bind hierarchy, and `SampleWorld` gives the model-space joint transforms before the inverse bind for bounds and debug draws. `tests/test_clip_sampler.cpp` pins all of it.
+
+**Pose bounds.** Culling reads one box per entity, and the rest-pose AABB is wrong the moment a limb extends past it. `Decode` therefore computes `ModelCPUData::poseBounds`: each joint's bounds in its own rest space (the vertices it influences, through its inverse bind), swept as eight corners through the joint's sampled world transform on every frame of every clip and the rest pose, unioned and lightly padded. A vertex blended between joints lies inside the hull of its per-joint positions, so the union contains it; `ModelDecodeSkin.TheSkinnedBoundsContainEveryVertexOfEveryClipFrame` skins every vertex of the fixture to prove it. Per-joint corners rather than every vertex keep a Debug hot reload cheap. The GPU half — the skin VBO, the std140 palette, the `SKINNED` shader variants and the submission rules — is ROADMAP M3.2e–f.
 
 ## Frustum culling
 

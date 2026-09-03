@@ -7,6 +7,7 @@
 #include "../src/core/Camera.h"
 #include "../src/core/CameraDirector.h"
 #include "../src/core/Model.h"
+#include "../src/anim/ClipSampler.h"
 #include "../src/core/Shader.h"
 //#include "../src/core/Mesh.h"
 #include "../src/core/Entity.h"
