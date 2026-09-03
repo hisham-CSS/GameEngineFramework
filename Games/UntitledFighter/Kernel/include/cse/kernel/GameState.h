@@ -160,6 +160,14 @@ inline constexpr std::uint8_t kGuardLow  = 2;  // crouching block: stops low + m
 // spell the same mask.
 inline constexpr std::uint16_t kFlagsBlockedBits = 0x00FF;
 
+// Fighter::reaction values (M1.3(d)). Zero is "no reaction playing out" and is
+// what every state before the mechanic holds. WALL-BOUNCE-ARMED implies
+// launched -- the arc-keep rule reads "any nonzero reaction" -- and SPENDS
+// down to plain LAUNCHED when the wall fires it, so one arming hit buys one
+// bounce and the return arc is an ordinary launch.
+inline constexpr std::uint8_t kReactionLaunched        = 1;
+inline constexpr std::uint8_t kReactionWallBounceArmed = 2;
+
 // GameState::roundState.
 inline constexpr std::uint8_t kRoundFighting = 0;
 inline constexpr std::uint8_t kRoundOver     = 1;  // this round is decided
@@ -306,7 +314,14 @@ struct Fighter {
     // and every one of them needs state on the DEFENDER. Reserving them costs
     // three bytes now; adding them later costs a second wire-format change and
     // a second cross-toolchain re-golden (ADR-005 section 3).
-    std::uint8_t reaction;   // which on_hit reaction is playing out; 0 = none
+    // Which on_hit reaction is playing out; 0 = none. LAUNCHED (M1.3(d)) is
+    // the first live value: set by ResolveHits when a launching hit connects,
+    // cleared by StepPhysics on landing -- one setter, one clearer, the
+    // alreadyHitBits shape. It exists because the airborne-stun velX rule
+    // needs to tell a LAUNCHED body (the hit authored its arc; keep it) from
+    // a body merely hit out of its jump (the arc is re-decided to a straight
+    // drop, the behaviour the crossplat golden has always pinned).
+    std::uint8_t reaction;
     std::uint8_t bounces;    // bounces spent, so a loop cannot bounce forever
     // Per-fighter mechanic bits. The LOW BYTE is defined by M1.3 slice (a):
     // the BLOCKED mirror of alreadyHitBits -- bit i set when the contact this

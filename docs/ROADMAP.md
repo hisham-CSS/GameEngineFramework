@@ -1,6 +1,6 @@
 # ROADMAP — the one place status lives
 
-Verified: 2026-08-21 @ db8dd1a
+Verified: 2026-09-02 @ 0e2d423
 
 This is the **only** roadmap. `README.md` carries one paragraph and a link;
 `docs/manual/` never lists gaps; ADRs record why, not what is next. If a fact
@@ -17,14 +17,17 @@ the *published* prover on the *shipped* files inside a working editor. The
 engine's job is to make that proof **visible and convincing**: every verdict the
 prover prints must be demonstrable in the running game, frame-perfectly, by a
 tool-assisted player, as a replay anyone can watch — and the **same fighter,
-loaded with different frame data, must show different infinites** (microwalk,
-jump cancels, wall bounces, counter-hit links, meter loops), because every
+loaded with different frame data, must show different verdicts** (the cooked
+thirteen-row catalogue; NORTHSTAR names the exhibits), because every
 mechanic is an opt-in field on a move, never a rule in the kernel
 ([ADR-011](adr/ADR-011-mechanics-are-fields.md)). Visuals are a pure function of
 frame data; return-to-idle tails are always cancelable. Everything is provable
-and showcased **before** any real art is made; placeholder rigs (Mixamo) come
-first, SF6-tier art last, and only after the showcase already sells the paper
-without it. Details, tests and proofs of the four properties:
+and showcased **before** any real art is made; placeholder rigs (generated
+through Blender, [ADR-019](adr/ADR-019-placeholders-through-blender.md)) come
+first — ahead of the netcode link, by the author's
+[ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted 2026-09-02), which also
+lets one modeled body precede M4 — and SF6-tier art last, only after the
+showcase already sells the paper without it. Details, tests and proofs of the four properties:
 [NORTHSTAR.md](NORTHSTAR.md).
 
 ## Where this stands against the paper
@@ -34,9 +37,9 @@ The paper's claim has four load-bearing parts. This is what each rests on today.
 | The claim needs | Evidence in CI today | What is missing |
 |---|---|---|
 | **A deterministic simulation** | `tests/test_kernel.cpp` T1/T2; `tests/test_determinism_crossplat.cpp` T3, re-checked by gcc 13 on the Linux leg | Nothing. This one is done and has been re-goldened three times for stated reasons. |
-| **The prover reads the shipped files** | `tests/test_character_data.cpp` load assertions; the editor's Combo Prover panel | Nothing structural. `counter_hit` is absent from the schema entirely — see the qualifier below. |
+| **The prover reads the shipped files** | `tests/test_character_data.cpp` load assertions; the editor's Combo Prover panel | Nothing structural. `counter_hit` and the air numbers are authored, simulated and answered per opening since the openings wave (ADR-015); what remains is the cooker's executed pair, still singular neutral-corner until a bench can produce the other openings. |
 | **Every verdict is demonstrable as a replay** | `tests/test_ground_truth.cpp` executes the prover's own printed witness; since M1.3e the demonstration presses directions, establishes stances and performs its turns across jumps; since M1.3g one `WitnessCursor` performs every witness in the repository | Only one character's witness is executed. |
-| **The game is the file** | `MatchBuilder`'s loss ledger, checked move-by-move in `tests/test_match_bridge.cpp`; stance and guard height carried since M1.3e (`EveryAuthoredNormalIsReachableThroughItsButtonAndStance`); juggle since M1.1f, hitstop since M1.3i | Priority, chip and scaling are still authored and dropped. |
+| **The game is the file** | `MatchBuilder`'s loss ledger, checked move-by-move in `tests/test_match_bridge.cpp`; stance and guard height carried since M1.3e (`EveryAuthoredNormalIsReachableThroughItsButtonAndStance`); juggle since M1.1f, hitstop since M1.3i | Priority, chip and scaling are still authored and dropped. Blockstun was on that list without a ledger row to say so until M3.0b carried it (found by M3.4a's pose test, 2026-09-02, and closed the same day). |
 
 **The headline, measured three times (third: 2026-08-30, M1.3e).**
 
@@ -67,12 +70,17 @@ Models` is the sentence as a test. The authored infinite is FOUND the same
 way: `fighter_a_infinite` comes back INFINITE with a witness the test replays
 (`tests/test_combo_search.cpp`). 2026-08-31.
 
-**And one qualifier the write-up does not yet carry.** `counter_hit` appears zero
-times in `schema.v2.json`. The model reads one `hitstun` per move, so a
-TERMINATING verdict says nothing about the same string opened with a counter hit,
-and `air_hitstun_ticks` — authored on every move and differing from ground
-hitstun on all of them — has the same shape. Three ways out are in M1.3(c); none
-is chosen, because it changes what the tool claims.
+**And the qualifier landed as a vocabulary.** Since the openings wave
+([ADR-015](adr/ADR-015-what-a-verdict-claims-about-hitstun.md) Accepted,
+option 3, enacted 2026-09-01) **the tool answers one verdict per opening** —
+neutral, counter, air — with the legacy surface staying the neutral answer
+verbatim. The re-derived pair, per the tests: the base pair stands at **model
+21 / executed 7**; the **counter opening** charges the authored bonus (on the
+`counter_hit` exhibit it revives one dead cancel, 88 → 89 usable, and holds
+the 21 bound); the **air opening** reads each move's authored
+`air_hitstun_ticks`, simulated since (d); and the **jump_cancel** exhibit's
+executed worst case is **13** against the model's held 21 — the bound
+stretched from the other side, through an edge the model prices dead.
 
 **The shortest credible path to the claim**, reordered 2026-08-21 under
 [ADR-012](adr/ADR-012-the-tick-is-a-pipeline.md) after complexity itself became
@@ -81,19 +89,24 @@ pure stages — golden held), **M1.3e** (posture follows the move + the stance
 wire — the third measurement above), **M1.3g** (ONE `WitnessCursor`, five
 copies deleted) and **M1.4a + M1.4** (`ComboSearch` runs the real kernel,
 section 3's parallel model is deleted, and the paper's pair — model 21 /
-executed 7 — is printed by CI). Next: **M1.6**, the showcase. Everything else
-is done or serves it.
+executed 7 — is printed by CI). The showcase (**M1.6**) closed 2026-09-01 at
+thirteen rows; the consolidation (**M1.9**) closed the wave. Next is **M3**, from
+M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
+2026-09-02); **M2** follows M3.5a, and M3.1, M3.5b and M3.6 follow M2.
 
 ## Now
 
 | In flight | Owner | Since |
 |---|---|---|
-| M1.6 — the showcase; slices 1–8 landed (8 = the cooker recording + base row) | Claude | 2026-08-31 |
-| M1.3 — mechanics pass 1; (a) (b1) (b2) landed; (c)+(d) blocked on ADR-015 (human) | Claude | 2026-08-31 |
+| — (next: M3.3b, the mannequin — waits on ADR-019 D10, the asset-licence decision only the human can take; M3.3c, M3.3d, M3.3e and M3.5a follow it, and M2.1 follows M3.5a under ADR-020) | | |
 
-M1.6 stays open only on the variants blocked on M1.3(b3)/ADR-015 (jump-
-cancel, kara, counter-hit, wallbounce). M1.1e landed inside its slice 5 —
-the buffer pair is a catalogue row.
+The openings wave is landed end to end: per-opening prover surface → (c) →
+(d) → (b3) — the golden re-record (b3) was expected to need DISSOLVED under
+ADR-018's opt-in design, so no re-record review was ever pending — then the
+four exhibits with the cursor/search jump teaching, then M1.9 (the
+consolidation). M1.3, M1.6 and M1.9 are closed above; M1.1e landed inside
+slice 5 — the buffer pair is a catalogue row. What remains in M1 is
+human-gated only: the R6 second look at thirteen rows, and PR #7's merge.
 
 One at a time. The next unblocked WP is always the top `[ ]` in milestone
 order — which, under the 2026-08-21 reorder, is the sequence named above.
@@ -410,8 +423,11 @@ Six WPs, all landed, gate required in CI. The decision is
   graph's performable count equals what the kernel produces: zero unescapable,
   measured on both sides.
 
-- `[~]` **M1.3 Mechanics, pass 1 — the ones the showcase needs.** *(M–L)* Claude,
-  2026-08-31, sliced (a) first: the contact mask is the smallest of the four,
+- `[x]` **M1.3 Mechanics, pass 1 — the ones the showcase needs.** *(M–L)* Claude,
+  2026-08-31 → 2026-09-01, all six letters landed: (a) `b9b2978` · (b1)
+  `975e529` · (b2) `a70ee00` · (b3) `2e50e1a` (per ADR-018) · (c) `c92901d`
+  (with the (c-pre) surface `c7e007f`) · (d) `2f25e71` + `73ed46d`.
+  Sliced (a) first: the contact mask is the smallest of the four,
   and (c) counter-hit is entered only behind its own ADR — the entry itself
   says the choice changes what the tool claims. Each
   with [ADR-011](adr/ADR-011-mechanics-are-fields.md)'s five parts:
@@ -469,23 +485,91 @@ Six WPs, all landed, gate required in CI. The decision is
   genuinely move — the file honoured — and nothing measured shifted (no
   test binds them); ledger 31 → 32 rows, `move.engine.motion` KernelOmits →
   Exact.
-  **Step (b3) last:** jump-as-move, the hard-coded jump deleted, jump cancels
-  retargeted, the golden re-recorded. Commitment is already the KERNEL
-  DEFAULT (`P2Commitment.*`) and the jump already BALLISTIC
+  **Step (b3) LANDED, per [ADR-018](adr/ADR-018-the-jump-move-is-opt-in.md)
+  (the amendment to ADR-014's frozen plan): the jump move is OPT-IN, and the
+  hard-coded jump is demoted — not deleted — to the unauthored fallback**,
+  the walk-speed doctrine. `FighterData::jumpMoveSlot` (tail-appended, the
+  binding bound to exactly Up; two refused by name) gates off the level jump,
+  so the Up press reaches StepAttack grounded and the jump starts on its
+  EDGE: held Up does not re-jump on landing, the double jump refuses itself
+  through StanceAllows, prejump is the move's own startup frames, the
+  launching key with no authored X takes the direction held on the takeoff
+  tick, and a jump cancel is an ordinary on-hit edge into the jump move.
+  **The golden re-record DISSOLVED**: the crossplat script's kNoMoves authors
+  no jump move, so its Up bits keep their recorded meaning and the
+  cross-toolchain evidence survives — the fallback it pins still exists and
+  is still the path it exercises. Base fighter_a does not opt in (hash, arc
+  counts, census all stand); the jump-cancel/kara variant is where the jump
+  move first bites, with the cursor/search taught alongside it
+  (`P3Movement.AJumpIsAMoveAndAJumpCancelIsAnEdge`,
+  `TheUpBoundMoveBecomesTheJumpSlotAndTwoAreRefused`). Commitment is already
+  the KERNEL DEFAULT (`P2Commitment.*`) and the jump already BALLISTIC
   (`P2Ballistic.*`);
   (c) **counter-hit** — per-move `counter_hit {hitstun_bonus, damage_bonus}`.
   **This is a soundness qualifier on every verdict, not just a mechanic** — see
-  § Where this stands. Three ways out: qualify the verdict ("TERMINATING under
-  neutral hit"), take the worst case over hit types, or one verdict per hit type.
-  **Not chosen; it changes what the tool claims — now written as
-  [ADR-015](adr/ADR-015-what-a-verdict-claims-about-hitstun.md) (Proposed,
-  recommended default: qualification) and BLOCKED on the human accepting it.
-  (d) shares the block: `air_hitstun_ticks` has the same one-model-number,
-  two-game-numbers shape, and the launcher is what makes it reachable. The
-  MoveDef bytes for both are already reserved (b2), zeroed and unread.**
+  § Where this stands. **UNBLOCKED 2026-09-01:
+  [ADR-015](adr/ADR-015-what-a-verdict-claims-about-hitstun.md) Accepted,
+  option 3 — one verdict per opening** ("the most robust; each hit qualified
+  appropriately rather than swallowed"). Enactment order is the ADR's, and
+  **(c-pre) — the per-opening surface — is LANDED**: `ProverOpening`
+  {neutral, counter, air}, a full `ProverResult` per opening with the
+  top-level fields staying the neutral mirror verbatim (every legacy assert
+  passes unchanged), counter identical-by-construction until (c) authors the
+  bonus (`ACounterOpeningWithNothingAuthoredIsIdenticalToNeutral`), air
+  reading the file's own `air_hitstun_ticks` today — provably divergent on a
+  synthetic (ground-dead, air-alive self-cancel:
+  `AnAirOpeningReadsTheAuthoredAirHitstunAndUnauthoredFallsBackToNeutral`) —
+  and the panel, `DescribeVerdict` and the telemetry record all speaking the
+  vocabulary. The cooker's pair stays singular (neutral-corner, named) until
+  the executed side can produce the other openings.
+  **(c) itself LANDED**: `engine.reaction.counter_hit { hitstun_bonus,
+  damage_bonus }` (negative refused; damage through the one hundredths rule),
+  carried whole into the (b2)-reserved MoveDef pair, ledger row
+  `move.counter_hit` (34 rows now), and ResolveHits charges both when the
+  defender is caught MID-STARTUP — startup only, a trade is a trade, a punish
+  is its own reward; bonus on the base stun, decay applies to the sum; damage
+  bonus added before scaling so it prorates with its hit. The COUNTER
+  opening's model verdict now charges the authored bonus — on every hit of
+  that opening's search, first hit in the game, the Permissive direction, in
+  the opening's own loss row (`counter bonus charged per hit`). Off by
+  default everywhere: unpatched characters hash as before, the crossplat
+  golden untouched (`P3Reactions.CounterHitAddsTheAuthoredStun`,
+  `ACounterOpeningChargesTheAuthoredBonusAndNamesItsChargeRule`,
+  `TheAuthoredCounterBonusCrossesAndNegativeIsRefused`).
+  Next: (d) reactions land and the air opening's executed half becomes real.
+  The launch MoveDef bytes stay reserved (b2), zeroed and unread; the paper's
+  measured pair is re-derived per opening.
   (d) **wall bounce / wall splat / launch vector** as per-hit `on_hit` reactions
-  using the fields M1.1a reserved. `air_hitstun_ticks` is already loaded and
-  waiting for a launcher to put someone in the air.
+  using the fields M1.1a reserved. **(d1) LANDED — the launcher and the air
+  number:** `engine.reaction.launch {vel_x_sub, vel_y_sub}` (+Y up, X a
+  magnitude the kernel points away from the attacker; non-positive Y refused —
+  a launch that does not rise is a knockdown, already authorable) takes the
+  defender off the ground, `Fighter::reaction` marks the launched body so the
+  airborne-stun rule keeps ITS arc while an un-launched air hit still drops
+  straight — the first draft kept both and the crossplat golden caught it,
+  ticks 1000..2000, exactly its job — and `air_hitstun_ticks`, loaded-and-
+  thrown-away since the reaction block landed, is carried into the SECOND
+  batched MoveDef growth (284 → 288, tail-appended: (b2)'s reservation missed
+  it) and charged by ResolveHits as the base stun against an airborne
+  defender. Ledger 34 → 36 (`move.air_hitstun` ×22 on fighter_a,
+  `move.launch` ×0); the air opening's model rows split its
+  whole-string charge by direction, alarming where air < ground
+  (`ALauncherPutsTheDefenderInTheAirAndAirHitstunTakesOver`,
+  `TheAuthoredAirHitstunCrossesOnEveryMoveThatAuthorsIt`).
+  **(d2) LANDED — the wall gives the body back:**
+  `engine.reaction.on_hit: "wall_bounce"` arms the defender
+  (`Fighter::reaction`, armed-implies-launched so the arc survives stun) and
+  StepPhysics' wall clamp fires and SPENDS it — velocity reversed whole, the
+  spend recorded in `Fighter::bounces` (cleared on landing), the return arc an
+  ordinary launch, a second wall inert without a fresh arming hit. The loop
+  bound is the juggle budget's, not a bounce constant a file cannot set.
+  `wall_splat` is enumerated in the schema and REFUSED at load until it is
+  simulated — a key that loads and does nothing is the coin-flip trap. Ledger
+  36 → 37 (`move.on_hit` ×0 everywhere shipped; the wallbounce showcase
+  variant is where it first bites)
+  (`AWallBounceReturnsTheDefenderIntoRange`,
+  `WallBounceCrossesAndWallSplatIsRefusedByName`). **(d) is CLOSED**; M1.3's
+  remaining letter is (b3).
   Everything defaults off; `fighter_a` unpatched must hash as before.
   **Done when:** `P3Cancels.AKaraCancelFiresOnWhiffInsideItsWindow`,
   `P3Movement.AJumpIsAMoveAndAJumpCancelIsAnEdge`,
@@ -537,20 +621,20 @@ Six WPs, all landed, gate required in CI. The decision is
 
 - `[x]` `68f0747` **M1.5 Character hot reload.** *(S–M)* Claude, 2026-08-31. A frame-data
   edit lands in a running match; NORTHSTAR property (c)'s last clause. The
-  semantics are ADR-016: the training mode polls the loaded character file's
-  (mtime, size) stamp and a change RESTARTS the match with the freshly built
-  data — never a live swap under the session, which would break the replay
-  hash, `Restore`'s same-data contract and the high-water/`resimulated` signal.
-  A broken edit keeps the last good match running and says so on the HUD.
+  rule is DETERMINISM.md T8 (never a swap under a live session), the authoring
+  loop is the manual's hot-reload section, and ADR-016 is the decision record.
   **Done when:** a test proves an edited character file is noticed and lands in
   a running `FightSession` while a broken edit keeps the last good data
   (`AFrameDataEditLandsInARunningMatchAndABrokenEditKeepsTheLastGoodData`,
   tests/test_character_hotreload.cpp).
 
-- `[~]` **M1.6 The showcase: one fighter, many patches, a replay per verdict.**
-  *(M)* Claude, 2026-08-31. Variants under
-  `Games/UntitledFighter/Assets/Characters/fighter_a/variants/`; the eleven
-  patches and what each shows are ADR-011 §4. (The cursor-copies finding this
+- `[x]` **M1.6 The showcase: one fighter, many patches, a replay per verdict.**
+  *(M)* Claude, 2026-08-31 → 2026-09-01; slices 1–8 through `60de3b5`, the
+  openings-wave machinery `a386c9c`, the four exhibits `9137599` — thirteen
+  rows, all cooked, every caption pinned. Variants under
+  `Games/UntitledFighter/Assets/Characters/fighter_a/variants/`; the rows,
+  captions and bindings are `variants/catalogue.json` (ADR-011 §4 was the
+  original plan). (The cursor-copies finding this
   entry used to carry landed early as M1.3g.)
   **Slice 1 landed — the mechanism and the first two exhibits.**
   `LoadCharacterVariant` (CseData): a required one-line `description`, RFC 7386
@@ -657,19 +741,28 @@ Six WPs, all landed, gate required in CI. The decision is
   learned movement macros (its entry validation predated them — and its
   stall DIAGNOSTICS dereferenced a macro as a move, a crash the first full
   cook found).
-  **Still open:** `jump-cancel`, `kara` blocked on M1.3(b3)/the kara
-  close-frame note; `counter-hit`, `wallbounce` blocked on ADR-015.
+  **The four openings-wave exhibits LANDED — the catalogue is 13 rows, all
+  cooked, exit 0:** `counter_hit` (the per-opening verdict at work: neutral
+  pair stands at base, the COUNTER opening revives one dead cancel — 88
+  usable → 89 — and carries the damage bonus while the 21-hit bound holds);
+  `wallbounce` (the measured NULL: the corner grants for free what the
+  bounce exists to return, so the pair stands at 7/7 and the caption states
+  the mechanic's midscreen scope instead of growing bench numbers);
+  `jump_cancel` (the wave's headline: the model prices the hk→jump edge
+  dead — jump's hitstun is 0 — and the GAME walks through it, executed
+  worst case 7 → 13, the bound held from the other side at nearly twice
+  the distance); `kara` (whiff edge honoured by the kernel, honestly
+  invisible to BOTH instruments — the model drops whiff by doctrine, the
+  search asks one connect at a time — and the caption says the shared gap
+  out loud). Exhibit tests pin every number
+  (`VariantExhibits.ACounterOpening…`/`AJumpCancel…`/`AWallBounce…`/`AKara…`).
 
 - `[x]` `e3a1d45` **M1.7 Authoring telemetry.** *(S)* Claude, 2026-08-31. What the author
   actually needed to know, recorded while authoring rather than reconstructed
-  after. The contract is ADR-017 (which restores the Done-when the `9c4dbd1`
-  rewrite dropped): the Combo Prover panel appends **one JSON line per real
-  analysis run** — wall time, file read, character, nonce-free content hash,
-  changed-since-last, move/cancel counts, resource ranges, `explored`, run ms
-  with the resource-check ms kept as its own field, verdict — to
-  `telemetry/prover_runs.jsonl` beside the content root, through a sandboxed
-  append-only writer/reader pair in CseData. **Done when:** the log grows by
-  one line per append and a test parses it back
+  after — one JSON line per real prover run. The line contract and sink live
+  in the manual's Combo Prover section; ADR-017 (which restored the Done-when
+  the `9c4dbd1` rewrite dropped) is the decision record. **Done when:** the
+  log grows by one line per append and a test parses it back
   (`TheLogGrowsByOneAppendAndRoundTripsItsFields`,
   tests/test_prover_telemetry.cpp); the panel's run site is the mirror.
 
@@ -688,7 +781,20 @@ Six WPs, all landed, gate required in CI. The decision is
     an unknown move-patch key is now a load error naming the key and listing
     what exists (`AMovePatchKeyTheLoaderDoesNotReadIsRefusedByName`).
 
-## M2 — Two people, one match *(size L)* — ARCHITECTURE Phase 4
+- `[x]` `1868fa3` **M1.9 One home per current rule.** *(S–M)* Asked for by the human,
+  2026-09-01: "consolidate documentation so it isn't so spread out over
+  different ADRs." The ADRs stay frozen — they are why-records and the house
+  rules forbid rewriting them — so the consolidation is the five-line rule
+  enforced in the other direction: every rule that is CURRENTLY in force must
+  have its one statement in a living doc (fighting-core.md for the title's
+  mechanics and tools, DETERMINISM.md for the invariants, ARCHITECTURE.md for
+  the seams), with the ADR cited only as the decision's history. Runs LAST in
+  the openings wave, so the consolidated pages state the post-wave truth once
+  rather than twice. **Done when:** a sweep of ADR-011..018's operative rules
+  finds each stated in exactly one living doc (link, not restatement,
+  everywhere else), and `check_docs.py` stays green.
+
+## M2 — Two people, one match *(size L)* — ARCHITECTURE Phase 4 — after M3.5a ([ADR-020](adr/ADR-020-the-bounded-lift.md))
 
 - `[ ]` **M2.1 Transport — spike, then an ADR.**
 - `[ ]` **M2.2 Handshake** — hash the loaded POD arrays, never canonicalised text.
@@ -698,15 +804,319 @@ Six WPs, all landed, gate required in CI. The decision is
 - `[ ]` **M2.5 VERSUS, and one presentation for three modes.**
 - `[ ]` **M2.6 Play == Player, as a hash test.**
 
-## M3 — Skinned fighters, frame-indexed *(size L)* — placeholders, not art
+## M3 — Skinned fighters, frame-indexed *(size L)* — placeholders through Blender
 
-- `[ ]` **M3.1 The event queue, before the first sound** — uses the ring M1.1a
-  reserved.
-- `[ ]` **M3.2 Frame-indexed clip player + skinning (engine).**
-- `[ ]` **M3.3 The Mixamo pipeline.**
-- `[ ]` **M3.4 The presentation reconciler** — pose is a pure function of sim
-  state; tails always cancelable.
-- `[ ]` **M3.5 Feel and stage.**
+The decisions are [ADR-019](adr/ADR-019-placeholders-through-blender.md) (how:
+one glTF pipeline, stepped clips at exactly `startup + active + recovery`, a
+manifest-pinned Rigify deform skeleton, T0 — no presentation state — an
+orthographic fight camera as the one admitted camera field, Blender and its
+MCP server as dev-machine tools never in CI) and
+[ADR-020](adr/ADR-020-the-bounded-lift.md) (when: accepted 2026-09-02 —
+M3.2–M3.5a before M2.1, one modeled body before M4). The
+placeholder is a bpy-generated mannequin; the modeled shoto the human asked
+for is that mannequin's mesh swap on the same skeleton (M3.3e). The list is
+in recommended execution order — headless engine work first against
+stdlib-generated fixtures, the training room as the first visible artifact,
+the first swing at M3.4c — and every Done-when reads committed exported bytes,
+never a `.blend`. M3.1, M3.5b and M3.6 sit after M2 in either ordering.
+
+ADR-019 D10 — the licence for project-authored assets — is **deferred** by the
+human (2026-09-02): only code-adjacent test fixtures under the repository's
+MIT may be committed until it is answered, so M3.5a's room and M3.3b's
+mannequin wait on that one-line answer; every WP before them does not.
+
+- `[x]` `97ec6c2` **M3.0 Two ADRs and the M3 rewrite, on paper.** *(S)*
+  **Done when:** `python scripts/check_docs.py` is green; ADR-019 and ADR-020
+  exist with a `Status:` line in their first ten lines and a stated reversal
+  condition each, and are rows in `docs/adr/README.md`; every M3 WP below
+  carries a Done-when that names a test under `tests/` or a script under
+  `scripts/`.
+
+- `[x]` `1d0beb4` **M3.4a `PoseSelect`, and the presentation library spike.** *(M)*
+  First because it is headless, Claude-paced and needs no Blender. `SelectPose(
+  const MatchData&, const GameState&, slot)` in `CseGame` returns kinds and
+  integers only — `{kind, moveSlot, frame, remaining, tick, posXSub, posYSub,
+  mirror, visible}`; precedence: inactive → none; knockdown → stun (block by
+  `guard`, hit by air) → move at `moveFrame` exactly → air by the sign of
+  `velY` → crouch → walk by the sign of `velX` against facing → idle; `Ko`/`Win`
+  only for an IDLE fighter after round end, because the training host keeps
+  simulating past `kRoundOver`. Floor-div/floor-mod helpers for cycles. The
+  GL-free presentation library (`FighterClips`, `FightPresentation` homes)
+  is created and linked into an empty headless test in all three ctest jobs
+  before anything rides on it. **Done when:**
+  `PoseSelect.RestoreAndResimulateReproduceEveryPose`,
+  `PoseSelect.WhileAMoveRunsTheFrameIsTheMoveFrame`,
+  `PoseSelect.HitstopFreezesThePose`,
+  `PoseSelect.KnockdownOutranksStunOutranksMoveOutranksFree`,
+  `PoseSelect.AReleasedGuardMidBlockstunFallsBackToTheStandingBlock`,
+  `PoseSelect.AFighterWhoActsAfterRoundOverIsPosedByItsAction`,
+  `PoseSelect.NeverTouchesTheChecksum`, and
+  `CycleFrame.FloorModKeepsANegativePositionOnTheCycle`.
+
+- `[x]` `c09e67e` **M3.0b The bridge carries blockstun, with its ledger row.** *(S)* Found
+  by M3.4a's blockstun test (2026-09-02): `fighter_a.json` authors
+  `engine.reaction.blockstun_ticks` on all 22 moves, `Combat.cpp` applies
+  `MoveDef::blockstun`, the loader read the key only inside the `engine.hits[]`
+  records the kernel omits, and `MatchBuilder` carried neither the value nor a
+  loss-ledger row — so every block in the shipped game gave zero blockstun and
+  nothing said so. A loader read plus a bridge carry into an existing kernel
+  slot, not a mechanic: the read and the carry in one commit, the census row,
+  and the prover's projection unmoved by construction (it never reads
+  blockstun, and a blocked hit is no link). It changes `MatchData` bytes, so it
+  lands alone. **Done when:**
+  `test_match_bridge.cpp` gains `BlockstunIsCarriedAndCountedInTheLedger` and
+  the census pins the new row; `PoseSelect.AReleasedGuardMidBlockstunFallsBackToTheStandingBlock`
+  is unchanged and still green — in particular its frozen-tick half, which
+  drives `Simulate` with the carried blockstun and asserts `BlockstunCrouch` on
+  every hitstop tick of a crouch-blocked hit; that is the one place a
+  crouch → stand → crouch flicker would show, and the carry makes it reachable.
+
+- `[x]` `e4ef6c6` **M3.2a glTF enters the static model path; stdlib fixtures.** *(S)*
+  `AssetIndex::classify` learns `.gltf`/`.glb`; `collectMeshes` accumulates
+  node transforms for unskinned meshes (identity stays bit-identical; bones
+  stay in bind space); the two formats' UV conventions are PINNED to agree
+  rather than "fixed" — Assimp's glTF2 importer flips V and `aiProcess_FlipUVs`
+  flips again, landing exactly where OBJ lands, so the flag stays;
+  `MaterialData` carries the authored material name; `.gitattributes` marks
+  `.gltf` text and `.glb`/`.bin`/`.png` binary;
+  `tests/fixtures/models/make_fixtures.py` — stdlib-only Python, data-URI
+  buffers — writes this WP's committed fixtures (the child-offset quad, the
+  glTF/OBJ UV pair and its 2×2 PNG); M3.2b–c extend the same writer with the
+  skinned and animated ones, so no engine WP waits on Blender. **Done when:**
+  `ModelDecode.AChildNodesTransformLandsItsVerticesInWorldSpace`,
+  `AssetIndex.ClassifiesGltfAndGlbAsModels`,
+  `ModelDecode.AGltfAndAnObjOfTheSameQuadSampleTheSameTexel`; fixtures
+  committed with a README naming the generator.
+
+- `[x]` `3d86070` **M3.3a Blender tooling of record, the pinned export, the paddle,
+  `check_clips.py`.** *(S)* `Games/UntitledFighter/tools/blender/{README.md,
+  common.py, export_gltf.py, make_paddle.py}`: one export function pins the
+  contract (60 fps, Actions mode with every action stashed, Always Sample step
+  1, Optimize Animation Size OFF, frame 0 = `moveFrame` 0 with
+  `action.frame_range` explicit, deform bones only, rest-position armature, 4
+  influences, glTF Separate, Draco off) and writes `<stem>.clips.json` from the
+  same actions. The paddle has TWO actions (`paddle_swing` 14, `paddle_hold`
+  5) so multi-action export is proven by the committed fixture.
+  `scripts/check_clips.py` (stdlib) derives frame counts from accessor count
+  and time span, fails if they disagree, and shares the `MoveDuration` clamp
+  fixture with the C++; wired into the determinism-flags job.
+  `docs/manual/art-pipeline.md` carries the install, the user-scope MCP
+  registration with telemetry off, save-before-exec, the headless
+  scripts-of-record rule, the banned integrations, the no-`.blend` rule and
+  the per-session checklist (add-on install on 5.x, Start MCP Server, confirm
+  exporter option names). Human pre-steps: install `uv`, register the server,
+  answer ADR-019 D10. **Done when:** `python scripts/check_clips.py
+  --self-test` is green in CI on the committed paddle, reporting exactly
+  `{"paddle_swing": 14, "paddle_hold": 5}` and agreeing with its sidecar;
+  `ci.yml` installs no Blender.
+
+- `[ ]` **M3.5a The training room, generated in kernel units.** *(M)* The
+  first visible artifact. `make_training_room.py` reads a committed
+  `stage_dims.json` that a test pins to `kStageHalfWidthSub / 256`, and builds
+  the SF-style room: floor top at `y = 0`, 20-unit cells, a heavy line every
+  100 (R0c's ruler), a red centre line, blue plane squares on `z = 0`, side
+  walls at exactly ±480, flat toon materials, no textures; exported to
+  `Assets/UntitledFighter/Stage/` with a `CREDITS.md`; spawnable from the
+  Assets panel at once. Same WP: `Assets.EveryModelHasALicenceBesideIt` over
+  `.obj`, `.gltf` and `.glb`, and the unlicensed sample backpack removed or
+  licensed so the test can pass. **Done when:**
+  `StageAsset.TheFloorSpansExactlyTheKernelsStage`,
+  `StageAsset.HeavyLinesFallOnReachUnits` (keyed on the material name M3.2a
+  carries), `Assets.EveryModelHasALicenceBesideIt`,
+  `AssetValidator.WarnsOnAModelDirectoryWithoutCredits`.
+
+- `[x]` `17bb075` **M3.2b Skeleton and skin weights decode (CPU, GL-free).** *(M)*
+  `Skeleton` from the `aiNode` hierarchy, `aiMesh::mBones` for offsets and
+  weights only (one list per mesh); a parallel `SkinData` stream so the static
+  `Vertex` stays byte-identical; `aiProcess_LimitBoneWeights` lands here, with
+  its consumer; more than 128 joints refused by name. **Done when:**
+  `ModelDecode.TwoBoneStripYieldsTwoNamedJointsWithNormalisedWeights`,
+  `ModelDecode.TwoMeshesSharingOneSkinShareOneSkeleton`,
+  `ModelDecode.AnObjDecodeCarriesNoSkeletonAndItsVertexBytesAreUnchanged`,
+  `AssetValidator.RefusesARigOverThePaletteCap`.
+
+- `[x]` `190805a` **M3.2c Clip decode on the 60 Hz grid, integer frames only.** *(M)*
+  Every key time × 60/1000 within 1e-3 of an integer; every channel with more
+  than one key carries exactly `N`, a single-key channel is constant (Assimp
+  synthesises one for un-animated components); sample `k` is key `k`; the
+  `Clip` type has no floating-point time member. **Done when:**
+  `ModelDecode.AClipAuthoredAtFourteenFramesDecodesToFourteenFrames`,
+  `ModelDecode.ARotationOnlyJointIsConstantNotRefused`,
+  `ModelDecode.AClipWhoseKeysAreOffTheSixtyHertzGridIsRefusedNamingTheClipAndTheKey`,
+  and the compile-time property that `Clip` carries no float.
+
+- `[x]` `89e0f08` **M3.2d The frame-indexed sampler and pose bounds.** *(S)*
+  `SamplePalette(skeleton, clip, uint32 frame, out)` — pure, clamped, no
+  clock, no `dt`, no overload taking a floating-point frame; `PoseBounds` at
+  decode from per-joint rest bounds skinned by their eight corners per frame
+  (not every vertex — Debug decode on hot reload must stay fast). **Done
+  when:** `ClipSampler.TheSameFrameYieldsTheSamePaletteInAnyOrder`,
+  `ClipSampler.AFramePastTheEndClampsToTheLastSample`,
+  `ClipSampler.TheRestPoseYieldsAnIdentityPalette`,
+  `ModelDecode.TheSkinnedBoundsContainEveryVertexOfEveryClipFrame`, and the
+  compile-time property that no `SamplePalette` overload accepts a double.
+
+- `[x]` `80f9026` **M3.2e The skinned GPU path.** *(L)* A skin VBO at attributes 5 and
+  6; a std140 UBO `uBones { mat4 bones[128]; }`; `#ifdef SKINNED` blocks in
+  `vertex.glsl` and `shadow_depth_vert.glsl` that keep `invariant gl_Position`
+  and transform normals and tangents by the skin matrix (toon bands read the
+  normal); skinned variants for the forward colour and prepass programs, the
+  CSM depth program and the transparent pass; nothing beyond skinning.
+  **Done when:** `gl`-labelled
+  `SkinnedDraw.ThePaletteMovesTheVerticesTheJointOwns`,
+  `SkinnedDraw.PrepassOnAndOffDrawTheSamePixelsForASkinnedMesh`,
+  `SkinnedDraw.ALitSkinnedQuadShadesByItsPosedNormal`; the existing
+  `test_render_passes` probe assertions still pass.
+
+- `[x] b18ded0` **M3.2f Submission, bounds and shadows for skinned items; the
+  `SkinnedPose` component.** *(M)* A derived, never-serialized `SkinnedPose`;
+  a pose identity in the `DrawItem` sort and run key so two fighters sharing
+  one model never share one pose; palette upload in every geometry pass;
+  culling on `PoseBounds`; `SkinnedPose` entities are dynamic casters every
+  frame; a read-only Inspector section (joints, clip → frames) with a
+  debug-only clip scrub in edit mode. **Done when:** `gl`-labelled
+  `SkinnedDraw.TwoFightersSharingOneMeshNeverShareOnePose`,
+  `SkinnedDraw.APosedLimbOutsideTheRestBoxIsStillDrawn`,
+  `SkinnedDraw.AFighterAnimatingInPlaceRedrawsItsShadowCascade`; headless
+  `SceneSerializer.SkinnedPoseIsDerivedAndNeverSaved`.
+
+- `[x] 471c8c2` **M3.2g Orthographic camera mode.** *(M)* The one camera-side
+  addition ADR-019 D4 admits: `CameraComponent` gains an appended projection
+  mode and orthographic half-height; `Renderer`'s projection branches; CSM
+  slice fitting and the culling frustum handle the orthographic view; the
+  serializer appends the field; `CameraDirector` blends sanely between modes.
+  **Done when:** `gl`-labelled
+  `OrthoCamera.AUnitQuadCoversThePredictedPixels`; headless
+  `OrthoCamera.TheProjectionMapsHalfHeightToTheViewportEdge`; existing scene
+  files load unchanged.
+
+- `[ ]` **M3.3b The mannequin and its rig.** *(M)* `make_mannequin.py`:
+  Rigify human metarig → `rigify.generate` → deform bones kept, others
+  removed; a proportioned primitive-built body, 60 units tall with feet at
+  `y = 0`, automatic weights, influences capped at 4 before export; semantic
+  names in `rig_bones.json`; `rig_manifest.json` written and enforced by the
+  exporter; `Assets/Characters/fighter_a/model/fighter_a.gltf` with a 2-frame
+  `idle`. Human at the viewport: review the deform-hierarchy diff and the
+  weights. **Done when:**
+  `PlaceholderRig.FitsThePaletteAndTheFourInfluenceCap`,
+  `PlaceholderRig.StandsSixtyPixelsTallAtRest`,
+  `PlaceholderRig.MatchesItsRigManifestBoneForBone`.
+
+- `[ ]` **M3.3c Every clip generated from the frame data; four made
+  legible.** *(M)* `make_move_clips.py` reads `fighter_a.json` and `poses.json`
+  and keys one STEPPED pose per frame for every attack (anticipation, the
+  contact pose held over the active window, recovery converging on idle) and
+  every reserved cycle at the contract's lengths; `capture_pose.py` writes
+  human-refined poses back; a bpy helper draws each move's authored boxes as
+  wire boxes at the contact frame so a screenshot shows fit, not opinion. Day
+  one is complete with three generic poses per attack; then `idle`,
+  `walk_fwd`, `stand_lp`, `hitstun_stand` are made legible. **Done when:**
+  `ShippedClipsMatchTheFrameData` (every move's clip == `MoveDuration`;
+  knockdown == the largest `knockdownTicks`; every cycle present; root never
+  translates), `ShippedClips.TheShippedModelAgreesWithItsSidecarClipForClip`,
+  `ShippedClips.MutatingStandLpRecoveryMakesTheClipLengthCheckFire`, and
+  `check_clips.py` on `fighter_a.json` green in CI.
+
+- `[x] 94a8d4b` **M3.4b `engine.anim3d` lands with its consumer.** *(M)* APPENDED,
+  presentation-only, off by default: character-level `engine.anim3d.model`
+  (`PathIsContained`-gated) and per-move `engine.anim3d.clip`; `CseData` reads
+  the sidecar with nlohmann and asserts **A21**/**A22** beside A01–A20;
+  unknown `anim3d` keys refused by name; `GameModeContext` gains an appended
+  `AssetManager*`; `FighterClips` builds the `(kind, moveSlot) → clip` table,
+  rebuilds it in `adoptPrepared_`, polls the model and sidecar `(mtime, size)`
+  in the hot-reload path, refuses a mismatch with keep-last-good and a HUD
+  line. `CharacterData.h`'s not-loaded note says the new truth. **Done when:**
+  `CharacterData.AClipOneFrameShortOfItsMoveIsALoadErrorNamingMoveClipExpectedAndActual`,
+  `CharacterData.AnAnim3dKeyOutsideTheContractIsALoadErrorNamingTheKey`,
+  `CharacterData.PresentationModelIsOptionalAndSandboxed`,
+  `CharacterData.AMissingReservedCycleIsALoadErrorNamingIt`,
+  `FighterClips.AReloadThatReordersMovesRebindsEveryClipByName`.
+
+- `[x] 4ea73a2` **M3.4c The reconciler — the first swing.** *(L)* When the character
+  authors a model, `adoptPrepared_` creates presentation entities (two
+  fighters with `ModelComponent` + `SkinnedPose` + `Transform`, the room, an
+  orthographic camera driven by `FightCamera` at priority 100) and applies a
+  committed `fight_look.json` (sun, outline on, IBL, shadow distance ≥ camera
+  distance + room depth, near/far); `teardownMatch_` removes them.
+  `FightPresentation` composes every rendered frame: `SelectPose` →
+  `FighterClips` → frame → palette; `Transform = translate(WorldPx) × yaw(180°
+  when facing == 1)`; per-slot toon materials with a P1/P2 tint and a per-slot
+  `z` tie-break. Draw drops the backdrop quad and 2D floor when a model
+  loaded and keeps the kernel's `Hurtbox` and `ActiveHitbox` on top;
+  `FightView::PhaseOf` reads `SelectPose` for the knockdown-over-stun ordering
+  so that decision has one home (M3.4a left it in two). The R8 table is written
+  into this file here. **Done when:** headless
+  `FightPresentation.FacingLeftIsAYawWithPositiveDeterminantNeverANegativeScale`,
+  `FightPresentation.TheModelMatrixTranslationIsPosOver256ForBothFacings`,
+  `FightPresentation.TheSceneCameraAndTheFightCameraProjectTheFighterOriginToTheSamePixel`,
+  `FightPresentation.TheFightCameraOutranksEveryCameraInTheHostScene`,
+  `FightPresentation.TheBackWallIsInsideTheShadowRange`,
+  `FightPresentation.EachSlotHasItsOwnToonMaterialAndZPlane`,
+  `FightPresentation.ThePaletteBytesEqualSamplePaletteAtTheSelectedFrame`,
+  `FightPresentation.ReconcilingAFrameLeavesTheGameStateBytesUntouched`.
+
+- `[x] 7ea1ba6` **M3.4d P4 acceptance.** *(S)* The three tests that flip DETERMINISM
+  P4 from "not yet" to enforced under T0. **Done when:**
+  `Presentation.HoldsNothingARestoreCannotRebuild`,
+  `Presentation.MoveStartIsNeverDelayed`,
+  `Presentation.ABoxNeverMovesWithThePose`; P4's row cites all three.
+
+- `[x] 3d592bd` **M3.4e Overlay modes for validation over the mesh.** *(S)* Boxes over
+  mesh (default) · boxes over translucent mesh (a `MaterialOverrides` blend, an
+  existing feature) · mesh only; the 2D ruler draws only with boxes on, because
+  the room's grid is the ruler. **Done when:**
+  `FightPresentation.OverlayModeCyclesThreeStatesAndStartsWithBoxes`.
+
+- `[ ]` **M3.3d The remaining 33 clips made legible; the arcs pinned; poses
+  fit their boxes.** *(L)* Opens with the kernel test that pins motion-key
+  behaviour, committed whichever way it comes out; then batches of 4–6 clips
+  per session from `poses.json`, the human refining at the viewport — the
+  honest bottleneck. "Legible" is a bar: contact pose inside the live hitbox
+  within 2 px; silhouette distinct at 200 px half-width. **Done when:**
+  `Kernel.AMotionKeyOwnsVelocityAndSuspendsGravityUntilTheNextKeyOrTheMoveEnds`
+  (or its negation),
+  `ShippedClips.AContactPoseFitsItsMovesAuthoredHurtboxHeight` (`crouch_mk`
+  26 px, `crouch_hk` 20 px, `crouch_hp` 36 px, +2 px),
+  `ShippedClips.StunAndKnockdownClipsCoverTheLongestAuthoredCounters`,
+  `ShippedClips.AWalkCycleAdvancesItsStrideInWholeTicks` (`N × walkSpeedPx ==
+  stride px`); `ShippedClipsMatchTheFrameData` green after every batch.
+
+- `[ ]` **M3.3e The modeled shoto body.** *(L — human hours)* Gated by
+  [ADR-020](adr/ADR-020-the-bounded-lift.md) clause (ii) and started after
+  R8 on the mannequin. A Blender-modeled body replaces the mannequin's mesh on
+  the manifest-pinned skeleton: Claude drives blockout, mirroring, modifier
+  stacks, UV seams, material slots and the export through bpy; the human
+  sculpts, paints weights and judges the face; toon materials, textures beside
+  the model, `CREDITS.md` per ADR-019 D10. Every clip survives unchanged.
+  **Done when:** `PlaceholderRig.MatchesItsRigManifestBoneForBone` and
+  `ShippedClipsMatchTheFrameData` pass on the new mesh with no clip edit,
+  `ShippedClips.AContactPoseFitsItsMovesAuthoredHurtboxHeight` still holds,
+  and R8's second look records what changed.
+
+*After M2, in either ordering:*
+
+- `[ ]` **M3.1 The event queue, before the first sound.** *(M)* `Simulate`
+  gains the Phase parameter (DETERMINISM K11) and writes hit, block, land,
+  knockdown and round-over events into the ring M1.1a reserved (layout
+  unchanged); `FightSession` drains confirmed ticks, de-duplicated by
+  `(tick, slot, kind)`. Because `kernel::Checksum` folds the ring, the
+  crossplat golden is re-recorded ONCE in this commit on both toolchains with
+  nothing else batched. **Done when:**
+  `Kernel.AnEventIsWrittenTheTickItHappensAndRollsBackWithTheState`,
+  `Session.OnlyConfirmedTicksAreDrainedAndARollbackNeverReplaysAnEvent`, and
+  the goldens re-recorded once with the reason in the golden block.
+
+- `[ ]` **M3.5b Feel, from drained events only; the perspective toggle.**
+  *(S)* Hitstop shake as a pure function of `(tick, hitstop)`; a placeholder
+  hit spark and a sound stub driven only from the confirmed-tick drain; a
+  perspective toggle with the box overlay projected through the same
+  view-projection. Also here: the depth-outline pass linearises depth with
+  the perspective formula and is wrong under the orthographic camera M3.2g
+  added (found there, not fixed there); the toggle is the WP that has both
+  cameras in hand. R8 is looked at again here. **Done when:**
+  `Presentation.EffectsComeOnlyFromDrainedEventsAndAResimulatedTickEmitsNone`,
+  `FightPresentation.ThePerspectiveOverlayProjectsTheHurtboxCornersThroughTheSameMatrixAsTheMesh`.
+
 - `[ ]` **M3.6 Roster and select.**
 
 ## M4 — Showcase and publish; then art *(size M + content)*
@@ -714,7 +1124,9 @@ Six WPs, all landed, gate required in CI. The decision is
 - `[ ]` **M4.1 The reel.**
 - `[ ]` **M4.2 Paper artefacts.**
 - `[ ]` **M4.3 Publish the claims** — nothing outruns a test in CI.
-- `[ ]` **M4.4 Real art**, last, through a pipeline that already exists.
+- `[ ]` **M4.4 Real art**, last, through a pipeline that already exists —
+  [ADR-020](adr/ADR-020-the-bounded-lift.md) clause (ii) lets ONE body (M3.3e)
+  precede it.
 
 ## Engine maintenance — done inside the milestones, not as a phase
 
@@ -764,14 +1176,37 @@ during recovery is correctly forgotten.
 | **Should** | Midscreen: every hit carries it back, further on heavies. Squares are 20 px and every fifth line is one **reach unit** — so a move authored `reach: 0.42` reaches four squares and a bit. Corner: it does not move, and the HUD says the verdict on screen is about *this* position. Crouching: the body is visibly shorter, 34 px against 60. Walking into it: blocked, and neither of you inside the other. Its **body** stops at the wall, not its middle. |
 | **Wrong if** | It slides in the corner (the clamp is not holding). A light knocks it as far as a heavy (pushback is not per-move). Crouching changes nothing. Or **Down+HK does not knock it down and turn the box blue** — `crouch_hk` is selectable since M1.3e (Down decides the variant), so a sweep that does nothing means the stance wire regressed. |
 
+### R8 — After M3.4c: the first swing, and it looks like a fighting game
+
+This point needs a character that authors `engine.anim3d.model` — the mannequin
+(M3.3b) and its clips (M3.3c), which wait on ADR-019 D10. Until then the 3D
+pass is off by default and every row below is about the code path, not a
+picture; the moment a model is authored, run it.
+
+| | |
+|---|---|
+| **Run** | `Editor.exe`, Game view, or `Player.exe`, with a character whose `engine.anim3d.model` points at a skinned glTF with a `<stem>.clips.json` beside it. |
+| **Do** | Watch the two bodies stand, walk, jump and attack. Toggle the box overlay. Walk both into a corner; jump over the dummy; sweep it. Pause and frame-step through `stand_lp`. Resize the window to a tall and a wide shape. Hit the dummy from both sides. |
+| **Should** | Two toon-shaded bodies in two tints, on two depth planes, facing each other; when one crosses over, it turns — the tint side and the silhouette flip as one, nothing looks inside-out. The Hurtbox outline sits around the body and the fist is inside the red box on exactly the active frames. The camera holds still until a fighter nears the edge, then scrolls the minimum, and stops at the walls; the box overlay and the mesh never drift apart at any window shape. Frame-stepping shows one clip frame per tick and the contact pose held across the active window. The floor shadow lands under the body. |
+| **Wrong if** | A body looks mirrored rather than turned (a negative scale leaked in — `FightPresentation.FacingLeftIsAYawWithPositiveDeterminantNeverANegativeScale`). The mesh and its box outline separate as the camera scrolls or the window changes shape (the two cameras disagree — `TheSceneCameraAndTheFightCameraProjectTheFighterOriginToTheSamePixel`). A pose lags a frame behind the boxes or holds after a hit is rolled back (presentation state — ADR-019 D3). The back of the room or a fighter near the camera has no shadow (the look's ranges — `TheBackWallIsInsideTheShadowRange`). Both bodies read as one tint, or one flickers through the other where they overlap (`EachSlotHasItsOwnToonMaterialAndZPlane`). Leaving the mode leaves fighters, or a fight-lit sky, in the host scene. |
+
+Looked at again after M3.3d (every clip legible) and M3.3e (the modeled body).
+
 ### R1–R9
 
 R1 after M1.1b (the file beats a constant) · R2 after M1.2 (the corner is real) ·
 R3 after M1.3 (every mechanic is a field) · R4 after M1.4 (the two provers,
 honestly labelled) · R5 after M1.5 (the authoring loop) · **R6 after M1.6 — the
 showcase, the one to judge the project on** · R7 after M2.5 (two people, one
-match) · R8 after M3.4/M3.5 (it looks like a fighting game) · R9 after M4.1 (the
-reel).
+match) · R8 after M3.4c (the first swing — it looks like a fighting game), looked
+at again after M3.3d and M3.3e · R9 after M4.1 (the reel).
+
+**R5 and R6 reviewed 2026-09-01: "behaving as expected."** The authoring loop
+(edit lands mid-match, broken save keeps the last good match, pause survives)
+and the cooked showcase (then nine rows, the three deliberate verdict
+disagreements) both passed the human's play session with nothing reported
+wrong. R6's second look is now due: the catalogue stands at thirteen rows
+since `9137599`, with the four openings-wave exhibits cooked and captioned.
 
 ## Not scheduled, on purpose
 

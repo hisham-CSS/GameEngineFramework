@@ -226,7 +226,7 @@ Only surface focus routes keys to the game, and only surface focus enables gamep
 Selection is driven by a `MyCoreEngine::CameraDirector` (`Engine/src/core/CameraDirector.h`):
 
 * Automatically, it picks the **highest-priority enabled** `CameraComponent` that also has a `Transform`; ties break on the lowest entity **index** (not the raw handle — versions reset on scene load, so index ordering is what stays save/load-stable).
-* When the winner changes, the view **blends** from the previous *output* pose to the new camera (position lerp, orientation slerp, fov/near/far lerp, smoothstep eased).
+* When the winner changes, the view **blends** from the previous *output* pose to the new camera (position lerp, orientation slerp, fov/near/far/ortho-half-height lerp, smoothstep eased). The projection mode is discrete: the outgoing mode holds until the blend's midpoint and the incoming one takes over from there (`OrthoCamera.TheDirectorSwitchesModeAtTheBlendMidpoint`).
 
 The toolbar has three controls and a readout:
 
@@ -299,7 +299,9 @@ Not removable — everything positional depends on it (the Unity convention). Po
 
 | Field | Widget | Notes |
 | --- | --- | --- |
-| `fovDeg` | Slider 20–120, `AlwaysClamp` | Default `60.0f`. Ctrl+Click typing cannot escape the range — a FOV outside (0,180) degenerates the projection. |
+| `projection` | Combo Perspective / Orthographic | Default Perspective. Undoable as one record; switching refits the shadow cascades. |
+| `fovDeg` | Slider 20–120, `AlwaysClamp` (perspective only) | Default `60.0f`. Ctrl+Click typing cannot escape the range — a FOV outside (0,180) degenerates the projection. |
+| `orthoHalfHeight` | Drag 0.001–100000 (orthographic only) | Default `10.0f`. World units from the view centre to the top edge. |
 | `nearClip` | Drag, 0.001–100000 | Default `0.1f`. |
 | `farClip` | Drag, 0.002–200000 | Default `1000.0f`. |
 | `priority` | `DragInt` | Default `0`. Highest priority among enabled cameras wins. |

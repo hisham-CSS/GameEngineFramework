@@ -1,6 +1,6 @@
 # Entities and Components
 
-Verified: 2026-08-17 @ e2f08bd
+Verified: 2026-09-03 @ ecde2d3
 
 Everything in a Cat Splat scene is an **entity**: an id with a bag of **components** attached to it. There is no `GameObject` base class — an entity *is* its components, and systems (rendering, physics, scripting, camera selection, serialization) find work by asking for entities that have a particular combination of them.
 
@@ -119,6 +119,15 @@ The single parent link is the only source of truth for hierarchy; children lists
 
 Maps a mesh's material slot index to an override. `MaterialHandle` is `std::shared_ptr<Material>` (`Engine/src/core/Material.h`). `Scene::chooseMaterial_` looks up `mesh.MaterialIndex()` in this map and falls back to the mesh's shared material.
 
+**`SkinnedPose`**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `palette` | `std::vector<glm::mat4>` | empty |
+| `valid` | `bool` | `false` |
+
+The pose a skinned entity wears this frame — one matrix per joint, parent-first, `world × inverseBind`, exactly what `SamplePalette` produces ([Rendering](rendering.md), the skinning sections). **Derived, never authored, never saved**: the fight mode writes it from `GameState` every rendered frame, the renderer reads it, `SceneSerializer` never writes it (`SceneSerializer.SkinnedPoseIsDerivedAndNeverSaved`), and the Inspector shows it read-only with a debug-only clip scrub in edit mode. An entity whose pose is not `valid`, or whose palette is not sized for its model's skeleton, draws in its rest pose. A posed entity counts as a dynamic shadow caster every frame it carries a valid pose.
+
 **`AABB`** (derives from `BoundingVolume`)
 
 | Field | Type | Default |
@@ -224,8 +233,10 @@ lights than the shader can hold.
 | `farClip` | `float` | `1000.0f` | must be > `nearClip` |
 | `priority` | `int` | `0` | highest enabled wins; ties go to the **lowest entity index** |
 | `enabled` | `bool` | `true` | disabled cameras are never selected |
+| `projection` | `CameraProjection` | `Perspective` | appended (M3.2g); `Orthographic` ignores `fovDeg` and shows ±`orthoHalfHeight` world units top to bottom, width from the viewport's aspect, no shrinking with distance. The fight camera is one (ADR-019 D4). |
+| `orthoHalfHeight` | `float` | `10.0f` | must be > 0 (clamped to `1e-3` like `nearClip`) |
 
-Position and orientation come from the entity's `Transform`, hierarchy included — a camera can be parented to anything. `FindActiveCamera(registry)` performs the selection; `SyncCameraFromEntity(registry, e, cam)` copies the world pose and lens into a `Camera`.
+Position and orientation come from the entity's `Transform`, hierarchy included — a camera can be parented to anything. `FindActiveCamera(registry)` performs the selection; `SyncCameraFromEntity(registry, e, cam)` copies the world pose, lens and projection mode into a `Camera`, whose `GetProjectionMatrix(aspect)` is the one builder the renderer, the culling frustum and the CSM slice fit all call. A file saved before the two projection keys existed loads as the perspective camera it always was (`SceneSerializer.CameraProjectionRoundTripsAndDefaultsToPerspective`).
 
 > **Important — near/far separation.** Use `MinFarClipFor(nearClip)` wherever you enforce `near < far`:
 > ```c++
@@ -390,7 +401,7 @@ serializer.Load("scenes/level1.scene");
 | `transform` | `Transform` | `position`, `rotation`, `scale` (matrix and `dirty` are derived) |
 | `model` | `ModelComponent` | model source path; `""` = component present, no model |
 | `noShadow` | `NoShadow` | `true` |
-| `camera` | `CameraComponent` | `fovDeg`, `nearClip`, `farClip`, `priority`, `enabled` |
+| `camera` | `CameraComponent` | `fovDeg`, `nearClip`, `farClip`, `priority`, `enabled`, `projection` (int), `orthoHalfHeight` |
 | `light` | `LightComponent` | `type`, `color`, `intensity`, `range`, `innerAngleDeg`, `outerAngleDeg`, `enabled` |
 | `script` | `ScriptComponent` | `path`, `enabled` |
 | `rigidBody` | `RigidBody` | `type` (int), `mass`, `friction`, `restitution`, `linearDamping`, `angularDamping`, `isTrigger`, `initialLinearVelocity` |
@@ -403,7 +414,7 @@ serializer.Load("scenes/level1.scene");
 | `uiDocument` | `UIDocumentComponent` | `markup`, `stylesheet`, `sortOrder`, `enabled`, `interactive`, `region` (a 4-element `[x, y, w, h]` array of surface fractions in `0..1`), and the three scale keys `uiScaleMode` (`0` Constant, `1` ScaleWithScreen), `uiScaleReference` (a 2-element `[w, h]`, default `1920x1080`) and `uiScaleMatch` (`0` follow width, `1` follow height, between = a **log-space** blend; default `0`). Every one of these keys is read with a default, so an absent key means "as before" and an older scene loads unchanged. Both paths are containment-checked on load |
 | `materialOverrides` | `MaterialOverrides` | array of `{ slot, baseColor, emissive, metallic, roughness, ao, alphaMode, opacity, alphaCutoff, doubleSided, shadingModel, toonBands, toonSpecStrength, toonSpecSize, toonRimStrength }`; slots whose override is null are skipped, and the key is omitted entirely when nothing survives |
 
-`AABB` is **not** serialized. It is derived data, regenerated from the model on load — and skipped entirely for models that loaded with zero meshes, whose bounds would be garbage.
+`AABB` is **not** serialized. It is derived data, regenerated from the model on load — and skipped entirely for models that loaded with zero meshes, whose bounds would be garbage. For a skinned model the regenerated box is its **pose bounds** (every frame of every clip), not its rest mesh. `SkinnedPose` is not serialized either, for the stronger reason above: a file that carried one would ship a pose the simulation did not produce.
 
 ### Parent links are array indices
 

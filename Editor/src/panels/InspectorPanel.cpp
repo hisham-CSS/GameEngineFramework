@@ -5,6 +5,8 @@
 #include "imgui_stdlib.h"
 #include "Engine.h"
 
+#include <algorithm>
+#include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <string>
@@ -153,12 +155,41 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
         if (auto* cam = reg.try_get<CameraComponent>(selected)) {
             bool keep = true;
             if (ImGui::CollapsingHeader("Camera", &keep, ImGuiTreeNodeFlags_DefaultOpen)) {
+                // Projection (M3.2g): perspective reads the FOV slider,
+                // orthographic the half-height drag. The mode switch is an
+                // undo record like Enabled; every lens edit refits the
+                // cascades below.
+                {
+                    int mode = static_cast<int>(cam->projection);
+                    const char* modes[] = { "Perspective", "Orthographic" };
+                    if (ImGui::Combo("Projection", &mode, modes, 2) &&
+                        mode != static_cast<int>(cam->projection)) {
+                        const CameraProjection chosen = (mode == 1) ? CameraProjection::Orthographic
+                                                                    : CameraProjection::Perspective;
+                        undo.record(reg, selected, "Camera projection", [&] {
+                            cam->projection = chosen;
+                        });
+                        shadowsDirty = true;
+                    }
+                }
                 const float preFov = cam->fovDeg;
-                // AlwaysClamp: Ctrl+Click typing must not escape the range —
-                // fov outside (0,180) degenerates the projection
-                ImGui::SliderFloat("FOV (deg)", &cam->fovDeg, 20.f, 120.f, "%.0f",
-                                   ImGuiSliderFlags_AlwaysClamp);
-                trackSliderItem("Camera FOV", cam->fovDeg, preFov);
+                const float preHalf = cam->orthoHalfHeight;
+                if (cam->projection == CameraProjection::Orthographic) {
+                    // fixed widget bounds + the invariant enforced in code, as
+                    // for the clip planes below; zero divides in glm::ortho
+                    ImGui::DragFloat("Half height", &cam->orthoHalfHeight, 0.1f,
+                                     0.001f, 100000.f, "%.2f",
+                                     ImGuiSliderFlags_AlwaysClamp);
+                    cam->orthoHalfHeight = glm::clamp(cam->orthoHalfHeight, 0.001f, 100000.f);
+                    trackItem("Camera half height");
+                }
+                else {
+                    // AlwaysClamp: Ctrl+Click typing must not escape the range —
+                    // fov outside (0,180) degenerates the projection
+                    ImGui::SliderFloat("FOV (deg)", &cam->fovDeg, 20.f, 120.f, "%.0f",
+                                       ImGuiSliderFlags_AlwaysClamp);
+                    trackSliderItem("Camera FOV", cam->fovDeg, preFov);
+                }
 
                 // clip planes. Widget bounds are FIXED constants and the
                 // near < far invariant is enforced in code right after each
@@ -184,8 +215,8 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
 
                 // lens changes move the view frustum: the CSM cascades fit
                 // it, so refit even though no caster/camera moved
-                if (cam->fovDeg != preFov || cam->nearClip != preNear ||
-                    cam->farClip != preFar) {
+                if (cam->fovDeg != preFov || cam->orthoHalfHeight != preHalf ||
+                    cam->nearClip != preNear || cam->farClip != preFar) {
                     shadowsDirty = true;
                 }
 
@@ -219,6 +250,44 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
                 else {
                     ImGui::TextDisabled("(no model loaded — set a path or use the Assets panel)");
                 }
+                // A skinned model, read-only (ROADMAP M3.2f): what it carries,
+                // and a DEBUG scrub that writes a SkinnedPose from a clip and
+                // a frame. The pose is derived data -- the fight mode overwrites
+                // it every frame and the serializer never saves it -- so the
+                // scrub is for looking at a clip in the editor, nothing more.
+                if (mc->model && mc->model->IsSkinned()) {
+                    const auto& skel  = mc->model->GetSkeleton();
+                    const auto& clips = mc->model->GetClips();
+                    ImGui::Text("Skinned: %zu joints, %zu clips", skel.joints.size(), clips.clips.size());
+                    if (!clips.clips.empty()) {
+                        static int clipIdx = 0;
+                        static int frame = 0;
+                        clipIdx = std::clamp(clipIdx, 0, (int)clips.clips.size() - 1);
+                        const Clip& clip = clips.clips[clipIdx];
+                        if (ImGui::BeginCombo("Clip (debug scrub)", clip.name.c_str())) {
+                            for (int i = 0; i < (int)clips.clips.size(); ++i) {
+                                const bool sel = (i == clipIdx);
+                                if (ImGui::Selectable(clips.clips[i].name.c_str(), sel)) { clipIdx = i; frame = 0; }
+                                if (sel) ImGui::SetItemDefaultFocus();
+                            }
+                            ImGui::EndCombo();
+                        }
+                        const int last = std::max(0, (int)clips.clips[clipIdx].frames - 1);
+                        frame = std::clamp(frame, 0, last);
+                        ImGui::SliderInt("Frame", &frame, 0, last);
+                        if (ImGui::SmallButton("Apply pose")) {
+                            SkinnedPose sp;
+                            sp.palette.resize(skel.joints.size());
+                            SamplePalette(skel, clips.clips[clipIdx], (std::uint32_t)frame, sp.palette.data());
+                            sp.valid = true;
+                            reg.emplace_or_replace<SkinnedPose>(selected, std::move(sp));
+                        }
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("Rest")) reg.remove<SkinnedPose>(selected);
+                        ImGui::TextDisabled("Derived, never saved: the fight mode overwrites it every frame.");
+                    }
+                }
+
                 if (assets) {
                     static char modelPath[260] = "Exported/Model/backpack.obj";
                     ImGui::InputText("##modelpath", modelPath, sizeof(modelPath));

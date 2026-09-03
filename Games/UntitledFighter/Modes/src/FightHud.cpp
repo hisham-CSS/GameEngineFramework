@@ -392,7 +392,7 @@ namespace {
                         (isPlayer ? "YOU" : "TRAINING DUMMY"),
                     SlotColour(slot));
 
-        const Phase phase = PhaseOf(data, f);
+        const Phase phase = PhaseOf(*model.data, *model.state, static_cast<std::uint8_t>(slot));
         pen.row("state", PhaseName(phase), PhaseColour(phase));
 
         // MOVE, FRAME and the frame data, every one of them read straight off the
@@ -873,7 +873,7 @@ namespace {
         // --- what the training controls do ------------------------------------
         pen.line("SPACE pause     . step one tick     , slow motion     R reset"
                  "     TAB demonstrate     C next character     V corner/midscreen"
-                 "     ESC menu",
+                 "     B overlay     ESC menu",
                  kDimCol);
 
         // WHERE THE FIGHTERS ARE STANDING, and what it costs, because the
@@ -1155,6 +1155,12 @@ void DrawFightHud(MyCoreEngine::Renderer2D& r2d, const MyCoreEngine::Font& font,
     if (model.reloadNote != nullptr && !model.reloadNote->empty())
         top.line("hot reload: " + *model.reloadNote,
                  model.reloadFailed ? kWarnCol : kGoodCol);
+    // The 3D presentation's own two lines (M3.4c/e): a reason the pass is off
+    // is a warning; the overlay the author chose is a fact.
+    if (model.presentationNote != nullptr && !model.presentationNote->empty())
+        top.line("3D presentation: " + *model.presentationNote, kWarnCol);
+    if (model.overlayMode != nullptr)
+        top.line(std::string("overlay: ") + model.overlayMode + "   [B] cycles", kDimCol);
 
     // --- nothing loaded: say what broke, and stop ----------------------------
     if (!model.matchReady || model.state == nullptr || model.data == nullptr) {

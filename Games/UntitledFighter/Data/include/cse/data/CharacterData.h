@@ -41,6 +41,7 @@
 // into anything a tick reads.
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -466,6 +467,15 @@ struct Move {
     // before this block existed gets and is why wiring them changes no character
     // that does not use them.
     std::int32_t hitstopTicks    = 0;   // impact freeze, BOTH fighters
+    // Ticks the DEFENDER cannot act after BLOCKING this move, from
+    // `engine.reaction.blockstun_ticks`. Zero means the file authors none.
+    // Read since ROADMAP M3.0b, which found the schema authoring it on every
+    // fighter_a move, the kernel applying MoveDef::blockstun, and nothing
+    // carrying the one into the other -- so every block in the shipped game
+    // gave zero blockstun and no ledger row said so. Distinct from the
+    // HitRecord field of the same name: that one belongs to engine.hits[],
+    // the multi-HitDef transcription the kernel omits.
+    std::int32_t blockstunTicks  = 0;
     std::int32_t airHitstunTicks = 0;   // hitstun when the defender is AIRBORNE;
                                         // it is what makes a juggle last
     std::int32_t fallRecoverTicks = 0;  // ticks on the floor after a knockdown
@@ -476,6 +486,34 @@ struct Move {
     // shipped move today (fighter_a authors the key at 0 on all 22).
     std::int32_t cornerPushSub    = 0;
     bool         causesKnockdown  = false;
+    // COUNTER HIT (ROADMAP M1.3(c), the first mechanic under ADR-015): the
+    // price this move charges for catching the defender mid-STARTUP.
+    // Authored as `engine.reaction.counter_hit { hitstun_bonus, damage_bonus }`
+    // -- the bonus damage in the same float units as `damage`, quantized
+    // through the same hundredths rule so there is still exactly one
+    // documented quantization. Zero is "the file did not say", which is every
+    // move authored before the block and why the unpatched hash holds. Read
+    // by ResolveHits (kernel) and by the COUNTER opening's projection
+    // (ProverAdapter -- charged on every hit there, first hit in the game;
+    // the Permissive loss row says so).
+    std::int32_t counterHitstunBonus         = 0;
+    std::int32_t counterDamageBonusHundredths = 0;
+    // THE LAUNCH (ROADMAP M1.3(d)): a clean hit takes the defender off the
+    // ground with this velocity. Authored as `engine.reaction.launch
+    // { vel_x_sub, vel_y_sub }`, +Y up like engine.movement (ADR-014's
+    // convention for NEW fields -- the MUGEN Y-down flip is for transcribed
+    // ones). vel_y_sub must be positive (a hit that sends the defender DOWN
+    // is a knockdown, already authorable) and vel_x_sub non-negative: the
+    // file authors a MAGNITUDE and the kernel points it away from the
+    // attacker, for MirrorBox's reason. Zero-zero is "no launch".
+    std::int32_t launchVelXSub = 0;
+    std::int32_t launchVelYSub = 0;
+    // Which on_hit reaction this move arms (M1.3(d2)): 0 none, 1 wall bounce
+    // (`engine.reaction.on_hit: "wall_bounce"` -- the wall that stops the
+    // stunned defender gives it back, once per arming hit). "wall_splat" is
+    // enumerated in the schema and REFUSED at load until it is simulated, so
+    // a file cannot author a no-op.
+    std::int32_t onHitReaction = 0;
 
     // WHICH BLOCK STOPS THIS MOVE. Mid by default, which is what an absent field
     // means and what every move written before this field existed is.
@@ -639,6 +677,33 @@ struct Move {
     // owns and has not built. Preserved rather than dropped so that the day the
     // parser exists it has the strings in front of it.
     std::string hitConditionProse;
+
+    // The clip this move wears when the character has a presentation model
+    // (ROADMAP M3.4b, ADR-019 D2): engine.anim3d.clip, or empty for the
+    // default, which is the move id. Presentation-only -- never reaches
+    // MatchData. By the time a load returns, A21 has checked the named clip's
+    // length against startup + active + recovery.
+    std::string anim3dClip;
+};
+
+// One clip of a presentation model's sidecar, `<stem>.clips.json` (ADR-019
+// D2): the exporter writes `{ clip: frames }` beside the model and the loader
+// reads it here with nlohmann, never opening the model itself.
+struct ClipLength {
+    std::string  name;
+    std::int32_t frames = 0;
+};
+
+// ADR-019 D2's fourteen reserved cycles, in cse::game::PoseKind order
+// (Idle..Win); tests/test_pose_select.cpp pins the two lists against each
+// other. Assertion A22 requires every one of them in a presentation model's
+// sidecar, and FighterClips indexes this array by kind, so the order is
+// append-only.
+inline constexpr std::array<const char*, 14> kReservedCycleNames = {
+    "idle",          "walk_fwd",       "walk_back",     "crouch_idle",
+    "crouch_walk",   "jump_rise",      "jump_fall",     "hitstun_stand",
+    "hitstun_air",   "blockstun_stand", "blockstun_crouch", "knockdown",
+    "ko",            "win",
 };
 
 struct Cancel {
@@ -761,6 +826,16 @@ struct CharacterData {
     // Rebuilds moveIndexById and cancelsFrom from moves/cancels. The loader
     // calls it; a caller that assembled a character by hand must call it too.
     void RebuildIndices();
+
+    // The presentation model (ROADMAP M3.4b; ADR-019 D2 and D9), as authored
+    // under engine.anim3d.model and contained against LoadOptions::contentRoot:
+    // a glTF whose `<stem>.clips.json` sidecar this loader read and checked
+    // (A21, A22). Empty means the character has none and the fight draws its
+    // 2D placeholders. anim3dClips is that sidecar as loaded -- every clip name
+    // with the frame count the exporter wrote, sorted by name. Both are
+    // presentation-only: never in MatchData, never under the hash.
+    std::string             anim3dModel;
+    std::vector<ClipLength> anim3dClips;
 };
 
 // NOTE ON WHAT IS DELIBERATELY NOT LOADED.
@@ -778,17 +853,34 @@ struct CharacterData {
 // Also not loaded, for the same "no data behind it" reason:
 // engine.projectile, engine.transitions (the on_land kind), engine.invuln,
 // engine.freeze, engine.min_reach_sub, engine.proximity_variant,
-// engine.motion_physics, engine.reaction, engine.anim, engine.fx.
+// engine.motion_physics, engine.anim (the SPRITE block -- atlas, frames,
+// sprites -- which is not the 3D clips), engine.fx.
 //
-// TWO ENGINE FIELDS ARE LOADED, AND THE EXCEPTION IS THE POINT.
-// engine.airborne_from_tick and engine.hurtbox_sub cross into this header while
-// their neighbours do not, because they are not waiting on Phase 5 or on a
-// hitbox editor: they are the entire mechanism behind two behaviours the design
-// asks for by name -- a crouching attack low-profiling a high one, and a
-// grounded attack hopping over a low. Both fall out of a shape and a tick, both
-// are authorable today with a tape measure, and neither means anything if it
-// stops at the file. Leaving them unloaded would have left the two headline
-// features of this schema revision as documentation.
+// engine.anim3d IS loaded (ROADMAP M3.4b, ADR-019 D2): the presentation model
+// path and each move's clip name, with the model's clip sidecar read and held
+// by A21/A22 to the frame data. It is the one engine block that is
+// presentation-only: CharacterData carries it, MatchData never does, and
+// nothing the simulation hashes can see it.
+//
+// engine.reaction LEFT THIS LIST ACROSS ROADMAP M1, one mechanic at a time:
+// the loader now reads hitstop_ticks, blockstun_ticks, air_hitstun_ticks,
+// corner_push_vel_sub, fall_recover_ticks, counter_hit, launch and on_hit --
+// each key landed in the same commit as the kernel behaviour (or the bridge
+// carry into an existing kernel slot) that consumes it, never ahead of one.
+// `priority` inside the block stays unread (the Move::priority note above says
+// why), and `causes_knockdown` is recognised only to be refused with a
+// pointer to fall_recover_ticks. engine.movement (the character-level jump
+// physics, +Y up) loads too, since M1.3(b1).
+//
+// TWO ENGINE FIELDS OPENED THAT DOOR, AND THE EXCEPTION WAS THE POINT.
+// engine.airborne_from_tick and engine.hurtbox_sub crossed into this header
+// first, while their neighbours did not, because they were not waiting on
+// Phase 5 or on a hitbox editor: they are the entire mechanism behind two
+// behaviours the design asks for by name -- a crouching attack low-profiling
+// a high one, and a grounded attack hopping over a low. Both fall out of a
+// shape and a tick, both are authorable with a tape measure, and neither
+// means anything if it stops at the file. Leaving them unloaded would have
+// left the two headline features of that schema revision as documentation.
 //
 // AND engine.invuln STAYS ON THE UNLOADED LIST WHILE Move::invincibility IS
 // LOADED, WHICH LOOKS LIKE AN INCONSISTENCY AND IS NOT. They are two fields
@@ -854,6 +946,15 @@ struct LoadOptions {
     // untrusted (docs/MAINTENANCE.md), and a 4 GB "character" is a denial of
     // service that costs nothing to author.
     std::size_t maxFileBytes = 64u * 1024u * 1024u;
+
+    // Where the file's OWN authored paths resolve (ROADMAP M3.4b):
+    // engine.anim3d.model, and the `<stem>.clips.json` beside it, go through
+    // PathIsContained against this root before the sidecar is opened. Empty
+    // means the current directory. LoadCharacterFile and LoadCharacterVariant
+    // fill it with their baseDir when the caller left it empty, so a file load
+    // needs nothing more; LoadCharacterJson callers that author a model say
+    // where it lives.
+    std::string contentRoot;
 };
 
 // The result of a load, as DATA. A rejected file is a normal outcome -- authored

@@ -52,6 +52,29 @@ enum class ProverStatus : std::uint8_t { Terminating, Infinite, Unknown };
 // and every switch over this enum will then fail to compile until it is handled.
 enum class ProverStage : std::uint8_t { Corner };
 
+// HOW THE STRING OPENED, which since ADR-015 (accepted 2026-09-01, option 3)
+// is part of the question and therefore part of the answer. The model reads
+// one hitstun per move; WHICH number that is depends on the opening:
+//
+//   NEUTRAL  the grounded hit every verdict answered before this enum existed.
+//   COUNTER  the first hit lands as a counter hit, charging the move's
+//            authored M1.3(c) bonus. The search charges it on EVERY hit --
+//            the game grants it on the opening hit only -- which is the
+//            Permissive direction and is named in this opening's own loss
+//            row; a character authoring no bonus restates NEUTRAL exactly,
+//            and the tests pin that identity.
+//   AIR      the defender is airborne: every move's `air_hitstun_ticks`
+//            replaces its ground hitstun (falling back to ground where the
+//            file authors none). This answers the FILE's numbers today; the
+//            kernel not yet simulating them is the loss ledger's news
+//            (M1.3(d)), not a reason for the model to misquote the file.
+//
+// Orthogonal to ProverStage on purpose: corner-vs-midscreen is WHERE the
+// question is asked, this is HOW it starts, and overloading one enum with
+// both would forfeit ProverStage's single-member compile-time ratchet.
+enum class ProverOpening : std::uint8_t { Neutral = 0, Counter = 1, Air = 2 };
+inline constexpr int kProverOpeningCount = 3;
+
 // WHICH WAY A LOSS ERRS. The whole soundness argument is this enum.
 //
 //   PERMISSIVE   the model can say INFINITE where the game is safe. A designer
@@ -193,6 +216,26 @@ struct ProverResult {
     // infinite. Show it in those words. On all three Phase-0 characters this is
     // false, and ProverAdapter.cpp says exactly why for each check.
     bool soundnessAlarm = false;
+
+    // --- One verdict per opening (ADR-015 option 3) --------------------------
+    //
+    // Which opening THIS result answers. The top-level result of
+    // AnalyseCharacter is always the NEUTRAL opening -- every field above this
+    // line keeps the meaning and the bytes it had before openings existed, so
+    // the call sites written against the single-verdict surface stay correct
+    // without knowing the vocabulary grew.
+    ProverOpening opening = ProverOpening::Neutral;
+
+    // The full answer per opening, indexed by ProverOpening's values:
+    // [0] Neutral (a copy of the top-level fields), [1] Counter, [2] Air.
+    // Each element is a complete ProverResult -- losses, dead cancels and
+    // settling index genuinely differ per opening, because the substituted
+    // hitstun bases move the settled graph -- with its own `openings` vector
+    // EMPTY: the recursion stops at one level, and an element that carried
+    // grandchildren would be a bug. Empty on a result that never ran (the
+    // default state), which is how "analysed before openings existed" and
+    // "never analysed" stay distinguishable from a populated answer.
+    std::vector<ProverResult> openings;
 };
 
 struct ProverOptions {
@@ -244,6 +287,7 @@ bool AnalyseCharacter(const CharacterData&  character,
 
 // Human-readable names, for the panel and for test failure messages.
 const char* ProverStatusName(ProverStatus status);
+const char* ProverOpeningName(ProverOpening opening);
 const char* RankingAbsenceName(RankingAbsence absence);
 const char* LossDirectionName(LossDirection direction);
 

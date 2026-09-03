@@ -504,14 +504,17 @@ struct MoveDef {
     MotionKey    motion[kMaxMotionKeys];
     std::int32_t motionCount;
 
-    // --- RESERVED for M1.3(c) and (d), semantics deliberately unchosen ------
+    // --- M1.3(c) counter-hit, LIVE; (d) launch fields still RESERVED --------
     //
-    // Bytes only, reserved in the SAME growth as the motion block so the
-    // hashed contract pays its re-hash once (ADR-005 section 3, ADR-014).
-    // Counter-hit's three-ways-out question (ROADMAP M1.3(c)) is NOT decided
-    // by these fields existing -- zero is inert, nothing reads them, and the
-    // (c) ADR still owes the choice. Same for the launch vector and reaction
-    // id (d): Simulate.cpp's air-hit velX zeroing stands until they land.
+    // Reserved in the SAME growth as the motion block so the hashed contract
+    // paid its re-hash once (ADR-005 section 3, ADR-014). The counter pair
+    // stopped being reserved when ADR-015 was accepted (option 3, per-opening
+    // verdicts) and M1.3(c) landed: ResolveHits adds both bonuses when the
+    // defender is caught MID-STARTUP -- startup only, a trade is a trade and
+    // a punish is its own reward -- and zero stays inert, which is every move
+    // authored before the field. The launch pair remains bytes only for (d):
+    // nothing reads them, and Simulate.cpp's air-hit velX zeroing stands
+    // until they land.
     std::int32_t counterHitstunBonus;
     std::int32_t counterDamageBonus;
     std::int32_t launchVelXSub;
@@ -527,16 +530,44 @@ struct MoveDef {
     // int16 like pushbackHit. Zero is every move authored before the wire,
     // including all 22 of fighter_a's (the file authors the key at 0).
     std::int16_t cornerPushHit;
+    // WHICH on_hit REACTION this move arms on the defender (M1.3(d2)):
+    // kOnHitNone, or kOnHitWallBounce -- the wall that stops the stunned body
+    // gives it back (Fighter::reaction is armed here in ResolveHits, fired
+    // and spent at StepPhysics' wall clamp). Wall SPLAT is enumerated in the
+    // schema and REFUSED at the loader until it is simulated, so a file
+    // cannot author a no-op; when it lands it takes the next value.
     std::uint8_t onHitReaction;
 
     // Explicit tail padding, hashed like everything else here.
     std::uint8_t pad3_[1];
+
+    // --- M1.3(d): the air number, and the second MoveDef growth -------------
+    //
+    // Hitstun against an AIRBORNE defender -- what makes a juggle last, and
+    // the number every fighter_a move has authored since the file was written
+    // (engine.reaction.air_hitstun_ticks, differing from ground on all 22).
+    // Zero means "the file did not say": ResolveHits falls back to `hitstun`,
+    // so a character that authors nothing plays exactly as before.
+    //
+    // APPENDED AT THE TAIL, after the (b2) block's explicit padding, because
+    // (b2)'s reservation covered counter and launch and missed this one --
+    // recorded so the next reservation reserves by enumerating the schema's
+    // waiting fields instead of the mechanics' names. Appending keeps every
+    // existing offset; the hashed wire still changes size (284 -> 288), which
+    // is the second re-hash ADR-005 section 3 permits when batched -- and it
+    // is batched: (d) is the openings wave's one MoveDef change, landing
+    // between (c)'s zero-growth reads and (b3)'s golden re-record.
+    std::int32_t airHitstun;
 };
 
 // 32 moves per fighter. A hard cap, deliberately: D4 forbids unbounded growth in
 // anything the simulation reads, and a cap that is checked at load is a lobby
 // error, while a cap that is not is a buffer overrun.
 inline constexpr std::int32_t kMaxMovesPerFighter = 32;
+
+// MoveDef::onHitReaction values (M1.3(d2)).
+inline constexpr std::uint8_t kOnHitNone       = 0;
+inline constexpr std::uint8_t kOnHitWallBounce = 1;
 
 // --- Cancels ----------------------------------------------------------------
 
@@ -792,6 +823,17 @@ struct FighterData {
     // authored order makes that rule one a designer can see in their own file,
     // rather than one that emerged from a sort nobody wrote down.
     CancelEdge cancels[kMaxCancelsPerFighter];
+
+    // THE JUMP MOVE, if this character authors one (M1.3(b3), ADR-018): the
+    // slot whose button is exactly kInputUp, or 0 for none. Nonzero GATES OFF
+    // StepPhysics' built-in level-triggered jump -- the built-in is the
+    // unauthored placeholder, the walk-speed doctrine -- so the Up press
+    // reaches StepAttack still grounded and the jump starts on the press EDGE
+    // like every move since M1.1d. The bridge sets it and refuses a character
+    // with two Up-bound moves, which would race the button scan. Tail-
+    // appended: FighterData is handshake-hashed wire, and appending keeps
+    // every existing offset.
+    std::int32_t jumpMoveSlot;
 };
 
 // The read-only data for every slot in a match, indexed by the same slot as
@@ -830,18 +872,20 @@ static_assert(sizeof(MotionKey) == 12,
               "handshake, same hazard as MoveDef below.");
 static_assert(sizeof(MoveDef) == 128 + 2 * kMaxResources * sizeof(std::int32_t) + 4 +
                                      kMaxMotionKeys * sizeof(MotionKey) + 4 +
-                                     4 * sizeof(std::int32_t) + 4,
+                                     4 * sizeof(std::int32_t) + 4 +
+                                     sizeof(std::int32_t),
               "MoveDef grew, shrank, or acquired implicit padding. The connect "
               "handshake hashes these bytes (ARCHITECTURE.md 4.8), so a padding "
               "hole would make two peers with identical characters disagree. "
-              "This was 40 before ADR-005 P2, 128 before M1.1b and 164 before "
-              "M1.3(b2); the growth is priority, blockstun, chip, pushback, "
-              "juggle, hitstop, knockdown, scaling, stance, blockedAs, the "
-              "hurtbox override, the invincibility windows, the resource effect "
-              "and guard vectors with their mask, and then the authored motion "
-              "block with the reserved (c)/(d) fields -- one batched re-hash, "
-              "per ADR-005 section 3 and ADR-014. Written as the OLD SIZE PLUS "
-              "THE NEW MEMBERS rather than as a fresh round number, so it still "
+              "This was 40 before ADR-005 P2, 128 before M1.1b, 164 before "
+              "M1.3(b2) and 284 before M1.3(d); the growth is priority, "
+              "blockstun, chip, pushback, juggle, hitstop, knockdown, scaling, "
+              "stance, blockedAs, the hurtbox override, the invincibility "
+              "windows, the resource effect and guard vectors with their mask, "
+              "the authored motion block with the (c)/launch fields, and then "
+              "(d)'s tail-appended airHitstun -- two batched re-hashes, per "
+              "ADR-005 section 3 and ADR-014. Written as the OLD SIZE PLUS THE "
+              "NEW MEMBERS rather than as a fresh round number, so it still "
               "asks 'did padding appear' and not 'is this what I last wrote "
               "down'.");
 static_assert(std::is_trivially_copyable_v<CancelEdge>, "MatchData is hashed and compared as bytes");

@@ -1,8 +1,8 @@
 # ADR-016: A character reload restarts the match
 
-Status: Proposed (2026-08-31), with a recommended default the session proceeds
-under: it is safe (no published claim changes, no data is destroyed) and
-reversible (one mode file and one small data class; `git revert` undoes it).
+Status: **Accepted 2026-09-01** (the recommended default stands; review point
+R5 verified the loop in play — "behaving as expected"). Originally Proposed
+2026-08-31 and proceeded under as safe and reversible.
 
 ## Context
 

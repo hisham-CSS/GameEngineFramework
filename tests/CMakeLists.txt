@@ -289,6 +289,37 @@ add_executable(test_character_hotreload test_character_hotreload.cpp)
 target_link_libraries(test_character_hotreload PRIVATE CseGame CseData CseKernel GTest::gtest_main)
 add_test(NAME test_character_hotreload COMMAND $<TARGET_FILE:test_character_hotreload>)
 
+# POSE SELECTION (ROADMAP M3.4a, ADR-019 D3/D9, DETERMINISM P4) — which clip a
+# fighter wears and at which frame, as a pure function of GameState: a Restore
+# reproduces every pose, the frame IS moveFrame, hitstop freezes it, and the
+# precedence is the kernel's own. Headless, against the shipped fighter_a.
+add_executable(test_pose_select test_pose_select.cpp)
+# UntitledFighterPresentation since M3.4d: the three P4 acceptance tests compose the
+# whole frame over the same rig sections 1-7 use, so they live here.
+target_link_libraries(test_pose_select PRIVATE UntitledFighterPresentation CseGame CseData CseKernel GTest::gtest_main)
+add_dependencies(test_pose_select test_runtime_deps)
+add_test(NAME test_pose_select COMMAND $<TARGET_FILE:test_pose_select>)
+
+# THE PRESENTATION LIBRARY, LINKED HEADLESS (ROADMAP M3.4a's spike) — proves
+# UntitledFighterPresentation links into a test with no GL context in every CI
+# job before M3.4b-c put the clip table and the P4 acceptance tests into it.
+# Deliberately no Engine on the link line: the day it needs one, P4 stops being
+# a headless property and that is a decision, not a drive-by.
+add_executable(test_fight_presentation test_fight_presentation.cpp)
+target_link_libraries(test_fight_presentation PRIVATE UntitledFighterPresentation GTest::gtest_main)
+add_test(NAME test_fight_presentation COMMAND $<TARGET_FILE:test_fight_presentation>)
+
+# THE RECONCILER'S ENGINE HALF (ROADMAP M3.4c). Two of M3.4c's properties need
+# Engine types -- a registry for the director to choose a camera from, and
+# SamplePalette for the bytes a palette must equal -- so they link Engine and
+# the title's FightScene, still with no window (Model::Decode and the director
+# are both GL-free). The include dir is the one exception to "Modes exports no
+# headers": this test IS the reason FightScene is a separate translation unit.
+add_executable(test_fight_reconciler test_fight_reconciler.cpp)
+target_include_directories(test_fight_reconciler PRIVATE ${CMAKE_SOURCE_DIR}/Games/UntitledFighter/Modes/src)
+target_link_libraries(test_fight_reconciler PRIVATE UntitledFighterModes UntitledFighterPresentation CseGame Engine GTest::gtest_main)
+add_test(NAME test_fight_reconciler COMMAND $<TARGET_FILE:test_fight_reconciler>)
+
 # AUTHORING TELEMETRY (ROADMAP M1.7, ADR-017) — the log grows by one line per
 # append and parses back. Pins the writer/reader pair the Combo Prover panel
 # calls; the panel's runIfStale_ is its ImGui mirror.
@@ -335,9 +366,12 @@ engine_test(test_splits)           # CSM split math (pure CPU)
 engine_test(test_undo_history)     # editor undo/redo snapshots (pure CPU)
 engine_test(test_hierarchy)        # transform parenting (pure CPU)
 engine_test(test_camera_director)  # Cinemachine-style selection/blending (pure CPU)
+engine_test(test_ortho_camera)     # M3.2g orthographic camera: projection, frustum box, sync, director mode switch (pure CPU)
 engine_test(test_asset_index)      # asset filesystem domain: scan/cache/find (pure CPU)
 engine_test(test_job_system)       # P4-3 thread pool + main-thread completion pump (pure CPU)
 engine_test(test_model_decode)     # P4-3 model decode stage (pure CPU — no GL by design)
+engine_test(test_clip_sampler)     # M3.2d frame-indexed sampler: same frame same bytes, clamp, rest identity (pure CPU)
+engine_test(test_skinned_draw)     # M3.2e skinned GPU path: skin VBO, uBones palette, SKINNED variants (GL, probe pixels)
 engine_test(test_asset_manager_async) # P4-3 async RequestModel: states/dedupe/cap (pure CPU)
 engine_test(test_lights)           # punctual light selection + culling (pure CPU)
 engine_test(test_physics)          # backend-conformance suite + PhysicsWorld/ECS (pure CPU)
@@ -429,6 +463,7 @@ set_tests_properties(
     test_render_passes
     test_renderer2d
     test_scene_details
+    test_skinned_draw
     test_ui_layout
     test_ui_pass
   PROPERTIES LABELS "gl")

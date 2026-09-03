@@ -244,8 +244,9 @@ namespace MyCoreEngine {
         // per-frame matrices (clip planes come from the camera — synced from
         // the CameraComponent when rendering through a scene camera)
         const float aspect = (fbHeight > 0) ? float(fbWidth) / float(fbHeight) : 1.0f;
-        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), aspect,
-                                                camera.NearClip, camera.FarClip);
+        // perspective or orthographic (M3.2g): the camera owns the one builder
+        // the pass frustum and the CSM slice fit also call
+        glm::mat4 projection = camera.GetProjectionMatrix(aspect);
         glm::mat4 view = camera.GetViewMatrix();
 
         // per-frame params

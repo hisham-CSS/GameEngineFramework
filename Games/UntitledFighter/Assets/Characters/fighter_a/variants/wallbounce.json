@@ -1,0 +1,18 @@
+{
+  "description": "The wall gives the body back -- and the corner bench cannot be extended by it (M1.3(d), the measured null). stand_hk gains launch { vel_x_sub 1200, vel_y_sub 700 } and on_hit wall_bounce: a clean hit takes the defender off the ground, the wall that stops the stunned body reverses it whole, the spend is recorded in Fighter::bounces, and a second wall does nothing without a fresh arming hit -- all pinned move-by-move in P3Reactions. The pair: TERMINATING / TERMINATING with the executed worst case at the base's own 7, because at the corner bench the defender is already PERMANENTLY in range -- the bounce's whole value is returning a body the wall would otherwise have kept, and the corner grants that for free. The exhibit is the honest scope statement the mechanic ships with: its strings live midscreen, which is the question the corner-only decision procedure deliberately does not ask (ProverAdapter note 2), and a row that grew numbers here would have been measuring the bench, not the bounce.",
+  "patch": {
+    "moves": {
+      "stand_hk": {
+        "engine": {
+          "reaction": {
+            "launch": {
+              "vel_x_sub": 1200,
+              "vel_y_sub": 700
+            },
+            "on_hit": "wall_bounce"
+          }
+        }
+      }
+    }
+  }
+}

@@ -125,6 +125,8 @@ private:
     float        lastFovDeg_{ -1.f };
     float        lastNear_{ -1.f };
     float        lastFar_{ -1.f };
+    float        lastOrthoHalfHeight_{ -1.f }; // M3.2g: lens state like fov
+    int          lastProjection_{ -1 };
     UpdatePolicy policy_{ UpdatePolicy::CameraOrSunMoved };
     SplitMode    splitMode_{ SplitMode::Fixed };
     int          budgetPerFrame_{ 0 };   // 0 == update all stale cascades
@@ -156,6 +158,9 @@ private:
     std::array<glm::mat4, kMaxCascades>   lightVP_{ {glm::mat4(1),glm::mat4(1),glm::mat4(1),glm::mat4(1)} };
 
     std::unique_ptr<MyCoreEngine::Shader> depthProg_; // "shadow_depth_*.glsl"
+    // The skinned depth program (ROADMAP M3.2e): the same vertex source with
+    // "#define SKINNED 1", so a posed fighter casts the shadow of its pose.
+    std::unique_ptr<MyCoreEngine::Shader> depthProgSkinned_;
 
     // helpers
     void ensureTargets_();

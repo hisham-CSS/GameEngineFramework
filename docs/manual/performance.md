@@ -321,7 +321,8 @@ pixels of height, computed in `Scene::RenderScene`
 (`Engine/src/core/Scene.cpp`) as:
 
 ```
-pixelH = viewportHeightPx * radius / (dist * tanHalfFov)
+pixelH = viewportHeightPx * radius / (dist * tanHalfFov)   // perspective
+pixelH = viewportHeightPx * radius / orthoHalfHeight        // orthographic camera (M3.2g)
 ```
 
 It is **off by default** (`smallCullEnabled_ = false`) because it changes what is

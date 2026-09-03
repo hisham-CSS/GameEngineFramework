@@ -2859,3 +2859,303 @@ TEST(P3Movement, ACornerPushRecoilsTheAttackerOnlyAtTheWall) {
         EXPECT_LT(s.p[1].health, 1000) << "precondition: the hit landed";
     }
 }
+
+// --- Counter-hit (ROADMAP M1.3(c), the first mechanic under ADR-015) ---------
+//
+// The reserved MoveDef bytes stop being reserved: a move may author a price
+// for catching the defender STARTING something. Startup only -- not active (a
+// trade is a trade, and charging it as a counter would make every trade a
+// counter for both sides), not recovery (a punish is already its own reward)
+// -- and off by default: zero bonus is every move authored before the field,
+// and the unpatched MatchData hash must not move.
+
+TEST(P3Reactions, CounterHitAddsTheAuthoredStun) {
+    auto data = twoFighters();
+    data->p[0].moves[1].counterHitstunBonus = 7;
+    data->p[0].moves[1].counterDamageBonus  = 50;
+
+    // COUNTER: the defender is mid-startup when the hit lands. attack() has
+    // startup 1, so moveFrame 0 is the startup frame -- and a fighter whose
+    // move has not reached active has no hitbox, so only p0 connects.
+    {
+        GameState s = facingOff();
+        s.p[1].moveFrame = 0;
+        ResolveHits(s, *data);
+        EXPECT_EQ(s.p[1].hitstun, 12 + 7)
+            << "the authored counter bonus did not reach the stun";
+        EXPECT_EQ(s.p[1].health, 1000 - (100 + 50))
+            << "the authored counter damage bonus did not reach the health";
+    }
+
+    // NOT a counter: the defender is idle. Base numbers exactly.
+    {
+        GameState s = facingOff();
+        s.p[1].moveId    = 0;
+        s.p[1].moveFrame = 0;
+        ResolveHits(s, *data);
+        EXPECT_EQ(s.p[1].hitstun, 12) << "an idle defender was charged as a counter";
+        EXPECT_EQ(s.p[1].health, 1000 - 100);
+    }
+
+    // NOT a counter: the defender is ACTIVE -- this is a trade, both connect,
+    // and a trade charged as a counter would hand both sides a bonus for the
+    // same instant.
+    {
+        GameState s = facingOff();   // both mid-active by construction
+        ResolveHits(s, *data);
+        EXPECT_EQ(s.p[1].hitstun, 12) << "a trade was charged as a counter";
+    }
+
+    // OFF BY DEFAULT: no bonus authored, the same mid-startup catch pays base.
+    {
+        auto plain = twoFighters();
+        GameState s = facingOff();
+        s.p[1].moveFrame = 0;
+        ResolveHits(s, *plain);
+        EXPECT_EQ(s.p[1].hitstun, 12)
+            << "a move that authors no counter_hit grew counter semantics";
+        EXPECT_EQ(s.p[1].health, 1000 - 100);
+    }
+}
+
+TEST(P3Reactions, ALauncherPutsTheDefenderInTheAirAndAirHitstunTakesOver) {
+    auto data = twoFighters();
+    data->p[0].moves[1].launchVelYSub = 2000;
+    data->p[0].moves[1].launchVelXSub = 500;
+    data->p[0].moves[1].airHitstun    = 30;
+
+    // THE LAUNCH: a clean hit on a GROUNDED defender leaves the ground with
+    // the authored velocity, X pointed away from the attacker by the same
+    // position rule pushback uses. The launching hit itself is charged the
+    // GROUND number -- the defender was grounded when it connected.
+    GameState s = facingOff();
+    s.p[1].moveId    = 0;
+    s.p[1].moveFrame = 0;
+    ResolveHits(s, *data);
+    EXPECT_EQ(s.p[1].airborne, 1) << "the launcher did not launch";
+    EXPECT_EQ(s.p[1].velY, 2000);
+    EXPECT_EQ(s.p[1].velX, 500) << "launch X did not point away from the attacker";
+    EXPECT_EQ(s.p[1].hitstun, 12)
+        << "the launching hit was charged air hitstun; the defender was "
+           "grounded when it landed";
+
+    // THE ARC SURVIVES THE NEXT TICK. A launched body is marked
+    // (Fighter::reaction) so the airborne-stun straight-drop rule leaves its
+    // velocity alone -- without the mark, StepPhysics would eat the launch
+    // one tick after the launcher connected.
+    EXPECT_EQ(s.p[1].reaction, kReactionLaunched);
+    {
+        const std::int32_t xBefore = s.p[1].posX;
+        InputPair in{};
+        Simulate(s, in, *data);
+        EXPECT_EQ(s.p[1].velX, 500)
+            << "the airborne-stun rule zeroed a LAUNCHED body's arc";
+        EXPECT_GT(s.p[1].posX, xBefore) << "the launched body did not travel";
+    }
+
+    // THE JUGGLE: a fresh contact on the now-airborne defender reads the
+    // move's authored AIR number instead of its ground one.
+    s.p[0].alreadyHitBits = 0;
+    s.p[0].flags          = 0;
+    s.p[0].moveId         = 1;
+    s.p[0].moveFrame      = 1;
+    ResolveHits(s, *data);
+    EXPECT_EQ(s.p[1].hitstun, 30)
+        << "an airborne defender was charged ground hitstun";
+
+    // AND A BODY MERELY HIT OUT OF ITS JUMP STILL DROPS STRAIGHT -- the
+    // behaviour the crossplat golden pins: no launch authored, so no mark,
+    // and the next physics tick zeroes the jump's velX.
+    {
+        GameState j = facingOff();
+        j.p[1].moveId    = 0;
+        j.p[1].moveFrame = 0;
+        j.p[1].airborne  = 1;
+        j.p[1].posY      = px(30);
+        j.p[1].velX      = 700;
+        auto plainAir = twoFighters();
+        ResolveHits(j, *plainAir);
+        ASSERT_GT(j.p[1].hitstun, 0);
+        EXPECT_EQ(j.p[1].reaction, 0)
+            << "an ordinary air hit was marked as a launch";
+        InputPair in{};
+        Simulate(j, in, *plainAir);
+        EXPECT_EQ(j.p[1].velX, 0)
+            << "an air-reset kept its arc; the straight drop is recorded "
+               "golden behaviour, not a free variable";
+    }
+
+    // OFF BY DEFAULT, both halves: no launch authored keeps the defender on
+    // the ground; no air number authored charges an airborne defender the
+    // ground number -- ADR-011's silence rule, at the kernel layer.
+    auto plain = twoFighters();
+    GameState g = facingOff();
+    g.p[1].moveId    = 0;
+    g.p[1].moveFrame = 0;
+    ResolveHits(g, *plain);
+    EXPECT_EQ(g.p[1].airborne, 0) << "a move that authors no launch launched";
+
+    GameState a = facingOff();
+    a.p[1].moveId    = 0;
+    a.p[1].moveFrame = 0;
+    a.p[1].airborne  = 1;
+    a.p[1].posY      = px(30);
+    ResolveHits(a, *plain);
+    EXPECT_EQ(a.p[1].hitstun, 12)
+        << "a move with no air number changed its stun against an airborne "
+           "defender";
+}
+
+TEST(P3Reactions, AWallBounceReturnsTheDefenderIntoRange) {
+    auto data = twoFighters();
+    data->p[0].moves[1].launchVelYSub = 2000;
+    data->p[0].moves[1].launchVelXSub = 800;
+    data->p[0].moves[1].hitstun       = 60;   // long enough to fly the whole arc stunned
+    data->p[0].moves[1].airHitstun    = 60;
+    data->p[0].moves[1].onHitReaction = kOnHitWallBounce;
+
+    // The corner geometry the exhibit is about: the defender is nearly AT its
+    // wall, so the launch drives it in and the wall must give it back.
+    GameState s = facingOff();
+    s.p[1].moveId    = 0;
+    s.p[1].moveFrame = 0;
+    s.p[1].posX      = kStageHalfWidthSub - px(2);
+    s.p[0].posX      = s.p[1].posX - px(34);
+
+    ResolveHits(s, *data);
+    ASSERT_EQ(s.p[1].reaction, kReactionWallBounceArmed)
+        << "the hit did not arm the bounce";
+    ASSERT_EQ(s.p[1].velX, 800);
+
+    InputPair in{};
+    bool bounced = false;
+    for (int t = 0; t < 20 && !bounced; ++t) {
+        Simulate(s, in, *data);
+        if (s.p[1].velX < 0) bounced = true;
+    }
+    EXPECT_TRUE(bounced) << "the wall never returned the defender";
+    EXPECT_EQ(s.p[1].velX, -800)
+        << "the bounce changed the speed as well as the direction";
+    EXPECT_EQ(s.p[1].bounces, 1) << "the spend was not recorded";
+    EXPECT_EQ(s.p[1].reaction, kReactionLaunched)
+        << "the bounce did not spend itself -- a second wall would bounce "
+           "again with no fresh arming hit";
+
+    // OFF BY DEFAULT: the same launch with no on_hit authored just rams the
+    // wall -- the clamp holds the body and nothing comes back.
+    auto plain = twoFighters();
+    plain->p[0].moves[1].launchVelYSub = 2000;
+    plain->p[0].moves[1].launchVelXSub = 800;
+    plain->p[0].moves[1].hitstun       = 60;
+    plain->p[0].moves[1].airHitstun    = 60;
+
+    GameState g = facingOff();
+    g.p[1].moveId    = 0;
+    g.p[1].moveFrame = 0;
+    g.p[1].posX      = kStageHalfWidthSub - px(2);
+    g.p[0].posX      = g.p[1].posX - px(34);
+    ResolveHits(g, *plain);
+    ASSERT_EQ(g.p[1].reaction, kReactionLaunched);
+    for (int t = 0; t < 20; ++t) {
+        Simulate(g, in, *plain);
+        EXPECT_GE(g.p[1].velX, 0)
+            << "a move that authors no on_hit reaction bounced at tick " << t;
+    }
+    EXPECT_EQ(g.p[1].bounces, 0);
+}
+
+// --- Jump-as-move (ROADMAP M1.3(b3), ADR-014 executed per ADR-018) -----------
+//
+// A character may author a JUMP MOVE bound to Up; the built-in level jump is
+// the fallback for everyone who does not (the walk-speed doctrine). The move
+// starts on the press EDGE, its startup is the prejump, its launching key
+// takes the direction held on the takeoff tick, and a grounded stance makes
+// the double jump refuse itself through StanceAllows rather than a rule.
+
+TEST(P3Movement, AJumpIsAMoveAndAJumpCancelIsAnEdge) {
+    auto data = twoFighters();
+    MoveDef jump{};
+    jump.startup  = 4;      // the prejump, finally literal frames
+    jump.active   = 0;
+    jump.recovery = 2;
+    jump.button   = kInputUp;
+    jump.stance   = kStanceStanding;
+    jump.motion[0].fromTick = 4;
+    jump.motion[0].velXSub  = 0;      // no authored X: takeoff direction chooses
+    jump.motion[0].velYSub  = 2000;
+    jump.motionCount = 1;
+    data->p[0].moves[2]        = jump;
+    data->p[0].moveCount       = 3;
+    data->p[0].jumpMoveSlot    = 2;
+    // A cancel edge INTO the jump move: the jump cancel as an EDGE, at last.
+    data->p[0].cancels[0].from          = 1;
+    data->p[0].cancels[0].to            = 2;
+    data->p[0].cancels[0].earliestFrame = 0;
+    data->p[0].cancels[0].latestFrame   = 60;
+    data->p[0].cancels[0].contactMask   = kContactHit;
+    data->p[0].cancelCount = 1;
+
+    // THE PRESS EDGE STARTS IT, AND PREJUMP IS GROUNDED. Up held from tick 0
+    // (an edge on the first tick), four grounded frames, then the key lifts
+    // with the held direction.
+    GameState s{};
+    ResetMatch(s, 1u);
+    s.p[0].posX = kLeftX;
+    s.p[1].posX = px(200);   // far away: nothing connects, this is movement
+    InputPair in{};
+    in.p[0].bits = kInputUp | kInputRight;
+    Simulate(s, in, *data);
+    ASSERT_EQ(s.p[0].moveId, 2) << "the Up press did not start the jump move";
+    // moveFrame is observed at the top of the tick and advanced after, so the
+    // fromTick-4 key first owns the arc on the SIXTH call: press, frames
+    // 0-1-2-3 grounded, then takeoff.
+    for (int t = 0; t < 4; ++t) {
+        Simulate(s, in, *data);
+        EXPECT_EQ(s.p[0].airborne, 0) << "prejump left the ground at frame " << t;
+    }
+    Simulate(s, in, *data);   // the takeoff tick
+    EXPECT_EQ(s.p[0].airborne, 1) << "the key never lifted";
+    EXPECT_EQ(s.p[0].velY, 2000);
+    EXPECT_GT(s.p[0].velX, 0)
+        << "the direction held at takeoff did not choose the arc";
+
+    // HELD UP DOES NOT RE-JUMP ON LANDING (the level jump is gone for this
+    // character), and a mid-air re-press is refused by the STANCE.
+    for (int t = 0; t < 200 && s.p[0].airborne; ++t) Simulate(s, in, *data);
+    ASSERT_EQ(s.p[0].airborne, 0) << "never landed";
+    Simulate(s, in, *data);
+    EXPECT_EQ(s.p[0].moveId, 0)
+        << "held Up re-jumped on landing; the jump move is an EDGE";
+
+    // THE FALLBACK STANDS for a character that authors no jump move: the same
+    // held Up takes off exactly as it always has.
+    auto plain = twoFighters();
+    GameState g{};
+    ResetMatch(g, 1u);
+    g.p[0].posX = kLeftX;
+    g.p[1].posX = px(200);
+    InputPair gin{};
+    gin.p[0].bits = kInputUp;
+    Simulate(g, gin, *plain);
+    EXPECT_EQ(g.p[0].airborne, 1)
+        << "the fallback level jump died for a character that authored no "
+           "jump move";
+    EXPECT_EQ(g.p[0].moveId, 0);
+
+    // A JUMP CANCEL IS AN EDGE: the attack connects and Up in the window
+    // starts the jump move THROUGH THE CANCEL TABLE, mid-move, grounded.
+    GameState c = facingOff();
+    c.p[1].moveId    = 0;
+    c.p[1].moveFrame = 0;
+    ResolveHits(c, *data);                     // the hit that opens the window
+    ASSERT_LT(c.p[1].health, 1000);
+    InputPair cin{};
+    cin.p[0].bits = kInputUp;
+    int cancelTicks = 0;
+    for (; cancelTicks < 3 && c.p[0].moveId != 2; ++cancelTicks)
+        Simulate(c, cin, *data);               // Up inside the window
+    EXPECT_EQ(c.p[0].moveId, 2)
+        << "the on-hit edge into the jump move did not fire; the jump cancel "
+           "is supposed to be an ordinary cancel now";
+    EXPECT_LE(cancelTicks, 2) << "the cancel took implausibly long";
+}

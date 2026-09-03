@@ -475,7 +475,7 @@ set_target_properties(runtime_assets PROPERTIES FOLDER "Build steps")
 # general-purpose target may NAME, and the property that keeps the rule honest is
 # that naming one is the only way to reach one.
 set(_cse_engine_targets Engine Editor PlayerDebug PlayerShipping AssetCooker)
-set(_cse_title_internals CseKernel CseData CseGame)
+set(_cse_title_internals CseKernel CseData CseGame UntitledFighterPresentation)
 foreach(_t IN LISTS _cse_engine_targets)
     if (NOT TARGET ${_t})
         continue()

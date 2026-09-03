@@ -871,6 +871,103 @@ bool readAirborneFrom(Ctx& ctx, const json& engine, const std::string& where, Mo
 
 // --- The whole document -----------------------------------------------------
 
+// engine.anim3d, second half (ROADMAP M3.4b; ADR-019 D2). With every move
+// parsed: resolve the model path through the same containment gate as every
+// authored read, open the `<stem>.clips.json` the exporter wrote beside it,
+// and assert A21 (every move's clip is exactly its duration) and A22 (every
+// reserved cycle is present). THE MODEL IS NEVER OPENED HERE -- this library
+// has nlohmann and no Assimp -- so a missing .gltf is the mode's to report,
+// not a load error. A21 re-derives MoveDuration's per-component clamp,
+// max(startup,0) + max(active,0) + max(recovery,0), because CseData may not
+// link CseKernel (the BoxIsValid precedent at the top of this file);
+// scripts/check_clips.py spells the same sum, and the paddle fixture pins the
+// three together.
+bool checkAnim3d(Ctx& ctx, CharacterData& out) {
+    if (out.anim3dModel.empty()) {
+        // Off by default -- but a clip name with no model would be inert data,
+        // and this loader does not keep inert data quietly.
+        for (const Move& mv : out.moves)
+            if (!mv.anim3dClip.empty())
+                return ctx.fail("move `" + mv.id + "`",
+                    "authors engine.anim3d.clip but the character authors no "
+                    "engine.anim3d.model, so the clip name would be inert");
+        return true;
+    }
+
+    std::filesystem::path full;
+    if (!MyCoreEngine::PathIsContained(ctx.opt->contentRoot, out.anim3dModel, full))
+        return ctx.fail("engine.anim3d.model",
+            "`" + out.anim3dModel + "` refused, because it is absolute, carries a drive/UNC "
+            "root, or contains a `..` component that would escape the content root");
+    std::filesystem::path sidecar = full;
+    sidecar.replace_extension(".clips.json");
+    const std::string sidecarName = sidecar.filename().string();
+
+    std::error_code ec;
+    const std::uintmax_t size = std::filesystem::file_size(sidecar, ec);
+    if (ec)
+        return ctx.fail("engine.anim3d.model",
+            "sidecar `" + sidecarName + "` cannot be opened (" + ec.message() + "). The "
+            "exporter writes it beside the model -- docs/manual/art-pipeline.md");
+    if (size > ctx.opt->maxFileBytes)
+        return ctx.fail("engine.anim3d.model",
+            "sidecar `" + sidecarName + "`: " + toString(static_cast<std::int64_t>(size)) +
+            " bytes exceeds the " + toString(static_cast<std::int64_t>(ctx.opt->maxFileBytes)) +
+            "-byte cap on authored content");
+    std::ifstream in(sidecar, std::ios::binary);
+    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    const json doc = json::parse(text.begin(), text.end(), nullptr, false);
+    if (doc.is_discarded() || !doc.is_object())
+        return ctx.fail("engine.anim3d.model",
+            "sidecar `" + sidecarName + "` is not a JSON object of clip name -> frame count");
+
+    out.anim3dClips.clear();
+    for (auto it = doc.begin(); it != doc.end(); ++it) {
+        std::int32_t frames = 0;
+        if (!asInt32(it.value(), frames) || frames < 0)
+            return ctx.fail("engine.anim3d.model",
+                "sidecar `" + sidecarName + "`: clip `" + it.key() +
+                "` has a frame count that is not a non-negative integer");
+        out.anim3dClips.push_back(ClipLength{ it.key(), frames });
+    }
+    std::sort(out.anim3dClips.begin(), out.anim3dClips.end(),
+              [](const ClipLength& a, const ClipLength& b) { return a.name < b.name; });
+    auto find = [&](const std::string& name) -> const ClipLength* {
+        for (const ClipLength& cl : out.anim3dClips)
+            if (cl.name == name) return &cl;
+        return nullptr;
+    };
+
+    // A21: frames[clip(move)] == startup + active + recovery, per component
+    // clamped at zero, for every move. Frame 0 of the clip is moveFrame 0.
+    for (const Move& mv : out.moves) {
+        const std::string& clip = mv.anim3dClip.empty() ? mv.id : mv.anim3dClip;
+        const std::int32_t s = std::max(mv.startup, 0), a = std::max(mv.active, 0),
+                           r = std::max(mv.recovery, 0);
+        const std::int32_t expected = s + a + r;
+        const std::string arithmetic = " (startup " + toString(s) + " + active " + toString(a) +
+                                       " + recovery " + toString(r) + ")";
+        const ClipLength* cl = find(clip);
+        if (cl == nullptr)
+            return ctx.failRule("A21", "move `" + mv.id + "`: clip `" + clip + "` is not in `" +
+                                       sidecarName + "`; the move needs a clip of exactly " +
+                                       toString(expected) + " frames" + arithmetic);
+        if (cl->frames != expected)
+            return ctx.failRule("A21", "move `" + mv.id + "`: clip `" + clip + "` has " +
+                                       toString(cl->frames) + " frames, expected " +
+                                       toString(expected) + arithmetic);
+    }
+    // A22: every reserved cycle present. Lengths are the artist's (>= 2);
+    // the countdown cycles are checked against the authored counters by the
+    // ShippedClips tests when a character ships a model (ROADMAP M3.3c).
+    for (const char* cycle : kReservedCycleNames)
+        if (find(cycle) == nullptr)
+            return ctx.failRule("A22", "reserved cycle `" + std::string(cycle) + "` is missing from `" +
+                                       sidecarName + "`; ADR-019 D2 names fourteen and a presentation "
+                                       "model carries all of them");
+    return true;
+}
+
 bool parseDocument(Ctx& ctx, const json& doc, CharacterData& out) {
     if (!doc.is_object()) return ctx.fail("document", "top level is not a JSON object");
 
@@ -887,6 +984,19 @@ bool parseDocument(Ctx& ctx, const json& doc, CharacterData& out) {
     const json* engineNs = member(doc, "engine");
     if (engineNs && !engineNs->is_object())
         return ctx.fail("document", "`engine` is present but is not an object");
+    // engine.anim3d (ROADMAP M3.4b, ADR-019 D2): the presentation model. The
+    // contract is one key, and anything else is refused BY NAME, because a
+    // typo here would leave the fight drawing its placeholders while the file
+    // says it has a model. The path is resolved and the sidecar read after
+    // the moves, once every clip name is known -- checkAnim3d, below.
+    if (const json* a3 = engineNs ? member(*engineNs, "anim3d") : nullptr) {
+        if (!a3->is_object()) return ctx.fail("engine.anim3d", "is present but is not an object");
+        for (auto it = a3->begin(); it != a3->end(); ++it)
+            if (it.key() != "model")
+                return ctx.fail("engine.anim3d", "`" + it.key() + "` is not a field. The fields are: model");
+        if (!readString(ctx, *a3, "model", "engine.anim3d", out.anim3dModel, true)) return false;
+        if (out.anim3dModel.empty()) return ctx.fail("engine.anim3d.model", "is empty");
+    }
     const json* units = engineNs ? member(*engineNs, "units") : nullptr;
     if (units) {
         std::int32_t v = 0;
@@ -1308,6 +1418,19 @@ bool parseDocument(Ctx& ctx, const json& doc, CharacterData& out) {
                                            "field is the designed rule, in this schema's own "
                                            "vocabulary of blocked_as heights plus `aerial`");
 
+                // engine.anim3d.clip (ROADMAP M3.4b): the clip this move wears
+                // when the character authors a model; the contract is that
+                // one key, refused by name like the character-level block.
+                if (const json* a3 = member(*e, "anim3d")) {
+                    if (!a3->is_object()) return ctx.fail(where, "`engine.anim3d` is not an object");
+                    for (auto it = a3->begin(); it != a3->end(); ++it)
+                        if (it.key() != "clip")
+                            return ctx.fail(where, "`engine.anim3d." + it.key() +
+                                                   "` is not a field. The fields are: clip");
+                    if (!readString(ctx, *a3, "clip", where + " engine.anim3d", mv.anim3dClip, false))
+                        return false;
+                }
+
                 // engine.reaction: what the hit DOES to the defender. Read as
                 // a block because that is how it is authored, and optional
                 // throughout -- a move that says nothing here behaves exactly as
@@ -1323,12 +1446,79 @@ bool parseDocument(Ctx& ctx, const json& doc, CharacterData& out) {
                         return ctx.fail(where, "`engine.reaction` is not an object");
                     if (!readInt(ctx, *r, "hitstop_ticks", where, mv.hitstopTicks, false))
                         return false;
+                    // BLOCKSTUN (ROADMAP M3.0b): what a block costs the defender.
+                    // Read here, at the move level, in the same commit as the
+                    // bridge carry that consumes it -- a null (Kung Fu Man's
+                    // transcription) reads as absent, which is zero.
+                    if (!readInt(ctx, *r, "blockstun_ticks", where, mv.blockstunTicks, false))
+                        return false;
                     if (!readInt(ctx, *r, "air_hitstun_ticks", where, mv.airHitstunTicks, false))
                         return false;
                     if (!readInt(ctx, *r, "corner_push_vel_sub", where, mv.cornerPushSub, false))
                         return false;
                     if (!readInt(ctx, *r, "fall_recover_ticks", where, mv.fallRecoverTicks, false))
                         return false;
+                    // COUNTER HIT (M1.3(c)): the price for catching the
+                    // defender mid-startup. An object, so the two halves
+                    // travel together and a bare number cannot be ambiguous
+                    // about which one it is. Negative is refused -- a counter
+                    // that REDUCES the price is not a counter, and a negative
+                    // that meant "shorter stun on counter" would deserve its
+                    // own named field rather than a sign convention.
+                    // THE LAUNCH (M1.3(d)): +Y up (ADR-014's convention for
+                    // NEW fields), vel_y_sub required and positive -- a hit
+                    // that sends the defender DOWN is a knockdown, already
+                    // authorable -- and vel_x_sub a non-negative MAGNITUDE
+                    // the kernel points away from the attacker.
+                    if (const json* la = member(*r, "launch")) {
+                        if (!la->is_object())
+                            return ctx.fail(where, "`engine.reaction.launch` is not an object");
+                        if (!readInt(ctx, *la, "vel_x_sub", where, mv.launchVelXSub, false))
+                            return false;
+                        if (!readInt(ctx, *la, "vel_y_sub", where, mv.launchVelYSub, true))
+                            return false;
+                        if (mv.launchVelYSub <= 0)
+                            return ctx.fail(where, "launch.vel_y_sub must be positive (+Y is up): "
+                                                   "a launch that does not rise is a knockdown, "
+                                                   "and causes_knockdown already authors one");
+                        if (mv.launchVelXSub < 0)
+                            return ctx.fail(where, "launch.vel_x_sub must not be negative: the "
+                                                   "file authors a magnitude and the kernel points "
+                                                   "it away from the attacker");
+                    }
+                    // WHICH on_hit REACTION (M1.3(d2)). wall_splat is refused
+                    // BY NAME rather than accepted-and-ignored: a key that
+                    // loads and does nothing is the coin-flip trap again, and
+                    // the loader's whole doctrine is that silence is never a
+                    // default.
+                    if (const json* oh = member(*r, "on_hit")) {
+                        if (!oh->is_string())
+                            return ctx.fail(where, "`engine.reaction.on_hit` is not a string");
+                        const std::string v = oh->get<std::string>();
+                        if (v == "wall_bounce") {
+                            mv.onHitReaction = 1;
+                        } else if (v == "wall_splat") {
+                            return ctx.fail(where, "on_hit `wall_splat` is enumerated but not "
+                                                   "yet simulated; refused so the file cannot "
+                                                   "author a no-op. wall_bounce is live.");
+                        } else {
+                            return ctx.fail(where, "on_hit is `" + v + "`, which is not "
+                                                   "wall_bounce (live) or wall_splat "
+                                                   "(enumerated, not yet simulated)");
+                        }
+                    }
+                    if (const json* ch = member(*r, "counter_hit")) {
+                        if (!ch->is_object())
+                            return ctx.fail(where, "`engine.reaction.counter_hit` is not an object");
+                        if (!readInt(ctx, *ch, "hitstun_bonus", where,
+                                     mv.counterHitstunBonus, false))
+                            return false;
+                        if (!readQuantized(ctx, *ch, "damage_bonus", where, nullptr, 100,
+                                           mv.counterDamageBonusHundredths))
+                            return false;
+                        if (mv.counterHitstunBonus < 0 || mv.counterDamageBonusHundredths < 0)
+                            return ctx.fail(where, "counter_hit bonuses must not be negative");
+                    }
                     if (member(*r, "causes_knockdown") &&
                         !readBool(ctx, *r, "causes_knockdown", where, mv.causesKnockdown))
                         return false;
@@ -1705,6 +1895,10 @@ bool parseDocument(Ctx& ctx, const json& doc, CharacterData& out) {
         }
     }
 
+    // The presentation model's sidecar, checked against the moves just parsed
+    // (A21, A22) -- after the moves, because the clip names are theirs.
+    if (!checkAnim3d(ctx, out)) return false;
+
     out.RebuildIndices();
     return true;
 }
@@ -1830,7 +2024,11 @@ bool LoadCharacterFile(const std::string& baseDir,
 
     std::string text;
     if (!readAuthoredFile(baseDir, relPath, options, text, report)) return false;
-    return LoadCharacterJson(relPath, text, options, out, report);
+    // The file's own authored paths (engine.anim3d.model) resolve against the
+    // root the file was read from, unless the caller named another.
+    LoadOptions rooted = options;
+    if (rooted.contentRoot.empty()) rooted.contentRoot = baseDir;
+    return LoadCharacterJson(relPath, text, rooted, out, report);
 }
 
 bool LoadCharacterVariant(const std::string& baseDir,
@@ -1883,6 +2081,19 @@ bool LoadCharacterVariant(const std::string& baseDir,
     }
     nlohmann::json patch = variantDoc["patch"];
 
+    // THE CLOSED MOVE-LEVEL KEY SET, shared by the by-id patcher and the
+    // append below so the two validators cannot drift: this list mirrors
+    // exactly the names the move loop in LoadCharacterJson reads off a move
+    // object -- a reader added there adds its name here, or the first variant
+    // to touch the new field is refused and says so out loud.
+    static const char* const kMovePatchKeys[] = {
+        "id",         "label",    "startup",       "active",
+        "recovery",   "hitstun",  "stance",        "blocked_as",
+        "priority",   "invincibility",             "damage",
+        "reach",      "pushback", "effect",        "guard",
+        "hit_condition",          "engine",
+    };
+
     // MOVES ARE PATCHED BY ID, NOT BY RFC 7386. A merge patch treats arrays as
     // atomic, so a standard patch touching one move would have to restate all
     // of them and the exhibit would stop being the diff. The variant format
@@ -1918,13 +2129,6 @@ bool LoadCharacterVariant(const std::string& baseDir,
         // namespace carries MUGEN transcription and authoring notes by
         // documented design (fighter_a authors twenty-six keys there), so a
         // closed list would refuse the file's own conventions.
-        static const char* const kMovePatchKeys[] = {
-            "id",         "label",    "startup",       "active",
-            "recovery",   "hitstun",  "stance",        "blocked_as",
-            "priority",   "invincibility",             "damage",
-            "reach",      "pushback", "effect",        "guard",
-            "hit_condition",          "engine",
-        };
         for (auto it = patch["moves"].begin(); it != patch["moves"].end(); ++it) {
             if (!it.value().is_object()) {
                 report.error = variantRelPath + ": patch.moves." + it.key() +
@@ -1969,6 +2173,57 @@ bool LoadCharacterVariant(const std::string& baseDir,
         patch.erase("moves");
     }
 
+    // A VARIANT MAY APPEND A WHOLE MOVE (the jump-cancel exhibit's need: the
+    // base deliberately does not author the opt-in jump move, and the by-id
+    // patcher above refuses unknown ids -- correctly, for EDITS). The append
+    // is the cancels.append shape for the moves array: full move objects, an
+    // id the base already authors refused by name (that is an edit wearing an
+    // append's clothes), and the SAME closed move-level key validation a
+    // patch gets -- a typo in a brand-new move is the same coin-flip as one
+    // in an edit.
+    if (patch.contains("moves_append")) {
+        if (!patch["moves_append"].is_array()) {
+            report.error = variantRelPath + ": patch.moves_append: must be an "
+                           "ARRAY of full move objects";
+            return false;
+        }
+        if (!baseDoc.contains("moves") || !baseDoc["moves"].is_array()) {
+            report.error = baseRelPath + ": moves: missing or not an array";
+            return false;
+        }
+        for (const nlohmann::json& added : patch["moves_append"]) {
+            if (!added.is_object() || !added.contains("id") ||
+                !added["id"].is_string()) {
+                report.error = variantRelPath + ": patch.moves_append: every "
+                               "entry is a move object with an `id`";
+                return false;
+            }
+            const std::string id = added["id"].get<std::string>();
+            for (const nlohmann::json& m : baseDoc["moves"]) {
+                if (m.is_object() && m.contains("id") && m["id"] == id) {
+                    report.error = variantRelPath + ": patch.moves_append." + id +
+                                   ": the base already authors this move; an "
+                                   "append of an existing id is an edit in "
+                                   "disguise -- patch it under patch.moves";
+                    return false;
+                }
+            }
+            for (auto f = added.begin(); f != added.end(); ++f) {
+                bool known = false;
+                for (const char* k : kMovePatchKeys)
+                    if (f.key() == k) { known = true; break; }
+                if (known) continue;
+                report.error = variantRelPath + ": patch.moves_append." + id +
+                               ": unknown key `" + f.key() + "` -- the loader "
+                               "reads no such move field. (Engine-specific "
+                               "fields nest under `engine`.)";
+                return false;
+            }
+            baseDoc["moves"].push_back(added);
+        }
+        patch.erase("moves_append");
+    }
+
     // CANCELS ARE APPENDED, NOT MERGED, for the same atomic-array reason as
     // moves -- and unlike moves they have no single natural key (from, to and
     // delay can all repeat), so the variant format supports exactly the one
@@ -1997,8 +2252,10 @@ bool LoadCharacterVariant(const std::string& baseDir,
     }
 
     baseDoc.merge_patch(patch);
+    LoadOptions rooted = options;
+    if (rooted.contentRoot.empty()) rooted.contentRoot = baseDir;
     return LoadCharacterJson(baseRelPath + " + " + variantRelPath,
-                             baseDoc.dump(), options, out, report);
+                             baseDoc.dump(), rooted, out, report);
 }
 
 // --- The catalogue manifest (ROADMAP M1.6's cooker slice) --------------------
@@ -2040,7 +2297,9 @@ bool LoadCatalogueManifest(const std::string& charactersDir,
     }
 
     // The six arcade buttons, by the names the binding vocabulary has used
-    // since M1.1c. Anything else is refused by name.
+    // since M1.1c -- plus `up` since M1.3(b3): the opt-in jump move binds to
+    // exactly the Up bit (ADR-018), and a variant that appends one needs a
+    // way to say so. Anything else is refused by name.
     const auto buttonBit = [](const std::string& b) -> std::uint16_t {
         if (b == "lp") return cse::kernel::kInputLP;
         if (b == "mp") return cse::kernel::kInputMP;
@@ -2048,6 +2307,7 @@ bool LoadCatalogueManifest(const std::string& charactersDir,
         if (b == "lk") return cse::kernel::kInputLK;
         if (b == "mk") return cse::kernel::kInputMK;
         if (b == "hk") return cse::kernel::kInputHK;
+        if (b == "up") return cse::kernel::kInputUp;
         return 0;
     };
 
@@ -2100,7 +2360,7 @@ bool LoadCatalogueManifest(const std::string& charactersDir,
                         error = relPath + ": " + entry.name + ": `" +
                                 (n.is_string() ? n.get<std::string>()
                                                : std::string("?")) +
-                                "` is not one of lp/mp/hp/lk/mk/hk";
+                                "` is not one of lp/mp/hp/lk/mk/hk/up";
                         return false;
                     }
                     binding.buttons |= bit;

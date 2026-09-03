@@ -46,6 +46,8 @@ Hand-edited values are also range-checked on load, not on trust:
 | `camera.fovDeg` | clamped to `[1, 179]` |
 | `camera.nearClip` | at least `1e-3` |
 | `camera.farClip` | at least `MinFarClipFor(nearClip)` |
+| `camera.projection` | any value other than `1` (orthographic) reads as perspective; a missing key is perspective |
+| `camera.orthoHalfHeight` | at least `1e-3` |
 | `rigidBody.type` | range-checked against `BodyType`, else `Dynamic` |
 | `rigidBody.friction` / damping | at least `0` |
 | `rigidBody.restitution` | clamped to `[0, 1]` |
@@ -266,6 +268,7 @@ struct CameraComponent {
     float nearClip = 0.1f;
     float farClip = 1000.0f;
     int  priority = 0;
+    // ... plus enabled, and the appended (M3.2g) projection / orthoHalfHeight
     bool enabled = true;
 };
 ```

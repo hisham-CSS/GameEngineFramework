@@ -1,10 +1,16 @@
 #include "UntitledFighterMode.h"
 
+#include "../src/core/PathSandbox.h"
+
 #include "cse/kernel/Combat.h"
 
 #include <cstddef>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace untitledfighter {
 
@@ -161,6 +167,7 @@ namespace {
     constexpr const char* kActDemo  = "Fight.Demonstrate";
     constexpr const char* kActSwap  = "Fight.NextCharacter";
     constexpr const char* kActStage = "Fight.StagePosition";
+    constexpr const char* kActOverlay = "Fight.Overlay";
 
     struct ControlKey {
         const char* action;
@@ -175,6 +182,7 @@ namespace {
         { kActDemo,  GLFW_KEY_TAB,    -1 },
         { kActSwap,  GLFW_KEY_C,      -1 },
         { kActStage, GLFW_KEY_V,      -1 },
+        { kActOverlay, GLFW_KEY_B,    -1 },
     };
 
     // 1 -> 1/2 -> 1/4 -> 1/8 -> 1. Integer division of the host's fixed steps,
@@ -313,6 +321,9 @@ void UntitledFighterMode::Exit() {
     bindings_.clear();
     hitAdvantage_ = LatchedAdvantage{};
     modeTicks_ = 0;
+    // The fighters and the look must not outlive the mode in the host's scene
+    // (M3.4c): Exit did not call teardownMatch_, so this is done here too.
+    destroyScene3d_();
     ctx_ = MyCoreEngine::GameModeContext{};
 }
 
@@ -456,6 +467,10 @@ void UntitledFighterMode::teardownMatch_() {
     build_     = cse::data::MatchBuild{};
     analysis_  = cse::data::ProverResult{};
     setup_     = cse::game::FightSetup{};
+    clips_        = cse::presentation::FighterClips{};
+    modelWatch_   = cse::data::CharacterFileWatch{};
+    sidecarWatch_ = cse::data::CharacterFileWatch{};
+    destroyScene3d_();
 }
 
 bool UntitledFighterMode::adoptPrepared_(cse::data::CharacterData&& character,
@@ -491,6 +506,32 @@ bool UntitledFighterMode::adoptPrepared_(cse::data::CharacterData&& character,
             bindings_.push_back(row);
         }
     }
+
+    // The clip table (ROADMAP M3.4b), bound by id right beside the binding
+    // table and for the same reason: this build's slot numbers are this
+    // build's. A character with no model leaves it empty. The model and its
+    // sidecar get their (mtime, size) watches here -- like reloadWatch_,
+    // bound whether or not the files exist yet, so a first export lands.
+    {
+        std::vector<cse::presentation::MoveSlot> slots;
+        slots.reserve(character_.moves.size());
+        for (const cse::data::Move& mv : character_.moves)
+            slots.push_back({ build_.moves[kPlayerSlot].Find(mv.id), mv.id });
+        clips_.Rebuild(character_, slots);
+        if (!character_.anim3dModel.empty()) {
+            std::string watchError;
+            (void)modelWatch_.Bind(ctx_.contentRoot, character_.anim3dModel, watchError);
+            std::filesystem::path sidecar(character_.anim3dModel);
+            sidecar.replace_extension(".clips.json");
+            (void)sidecarWatch_.Bind(ctx_.contentRoot, sidecar.generic_string(), watchError);
+        }
+    }
+
+    // The 3D presentation (M3.4c): the look, the model, the entities. Every
+    // step that fails leaves the 2D placeholders on and says why on the HUD;
+    // none of them can fail the match, which is the kernel's and is ready.
+    loadLook_();
+    createScene3d_();
 
     // --- analyse -------------------------------------------------------------
     //
@@ -581,6 +622,102 @@ bool UntitledFighterMode::adoptPrepared_(cse::data::CharacterData&& character,
     return true;
 }
 
+// --- The 3D presentation (ROADMAP M3.4c; ADR-019 D3, D4, D5, D9) ----------------
+
+void UntitledFighterMode::loadLook_() {
+    look_ = cse::presentation::FightLook{};
+    presentationNote_.clear();
+    // The committed fight_look.json, staged beside the title's menu, through
+    // the same containment gate as every authored read. Missing or refused: the
+    // defaults (a consistent look by construction) and a note.
+    std::filesystem::path full;
+    if (!MyCoreEngine::PathIsContained(ctx_.contentRoot, "UntitledFighter/fight_look.json", full)) {
+        presentationNote_ = "fight_look.json: path refused; using the default look";
+        return;
+    }
+    std::ifstream in(full, std::ios::binary);
+    if (!in) {
+        presentationNote_ = "fight_look.json not staged; using the default look";
+        return;
+    }
+    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    std::string error;
+    if (!cse::presentation::ParseFightLook(text, look_, error)) {
+        look_ = cse::presentation::FightLook{};
+        presentationNote_ = error + "; using the default look";
+    }
+}
+
+void UntitledFighterMode::applyLook_() {
+    if (!ctx_.scene) return;
+    // Snapshot ONCE per applied look: a second apply over an applied look
+    // would snapshot the fight's own values and restore the wrong ones.
+    if (!lookSnapshot_.taken)
+        lookSnapshot_ = ApplyFightLook(*ctx_.scene, ctx_.app ? &ctx_.app->renderer() : nullptr, look_);
+    else
+        (void)ApplyFightLook(*ctx_.scene, ctx_.app ? &ctx_.app->renderer() : nullptr, look_);
+}
+
+void UntitledFighterMode::createScene3d_() {
+    destroyScene3d_();
+    if (character_.anim3dModel.empty()) return;            // off by default
+    if (!ctx_.scene || !ctx_.assets) {
+        presentationNote_ = "no scene or asset cache in this host; the 2D placeholders stand in";
+        return;
+    }
+    std::filesystem::path full;
+    if (!MyCoreEngine::PathIsContained(ctx_.contentRoot, character_.anim3dModel, full)) {
+        presentationNote_ = "engine.anim3d.model: path refused";
+        return;
+    }
+    // Through the host's cache, so the editor's asset panel and this mode hold
+    // one Model, and the cache's reload door is the one hot reload uses.
+    model_ = ctx_.assets->GetModel(full.generic_string());
+    std::string error;
+    if (!model_ || !scene3d_.Create(*ctx_.scene, model_, look_, error)) {
+        presentationNote_ = "engine.anim3d.model `" + character_.anim3dModel + "`: " +
+                            (error.empty() ? std::string("did not load") : error) +
+                            "; the 2D placeholders stand in";
+        model_.reset();
+        return;
+    }
+    applyLook_();
+    reconcile_();
+}
+
+void UntitledFighterMode::destroyScene3d_() {
+    if (ctx_.scene) {
+        scene3d_.Destroy(*ctx_.scene);
+        RestoreLook(*ctx_.scene, ctx_.app ? &ctx_.app->renderer() : nullptr, lookSnapshot_);
+    }
+    lookSnapshot_ = LookSnapshot{};
+    model_.reset();
+}
+
+void UntitledFighterMode::reconcile_() {
+    if (!matchReady_ || !scene3d_.Active() || !ctx_.scene) return;
+    // A scene swap clears the registry under the mode (SceneSerializer::Load
+    // -> ResetToDefaults) and takes the look with it: build both again.
+    if (!scene3d_.Valid(*ctx_.scene)) {
+        std::string error;
+        lookSnapshot_ = LookSnapshot{};
+        if (!model_ || !scene3d_.Create(*ctx_.scene, model_, look_, error)) {
+            presentationNote_ = "presentation entities lost to a scene swap and not rebuilt: " + error;
+            scene3d_.Destroy(*ctx_.scene);
+            return;
+        }
+        applyLook_();
+    }
+    const cse::presentation::FrameComposition frame = cse::presentation::ComposeFrame(
+        session_.Data(), session_.State(), clips_, look_, stageHalfWidthSub_, cameraCentrePx_,
+        viewportW_, viewportH_);
+    // The overlay's camera reads the same centre next frame (Draw), so the
+    // scene camera and the box overlay scroll together.
+    cameraCentrePx_ = frame.camera.framing.centreX;
+    scene3d_.Apply(*ctx_.scene, frame);
+    scene3d_.SetOpacity(cse::presentation::OverlayLookFor(overlay_, true).meshOpacity);
+}
+
 // The authoring loop (ROADMAP M1.5). ADR-016 in four sentences: a change to
 // the loaded character file RESTARTS the match with the freshly built data,
 // through the same adopt path C uses; it never swaps MatchData under the live
@@ -602,7 +739,18 @@ bool UntitledFighterMode::adoptPrepared_(cse::data::CharacterData&& character,
 // restages it (or when it is copied by hand); docs/manual/fighting-core.md
 // says so where the authoring loop is described.
 void UntitledFighterMode::pollHotReload_(float dt) {
-    if (!reloadWatch_.Update(dt)) return;
+    // Every watch is polled every frame -- each refreshes its stamp when it
+    // reports -- and any one of them is a reason to rebuild: the character
+    // file, the presentation model, or its clip sidecar (M3.4b). The rebuild
+    // is the same load either way, so a re-export that disagrees with the
+    // frame data fails A21/A22 below and keeps the last good match.
+    const bool characterEdited = reloadWatch_.Update(dt);
+    const bool modelEdited     = modelWatch_.Update(dt);
+    const bool sidecarEdited   = sidecarWatch_.Update(dt);
+    if (!characterEdited && !modelEdited && !sidecarEdited) return;
+    const std::string edited = characterEdited ? kCharacters[characterIndex_].file
+                             : modelEdited     ? character_.anim3dModel
+                                               : "the clip sidecar of " + character_.anim3dModel;
 
     const std::string file = kCharacters[characterIndex_].file;
     cse::data::CharacterData character{};
@@ -628,7 +776,7 @@ void UntitledFighterMode::pollHotReload_(float dt) {
     paused_      = keepPaused;
     slowDivisor_ = keepSlow;
 
-    reloadNote_   = "edit landed -- " + file +
+    reloadNote_   = "edit landed -- " + edited +
                     " rebuilt, match restarted at tick 0"
                     + (paused_ ? std::string(", still paused") : std::string());
     reloadFailed_ = false;
@@ -815,6 +963,13 @@ void UntitledFighterMode::readControls_() {
         applyStagePosition_();
         resetMatch_();
     }
+
+    // The overlay cycle (M3.4e): boxes over mesh -> boxes over translucent
+    // mesh -> mesh only. It changes what is DRAWN and never a tick, but it is
+    // read with the other controls so one press is one step at any frame
+    // rate, and it is meaningful with no match loaded.
+    if (map.consumePressed(kActOverlay))
+        overlay_ = cse::presentation::NextOverlayMode(overlay_);
 
     // --- FROM HERE DOWN, EVERY CONTROL ACTS ON A MATCH THAT IS RUNNING --------
     //
@@ -1183,6 +1338,14 @@ void UntitledFighterMode::Update(float dt) {
     // this mode reads from the variable phase, which is what keeps it clear of
     // the fixed-phase controls -- a press is served to one phase only.
     if (ctx_.app->input().wasPressed("Quit")) requestExit();
+
+    // The 3D presentation is written HERE, in the variable phase, because the
+    // host runs Scene::UpdateTransforms and the camera director after every
+    // update subscriber and before the render (Application::RunLoop): a
+    // Transform written in Draw would be a frame late. Composition is a pure
+    // function of the session's state; nothing is remembered between frames
+    // but the camera's deadzone centre (ADR-019 D3).
+    reconcile_();
 }
 
 // --- Drawing --------------------------------------------------------------------
@@ -1200,6 +1363,8 @@ FightHudModel UntitledFighterMode::hudModel_() const {
     model.analysisError = &analysisError_;
     model.demoNote      = &demoNote_;
     model.reloadNote    = &reloadNote_;
+    model.presentationNote = &presentationNote_;
+    model.overlayMode   = cse::presentation::OverlayModeName(overlay_);
     model.reloadFailed  = reloadFailed_;
     model.fatal         = &fatal_;
 
@@ -1251,12 +1416,19 @@ void UntitledFighterMode::Draw(MyCoreEngine::Renderer2D& r2d, int widthPx,
                                int heightPx, float dt) {
     (void)dt;
 
+    viewportW_ = widthPx;
+    viewportH_ = heightPx;
+    const bool scene3d = matchReady_ && scene3d_.Active() && ctx_.scene && scene3d_.Valid(*ctx_.scene);
+
     // Opaque, full screen. This mode owns the screen (OwnsScreen), and the 3D
     // pass still ran over whatever scene the host had loaded, so without this the
     // fight would be painted over a menu backdrop it has nothing to do with.
-    r2d.DrawQuad({ 0.0f, 0.0f },
-                 { static_cast<float>(widthPx), static_cast<float>(heightPx) },
-                 kBackdrop, 0);
+    // UNLESS the 3D pass just drew the fighters (M3.4c): then it is the
+    // picture, and the backdrop would paint over it.
+    if (!scene3d)
+        r2d.DrawQuad({ 0.0f, 0.0f },
+                     { static_cast<float>(widthPx), static_cast<float>(heightPx) },
+                     kBackdrop, 0);
 
     if (matchReady_) {
         // --- THE WORLD PASS, BRACKETED BY HAND ------------------------------
@@ -1279,7 +1451,9 @@ void UntitledFighterMode::Draw(MyCoreEngine::Renderer2D& r2d, int widthPx,
         cameraCentrePx_ = cam.position.x;   // the deadzone's memory
         r2d.BeginWorld(cam, widthPx,
                        heightPx);
-        DrawFightWorld(r2d, session_.State(), session_.Data(), stageHalfWidthSub_);
+        const cse::presentation::OverlayLook overlay = cse::presentation::OverlayLookFor(overlay_, scene3d);
+        DrawFightWorld(r2d, session_.State(), session_.Data(), stageHalfWidthSub_,
+                       /*boxesOnly*/ scene3d, overlay.drawBoxes);
         r2d.End();
         r2d.BeginScreen(widthPx, heightPx);
     }

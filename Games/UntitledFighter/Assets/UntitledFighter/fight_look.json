@@ -1,0 +1,17 @@
+{
+  "sun_dir": [-0.35, -1.0, -0.45],
+  "sun_color": [1.0, 1.0, 1.0],
+  "sun_intensity": 3.0,
+  "exposure": 1.0,
+  "outline": { "enabled": true, "thickness": 1.5, "threshold": 0.15, "strength": 0.9 },
+  "ibl": { "enabled": true, "intensity": 1.0 },
+  "camera": { "distance_px": 400.0, "near_px": 1.0, "far_px": 2000.0, "priority": 100 },
+  "room_depth_px": 240.0,
+  "fighter_depth_px": 60.0,
+  "shadow_distance_px": 1200.0,
+  "cascades": 4,
+  "slots": [
+    { "tint": [0.95, 0.55, 0.35], "z": 0.0 },
+    { "tint": [0.40, 0.65, 0.95], "z": 0.5 }
+  ]
+}

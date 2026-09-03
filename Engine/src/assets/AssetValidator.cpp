@@ -92,8 +92,11 @@ namespace MyCoreEngine {
             }
             const ModelCPUData& cpu = slot->cpu;
             if (!cpu.valid) {
+                // Decode says WHY when it refused the file itself (a rig over
+                // the joint cap, M3.2b); an Assimp failure has no sentence.
                 report.issues.push_back({ AssetValidationIssue::Level::Err,
-                    slot->path, "model failed to import" });
+                    slot->path, cpu.importError.empty() ? std::string("model failed to import")
+                                                       : "model failed to import: " + cpu.importError });
                 continue;
             }
             if (cpu.meshes.empty()) {

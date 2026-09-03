@@ -363,7 +363,7 @@ public:
         // written, and a stored context would carry that first answer forever.
         // Everything it names is host-lifetime, so the pointers are safe for as
         // long as a mode can hold them.
-        const auto modeContext = [this, &scene, contentRoot] {
+        const auto modeContext = [this, &scene, &assets, contentRoot] {
             GameModeContext ctx;
             ctx.app = this;
             ctx.scene = &scene;
@@ -377,6 +377,8 @@ public:
             // string the title's front-end path was joined onto at boot, which
             // is why it is a named local rather than a second literal.
             ctx.contentRoot = contentRoot;
+            // Run()'s own cache, which outlives every mode (M3.4b).
+            ctx.assets = &assets;
             return ctx;
         };
 

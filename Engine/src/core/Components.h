@@ -37,6 +37,13 @@ struct CameraComponent {
 	// entity index). Disabled cameras are never selected.
 	int  priority = 0;
 	bool enabled = true;
+	// Appended (ROADMAP M3.2g, ADR-019 D4): how this camera projects. The fight
+	// camera is orthographic so the box overlay and the fist agree off the
+	// z = 0 plane; every scene authored before this is perspective, which is
+	// what a file without the key loads as. orthoHalfHeight is world units
+	// from the view centre to the top edge; the width follows the viewport.
+	CameraProjection projection = CameraProjection::Perspective;
+	float orthoHalfHeight = 10.0f; // > 0
 };
 
 // A local light source. The scene's DIRECTIONAL light (the sun) is scene-level
@@ -89,6 +96,22 @@ struct ModelComponent {
 // Map "material slot index" -> override MaterialHandle
 struct MaterialOverrides {
 	std::unordered_map<size_t, MyCoreEngine::MaterialHandle> byIndex;
+};
+
+// THE POSE A SKINNED ENTITY WEARS THIS FRAME (ROADMAP M3.2f; ADR-019 D3, D9).
+//
+// DERIVED, NEVER AUTHORED, NEVER SAVED. The presentation writes it from
+// GameState every rendered frame (cse::game::SelectPose -> the clip -> a
+// SamplePalette call), the renderer reads it for the draw, SceneSerializer
+// never writes it, and the Inspector shows it read-only with a debug-only
+// scrub in edit mode. That is the whole of ARCHITECTURE.md D1 for skinning:
+// the registry is derived from the simulation each frame and never read
+// back, so a rollback that rewinds the state rewinds the pose for free and
+// there is no second copy of "where the fighter is" to disagree with the
+// first. An entity whose pose is not `valid` draws in its rest pose.
+struct SkinnedPose {
+	std::vector<glm::mat4> palette;   // one per joint, parent-first: world * inverseBind
+	bool valid = false;
 };
 
 struct Transform {
@@ -363,12 +386,27 @@ struct AABB : public BoundingVolume
 inline Frustum createFrustumFromCamera(const Camera& cam, float aspect, float fovY, float zNear, float zFar)
 {
 	Frustum     frustum;
-	const float halfVSide = zFar * tanf(fovY * .5f);
-	const float halfHSide = halfVSide * aspect;
 	const glm::vec3 frontMultFar = zFar * cam.Front;
-
 	frustum.nearFace = { cam.Position + zNear * cam.Front, cam.Front };
 	frustum.farFace = { cam.Position + frontMultFar, -cam.Front };
+
+	if (cam.Projection == CameraProjection::Orthographic) {
+		// A parallel box (M3.2g): the side planes run along Front, offset by
+		// the half-extents the ortho matrix draws, normals pointing in. A
+		// perspective frustum's side planes all pass through the eye; these
+		// do not, which is exactly what makes a wide-and-near object visible
+		// and a wide-and-far one culled under this camera.
+		const float halfH = std::max(cam.OrthoHalfHeight, 1e-3f);
+		const float halfW = halfH * aspect;
+		frustum.rightFace  = { cam.Position + cam.Right * halfW, -cam.Right };
+		frustum.leftFace   = { cam.Position - cam.Right * halfW,  cam.Right };
+		frustum.topFace    = { cam.Position + cam.Up * halfH,    -cam.Up };
+		frustum.bottomFace = { cam.Position - cam.Up * halfH,     cam.Up };
+		return frustum;
+	}
+
+	const float halfVSide = zFar * tanf(fovY * .5f);
+	const float halfHSide = halfVSide * aspect;
 	frustum.rightFace = { cam.Position, glm::cross(frontMultFar - cam.Right * halfHSide, cam.Up) };
 	frustum.leftFace = { cam.Position, glm::cross(cam.Up, frontMultFar + cam.Right * halfHSide) };
 	frustum.topFace = { cam.Position, glm::cross(cam.Right, frontMultFar - cam.Up * halfVSide) };
@@ -378,6 +416,13 @@ inline Frustum createFrustumFromCamera(const Camera& cam, float aspect, float fo
 
 inline AABB generateAABB(const Model& model)
 {
+	// A skinned model's box is the one every pose of every clip stays inside
+	// (ModelCPUData::poseBounds, ROADMAP M3.2d/f), never the rest mesh's:
+	// culling reads this box, and a limb posed outside the rest box would
+	// otherwise vanish the frame it extends.
+	if (model.IsSkinned() && model.GetPoseBounds().valid)
+		return AABB(model.GetPoseBounds().min, model.GetPoseBounds().max);
+
 	glm::vec3 minAABB = glm::vec3(std::numeric_limits<float>::max());
 	// lowest(), not min(): min() is the smallest POSITIVE float, which breaks
 	// the max-reduction for meshes whose vertices are all negative on an axis

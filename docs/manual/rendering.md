@@ -1,6 +1,6 @@
 # Rendering
 
-Verified: 2026-08-17 @ e2f08bd
+Verified: 2026-09-02 @ 8cf211b
 
 The renderer draws one frame as a fixed sequence of passes: cascaded shadow
 maps, a forward PBR pass into an HDR target, the sky, sorted transparency,
@@ -358,7 +358,7 @@ used instead.
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
-| `baseColor` | `glm::vec3` | `1,1,1` | |
+| `baseColor` | `glm::vec3` | `1,1,1` | Multiplies the albedo map. With no map the mesh binds a built-in 1×1 white instead of texture 0 (which samples black), so an untextured material renders its base colour. |
 | `metallic` | `float` | `0.0f` | |
 | `roughness` | `float` | `0.5f` | |
 | `ao` | `float` | `1.0f` | |
@@ -522,9 +522,13 @@ adjusting a mode the pass is in, not switching it into one. To go back, call
 Two things keep cascades from shimmering as the camera turns:
 
 1. **Bounding-sphere fit.** Each cascade's ortho extent comes from the bounding
-   *sphere* of its view frustum slice. The radius depends only on FOV, aspect
-   and split distances — rigid geometry — not on camera position or
-   orientation. A box fit to the slice corners changes size as you turn, which
+   *sphere* of its view frustum slice. The radius depends only on FOV (or, for
+   an orthographic camera, its half-height), aspect and split distances —
+   rigid geometry — not on camera position or orientation. The slice corners
+   come from `Camera::ProjectionFor(aspect, splitNear, splitFar)`, the same
+   builder the renderer draws with, so a perspective and an orthographic
+   camera are fitted by one path; a half-height edit or a mode switch refits
+   every cascade like a FOV change does. A box fit to the slice corners changes size as you turn, which
    resizes the texel grid every update and makes snapping useless.
 2. **Texel snapping.** The light projection is nudged so the world origin lands
    on a texel corner. With a constant extent the texel size is constant, so
@@ -651,6 +655,20 @@ which is on by default with Unity-like values (`yaw -30°`, `pitch 50°`).
 > and only marks shadow params dirty if it actually changed, so calling it
 > every frame with a constant value is free.
 
+## Skinning — the CPU half
+
+Skinning is the one renderer feature the showcase freeze admits ([ADR-019](../adr/ADR-019-placeholders-through-blender.md) D1; ARCHITECTURE §2). Its CPU half is in place since ROADMAP M3.2b–d and needs no GL: a model's `Skeleton` (joints parent-first, with bind and inverse bind), each skinned mesh's `SkinData` (four joint indices and weights per vertex, beside the static `Vertex`), and its `ClipSet` (integer frames of local transforms) all come out of `Model::Decode` — how, and what is refused, is in [Assets](assets.md).
+
+**The sampler** (`Engine/src/anim/ClipSampler.h`) is one pure function: `SamplePalette(skeleton, clip, frame, out)` composes each joint's local transform under its parent in a single pass (the skeleton is parent-first) and multiplies by the inverse bind. It takes an **integer** frame — the overloads for `float` and `double` are deleted, so a caller who computes "elapsed seconds × 60" gets a compile error rather than a pose that drifts from the frame data by a rounding — clamps a frame past the end to the last sample (holding is the honest picture of a clip authored one frame short, wrapping would hide it), and has no clock, no delta time and no state: the same frame yields the same bytes whatever was sampled before it, which is what a rollback host and a frame-stepping playtester both need. `RestPalette` is the identity for a skeleton whose inverse bind matrices invert its bind hierarchy, and `SampleWorld` gives the model-space joint transforms before the inverse bind for bounds and debug draws. `tests/test_clip_sampler.cpp` pins all of it.
+
+**Pose bounds.** Culling reads one box per entity, and the rest-pose AABB is wrong the moment a limb extends past it. `Decode` therefore computes `ModelCPUData::poseBounds`: each joint's bounds in its own rest space (the vertices it influences, through its inverse bind), swept as eight corners through the joint's sampled world transform on every frame of every clip and the rest pose, unioned and lightly padded. A vertex blended between joints lies inside the hull of its per-joint positions, so the union contains it; `ModelDecodeSkin.TheSkinnedBoundsContainEveryVertexOfEveryClipFrame` skins every vertex of the fixture to prove it. Per-joint corners rather than every vertex keep a Debug hot reload cheap.
+
+**The GPU half** (since ROADMAP M3.2e). A skinned mesh carries its joints and weights in a second VBO at attributes 5 (`ivec4`) and 6 (`vec4`), uploaded by `Mesh::UploadSkin` beside the untouched static buffer. The palette is a std140 uniform block, `uBones { mat4[128] }` — 8 KB, under the 16 KB minimum every GL 3.3 core driver guarantees, where a plain uniform array could not hold a humanoid's joints beside `uLightVP[4]` inside the 1024-component minimum, and shader storage buffers are GL 4.3 — owned by `SkinPaletteUBO` (`Engine/src/render/SkinPalette.h`) and bound at binding point 0; a program routes its block there once with `Shader::bindUniformBlock`. `vertex.glsl` and `shadow_depth_vert.glsl` gained `#ifdef SKINNED` blocks and nothing else: the skinned programs are the **same files** built with `#define SKINNED 1` injected after `#version` (the three-argument `Shader` constructor), so a skinned program can differ from its static twin in nothing but the skin, `invariant gl_Position` still holds across the skinned prepass and colour pair, and the blended skin matrix moves the normal and tangent along with the position (toon bands and the outline read the normal). `ForwardOpaquePass`, `ShadowCSMPass` and `TransparentPass` each build their variant at setup and hand it to the `Scene` every frame. `tests/test_skinned_draw.cpp` (label `gl`) pins the path by probing pixels: a posed joint moves only the vertices it owns, the prepassed and plain draws of a posed strip are identical byte for byte, and a tilted joint shades by its posed normal.
+
+**Strict GLSL 3.30.** `frag.glsl` reads the cascade maps through `cascadeDepth(ci, uv)` and `cascadeTexelSize(ci)`, constant-index ladders over `uShadowCascade[4]`, because GLSL 3.30 forbids indexing a sampler array with a runtime value: NVIDIA and AMD accept `uShadowCascade[ci]` as an extension, Mesa (llvmpipe on the CI GL job, every Linux Intel/AMD driver) rejects the whole program. For the same reason `ApplyForwardShadingState` assigns every sampler its texture unit every frame, map or no map: an unset sampler defaults to unit 0, and a `samplerCube` sharing a unit with the albedo's `sampler2D` fails program validation, so Mesa refuses the draw with `GL_INVALID_OPERATION` and renders nothing while NVIDIA draws anyway. The CI GL job renders the production forward pair through the Scene-driven `SkinnedDrawFixture` tests, so a regression in either rule fails there, not on a user's Linux box.
+
+**Submission of a posed item** (since ROADMAP M3.2f). An entity whose model is skinned and whose `SkinnedPose` is valid (and sized for the skeleton) produces draw items that carry that pose; everything else draws at rest through the static program. Posed items sort to a **suffix** after every static run, the pose pointer is part of the run key by identity — two fighters sharing one `Model` never instance-collapse into one draw with one palette — and a posed run is always one item. It skips the depth prepass (the prepass bounds overdraw across thousands of static instances; two fighters are two draws, and a posed item drawn there through the static program would write its rest depth and then fail `GL_EQUAL`) and draws under normal depth writes through the skinned program: the per-frame uniforms are uploaded to that program once on the first posed run, the material binds on it, `SkinPaletteUBO` uploads the entity's palette and binds it, and the static program is made current again afterwards with the bind caches dropped. The same rule holds in `RenderTransparent` (the skinned transparent variant) and `RenderShadowsCombined` (the skinned depth program, per cascade). If a variant failed to build the item falls through and draws at rest — visible and logged, never a crash. Culling reads the entity's `AABB`, and `generateAABB` gives a skinned model its **pose bounds** rather than its rest box, so a swung limb is not culled; and a posed entity counts as a dynamic caster every frame it wears a valid pose, so a fighter animating in place with a clean `Transform` still refreshes its shadow cascade. The three `SkinnedDrawFixture` tests for this drive the real `ForwardOpaquePass` over a real `Scene`: two fighters on one mesh keep their own poses, a limb swung outside the rest box is drawn where the rest box alone would have culled it, and a posed caster with a clean transform reads as dynamic.
+
 ## Frustum culling
 
 The forward pass builds the culling frustum from the same camera and the same
@@ -662,6 +680,12 @@ const Frustum camFrustum = createFrustumFromCamera(
     cam.NearClip, cam.FarClip);
 scene.RenderScene(camFrustum, *shader_, cam, fp.viewportH);
 ```
+
+Under an orthographic camera (`Camera::Projection`, M3.2g) the same call returns a
+parallel box: the side planes run along `Front`, offset by `±OrthoHalfHeight` and
+`±OrthoHalfHeight × aspect`, so a wide object next to the camera is visible and a
+wide object far away is culled — the opposite of a perspective frustum
+(`OrthoCamera.TheCullingFrustumIsAParallelBox`).
 
 `createFrustumFromCamera` (`Engine/src/core/Components.h`) produces six `Plane`s
 from the camera basis. Each entity's `AABB` is tested with
@@ -771,7 +795,11 @@ if (pixelH < smallCullPixels_) { stats.culledSmall++; continue; }
 
 It needs the viewport pixel height, which `ForwardOpaquePass` passes as
 `fp.viewportH`. Passing `0` disables the cull, as does a `Camera::Zoom` that
-degenerates `tan(fov/2)`.
+degenerates `tan(fov/2)`. Under an orthographic camera projected size does not
+depend on distance, so the formula is `viewportHeightPx * radius / OrthoHalfHeight`,
+and LOD selection uses the distance at which a perspective camera of the same
+FOV would show the same half-height — both modes pick the same LOD for the same
+on-screen size.
 
 **What it trades.** Defaults are `smallCullEnabled_ = false` and
 `smallCullPixels_ = 3.0f` — off, because it changes what is visible. The
@@ -817,6 +845,7 @@ struct DrawItem {
     int       alphaMode = 0;           // 0 Opaque, 1 Mask, 2 Blend
     bool      doubleSided = false;
     int       shadingModel = 0;        // 0 PBR, 1 Toon
+    const SkinnedPose* pose = nullptr; // the pose a skinned item wears; part of the key by IDENTITY
 };
 ```
 
