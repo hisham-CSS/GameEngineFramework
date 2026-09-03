@@ -871,6 +871,103 @@ bool readAirborneFrom(Ctx& ctx, const json& engine, const std::string& where, Mo
 
 // --- The whole document -----------------------------------------------------
 
+// engine.anim3d, second half (ROADMAP M3.4b; ADR-019 D2). With every move
+// parsed: resolve the model path through the same containment gate as every
+// authored read, open the `<stem>.clips.json` the exporter wrote beside it,
+// and assert A21 (every move's clip is exactly its duration) and A22 (every
+// reserved cycle is present). THE MODEL IS NEVER OPENED HERE -- this library
+// has nlohmann and no Assimp -- so a missing .gltf is the mode's to report,
+// not a load error. A21 re-derives MoveDuration's per-component clamp,
+// max(startup,0) + max(active,0) + max(recovery,0), because CseData may not
+// link CseKernel (the BoxIsValid precedent at the top of this file);
+// scripts/check_clips.py spells the same sum, and the paddle fixture pins the
+// three together.
+bool checkAnim3d(Ctx& ctx, CharacterData& out) {
+    if (out.anim3dModel.empty()) {
+        // Off by default -- but a clip name with no model would be inert data,
+        // and this loader does not keep inert data quietly.
+        for (const Move& mv : out.moves)
+            if (!mv.anim3dClip.empty())
+                return ctx.fail("move `" + mv.id + "`",
+                    "authors engine.anim3d.clip but the character authors no "
+                    "engine.anim3d.model, so the clip name would be inert");
+        return true;
+    }
+
+    std::filesystem::path full;
+    if (!MyCoreEngine::PathIsContained(ctx.opt->contentRoot, out.anim3dModel, full))
+        return ctx.fail("engine.anim3d.model",
+            "`" + out.anim3dModel + "` refused, because it is absolute, carries a drive/UNC "
+            "root, or contains a `..` component that would escape the content root");
+    std::filesystem::path sidecar = full;
+    sidecar.replace_extension(".clips.json");
+    const std::string sidecarName = sidecar.filename().string();
+
+    std::error_code ec;
+    const std::uintmax_t size = std::filesystem::file_size(sidecar, ec);
+    if (ec)
+        return ctx.fail("engine.anim3d.model",
+            "sidecar `" + sidecarName + "` cannot be opened (" + ec.message() + "). The "
+            "exporter writes it beside the model -- docs/manual/art-pipeline.md");
+    if (size > ctx.opt->maxFileBytes)
+        return ctx.fail("engine.anim3d.model",
+            "sidecar `" + sidecarName + "`: " + toString(static_cast<std::int64_t>(size)) +
+            " bytes exceeds the " + toString(static_cast<std::int64_t>(ctx.opt->maxFileBytes)) +
+            "-byte cap on authored content");
+    std::ifstream in(sidecar, std::ios::binary);
+    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    const json doc = json::parse(text.begin(), text.end(), nullptr, false);
+    if (doc.is_discarded() || !doc.is_object())
+        return ctx.fail("engine.anim3d.model",
+            "sidecar `" + sidecarName + "` is not a JSON object of clip name -> frame count");
+
+    out.anim3dClips.clear();
+    for (auto it = doc.begin(); it != doc.end(); ++it) {
+        std::int32_t frames = 0;
+        if (!asInt32(it.value(), frames) || frames < 0)
+            return ctx.fail("engine.anim3d.model",
+                "sidecar `" + sidecarName + "`: clip `" + it.key() +
+                "` has a frame count that is not a non-negative integer");
+        out.anim3dClips.push_back(ClipLength{ it.key(), frames });
+    }
+    std::sort(out.anim3dClips.begin(), out.anim3dClips.end(),
+              [](const ClipLength& a, const ClipLength& b) { return a.name < b.name; });
+    auto find = [&](const std::string& name) -> const ClipLength* {
+        for (const ClipLength& cl : out.anim3dClips)
+            if (cl.name == name) return &cl;
+        return nullptr;
+    };
+
+    // A21: frames[clip(move)] == startup + active + recovery, per component
+    // clamped at zero, for every move. Frame 0 of the clip is moveFrame 0.
+    for (const Move& mv : out.moves) {
+        const std::string& clip = mv.anim3dClip.empty() ? mv.id : mv.anim3dClip;
+        const std::int32_t s = std::max(mv.startup, 0), a = std::max(mv.active, 0),
+                           r = std::max(mv.recovery, 0);
+        const std::int32_t expected = s + a + r;
+        const std::string arithmetic = " (startup " + toString(s) + " + active " + toString(a) +
+                                       " + recovery " + toString(r) + ")";
+        const ClipLength* cl = find(clip);
+        if (cl == nullptr)
+            return ctx.failRule("A21", "move `" + mv.id + "`: clip `" + clip + "` is not in `" +
+                                       sidecarName + "`; the move needs a clip of exactly " +
+                                       toString(expected) + " frames" + arithmetic);
+        if (cl->frames != expected)
+            return ctx.failRule("A21", "move `" + mv.id + "`: clip `" + clip + "` has " +
+                                       toString(cl->frames) + " frames, expected " +
+                                       toString(expected) + arithmetic);
+    }
+    // A22: every reserved cycle present. Lengths are the artist's (>= 2);
+    // the countdown cycles are checked against the authored counters by the
+    // ShippedClips tests when a character ships a model (ROADMAP M3.3c).
+    for (const char* cycle : kReservedCycleNames)
+        if (find(cycle) == nullptr)
+            return ctx.failRule("A22", "reserved cycle `" + std::string(cycle) + "` is missing from `" +
+                                       sidecarName + "`; ADR-019 D2 names fourteen and a presentation "
+                                       "model carries all of them");
+    return true;
+}
+
 bool parseDocument(Ctx& ctx, const json& doc, CharacterData& out) {
     if (!doc.is_object()) return ctx.fail("document", "top level is not a JSON object");
 
@@ -887,6 +984,19 @@ bool parseDocument(Ctx& ctx, const json& doc, CharacterData& out) {
     const json* engineNs = member(doc, "engine");
     if (engineNs && !engineNs->is_object())
         return ctx.fail("document", "`engine` is present but is not an object");
+    // engine.anim3d (ROADMAP M3.4b, ADR-019 D2): the presentation model. The
+    // contract is one key, and anything else is refused BY NAME, because a
+    // typo here would leave the fight drawing its placeholders while the file
+    // says it has a model. The path is resolved and the sidecar read after
+    // the moves, once every clip name is known -- checkAnim3d, below.
+    if (const json* a3 = engineNs ? member(*engineNs, "anim3d") : nullptr) {
+        if (!a3->is_object()) return ctx.fail("engine.anim3d", "is present but is not an object");
+        for (auto it = a3->begin(); it != a3->end(); ++it)
+            if (it.key() != "model")
+                return ctx.fail("engine.anim3d", "`" + it.key() + "` is not a field. The fields are: model");
+        if (!readString(ctx, *a3, "model", "engine.anim3d", out.anim3dModel, true)) return false;
+        if (out.anim3dModel.empty()) return ctx.fail("engine.anim3d.model", "is empty");
+    }
     const json* units = engineNs ? member(*engineNs, "units") : nullptr;
     if (units) {
         std::int32_t v = 0;
@@ -1307,6 +1417,19 @@ bool parseDocument(Ctx& ctx, const json& doc, CharacterData& out) {
                                            "attribute classes) and it stays. The move-level "
                                            "field is the designed rule, in this schema's own "
                                            "vocabulary of blocked_as heights plus `aerial`");
+
+                // engine.anim3d.clip (ROADMAP M3.4b): the clip this move wears
+                // when the character authors a model; the contract is that
+                // one key, refused by name like the character-level block.
+                if (const json* a3 = member(*e, "anim3d")) {
+                    if (!a3->is_object()) return ctx.fail(where, "`engine.anim3d` is not an object");
+                    for (auto it = a3->begin(); it != a3->end(); ++it)
+                        if (it.key() != "clip")
+                            return ctx.fail(where, "`engine.anim3d." + it.key() +
+                                                   "` is not a field. The fields are: clip");
+                    if (!readString(ctx, *a3, "clip", where + " engine.anim3d", mv.anim3dClip, false))
+                        return false;
+                }
 
                 // engine.reaction: what the hit DOES to the defender. Read as
                 // a block because that is how it is authored, and optional
@@ -1772,6 +1895,10 @@ bool parseDocument(Ctx& ctx, const json& doc, CharacterData& out) {
         }
     }
 
+    // The presentation model's sidecar, checked against the moves just parsed
+    // (A21, A22) -- after the moves, because the clip names are theirs.
+    if (!checkAnim3d(ctx, out)) return false;
+
     out.RebuildIndices();
     return true;
 }
@@ -1897,7 +2024,11 @@ bool LoadCharacterFile(const std::string& baseDir,
 
     std::string text;
     if (!readAuthoredFile(baseDir, relPath, options, text, report)) return false;
-    return LoadCharacterJson(relPath, text, options, out, report);
+    // The file's own authored paths (engine.anim3d.model) resolve against the
+    // root the file was read from, unless the caller named another.
+    LoadOptions rooted = options;
+    if (rooted.contentRoot.empty()) rooted.contentRoot = baseDir;
+    return LoadCharacterJson(relPath, text, rooted, out, report);
 }
 
 bool LoadCharacterVariant(const std::string& baseDir,
@@ -2121,8 +2252,10 @@ bool LoadCharacterVariant(const std::string& baseDir,
     }
 
     baseDoc.merge_patch(patch);
+    LoadOptions rooted = options;
+    if (rooted.contentRoot.empty()) rooted.contentRoot = baseDir;
     return LoadCharacterJson(baseRelPath + " + " + variantRelPath,
-                             baseDoc.dump(), options, out, report);
+                             baseDoc.dump(), rooted, out, report);
 }
 
 // --- The catalogue manifest (ROADMAP M1.6's cooker slice) --------------------

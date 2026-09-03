@@ -21,6 +21,7 @@
 # three CI jobs -- is proven BEFORE five later work packages ride on it.
 add_library(UntitledFighterPresentation STATIC
     src/CycleFrame.cpp     # floor-div/floor-mod cycle phases; half the stage is negative
+    src/FighterClips.cpp   # the (kind, move slot) -> clip table, bound by move id on every adopt (M3.4b)
 )
 
 target_include_directories(UntitledFighterPresentation

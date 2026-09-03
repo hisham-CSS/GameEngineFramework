@@ -3,8 +3,10 @@
 #include "cse/kernel/Combat.h"
 
 #include <cstddef>
+#include <filesystem>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace untitledfighter {
 
@@ -456,6 +458,9 @@ void UntitledFighterMode::teardownMatch_() {
     build_     = cse::data::MatchBuild{};
     analysis_  = cse::data::ProverResult{};
     setup_     = cse::game::FightSetup{};
+    clips_        = cse::presentation::FighterClips{};
+    modelWatch_   = cse::data::CharacterFileWatch{};
+    sidecarWatch_ = cse::data::CharacterFileWatch{};
 }
 
 bool UntitledFighterMode::adoptPrepared_(cse::data::CharacterData&& character,
@@ -489,6 +494,26 @@ bool UntitledFighterMode::adoptPrepared_(cse::data::CharacterData&& character,
             row.slot     = slot;
             row.shadowed = shadowedFromNeutral(build_.data.p[kPlayerSlot], slot);
             bindings_.push_back(row);
+        }
+    }
+
+    // The clip table (ROADMAP M3.4b), bound by id right beside the binding
+    // table and for the same reason: this build's slot numbers are this
+    // build's. A character with no model leaves it empty. The model and its
+    // sidecar get their (mtime, size) watches here -- like reloadWatch_,
+    // bound whether or not the files exist yet, so a first export lands.
+    {
+        std::vector<cse::presentation::MoveSlot> slots;
+        slots.reserve(character_.moves.size());
+        for (const cse::data::Move& mv : character_.moves)
+            slots.push_back({ build_.moves[kPlayerSlot].Find(mv.id), mv.id });
+        clips_.Rebuild(character_, slots);
+        if (!character_.anim3dModel.empty()) {
+            std::string watchError;
+            (void)modelWatch_.Bind(ctx_.contentRoot, character_.anim3dModel, watchError);
+            std::filesystem::path sidecar(character_.anim3dModel);
+            sidecar.replace_extension(".clips.json");
+            (void)sidecarWatch_.Bind(ctx_.contentRoot, sidecar.generic_string(), watchError);
         }
     }
 
@@ -602,7 +627,18 @@ bool UntitledFighterMode::adoptPrepared_(cse::data::CharacterData&& character,
 // restages it (or when it is copied by hand); docs/manual/fighting-core.md
 // says so where the authoring loop is described.
 void UntitledFighterMode::pollHotReload_(float dt) {
-    if (!reloadWatch_.Update(dt)) return;
+    // Every watch is polled every frame -- each refreshes its stamp when it
+    // reports -- and any one of them is a reason to rebuild: the character
+    // file, the presentation model, or its clip sidecar (M3.4b). The rebuild
+    // is the same load either way, so a re-export that disagrees with the
+    // frame data fails A21/A22 below and keeps the last good match.
+    const bool characterEdited = reloadWatch_.Update(dt);
+    const bool modelEdited     = modelWatch_.Update(dt);
+    const bool sidecarEdited   = sidecarWatch_.Update(dt);
+    if (!characterEdited && !modelEdited && !sidecarEdited) return;
+    const std::string edited = characterEdited ? kCharacters[characterIndex_].file
+                             : modelEdited     ? character_.anim3dModel
+                                               : "the clip sidecar of " + character_.anim3dModel;
 
     const std::string file = kCharacters[characterIndex_].file;
     cse::data::CharacterData character{};
@@ -628,7 +664,7 @@ void UntitledFighterMode::pollHotReload_(float dt) {
     paused_      = keepPaused;
     slowDivisor_ = keepSlow;
 
-    reloadNote_   = "edit landed -- " + file +
+    reloadNote_   = "edit landed -- " + edited +
                     " rebuilt, match restarted at tick 0"
                     + (paused_ ? std::string(", still paused") : std::string());
     reloadFailed_ = false;

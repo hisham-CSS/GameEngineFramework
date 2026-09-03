@@ -84,6 +84,8 @@
 #include "cse/game/FightSession.h"
 #include "cse/game/InputSource.h"
 
+#include "cse/presentation/FighterClips.h"
+
 #include "cse/kernel/GameState.h"
 
 #include <cstdint>
@@ -309,6 +311,17 @@ private:
     // save that fixes a broken file is noticed and revives the honest-error
     // screen -- previously only C could, and C advances to the NEXT character.
     cse::data::CharacterFileWatch reloadWatch_;
+    // The presentation model's own two watches (ROADMAP M3.4b): the glTF and
+    // its `<stem>.clips.json`, bound in adoptPrepared_ when the character
+    // authors engine.anim3d.model and polled beside reloadWatch_, so a
+    // re-export lands like a frame-data edit -- through the same load, the
+    // same A21/A22, and the same keep-last-good + HUD line when it disagrees.
+    cse::data::CharacterFileWatch modelWatch_;
+    cse::data::CharacterFileWatch sidecarWatch_;
+    // Which clip each (kind, move slot) wears -- bound BY MOVE ID in
+    // adoptPrepared_, beside the binding table and for the same reason: a
+    // reload that renumbers slots must not hand one move another's clip.
+    cse::presentation::FighterClips clips_;
     // A latching sequencing failure. Fatal to the match rather than to the
     // process: LatchedInputSource::Latch returning false means the input log
     // would have a hole in it, and its header says a caller that gets false back

@@ -854,3 +854,20 @@ TEST(PoseSelect, NeverTouchesTheChecksum) {
                "the one that was not";
     }
 }
+
+
+// The loader's reserved-cycle list (CseData, assertion A22) and the selector's
+// PoseKindName (CseGame) are two spellings of ADR-019 D2's fourteen names, in
+// two libraries that may not depend on each other in that direction. This is
+// the one place both are in scope, so it is where they are kept identical --
+// and in the SAME ORDER, because FighterClips indexes one by the other.
+TEST(PoseSelect, PoseKindNamesAreTheLoadersReservedCyclesInOrder) {
+    ASSERT_EQ(kReservedCycleNames.size(), 14u);
+    for (std::size_t i = 0; i < kReservedCycleNames.size(); ++i) {
+        const PoseKind kind = static_cast<PoseKind>(static_cast<int>(PoseKind::Idle) + static_cast<int>(i));
+        EXPECT_STREQ(PoseKindName(kind), kReservedCycleNames[i])
+            << "kind " << static_cast<int>(kind) << " and reserved cycle " << i << " disagree";
+    }
+    EXPECT_EQ(static_cast<int>(PoseKind::Idle) + 14, kPoseKindCount)
+        << "the fourteen cycles are exactly the kinds after Move";
+}

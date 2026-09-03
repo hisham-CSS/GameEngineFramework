@@ -325,8 +325,8 @@ LoadReport    report;                                   // CharacterData.h:338
 
 if (!LoadCharacterFile("Exported/Characters", "fighter_a.json",  // as staged, next to the exe
                        options, character, report)) {   // CharacterData.h:349
-    // report.error is non-empty; report.rule is "A01".."A08" when a load
-    // assertion is what refused it.
+    // report.error is non-empty; report.rule names the load assertion ("A01",
+    // "A21") when one is what refused it, and is empty for an ordinary check.
     log(report.error);
     return;
 }
@@ -357,6 +357,10 @@ These are ADR-001's assertions, and they run at load because load time is where 
 | **A06** | `CharacterData.cpp:393` | A multi-hit move whose last *unconditional* hit changes the hitstun, with no `engine.hits_projection_caveat` naming the direction of the error | Only unconditional records count as sequels. Kung Fu Girl's chop registers its second HitDef only when the first **whiffed**, so the two can never both land — a draft of this check without the exclusion fired on it. |
 | **A07** | `CharacterData.cpp:351` | `engine.hits[]` ticks that do not strictly increase | Out-of-order hits make "the first hit" ambiguous. |
 | **A08** | `CharacterData.cpp:431` | `engine.motion[]` ticks that do not strictly increase, or a non-integer velocity | Two keyframes on one tick means the result depends on which the loader applied last; a float velocity is a float in the simulation. |
+| **A21** | `checkAnim3d` in `CharacterData.cpp` | With `engine.anim3d.model` authored: a move whose clip (its id, or `engine.anim3d.clip`) is missing from the model's `<stem>.clips.json`, or has any length but `startup + active + recovery` (each clamped at zero) | Blender frame *k* is move frame *k* ([ADR-019](../adr/ADR-019-placeholders-through-blender.md) D2), so a clip one frame short shows the wrong pose on the last active frame and nothing downstream can tell. The message names the move, the clip, expected and actual, and shows the sum. `scripts/check_clips.py` spells the same sum from the glTF itself. |
+| **A22** | `checkAnim3d` in `CharacterData.cpp` | A presentation model whose sidecar lacks any of the fourteen reserved cycles (`idle` … `win`, `kReservedCycleNames`) | A missing cycle is a pose the selector will ask for and the artist never keyed; refusing at load names it instead of showing a rest pose mid-match. `test_pose_select` pins the list against `PoseKindName`. |
+
+A09–A20 are the schema-v3 assertions (invincibility, boxes, motion keys); their register is `x-load-assertions` in `Games/UntitledFighter/Assets/Characters/schema.v2.json`, which is the one place every rule id is listed. A21 and A22 are off by default: a character with no `engine.anim3d.model` checks neither, and the model itself is never opened by the loader — only its sidecar, read with nlohmann and contained against `LoadOptions::contentRoot` like every authored path (`CharacterData.PresentationModelIsOptionalAndSandboxed`). An unknown key under `engine.anim3d` at either level is an ordinary load error naming the key (`CharacterData.AnAnim3dKeyOutsideTheContractIsALoadErrorNamingTheKey`).
 
 The corresponding tests are in `tests/test_character_data.cpp` — `:320` for the A01 case that fabricated an infinite, `:393` for A02, `:273` and `:300` for A03's two halves.
 

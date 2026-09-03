@@ -98,7 +98,7 @@ M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
 
 | In flight | Owner | Since |
 |---|---|---|
-| — (next: M3.4b, `engine.anim3d` with its consumer — M3.3b, the mannequin, M3.3c, its clips, and M3.5a, the room, wait on ADR-019 D10) | | |
+| M3.4b `engine.anim3d` with its consumer | Claude | 2026-09-03 |
 
 The openings wave is landed end to end: per-opening prover surface → (c) →
 (d) → (b3) — the golden re-record (b3) was expected to need DISSOLVED under
@@ -1017,7 +1017,7 @@ mannequin wait on that one-line answer; every WP before them does not.
   `ShippedClips.MutatingStandLpRecoveryMakesTheClipLengthCheckFire`, and
   `check_clips.py` on `fighter_a.json` green in CI.
 
-- `[ ]` **M3.4b `engine.anim3d` lands with its consumer.** *(M)* APPENDED,
+- `[~]` **M3.4b `engine.anim3d` lands with its consumer.** *(M)* APPENDED,
   presentation-only, off by default: character-level `engine.anim3d.model`
   (`PathIsContained`-gated) and per-move `engine.anim3d.clip`; `CseData` reads
   the sidecar with nlohmann and asserts **A21**/**A22** beside A01–A20;

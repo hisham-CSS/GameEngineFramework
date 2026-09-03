@@ -872,6 +872,9 @@ void EditorApplication::Run() {
             // handed (editor::PanelContext::contentRoot). A mode that opens
             // authored content joins onto this rather than guessing.
             ctx.contentRoot = "Exported";
+            // The editor's asset cache, created once GL is up (M3.4b); the
+            // lambda is evaluated at mode ENTRY, after that.
+            ctx.assets = assets_.get();
             return ctx;
         };
 

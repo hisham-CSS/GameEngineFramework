@@ -67,3 +67,105 @@ TEST(CycleFrame, TheWalkCycleCrossesStageCentreWithoutAJump) {
     EXPECT_EQ(WalkCycleFrame(1000, 0, n), 0u) << "no stride authored means frame 0, never a divide by zero";
     EXPECT_EQ(WalkCycleFrame(1000, -5, n), 0u);
 }
+
+
+// ============================================================================
+// The clip table (ROADMAP M3.4b; ADR-019 D9)
+// ============================================================================
+
+#include "cse/presentation/FighterClips.h"
+
+using cse::data::CharacterData;
+using cse::data::ClipLength;
+using cse::data::Move;
+using cse::game::PoseKind;
+using cse::presentation::ClipRef;
+using cse::presentation::FighterClips;
+using cse::presentation::MoveSlot;
+
+namespace {
+
+Move moveOf(const char* id, int startup, int active, int recovery, const char* clip = "") {
+    Move m{};
+    m.id = id;
+    m.startup = startup;
+    m.active = active;
+    m.recovery = recovery;
+    m.anim3dClip = clip;
+    return m;
+}
+
+// A character as CseData would hand it over after A21/A22 passed: three moves,
+// one with a clip override, and every reserved cycle in the sidecar.
+CharacterData threeMoveCharacter() {
+    CharacterData c{};
+    c.anim3dModel = "Characters/fighter_a/model/fighter_a.gltf";
+    c.moves = { moveOf("a", 3, 2, 9), moveOf("b", 4, 2, 10), moveOf("c", 5, 3, 12, "c_alt") };
+    c.anim3dClips = { { "a", 14 }, { "b", 16 }, { "c_alt", 20 } };
+    std::int32_t n = 4;
+    for (const char* cycle : cse::data::kReservedCycleNames) c.anim3dClips.push_back({ cycle, n++ });
+    c.RebuildIndices();
+    return c;
+}
+
+} // namespace
+
+// BuildMatchData numbers moves in file order, so a reload that reorders them
+// renumbers every slot. The table is keyed by slot for the hot path but BOUND
+// by id, so after a reorder each slot still wears its own move's clip.
+TEST(FighterClips, AReloadThatReordersMovesRebindsEveryClipByName) {
+    const CharacterData c = threeMoveCharacter();
+    FighterClips clips;
+
+    clips.Rebuild(c, { { 1, "a" }, { 2, "b" }, { 3, "c" } });
+    ASSERT_EQ(clips.MoveClipCount(), 3u);
+    ASSERT_NE(clips.Find(PoseKind::Move, 1), nullptr);
+    EXPECT_EQ(clips.Find(PoseKind::Move, 1)->name, "a");
+    EXPECT_EQ(clips.Find(PoseKind::Move, 1)->frames, 14u);
+    EXPECT_EQ(clips.Find(PoseKind::Move, 3)->name, "c_alt") << "the per-move override names the clip";
+    EXPECT_EQ(clips.Find(PoseKind::Move, 3)->frames, 20u);
+
+    // the reload: c moved to the front, everything renumbered
+    clips.Rebuild(c, { { 1, "c" }, { 2, "a" }, { 3, "b" } });
+    ASSERT_EQ(clips.MoveClipCount(), 3u);
+    EXPECT_EQ(clips.Find(PoseKind::Move, 1)->name, "c_alt") << "slot 1 is c now; a table keyed by the old slots would say a";
+    EXPECT_EQ(clips.Find(PoseKind::Move, 2)->name, "a");
+    EXPECT_EQ(clips.Find(PoseKind::Move, 3)->name, "b");
+    EXPECT_EQ(clips.Find(PoseKind::Move, 3)->frames, 16u);
+
+    // a move this build did not give a slot has no clip; slot 0 never does
+    clips.Rebuild(c, { { 0, "a" }, { 1, "b" } });
+    EXPECT_EQ(clips.MoveClipCount(), 1u);
+    EXPECT_EQ(clips.Find(PoseKind::Move, 0), nullptr);
+    EXPECT_EQ(clips.Find(PoseKind::Move, 2), nullptr) << "no slot 2 was handed in";
+    EXPECT_EQ(clips.Find(PoseKind::Move, 1)->name, "b");
+}
+
+// The reserved cycles are keyed by kind alone and are the same fourteen names
+// in the same order as the loader's list; None and Move are never cycles.
+TEST(FighterClips, EveryReservedCycleIsFoundByItsKind) {
+    const CharacterData c = threeMoveCharacter();
+    FighterClips clips;
+    clips.Rebuild(c, { { 1, "a" } });
+    for (std::size_t i = 0; i < cse::data::kReservedCycleNames.size(); ++i) {
+        const PoseKind kind = static_cast<PoseKind>(static_cast<int>(PoseKind::Idle) + static_cast<int>(i));
+        const ClipRef* r = clips.Find(kind, 0);
+        ASSERT_NE(r, nullptr) << cse::data::kReservedCycleNames[i];
+        EXPECT_EQ(r->name, cse::data::kReservedCycleNames[i]);
+        EXPECT_EQ(r->frames, 4u + static_cast<std::uint32_t>(i));
+    }
+    EXPECT_EQ(clips.Find(PoseKind::None, 0), nullptr);
+    EXPECT_EQ(clips.Find(PoseKind::Idle, 7), clips.Find(PoseKind::Idle, 0)) << "a cycle ignores the move slot";
+}
+
+// Off by default: a character without engine.anim3d.model has no table, so the
+// mode keeps drawing the 2D placeholders and asks nothing of a renderer.
+TEST(FighterClips, ACharacterWithNoModelHasAnEmptyTable) {
+    CharacterData c = threeMoveCharacter();
+    c.anim3dModel.clear();
+    FighterClips clips;
+    clips.Rebuild(c, { { 1, "a" }, { 2, "b" }, { 3, "c" } });
+    EXPECT_TRUE(clips.Empty());
+    EXPECT_EQ(clips.Find(PoseKind::Move, 1), nullptr);
+    EXPECT_EQ(clips.Find(PoseKind::Idle, 0), nullptr);
+}

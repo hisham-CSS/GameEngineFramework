@@ -18,8 +18,13 @@ has exactly `startup + active + recovery` frames, frame 0 is the tick the move
 starts, and the contact pose is held over the active window so the fist is
 inside the live hitbox for exactly the ticks the kernel says. The export script
 writes a sidecar `<stem>.clips.json` (`{clip: frames}`) that the character
-loader asserts against without Assimp; `scripts/check_clips.py` re-derives every
-count from the glTF itself. Presentation holds no state: the pose on screen is
+loader asserts against without Assimp — assertions A21 (every move's clip is
+exactly its duration) and A22 (every reserved cycle present), run whenever a
+character authors `engine.anim3d.model` ([fighting-core.md](fighting-core.md),
+the load assertions); `scripts/check_clips.py` re-derives every count from the
+glTF itself. The mode watches the model and the sidecar like the character file,
+so a re-export lands as a hot reload and a disagreeing one keeps the last good
+match with the loader's words on the HUD. Presentation holds no state: the pose on screen is
 a pure function of `GameState` ([fighting-core.md](fighting-core.md), `PoseSelect`;
 [DETERMINISM.md](../DETERMINISM.md) P4).
 
