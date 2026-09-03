@@ -76,6 +76,28 @@ uniform float uAlphaCutoff;
 // -------- CSM uniforms (4 cascades) --------
 uniform mat4 uLightVP[4];
 uniform sampler2D uShadowCascade[4];
+
+// GLSL 3.30 forbids indexing a sampler ARRAY with anything but a constant
+// expression (dynamic indexing needs 4.00 and a dynamically-uniform index).
+// NVIDIA and AMD accept `uShadowCascade[ci]` as an extension; Mesa refuses
+// the whole program -- llvmpipe on the CI GL job, and every Linux Intel/AMD
+// driver. Measured 2026-09-03: this shader had never compiled there, and the
+// first test to use it (SkinnedDraw.TwoFightersSharingOneMeshNeverShareOnePose)
+// found out. Every cascade read goes through these constant-index ladders.
+// textureLod(.., 0.0): the depth maps have no mip chain, and an explicit LOD
+// keeps the sample well-defined inside the non-uniform branch.
+float cascadeDepth(int ci, vec2 uv) {
+    if (ci == 0) return textureLod(uShadowCascade[0], uv, 0.0).r;
+    if (ci == 1) return textureLod(uShadowCascade[1], uv, 0.0).r;
+    if (ci == 2) return textureLod(uShadowCascade[2], uv, 0.0).r;
+    return textureLod(uShadowCascade[3], uv, 0.0).r;
+}
+float cascadeTexelSize(int ci) {
+    if (ci == 0) return 1.0 / float(textureSize(uShadowCascade[0], 0).x);
+    if (ci == 1) return 1.0 / float(textureSize(uShadowCascade[1], 0).x);
+    if (ci == 2) return 1.0 / float(textureSize(uShadowCascade[2], 0).x);
+    return 1.0 / float(textureSize(uShadowCascade[3], 0).x);
+}
 uniform float uCSMSplits[4];   // view-space distances (end of each split)
 uniform int   uCascadeCount;
 
@@ -150,7 +172,7 @@ float pcfShadowCascade(int ci, vec4 lightClip, vec3 N, vec3 L)
     float texel = uCascadeTexel[ci];
 
     // fallback if uCascadeTexel wasn't set
-    if (texel <= 0.0) texel = 1.0 / float(textureSize(uShadowCascade[ci], 0).x);
+    if (texel <= 0.0) texel = cascadeTexelSize(ci);
     float bias  = (uShadowBiasConst + uShadowBiasSlope * (1.0 - NdL)) * texel;
 
     int   r   = max(uCascadeKernel[ci], 0);   // radius in texels
@@ -161,7 +183,7 @@ float pcfShadowCascade(int ci, vec4 lightClip, vec3 N, vec3 L)
     // Box PCF; (optional) swap to Poisson if you prefer
     for (int y = -r; y <= r; ++y)
         for (int x = -r; x <= r; ++x) {
-            float d = texture(uShadowCascade[ci], uvz.xy + vec2(x,y)*step).r;
+            float d = cascadeDepth(ci, uvz.xy + vec2(x,y)*step);
             sum += ((uvz.z - bias) <= d) ? 1.0 : 0.0;
             w   += 1.0;
         }
@@ -185,11 +207,11 @@ float sampleShadow(int ci, vec4 lightClip, vec3 N, vec3 L)
     float bias = max(1.5 * uCascadeTexel[ci], 0.0005) + (1.0 - NdL) * 0.001;
     vec2 texel = vec2(uCascadeTexel[ci]);
 
-    //float texel = 1.0 / float(textureSize(uShadowCascade[ci], 0).x);
+    //float texel = cascadeTexelSize(ci);
     float sum = 0.0;
     for (int y = -1; y <= 1; ++y)
     for (int x = -1; x <= 1; ++x) {
-        float closest = texture(uShadowCascade[ci], proj.xy + vec2(x,y)*texel).r;
+        float closest = cascadeDepth(ci, proj.xy + vec2(x,y)*texel);
         sum += (proj.z - bias) <= closest ? 1.0 : 0.0;
     }
     return sum / 9.0;
@@ -298,7 +320,7 @@ void main()
     }
     // 4 = sampled depth, 5 = projected UV (red if outside)
     if (uCSMDebug == 4) {
-        float dtex = texture(uShadowCascade[ci], proj.xy).r;
+        float dtex = cascadeDepth(ci, proj.xy);
         FragColor = vec4(vec3(dtex), 1.0);
         return;
     }
