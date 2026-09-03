@@ -98,7 +98,7 @@ M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
 
 | In flight | Owner | Since |
 |---|---|---|
-| — (next: M3.2f, submission, bounds and shadows for skinned items — M3.5a, the room, waits on ADR-019 D10) | | |
+| — (next: M3.2g, orthographic camera mode — M3.3b, the mannequin, and M3.5a, the room, wait on ADR-019 D10) | | |
 
 The openings wave is landed end to end: per-opening prover surface → (c) →
 (d) → (b3) — the golden re-record (b3) was expected to need DISSOLVED under
@@ -968,7 +968,7 @@ mannequin wait on that one-line answer; every WP before them does not.
   `SkinnedDraw.ALitSkinnedQuadShadesByItsPosedNormal`; the existing
   `test_render_passes` probe assertions still pass.
 
-- `[~]` **M3.2f Submission, bounds and shadows for skinned items; the
+- `[x] b18ded0` **M3.2f Submission, bounds and shadows for skinned items; the
   `SkinnedPose` component.** *(M)* A derived, never-serialized `SkinnedPose`;
   a pose identity in the `DrawItem` sort and run key so two fighters sharing
   one model never share one pose; palette upload in every geometry pass;
