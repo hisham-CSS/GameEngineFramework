@@ -53,6 +53,7 @@
 
 #include "cse/kernel/Combat.h"
 #include "cse/kernel/GameState.h"
+#include "cse/presentation/FightPresentation.h"
 
 #include <glm/glm.hpp>
 
@@ -71,10 +72,10 @@ namespace untitledfighter {
 // no reason not to be. cse::kernel::kSubUnitsPerPixel is the rate, taken from the
 // kernel rather than written as 256 here, because a second copy of that constant
 // is a second definition of how big a character is.
-inline float WorldPx(std::int32_t subUnits) {
-    return static_cast<float>(subUnits) /
-           static_cast<float>(cse::kernel::kSubUnitsPerPixel);
-}
+// Defined once, in the presentation library (M3.4c), where the 3D reconciler
+// needs the same conversion; this name is kept so every call in the mode reads
+// as before.
+using cse::presentation::WorldPx;
 
 // --- What a fighter is doing, in the vocabulary the frame data is written in --
 
@@ -83,7 +84,7 @@ inline float WorldPx(std::int32_t subUnits) {
 // a kernel function. PhaseOf below decides the frame split (startup / active /
 // spent / recovery); the ORDERING of knockdown over stun over move is the same
 // rule cse::game::SelectPose applies for the 3D presentation (ROADMAP M3.4a),
-// and M3.4c makes PhaseOf read it so that decision has one home.
+// and since M3.4c PhaseOf reads it, so that decision has one home.
 //
 // SPENT IS THE ONE THAT IS NOT ABOUT THE MOVE. The other five are properties of
 // the move and the frame; `Spent` is a property of THIS PERFORMANCE of it -- the
@@ -130,7 +131,14 @@ bool WindowHasConnected(const cse::kernel::Fighter& f);
 // it: a live box whose window has already connected is `Spent`, not `Active`,
 // because ResolveHits tests the guard FIRST and never reaches the box. See the
 // note at the top of this header.
-Phase PhaseOf(const cse::kernel::FighterData& data, const cse::kernel::Fighter& f);
+//
+// SINCE M3.4c THE PRECEDENCE IS READ FROM cse::game::SelectPose -- knockdown
+// over stun over move -- so that decision has ONE home (the 3D presentation
+// selects its pose by the same call); this function adds only the frame split
+// the 2D readout colours by. Hence the wider signature: SelectPose answers for
+// a slot of a match, not for one Fighter.
+Phase PhaseOf(const cse::kernel::MatchData& data, const cse::kernel::GameState& state,
+              std::uint8_t slot);
 
 // Short, stable, and the same strings the HUD's legend prints.
 const char* PhaseName(Phase phase);
@@ -185,6 +193,11 @@ std::int32_t ProbeStageHalfWidthSub();
 // camera HOLDS STILL unless a fighter would otherwise leave the view -- pass the
 // returned `position.x` back in next frame. A caller with no previous frame
 // should pass the pair's midpoint, which is the right framing to open on.
+//
+// SINCE M3.4c the framing itself -- the deadzone, the wall clamp, the 200 px
+// half-width -- is cse::presentation::FightCameraFraming, the same function the
+// orthographic scene camera is driven by (ADR-019 D4), and this adapts it to a
+// Camera2D. Two copies of the framing would be two cameras.
 MyCoreEngine::Camera2D FightCamera(const cse::kernel::GameState& state,
                                    int viewportW, int viewportH,
                                    std::int32_t stageHalfWidthSub,
@@ -198,9 +211,14 @@ MyCoreEngine::Camera2D FightCamera(const cse::kernel::GameState& state,
 // IGameMode::Draw (UIPass.cpp), so a mode that wants a world pass swaps modes and
 // swaps back, and doing that inside this function would hide a Begin/End pair
 // from the file that has to restore what it borrowed.
+// `boxesOnly` (M3.4c): when a presentation model is on screen the 3D scene IS
+// the floor and the bodies, so only the kernel's boxes -- the Hurtbox outline,
+// the ActiveHitbox, the origin -- are drawn over it. The floor, the ruler, the
+// body fill and the facing wedge stay 2D-placeholder furniture.
 void DrawFightWorld(MyCoreEngine::Renderer2D& r2d,
                     const cse::kernel::GameState& state,
                     const cse::kernel::MatchData& data,
-                    std::int32_t stageHalfWidthSub);
+                    std::int32_t stageHalfWidthSub,
+                    bool boxesOnly = false);
 
 } // namespace untitledfighter

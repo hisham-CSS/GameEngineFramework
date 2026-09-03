@@ -70,6 +70,9 @@ add_library(UntitledFighterModes STATIC
     # The fight, drawn: the kernel's own boxes, the stage and the corner.
     src/FightView.h
     src/FightView.cpp
+    # The reconciler's Engine half: the fighter and camera entities, the look (M3.4c).
+    src/FightScene.h
+    src/FightScene.cpp
     # The readouts: frame data, frame advantage, the verdict and the judge.
     src/FightHud.h
     src/FightHud.cpp

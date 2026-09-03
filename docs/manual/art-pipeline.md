@@ -26,7 +26,11 @@ glTF itself. The mode watches the model and the sidecar like the character file,
 so a re-export lands as a hot reload and a disagreeing one keeps the last good
 match with the loader's words on the HUD. Presentation holds no state: the pose on screen is
 a pure function of `GameState` ([fighting-core.md](fighting-core.md), `PoseSelect`;
-[DETERMINISM.md](../DETERMINISM.md) P4).
+[DETERMINISM.md](../DETERMINISM.md) P4). The renderer's metre-tuned constants are
+retuned for a world where one unit is one pixel by the committed
+`Games/UntitledFighter/Assets/UntitledFighter/fight_look.json`, which the mode
+applies on adopt and a headless test holds to ADR-019 D5 ([fighting-core.md](fighting-core.md),
+the reconciler).
 
 ## Tools on the development machine
 

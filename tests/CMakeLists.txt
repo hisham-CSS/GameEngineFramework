@@ -307,6 +307,17 @@ add_executable(test_fight_presentation test_fight_presentation.cpp)
 target_link_libraries(test_fight_presentation PRIVATE UntitledFighterPresentation GTest::gtest_main)
 add_test(NAME test_fight_presentation COMMAND $<TARGET_FILE:test_fight_presentation>)
 
+# THE RECONCILER'S ENGINE HALF (ROADMAP M3.4c). Two of M3.4c's properties need
+# Engine types -- a registry for the director to choose a camera from, and
+# SamplePalette for the bytes a palette must equal -- so they link Engine and
+# the title's FightScene, still with no window (Model::Decode and the director
+# are both GL-free). The include dir is the one exception to "Modes exports no
+# headers": this test IS the reason FightScene is a separate translation unit.
+add_executable(test_fight_reconciler test_fight_reconciler.cpp)
+target_include_directories(test_fight_reconciler PRIVATE ${CMAKE_SOURCE_DIR}/Games/UntitledFighter/Modes/src)
+target_link_libraries(test_fight_reconciler PRIVATE UntitledFighterModes UntitledFighterPresentation CseGame Engine GTest::gtest_main)
+add_test(NAME test_fight_reconciler COMMAND $<TARGET_FILE:test_fight_reconciler>)
+
 # AUTHORING TELEMETRY (ROADMAP M1.7, ADR-017) — the log grows by one line per
 # append and parses back. Pins the writer/reader pair the Combo Prover panel
 # calls; the panel's runIfStale_ is its ImGui mirror.

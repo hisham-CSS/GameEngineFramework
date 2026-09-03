@@ -98,7 +98,7 @@ M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
 
 | In flight | Owner | Since |
 |---|---|---|
-| — (next: M3.4c, the reconciler — M3.3b, the mannequin, M3.3c, its clips, and M3.5a, the room, wait on ADR-019 D10) | | |
+| M3.4c The reconciler — the first swing | Claude | 2026-09-03 |
 
 The openings wave is landed end to end: per-opening prover surface → (c) →
 (d) → (b3) — the golden re-record (b3) was expected to need DISSOLVED under
@@ -1032,7 +1032,7 @@ mannequin wait on that one-line answer; every WP before them does not.
   `CharacterData.AMissingReservedCycleIsALoadErrorNamingIt`,
   `FighterClips.AReloadThatReordersMovesRebindsEveryClipByName`.
 
-- `[ ]` **M3.4c The reconciler — the first swing.** *(L)* When the character
+- `[~]` **M3.4c The reconciler — the first swing.** *(L)* When the character
   authors a model, `adoptPrepared_` creates presentation entities (two
   fighters with `ModelComponent` + `SkinnedPose` + `Transform`, the room, an
   orthographic camera driven by `FightCamera` at priority 100) and applies a
@@ -1175,6 +1175,22 @@ during recovery is correctly forgotten.
 | **Do** | Press **V** for midscreen. Hit the dummy and watch it slide; count the squares. Press **V** back to the corner and hit it there. Hold **Down** and look at its body. Walk into it. Walk it into a corner. Jump over it. Sweep it with `crouch_hk`. |
 | **Should** | Midscreen: every hit carries it back, further on heavies. Squares are 20 px and every fifth line is one **reach unit** — so a move authored `reach: 0.42` reaches four squares and a bit. Corner: it does not move, and the HUD says the verdict on screen is about *this* position. Crouching: the body is visibly shorter, 34 px against 60. Walking into it: blocked, and neither of you inside the other. Its **body** stops at the wall, not its middle. |
 | **Wrong if** | It slides in the corner (the clamp is not holding). A light knocks it as far as a heavy (pushback is not per-move). Crouching changes nothing. Or **Down+HK does not knock it down and turn the box blue** — `crouch_hk` is selectable since M1.3e (Down decides the variant), so a sweep that does nothing means the stance wire regressed. |
+
+### R8 — After M3.4c: the first swing, and it looks like a fighting game
+
+This point needs a character that authors `engine.anim3d.model` — the mannequin
+(M3.3b) and its clips (M3.3c), which wait on ADR-019 D10. Until then the 3D
+pass is off by default and every row below is about the code path, not a
+picture; the moment a model is authored, run it.
+
+| | |
+|---|---|
+| **Run** | `Editor.exe`, Game view, or `Player.exe`, with a character whose `engine.anim3d.model` points at a skinned glTF with a `<stem>.clips.json` beside it. |
+| **Do** | Watch the two bodies stand, walk, jump and attack. Toggle the box overlay. Walk both into a corner; jump over the dummy; sweep it. Pause and frame-step through `stand_lp`. Resize the window to a tall and a wide shape. Hit the dummy from both sides. |
+| **Should** | Two toon-shaded bodies in two tints, on two depth planes, facing each other; when one crosses over, it turns — the tint side and the silhouette flip as one, nothing looks inside-out. The Hurtbox outline sits around the body and the fist is inside the red box on exactly the active frames. The camera holds still until a fighter nears the edge, then scrolls the minimum, and stops at the walls; the box overlay and the mesh never drift apart at any window shape. Frame-stepping shows one clip frame per tick and the contact pose held across the active window. The floor shadow lands under the body. |
+| **Wrong if** | A body looks mirrored rather than turned (a negative scale leaked in — `FightPresentation.FacingLeftIsAYawWithPositiveDeterminantNeverANegativeScale`). The mesh and its box outline separate as the camera scrolls or the window changes shape (the two cameras disagree — `TheSceneCameraAndTheFightCameraProjectTheFighterOriginToTheSamePixel`). A pose lags a frame behind the boxes or holds after a hit is rolled back (presentation state — ADR-019 D3). The back of the room or a fighter near the camera has no shadow (the look's ranges — `TheBackWallIsInsideTheShadowRange`). Both bodies read as one tint, or one flickers through the other where they overlap (`EachSlotHasItsOwnToonMaterialAndZPlane`). Leaving the mode leaves fighters, or a fight-lit sky, in the host scene. |
+
+Looked at again after M3.3d (every clip legible) and M3.3e (the modeled body).
 
 ### R1–R9
 

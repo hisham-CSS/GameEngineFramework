@@ -392,7 +392,7 @@ namespace {
                         (isPlayer ? "YOU" : "TRAINING DUMMY"),
                     SlotColour(slot));
 
-        const Phase phase = PhaseOf(data, f);
+        const Phase phase = PhaseOf(*model.data, *model.state, static_cast<std::uint8_t>(slot));
         pen.row("state", PhaseName(phase), PhaseColour(phase));
 
         // MOVE, FRAME and the frame data, every one of them read straight off the

@@ -85,6 +85,9 @@
 #include "cse/game/InputSource.h"
 
 #include "cse/presentation/FighterClips.h"
+#include "cse/presentation/FightPresentation.h"
+
+#include "FightScene.h"
 
 #include "cse/kernel/GameState.h"
 
@@ -322,6 +325,29 @@ private:
     // adoptPrepared_, beside the binding table and for the same reason: a
     // reload that renumbers slots must not hand one move another's clip.
     cse::presentation::FighterClips clips_;
+
+    // --- the 3D presentation (ROADMAP M3.4c) --------------------------------
+    //
+    // On when the character authors engine.anim3d.model and the model loaded;
+    // off, and every frame draws the 2D placeholders as before, otherwise.
+    // The scene owns the entities; scene3d_ owns their handles and re-creates
+    // them if a scene swap took them away. look_ is the committed
+    // fight_look.json (or its defaults, with a note); lookSnapshot_ is what it
+    // overwrote on the host, put back on teardown and Exit.
+    void reconcile_();
+    void loadLook_();
+    void applyLook_();
+    void createScene3d_();
+    void destroyScene3d_();
+    FightScene                       scene3d_;
+    std::shared_ptr<MyCoreEngine::Model> model_;
+    cse::presentation::FightLook     look_{};
+    LookSnapshot                     lookSnapshot_{};
+    std::string                      presentationNote_;   // why the 3D pass is off, for the HUD
+    // The last viewport Draw was handed: the camera's aspect for the NEXT
+    // frame's composition, which runs in Update, before this frame's Draw.
+    int viewportW_ = 1280;
+    int viewportH_ = 720;
     // A latching sequencing failure. Fatal to the match rather than to the
     // process: LatchedInputSource::Latch returning false means the input log
     // would have a hole in it, and its header says a caller that gets false back

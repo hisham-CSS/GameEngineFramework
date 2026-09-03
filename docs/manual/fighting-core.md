@@ -767,9 +767,8 @@ integers — `{kind, moveSlot, frame, remaining, tick, posXSub, posYSub, mirror,
 visible}` — never a clip name, never a float. The mode maps `(kind, moveSlot)`
 to a clip; the selector never learns that clips exist. It is the second reader
 of the decision `FightView::PhaseOf` makes for the box colours, placed in the
-library held to the sim's arithmetic rules; the two share the knockdown-over-stun
-ordering, and ROADMAP M3.4c makes `PhaseOf` read `SelectPose` so the decision
-has one home.
+library held to the sim's arithmetic rules; since ROADMAP M3.4c `PhaseOf` reads
+`SelectPose` for the knockdown-over-stun ordering, so the decision has one home.
 
 The precedence is the kernel's own, and each step names the kernel fact behind
 it: an inactive slot is `None`; `knockdown` outranks stun; `hitstun` reads as
@@ -796,11 +795,22 @@ What is pinned, headless, against the shipped `fighter_a`
 pose byte for byte; the frame is `moveFrame` from 0 on the move's first tick;
 hitstop freezes both fighters' poses; the precedence, the released guard and the
 acting-after-KO cases; and asking never changes the state's bytes or its
-checksum. The GL-free composition layer above it — cycle phases now
+checksum. The GL-free composition layer above it — cycle phases
 (`cse::presentation::CycleFrame`, floor-mod so half a stage of negative `posX`
-never yields a negative frame), the clip table and matrices as ROADMAP M3.4b–c
-land — is `UntitledFighterPresentation` under `Games/UntitledFighter/Presentation/`,
-which links `CseGame` and nothing else by configure-time assertion.
+never yields a negative frame), the clip table (`FighterClips`, M3.4b) and the
+matrices, camera and look (`FightPresentation`, M3.4c, next section) — is
+`UntitledFighterPresentation` under `Games/UntitledFighter/Presentation/`, which
+links `CseGame`, glm and nlohmann and nothing else by configure-time assertion.
+
+### The reconciler — the 3D presentation (M3.4c)
+
+When a character authors `engine.anim3d.model`, the training mode wears it. Two
+libraries share the work and the split is the point ([ADR-019](../adr/ADR-019-placeholders-through-blender.md) D9):
+
+- **`cse::presentation`** (`Games/UntitledFighter/Presentation/`, GL-free; links `CseGame`, glm and nlohmann, nothing else) does the arithmetic. `ComposeFrame(data, state, clips, look, stageHalfWidthSub, previousCentrePx, viewportW, viewportH)` runs `SelectPose` for each slot, looks the pose up in the `FighterClips` table, picks the clip frame (`ClipFrameFor`: the move frame for a move; `frames − remaining`, clamped at zero, for the countdown cycles so they land on their last frame as the counter reaches zero; the tick for a cycle; `posX / walkSpeed` for the walk), and builds the model matrix `translate(posX/256, posY/256, slotZ) × yaw(180° when facing == 1)` — a rotation with determinant +1, never a negative scale. It also frames the camera (`FightCameraFraming`: the 200 px half-width, 34 px deadzone, 42 px height and wall clamp that used to live in `FightView.cpp`) and derives the orthographic half-height the scene camera needs so that the scene camera and the 2D box overlay project a fighter's origin to the same pixel within half a pixel. It reads its inputs and writes only the result (`FightPresentation.ReconcilingAFrameLeavesTheGameStateBytesUntouched`).
+- **`FightScene`** (`Games/UntitledFighter/Modes/src/FightScene.h`) owns the entities: two fighters with `ModelComponent`, `SkinnedPose`, `Transform`, `AABB` and a per-slot toon `MaterialOverrides` tint, and an orthographic `CameraComponent` whose priority is the look's or one above the highest enabled host camera, whichever is higher, so it outranks every camera in the host scene (`FightPresentation.TheFightCameraOutranksEveryCameraInTheHostScene`). Every frame the mode writes the composition into them in `Update` — before the host's `UpdateTransforms` and camera director run, so nothing is a frame late — and the palette is `SamplePalette`'s bytes at the selected frame (`FightPresentation.ThePaletteBytesEqualSamplePaletteAtTheSelectedFrame`). No clip means the rest pose. The entities are destroyed on teardown and on `Exit`, and rebuilt if a scene swap cleared the registry.
+
+The committed look is `Games/UntitledFighter/Assets/UntitledFighter/fight_look.json` (staged to `Exported/UntitledFighter/`), applied on adopt to both suns (the scene's shading sun and the renderer's shadow sun), exposure, IBL, the outline and the shadow range, and restored when the mode leaves. Its numbers are in world pixels and must satisfy ADR-019 D5: shadow distance ≥ camera distance + room depth, far plane past the back wall, near plane in front of the fighters (`FightPresentation.TheBackWallIsInsideTheShadowRange` proves the committed file; an unknown key is refused by name like the character file). With a model on screen the 2D backdrop and floor are not drawn; the kernel's Hurtbox outline, the ActiveHitbox and the origin stay on top, because judging the fist against the box is what the pass is for. `PhaseOf` now reads `SelectPose` for the knockdown-over-stun ordering and adds only the frame split, so that decision has one home.
 
 ## The modes: training, frame step, HUD
 
