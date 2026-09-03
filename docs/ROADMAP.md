@@ -98,7 +98,7 @@ M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
 
 | In flight | Owner | Since |
 |---|---|---|
-| — (next: M3.2e, the skinned GPU path — M3.5a, the room, waits on ADR-019 D10) | | |
+| — (next: M3.2f, submission, bounds and shadows for skinned items — M3.5a, the room, waits on ADR-019 D10) | | |
 
 The openings wave is landed end to end: per-opening prover surface → (c) →
 (d) → (b3) — the golden re-record (b3) was expected to need DISSOLVED under
@@ -956,7 +956,7 @@ mannequin wait on that one-line answer; every WP before them does not.
   `ModelDecode.TheSkinnedBoundsContainEveryVertexOfEveryClipFrame`, and the
   compile-time property that no `SamplePalette` overload accepts a double.
 
-- `[~]` **M3.2e The skinned GPU path.** *(L)* A skin VBO at attributes 5 and
+- `[x]` `80f9026` **M3.2e The skinned GPU path.** *(L)* A skin VBO at attributes 5 and
   6; a std140 UBO `uBones { mat4 bones[128]; }`; `#ifdef SKINNED` blocks in
   `vertex.glsl` and `shadow_depth_vert.glsl` that keep `invariant gl_Position`
   and transform normals and tangents by the skin matrix (toon bands read the
