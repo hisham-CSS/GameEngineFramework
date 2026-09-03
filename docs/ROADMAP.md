@@ -98,7 +98,7 @@ M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
 
 | In flight | Owner | Since |
 |---|---|---|
-| — (next: M3.2a, the top `[ ]` — glTF enters the static model path) | | |
+| — (next: M3.3a, the top `[ ]` — Blender tooling of record, the paddle, `check_clips.py`) | | |
 
 The openings wave is landed end to end: per-opening prover surface → (c) →
 (d) → (b3) — the golden re-record (b3) was expected to need DISSOLVED under
@@ -871,7 +871,7 @@ mannequin wait on that one-line answer; every WP before them does not.
   every hitstop tick of a crouch-blocked hit; that is the one place a
   crouch → stand → crouch flicker would show, and the carry makes it reachable.
 
-- `[~]` **M3.2a glTF enters the static model path; stdlib fixtures.** *(S)*
+- `[x]` `e4ef6c6` **M3.2a glTF enters the static model path; stdlib fixtures.** *(S)*
   `AssetIndex::classify` learns `.gltf`/`.glb`; `collectMeshes` accumulates
   node transforms for unskinned meshes (identity stays bit-identical; bones
   stay in bind space); the two formats' UV conventions are PINNED to agree
