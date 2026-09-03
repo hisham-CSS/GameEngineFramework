@@ -155,12 +155,41 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
         if (auto* cam = reg.try_get<CameraComponent>(selected)) {
             bool keep = true;
             if (ImGui::CollapsingHeader("Camera", &keep, ImGuiTreeNodeFlags_DefaultOpen)) {
+                // Projection (M3.2g): perspective reads the FOV slider,
+                // orthographic the half-height drag. The mode switch is an
+                // undo record like Enabled; every lens edit refits the
+                // cascades below.
+                {
+                    int mode = static_cast<int>(cam->projection);
+                    const char* modes[] = { "Perspective", "Orthographic" };
+                    if (ImGui::Combo("Projection", &mode, modes, 2) &&
+                        mode != static_cast<int>(cam->projection)) {
+                        const CameraProjection chosen = (mode == 1) ? CameraProjection::Orthographic
+                                                                    : CameraProjection::Perspective;
+                        undo.record(reg, selected, "Camera projection", [&] {
+                            cam->projection = chosen;
+                        });
+                        shadowsDirty = true;
+                    }
+                }
                 const float preFov = cam->fovDeg;
-                // AlwaysClamp: Ctrl+Click typing must not escape the range —
-                // fov outside (0,180) degenerates the projection
-                ImGui::SliderFloat("FOV (deg)", &cam->fovDeg, 20.f, 120.f, "%.0f",
-                                   ImGuiSliderFlags_AlwaysClamp);
-                trackSliderItem("Camera FOV", cam->fovDeg, preFov);
+                const float preHalf = cam->orthoHalfHeight;
+                if (cam->projection == CameraProjection::Orthographic) {
+                    // fixed widget bounds + the invariant enforced in code, as
+                    // for the clip planes below; zero divides in glm::ortho
+                    ImGui::DragFloat("Half height", &cam->orthoHalfHeight, 0.1f,
+                                     0.001f, 100000.f, "%.2f",
+                                     ImGuiSliderFlags_AlwaysClamp);
+                    cam->orthoHalfHeight = glm::clamp(cam->orthoHalfHeight, 0.001f, 100000.f);
+                    trackItem("Camera half height");
+                }
+                else {
+                    // AlwaysClamp: Ctrl+Click typing must not escape the range —
+                    // fov outside (0,180) degenerates the projection
+                    ImGui::SliderFloat("FOV (deg)", &cam->fovDeg, 20.f, 120.f, "%.0f",
+                                       ImGuiSliderFlags_AlwaysClamp);
+                    trackSliderItem("Camera FOV", cam->fovDeg, preFov);
+                }
 
                 // clip planes. Widget bounds are FIXED constants and the
                 // near < far invariant is enforced in code right after each
@@ -186,8 +215,8 @@ bool InspectorPanel::Draw(entt::registry& reg, entt::entity selected,
 
                 // lens changes move the view frustum: the CSM cascades fit
                 // it, so refit even though no caster/camera moved
-                if (cam->fovDeg != preFov || cam->nearClip != preNear ||
-                    cam->farClip != preFar) {
+                if (cam->fovDeg != preFov || cam->orthoHalfHeight != preHalf ||
+                    cam->nearClip != preNear || cam->farClip != preFar) {
                     shadowsDirty = true;
                 }
 

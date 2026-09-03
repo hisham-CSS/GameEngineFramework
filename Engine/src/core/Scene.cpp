@@ -46,6 +46,12 @@ bool MyCoreEngine::SyncCameraFromEntity(entt::registry& reg, entt::entity e,
     cam.Zoom = glm::clamp(cc.fovDeg, 1.f, 179.f);
     cam.NearClip = std::max(cc.nearClip, 1e-3f);
     cam.FarClip = std::max(cc.farClip, MinFarClipFor(cam.NearClip));
+    // the projection mode rides along with the lens (M3.2g), written every
+    // time so a perspective camera never inherits the last one's mode; a
+    // half-height of zero is a division by zero in the ortho matrix, the same
+    // guard near has
+    cam.Projection = cc.projection;
+    cam.OrthoHalfHeight = std::max(cc.orthoHalfHeight, 1e-3f);
     return true;
 }
 
@@ -458,9 +464,16 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
     // Object pixel height ~= viewportH * (2*radius) / (2*dist*tan(fovY/2))
     //                      = viewportH * radius / (dist * tanHalfFov).
     // Zoom is vertical FOV in DEGREES (mirror ForwardOpaquePass's frustum).
+    // Under an orthographic camera (M3.2g) projected size does not depend on
+    // distance: pixelH = viewportH * radius / halfHeight. Its LOD keeps the
+    // distance rule through lodDist, the distance at which a perspective
+    // camera of this fov would show the same half-height, so both modes pick
+    // the same LOD for the same on-screen size.
+    const bool  ortho = (camera.Projection == CameraProjection::Orthographic);
     const float tanHalfFov = std::tan(glm::radians(camera.Zoom) * 0.5f);
+    const float orthoHalfH = std::max(camera.OrthoHalfHeight, 1e-3f);
     const bool  screenCull = smallCullEnabled_ && viewportHeightPx > 0 &&
-                             tanHalfFov > 1e-4f && smallCullPixels_ > 0.f;
+                             (ortho || tanHalfFov > 1e-4f) && smallCullPixels_ > 0.f;
 
     // 1) Build draw list with frustum test
     auto view = registry.view<ModelComponent, Transform, AABB>();
@@ -491,15 +504,17 @@ void Scene::RenderScene(const Frustum& camFrustum, Shader& shader, Camera& camer
         // (shadows/PCF/fill were measured free). The object is dropped from
         // the FORWARD pass only; its (equally sub-pixel) shadow is left to the
         // shadow pass, so no caster-set change and no CSM ghosting.
-        if (screenCull && dist > 1e-3f) {
-            const float pixelH = (float)viewportHeightPx * radius / (dist * tanHalfFov);
+        if (screenCull && (ortho || dist > 1e-3f)) {
+            const float pixelH = ortho ? (float)viewportHeightPx * radius / orthoHalfH
+                                       : (float)viewportHeightPx * radius / (dist * tanHalfFov);
             if (pixelH < smallCullPixels_) { stats.culledSmall++; continue; }
         }
 
         // LOD by camera distance relative to the object's world-space size
         int lod = 0;
         if (lodEnabled_) {
-            const float ratio = dist / (radius * lodDistanceScale_);
+            const float lodDist = ortho ? orthoHalfH / std::max(tanHalfFov, 1e-4f) : dist;
+            const float ratio = lodDist / (radius * lodDistanceScale_);
             lod = (ratio > 60.f) ? 2 : (ratio > 25.f) ? 1 : 0;
         }
 

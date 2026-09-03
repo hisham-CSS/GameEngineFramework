@@ -48,7 +48,8 @@ namespace MyCoreEngine {
         float defaultBlendSeconds() const { return defaultBlendSeconds_; }
 
         // Advance selection + blending and write the resulting view into
-        // `cam` (Position/Right/Up/Front, Zoom, NearClip/FarClip). Returns
+        // `cam` (Position/Right/Up/Front, Zoom, NearClip/FarClip,
+        // Projection/OrthoHalfHeight). Returns
         // false and leaves `cam` untouched when the scene has no usable
         // camera — callers keep their own fallback view (fly cam).
         bool Update(entt::registry& reg, float dt, Camera& cam);
@@ -73,6 +74,10 @@ namespace MyCoreEngine {
             float fovDeg = 60.f;
             float nearClip = Camera::NEAR_DEFAULT;
             float farClip = Camera::FAR_DEFAULT;
+            // M3.2g: the mode is discrete (it switches at the blend midpoint);
+            // the half-height blends like the fov
+            CameraProjection projection = CameraProjection::Perspective;
+            float orthoHalfHeight = 10.f;
         };
         // World pose + lens values from a camera entity; false when it is
         // not a valid camera (missing/invalid entity, component, Transform).

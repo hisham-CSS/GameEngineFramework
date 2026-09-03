@@ -98,7 +98,7 @@ M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
 
 | In flight | Owner | Since |
 |---|---|---|
-| — (next: M3.2g, orthographic camera mode — M3.3b, the mannequin, and M3.5a, the room, wait on ADR-019 D10) | | |
+| M3.2g Orthographic camera mode | Claude | 2026-09-03 |
 
 The openings wave is landed end to end: per-opening prover surface → (c) →
 (d) → (b3) — the golden re-record (b3) was expected to need DISSOLVED under
@@ -980,7 +980,7 @@ mannequin wait on that one-line answer; every WP before them does not.
   `SkinnedDraw.AFighterAnimatingInPlaceRedrawsItsShadowCascade`; headless
   `SceneSerializer.SkinnedPoseIsDerivedAndNeverSaved`.
 
-- `[ ]` **M3.2g Orthographic camera mode.** *(M)* The one camera-side
+- `[~]` **M3.2g Orthographic camera mode.** *(M)* The one camera-side
   addition ADR-019 D4 admits: `CameraComponent` gains an appended projection
   mode and orthographic half-height; `Renderer`'s projection branches; CSM
   slice fitting and the culling frustum handle the orthographic view; the
@@ -1110,7 +1110,10 @@ mannequin wait on that one-line answer; every WP before them does not.
   *(S)* Hitstop shake as a pure function of `(tick, hitstop)`; a placeholder
   hit spark and a sound stub driven only from the confirmed-tick drain; a
   perspective toggle with the box overlay projected through the same
-  view-projection. R8 is looked at again here. **Done when:**
+  view-projection. Also here: the depth-outline pass linearises depth with
+  the perspective formula and is wrong under the orthographic camera M3.2g
+  added (found there, not fixed there); the toggle is the WP that has both
+  cameras in hand. R8 is looked at again here. **Done when:**
   `Presentation.EffectsComeOnlyFromDrainedEventsAndAResimulatedTickEmitsNone`,
   `FightPresentation.ThePerspectiveOverlayProjectsTheHurtboxCornersThroughTheSameMatrixAsTheMesh`.
 

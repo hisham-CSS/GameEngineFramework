@@ -1,6 +1,6 @@
 # Entities and Components
 
-Verified: 2026-09-02 @ 78ea28b
+Verified: 2026-09-03 @ ecde2d3
 
 Everything in a Cat Splat scene is an **entity**: an id with a bag of **components** attached to it. There is no `GameObject` base class — an entity *is* its components, and systems (rendering, physics, scripting, camera selection, serialization) find work by asking for entities that have a particular combination of them.
 
@@ -233,8 +233,10 @@ lights than the shader can hold.
 | `farClip` | `float` | `1000.0f` | must be > `nearClip` |
 | `priority` | `int` | `0` | highest enabled wins; ties go to the **lowest entity index** |
 | `enabled` | `bool` | `true` | disabled cameras are never selected |
+| `projection` | `CameraProjection` | `Perspective` | appended (M3.2g); `Orthographic` ignores `fovDeg` and shows ±`orthoHalfHeight` world units top to bottom, width from the viewport's aspect, no shrinking with distance. The fight camera is one (ADR-019 D4). |
+| `orthoHalfHeight` | `float` | `10.0f` | must be > 0 (clamped to `1e-3` like `nearClip`) |
 
-Position and orientation come from the entity's `Transform`, hierarchy included — a camera can be parented to anything. `FindActiveCamera(registry)` performs the selection; `SyncCameraFromEntity(registry, e, cam)` copies the world pose and lens into a `Camera`.
+Position and orientation come from the entity's `Transform`, hierarchy included — a camera can be parented to anything. `FindActiveCamera(registry)` performs the selection; `SyncCameraFromEntity(registry, e, cam)` copies the world pose, lens and projection mode into a `Camera`, whose `GetProjectionMatrix(aspect)` is the one builder the renderer, the culling frustum and the CSM slice fit all call. A file saved before the two projection keys existed loads as the perspective camera it always was (`SceneSerializer.CameraProjectionRoundTripsAndDefaultsToPerspective`).
 
 > **Important — near/far separation.** Use `MinFarClipFor(nearClip)` wherever you enforce `near < far`:
 > ```c++
@@ -399,7 +401,7 @@ serializer.Load("scenes/level1.scene");
 | `transform` | `Transform` | `position`, `rotation`, `scale` (matrix and `dirty` are derived) |
 | `model` | `ModelComponent` | model source path; `""` = component present, no model |
 | `noShadow` | `NoShadow` | `true` |
-| `camera` | `CameraComponent` | `fovDeg`, `nearClip`, `farClip`, `priority`, `enabled` |
+| `camera` | `CameraComponent` | `fovDeg`, `nearClip`, `farClip`, `priority`, `enabled`, `projection` (int), `orthoHalfHeight` |
 | `light` | `LightComponent` | `type`, `color`, `intensity`, `range`, `innerAngleDeg`, `outerAngleDeg`, `enabled` |
 | `script` | `ScriptComponent` | `path`, `enabled` |
 | `rigidBody` | `RigidBody` | `type` (int), `mass`, `friction`, `restitution`, `linearDamping`, `angularDamping`, `isTrigger`, `initialLinearVelocity` |

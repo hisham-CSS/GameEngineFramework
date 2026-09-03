@@ -522,9 +522,13 @@ adjusting a mode the pass is in, not switching it into one. To go back, call
 Two things keep cascades from shimmering as the camera turns:
 
 1. **Bounding-sphere fit.** Each cascade's ortho extent comes from the bounding
-   *sphere* of its view frustum slice. The radius depends only on FOV, aspect
-   and split distances — rigid geometry — not on camera position or
-   orientation. A box fit to the slice corners changes size as you turn, which
+   *sphere* of its view frustum slice. The radius depends only on FOV (or, for
+   an orthographic camera, its half-height), aspect and split distances —
+   rigid geometry — not on camera position or orientation. The slice corners
+   come from `Camera::ProjectionFor(aspect, splitNear, splitFar)`, the same
+   builder the renderer draws with, so a perspective and an orthographic
+   camera are fitted by one path; a half-height edit or a mode switch refits
+   every cascade like a FOV change does. A box fit to the slice corners changes size as you turn, which
    resizes the texel grid every update and makes snapping useless.
 2. **Texel snapping.** The light projection is nudged so the world origin lands
    on a texel corner. With a constant extent the texel size is constant, so
@@ -677,6 +681,12 @@ const Frustum camFrustum = createFrustumFromCamera(
 scene.RenderScene(camFrustum, *shader_, cam, fp.viewportH);
 ```
 
+Under an orthographic camera (`Camera::Projection`, M3.2g) the same call returns a
+parallel box: the side planes run along `Front`, offset by `±OrthoHalfHeight` and
+`±OrthoHalfHeight × aspect`, so a wide object next to the camera is visible and a
+wide object far away is culled — the opposite of a perspective frustum
+(`OrthoCamera.TheCullingFrustumIsAParallelBox`).
+
 `createFrustumFromCamera` (`Engine/src/core/Components.h`) produces six `Plane`s
 from the camera basis. Each entity's `AABB` is tested with
 `AABB::isOnFrustum(frustum, transform)`, which transforms the box centre by the
@@ -785,7 +795,11 @@ if (pixelH < smallCullPixels_) { stats.culledSmall++; continue; }
 
 It needs the viewport pixel height, which `ForwardOpaquePass` passes as
 `fp.viewportH`. Passing `0` disables the cull, as does a `Camera::Zoom` that
-degenerates `tan(fov/2)`.
+degenerates `tan(fov/2)`. Under an orthographic camera projected size does not
+depend on distance, so the formula is `viewportHeightPx * radius / OrthoHalfHeight`,
+and LOD selection uses the distance at which a perspective camera of the same
+FOV would show the same half-height — both modes pick the same LOD for the same
+on-screen size.
 
 **What it trades.** Defaults are `smallCullEnabled_ = false` and
 `smallCullPixels_ = 3.0f` — off, because it changes what is visible. The

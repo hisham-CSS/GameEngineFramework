@@ -125,6 +125,8 @@ private:
     float        lastFovDeg_{ -1.f };
     float        lastNear_{ -1.f };
     float        lastFar_{ -1.f };
+    float        lastOrthoHalfHeight_{ -1.f }; // M3.2g: lens state like fov
+    int          lastProjection_{ -1 };
     UpdatePolicy policy_{ UpdatePolicy::CameraOrSunMoved };
     SplitMode    splitMode_{ SplitMode::Fixed };
     int          budgetPerFrame_{ 0 };   // 0 == update all stale cascades
