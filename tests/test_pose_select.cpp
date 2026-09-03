@@ -34,6 +34,7 @@
 #include "cse/game/FightSession.h"
 #include "cse/game/InputSource.h"
 #include "cse/game/PoseSelect.h"
+#include "cse/presentation/FightPresentation.h"
 
 #include "cse/data/CharacterData.h"
 #include "cse/data/MatchBuilder.h"
@@ -42,6 +43,7 @@
 #include "cse/kernel/GameState.h"
 #include "cse/kernel/Simulate.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -870,4 +872,289 @@ TEST(PoseSelect, PoseKindNamesAreTheLoadersReservedCyclesInOrder) {
     }
     EXPECT_EQ(static_cast<int>(PoseKind::Idle) + 14, kPoseKindCount)
         << "the fourteen cycles are exactly the kinds after Move";
+}
+
+
+// ============================================================================
+// 8. P4 ACCEPTANCE (ROADMAP M3.4d; ADR-019 D3; DETERMINISM.md P4)
+// ============================================================================
+//
+// Sections 1-7 hold the SELECTOR to P4. These hold the whole composed frame --
+// clip, frame, matrix, camera -- the reconciler hands the scene (M3.4c). Same
+// rig, same script, the same fighter_a; the only addition is a clip table for
+// it, as if it authored a model, so every kind resolves to a clip.
+
+namespace {
+
+using cse::presentation::ComposeFrame;
+using cse::presentation::FightLook;
+using cse::presentation::FighterClips;
+using cse::presentation::FighterFrame;
+using cse::presentation::FrameComposition;
+
+// fighter_a as if it authored a model: every move's clip at its duration and
+// every reserved cycle, bound to the slots this build gave the moves.
+FighterClips tableFor(const Rig& rig) {
+    CharacterData c = rig.character;
+    c.anim3dModel = "fighter_a.gltf";
+    c.anim3dClips.clear();
+    for (const Move& m : c.moves)
+        c.anim3dClips.push_back({ m.id, std::max(m.startup, 0) + std::max(m.active, 0) + std::max(m.recovery, 0) });
+    std::int32_t n = 8;
+    for (const char* cycle : kReservedCycleNames) c.anim3dClips.push_back({ cycle, n++ });
+    c.RebuildIndices();
+    std::vector<cse::presentation::MoveSlot> slots;
+    for (const Move& m : c.moves) slots.push_back({ rig.build.moves[0].Find(m.id), m.id });
+    FighterClips clips;
+    clips.Rebuild(c, slots);
+    return clips;
+}
+
+// Two fighter frames equal in everything the scene reads. ClipRef by value --
+// the pointers differ between tables -- and the matrix bit for bit.
+bool sameFighterFrame(const FighterFrame& a, const FighterFrame& b) {
+    if (a.visible != b.visible || a.kind != b.kind || a.frame != b.frame) return false;
+    if ((a.clip == nullptr) != (b.clip == nullptr)) return false;
+    if (a.clip && (a.clip->name != b.clip->name || a.clip->frames != b.clip->frames)) return false;
+    return std::memcmp(&a.model, &b.model, sizeof(glm::mat4)) == 0 &&
+           std::memcmp(&a.position, &b.position, sizeof(glm::vec3)) == 0 &&
+           a.yawDeg == b.yawDeg && a.z == b.z && a.toon == b.toon &&
+           std::memcmp(&a.tint, &b.tint, sizeof(glm::vec3)) == 0;
+}
+
+bool sameComposition(const FrameComposition& a, const FrameComposition& b) {
+    for (int s = 0; s < 2; ++s)
+        if (!sameFighterFrame(a.fighter[s], b.fighter[s])) return false;
+    return std::memcmp(&a.camera, &b.camera, sizeof(a.camera)) == 0;
+}
+
+std::string describeFrame(const FighterFrame& f) {
+    std::string s = PoseKindName(f.kind);
+    s += " clip=" + (f.clip ? f.clip->name : std::string("(none)")) + " frame=" + std::to_string(f.frame) +
+         " pos=(" + std::to_string(f.position.x) + "," + std::to_string(f.position.y) + ") yaw=" +
+         std::to_string(f.yawDeg);
+    return s;
+}
+
+// The id of the move in `slot` of the player's table, for the messages.
+std::string moveIdOf(const Rig& rig, std::uint16_t slot) {
+    for (const Move& m : rig.character.moves)
+        if (rig.build.moves[0].Find(m.id) == slot) return m.id;
+    return "(slot " + std::to_string(slot) + ")";
+}
+
+struct ComposedRun {
+    std::vector<GameState>        states;   // after every tick
+    std::vector<FrameComposition> frames;   // composed from that state, camera memory chained
+    std::vector<float>            centres;  // the previousCentrePx each frame was composed with
+};
+
+// Runs the script and composes after every tick exactly as the mode does:
+// this frame's camera memory is last frame's centre, and nothing else is
+// carried.
+ComposedRun runAndCompose(FightSession& session, const FighterClips& clips, std::size_t ticks) {
+    ComposedRun r;
+    float centre = 0.0f;
+    for (std::size_t t = 0; t < ticks; ++t) {
+        session.Tick();
+        r.states.push_back(session.State());
+        r.centres.push_back(centre);
+        r.frames.push_back(ComposeFrame(session.Data(), session.State(), clips, FightLook{},
+                                        cse::kernel::kStageHalfWidthSub, centre, 1280, 720));
+        centre = r.frames.back().camera.framing.centreX;
+    }
+    return r;
+}
+
+} // namespace
+
+// The rollback host's question, asked of the whole frame: restore to any tick
+// and the frame the reconciler would hand the scene is the frame it handed the
+// first time -- given the camera's deadzone memory, which is the one piece of
+// presentation state ADR-019 D3 allows and which the mode carries explicitly.
+// Nothing else survives a Restore because nothing else exists to survive it.
+TEST(Presentation, HoldsNothingARestoreCannotRebuild) {
+    Rig rig;
+    rig.Load();
+    if (HasFatalFailure()) return;
+    const FighterClips clips = tableFor(rig);
+    ASSERT_FALSE(clips.Empty());
+
+    const Script attacker = attackerScript();
+    const Script dummy(kScriptTicks);
+    ScriptedInputSource src0(attacker.in, 0, "P0");
+    ScriptedInputSource src1(dummy.in, 0, "P1");
+    FightSession session;
+    std::string  error;
+    ASSERT_TRUE(session.Begin(setupFor(rig), error)) << error;
+    session.SetInputSource(0, &src0);
+    session.SetInputSource(1, &src1);
+
+    const ComposedRun first = runAndCompose(session, clips, kScriptTicks);
+    ASSERT_EQ(first.frames.size(), kScriptTicks);
+    // the script must actually have dressed the attacker in a move clip
+    bool sawMoveClip = false;
+    for (const FrameComposition& f : first.frames)
+        if (f.fighter[0].kind == PoseKind::Move && f.fighter[0].clip) sawMoveClip = true;
+    ASSERT_TRUE(sawMoveClip) << "no tick composed a move clip; the table or the script is wrong";
+
+    // Composition is a pure function: the same state and memory twice is the
+    // same frame twice.
+    for (std::size_t t = 0; t < kScriptTicks; t += 29) {
+        const FrameComposition again = ComposeFrame(session.Data(), first.states[t], clips, FightLook{},
+                                                    cse::kernel::kStageHalfWidthSub, first.centres[t], 1280, 720);
+        EXPECT_TRUE(sameComposition(again, first.frames[t])) << "tick " << t << " composed differently the second time";
+    }
+
+    // Restore to a tick, compose from the restored state, then re-simulate to
+    // the end: every frame comes back as it was. Includes ticks right after a
+    // move ends and right after a knockdown, where a hidden "hold the last
+    // pose" memo would live.
+    for (std::size_t from = 0; from < kScriptTicks; from += 37) {
+        session.Restore(first.states[from]);
+        const FrameComposition restored = ComposeFrame(session.Data(), session.State(), clips, FightLook{},
+                                                       cse::kernel::kStageHalfWidthSub, first.centres[from], 1280, 720);
+        EXPECT_TRUE(sameComposition(restored, first.frames[from]))
+            << "restored to tick " << from << ": " << describeFrame(restored.fighter[0]) << " vs "
+            << describeFrame(first.frames[from].fighter[0]);
+        float centre = restored.camera.framing.centreX;
+        for (std::size_t t = from + 1; t < kScriptTicks; ++t) {
+            session.Tick();
+            const FrameComposition f = ComposeFrame(session.Data(), session.State(), clips, FightLook{},
+                                                    cse::kernel::kStageHalfWidthSub, centre, 1280, 720);
+            centre = f.camera.framing.centreX;
+            if (!sameComposition(f, first.frames[t])) {
+                ADD_FAILURE() << "re-simulated tick " << t << " (from " << from << ") composed "
+                              << describeFrame(f.fighter[0]) << " / " << describeFrame(f.fighter[1])
+                              << " but the first run had " << describeFrame(first.frames[t].fighter[0])
+                              << " / " << describeFrame(first.frames[t].fighter[1]);
+                break;
+            }
+        }
+    }
+
+    // And a restore that REWINDS past a move rewinds the pose with it: no tail
+    // from the later pose survives, because there is nowhere for it to live.
+    std::size_t jab = 0;
+    for (std::size_t t = 1; t < kScriptTicks; ++t)
+        if (first.frames[t].fighter[0].kind == PoseKind::Move && first.frames[t - 1].fighter[0].kind != PoseKind::Move) { jab = t; break; }
+    ASSERT_GT(jab, 2u);
+    session.Restore(first.states[jab + 2]);          // mid-move
+    EXPECT_EQ(ComposeFrame(session.Data(), session.State(), clips, FightLook{}, 0, 0.f, 1280, 720).fighter[0].kind, PoseKind::Move);
+    session.Restore(first.states[jab - 1]);          // before it
+    EXPECT_NE(ComposeFrame(session.Data(), session.State(), clips, FightLook{}, 0, 0.f, 1280, 720).fighter[0].kind, PoseKind::Move)
+        << "rewound before the jab, the fighter still wears it";
+}
+
+// ADR-011 decision 6: presentation can never delay a move. The tick the kernel
+// starts a move, the composed frame IS that move's clip at frame 0 -- not the
+// last cycle frame, not a blend toward it -- and the tick a move ends, the
+// frame is already whatever the kernel says comes next.
+TEST(Presentation, MoveStartIsNeverDelayed) {
+    Rig rig;
+    rig.Load();
+    if (HasFatalFailure()) return;
+    const FighterClips clips = tableFor(rig);
+
+    const Script attacker = attackerScript();
+    const Script dummy(kScriptTicks);
+    ScriptedInputSource src0(attacker.in, 0, "P0");
+    ScriptedInputSource src1(dummy.in, 0, "P1");
+    FightSession session;
+    std::string  error;
+    ASSERT_TRUE(session.Begin(setupFor(rig), error)) << error;
+    session.SetInputSource(0, &src0);
+    session.SetInputSource(1, &src1);
+    const ComposedRun run = runAndCompose(session, clips, kScriptTicks);
+
+    int starts = 0, ends = 0;
+    for (std::size_t t = 0; t < kScriptTicks; ++t) {
+        const cse::kernel::Fighter& f = run.states[t].p[0];
+        const FighterFrame&         c = run.frames[t].fighter[0];
+        const bool moveNow  = f.moveId != 0;
+        const bool moveThen = t > 0 && run.states[t - 1].p[0].moveId != 0;
+        if (moveNow && f.moveFrame == 0) {
+            ++starts;
+            EXPECT_EQ(c.kind, PoseKind::Move) << "tick " << t << ": the move started and the frame shows " << describeFrame(c);
+            ASSERT_NE(c.clip, nullptr) << "tick " << t;
+            EXPECT_EQ(c.clip->name, moveIdOf(rig, f.moveId)) << "tick " << t << ": wrong clip on the move's first tick";
+            EXPECT_EQ(c.frame, 0u) << "tick " << t << ": the move's first tick is not clip frame 0";
+        }
+        if (moveNow && f.moveFrame > 0 && c.kind == PoseKind::Move && f.hitstun == 0 && f.knockdown == 0) {
+            // and every later tick is exactly the move frame: no frame ever lags
+            EXPECT_EQ(c.frame, static_cast<std::uint32_t>(f.moveFrame)) << "tick " << t << ": " << describeFrame(c);
+        }
+        if (!moveNow && moveThen) {
+            ++ends;
+            EXPECT_NE(c.kind, PoseKind::Move) << "tick " << t << ": the move ended and the frame still wears it: " << describeFrame(c);
+        }
+    }
+    EXPECT_GE(starts, 4) << "the script starts a jab, a heavy, an aerial and a sweep";
+    EXPECT_GE(ends, 3);
+}
+
+// ADR-011 decision 6 and ADR-019 D5: the boxes are the kernel's and the pose is
+// the presentation's, and composing a frame -- with any yaw, any clip frame,
+// any tick -- leaves every box exactly where the kernel put it.
+TEST(Presentation, ABoxNeverMovesWithThePose) {
+    Rig rig;
+    rig.Load();
+    if (HasFatalFailure()) return;
+    const FighterClips clips = tableFor(rig);
+
+    const Script attacker = attackerScript();
+    const Script dummy(kScriptTicks);
+    ScriptedInputSource src0(attacker.in, 0, "P0");
+    ScriptedInputSource src1(dummy.in, 0, "P1");
+    FightSession session;
+    std::string  error;
+    ASSERT_TRUE(session.Begin(setupFor(rig), error)) << error;
+    session.SetInputSource(0, &src0);
+    session.SetInputSource(1, &src1);
+
+    int activeBoxes = 0, leftFacing = 0;
+    for (std::size_t t = 0; t < kScriptTicks; ++t) {
+        session.Tick();
+        const GameState& s = session.State();
+        const MatchData& d = session.Data();
+        for (int slot = 0; slot < 2; ++slot) {
+            const cse::kernel::Box hurtBefore = cse::kernel::Hurtbox(d.p[slot], s.p[slot]);
+            cse::kernel::Box hitBefore{};
+            const bool liveBefore = cse::kernel::ActiveHitbox(d.p[slot], s.p[slot], hitBefore);
+
+            // compose with several camera memories and window shapes: none may
+            // reach the boxes, because none reach the state
+            (void)ComposeFrame(d, s, clips, FightLook{}, cse::kernel::kStageHalfWidthSub, 0.0f, 1280, 720);
+            (void)ComposeFrame(d, s, clips, FightLook{}, 0, 123.0f, 640, 480);
+
+            const cse::kernel::Box hurtAfter = cse::kernel::Hurtbox(d.p[slot], s.p[slot]);
+            cse::kernel::Box hitAfter{};
+            const bool liveAfter = cse::kernel::ActiveHitbox(d.p[slot], s.p[slot], hitAfter);
+            EXPECT_EQ(std::memcmp(&hurtBefore, &hurtAfter, sizeof(cse::kernel::Box)), 0) << "tick " << t << " slot " << slot;
+            EXPECT_EQ(liveBefore, liveAfter);
+            if (liveBefore) {
+                ++activeBoxes;
+                EXPECT_EQ(std::memcmp(&hitBefore, &hitAfter, sizeof(cse::kernel::Box)), 0) << "tick " << t << " slot " << slot;
+            }
+
+            // the pose's own frame changes with the tick (a cycle phase) while
+            // the box, a function of the kernel's fields alone, does not
+            GameState later = s;
+            later.tick += 7;
+            const cse::kernel::Box hurtLater = cse::kernel::Hurtbox(d.p[slot], later.p[slot]);
+            EXPECT_EQ(std::memcmp(&hurtBefore, &hurtLater, sizeof(cse::kernel::Box)), 0);
+
+            // facing left is a yaw in the MATRIX; the box is the kernel's own
+            // mirrored box, and the matrix translation is the origin the box is
+            // drawn around, not a corner of it
+            const FrameComposition f = ComposeFrame(d, s, clips, FightLook{}, cse::kernel::kStageHalfWidthSub, 0.0f, 1280, 720);
+            if (s.p[slot].facing == 1) ++leftFacing;
+            EXPECT_FLOAT_EQ(f.fighter[slot].position.x, cse::presentation::WorldPx(s.p[slot].posX));
+            EXPECT_FLOAT_EQ(f.fighter[slot].position.y, cse::presentation::WorldPx(s.p[slot].posY));
+            EXPECT_LE(cse::presentation::WorldPx(hurtBefore.x0), f.fighter[slot].position.x + 1.0f);
+            EXPECT_GE(cse::presentation::WorldPx(hurtBefore.x1), f.fighter[slot].position.x - 1.0f);
+        }
+    }
+    EXPECT_GT(activeBoxes, 0) << "the script never produced a live hitbox";
+    EXPECT_GT(leftFacing, 0) << "nobody faced left; the yaw half of the claim went untested";
 }

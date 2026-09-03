@@ -294,7 +294,9 @@ add_test(NAME test_character_hotreload COMMAND $<TARGET_FILE:test_character_hotr
 # reproduces every pose, the frame IS moveFrame, hitstop freezes it, and the
 # precedence is the kernel's own. Headless, against the shipped fighter_a.
 add_executable(test_pose_select test_pose_select.cpp)
-target_link_libraries(test_pose_select PRIVATE CseGame CseData CseKernel GTest::gtest_main)
+# UntitledFighterPresentation since M3.4d: the three P4 acceptance tests compose the
+# whole frame over the same rig sections 1-7 use, so they live here.
+target_link_libraries(test_pose_select PRIVATE UntitledFighterPresentation CseGame CseData CseKernel GTest::gtest_main)
 add_dependencies(test_pose_select test_runtime_deps)
 add_test(NAME test_pose_select COMMAND $<TARGET_FILE:test_pose_select>)
 
