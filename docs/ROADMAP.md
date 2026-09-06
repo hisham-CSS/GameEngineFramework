@@ -98,7 +98,7 @@ M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
 
 | In flight | Owner | Since |
 |---|---|---|
-| — (next: M3.3b, the mannequin — waits on ADR-019 D10, the asset-licence decision only the human can take; M3.3c, M3.3d, M3.3e and M3.5a follow it, and M2.1 follows M3.5a under ADR-020) | | |
+| — (next: M3.3b, the mannequin — ADR-019 D10 answered 2026-09-06; M3.3c, M3.3d, M3.3e and M3.5a follow it, and M2.1 follows M3.5a under ADR-020) | | |
 
 The openings wave is landed end to end: per-opening prover surface → (c) →
 (d) → (b3) — the golden re-record (b3) was expected to need DISSOLVED under
@@ -820,10 +820,11 @@ stdlib-generated fixtures, the training room as the first visible artifact,
 the first swing at M3.4c — and every Done-when reads committed exported bytes,
 never a `.blend`. M3.1, M3.5b and M3.6 sit after M2 in either ordering.
 
-ADR-019 D10 — the licence for project-authored assets — is **deferred** by the
-human (2026-09-02): only code-adjacent test fixtures under the repository's
-MIT may be committed until it is answered, so M3.5a's room and M3.3b's
-mannequin wait on that one-line answer; every WP before them does not.
+ADR-019 D10 — the licence for project-authored assets — was **answered** by
+the human (2026-09-06): MIT, restated in a `CREDITS.md` beside each asset, and
+the unlicensed sample backpack stops shipping rather than being relicensed.
+Until then only code-adjacent test fixtures had been committed; M3.3b's
+mannequin and M3.5a's room are unblocked from that date.
 
 - `[x]` `97ec6c2` **M3.0 Two ADRs and the M3 rewrite, on paper.** *(S)*
   **Done when:** `python scripts/check_docs.py` is green; ADR-019 and ADR-020
@@ -918,8 +919,9 @@ mannequin wait on that one-line answer; every WP before them does not.
   walls at exactly ±480, flat toon materials, no textures; exported to
   `Assets/UntitledFighter/Stage/` with a `CREDITS.md`; spawnable from the
   Assets panel at once. Same WP: `Assets.EveryModelHasALicenceBesideIt` over
-  `.obj`, `.gltf` and `.glb`, and the unlicensed sample backpack removed or
-  licensed so the test can pass. **Done when:**
+  `.obj`, `.gltf` and `.glb`, and the unlicensed sample backpack excluded
+  from the Player install (D10, 2026-09-06: it stops shipping; the editor's
+  demo scene keeps it) so the test can pass. **Done when:**
   `StageAsset.TheFloorSpansExactlyTheKernelsStage`,
   `StageAsset.HeavyLinesFallOnReachUnits` (keyed on the material name M3.2a
   carries), `Assets.EveryModelHasALicenceBesideIt`,
@@ -1179,7 +1181,7 @@ during recovery is correctly forgotten.
 ### R8 — After M3.4c: the first swing, and it looks like a fighting game
 
 This point needs a character that authors `engine.anim3d.model` — the mannequin
-(M3.3b) and its clips (M3.3c), which wait on ADR-019 D10. Until then the 3D
+(M3.3b) and its clips (M3.3c), unblocked by ADR-019 D10 on 2026-09-06. Until then the 3D
 pass is off by default and every row below is about the code path, not a
 picture; the moment a model is authored, run it.
 

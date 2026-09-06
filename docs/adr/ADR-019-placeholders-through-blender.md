@@ -1,10 +1,11 @@
 # ADR-019: Placeholders through Blender — the art pipeline, decided before the first bone
 
-Status: Proposed (2026-09-02), with recommended defaults. Nothing below is
-implemented; the decisions here are what ROADMAP M3 executes. Every default is
-reversible by `git revert` of the WP that lands it, except the one marked
-otherwise (the content licence, D10), which the human must answer before the
-first committed asset. The M2/M3 ordering that decides WHEN this runs is
+Status: Accepted 2026-09-06 by the author. D10 answered: project-authored
+assets carry MIT, restated in a `CREDITS.md` beside each asset; the unlicensed
+sample backpack STOPS SHIPPING (excluded from the Player install, kept for the
+editor's demo scene) rather than being relicensed. Every other default stands
+as recommended; D1-D9 and D11 landed through ROADMAP M3.0-M3.4e, D10's test
+lands with M3.5a. The M2/M3 ordering that decides WHEN this runs is
 [ADR-020](ADR-020-the-bounded-lift.md), not this document.
 
 ## Context

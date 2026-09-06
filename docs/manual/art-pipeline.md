@@ -87,9 +87,11 @@ needs one: every check reads committed exported bytes.
 - **Every committed asset has its licence beside it** in a `CREDITS.md` (the
   `Editor/src/Exported/Env/CREDITS.md` pattern), with a per-clip source column
   and a `redistribution allowed: yes/no` line. Test fixtures are code-adjacent
-  data under the repository's MIT. The licence for project-authored *content* is
-  the human's call ([ADR-019](../adr/ADR-019-placeholders-through-blender.md)
-  D10) and is answered before the first such asset is committed.
+  data under the repository's MIT. Project-authored *content* carries MIT too
+  ([ADR-019](../adr/ADR-019-placeholders-through-blender.md) D10, answered
+  2026-09-06), restated in the `CREDITS.md` beside it; the sample backpack the
+  engine's demo scene uses stops shipping in the Player package instead of
+  being relicensed.
 - **Mixamo is closed.** Its files may not be redistributed in any form, and a
   public repository is distribution.
 
