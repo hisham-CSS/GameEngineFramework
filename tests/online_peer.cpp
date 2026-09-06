@@ -13,7 +13,9 @@
 //
 // Exit 0 with `checksum <hex> frame <n>` on stdout; nonzero and a reason on
 // stderr otherwise (a desync, a peer that never connected, a timeout).
+#include "cse/game/Replay.h"
 #include "cse/kernel/Simulate.h"
+#include "cse/net/Handshake.h"
 #include "cse/net/ISession.h"
 #include "cse/net/UdpTransport.h"
 
@@ -54,12 +56,15 @@ int main(int argc, char** argv) {
     int slot = 0, ticks = 300;
     unsigned short port = 0;
     std::string peer;
-    for (int i = 1; i + 1 < argc; i += 2) {
+    bool contentMismatch = false;
+    for (int i = 1; i < argc; ++i) {
         const std::string k = argv[i];
-        if (k == "--slot")       slot  = std::atoi(argv[i + 1]);
-        else if (k == "--port")  port  = static_cast<unsigned short>(std::atoi(argv[i + 1]));
-        else if (k == "--peer")  peer  = argv[i + 1];
-        else if (k == "--ticks") ticks = std::atoi(argv[i + 1]);
+        if (k == "--content-mismatch") { contentMismatch = true; continue; }
+        if (i + 1 >= argc) return fail("an argument without its value");
+        if (k == "--slot")       slot  = std::atoi(argv[++i]);
+        else if (k == "--port")  port  = static_cast<unsigned short>(std::atoi(argv[++i]));
+        else if (k == "--peer")  peer  = argv[++i];
+        else if (k == "--ticks") ticks = std::atoi(argv[++i]);
         else return fail("unknown argument");
     }
     if (port == 0 || peer.empty() || (slot != 0 && slot != 1) || ticks < 16) return fail("usage: --slot 0|1 --port P --peer ip:port --ticks N");
@@ -77,7 +82,32 @@ int main(int argc, char** argv) {
     std::string error;
     std::unique_ptr<UdpTransport> transport = UdpTransport::Bind(port, &error);
     if (!transport) { std::fprintf(stderr, "online_peer: %s\n", error.c_str()); return 2; }
-    ISession* session = CreateGekkoOnlineSession(cfg, transport.get());
+
+    // THE HANDSHAKE FIRST (ROADMAP M2.2). This harness runs the data-less
+    // kernel, so the loaded arrays are kNoMoves; HashMatchData over them is
+    // still the hash the handshake carries. --content-mismatch offers a wrong
+    // one, so the driver can see A5 fire over a real wire.
+    HandshakeOffer offer;
+    offer.contentHash = cse::game::HashMatchData(cse::kernel::kNoMoves) + (contentMismatch ? 1u : 0u);
+    offer.stateBytes  = cfg.stateBytes;
+    offer.inputBytes  = cfg.inputBytesPerPlayer;
+    offer.seed        = 0xC0FFEEu;
+    offer.playerCount = cfg.playerCount;
+    offer.slot        = static_cast<std::uint8_t>(slot);
+    Handshake handshake(*transport, peer, offer);
+    const auto handshakeStart = std::chrono::steady_clock::now();
+    while (handshake.Pump().state == HandshakeState::Waiting) {
+        if (std::chrono::steady_clock::now() - handshakeStart > std::chrono::seconds(30)) return fail("the peer never offered");
+        std::this_thread::sleep_for(std::chrono::milliseconds(16));
+    }
+    if (handshake.Result().state == HandshakeState::Refused) {
+        std::fprintf(stderr, "online_peer: refused: %s\n", handshake.Result().reason.c_str());
+        return 4;
+    }
+
+    // The session on the handshake: it peels the peer's grace-period offers off
+    // and hands the session everything else.
+    ISession* session = CreateGekkoOnlineSession(cfg, &handshake);
     if (session == nullptr) return fail("the online session could not be created");
 
     GameState live{};
@@ -91,6 +121,7 @@ int main(int argc, char** argv) {
             DestroySession(session);
             return fail("timed out before the peers finished");
         }
+        handshake.Pump();   // the grace resends, so a peer whose last offer was lost still hears us
         WireInput in{ scripted(iteration).p[slot].bits };
         session->AddLocalInput(slot, &in);
         int n = 0;

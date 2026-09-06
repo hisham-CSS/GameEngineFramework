@@ -98,7 +98,8 @@ M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
 
 | In flight | Owner | Since |
 |---|---|---|
-| — (next: M2.2 Handshake — hash the loaded POD arrays; M3.3d's viewport batches and M3.3e wait on the human) | | |
+| M2.2 Handshake — hash the loaded POD arrays | Claude | 2026-09-06 |
+| M3.3d The remaining clips made legible (its machine half landed; the viewport batches wait on the human) | Claude / human | 2026-09-06 |
 | M3.3d The remaining clips made legible (its machine half landed; the viewport batches wait on the human) | Claude / human | 2026-09-06 |
 
 The openings wave is landed end to end: per-opening prover surface → (c) →
@@ -810,7 +811,19 @@ Six WPs, all landed, gate required in CI. The decision is
   `Session.LossIsSurvivedByTheSessionsOwnRedundancy`,
   `Session.ADivergentPeerIsReportedAndNamed`, and `test_online_two_peers`
   (two processes over UDP on 127.0.0.1 agree at the same frame).
-- `[ ]` **M2.2 Handshake** — hash the loaded POD arrays, never canonicalised text.
+- `[~]` **M2.2 Handshake** — hash the loaded POD arrays, never canonicalised text.
+  *(S)* `cse::net::Handshake` beside `ISession`: each peer offers what it loaded
+  (`HashMatchData` over the built `MatchData`, the state and input sizes, the
+  seed, the player count, its slot) on every pump over the session's own
+  transport; the offers are compared in one fixed order and the FIRST
+  disagreement is the lobby error, naming the field and both values (A5); a
+  match lets the session start on the same transport. **Done when:**
+  `Handshake.HashesTheLoadedPodArraysNotTheText` (A4),
+  `Handshake.PeersWithTheSameLoadedDataAgreeAndTheSessionFollows`,
+  `Handshake.AContentMismatchIsALobbyErrorNamingTheHash`,
+  `Handshake.TheFirstDisagreementIsTheReason`,
+  `Handshake.SurvivesLossAndQueuesWhatIsNotAnOffer`, and `test_online_two_peers`
+  refusing a mismatched peer by name over UDP before it agrees a real match.
 - `[ ]` **M2.3 Desync = abort + artifact**, naming the first divergent tick **and
   field** (needs the reflection table).
 - `[ ]` **M2.4 The session owns the tick count.**

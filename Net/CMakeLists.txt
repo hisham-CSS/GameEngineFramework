@@ -29,6 +29,7 @@
 
 add_library(CseNet STATIC
     src/GekkoSession.cpp
+    src/Handshake.cpp
     src/LoopbackTransport.cpp
     src/UdpTransport.cpp
 )

@@ -16,17 +16,39 @@ import sys
 PORTS = (47011, 47012)
 
 
+def launch(exe, ticks, extra=()):
+    procs = []
+    for slot in (0, 1):
+        args = [exe, '--slot', str(slot), '--port', str(PORTS[slot]),
+                '--peer', '127.0.0.1:%d' % PORTS[1 - slot], '--ticks', ticks]
+        procs.append(subprocess.Popen(args + list(extra[slot] if extra else []),
+                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True))
+    return procs
+
+
+def mismatch_scenario(exe, ticks):
+    """A5 over a real wire (ROADMAP M2.2): peer 1 offers a different content
+    hash; BOTH peers must refuse, naming the hash, before any session exists."""
+    procs = launch(exe, ticks, extra=([], ['--content-mismatch']))
+    for slot, p in enumerate(procs):
+        try:
+            out, err = p.communicate(timeout=60)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            raise SystemExit('two_peers: mismatch scenario: peer %d did not finish' % slot)
+        print('peer %d (mismatch): exit %d, %s' % (slot, p.returncode, err.strip() or out.strip()))
+        if p.returncode != 4 or 'content hash' not in err:
+            raise SystemExit('two_peers: peer %d did not refuse the mismatch by name (exit %d): %s' % (slot, p.returncode, err.strip()))
+    print('two_peers: the content mismatch was refused by both peers, naming the hash -- OK')
+
+
 def main():
     if len(sys.argv) < 2:
         raise SystemExit(__doc__)
     exe = sys.argv[1]
     ticks = sys.argv[2] if len(sys.argv) > 2 else '300'
-    procs = []
-    for slot in (0, 1):
-        procs.append(subprocess.Popen(
-            [exe, '--slot', str(slot), '--port', str(PORTS[slot]),
-             '--peer', '127.0.0.1:%d' % PORTS[1 - slot], '--ticks', ticks],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True))
+    mismatch_scenario(exe, ticks)
+    procs = launch(exe, ticks)
     results = []
     for slot, p in enumerate(procs):
         try:

@@ -114,7 +114,15 @@ add_test(NAME test_session COMMAND $<TARGET_FILE:test_session>)
 # the two print (tests/two_peers.py); the Windows job runs it, the Linux job
 # only compiles.
 add_executable(online_peer online_peer.cpp)
-target_link_libraries(online_peer PRIVATE CseKernel CseNet)
+target_link_libraries(online_peer PRIVATE CseGame CseKernel CseNet)
+
+# THE CONNECT HANDSHAKE (ROADMAP M2.2; DETERMINISM A4, A5): the loaded arrays
+# hashed (CseGame's HashMatchData), a mismatch named before any session exists,
+# and the flow from offers to a session on the same transport.
+add_executable(test_handshake test_handshake.cpp)
+target_link_libraries(test_handshake PRIVATE CseGame CseData CseKernel CseNet nlohmann_json::nlohmann_json GTest::gtest_main)
+add_dependencies(test_handshake test_runtime_deps)
+add_test(NAME test_handshake COMMAND $<TARGET_FILE:test_handshake>)
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
   set(_two_peers_python "${Python3_EXECUTABLE}")

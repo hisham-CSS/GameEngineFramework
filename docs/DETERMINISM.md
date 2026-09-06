@@ -129,8 +129,8 @@ presentation, and its only determinism obligation is §7.
 | A1 | Float → integer quantization happens **once, at load**, by one documented rule, identically on every peer | test | `Games/UntitledFighter/Data/src/CharacterData.cpp`; `OneFrameAnchor.ARoundTripThroughJsonWithNoMutationChangesNothing`, `OneFrameMutation.NothingBesidesThatOneIntegerMoved` |
 | A2 | An unknown key in a character file is a load error, not a default | test | the load assertions A01–A22 in `Games/UntitledFighter/Data/src/CharacterData.cpp`; `tests/test_character_data.cpp` |
 | A3 | A schema field is **appended**, never inserted or reordered | review | [ADR-006](adr/ADR-006-stance-and-guard.md)'s wire rule; the golden hash (B7) catches the consequence, not the cause |
-| A4 | The handshake hashes the **loaded POD arrays**, never the source text — canonicalising text is where float-repr and key-order bugs live | **not yet** | `HashMatchData` exists in `Games/UntitledFighter/Game/include/cse/game/Replay.h`, written for exactly this. ROADMAP M2.2 wires it |
-| A5 | A content mismatch is a lobby error naming the reason, never a gameplay bug | **not yet** | ROADMAP M2.2 |
+| A4 | The handshake hashes the **loaded POD arrays**, never the source text — canonicalising text is where float-repr and key-order bugs live | test | `HashMatchData` (`Games/UntitledFighter/Game/include/cse/game/Replay.h`) is what `cse::net::HandshakeOffer` carries; `Handshake.HashesTheLoadedPodArraysNotTheText` re-spells the shipped file and gets the same hash, adds one frame and does not |
+| A5 | A content mismatch is a lobby error naming the reason, never a gameplay bug | test | `Handshake::Compare` names the first disagreeing field with both values before any session exists: `Handshake.AContentMismatchIsALobbyErrorNamingTheHash`, `.TheFirstDisagreementIsTheReason`; `test_online_two_peers` sees it over UDP |
 
 ## 3. Review-only rules that could be mechanical
 
