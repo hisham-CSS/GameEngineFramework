@@ -364,7 +364,7 @@ exactly what this repository keeps getting caught by.
 | `Exported/` source-tree defaults (Model, Shaders, seed JSON) | `install(DIRECTORY Editor/src/Exported/ DESTINATION Exported)` |
 | Editor-authored `Exported/` (your saved scenes and `project.json`) | `install(CODE ...)`, layered on top |
 
-`.import` sidecars are excluded from both copies. They are editor-only metadata, like Unity's `.meta` files, and the player never reads them.
+`.import` sidecars are excluded from both copies. They are editor-only metadata, like Unity's `.meta` files, and the player never reads them. So is every file listed in `Player/unshipped_assets.txt`: the one list both routes read, and the one the licence test (`Assets.EveryModelHasALicenceBesideIt`) reads, so a file no bundle contains is exactly a file the test skips. Today it names the sample backpack, third-party with no licence recorded ([ADR-019](../adr/ADR-019-placeholders-through-blender.md) D10); the editor's demo scene keeps it, and a bundle whose startup scene references it draws nothing there.
 
 The two `Exported/` layers matter: the source-tree copy provides the baseline, and the authored copy from the runtime output directory is applied on top, so the shipped bundle actually contains what you configured in the editor rather than the checked-in defaults.
 

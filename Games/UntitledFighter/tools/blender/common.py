@@ -172,13 +172,15 @@ def sidecar_path(gltf_path):
     return stem + '.clips.json'
 
 
-def export(gltf_path, animated_obj=None, manifest_path=None):
+def export(gltf_path, animated_obj=None, manifest_path=None, write_sidecar=True):
     """Export the scene through the pinned options and write the sidecar.
 
     `animated_obj` is the object whose stashed actions are the clips (the
     armature); its `{clip: frames}` becomes `<stem>.clips.json`, the file
     CharacterData.cpp asserts against without Assimp (ADR-019 D2, A21/A22).
-    Returns (blender version, clips).
+    A static asset (the training room, M3.5a) passes write_sidecar=False: it
+    has no clips, and an empty sidecar beside a model would read as "a model
+    with no cycles" to anyone who found it. Returns (blender version, clips).
     """
     version = selftest()
     if animated_obj is not None and manifest_path is not None:
@@ -186,7 +188,8 @@ def export(gltf_path, animated_obj=None, manifest_path=None):
     os.makedirs(os.path.dirname(os.path.abspath(gltf_path)), exist_ok=True)
     bpy.ops.export_scene.gltf(filepath=gltf_path, **PINNED)
     clips = clips_of(animated_obj) if animated_obj is not None else {}
-    with open(sidecar_path(gltf_path), 'w', encoding='utf-8', newline='\n') as f:
-        json.dump(clips, f, indent=1, sort_keys=True)
-        f.write('\n')
+    if write_sidecar:
+        with open(sidecar_path(gltf_path), 'w', encoding='utf-8', newline='\n') as f:
+            json.dump(clips, f, indent=1, sort_keys=True)
+            f.write('\n')
     return version, clips

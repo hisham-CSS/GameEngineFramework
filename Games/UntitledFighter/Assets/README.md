@@ -18,6 +18,8 @@ Characters/                 fighter_a.json, fighter_a_infinite.json, schema.v2.j
 Characters/fighter_a/model/ the mannequin and its clips (M3.3b, M3.3c): fighter_a.gltf
                             + .bin, the clip sidecar, poses.json (the pose library),
                             rig_manifest.json, rig_bones.json, CREDITS.md
+UntitledFighter/Stage/      the training room (M3.5a): training_room.gltf + .bin,
+                            stage_dims.json (its kernel-pinned dimensions), CREDITS.md
 UntitledFighter/menu.json   the front end the host boots
 UntitledFighter/UI/         its markup, stylesheet and art
 ```

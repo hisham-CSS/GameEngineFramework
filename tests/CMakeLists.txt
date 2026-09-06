@@ -347,6 +347,15 @@ target_link_libraries(test_shipped_clips PRIVATE Engine CseData CseKernel GTest:
 add_dependencies(test_shipped_clips test_runtime_deps)
 add_test(NAME test_shipped_clips COMMAND $<TARGET_FILE:test_shipped_clips>)
 
+# THE TRAINING ROOM AND THE LICENCE RULE (ROADMAP M3.5a; ADR-019 D5, D10) —
+# the committed stage decoded headlessly and held to kStageHalfWidthSub (hence
+# CseKernel), plus every shipped model's CREDITS.md against the one unshipped
+# list Player/CMakeLists.txt reads.
+add_executable(test_stage_asset test_stage_asset.cpp)
+target_link_libraries(test_stage_asset PRIVATE Engine CseKernel GTest::gtest_main)
+add_dependencies(test_stage_asset test_runtime_deps)
+add_test(NAME test_stage_asset COMMAND $<TARGET_FILE:test_stage_asset>)
+
 # BUILD SETTINGS — the scene list a Build assembles from, and the refusals that
 # keep a hand-edited or copied settings file from writing somewhere it should
 # not. Links Engine because BuildSettings lives there with the path sandbox it

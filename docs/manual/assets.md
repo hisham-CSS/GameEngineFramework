@@ -280,7 +280,7 @@ Edit them in the editor by single-clicking a texture in the Assets panel — the
 
 Two things to know about sidecars:
 
-- **They are editor-only and never shipped.** The player never reads them, so `Player/CMakeLists.txt` excludes `*.import` from the installed bundle in both the source-tree copy (`PATTERN "*.import" EXCLUDE`) and the editor-authored overlay. They behave like Unity's `.meta` files in that respect.
+- **They are editor-only and never shipped.** The player never reads them, so `Player/CMakeLists.txt` excludes `*.import` from the installed bundle in both the source-tree copy (`PATTERN "*.import" EXCLUDE`) and the editor-authored overlay. They behave like Unity's `.meta` files in that respect. The same two routes leave out every file listed in `Player/unshipped_assets.txt` -- today the unlicensed sample backpack ([ADR-019](../adr/ADR-019-placeholders-through-blender.md) D10) -- and `Assets.EveryModelHasALicenceBesideIt` reads that list too, so what ships and what carries a `CREDITS.md` cannot disagree; `AssetCooker validate` warns on a model directory without one.
 - **They are hidden from the Assets panel.** `AssetIndex::scanDir_` skips any filename ending in `.import`, so they are metadata, not browsable content. `index.find("Exported/tex.png.import")` returns `nullptr`.
 
 > **Gotcha — sidecars are keyed by PATH, not by GUID.** Moving or renaming an asset means moving its `.import` file with it, by hand. GUID identity and reference fixup are not implemented.

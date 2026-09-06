@@ -1,0 +1,20 @@
+# Assets under the content roots that the Player bundle must NOT contain: one
+# relative path per line (engine-style, rooted at Exported/), `#` comments.
+#
+# ONE HOME. Player/CMakeLists.txt reads this list into both install routes
+# (the source-tree copy and the editor-authored layer), and the licence test
+# (Assets.EveryModelHasALicenceBesideIt) reads it to know what ships, so the
+# rule that keeps an unlicensed file out of a build and the test that says
+# every shipped model carries a licence cannot disagree. The editor's own
+# staging keeps everything: the demo scene still shows the backpack.
+#
+# ADR-019 D10 (2026-09-06): the sample backpack stops shipping. Third-party,
+# no licence recorded -- Editor/src/Exported/Model/source_attribution.txt.
+Model/backpack.obj
+Model/backpack.mtl
+Model/ao.jpg
+Model/diffuse.jpg
+Model/normal.png
+Model/roughness.jpg
+Model/specular.jpg
+Model/source_attribution.txt

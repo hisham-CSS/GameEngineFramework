@@ -5,11 +5,12 @@ renderer with real multi-texture geometry. It is scheduled for replacement by
 first-party materials that need no attribution.
 
 No licence has been recorded for it. Attribution alone does not establish a
-redistribution right, and Player/CMakeLists.txt:50 currently installs the whole
-of Exported/ into the package (excluding only *.import), so this ships by
-default. Before distributing a build: either delete it, or check the Sketchfab
-page below and record the licence here alongside every other bundled asset
-(see Env/CREDITS.md and Fonts/README.md for the pattern).
+redistribution right, so it does NOT ship: Player/unshipped_assets.txt lists
+these files and both install routes in Player/CMakeLists.txt leave them out of
+every bundle (ADR-019 D10, 2026-09-06). It stays here for the editor's demo
+scene. To ship it one day, check the Sketchfab page below, record the licence
+in CREDITS.md beside it (see Env/CREDITS.md and Fonts/README.md for the
+pattern) and take it off the unshipped list.
 
 Model by Berk Gedik, from: https://sketchfab.com/3d-models/survival-guitar-backpack-low-poly-799f8c4511f84fab8c3f12887f7e6b36
 

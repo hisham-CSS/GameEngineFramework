@@ -14,6 +14,8 @@ namespace MyCoreEngine {
     // workers; the caller's thread pumps until done.
     //
     // Checks today:
+    // - a directory holding models with no CREDITS.md beside them (WARN, one
+    //   per directory; ADR-019 D10 -- every committed model carries its licence)
     // - models that fail to import (ERR)
     // - models referencing texture files that don't decode (WARN)
     // - models where no LOD level simplified (WARN — usually the OBJ

@@ -98,7 +98,8 @@ M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
 
 | In flight | Owner | Since |
 |---|---|---|
-| M3.3d The remaining 33 clips made legible; the arcs pinned; poses fit their boxes | Claude | 2026-09-06 |
+| M3.5a The training room, generated in kernel units | Claude | 2026-09-06 |
+| M3.3d The remaining clips made legible (its machine half landed; the viewport batches wait on the human) | Claude / human | 2026-09-06 |
 
 The openings wave is landed end to end: per-opening prover surface → (c) →
 (d) → (b3) — the golden re-record (b3) was expected to need DISSOLVED under
@@ -911,7 +912,7 @@ mannequin and M3.5a's room are unblocked from that date.
   `{"paddle_swing": 14, "paddle_hold": 5}` and agreeing with its sidecar;
   `ci.yml` installs no Blender.
 
-- `[ ]` **M3.5a The training room, generated in kernel units.** *(M)* The
+- `[~]` **M3.5a The training room, generated in kernel units.** *(M)* The
   first visible artifact. `make_training_room.py` reads a committed
   `stage_dims.json` that a test pins to `kStageHalfWidthSub / 256`, and builds
   the SF-style room: floor top at `y = 0`, 20-unit cells, a heavy line every

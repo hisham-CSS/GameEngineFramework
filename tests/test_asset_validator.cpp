@@ -60,6 +60,8 @@ TEST_F(AssetValidatorTest, CleanTreeReportsNoIssues) {
     {
         std::ofstream obj(fs::path(kRoot) / "ok.obj");
         obj << "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n"; // tiny: under LOD floor
+        std::ofstream credits(fs::path(kRoot) / "CREDITS.md");
+        credits << "# ok\n\nfirst-party, MIT\n";      // a clean tree carries its licence (D10)
     }
     JobSystem jobs(2);
     const auto report = ValidateAssetTree(kRoot, jobs);
@@ -67,6 +69,35 @@ TEST_F(AssetValidatorTest, CleanTreeReportsNoIssues) {
     EXPECT_EQ(report.texturesChecked, 1);
     EXPECT_TRUE(report.issues.empty());
     EXPECT_EQ(report.errorCount(), 0);
+}
+
+// ADR-019 D10 (ROADMAP M3.5a): a directory holding a model without a CREDITS.md
+// beside it is a WARN on the directory -- one per directory, however many
+// models, and on the directory rather than the model so a model's own issues
+// stay countable by its path. Adding the file clears it.
+TEST_F(AssetValidatorTest, WarnsOnAModelDirectoryWithoutCredits) {
+    fs::create_directories(fs::path(kRoot) / "props");
+    for (const char* name : { "a.obj", "b.obj" }) {
+        std::ofstream obj(fs::path(kRoot) / "props" / name);
+        obj << "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n";
+    }
+    JobSystem jobs(2);
+    const auto report = ValidateAssetTree(kRoot, jobs);
+    EXPECT_EQ(report.modelsChecked, 2);
+    EXPECT_EQ(countIssues(report, AssetValidationIssue::Level::Warn, "props"), 1)
+        << "two models in one directory without a CREDITS.md are one warning on the directory";
+    EXPECT_EQ(countIssues(report, AssetValidationIssue::Level::Warn, "a.obj"), 0) << "the warning is not on the model";
+    EXPECT_EQ(report.errorCount(), 0) << "a missing licence is a WARN, not an ERR";
+    bool named = false;
+    for (const auto& i : report.issues) named = named || i.message.find("CREDITS.md") != std::string::npos;
+    EXPECT_TRUE(named) << "the warning does not say what file is missing";
+
+    {
+        std::ofstream credits(fs::path(kRoot) / "props" / "CREDITS.md");
+        credits << "# props\n\nfirst-party, MIT\n";
+    }
+    const auto report2 = ValidateAssetTree(kRoot, jobs);
+    EXPECT_EQ(countIssues(report2, AssetValidationIssue::Level::Warn, "props"), 0) << "the CREDITS.md did not clear it";
 }
 
 TEST_F(AssetValidatorTest, BrokenModelIsAnError) {

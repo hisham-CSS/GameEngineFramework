@@ -40,12 +40,12 @@ the packaged game and keep their own licences:
 
   Model/backpack.obj, backpack.mtl, ao.jpg, diffuse.jpg, normal.png,
   roughness.jpg, specular.jpg
-      PLACEHOLDER TEST ASSET, not part of the engine and scheduled for
-      replacement by first-party materials. Third-party model by Berk Gedik;
-      no licence has been recorded — see Model/source_attribution.txt.
-      It is currently swept into the package because Player/CMakeLists.txt:50
-      installs all of Exported/ and excludes only *.import. REMOVE IT, or
-      record its licence, before distributing a build.
+      PLACEHOLDER TEST ASSET for the editor's demo scene, NOT SHIPPED.
+      Third-party model by Berk Gedik; no licence has been recorded — see
+      Model/source_attribution.txt. Player/unshipped_assets.txt lists these
+      files and both install routes in Player/CMakeLists.txt leave them out of
+      every bundle (ADR-019 D10, 2026-09-06).
 
-Everything else under Editor/src/Exported/ is first-party and covered by the
-licence above.
+Everything else under Editor/src/Exported/ and under
+Games/UntitledFighter/Assets/ is first-party and covered by the licence above;
+every directory holding a model carries a CREDITS.md saying so.

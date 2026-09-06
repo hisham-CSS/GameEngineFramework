@@ -1,0 +1,7 @@
+{
+ "_note": "The training room's dimensions in kernel pixels (ROADMAP M3.5a; ADR-019 D5: one unit is one pixel). make_training_room.py reads this file; StageAsset.TheFloorSpansExactlyTheKernelsStage pins half_width_px to the kernel's kStageHalfWidthSub / 256, so the walls stand exactly where the kernel's clamp stops a body. The room's depth and the fighters' depth are fight_look.json's room_depth_px and fighter_depth_px -- one home -- and the generator reads them from there.",
+ "half_width_px": 480,
+ "cell_px": 20,
+ "heavy_every_px": 100,
+ "wall_height_px": 200
+}

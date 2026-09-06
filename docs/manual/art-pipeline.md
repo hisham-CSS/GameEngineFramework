@@ -132,7 +132,11 @@ needs one: every check reads committed exported bytes.
    `draw_boxes.py -- --move <id>` draws the kernel's boxes at the contact frame
    and `capture_pose.py -- --pose <name> --clip <clip> --frame <n>` writes a
    refined pose back into `poses.json`, whose `_axes` note says how a pose is
-   written (`rig_bones.json` holds the semantic names it uses).
+   written (`rig_bones.json` holds the semantic names it uses). The training
+   room's is `make_training_room.py` (ROADMAP M3.5a): it reads `stage_dims.json`
+   (pinned to the kernel's stage width by
+   `StageAsset.TheFloorSpansExactlyTheKernelsStage`) and `fight_look.json`, and
+   builds every mesh from coordinates so a regeneration is byte-identical.
 5. `python scripts/check_clips.py <exported.gltf> --sidecar <exported.clips.json>`.
 6. Commit the exported files with their `CREDITS.md`; the build restages them
    beside the executable (`cmake/stage_runtime_assets.cmake`).

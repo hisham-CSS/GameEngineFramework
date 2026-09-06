@@ -6,7 +6,9 @@
 
 #include "stb_image.h" // stbi_info: dimensions without a full decode
 
+#include <filesystem>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -41,6 +43,28 @@ namespace MyCoreEngine {
 
         std::vector<const AssetIndex::Node*> models, textures;
         collectByKind(index.root(), models, textures);
+
+        // --- licences: every directory holding a model carries a CREDITS.md
+        // (ADR-019 D10; ROADMAP M3.5a). One WARN per directory, on the
+        // directory, so a model's own issues stay countable by its path.
+        {
+            std::set<std::string> seen;
+            for (const auto* m : models) {
+                const std::filesystem::path dir = std::filesystem::path(m->relPath).parent_path();
+                const std::string key = dir.generic_string();
+                if (!seen.insert(key).second) continue;
+                std::error_code ec;
+                if (!std::filesystem::exists(dir / "CREDITS.md", ec)) {
+                    int count = 0;
+                    for (const auto* other : models)
+                        if (std::filesystem::path(other->relPath).parent_path().generic_string() == key) ++count;
+                    report.issues.push_back({ AssetValidationIssue::Level::Warn,
+                        key.empty() ? std::string(".") : key,
+                        std::to_string(count) + " model(s) and no CREDITS.md beside them (ADR-019 D10: every "
+                        "committed model carries its licence; Assets.EveryModelHasALicenceBesideIt refuses a bundle without it)" });
+                }
+            }
+        }
 
         // --- textures: dimensions vs their import settings (cheap, inline)
         for (const auto* t : textures) {

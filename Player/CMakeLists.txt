@@ -158,8 +158,31 @@ install(CODE "
 #
 # .import sidecars are editor-only metadata (like Unity .meta): the player
 # never reads them, so they stay out of the shipped bundle.
+#
+# UNSHIPPED ASSETS (ADR-019 D10, 2026-09-06). Player/unshipped_assets.txt lists
+# the files under the content roots that no bundle may contain -- today the
+# sample backpack, third-party with no licence recorded. The list is read HERE
+# into both install routes, and by the licence test
+# (Assets.EveryModelHasALicenceBesideIt), so the rule and the test share one
+# home. install(DIRECTORY) matches PATTERNs against full paths, so each entry
+# becomes a `/<path>$`-anchored REGEX EXCLUDE; the editor-authored layer below
+# filters the same list by relative path.
+file(STRINGS ${CMAKE_SOURCE_DIR}/Player/unshipped_assets.txt _unshipped_lines)
+set(CSE_UNSHIPPED_ASSETS "")
+foreach(_line IN LISTS _unshipped_lines)
+  string(STRIP "${_line}" _line)
+  if(_line AND NOT _line MATCHES "^#")
+    list(APPEND CSE_UNSHIPPED_ASSETS "${_line}")
+  endif()
+endforeach()
+set(_unshipped_excludes "")
+foreach(_rel IN LISTS CSE_UNSHIPPED_ASSETS)
+  string(REGEX REPLACE "\\." "\\\\." _rel_re "${_rel}")
+  list(APPEND _unshipped_excludes REGEX "/${_rel_re}$" EXCLUDE)
+endforeach()
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/Editor/src/Exported/ DESTINATION Exported
-        PATTERN "*.import" EXCLUDE)
+        PATTERN "*.import" EXCLUDE
+        ${_unshipped_excludes})
 # Editor-authored content (saved scenes, project.json with the startup scene)
 # lands in the RUNTIME Exported/ next to the exes, not in the source tree —
 # layer it on top so the shipped bundle actually contains what the editor
@@ -189,11 +212,13 @@ install(DIRECTORY ${CMAKE_SOURCE_DIR}/Editor/src/Exported/ DESTINATION Exported
 # developer warning into the build log the editor's Build panel shows.
 install(CODE "
   set(_authored \"${CMAKE_BINARY_DIR}/build/bin/\${CMAKE_INSTALL_CONFIG_NAME}/Exported\")
+  set(_unshipped \"${CSE_UNSHIPPED_ASSETS}\")
   if(EXISTS \"\${_authored}\")
     message(STATUS \"Bundling editor-authored content from \${_authored}\")
     file(GLOB_RECURSE _authored_files RELATIVE \"\${_authored}\" \"\${_authored}/*\")
     foreach(_f IN LISTS _authored_files)
-      if(NOT _f MATCHES \"\\\\\\\\.import$\" AND NOT _f STREQUAL \"build.json\")
+      list(FIND _unshipped \"\${_f}\" _unshipped_at)
+      if(NOT _f MATCHES \"\\\\\\\\.import$\" AND NOT _f STREQUAL \"build.json\" AND _unshipped_at EQUAL -1)
         get_filename_component(_sub \"\${_f}\" DIRECTORY)
         file(COPY \"\${_authored}/\${_f}\"
              DESTINATION \"\${CMAKE_INSTALL_PREFIX}/Exported/\${_sub}\")
