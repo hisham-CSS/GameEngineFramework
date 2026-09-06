@@ -98,7 +98,7 @@ M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
 
 | In flight | Owner | Since |
 |---|---|---|
-| M2.1 Transport — spike, then an ADR | Claude | 2026-09-06 |
+| — (next: M2.2 Handshake — hash the loaded POD arrays; M3.3d's viewport batches and M3.3e wait on the human) | | |
 | M3.3d The remaining clips made legible (its machine half landed; the viewport batches wait on the human) | Claude / human | 2026-09-06 |
 
 The openings wave is landed end to end: per-opening prover surface → (c) →
@@ -797,7 +797,7 @@ Six WPs, all landed, gate required in CI. The decision is
 
 ## M2 — Two people, one match *(size L)* — ARCHITECTURE Phase 4 — after M3.5a ([ADR-020](adr/ADR-020-the-bounded-lift.md))
 
-- `[~]` **M2.1 Transport — spike, then an ADR.** *(M)* The spike found
+- `[x] 01e5754` **M2.1 Transport — spike, then an ADR.** *(M)* The spike found
   GekkoNet's own UDP adapter is not compiled in this tree (`NO_ASIO`, on
   purpose) and its adapter has no user-data pointer; the ADR is
   [ADR-021](adr/ADR-021-transport.md): `ITransport` beside `ISession` (bytes to
