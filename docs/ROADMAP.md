@@ -1003,7 +1003,11 @@ mannequin and M3.5a's room are unblocked from that date.
   weights. **Done when:**
   `PlaceholderRig.FitsThePaletteAndTheFourInfluenceCap`,
   `PlaceholderRig.StandsSixtyPixelsTallAtRest`,
-  `PlaceholderRig.MatchesItsRigManifestBoneForBone`.
+  `PlaceholderRig.MatchesItsRigManifestBoneForBone`. The first export shipped a
+  forest of nine roots (Rigify hangs the pelves, thighs, shoulders and upper
+  arms off ORG-/MCH-/control bones, so "nearest deform ancestor" found none);
+  the fix re-parents along the metarig's hierarchy, held by
+  `PlaceholderRig.TheSkeletonIsOneTreeRootedAtTheHips`.
 
 - `[~]` **M3.3c Every clip generated from the frame data; four made
   legible.** *(M)* `make_move_clips.py` reads `fighter_a.json` and `poses.json`

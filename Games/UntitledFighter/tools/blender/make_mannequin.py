@@ -30,9 +30,14 @@ bones, common.deform_bones() lists the same set). The ORG/MCH/control layers
 exist to drive an animator's IK; the pose library keys the deform bones
 directly and steps them, so the control layer would be 190 bones of
 constraints between the artist and the bytes. Deleting them and re-parenting
-each deform bone to its nearest deform ancestor makes the armature's own
-hierarchy the exported hierarchy -- which is exactly what rig_manifest.json
-pins and PlaceholderRig.MatchesItsRigManifestBoneForBone compares.
+every deform bone along the METARIG's hierarchy (a segment under its chain,
+every other bone under the chain end of its metarig parent) makes the
+armature ONE tree rooted at the hips, and that tree the exported hierarchy:
+what rig_manifest.json pins, PlaceholderRig.MatchesItsRigManifestBoneForBone
+compares and PlaceholderRig.TheSkeletonIsOneTreeRootedAtTheHips holds. (The
+first export re-parented to the nearest DEF- ancestor, which the pelves,
+thighs, shoulders and upper arms do not have -- Rigify hangs them off ORG-,
+MCH- and control bones -- and shipped a forest of nine roots.)
 
 WHY THE BODY IS ONE CYLINDER PER BONE. bpy is good at primitives and bad at
 organic surfaces (D6). One capsule-ish cylinder along every deform bone, a
@@ -148,21 +153,57 @@ def generate_deform_rig(meta):
     bpy.ops.object.mode_set(mode='EDIT')
     ebs = rig.data.edit_bones
 
-    def nearest_deform_ancestor(eb):
-        p = eb.parent
-        while p is not None and not p.use_deform:
-            p = p.parent
-        return p
+    meta_parent = {b.name: (b.parent.name if b.parent is not None else None)
+                   for b in meta.data.bones}
+
+    def chain_end(metarig_bone):
+        """DEF-<bone>, or the last of its segments DEF-<bone>.001, .002 ...: the
+        bone Rigify itself hangs the next deform bone off (DEF-shin.L sits under
+        DEF-thigh.L.001). A name that is a metarig bone in its own right
+        (spine.001 under spine) is not a segment and ends the chain."""
+        eb = ebs.get('DEF-' + metarig_bone)
+        i = 1
+        while eb is not None:
+            seg = '%s.%03d' % (metarig_bone, i)
+            nxt = ebs.get('DEF-' + seg)
+            if seg in meta_parent or nxt is None or not nxt.use_deform:
+                return eb
+            eb, i = nxt, i + 1
+        return None
+
+    def deform_parent_for(eb):
+        """A segment stays under its chain (its parent is already a deform bone);
+        every other deform bone takes the chain end of its METARIG parent.
+        Rigify parents DEF-x to ORG-x, to MCH- bones or to controls (the pelves
+        and shoulders hang off the `hips` and `chest` controls), all of which are
+        about to go, and a walk that accepted DEF- ancestors only shipped a
+        forest of nine roots. The metarig is the hierarchy the artist authored,
+        so the metarig's is the hierarchy the export keeps."""
+        if eb.parent is not None and eb.parent.use_deform:
+            return eb.parent
+        name = eb.name[len('DEF-'):]
+        if name not in meta_parent:         # a segment: thigh.L.001 -> thigh.L
+            name = name.rsplit('.', 1)[0]
+        parent = meta_parent.get(name)
+        while parent is not None:
+            end = chain_end(parent)
+            if end is not None and end is not eb:
+                return end
+            parent = meta_parent.get(parent)
+        return None
 
     deform = [eb for eb in ebs if eb.use_deform]
     for eb in deform:
-        target = nearest_deform_ancestor(eb)
+        target = deform_parent_for(eb)
         if eb.parent is not target:
             eb.use_connect = False
             eb.parent = target
     for eb in [eb for eb in ebs if not eb.use_deform]:
         ebs.remove(eb)
     bpy.ops.object.mode_set(mode='OBJECT')
+    roots = [b.name for b in rig.data.bones if b.parent is None]
+    if roots != ['DEF-spine']:
+        raise SystemExit('make_mannequin: the deform skeleton is not one tree rooted at the hips; roots %r' % (roots,))
 
     # Every bone collection Rigify made for the control layers is now empty or
     # holds only deform bones; one plain collection is enough.

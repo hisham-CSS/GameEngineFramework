@@ -10,7 +10,9 @@
 // cap the engine imposes (Skeleton.h); the body stands exactly 60 units tall
 // with its feet on y = 0, one unit being one kernel pixel; and the decoded
 // skeleton is the manifest bone for bone -- which is the seam every clip
-// (M3.3c) and the modeled body (M3.3e) are written against.
+// (M3.3c) and the modeled body (M3.3e) are written against. A fourth, added
+// when the first export shipped a forest of nine roots: the skeleton is ONE
+// tree, rooted at the hips, so a hips rotation carries the body.
 #include <gtest/gtest.h>
 
 #include "Engine.h"
@@ -194,4 +196,28 @@ TEST(PlaceholderRig, TheSidecarNamesTheOneIdleClipAtTwoFrames) {
     EXPECT_EQ(idle->frames, 2u);
     EXPECT_EQ(idle->joints, cpu.skeleton.joints.size());
     EXPECT_TRUE(std::filesystem::exists(dir / "CREDITS.md")) << "ADR-019 D10: a CREDITS.md beside every committed model";
+}
+
+// One tree. Rigify hangs every DEF- bone off its ORG- twin, and the twin's
+// parent chain runs through ORG- and MCH- bones, so a strip that looked for
+// DEF- ancestors only left nine roots -- the hips, both pelves, thighs,
+// shoulders and upper arms -- and a hips rotation moved nothing below the
+// hips. The pose library (M3.3c) keys the hips and expects the body to
+// follow: exactly one joint has no parent, and it is rig_bones.json's `hips`.
+TEST(PlaceholderRig, TheSkeletonIsOneTreeRootedAtTheHips) {
+    const auto dir = modelDir();
+    const ModelCPUData cpu = Model::Decode((dir / "fighter_a.gltf").string());
+    ASSERT_TRUE(cpu.valid) << cpu.importError;
+    std::string roots;
+    int rootCount = 0;
+    for (const auto& j : cpu.skeleton.joints)
+        if (j.parent < 0) { ++rootCount; roots += j.name + " "; }
+    ASSERT_EQ(rootCount, 1) << "a forest, not a tree: roots " << roots;
+    const json bones = readJson(dir / "rig_bones.json");
+    EXPECT_EQ(roots, bones["bones"]["hips"].get<std::string>() + " ") << "the one root is not the hips";
+    // the manifest, which pins the hierarchy the clips are written against, says the same
+    const json manifest = readJson(dir / "rig_manifest.json");
+    int manifestRoots = 0;
+    for (const json& b : manifest["bones"]) if (b["parent"].is_null()) ++manifestRoots;
+    EXPECT_EQ(manifestRoots, 1) << "rig_manifest.json pins more than one root";
 }
