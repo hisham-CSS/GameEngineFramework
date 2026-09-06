@@ -98,7 +98,7 @@ M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
 
 | In flight | Owner | Since |
 |---|---|---|
-| M2.3 Desync = abort + artifact, naming the first divergent tick and field | Claude | 2026-09-06 |
+| — (next: M2.4 The session owns the tick count) | | |
 | M3.3d The remaining clips made legible (its machine half landed; the viewport batches wait on the human) | Claude / human | 2026-09-06 |
 | M3.3d The remaining clips made legible (its machine half landed; the viewport batches wait on the human) | Claude / human | 2026-09-06 |
 
@@ -824,7 +824,7 @@ Six WPs, all landed, gate required in CI. The decision is
   `Handshake.TheFirstDisagreementIsTheReason`,
   `Handshake.SurvivesLossAndQueuesWhatIsNotAnOffer`, and `test_online_two_peers`
   refusing a mismatched peer by name over UDP before it agrees a real match.
-- `[~]` **M2.3 Desync = abort + artifact**, naming the first divergent tick **and
+- `[x] ac52c46` **M2.3 Desync = abort + artifact**, naming the first divergent tick **and
   field** (needs the reflection table). *(M)* `cse/kernel/StateReflection.h`:
   `{name, offset, size, count, type}` for every field of `Event`, `Fighter` and
   `GameState`, with a `static_assert` that the tables cover every byte (S8 as a
