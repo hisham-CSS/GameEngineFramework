@@ -2829,6 +2829,74 @@ TEST(P3Movement, ASilentMoveStillDoesNotMove) {
 // When the wall already stops the defender, their pushback is absorbed; the
 // authored corner push sends the pressure back through the ATTACKER instead.
 // Zero -- every shipped move today -- is byte-for-byte the old behaviour.
+// THE MOTION-KEY CONTRACT, PINNED (ROADMAP M3.3d; ADR-019). Combat.h::MotionKey
+// says a key is a RESOLVED velocity state: from its fromTick it owns both
+// velocity components until the next key or the move ends, and gravity does
+// not apply while it does, because the segment IS the trajectory. Every clip
+// M3.3d times against a rising move (the uppercut's arc) leans on exactly that
+// reading, so it is pinned here against what the kernel DOES -- committed
+// whichever way it came out; it came out as written. Three segments on one
+// move: a rising key with no gravity, a second key that replaces it on its
+// tick and hangs the fighter, and the move's end handing the arc back to
+// gravity while the last horizontal velocity rides on, ballistic.
+TEST(Kernel, AMotionKeyOwnsVelocityAndSuspendsGravityUntilTheNextKeyOrTheMoveEnds) {
+    // Frame 1: straight up at 3 px/tick. Frame 5: level, 2 px/tick forward.
+    auto data = motionBench({ { 1, 0, 768 }, { 5, 512, 0 } });
+
+    GameState s = apartState();
+    InputPair in{};
+    in.p[0].bits = kInputLP;
+    Simulate(s, in, *data);
+    ASSERT_EQ(s.p[0].moveId, 1u);
+    ASSERT_EQ(s.p[0].airborne, 0u) << "precondition: the press tick's physics ran before the move existed";
+    in.p[0].bits = 0;
+
+    // Observed frame 0: no key owns yet -- committed and still, on the ground.
+    Simulate(s, in, *data);
+    EXPECT_EQ(s.p[0].velY, 0) << "frame 0 is before the first key's fromTick";
+    EXPECT_EQ(s.p[0].airborne, 0u);
+
+    // Frames 1..4: the rising key owns both components, tick after tick, and
+    // velY does not decay -- gravity is suspended, not merely overpowered.
+    std::int32_t posY = s.p[0].posY;
+    for (int frame = 1; frame <= 4; ++frame) {
+        Simulate(s, in, *data);
+        EXPECT_EQ(s.p[0].velY, 768) << "frame " << frame << ": the key's velY was not held exactly";
+        EXPECT_EQ(s.p[0].velX, 0)   << "frame " << frame << ": the key's authored zero X was not held";
+        EXPECT_EQ(s.p[0].airborne, 1u);
+        EXPECT_EQ(s.p[0].posY, posY + 768) << "frame " << frame << ": the arc is not the key's velocity";
+        posY = s.p[0].posY;
+    }
+
+    // Frames 5..7: the next key replaces the first ON ITS TICK -- the fighter
+    // hangs (velY exactly 0, no gravity) and moves forward at the new X. The
+    // key applies on the move's last tick too, and the move ends within that
+    // tick (the lunge above travels 8 x 512 on an 8-tick move for the same
+    // reason), so after frame 7 the fighter is already free.
+    std::int32_t posX = s.p[0].posX;
+    for (int frame = 5; frame <= 7; ++frame) {
+        Simulate(s, in, *data);
+        EXPECT_EQ(s.p[0].velY, 0)   << "frame " << frame << ": the second key did not take velY over";
+        EXPECT_EQ(s.p[0].velX, 512) << "frame " << frame << ": the second key did not take velX over";
+        EXPECT_EQ(s.p[0].posY, posY) << "frame " << frame << ": a hanging fighter fell -- gravity applied under a key";
+        EXPECT_EQ(s.p[0].posX, posX + 512);
+        EXPECT_EQ(s.p[0].moveId, frame < 7 ? 1u : 0u)
+            << "frame " << frame << ": the 8-tick move runs through its last frame and ends on it";
+        posX = s.p[0].posX;
+    }
+    ASSERT_EQ(s.p[0].airborne, 1u) << "precondition: the move left the fighter in the air";
+
+    // After the move: no key, so gravity is back -- the same drop every tick --
+    // and the last horizontal velocity rides on, ballistic (the jump doctrine).
+    Simulate(s, in, *data);
+    const std::int32_t gravity = 0 - s.p[0].velY;
+    EXPECT_GT(gravity, 0) << "the first free tick did not start the fall";
+    EXPECT_EQ(s.p[0].velX, 512) << "the last key's X did not ride on after the move";
+    Simulate(s, in, *data);
+    EXPECT_EQ(s.p[0].velY, -2 * gravity) << "the second free tick did not add the same gravity again";
+    EXPECT_EQ(s.p[0].velX, 512);
+}
+
 TEST(P3Movement, ACornerPushRecoilsTheAttackerOnlyAtTheWall) {
     auto data = twoFighters();
     data->p[0].moves[1].cornerPushHit = 1536;   // ~12 px total recoil
