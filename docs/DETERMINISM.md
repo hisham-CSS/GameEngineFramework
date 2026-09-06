@@ -1,6 +1,6 @@
 # The determinism contract
 
-Verified: 2026-09-03 @ 6f185c8
+Verified: 2026-09-06 @ 3b610b4
 
 Every rule the simulation, the build and the authored data must obey, and — for
 each one — what stops it being broken. This is the only home for these rules;
@@ -102,9 +102,9 @@ presentation, and its only determinism obligation is §7.
 | T1 | The session decides how many ticks run. Zero ticks this frame is legal; **dropping a tick is not** | **not yet** | today `UntitledFighterMode::FixedTick` runs one tick per `Application` fixed step. ROADMAP M2.4 |
 | T2 | `FixedTimestep` never decides the simulation's tick count — it caps at 8 steps and then zeroes the accumulator, discarding the backlog | review | the reason is written at the top of `GameState.h`; nothing enforces it. ROADMAP M2.4 |
 | T3 | While a session is live, pause, time scale and scene swap are inert | **not yet** | ROADMAP M2.4 |
-| T4 | Every tick can produce a checksum; a session exchanges one periodically and stops the match on mismatch | test (half) | `Checksum()` and `KernelRollback.ChecksumDetectsASingleBitOfDivergence`; the exchange arrives with the transport, ROADMAP M2.1–M2.3 |
+| T4 | Every tick can produce a checksum; a session exchanges one periodically and stops the match on mismatch | test (half) | `Checksum()` and `KernelRollback.ChecksumDetectsASingleBitOfDivergence`; the exchange between two kernels and the report: `Session.ADivergentPeerIsReportedAndNamed` ([ADR-021](adr/ADR-021-transport.md)); stopping the match is the host's, ROADMAP M2.3 |
 | T5 | Snapshot → restore → re-simulate is byte-identical at every rollback depth | test | `KernelRollback.ResimulatingFromASnapshotReproducesTheStraightRun`, `.EightTickRewindIsExactAtEveryDepth`, `Session.SurvivesHundredsOfRealRollbacks` |
-| T6 | A desync is reported and the match stops. It is never silently corrected | review | `ISession::PollDesync`; there is no correction path to disable |
+| T6 | A desync is reported and the match stops. It is never silently corrected | test (reported) + review (stops) | `Session.ADivergentPeerIsReportedAndNamed` names the frame and both checksums; `ISession::PollDesync` remembers it for the session's life; there is no correction path to disable |
 | T7 | A full input or snapshot ring **stalls**. It never drops a tick and never truncates | structural | GekkoNet owns both rings ([ADR-003](adr/ADR-003-gekkonet-spike.md)); we do not implement one, which is why we cannot get this wrong |
 | T8 | A live session's `MatchData` never changes: `FightSetup::data` is borrowed for the session's whole life, and `Restore` against state produced by *different* data is undefined. A frame-data edit lands as a **full restart** through `Begin` with freshly built data, never a swap | test | `FightSession.h` states the borrow and the UB; `tests/test_character_hotreload.cpp` (`AFrameDataEditLandsInARunningMatchAndABrokenEditKeepsTheLastGoodData`) pins the restart discipline; decided by [ADR-016](adr/ADR-016-a-reload-restarts-the-match.md) |
 | T9 | A recording names exactly one `MatchData`: a replay file never spans a frame-data edit, so a hot-reloading host re-Begins its recorder at the reload (new `HashMatchData`, fresh input log) — the pre-edit recording is finished or discarded, never continued | **not yet** | the training mode records nothing; ROADMAP M2.x owns enforcement when a recording host exists. The CSRP header's single `matchDataHash` (`Replay.h`) is the structural half |

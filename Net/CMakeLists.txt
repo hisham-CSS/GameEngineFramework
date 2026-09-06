@@ -29,7 +29,15 @@
 
 add_library(CseNet STATIC
     src/GekkoSession.cpp
+    src/LoopbackTransport.cpp
+    src/UdpTransport.cpp
 )
+# The transport of record is UDP over the platform's sockets (ROADMAP M2.1,
+# ADR-021): Winsock needs its import library, PRIVATE like GekkoNet -- a
+# consumer sees `$<LINK_ONLY:ws2_32>`, which the leak check below admits.
+if (WIN32)
+    target_link_libraries(CseNet PRIVATE ws2_32)
+endif()
 
 target_include_directories(CseNet PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include

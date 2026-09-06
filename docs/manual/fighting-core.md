@@ -1,6 +1,6 @@
 # The Fighting-Game Core
 
-Verified: 2026-09-02 @ 1d51d9e
+Verified: 2026-09-06 @ 3b610b4
 
 Cat Splat Engine is being built toward a deterministic, rollback-capable fighting game. That work does not live in `Engine/`. It is a **title** — `Games/UntitledFighter/` — and the engine does not depend on any of it. The link direction is a configure-time error, not a convention.
 
@@ -552,14 +552,14 @@ A move whose file authors `reach: null` (Kung Fu Man's two projectiles) gets a *
 
 ## The rollback session seam
 
-`Net/include/cse/net/ISession.h` is the interface. GekkoNet is the only implementation, and `Net/src/GekkoSession.cpp` is the only translation unit in the project that includes `gekkonet.h` (`:14`) — `Net/CMakeLists.txt` links GekkoNet `PRIVATE` to make that structural rather than aspirational.
+`Net/include/cse/net/ISession.h` is the interface. GekkoNet is the only implementation, and `Net/src/GekkoSession.cpp` is the only translation unit in the project that includes `gekkonet.h` — `Net/CMakeLists.txt` links GekkoNet `PRIVATE` to make that structural rather than aspirational.
 
 ### It is an event pump, not a "call me to roll back" API
 
 **The session drives the loop.** It decides when to advance, when to save and when to load, and it tells you. This shape was found in GekkoNet during the spike and named as a constraint the plan had missed; it lives in the seam rather than in one implementation of it, so a replacement must emit the same stream.
 
 ```c++
-// ISession.h:40
+// ISession.h
 enum class SessionEventType { Advance, Save, Load };
 ```
 
@@ -575,7 +575,7 @@ using namespace cse::net;
 // network concern and the kernel's input type is a simulation concern.
 struct WireInput { std::uint16_t bits; };
 
-SessionConfig cfg;                                    // ISession.h:95
+SessionConfig cfg;                                    // ISession.h
 cfg.playerCount         = 2;
 cfg.inputBytesPerPlayer = sizeof(WireInput);
 cfg.stateBytes          = sizeof(cse::kernel::GameState);
@@ -583,18 +583,18 @@ cfg.predictionWindow    = 8;                          // D4 budgets 8
 cfg.desyncDetection     = true;
 cfg.desyncCheckInterval = 8;                          // ADR-002 CHOICE C
 
-ISession* session = CreateGekkoLocalSession(cfg);     // ISession.h:141 — null on failure
+ISession* session = CreateGekkoLocalSession(cfg);     // ISession.h — null on failure
 
 cse::kernel::GameState live{};
 cse::kernel::ResetMatch(live, 0xC0FFEEu);
 
 // once per frame:
 WireInput a{ localBits0 }, b{ localBits1 };
-session->AddLocalInput(0, &a);                        // ISession.h:116
+session->AddLocalInput(0, &a);                        // ISession.h
 session->AddLocalInput(1, &b);
 
 int n = 0;
-const SessionEvent* ev = session->Update(&n);         // ISession.h:121
+const SessionEvent* ev = session->Update(&n);         // ISession.h
 for (int i = 0; i < n; ++i) {
     switch (ev[i].type) {
     case SessionEventType::Save:
@@ -616,29 +616,30 @@ for (int i = 0; i < n; ++i) {
     }
 }
 
-DestroySession(session);                              // ISession.h:148
+DestroySession(session);                              // ISession.h
 ```
 
 > **Important — handle the events IN ORDER.** A `Load` followed by `Advance`s *is* the rollback. Reordering them silently corrupts the state. The event array is owned by the session and valid only until the next `Update`.
 
-> **Important — suppress player-visible effects while `rollingBack` or `runningAhead` is set** (`ISession.h:64`, `:67`). Sound, particles, screen shake, haptics. Getting this wrong is the classic rollback bug where a 7-frame correction plays the same hit sound eight times.
+> **Important — suppress player-visible effects while `rollingBack` or `runningAhead` is set** (`SessionEvent::rollingBack` and `runningAhead` in `ISession.h`). Sound, particles, screen shake, haptics. Getting this wrong is the classic rollback bug where a 7-frame correction plays the same hit sound eight times.
 
 ### Three rules the seam enforces
 
 1. **No `GameState`, anywhere.** Not in a parameter, not in a template argument, not behind a typedef. The session moves **bytes and a length** ([DETERMINISM.md](../DETERMINISM.md) N3). The snapshot is a `memcpy` of a POD, so bytes is all it needs — and letting the state's *type* into the session layer is how game #2 ends up forking the netcode.
-2. **No float crosses the boundary.** `FramesAhead()` (`ISession.h:127`) returns an `int`. GekkoNet computes a frame-advantage average in `f32`; the adapter rounds it with `std::lround` (a cast would truncate toward zero, so a client that is 0.6 frames behind would be told it is level). Positive means you are ahead and should slow down slightly. Ignoring it still works; you just drift into deeper rollbacks.
-3. **Desyncs are reported, never corrected** ([DETERMINISM.md](../DETERMINISM.md) T6). `PollDesync` (`ISession.h:131`) fills a `DesyncReport` (`ISession.h:88`) with the frame, both checksums and the remote player. Once it returns true the match is over. In 2-player P2P there is no authority to resync from, and a silently corrected position is worse than a stop because the player cannot tell it from a lost interaction.
+2. **No float crosses the boundary.** `FramesAhead()` (`ISession.h`) returns an `int`. GekkoNet computes a frame-advantage average in `f32`; the adapter rounds it with `std::lround` (a cast would truncate toward zero, so a client that is 0.6 frames behind would be told it is level). Positive means you are ahead and should slow down slightly. Ignoring it still works; you just drift into deeper rollbacks.
+3. **Desyncs are reported, never corrected** ([DETERMINISM.md](../DETERMINISM.md) T6). `PollDesync` (`ISession.h`) fills a `DesyncReport` (`ISession.h`) with the frame, both checksums and the remote player. Once it returns true the match is over. In 2-player P2P there is no authority to resync from, and a silently corrected position is worse than a stop because the player cannot tell it from a lost interaction.
 
-### The two factories, and what has not happened yet
+### The three factories, and the transport
 
 | Factory | Header | What it is for |
 |---|---|---|
-| `CreateGekkoLocalSession` | `ISession.h:141` | An ordinary local session. |
-| `CreateGekkoStressSession` | `ISession.h:146` | Rolls back **continuously** to hunt state divergence. This is how you test a simulation's determinism with no network at all. |
+| `CreateGekkoLocalSession` | `ISession.h` | An ordinary local session. |
+| `CreateGekkoStressSession` | `ISession.h` | Rolls back **continuously** to hunt state divergence. This is how you test a simulation's determinism with no network at all. |
+| `CreateGekkoOnlineSession` | `ISession.h` | Two people, one match (ROADMAP M2.1, [ADR-021](../adr/ADR-021-transport.md)): `SessionConfig::peerAddresses` names every slot local (empty) or remote (an address), and packets travel through an `ITransport` the caller owns — `UdpTransport` (`Net/include/cse/net/UdpTransport.h`, UDP over the platform's sockets, the one of record) or a `LoopbackNetwork` endpoint (`LoopbackTransport.h`, in-process, deterministic, with frame latency and drop-every-n for tests). `ConnectedPeers()` says when the other side is there; Advance events do not start before it is. |
 
-> **No transport has ever sent a packet.** Both factories add only `GekkoLocalPlayer` actors, and no network adapter is configured anywhere. `CreateGekkoStressSession` is the useful one today: `Session.SurvivesHundredsOfRealRollbacks` in `tests/test_session.cpp` drives hundreds of real rollbacks through it and compares byte-for-byte against a straight run, and `Session.LocalSessionMatchesTheKernelRunningAlone` asserts a local session reproduces the kernel running alone. The connect handshake, the remote actor and everything that follows are [ROADMAP.md](../ROADMAP.md) M2.
+> **What the transport proves, and where.** `Session.TwoPeersOverALoopbackTransportAgreeOnEveryChecksum`, `.LatencyForcesRollbacksAndBothPeersConverge` and `.LossIsSurvivedByTheSessionsOwnRedundancy` in `tests/test_session.cpp` run two online sessions in one process through a `LoopbackNetwork` and hold every confirmed frame to one checksum on both sides; `.ADivergentPeerIsReportedAndNamed` makes one kernel drift and sees the desync named with its frame and both checksums ([DETERMINISM.md](../DETERMINISM.md) T4, T6). `tests/two_peers.py` runs two `online_peer` processes over `UdpTransport` on 127.0.0.1 and requires the same checksum at the same frame (`test_online_two_peers`). GekkoNet's own asio adapter is not compiled in this tree, on purpose (`ThirdParty/CMakeLists.txt`); the bridge from `ITransport` to its adapter lives in `GekkoSession.cpp` and nowhere else. The connect handshake and the match's tick count are ROADMAP M2.2 and M2.4.
 
-When that handshake is built it must hash the **loaded POD arrays** — the `MatchData`, not the canonicalized text — and a content mismatch has to surface as a lobby error, never as "desync at tick 3" ([DETERMINISM.md](../DETERMINISM.md) A4–A5). The reason it is the `MatchData` and not the state: a `GameState` alone no longer describes a match. It is meaningless without the data it was simulated against, and proving both peers hold the same one is the handshake's job.
+The connect handshake (ROADMAP M2.2) must hash the **loaded POD arrays** — the `MatchData`, not the canonicalized text — and a content mismatch has to surface as a lobby error, never as "desync at tick 3" ([DETERMINISM.md](../DETERMINISM.md) A4–A5). The reason it is the `MatchData` and not the state: a `GameState` alone no longer describes a match. It is meaningless without the data it was simulated against, and proving both peers hold the same one is the handshake's job.
 
 ---
 

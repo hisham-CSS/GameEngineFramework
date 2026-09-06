@@ -107,6 +107,24 @@ add_executable(test_session test_session.cpp)
 target_link_libraries(test_session PRIVATE CseKernel CseNet GTest::gtest_main)
 add_test(NAME test_session COMMAND $<TARGET_FILE:test_session>)
 
+# ONLINE (ROADMAP M2.1): two processes, one match, over GekkoNet's built-in UDP
+# adapter on 127.0.0.1. test_session's loopback tests prove the seam and the
+# rollback between two kernels; this proves the TRANSPORT carries it. A plain
+# executable per peer and a standard-library Python driver that compares what
+# the two print (tests/two_peers.py); the Windows job runs it, the Linux job
+# only compiles.
+add_executable(online_peer online_peer.cpp)
+target_link_libraries(online_peer PRIVATE CseKernel CseNet)
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+  set(_two_peers_python "${Python3_EXECUTABLE}")
+else()
+  set(_two_peers_python python)
+endif()
+add_test(NAME test_online_two_peers
+         COMMAND "${_two_peers_python}" "${CMAKE_CURRENT_SOURCE_DIR}/two_peers.py" $<TARGET_FILE:online_peer> 240)
+set_tests_properties(test_online_two_peers PROPERTIES TIMEOUT 180)
+
 # The cross-toolchain golden hash. This is the test that turns "bit-identity is a
 # property of integer arithmetic, not of a build flag" (ARCHITECTURE.md D2/D3)
 # from an argument into a fact: the same simulation, compiled by MSVC and by gcc,

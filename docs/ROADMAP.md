@@ -98,7 +98,7 @@ M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
 
 | In flight | Owner | Since |
 |---|---|---|
-| — (next: M2.1 Transport — spike, then an ADR, per ADR-020; the dependency it may propose is the human's to grant) | | |
+| M2.1 Transport — spike, then an ADR | Claude | 2026-09-06 |
 | M3.3d The remaining clips made legible (its machine half landed; the viewport batches wait on the human) | Claude / human | 2026-09-06 |
 
 The openings wave is landed end to end: per-opening prover surface → (c) →
@@ -797,7 +797,19 @@ Six WPs, all landed, gate required in CI. The decision is
 
 ## M2 — Two people, one match *(size L)* — ARCHITECTURE Phase 4 — after M3.5a ([ADR-020](adr/ADR-020-the-bounded-lift.md))
 
-- `[ ]` **M2.1 Transport — spike, then an ADR.**
+- `[~]` **M2.1 Transport — spike, then an ADR.** *(M)* The spike found
+  GekkoNet's own UDP adapter is not compiled in this tree (`NO_ASIO`, on
+  purpose) and its adapter has no user-data pointer; the ADR is
+  [ADR-021](adr/ADR-021-transport.md): `ITransport` beside `ISession` (bytes to
+  a string address, never a GekkoNet type), `UdpTransport` over the platform's
+  sockets as the transport of record, `LoopbackNetwork` for tests (frame
+  latency, drop-every-n, deterministic), `CreateGekkoOnlineSession`. No
+  dependency, so the recommended default is enacted. **Done when:**
+  `Session.TwoPeersOverALoopbackTransportAgreeOnEveryChecksum`,
+  `Session.LatencyForcesRollbacksAndBothPeersConverge`,
+  `Session.LossIsSurvivedByTheSessionsOwnRedundancy`,
+  `Session.ADivergentPeerIsReportedAndNamed`, and `test_online_two_peers`
+  (two processes over UDP on 127.0.0.1 agree at the same frame).
 - `[ ]` **M2.2 Handshake** — hash the loaded POD arrays, never canonicalised text.
 - `[ ]` **M2.3 Desync = abort + artifact**, naming the first divergent tick **and
   field** (needs the reflection table).

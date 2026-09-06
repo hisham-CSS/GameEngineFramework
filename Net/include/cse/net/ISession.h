@@ -33,11 +33,44 @@
 //    simulation" is enforced by OUR type rather than by their implementation
 //    detail continuing to hold. It is one line and it makes the crossplay
 //    guarantee ours to keep.
+//
+// 4. THE TRANSPORT IS A SEAM TOO (ROADMAP M2.1). A session's packets reach a
+//    peer through ITransport: bytes and a length to a string address, and
+//    whatever arrived since the last poll. GekkoNet's own adapter type never
+//    appears here; GekkoSession.cpp bridges the two. UdpTransport.h -- UDP over
+//    the platform's own sockets, no library -- is the transport of record
+//    (GekkoNet's asio adapter is not compiled in this tree, on purpose);
+//    LoopbackTransport.h is the in-process one every test runs on, with latency
+//    and loss you can set. One online session ships per process, four fit for
+//    tests, because the bridge behind the seam is process-global; ADR-021
+//    records this default, why that is acceptable and what would reverse it.
 #pragma once
 
 #include <cstdint>
+#include <string>
+#include <vector>
 
 namespace cse::net {
+
+// One packet as the transport hands it back: who sent it (the address the
+// session was told to reach that peer at) and the bytes. Owned by the caller
+// of Receive() once returned.
+struct TransportPacket {
+    std::string               from;
+    std::vector<std::uint8_t> bytes;
+};
+
+// How a session's packets travel. Addresses are opaque strings: "ip:port" for
+// the built-in UDP adapter, a name for a loopback network. Unreliable and
+// unordered by contract -- the session (GekkoNet) carries its own redundancy
+// and never expects a transport to retransmit.
+class ITransport {
+public:
+    virtual ~ITransport() = default;
+    virtual void Send(const std::string& to, const std::uint8_t* bytes, std::uint32_t length) = 0;
+    // Every packet that arrived since the last call, in arrival order.
+    virtual std::vector<TransportPacket> Receive() = 0;
+};
 
 // What the session is asking the host to do this pump.
 enum class SessionEventType {
@@ -105,6 +138,16 @@ struct SessionConfig {
     bool          desyncDetection       = true;
     // Ticks between checksum exchanges. ADR-002 CHOICE C says every 8.
     std::uint32_t desyncCheckInterval   = 8;
+    // --- Online (ROADMAP M2.1) -------------------------------------------
+    // One entry per player slot, in slot order; EMPTY means every player is
+    // local, which is what the local and stress sessions are. A local slot's
+    // entry is the empty string; a remote slot's is the address the transport
+    // routes by. Handles equal slots because actors are added in slot order.
+    std::vector<std::string> peerAddresses;
+    // Frames a local input is held before the session uses it: lag traded
+    // for fewer mispredictions (GekkoNet's local delay). The kernel never sees
+    // it -- inputs arrive per frame as always, later.
+    std::uint8_t  localDelay             = 2;
 };
 
 class ISession {
@@ -133,6 +176,11 @@ public:
     // returns true the match is over -- see DesyncReport.
     virtual bool PollDesync(DesyncReport* out) = 0;
 
+    // Remote players currently connected (ROADMAP M2.1). Zero for a local or
+    // stress session, and for an online one until the peers have found each
+    // other -- Advance events do not start before they have.
+    virtual int ConnectedPeers() const = 0;
+
 protected:
     ISession() = default;
 };
@@ -147,6 +195,15 @@ ISession* CreateGekkoLocalSession(const SessionConfig& cfg);
 // is how you test a simulation's determinism without a network: ADR-003 used it
 // to re-simulate 1617 ticks and compare byte-for-byte against a straight run.
 ISession* CreateGekkoStressSession(const SessionConfig& cfg);
+
+// An online session (ROADMAP M2.1): cfg.peerAddresses names every slot, local
+// (empty) or remote (an address the transport routes by). Packets travel
+// through `transport`, which is required and must outlive the session --
+// UdpTransport.h is the one of record, LoopbackTransport.h the tests'. Null if
+// the config is incomplete, if no slot is local, if no transport is given, or
+// if the process already holds as many online sessions as the bridge has slots
+// (ADR-021: one is the shipped case; four is the tests' ceiling).
+ISession* CreateGekkoOnlineSession(const SessionConfig& cfg, ITransport* transport);
 
 void DestroySession(ISession* session);
 

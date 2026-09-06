@@ -14,18 +14,86 @@
 #include "gekkonet.h"
 
 #include <cmath>
+#include <cstdlib>
+#include <cstring>
 #include <vector>
 
 namespace cse::net {
 namespace {
 
+// THE TRANSPORT BRIDGE (ROADMAP M2.1). GekkoNet's adapter is three C function
+// pointers with no user-data argument, so an ITransport can only be reached
+// through a static: one Bridge<N> per online session in the process, each a
+// distinct set of functions. Four slots is a ceiling for tests (two sessions
+// talking to each other in one process); the shipped game holds one, and the
+// built-in UDP adapter GekkoNet ships is process-global as well. Receive()
+// hands GekkoNet malloc'd results it frees back through Free(), one call each
+// for the result, its address and its data -- the built-in adapter's own
+// convention (gekkonet.cpp asio_receive / backend.cpp), mirrored exactly.
+template <int N>
+struct Bridge {
+    static ITransport*                   transport;
+    static std::vector<GekkoNetResult*>  results;   // the array GekkoNet reads; its elements it frees
+
+    static void Send(GekkoNetAddress* addr, const char* data, int length) {
+        if (transport == nullptr || addr == nullptr || length < 0) return;
+        transport->Send(std::string(static_cast<const char*>(addr->data), addr->size),
+                        reinterpret_cast<const std::uint8_t*>(data), static_cast<std::uint32_t>(length));
+    }
+    static GekkoNetResult** Receive(int* length) {
+        results.clear();
+        if (transport != nullptr) {
+            for (TransportPacket& p : transport->Receive()) {
+                auto* res = static_cast<GekkoNetResult*>(std::malloc(sizeof(GekkoNetResult)));
+                res->addr.size = static_cast<unsigned int>(p.from.size());
+                res->addr.data = std::malloc(p.from.size() ? p.from.size() : 1);
+                std::memcpy(res->addr.data, p.from.data(), p.from.size());
+                res->data_len  = static_cast<unsigned int>(p.bytes.size());
+                res->data      = std::malloc(p.bytes.size() ? p.bytes.size() : 1);
+                std::memcpy(res->data, p.bytes.data(), p.bytes.size());
+                results.push_back(res);
+            }
+        }
+        *length = static_cast<int>(results.size());
+        return results.empty() ? nullptr : results.data();
+    }
+    static void Free(void* p) { std::free(p); }
+
+    static GekkoNetAdapter adapter;
+};
+template <int N> ITransport*                  Bridge<N>::transport = nullptr;
+template <int N> std::vector<GekkoNetResult*> Bridge<N>::results;
+template <int N> GekkoNetAdapter              Bridge<N>::adapter = { &Bridge<N>::Send, &Bridge<N>::Receive, &Bridge<N>::Free };
+
+constexpr int kBridgeSlots = 4;
+
+// Claim a free bridge for `transport`; -1 when all are held.
+int claimBridge(ITransport* transport) {
+    ITransport** slots[kBridgeSlots] = { &Bridge<0>::transport, &Bridge<1>::transport,
+                                         &Bridge<2>::transport, &Bridge<3>::transport };
+    for (int i = 0; i < kBridgeSlots; ++i)
+        if (*slots[i] == nullptr) { *slots[i] = transport; return i; }
+    return -1;
+}
+GekkoNetAdapter* bridgeAdapter(int slot) {
+    GekkoNetAdapter* a[kBridgeSlots] = { &Bridge<0>::adapter, &Bridge<1>::adapter,
+                                         &Bridge<2>::adapter, &Bridge<3>::adapter };
+    return a[slot];
+}
+void releaseBridge(int slot) {
+    ITransport** slots[kBridgeSlots] = { &Bridge<0>::transport, &Bridge<1>::transport,
+                                         &Bridge<2>::transport, &Bridge<3>::transport };
+    if (slot >= 0 && slot < kBridgeSlots) *slots[slot] = nullptr;
+}
+
 class GekkoSessionImpl final : public ISession {
 public:
-    GekkoSessionImpl(GekkoSession* s, std::uint32_t stateBytes)
-        : session_(s), stateBytes_(stateBytes) {}
+    GekkoSessionImpl(GekkoSession* s, std::uint32_t stateBytes, bool online, int bridgeSlot)
+        : session_(s), stateBytes_(stateBytes), online_(online), bridgeSlot_(bridgeSlot) {}
 
     ~GekkoSessionImpl() override {
         if (session_) gekko_destroy(&session_);
+        releaseBridge(bridgeSlot_);
     }
 
     void AddLocalInput(int player, const void* input) override {
@@ -37,6 +105,25 @@ public:
 
     const SessionEvent* Update(int* count) override {
         events_.clear();
+
+        if (online_) {
+            // Move packets first, then count the peers the move connected or
+            // lost, so ConnectedPeers() after Update() reflects this pump.
+            gekko_network_poll(session_);
+            int m = 0;
+            GekkoSessionEvent** se = gekko_session_events(session_, &m);
+            for (int i = 0; i < m; ++i) {
+                if (se[i]->type == GekkoPlayerConnected)    ++connected_;
+                if (se[i]->type == GekkoPlayerDisconnected) --connected_;
+                if (se[i]->type == GekkoDesyncDetected) {
+                    desync_.frame          = se[i]->data.desynced.frame;
+                    desync_.localChecksum  = se[i]->data.desynced.local_checksum;
+                    desync_.remoteChecksum = se[i]->data.desynced.remote_checksum;
+                    desync_.remotePlayer   = se[i]->data.desynced.remote_handle;
+                    desynced_ = true;
+                }
+            }
+        }
 
         int n = 0;
         GekkoGameEvent** raw = gekko_update_session(session_, &n);
@@ -91,25 +178,40 @@ public:
     }
 
     bool PollDesync(DesyncReport* out) override {
+        // An online session read the session events in Update() (they are
+        // consumed by the read), so a desync is remembered there and reported
+        // from here for the rest of the session's life -- a desync ends the
+        // match (ADR-002 CHOICE C), it is not a transient to miss.
+        if (desynced_) {
+            if (out) *out = desync_;
+            return true;
+        }
         int n = 0;
         GekkoSessionEvent** ev = gekko_session_events(session_, &n);
         for (int i = 0; i < n; ++i) {
             if (ev[i]->type != GekkoDesyncDetected) continue;
-            if (out) {
-                out->frame          = ev[i]->data.desynced.frame;
-                out->localChecksum  = ev[i]->data.desynced.local_checksum;
-                out->remoteChecksum = ev[i]->data.desynced.remote_checksum;
-                out->remotePlayer   = ev[i]->data.desynced.remote_handle;
-            }
+            desync_.frame          = ev[i]->data.desynced.frame;
+            desync_.localChecksum  = ev[i]->data.desynced.local_checksum;
+            desync_.remoteChecksum = ev[i]->data.desynced.remote_checksum;
+            desync_.remotePlayer   = ev[i]->data.desynced.remote_handle;
+            desynced_ = true;
+            if (out) *out = desync_;
             return true;
         }
         return false;
     }
 
+    int ConnectedPeers() const override { return connected_ < 0 ? 0 : connected_; }
+
 private:
     GekkoSession*             session_ = nullptr;
     std::uint32_t             stateBytes_ = 0;
     std::vector<SessionEvent> events_;
+    bool                      online_ = false;
+    int                       bridgeSlot_ = -1;
+    int                       connected_ = 0;
+    bool                      desynced_ = false;
+    DesyncReport              desync_{};
 };
 
 ISession* create(GekkoSessionType type, const SessionConfig& cfg) {
@@ -133,7 +235,7 @@ ISession* create(GekkoSessionType type, const SessionConfig& cfg) {
         gekko_add_actor(s, GekkoLocalPlayer, nullptr);
     }
 
-    return new GekkoSessionImpl(s, cfg.stateBytes);
+    return new GekkoSessionImpl(s, cfg.stateBytes, /*online*/ false, /*bridge*/ -1);
 }
 
 } // namespace
@@ -144,6 +246,54 @@ ISession* CreateGekkoLocalSession(const SessionConfig& cfg) {
 
 ISession* CreateGekkoStressSession(const SessionConfig& cfg) {
     return create(GekkoStressSession, cfg);
+}
+
+ISession* CreateGekkoOnlineSession(const SessionConfig& cfg, ITransport* transport) {
+    if (cfg.stateBytes == 0 || cfg.inputBytesPerPlayer == 0 || cfg.playerCount == 0) return nullptr;
+    if (cfg.peerAddresses.size() != cfg.playerCount) return nullptr;
+    bool anyLocal = false;
+    for (const std::string& a : cfg.peerAddresses) anyLocal = anyLocal || a.empty();
+    if (!anyLocal) return nullptr;
+    // A transport is REQUIRED. GekkoNet's own asio adapter is not compiled in
+    // this tree (ThirdParty/CMakeLists.txt builds it NO_ASIO); the transport of
+    // record is UdpTransport, ours, over the platform's sockets (ADR-021).
+    if (transport == nullptr) return nullptr;
+
+    const int bridge = claimBridge(transport);
+    if (bridge < 0) return nullptr;
+
+    GekkoSession* s = nullptr;
+    if (!gekko_create(&s, GekkoGameSession)) { releaseBridge(bridge); return nullptr; }
+
+    GekkoConfig gc{};
+    gc.num_players             = cfg.playerCount;
+    gc.input_size              = cfg.inputBytesPerPlayer;
+    gc.state_size              = cfg.stateBytes;
+    gc.input_prediction_window = cfg.predictionWindow;
+    gc.desync_detection        = cfg.desyncDetection;
+    gc.check_distance          = cfg.desyncCheckInterval;
+    gekko_start(s, &gc);
+
+    // The adapter before the actors: a remote actor's first handshake packet
+    // leaves the moment it is added (the online example's order).
+    gekko_net_adapter_set(s, bridgeAdapter(bridge));
+
+    // Slot order, so the handle GekkoNet returns is the slot the caller will
+    // name in AddLocalInput and read in the packed Advance inputs.
+    for (std::uint8_t i = 0; i < cfg.playerCount; ++i) {
+        const std::string& address = cfg.peerAddresses[i];
+        if (address.empty()) {
+            const int handle = gekko_add_actor(s, GekkoLocalPlayer, nullptr);
+            gekko_set_local_delay(s, handle, cfg.localDelay);
+        } else {
+            GekkoNetAddress addr{};
+            addr.data = const_cast<char*>(address.data());   // copied by GekkoNet on add
+            addr.size = static_cast<unsigned int>(address.size());
+            gekko_add_actor(s, GekkoRemotePlayer, &addr);
+        }
+    }
+
+    return new GekkoSessionImpl(s, cfg.stateBytes, /*online*/ true, bridge);
 }
 
 void DestroySession(ISession* session) {
