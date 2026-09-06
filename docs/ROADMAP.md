@@ -98,7 +98,7 @@ M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
 
 | In flight | Owner | Since |
 |---|---|---|
-| M3.3c Every clip generated from the frame data; four made legible | Claude | 2026-09-06 |
+| M3.3d The remaining 33 clips made legible; the arcs pinned; poses fit their boxes | Claude | 2026-09-06 |
 
 The openings wave is landed end to end: per-opening prover surface → (c) →
 (d) → (b3) — the golden re-record (b3) was expected to need DISSOLVED under
@@ -1009,7 +1009,7 @@ mannequin and M3.5a's room are unblocked from that date.
   the fix re-parents along the metarig's hierarchy, held by
   `PlaceholderRig.TheSkeletonIsOneTreeRootedAtTheHips`.
 
-- `[~]` **M3.3c Every clip generated from the frame data; four made
+- `[x] e40939b` **M3.3c Every clip generated from the frame data; four made
   legible.** *(M)* `make_move_clips.py` reads `fighter_a.json` and `poses.json`
   and keys one STEPPED pose per frame for every attack (anticipation, the
   contact pose held over the active window, recovery converging on idle) and
@@ -1076,7 +1076,7 @@ mannequin and M3.5a's room are unblocked from that date.
   the room's grid is the ruler. **Done when:**
   `FightPresentation.OverlayModeCyclesThreeStatesAndStartsWithBoxes`.
 
-- `[ ]` **M3.3d The remaining 33 clips made legible; the arcs pinned; poses
+- `[~]` **M3.3d The remaining 33 clips made legible; the arcs pinned; poses
   fit their boxes.** *(L)* Opens with the kernel test that pins motion-key
   behaviour, committed whichever way it comes out; then batches of 4–6 clips
   per session from `poses.json`, the human refining at the viewport — the
@@ -1088,7 +1088,7 @@ mannequin and M3.5a's room are unblocked from that date.
   26 px, `crouch_hk` 20 px, `crouch_hp` 36 px, +2 px),
   `ShippedClips.StunAndKnockdownClipsCoverTheLongestAuthoredCounters`,
   `ShippedClips.AWalkCycleAdvancesItsStrideInWholeTicks` (`N × walkSpeedPx ==
-  stride px`); `ShippedClipsMatchTheFrameData` green after every batch.
+  stride px`); `ShippedClips.MatchTheFrameData` green after every batch.
 
 - `[ ]` **M3.3e The modeled shoto body.** *(L — human hours)* Gated by
   [ADR-020](adr/ADR-020-the-bounded-lift.md) clause (ii) and started after
