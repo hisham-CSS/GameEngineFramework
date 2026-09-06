@@ -1,11 +1,13 @@
 // TRAINING MODE, PROVEN WITHOUT A WINDOW.
 //
 // Games/UntitledFighter/Modes/src/UntitledFighterMode.cpp is a GameMode: it owns
-// a Renderer2D call, a fixed tick and a keyboard, and none of those can be
-// asserted on a CI machine with no display. What it is BUILT OUT OF can be, and
-// that is what this file does -- every behaviour training mode claims, exercised
-// through Games/UntitledFighter/Game/ with no GL context, no window and no
-// Engine on the link line.
+// a Renderer2D call, a fixed tick and a keyboard. The Renderer2D call cannot be
+// asserted on a CI machine with no display; the fixed tick and the keyboard can
+// since ROADMAP M2.4 gave the mode a headless InputMap seam
+// (tests/test_fight_mode.cpp holds the live-session rules through it). What the
+// mode is BUILT OUT OF is what this file exercises -- every behaviour training
+// mode claims, through Games/UntitledFighter/Game/ with no GL context, no
+// window and no Engine on the link line.
 //
 // The alternative is the one this repository has refused everywhere else: a
 // feature whose claims rest on somebody having looked at it once.

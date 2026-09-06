@@ -98,7 +98,7 @@ M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
 
 | In flight | Owner | Since |
 |---|---|---|
-| — (next: M2.4 The session owns the tick count) | | |
+| M2.4 The session owns the tick count | Claude | 2026-09-06 |
 | M3.3d The remaining clips made legible (its machine half landed; the viewport batches wait on the human) | Claude / human | 2026-09-06 |
 | M3.3d The remaining clips made legible (its machine half landed; the viewport batches wait on the human) | Claude / human | 2026-09-06 |
 
@@ -836,22 +836,28 @@ Six WPs, all landed, gate required in CI. The decision is
   `Desync.TheFirstDivergentFieldIsNamed`,
   `Desync.TwoPeersAbortAndTheArtifactNamesTheTickAndField`, and
   `test_online_two_peers` writing both artifacts naming the field over UDP.
-- `[ ]` **M2.4 The session owns the tick count.** *(M)* Scoped 2026-09-06 after
-  M2.3: `UntitledFighterMode::FixedTick` decides "whether a tick runs at all"
-  (pause, frame step, slow motion) and latches the pad before one `FightSession`
-  tick; with a live `ISession` that decision is the session's Advance events
-  (T1: zero this frame is legal, none dropped; T3: pause, time scale and scene
-  swap inert). The piece to build is a `SessionDriver` in the Modes library
-  (CseGame's link whitelist keeps CseNet out of it) that turns Save/Load/Advance
-  into `Snapshot`/`Restore`/`Tick(inputs)` with the session's packed inputs, and
-  a headless seam for the mode's pad read -- `readPad_` reads
-  `ctx_.app->input()` and no test constructs the mode today, so the tick-loop
-  rules have nowhere to be held until one exists. N5: no focus gating touches
-  `readPad_` (structural today, unproven); the rule's test rides on the same
-  seam. **Done when:** `SessionDriver.RunsExactlyTheTicksTheSessionAdvances`,
+- `[~]` **M2.4 The session owns the tick count.** *(M)* Claude, 2026-09-06.
+  `SessionDriver` (Modes library, because CseGame's link whitelist keeps CseNet
+  out of the simulation libraries) turns Save/Load/Advance into
+  `Snapshot`/`Restore`/`Tick(inputs)` and decides nothing: the kernel runs
+  exactly the session's Advance events (T1, T2). `UntitledFighterMode` gained a
+  headless `InputMap` seam (`SetInputMap`) — the reason no test could hold the
+  tick-loop rules before — and `AttachSession`/`DetachSession`: while attached,
+  FixedTick pumps once per step and takes the tick count from the driver;
+  pause, frame step, slow motion, reset, character swap, stage position,
+  Demonstrate and hot reload are inert (T3); the pad and the tap accumulator
+  are offered only on a frame the session will take (`ISession.h` rule 5,
+  measured against GekkoNet). The Application's pause, time scale and pad
+  suppression stand down through one pure function, `Engine/src/core/FrameGate.h`,
+  read off `Application::setSessionLive` (T3, N5) — N5 is enforced where the
+  suppression is decided, not by the mode reading around it, so the Editor's
+  Game-view focus rule stays for training and yields for a live match. Nothing
+  in the shipped hosts attaches a session yet (M2.5). **Done when:**
+  `SessionDriver.RunsExactlyTheTicksTheSessionAdvances`,
   `SessionDriver.AFrameWithNoAdvanceRunsZeroTicksAndDropsNone`,
-  `TrainingMode.PauseAndTimeScaleAreInertWhileASessionIsLive`,
-  `TrainingMode.UiFocusNeverSuppressesThePadWhileASessionIsLive`.
+  `FightMode.PauseStepAndSlowMotionAreInertWhileASessionIsLive`,
+  `FightMode.AFrameTheSessionDoesNotAdvanceRunsNoTickAndIsNotAnError`,
+  `FrameGate.ALiveSessionOwnsTimeAndThePad`.
 - `[ ]` **M2.5 VERSUS, and one presentation for three modes.**
 - `[ ]` **M2.6 Play == Player, as a hash test.**
 

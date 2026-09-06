@@ -15,13 +15,15 @@
 // did, and nothing downstream can tell a delivered tap from a perfectly timed
 // hold.
 //
-// WHAT THIS FILE CANNOT COVER, RECORDED RATHER THAN GLOSSED: the mode's own
-// FixedTick glue (UntitledFighterMode.cpp) is five lines mirroring the Host
-// harness below, but the mode cannot be constructed headlessly -- every input
-// read goes through Application, whose constructor creates a real GLFW window
-// -- so the RULE is pinned here against the real InputMap, the real
-// LatchedInputSource, the real FightSession and the real kernel, and the
-// mode's copy of the rule is the one thing left to the eye. The GLFW half
+// WHERE THE MODE'S OWN COPY IS HELD: the mode's FixedTick glue
+// (UntitledFighterMode.cpp) is five lines mirroring the Host harness below.
+// When this file was written the mode could not be constructed headlessly --
+// every input read went through Application, whose constructor creates a real
+// GLFW window -- so the RULE is pinned here against the real InputMap, the real
+// LatchedInputSource, the real FightSession and the real kernel. Since ROADMAP
+// M2.4 the mode takes its InputMap through UntitledFighterMode::SetInputMap
+// and tests/test_fight_mode.cpp drives the real mode with a scripted keyboard,
+// so the mode's copy is one seam away rather than left to the eye. The GLFW half
 // (sticky keys, Window.h) is a platform behaviour no headless harness can
 // reach; its record is the comment at the glfwSetInputMode call.
 #include <gtest/gtest.h>

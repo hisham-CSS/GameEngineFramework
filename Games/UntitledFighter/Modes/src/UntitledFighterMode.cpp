@@ -292,6 +292,11 @@ void UntitledFighterMode::Exit() {
     // touched here is default-constructible and was default-constructed, and
     // nothing below cares how far Enter got.
     //
+    // The session first, while ctx_.app is still ours to tell: a mode that
+    // left with the Application's session flag up would leave the host's
+    // pause dead for the next mode.
+    DetachSession();
+    //
     // OBSERVERS AND SOURCES ARE DROPPED BEFORE THE OBJECTS THEY POINT AT. The
     // session BORROWS both (FightSession.h), and although nothing dereferences
     // them outside Tick, a session left holding pointers into freed unique_ptrs
@@ -839,11 +844,67 @@ void UntitledFighterMode::resetMatch_() {
     refreshDemoNote_();
 }
 
+// --- The live session (ROADMAP M2.4) ---------------------------------------------
+
+bool UntitledFighterMode::AttachSession(cse::net::ISession* session, int padSlot,
+                                        std::uint8_t localSlots, std::string& error) {
+    if (session == nullptr) {
+        error = "no session to attach";
+        return false;
+    }
+    if (!matchReady_) {
+        error = "no running match to attach a session to" +
+                (setupError_.empty() ? std::string() : ": " + setupError_);
+        return false;
+    }
+    if (!fatal_.empty()) {
+        error = "the match has stopped: " + fatal_;
+        return false;
+    }
+    liveSession_ = session;
+    driver_.Bind(session, &session_, localSlots, padSlot);
+
+    // Whatever the training controls had decided is void from here: the
+    // session decides. A press made before the peer existed must not fire on
+    // the first frame it carries, so the accumulator starts empty too.
+    paused_       = false;
+    slowDivisor_  = 1;
+    slowCounter_  = 0;
+    pendingSteps_ = 0;
+    taps_.Clear();
+
+    // The Application's half of T3 and N5 (core/FrameGate.h): pause, time
+    // scale and the pad suppression stand down for as long as this is set.
+    if (ctx_.app) ctx_.app->setSessionLive(true);
+    return true;
+}
+
+void UntitledFighterMode::DetachSession() {
+    if (liveSession_ == nullptr) return;
+    driver_.Unbind();
+    liveSession_ = nullptr;
+    if (ctx_.app) ctx_.app->setSessionLive(false);
+
+    // The latched log stopped at the tick it last recorded and the session ran
+    // on past it through Tick(inputs) -- the inputs of those ticks were the
+    // session's to keep, not this log's. Latching resumes at the tick the
+    // kernel is on, or the first training tick after this would be refused
+    // (LatchedInputSource::Latch is monotonic) and stop the match.
+    local_.Reset(session_.CurrentTick());
+    taps_.Clear();
+}
+
 // --- Input ---------------------------------------------------------------------
 
+MyCoreEngine::InputMap* UntitledFighterMode::input_() const {
+    if (inputOverride_) return inputOverride_;
+    return ctx_.app ? &ctx_.app->input() : nullptr;
+}
+
 void UntitledFighterMode::bindActions_() {
-    if (!ctx_.app) return;
-    MyCoreEngine::InputMap& map = ctx_.app->input();
+    MyCoreEngine::InputMap* mapPtr = input_();
+    if (!mapPtr) return;
+    MyCoreEngine::InputMap& map = *mapPtr;
 
     // clearAction FIRST on every name. bindKey APPENDS to a list, so entering
     // this mode a second time would otherwise bind J twice -- harmless today,
@@ -867,8 +928,9 @@ void UntitledFighterMode::bindActions_() {
 }
 
 void UntitledFighterMode::clearActions_() {
-    if (!ctx_.app) return;
-    MyCoreEngine::InputMap& map = ctx_.app->input();
+    MyCoreEngine::InputMap* mapPtr = input_();
+    if (!mapPtr) return;
+    MyCoreEngine::InputMap& map = *mapPtr;
     for (const MoveKey& key : kMoveKeys)      map.clearAction(key.action);
     for (const MoveKey& key : kDirectionKeys) map.clearAction(key.action);
     for (const ControlKey& key : kControlKeys) map.clearAction(key.action);
@@ -876,8 +938,9 @@ void UntitledFighterMode::clearActions_() {
 
 cse::kernel::Input UntitledFighterMode::readPad_() const {
     cse::kernel::Input input{};
-    if (!ctx_.app) return input;
-    MyCoreEngine::InputMap& map = ctx_.app->input();
+    MyCoreEngine::InputMap* mapPtr = input_();
+    if (!mapPtr) return input;
+    MyCoreEngine::InputMap& map = *mapPtr;
 
     // isDown, NOT consumePressed -- and since ROADMAP M1.1d that is the RIGHT
     // read rather than a concession. The kernel derives the edge itself (in
@@ -907,8 +970,9 @@ cse::kernel::Input UntitledFighterMode::readPad_() const {
 }
 
 void UntitledFighterMode::notePadPresses_() {
-    if (!ctx_.app) return;
-    MyCoreEngine::InputMap& map = ctx_.app->input();
+    MyCoreEngine::InputMap* mapPtr = input_();
+    if (!mapPtr) return;
+    MyCoreEngine::InputMap& map = *mapPtr;
 
     // consumePressed on the SAME keys readPad_ level-reads, every fixed step
     // including the ones no tick runs on -- that is the point: the steps slow
@@ -926,8 +990,21 @@ void UntitledFighterMode::notePadPresses_() {
 }
 
 void UntitledFighterMode::readControls_() {
-    if (!ctx_.app) return;
-    MyCoreEngine::InputMap& map = ctx_.app->input();
+    MyCoreEngine::InputMap* mapPtr = input_();
+    if (!mapPtr) return;
+    MyCoreEngine::InputMap& map = *mapPtr;
+
+    // WHILE A SESSION IS LIVE, ONE CONTROL (ROADMAP M2.4; DETERMINISM.md T3).
+    // The overlay changes what is drawn and nothing else. Every other key on
+    // this list pauses, steps, slows, restarts or re-sources the match, and a
+    // peer is running the same match -- each of them is a desync, so each is
+    // inert. The presses are dropped rather than queued (clearPressLatches, as
+    // for a stopped match below), so nothing fires when the session detaches.
+    if (SessionLive()) {
+        if (map.consumePressed(kActOverlay))
+            overlay_ = cse::presentation::NextOverlayMode(overlay_);
+        return;
+    }
 
     // consumePressed, and it is read from the FIXED phase because every one of
     // these changes what the simulation does. wasPressed is scoped to a rendered
@@ -1205,7 +1282,11 @@ void UntitledFighterMode::FixedTick(float dt) {
     // check, so a fixed or newly staged file revives the honest-error screen
     // without a keypress (ADR-016) -- and clears `fatal_`, which is about an
     // input log this restart has just replaced.
-    pollHotReload_(dt);
+    //
+    // Not while a session is live: a landed edit is a restart, and a restart
+    // under a peer is a desync (T3). The edit lands when the session detaches,
+    // because the stamps still differ then.
+    if (!SessionLive()) pollHotReload_(dt);
 
     if (!matchReady_ || !fatal_.empty()) return;
 
@@ -1215,7 +1296,36 @@ void UntitledFighterMode::FixedTick(float dt) {
     // one (resetMatch_ clears taps_ for the same reason).
     notePadPresses_();
 
-    // --- whether a tick runs at all ------------------------------------------
+    // --- a live session decides (ROADMAP M2.4; DETERMINISM.md T1, T2, T3) ------
+    //
+    // The pump runs once per fixed step at the real rate (core/FrameGate.h keeps
+    // the Application's pause and time scale out of it) and the SESSION says
+    // how many ticks that is: zero while the peer has not answered, several
+    // when it rolls back, never one dropped -- the fixed step's backlog rule
+    // caps pumps, not ticks. The pad is offered only on a frame the session
+    // will take (SessionDriver.h: one input per session frame, and a re-offer
+    // during a stall is ignored), and the taps are spent into THAT offer and no
+    // other, so a tap made during a stall waits for the frame that carries it
+    // instead of vanishing into an offer nobody recorded. N4's order holds here
+    // as on the training path: spent before the record is written; the record
+    // is the session's input ring rather than local_.
+    if (SessionLive()) {
+        cse::kernel::Input padIn = readPad_();
+        if (driver_.AcceptsInput()) padIn.bits = taps_.Spend(padIn.bits);
+        const int ran = driver_.Frame(padIn);
+        if (!driver_.Fatal().empty()) {
+            // The session asked for something no FightSession can answer. A
+            // match that ran on from here would be one the peer is not
+            // simulating; it stops, and says why, like the latch refusal below.
+            fatal_ = "session: " + driver_.Fatal() +
+                     " This mode stopped the match rather than run a tick the session did not ask for.";
+            return;
+        }
+        if (ran > 0) latchHitAdvantage_();
+        return;
+    }
+
+    // --- whether a tick runs at all (training) ---------------------------------
     //
     // This is the whole of pause, slow motion and frame step. FightSession owns
     // no clock, so all three are decided here and none of them is visible to the
@@ -1272,12 +1382,10 @@ void UntitledFighterMode::FixedTick(float dt) {
     // a dropped step is a step on which no tick ran, which is indistinguishable
     // from a frame of slow motion and cannot desync anything.
     //
-    // IT STOPS BEING ACCEPTABLE the moment a replay is being recorded (the file
-    // would claim a tick count the inputs do not account for), verified, or
-    // driven over a network. At that point this call must drive its own
-    // accumulator or take its ticks from ISession's Advance events -- and
-    // nothing about this seam changes for it, only what this function does with
-    // the call.
+    // IT IS NOT ACCEPTABLE with a peer, and with a peer this line does not run:
+    // the live branch above takes the tick count from the session's Advance
+    // events (ROADMAP M2.4; DETERMINISM.md T1, T2). A recorded or verified
+    // replay will want the same branch with a different session behind it.
     session_.Tick();
 
     // The one thing measured off a tick rather than read off the state.
@@ -1321,7 +1429,7 @@ void UntitledFighterMode::latchHitAdvantage_() {
 
 void UntitledFighterMode::Update(float dt) {
     (void)dt;
-    if (!ctx_.app) return;
+    MyCoreEngine::InputMap* map = input_();
 
     // Escape (and gamepad BACK) leaves the mode.
     //
@@ -1337,7 +1445,7 @@ void UntitledFighterMode::Update(float dt) {
     // on how many fixed steps a frame happened to run. It is also the ONE action
     // this mode reads from the variable phase, which is what keeps it clear of
     // the fixed-phase controls -- a press is served to one phase only.
-    if (ctx_.app->input().wasPressed("Quit")) requestExit();
+    if (map && map->wasPressed("Quit")) requestExit();
 
     // The 3D presentation is written HERE, in the variable phase, because the
     // host runs Scene::UpdateTransforms and the camera director after every

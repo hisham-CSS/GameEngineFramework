@@ -214,7 +214,11 @@ public:
 
     // Throw the history away and begin again at `firstTick`. For a new match
     // only -- calling it mid-match is exactly the "revise the past" this class
-    // is built to prevent.
+    // is built to prevent -- with one admitted case: a live rollback session
+    // owned the ticks since this log stopped (ROADMAP M2.4; the session's input
+    // ring recorded them, this log never did), so when the session detaches the
+    // host begins a new log at the kernel's tick and revises nothing recorded.
+    // UntitledFighterMode::DetachSession is that caller.
     void Reset(std::uint32_t firstTick);
 
 private:

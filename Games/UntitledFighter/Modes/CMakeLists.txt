@@ -76,6 +76,11 @@ add_library(UntitledFighterModes STATIC
     # The readouts: frame data, frame advantage, the verdict and the judge.
     src/FightHud.h
     src/FightHud.cpp
+    # The session owns the tick count (ROADMAP M2.4): Save/Load/Advance into
+    # Snapshot/Restore/Tick(inputs). Here and not in CseGame, whose link line is
+    # an exact whitelist that keeps CseNet out of the simulation libraries.
+    src/SessionDriver.h
+    src/SessionDriver.cpp
     # The registration list, and the definition of the hook the engine declares.
     src/UntitledFighterModes.cpp
 )
@@ -146,4 +151,9 @@ target_compile_definitions(UntitledFighterModes PUBLIC CSE_HOST_TITLE_MODES=1)
 # sources. The root's boundary assertion checks exactly that distinction: a host
 # may link this thin library, and may not reach past it to CseKernel, CseData or
 # CseGame directly.
-target_link_libraries(UntitledFighterModes PRIVATE Engine CseGame UntitledFighterPresentation)
+#   CseNet   the rollback session seam (ROADMAP M2.4): a mode with a live
+#            session takes its tick count from ISession, through SessionDriver.
+#            The kernel never sees it -- CseGame's whitelist and CseNet's own
+#            link line (no CseKernel) keep the two apart; this library is where
+#            they meet.
+target_link_libraries(UntitledFighterModes PRIVATE Engine CseGame CseNet UntitledFighterPresentation)

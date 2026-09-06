@@ -300,11 +300,13 @@ and therefore never needs snapshotting. `InputMap` keeps its latch machinery
 unchanged for the editor and menus, where it is correct, and is a *producer*
 into the input stream and nothing more.
 
-Two couplings go with it: while a session is live the producer ignores UI capture
-entirely, and pausing becomes a session protocol message rather than a local
-`paused_` or `timeScale_`, because a local pause changes how many ticks run and
-the peer will not agree. Both are [DETERMINISM.md](DETERMINISM.md) N4–N5 and
-T1–T3, and ROADMAP M2.4.
+Two couplings go with it: while a session is live the host never suppresses the
+pad for UI focus, and its `paused_` and `timeScale_` are inert, because a local
+pause changes how many ticks run and the peer will not agree (an agreed pause
+would be a session message, which no mode sends). Both are one pure function the
+loop calls, `Engine/src/core/FrameGate.h`, read off a flag the mode raises in
+`AttachSession`: [DETERMINISM.md](DETERMINISM.md) N4–N5 and T1–T3, built in
+ROADMAP M2.4.
 
 **What it trades away.** No analog movement, ever. No mouse in the authoritative
 simulation.

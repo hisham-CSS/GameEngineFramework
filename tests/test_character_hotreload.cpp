@@ -2,8 +2,10 @@
 // running match by RESTART, and a broken edit keeps the last good match.
 //
 // Pinned at the seam the training mode mirrors rather than through the mode
-// itself, which cannot be constructed headlessly: real files on disk, the real
-// CharacterFileWatch, the real loader and bridge, and a real FightSession. The
+// itself (which could not be constructed headlessly when this was written; it
+// can since ROADMAP M2.4, see tests/test_fight_mode.cpp): real files on disk,
+// the real CharacterFileWatch, the real loader and bridge, and a real
+// FightSession. The
 // mode's pollHotReload_ is thin glue over exactly this sequence and names this
 // file as its property test; a human plays the glued version at review point
 // R5.

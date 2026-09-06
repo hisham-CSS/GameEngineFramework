@@ -26,6 +26,14 @@
 // step is "call it exactly once". That is why they cost about six lines between
 // them, and it is the payoff for the session not owning a timestep.
 //
+// WITH A LIVE SESSION (AttachSession, ROADMAP M2.4) THEY ARE NOT EVEN
+// DECISIONS. A peer is running the same match, so the session's Advance events
+// are the tick count -- zero on a frame is legal, dropping one is not -- and
+// pause, step, slow motion, reset, the character swap, the stage position,
+// Demonstrate and hot reload are inert until DetachSession
+// (docs/DETERMINISM.md T1, T3). The Application's own pause and time scale stand
+// down too, through core/FrameGate.h.
+//
 // The mode's pause is deliberately NOT Application::setPaused. That would stop
 // the host's variable-rate updates too, which is where the registry drains a
 // mode's exit request -- a mode that paused the application and then pressed
@@ -88,6 +96,7 @@
 #include "cse/presentation/FightPresentation.h"
 
 #include "FightScene.h"
+#include "SessionDriver.h"
 
 #include "cse/kernel/GameState.h"
 
@@ -111,6 +120,41 @@ public:
     void Update(float dt) override;
     void Draw(MyCoreEngine::Renderer2D& r2d, int widthPx, int heightPx,
               float dt) override;
+
+    // --- the headless seam and the live session (ROADMAP M2.4) ---------------
+    //
+    // The InputMap this mode binds its keys on and reads them from. Null (the
+    // default) means the Application's, through ctx_.app; a test hands in its
+    // own so the mode runs with no window at all (tests/test_fight_mode.cpp),
+    // which is what let the tick-loop rules below be held by a test rather
+    // than by the eye. Set before Enter, which binds the actions.
+    void SetInputMap(MyCoreEngine::InputMap* map) { inputOverride_ = map; }
+
+    // A live session. From here until DetachSession the SESSION decides how
+    // many ticks run -- zero on a frame is legal, dropping one is not
+    // (DETERMINISM.md T1) -- and every training control that would pause, step,
+    // slow, restart or re-source the match is inert (T3), because a peer is
+    // running the same match and each of those is a desync. Borrowed; the
+    // session must have been created with SessionDriver::WireConfig. `padSlot`
+    // is the slot this keyboard plays; `localSlots` has a bit for every slot
+    // this host supplies (a local session: both; online: one). False with
+    // `error` when there is no running match to attach to.
+    bool AttachSession(cse::net::ISession* session, int padSlot, std::uint8_t localSlots,
+                       std::string& error);
+    void DetachSession();
+    bool SessionLive() const { return liveSession_ != nullptr; }
+    const SessionDriver& Driver() const { return driver_; }
+
+    // Facts a host or a test reads off the mode. Each is a member read, never
+    // a second answer; the HUD reads the same members.
+    bool               MatchReady()   const { return matchReady_; }
+    const std::string& SetupError()   const { return setupError_; }
+    const std::string& Fatal()        const { return fatal_; }
+    std::uint32_t      CurrentTick()  const { return session_.CurrentTick(); }
+    const cse::kernel::GameState& State() const { return session_.State(); }
+    bool               Paused()       const { return paused_; }
+    std::uint32_t      PendingSteps() const { return pendingSteps_; }
+    int                SlowDivisor()  const { return slowDivisor_; }
 
 private:
     // Load, build, analyse and start. Returns false with setupError_ filled in;
@@ -152,6 +196,11 @@ private:
     // mode does not leave its own vocabulary in the shared InputMap.
     void bindActions_();
     void clearActions_();
+
+    // The InputMap every read and binding goes through: the override when a
+    // host or test set one, else the Application's, else null (no input at all,
+    // and every reader treats that as a released pad).
+    MyCoreEngine::InputMap* input_() const;
 
     // The keyboard and pad as kernel bits. A LEVEL read (isDown), never an edge
     // -- and that is right, not a shortcut. The kernel derives the edge itself
@@ -289,6 +338,11 @@ private:
     // ticks since it was written. Cleared wherever the tick index it names stops
     // meaning anything: a new character, and a reset.
     LatchedAdvantage hitAdvantage_{};
+
+    // --- the seam and the session (ROADMAP M2.4) -------------------------------
+    MyCoreEngine::InputMap* inputOverride_ = nullptr;
+    cse::net::ISession*     liveSession_   = nullptr;   // borrowed; null = training
+    SessionDriver           driver_;
 
     // --- the host's decisions about time --------------------------------------
     bool          paused_       = false;

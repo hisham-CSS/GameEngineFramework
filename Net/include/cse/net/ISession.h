@@ -44,6 +44,17 @@
 //    and loss you can set. One online session ships per process, four fit for
 //    tests, because the bridge behind the seam is process-global; ADR-021
 //    records this default, why that is acceptable and what would reverse it.
+//
+// 5. ONE INPUT PER PLAYER PER SESSION FRAME (ROADMAP M2.4). AddLocalInput hands
+//    the session that player's input FOR THE FRAME IT IS ON; a second call for
+//    the same frame -- the host pumping every fixed step while the session
+//    waits on a peer -- is ignored, not queued and not overwritten (measured
+//    against GekkoNet: its input ring inserts sequentially and drops anything
+//    that is not the next frame). A host therefore offers once per frame the
+//    session advances, and spends nothing it cannot afford to lose -- the
+//    press accumulator, say -- into an offer for a frame already offered.
+//    The frame is (the last non-rollback Advance's frame) + 1, 0 before any;
+//    untitledfighter::SessionDriver::AcceptsInput is that bookkeeping.
 #pragma once
 
 #include <cstdint>

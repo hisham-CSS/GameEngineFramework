@@ -237,6 +237,14 @@ namespace MyCoreEngine
 		void  setPaused(bool p) { paused_ = p; }
 		bool  paused() const { return paused_; }
 
+		// A live rollback session (ROADMAP M2.4; DETERMINISM.md T3, N5). While
+		// set, pause and time scale do not touch the gameplay dt and the pad is
+		// never suppressed for the gameplay hooks -- the session owns both; see
+		// core/FrameGate.h for the rule and why. The mode that owns the session
+		// sets it on attach and clears it on detach and on Exit.
+		void setSessionLive(bool on) { sessionLive_ = on; }
+		bool sessionLive() const { return sessionLive_; }
+
 		// --- presentation ---
 		void setVSync(bool on);
 		bool vsyncEnabled() const { return vsync_; }
@@ -292,6 +300,7 @@ namespace MyCoreEngine
 		bool     paused_ = false;
 		bool     gameplayEnabled_ = true;
 		bool     gameplayInput_ = true; // Player default; editor follows Game-view focus
+		bool     sessionLive_ = false;  // a mode's rollback session owns time and the pad (FrameGate.h)
 		bool     renderFromSceneCamera_ = false;
 		bool     vsync_ = true;
 

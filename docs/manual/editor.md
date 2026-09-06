@@ -488,7 +488,7 @@ refused during Play.
 ### Editor tab
 
 **Time** — `Paused`, `Time Scale` (0–4), `Fixed Tick (Hz)` (15–240); gameplay
-time only (editor camera ignores pause/time scale). **Input** — read-only
+time only (the editor camera ignores pause/time scale, and so does a mode's live rollback session — [DETERMINISM.md](../DETERMINISM.md) T3). **Input** — read-only
 gamepad + axis diagnostics. **Layouts** — save/load named `.ini` window layouts.
 
 ### Audio tab

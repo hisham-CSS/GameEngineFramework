@@ -1,6 +1,7 @@
 #include <glad/glad.h>
 
 #include "Application.h"
+#include "FrameGate.h"
 #include "GLInit.h"
 #include "Scene.h"
 #include "Shader.h"
@@ -176,9 +177,15 @@ namespace MyCoreEngine
 			// Scoped to the gameplay hooks ONLY: the editor's fly-camera block
 			// above has already run off the same map, so the Scene view keeps
 			// working while the game receives nothing.
-			input_->setSuppressed(!gameplayInput_);
+			//
+			// Both decisions -- the gameplay dt and the suppression -- come from
+			// one pure function so a live rollback session can override them
+			// in one place and a test can hold the rule without this window
+			// (core/FrameGate.h; DETERMINISM.md T3, N5).
+			const FrameGate gate = GateFrame(deltaTime_, paused_, timeScale_, gameplayInput_, sessionLive_);
+			input_->setSuppressed(gate.suppressGameplayInput);
 			if (gameplayEnabled_ && !swappedThisFrame) {
-				gameDt = paused_ ? 0.f : deltaTime_ * timeScale_;
+				gameDt = gate.gameDt;
 				hasFixedConsumers = fixedUpdate_ || !fixedSubscribers_.empty();
 				if (hasFixedConsumers) {
 					// One accumulator drives BOTH the primary gameplay slot
@@ -216,7 +223,7 @@ namespace MyCoreEngine
 			// Edit mode is the same case via gameplayEnabled_.
 			input_->setSuppressed(false); // editor/UI reads are never suppressed
 
-			const bool awaitingTick = gameplayEnabled_ && gameplayInput_
+			const bool awaitingTick = gameplayEnabled_ && !gate.suppressGameplayInput
 			                       && hasFixedConsumers
 			                       && gameDt > 0.f && fixedSteps == 0;
 			// gameplayInput_ is part of "should have" for the same reason as

@@ -54,6 +54,9 @@ add_library(Engine SHARED
     src/core/BuildPipeline.h
     src/core/BuildPipeline.cpp
     src/core/FixedTimestep.h
+    # What one frame owes the gameplay hooks, and how a live session changes it
+    # (DETERMINISM.md T3, N5). Pure, so tests hold it without a window.
+    src/core/FrameGate.h
     # A mode the host can enter, tick, draw and leave -- "play the saved scene"
     # is one, a fight is another. General infrastructure: it names no game, and
     # the modes themselves are supplied by a title. See GameMode.h.

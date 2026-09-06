@@ -293,8 +293,9 @@ target_link_libraries(test_game_core PRIVATE CseGame CseData CseKernel GTest::gt
 add_dependencies(test_game_core test_runtime_deps)
 add_test(NAME test_game_core COMMAND $<TARGET_FILE:test_game_core>)
 
-# TRAINING MODE, minus the window. The mode itself needs a GL context and a
-# playtester, but almost everything it CLAIMS is a property of the seam it is
+# TRAINING MODE, minus the window. The mode itself needed a GL context and a
+# playtester until ROADMAP M2.4 gave it a headless InputMap seam (test_fight_mode
+# below); almost everything it CLAIMS is a property of the seam it is
 # built from — the Demonstrate handover, that frame-step and slow-mo are the
 # host's business rather than a hidden clock, that reset really resets, and that
 # the watcher raises a cycle the certificate retired but the kernel performs.
@@ -369,6 +370,35 @@ add_executable(test_press_delivery test_press_delivery.cpp)
 target_link_libraries(test_press_delivery PRIVATE Engine CseGame CseData CseKernel GTest::gtest_main)
 add_dependencies(test_press_delivery test_runtime_deps)
 add_test(NAME test_press_delivery COMMAND $<TARGET_FILE:test_press_delivery>)
+
+# THE FRAME GATE (ROADMAP M2.4; DETERMINISM.md T3, N5) -- the two decisions
+# Application::RunLoop makes every frame that a live session overrides (the
+# gameplay dt from pause and time scale; whether the pad is suppressed), as
+# the pure function the loop calls. The loop itself needs a window.
+add_executable(test_frame_gate test_frame_gate.cpp)
+target_link_libraries(test_frame_gate PRIVATE Engine GTest::gtest_main)
+add_test(NAME test_frame_gate COMMAND $<TARGET_FILE:test_frame_gate>)
+
+# THE SESSION OWNS THE TICK COUNT (ROADMAP M2.4; DETERMINISM.md T1, T2, T3) --
+# first the driver that turns Save/Load/Advance into Snapshot/Restore/Tick,
+# then the mode itself with a session attached, headless through the InputMap
+# seam M2.4 gave it. Both reach the Modes library's internal headers by path:
+# that library exports no include directories on purpose (a host sees one
+# registration function and nothing of the fight), and a test OF the mode is
+# the one consumer that has to see inside it.
+set(_modes_src ${CMAKE_SOURCE_DIR}/Games/UntitledFighter/Modes/src)
+add_executable(test_session_driver test_session_driver.cpp)
+target_include_directories(test_session_driver PRIVATE ${_modes_src})
+target_link_libraries(test_session_driver PRIVATE UntitledFighterModes Engine CseGame CseData CseKernel CseNet GTest::gtest_main)
+add_dependencies(test_session_driver test_runtime_deps)
+add_test(NAME test_session_driver COMMAND $<TARGET_FILE:test_session_driver>)
+
+add_executable(test_fight_mode test_fight_mode.cpp)
+target_include_directories(test_fight_mode PRIVATE ${_modes_src})
+target_compile_definitions(test_fight_mode PRIVATE GLFW_INCLUDE_NONE)
+target_link_libraries(test_fight_mode PRIVATE UntitledFighterModes Engine CseGame CseData CseKernel CseNet UntitledFighterPresentation GTest::gtest_main)
+add_dependencies(test_fight_mode test_runtime_deps)
+add_test(NAME test_fight_mode COMMAND $<TARGET_FILE:test_fight_mode>)
 
 # SHIPPED CLIPS (ROADMAP M3.3c; ADR-019 D2) — the committed fighter_a model,
 # decoded headlessly (Model::Decode is GL-free), held to the frame data through
