@@ -21,8 +21,12 @@ add_library(Engine SHARED
     src/core/ImageIO.cpp
     src/core/WindowIcon.h
     src/core/WindowIcon.cpp 
-    src/core/Model.cpp 
-    src/core/Shader.cpp 
+    src/core/Model.cpp
+    src/anim/Skeleton.h
+    src/anim/ClipSet.h
+    src/anim/ClipSampler.h
+    src/anim/ClipSampler.cpp
+    src/core/Shader.cpp
     src/core/Camera.cpp
     src/core/CameraDirector.h
     src/core/CameraDirector.cpp
@@ -87,6 +91,8 @@ add_library(Engine SHARED
     src/render/passes/SkyboxPass.cpp
     src/render/passes/TransparentPass.h
     src/render/passes/TransparentPass.cpp
+    src/render/SkinPalette.h
+    src/render/SkinPalette.cpp
     src/render/passes/ForwardShading.h
     src/render/passes/FXAAPass.h
     src/render/passes/FXAAPass.cpp

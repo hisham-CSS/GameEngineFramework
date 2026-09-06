@@ -1,6 +1,6 @@
 # North star
 
-Verified: 2026-09-01 @ 59fd462
+Verified: 2026-09-02 @ 0e2d423
 
 What this engine is for, and how anyone can check whether it has got there. One
 screen on purpose. Where the work stands is [ROADMAP.md](ROADMAP.md) and nowhere
@@ -40,19 +40,22 @@ Each is a test, a number or a demo — never an adjective.
 |---|---|---|
 | **(a) Deterministic** | **T1** the same binary re-run from the same state and input log ends byte-identical (not `EXPECT_NEAR`); **T2** snapshot → run → restore → re-run the same ticks is byte-identical; **T3** a state hash recorded under one toolchain is reproduced exactly by another | `tests/test_kernel.cpp` for T1 and T2; `tests/test_determinism_crossplat.cpp` for T3, re-checked by gcc 13 on the Linux CI leg. Only T3 settles the libm question — everything short of it is inference from source |
 | **(b) Rollback** | save and restore are one `memcpy` of a fixed-layout POD; eight restores plus eight re-simulations fit inside one 16.6 ms frame; every confirmed tick carries a checksum, and a desync names the first divergent tick **and field** | `KernelRollback.EightTickRewindIsExactAtEveryDepth` in `tests/test_kernel.cpp`; `Session.SurvivesHundredsOfRealRollbacks` in `tests/test_session.cpp`. The field-level desync report needs the reflection table — ROADMAP M2.3 |
-| **(c) Data-driven** | a character is a file dropped in a directory — zero recompiles, zero engine edits; an unknown key is a **load error naming the key**, never a silent default; the published prover reads the engine's own files unchanged, with no export step; and a frame-data edit lands in a running match | `Games/UntitledFighter/Assets/Characters/` and the load assertions A01–A20 in `Games/UntitledFighter/Data/src/CharacterData.cpp`; `tests/test_character_data.cpp`. Hot reload: the edit lands as a restart with the freshly built data — the rule is [DETERMINISM.md](DETERMINISM.md) T8, the authoring loop is [the manual's hot-reload section](manual/fighting-core.md); `tests/test_character_hotreload.cpp` |
+| **(c) Data-driven** | a character is a file dropped in a directory — zero recompiles, zero engine edits; an unknown key is a **load error naming the key**, never a silent default; the published prover reads the engine's own files unchanged, with no export step; and a frame-data edit lands in a running match | `Games/UntitledFighter/Assets/Characters/` and the load assertions A01–A22 in `Games/UntitledFighter/Data/src/CharacterData.cpp`; `tests/test_character_data.cpp`. Hot reload: the edit lands as a restart with the freshly built data — the rule is [DETERMINISM.md](DETERMINISM.md) T8, the authoring loop is [the manual's hot-reload section](manual/fighting-core.md); `tests/test_character_hotreload.cpp` |
 | **(d) Reusable** | a second game links `Engine` with no edit to `Engine/`; no fighting-game type appears in an engine header; and the editor's Play mode and the shipped Player run the **same** code path | configure-time boundary guards in `Games/UntitledFighter/CMakeLists.txt` and the root `CMakeLists.txt` — a title may depend on the engine, never the reverse. Play == Player becomes a hash test in ROADMAP M2.6 |
 | **The paper** | contribution #9 — the analysis inside a working editor — plus ground-truth reproduction of a printed loop, plus a showcase catalogue anyone can watch | `Games/UntitledFighter/Editor/src/ComboProverPanel.cpp`; `tests/test_ground_truth.cpp` executes the prover's own printed witness rather than a hand-written one. The catalogue is ROADMAP M1.6 |
 
-## The order, and why it is not negotiable
+## The order, and who may bend it
 
 **Provable and showcased before any art.** Evidence first — the kernel's own
-bounded search and a verified replay catalogue — then a real link between two
-machines, then placeholder Mixamo rigs to make the evidence legible, then
-publication, and only then SF6-tier art, as content, through a pipeline that
-already exists. The reasoning is
-[ADR-010](adr/ADR-010-one-roadmap-one-rule.md) §3; the milestones are
-[ROADMAP.md](ROADMAP.md).
+bounded search and a verified replay catalogue — then skinned placeholders
+generated through Blender to make the evidence legible, then a real link
+between two machines, then publication, and only then SF6-tier art, as
+content, through a pipeline that already exists. The reasoning is
+[ADR-010](adr/ADR-010-one-roadmap-one-rule.md) §3; the one bend in it — the
+placeholders ahead of the link, and one modeled body ahead of publication — is
+the author's own, recorded with its reversal condition in
+[ADR-020](adr/ADR-020-the-bounded-lift.md); the milestones are
+[ROADMAP.md](ROADMAP.md). Nobody else bends it.
 
 Two consequences that are easy to lose and expensive to recover:
 

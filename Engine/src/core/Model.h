@@ -2,6 +2,8 @@
 
 #include "Material.h"
 #include "Core.h"
+#include "../anim/Skeleton.h"
+#include "../anim/ClipSet.h"
 
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
@@ -88,6 +90,12 @@ namespace MyCoreEngine {
         Mesh(std::vector<Vertex> vertices, std::vector<unsigned int> indices,
              LodIndexArrays precomputedLods);
 
+        // Upload the per-vertex joint indices and weights beside the static
+        // vertex buffer, at attributes 5 (ivec4) and 6 (vec4) -- the layout
+        // the SKINNED shader variants read (ROADMAP M3.2e). MAIN THREAD.
+        void UploadSkin(const SkinData& skin);
+        bool Skinned() const { return skinVBO_ != 0; }
+
         // split draw into bind vs issue
         void BindForDraw(MyCoreEngine::Shader& shader) const; // bind textures + VAO (no draw)
         void BindForDrawWith(MyCoreEngine::Shader& shader, const MyCoreEngine::Material& mat) const;
@@ -114,6 +122,7 @@ namespace MyCoreEngine {
         MyCoreEngine::MaterialHandle material_; // optional
         size_t materialIndex_ = 0;
         unsigned int VAO_ = 0, VBO_ = 0, EBO_ = 0;
+        unsigned int skinVBO_ = 0;   // 0 for an unskinned mesh
         LodRange lods_[kLodCount]{};
 
         void setupBuffers_();                       // VAO/VBO/EBO upload (GL)
@@ -137,6 +146,7 @@ namespace MyCoreEngine {
             bool decoded = false; // false: stbi failed — finalize caches id 0
         };
         struct MaterialData {
+            std::string name;   // the file's own material name (AI_MATKEY_NAME); empty if none
             Material base;      // scalar values; texture ids stay 0 until finalize
             // indices into `textures` (-1 = slot absent on the material)
             int albedo = -1, normal = -1, metallic = -1, roughness = -1,
@@ -147,13 +157,40 @@ namespace MyCoreEngine {
             std::vector<unsigned int> indices;
             Mesh::LodIndexArrays lodIndices; // precomputed on the worker
             int materialIndex = -1;          // into `materials`
+            // Per-vertex joint indices and weights, parallel to `vertices`;
+            // empty for an unskinned mesh. Kept beside Vertex, not inside it,
+            // so the static layout and every shipped OBJ stay byte-identical
+            // (ROADMAP M3.2b).
+            SkinData skin;
         };
         std::vector<TextureData> textures; // unique by key
         std::vector<MaterialData> materials;
         std::vector<MeshData> meshes;
+        // The joints every skinned mesh in this model binds to, parent-first;
+        // empty when no mesh has bones. One skeleton per model: two meshes
+        // that name the same bones share it (M3.2b).
+        Skeleton skeleton;
+        // Every animation in the file, resampled to nothing: sample k is key
+        // k, asserted on the 60 Hz grid at decode (M3.2c). Empty when the
+        // file carries no animation or no skeleton.
+        ClipSet clips;
+        // The box every skinned vertex stays inside across EVERY frame of
+        // EVERY clip (and the rest pose), computed at decode from per-joint
+        // rest-space bounds swept through the sampled joint transforms
+        // (M3.2d). What frustum and light-frustum culling read for a skinned
+        // entity, since the rest-mesh AABB would cull a posed limb.
+        struct PoseBounds {
+            glm::vec3 min{ 0.0f };
+            glm::vec3 max{ 0.0f };
+            bool      valid = false;
+        } poseBounds;
         std::string sourcePath;            // normalized
         std::string directory;
         bool valid = false;                // Assimp import succeeded
+        // Why `valid` is false, when Decode itself refused (a rig over the
+        // joint cap, an off-grid clip): a sentence for the validator's ERR
+        // line rather than a guess about what Assimp disliked.
+        std::string importError;
     };
 
     // ----- Model -----
@@ -204,10 +241,20 @@ namespace MyCoreEngine {
         // Path this model was loaded from (normalized) — used by serialization
         const std::string& SourcePath() const { return sourcePath_; }
 
+        // The skinning data Decode produced, kept for the sampler and the
+        // reconciler (ROADMAP M3.2e): empty / invalid for an unskinned model.
+        bool IsSkinned() const { return !skeleton_.Empty(); }
+        const Skeleton& GetSkeleton() const { return skeleton_; }
+        const ClipSet&  GetClips() const { return clips_; }
+        const ModelCPUData::PoseBounds& GetPoseBounds() const { return poseBounds_; }
+
     private:
         std::vector<Mesh> meshes_;
         std::string       directory_;
         std::string       sourcePath_;
+        Skeleton          skeleton_;
+        ClipSet           clips_;
+        ModelCPUData::PoseBounds poseBounds_;
 
         // Global cache keyed by (normalized path + "|srgb"/"|lin").
         // MAIN-THREAD-ONLY (unsynchronized): workers deliver pixels, the

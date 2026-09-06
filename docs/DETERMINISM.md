@@ -1,6 +1,6 @@
 # The determinism contract
 
-Verified: 2026-09-01 @ 59fd462
+Verified: 2026-09-03 @ 6f185c8
 
 Every rule the simulation, the build and the authored data must obey, and — for
 each one — what stops it being broken. This is the only home for these rules;
@@ -127,7 +127,7 @@ presentation, and its only determinism obligation is §7.
 | Id | Rule | Enforced by | Where |
 |---|---|---|---|
 | A1 | Float → integer quantization happens **once, at load**, by one documented rule, identically on every peer | test | `Games/UntitledFighter/Data/src/CharacterData.cpp`; `OneFrameAnchor.ARoundTripThroughJsonWithNoMutationChangesNothing`, `OneFrameMutation.NothingBesidesThatOneIntegerMoved` |
-| A2 | An unknown key in a character file is a load error, not a default | test | the load assertions A01–A20 in `Games/UntitledFighter/Data/src/CharacterData.cpp`; `tests/test_character_data.cpp` |
+| A2 | An unknown key in a character file is a load error, not a default | test | the load assertions A01–A22 in `Games/UntitledFighter/Data/src/CharacterData.cpp`; `tests/test_character_data.cpp` |
 | A3 | A schema field is **appended**, never inserted or reordered | review | [ADR-006](adr/ADR-006-stance-and-guard.md)'s wire rule; the golden hash (B7) catches the consequence, not the cause |
 | A4 | The handshake hashes the **loaded POD arrays**, never the source text — canonicalising text is where float-repr and key-order bugs live | **not yet** | `HashMatchData` exists in `Games/UntitledFighter/Game/include/cse/game/Replay.h`, written for exactly this. ROADMAP M2.2 wires it |
 | A5 | A content mismatch is a lobby error naming the reason, never a gameplay bug | **not yet** | ROADMAP M2.2 |
@@ -185,7 +185,7 @@ well-meaning commit from stopping being free.
 | P1 | Asset load order never reaches the simulation | structural + review | physics bodies are built from authored collider components (`Engine/src/physics/PhysicsWorld.cpp`), never from a loaded mesh's AABB, so what a model importer did last cannot change a body |
 | P2 | The physics components carry no runtime handles | review | `Engine/src/physics/PhysicsComponents.h` — which is exactly the property a POD snapshot needs, and the reason to keep it |
 | P3 | Worker threads never touch GL, the EnTT registry or ImGui; `onComplete` runs on the main thread | review | `Engine/src/core/JobSystem.h`, written up in [STYLE.md](STYLE.md#threading). It is a threading rule that also keeps rendering from feeding the simulation |
-| P4 | Pose is a pure function of `(moveId, moveFrame, posX, posY, facing, stance, the stun fields, tick)`. A return-to-idle tail is presentation only, is interrupted the tick the simulation acts, and can never delay a move, move a box or hold a fighter in place; a presentation-side blend out of a tail is **bounded** (default 4 frames) and subject to the same three nevers | **not yet** | there is no pose yet — the box overlay is all that draws a fighter. [ADR-011](adr/ADR-011-mechanics-are-fields.md) decision 6 is the rule; ROADMAP M3.2–M3.4 build it and own the acceptance tests |
+| P4 | Pose is a pure function of `(moveId, moveFrame, posX, posY, facing, stance, the stun fields, tick)`. Under [ADR-019](adr/ADR-019-placeholders-through-blender.md) D3 the presentation holds **no** state the simulation did not produce — no return-to-idle tail, no blend, no remembered palette — so it can never delay a move, move a box or hold a fighter in place. (ADR-011 decision 6 allowed a bounded tail and blend; D3 records that as the reversal, and the tests below would fail the day one is added.) | test | the SELECTION half — which clip, which frame — is `cse::game::SelectPose`, pinned by `tests/test_pose_select.cpp` (`RestoreAndResimulateReproduceEveryPose`, `WhileAMoveRunsTheFrameIsTheMoveFrame`, `HitstopFreezesThePose`, `NeverTouchesTheChecksum`); the COMPOSED FRAME — clip, frame, matrix, camera — is `cse::presentation::ComposeFrame`, held by the same file's `Presentation.HoldsNothingARestoreCannotRebuild` (restore to any tick and the frame is the frame the first run produced), `Presentation.MoveStartIsNeverDelayed` (the tick a move starts, the frame is that move's clip at frame 0; the tick it ends, the frame is already the next kind) and `Presentation.ABoxNeverMovesWithThePose` (the kernel's Hurtbox and ActiveHitbox are byte-identical before and after composing, at any tick, yaw or window). [ADR-011](adr/ADR-011-mechanics-are-fields.md) decision 6 is the rule; the reconciler that writes the frame into the scene is described in [the manual](manual/fighting-core.md) |
 
 ## 6. Changing a rule
 

@@ -44,6 +44,18 @@ void Camera::ProcessMouseMovement(float xoffset, float yoffset, bool constrainPi
     updateCameraVectors();
 }
 
+glm::mat4 Camera::ProjectionFor(float aspect, float zNear, float zFar) const {
+    if (Projection == CameraProjection::Orthographic) {
+        // a half-height of zero is a division by zero in glm::ortho, the same
+        // way near == far is in glm::perspective: clamp here as well as at
+        // every sync, so a Camera poked directly still projects something
+        const float h = (OrthoHalfHeight > 1e-3f) ? OrthoHalfHeight : 1e-3f;
+        const float w = h * aspect;
+        return glm::ortho(-w, w, -h, h, zNear, zFar);
+    }
+    return glm::perspective(glm::radians(Zoom), aspect, zNear, zFar);
+}
+
 void Camera::ProcessMouseScroll(float yoffset) {
     Zoom -= static_cast<float>(yoffset);
     if (Zoom < 1.0f)  Zoom = 1.0f;

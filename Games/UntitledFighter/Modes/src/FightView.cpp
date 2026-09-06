@@ -7,36 +7,11 @@ namespace untitledfighter {
 namespace {
 
     // --- Framing -------------------------------------------------------------
-
-    // How much stage is visible either side of the camera, in the kernel's own
-    // pixels. Chosen against the content rather than picked round: the longest
-    // reach either shipped character authors is 1.35 reach units, i.e. 135 px,
-    // and the bodies are 26 px wide, so 200 px each side shows both fighters,
-    // the whole of the furthest attack, and enough stage past a cornered
-    // defender for the corner marker to read as a wall rather than as an edge of
-    // the screen.
-    // DERIVED FROM THE KERNEL'S SEPARATION LIMIT rather than chosen beside it.
-    // The invisible wall says two fighters are never more than kMaxSeparationSub
-    // apart; the view has to be at least that wide plus a body at each edge, or
-    // the rule and the picture disagree about what "as far as the camera width"
-    // means. Deriving it makes them the same number by construction -- if the
-    // wall moves, the framing follows.
-    constexpr float kViewHalfWidthPx =
-        static_cast<float>(cse::kernel::kMaxSeparationSub /
-                           cse::kernel::kSubUnitsPerPixel) * 0.5f + 13.0f;
-
-    // How close a fighter may get to the edge of the view before the camera
-    // scrolls. THE DEADZONE IS THE FEATURE: without it the camera is pinned to
-    // the pair's midpoint and every step either player takes drags the whole
-    // world sideways, which reads as the stage moving rather than the fighters.
-    // With it the camera holds still and moves only when it has to.
-    constexpr float kCameraMarginPx = 34.0f;
-
-    // The camera sits above the floor rather than on it, so the floor line lands
-    // in the lower third and there is headroom for a jump. 60 px is the authored
-    // body height (fighter_a's engine.constants.height_px), so this is roughly
-    // shoulder height on a standing character.
-    constexpr float kCameraHeightPx = 42.0f;
+    //
+    // The half-width, the deadzone and the camera height live in the
+    // presentation library since M3.4c (cse::presentation::kViewHalfWidthPx and
+    // friends): the orthographic scene camera is framed by the same numbers,
+    // and one copy is how the two cameras stay one camera.
 
     // --- The palette ---------------------------------------------------------
     //
@@ -150,9 +125,11 @@ namespace {
 
     // One fighter: shadow, body, facing wedge, slot accent, live hitbox, origin.
     void drawFighter(MyCoreEngine::Renderer2D& r2d,
-                     const cse::kernel::FighterData& data,
-                     const cse::kernel::Fighter& f, int slot) {
-        const Phase     phase  = PhaseOf(data, f);
+                     const cse::kernel::MatchData& match,
+                     const cse::kernel::GameState& state, int slot, bool boxesOnly) {
+        const cse::kernel::FighterData& data = match.p[slot];
+        const cse::kernel::Fighter&     f    = state.p[slot];
+        const Phase     phase  = PhaseOf(match, state, static_cast<std::uint8_t>(slot));
         const glm::vec4 colour = PhaseColour(phase);
         const glm::vec4 accent = SlotColour(slot);
 
@@ -167,22 +144,27 @@ namespace {
         // airborne fighter reads as airborne. Derived from the body box and
         // nothing else -- there is no depth in this game and this is a cue, not
         // a claim about a third axis.
-        cse::kernel::Box shadow = body;
-        shadow.y0 = 0;
-        shadow.y1 = cse::kernel::kSubUnitsPerPixel;   // 1 px tall, on the floor
-        r2d.DrawQuad({ WorldPx(shadow.x0), WorldPx(shadow.y0) },
-                     { WorldPx(shadow.x1 - shadow.x0), WorldPx(shadow.y1 - shadow.y0) },
-                     kShadowCol, kLayerShadow);
-
-        fillBox(r2d, body, withAlpha(colour, 0.22f), kLayerBody);
+        // Over a 3D body (M3.4c) the shadow, the fill, the slot bar and the
+        // wedge are the model's job; the kernel's boxes stay, as outlines, so
+        // the fist can be judged against the box it is supposed to be inside.
+        if (!boxesOnly) {
+            cse::kernel::Box shadow = body;
+            shadow.y0 = 0;
+            shadow.y1 = cse::kernel::kSubUnitsPerPixel;   // 1 px tall, on the floor
+            r2d.DrawQuad({ WorldPx(shadow.x0), WorldPx(shadow.y0) },
+                         { WorldPx(shadow.x1 - shadow.x0), WorldPx(shadow.y1 - shadow.y0) },
+                         kShadowCol, kLayerShadow);
+            fillBox(r2d, body, withAlpha(colour, 0.22f), kLayerBody);
+        }
         strokeBox(r2d, body, withAlpha(colour, 0.95f), kLayerBody);
 
         // A bar along the bottom edge in the slot's colour, so the readout's
         // "YOU" and "DUMMY" have something on screen to point at that does not
         // change when the phase colour does.
-        r2d.DrawQuad({ WorldPx(body.x0), WorldPx(body.y0) },
-                     { WorldPx(body.x1 - body.x0), 2.0f },
-                     accent, kLayerBody);
+        if (!boxesOnly)
+            r2d.DrawQuad({ WorldPx(body.x0), WorldPx(body.y0) },
+                         { WorldPx(body.x1 - body.x0), 2.0f },
+                         accent, kLayerBody);
 
         // WHICH WAY THEY ARE FACING, read from Fighter::facing and not from the
         // positions. They are the same thing today -- Simulate resolves facing
@@ -191,7 +173,7 @@ namespace {
         // stays right on the tick a future rule (a knockdown, a cross-up) makes
         // them differ, which is exactly the tick a playtester would want to see
         // it.
-        {
+        if (!boxesOnly) {
             // Halved on the FLOAT side of WorldPx. Halving in sub-units first is
             // an integer division whose rounding differs by sign, and although
             // nothing here feeds a tick, doing that to a simulation integer is
@@ -251,21 +233,28 @@ bool WindowHasConnected(const cse::kernel::Fighter& f) {
     return f.alreadyHitBits != 0;
 }
 
-Phase PhaseOf(const cse::kernel::FighterData& data, const cse::kernel::Fighter& f) {
-    // Stun first, and both kinds, because Simulate.cpp's `actionable()` is
-    // `hitstun == 0 && blockstun == 0`. Nothing writes blockstun today; it is in
-    // the test anyway so that the day blocking lands this function is already
-    // right rather than quietly one term short -- the same reason ComboWatcher.h
-    // gives for carrying it through its own rule.
-    // KNOCKDOWN FIRST, ahead of stun, because a fighter on the floor is usually
-    // in hitstun too and the more specific state is the one worth drawing. Asked
-    // for from play (2026-08-20): "we can't really tell any knockdowns yet" --
-    // the rule landed, and with the body drawn as ordinary hitstun there was
-    // nothing on screen that said so.
-    if (f.knockdown > 0) return Phase::Knockdown;
+Phase PhaseOf(const cse::kernel::MatchData& match, const cse::kernel::GameState& state,
+              std::uint8_t slot) {
+    // THE PRECEDENCE IS SelectPose's (M3.4c): knockdown over stun over move.
+    // A fighter on the floor is usually in hitstun too and the more specific
+    // state is the one worth drawing -- asked for from play (2026-08-20): "we
+    // can't really tell any knockdowns yet" -- and both kinds of stun count
+    // because Simulate.cpp's `actionable()` is `hitstun == 0 && blockstun == 0`.
+    // That ordering used to be spelled here AND in PoseSelect.cpp; now the
+    // selector is asked and this function adds only the frame split below.
+    const cse::game::PoseRequest pose = cse::game::SelectPose(match, state, slot);
+    switch (pose.kind) {
+    case cse::game::PoseKind::Knockdown:      return Phase::Knockdown;
+    case cse::game::PoseKind::HitstunStand:
+    case cse::game::PoseKind::HitstunAir:
+    case cse::game::PoseKind::BlockstunStand:
+    case cse::game::PoseKind::BlockstunCrouch: return Phase::Hitstun;
+    case cse::game::PoseKind::Move:            break;
+    default:                                   return Phase::Idle;
+    }
 
-    if (f.hitstun > 0 || f.blockstun > 0) return Phase::Hitstun;
-
+    const cse::kernel::Fighter&     f    = state.p[slot];
+    const cse::kernel::FighterData& data = match.p[slot];
     const cse::kernel::MoveDef* const move = cse::kernel::MoveAt(data, f.moveId);
     // Null covers BOTH "idle" and "a moveId this character's table does not
     // describe". They are drawn the same because the kernel treats them the same
@@ -353,78 +342,20 @@ MyCoreEngine::Camera2D FightCamera(const cse::kernel::GameState& state,
                                    int viewportW, int viewportH,
                                    std::int32_t stageHalfWidthSub,
                                    float previousCentrePx) {
-    (void)viewportH;   // the vertical extent falls out of the aspect; see below
+    (void)viewportH;   // the vertical extent falls out of the aspect
+    // The framing -- midpoint, deadzone, wall clamp, height -- is the
+    // presentation library's (M3.4c), shared with the scene camera.
+    const cse::presentation::CameraFraming framing =
+        cse::presentation::FightCameraFraming(state, stageHalfWidthSub, previousCentrePx);
 
     MyCoreEngine::Camera2D cam{};
-
-    // The midpoint of the two ORIGINS. Not of the bodies: the bodies are the
-    // same width as each other, so the two midpoints coincide, and the origins
-    // are the numbers the simulation actually carries.
-    //
-    // The division is on the FLOAT side of WorldPx, not the integer side. Halving
-    // in sub-units first would be an integer division whose rounding differs by
-    // sign, and although nothing here feeds a tick, doing arithmetic like that on
-    // simulation integers is the habit that eventually does.
-    const float p0 = WorldPx(state.p[0].posX);
-    const float p1 = WorldPx(state.p[1].posX);
-
-    // --- the deadzone ---------------------------------------------------------
-    //
-    // Start from where the camera already was and move it only as far as it must.
-    // A camera that recentred on the midpoint every tick is a camera that answers
-    // "where are they" when the question is "what do I need to show" -- and the
-    // separation limit guarantees the pair always FITS, so most ticks the honest
-    // answer is "nothing, stay put".
-    //
-    // Asked for from play (2026-08-20): "the camera should remain fixed until a
-    // player moves in a way where it needs to move ... this will prevent players
-    // from constantly moving the camera."
-    //
-    // A caller with no previous frame passes the midpoint and gets the old
-    // behaviour for one tick, which is the right answer on the first frame of a
-    // match: there is no established framing to preserve.
-    float centre = previousCentrePx;
-
-    const float lo   = (p0 < p1 ? p0 : p1) - kCameraMarginPx;
-    const float hi   = (p0 > p1 ? p0 : p1) + kCameraMarginPx;
-    const float halfW = kViewHalfWidthPx;
-
-    // Scroll the MINIMUM that brings the offender back inside. Pushing to the
-    // midpoint instead would make one step at the edge yank the view across.
-    if (lo < centre - halfW) centre = lo + halfW;
-    if (hi > centre + halfW) centre = hi - halfW;
-
-    // AND IT STOPS AT THE WALLS. Without this the camera keeps centring on the
-    // pair as they reach a corner, so the wall drifts into the middle of the
-    // screen and the out-of-bounds band fills half the view -- and a corner
-    // stops looking like a wall and starts looking like the edge of the picture.
-    // Clamped, the corner arrives at the side of the screen and STAYS there,
-    // which is what tells a player they have run out of stage.
-    //
-    // Asked for from play (2026-08-20): "camera follow so we can go in either
-    // corner".
-    //
-    // The clamp is skipped when the stage is narrower than the view, because
-    // there is then no framing that hides both walls and centring is the only
-    // sensible answer. A stage that small is a test fixture rather than a level.
-    if (stageHalfWidthSub > 0) {
-        const float corner = WorldPx(stageHalfWidthSub);
-        if (corner > kViewHalfWidthPx) {
-            const float limit = corner - kViewHalfWidthPx;
-            centre = centre < -limit ? -limit : (centre > limit ? limit : centre);
-        } else {
-            centre = 0.0f;
-        }
-    }
-
-    cam.position = glm::vec2(centre, kCameraHeightPx);
-
+    cam.position = glm::vec2(framing.centreX, framing.heightPx);
     // BeginWorld computes its half-extents as (viewport / 2) / zoom, so this is
-    // the zoom that makes the visible half-width exactly kViewHalfWidthPx
+    // the zoom that makes the visible half-width exactly the framing's
     // whatever the window is. max(1) mirrors BeginWorld's own guard against a
     // zero viewport during a resize.
     const float w = static_cast<float>(viewportW > 1 ? viewportW : 1);
-    cam.zoom = (w * 0.5f) / kViewHalfWidthPx;
+    cam.zoom = (w * 0.5f) / framing.halfWidthPx;
     return cam;
 }
 
@@ -433,8 +364,19 @@ MyCoreEngine::Camera2D FightCamera(const cse::kernel::GameState& state,
 void DrawFightWorld(MyCoreEngine::Renderer2D& r2d,
                     const cse::kernel::GameState& state,
                     const cse::kernel::MatchData& data,
-                    std::int32_t stageHalfWidthSub) {
+                    std::int32_t stageHalfWidthSub,
+                    bool boxesOnly, bool drawBoxes) {
     const float corner = WorldPx(stageHalfWidthSub);
+
+    // Over a presentation model (M3.4c) the scene is the floor and the room's
+    // grid is the ruler (M3.5a); only the boxes are drawn here -- and in the
+    // mesh-only overlay mode (M3.4e), nothing.
+    if (boxesOnly) {
+        if (!drawBoxes) return;
+        for (int slot = 0; slot < 2; ++slot)
+            drawFighter(r2d, data, state, slot, /*boxesOnly*/ true);
+        return;
+    }
 
     // The floor, drawn well past both corners so it never ends inside the view.
     // A slab rather than a line, because a fighter standing ON zero needs
@@ -450,7 +392,7 @@ void DrawFightWorld(MyCoreEngine::Renderer2D& r2d,
     //
     // Drawn only across the stage proper. Past the corner is not stage, and
     // tiling the out-of-bounds band would suggest there is somewhere to stand.
-    {
+    if (drawBoxes) {   // the ruler draws only with the boxes on (M3.4e)
         const int cells = static_cast<int>(corner / kCellPx) + 1;
         for (int i = -cells; i < cells; ++i) {
             const float x = static_cast<float>(i) * kCellPx;
@@ -509,8 +451,9 @@ void DrawFightWorld(MyCoreEngine::Renderer2D& r2d,
     // decides nothing here -- these are quads -- and it is written the same way
     // so that a reader comparing this loop with the tick's does not have to
     // wonder whether the difference means something.
-    for (int slot = 0; slot < 2; ++slot)
-        drawFighter(r2d, data.p[slot], state.p[slot], slot);
+    if (drawBoxes)
+        for (int slot = 0; slot < 2; ++slot)
+            drawFighter(r2d, data, state, slot, /*boxesOnly*/ false);
 }
 
 } // namespace untitledfighter

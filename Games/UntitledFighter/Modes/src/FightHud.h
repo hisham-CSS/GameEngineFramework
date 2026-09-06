@@ -308,6 +308,11 @@ struct FightHudModel {
     // parse the sentence to decide.
     const std::string* reloadNote    = nullptr;
     bool               reloadFailed  = false;
+    // The 3D presentation (M3.4c/e): why the pass is off, in the mode's own
+    // words (empty when it is on or was never asked for), and which overlay
+    // the author is looking through.
+    const std::string* presentationNote = nullptr;
+    const char*        overlayMode      = nullptr;
     const std::string* fatal         = nullptr;
 
     const std::vector<BindingRow>* bindings = nullptr;

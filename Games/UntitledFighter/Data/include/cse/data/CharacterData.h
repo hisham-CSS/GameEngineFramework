@@ -41,6 +41,7 @@
 // into anything a tick reads.
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -466,6 +467,15 @@ struct Move {
     // before this block existed gets and is why wiring them changes no character
     // that does not use them.
     std::int32_t hitstopTicks    = 0;   // impact freeze, BOTH fighters
+    // Ticks the DEFENDER cannot act after BLOCKING this move, from
+    // `engine.reaction.blockstun_ticks`. Zero means the file authors none.
+    // Read since ROADMAP M3.0b, which found the schema authoring it on every
+    // fighter_a move, the kernel applying MoveDef::blockstun, and nothing
+    // carrying the one into the other -- so every block in the shipped game
+    // gave zero blockstun and no ledger row said so. Distinct from the
+    // HitRecord field of the same name: that one belongs to engine.hits[],
+    // the multi-HitDef transcription the kernel omits.
+    std::int32_t blockstunTicks  = 0;
     std::int32_t airHitstunTicks = 0;   // hitstun when the defender is AIRBORNE;
                                         // it is what makes a juggle last
     std::int32_t fallRecoverTicks = 0;  // ticks on the floor after a knockdown
@@ -667,6 +677,33 @@ struct Move {
     // owns and has not built. Preserved rather than dropped so that the day the
     // parser exists it has the strings in front of it.
     std::string hitConditionProse;
+
+    // The clip this move wears when the character has a presentation model
+    // (ROADMAP M3.4b, ADR-019 D2): engine.anim3d.clip, or empty for the
+    // default, which is the move id. Presentation-only -- never reaches
+    // MatchData. By the time a load returns, A21 has checked the named clip's
+    // length against startup + active + recovery.
+    std::string anim3dClip;
+};
+
+// One clip of a presentation model's sidecar, `<stem>.clips.json` (ADR-019
+// D2): the exporter writes `{ clip: frames }` beside the model and the loader
+// reads it here with nlohmann, never opening the model itself.
+struct ClipLength {
+    std::string  name;
+    std::int32_t frames = 0;
+};
+
+// ADR-019 D2's fourteen reserved cycles, in cse::game::PoseKind order
+// (Idle..Win); tests/test_pose_select.cpp pins the two lists against each
+// other. Assertion A22 requires every one of them in a presentation model's
+// sidecar, and FighterClips indexes this array by kind, so the order is
+// append-only.
+inline constexpr std::array<const char*, 14> kReservedCycleNames = {
+    "idle",          "walk_fwd",       "walk_back",     "crouch_idle",
+    "crouch_walk",   "jump_rise",      "jump_fall",     "hitstun_stand",
+    "hitstun_air",   "blockstun_stand", "blockstun_crouch", "knockdown",
+    "ko",            "win",
 };
 
 struct Cancel {
@@ -789,6 +826,16 @@ struct CharacterData {
     // Rebuilds moveIndexById and cancelsFrom from moves/cancels. The loader
     // calls it; a caller that assembled a character by hand must call it too.
     void RebuildIndices();
+
+    // The presentation model (ROADMAP M3.4b; ADR-019 D2 and D9), as authored
+    // under engine.anim3d.model and contained against LoadOptions::contentRoot:
+    // a glTF whose `<stem>.clips.json` sidecar this loader read and checked
+    // (A21, A22). Empty means the character has none and the fight draws its
+    // 2D placeholders. anim3dClips is that sidecar as loaded -- every clip name
+    // with the frame count the exporter wrote, sorted by name. Both are
+    // presentation-only: never in MatchData, never under the hash.
+    std::string             anim3dModel;
+    std::vector<ClipLength> anim3dClips;
 };
 
 // NOTE ON WHAT IS DELIBERATELY NOT LOADED.
@@ -806,12 +853,20 @@ struct CharacterData {
 // Also not loaded, for the same "no data behind it" reason:
 // engine.projectile, engine.transitions (the on_land kind), engine.invuln,
 // engine.freeze, engine.min_reach_sub, engine.proximity_variant,
-// engine.motion_physics, engine.anim, engine.fx.
+// engine.motion_physics, engine.anim (the SPRITE block -- atlas, frames,
+// sprites -- which is not the 3D clips), engine.fx.
+//
+// engine.anim3d IS loaded (ROADMAP M3.4b, ADR-019 D2): the presentation model
+// path and each move's clip name, with the model's clip sidecar read and held
+// by A21/A22 to the frame data. It is the one engine block that is
+// presentation-only: CharacterData carries it, MatchData never does, and
+// nothing the simulation hashes can see it.
 //
 // engine.reaction LEFT THIS LIST ACROSS ROADMAP M1, one mechanic at a time:
-// the loader now reads hitstop_ticks, air_hitstun_ticks, corner_push_vel_sub,
-// fall_recover_ticks, counter_hit, launch and on_hit -- each key landed in the
-// same commit as the kernel behaviour that consumes it, never ahead of one.
+// the loader now reads hitstop_ticks, blockstun_ticks, air_hitstun_ticks,
+// corner_push_vel_sub, fall_recover_ticks, counter_hit, launch and on_hit --
+// each key landed in the same commit as the kernel behaviour (or the bridge
+// carry into an existing kernel slot) that consumes it, never ahead of one.
 // `priority` inside the block stays unread (the Move::priority note above says
 // why), and `causes_knockdown` is recognised only to be refused with a
 // pointer to fall_recover_ticks. engine.movement (the character-level jump
@@ -891,6 +946,15 @@ struct LoadOptions {
     // untrusted (docs/MAINTENANCE.md), and a 4 GB "character" is a denial of
     // service that costs nothing to author.
     std::size_t maxFileBytes = 64u * 1024u * 1024u;
+
+    // Where the file's OWN authored paths resolve (ROADMAP M3.4b):
+    // engine.anim3d.model, and the `<stem>.clips.json` beside it, go through
+    // PathIsContained against this root before the sidecar is opened. Empty
+    // means the current directory. LoadCharacterFile and LoadCharacterVariant
+    // fill it with their baseDir when the caller left it empty, so a file load
+    // needs nothing more; LoadCharacterJson callers that author a model say
+    // where it lives.
+    std::string contentRoot;
 };
 
 // The result of a load, as DATA. A rejected file is a normal outcome -- authored

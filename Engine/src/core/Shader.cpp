@@ -10,7 +10,40 @@
 
 namespace MyCoreEngine
 {
+    namespace {
+        // Insert `defines` (one or more "#define ..." lines) right after the
+        // `#version` directive, which GLSL requires to be the first line. A
+        // source with no #version gets the preamble at the top.
+        std::string injectDefines(const std::string& source, const char* defines) {
+            if (!defines || !*defines) return source;
+            const std::size_t v = source.find("#version");
+            if (v == std::string::npos) return std::string(defines) + "\n" + source;
+            const std::size_t eol = source.find('\n', v);
+            if (eol == std::string::npos) return source + "\n" + defines + "\n";
+            return source.substr(0, eol + 1) + defines + "\n" + source.substr(eol + 1);
+        }
+    }
+
     Shader::Shader(const char* vertexPath, const char* fragmentPath)
+    {
+        build_(vertexPath, fragmentPath, nullptr);
+    }
+
+    Shader::Shader(const char* vertexPath, const char* fragmentPath, const char* defines)
+    {
+        build_(vertexPath, fragmentPath, defines);
+    }
+
+    bool Shader::bindUniformBlock(const std::string& blockName, unsigned binding) const
+    {
+        if (!ID) return false;
+        const GLuint index = glGetUniformBlockIndex(ID, blockName.c_str());
+        if (index == GL_INVALID_INDEX) return false;
+        glUniformBlockBinding(ID, index, binding);
+        return true;
+    }
+
+    void Shader::build_(const char* vertexPath, const char* fragmentPath, const char* defines)
     {
         // 1. retrieve the vertex/fragment source code from filePath
         std::string vertexCode;
@@ -33,8 +66,8 @@ namespace MyCoreEngine
             vShaderFile.close();
             fShaderFile.close();
             // convert stream into string
-            vertexCode = vShaderStream.str();
-            fragmentCode = fShaderStream.str();
+            vertexCode = injectDefines(vShaderStream.str(), defines);
+            fragmentCode = injectDefines(fShaderStream.str(), defines);
         }
         catch (std::ifstream::failure& e)
         {

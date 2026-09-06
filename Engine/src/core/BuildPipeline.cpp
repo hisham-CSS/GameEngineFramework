@@ -332,7 +332,7 @@ namespace MyCoreEngine {
         // CollectModelPaths, neither of which reports which components a scene
         // contains.
         //
-        // SO IT READS THREE KEYS, whose writer is SceneSerializer.cpp:162-169.
+        // SO IT READS THREE KEYS, whose writer is the "camera" block SceneSerializer saves.
         // The interesting one is the third: `enabled` is OPTIONAL in the file and
         // its absent value is CameraComponent's own default, so that default is
         // taken from the struct rather than written as a literal `true` here. A

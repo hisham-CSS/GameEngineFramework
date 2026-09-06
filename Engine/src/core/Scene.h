@@ -5,11 +5,13 @@
 #include <vector>
 #include <algorithm>
 #include <cstdint>
+#include <memory>
 
 #include "Entity.h"
 #include "Components.h"
 #include "Shader.h"
 #include "Model.h"
+#include "../render/SkinPalette.h"
 #include "Scene.h"
 
 //forward declaration of glad unit
@@ -35,6 +37,10 @@ struct DrawItem {
     // whichever item happened to be first after culling -- a whole batch of
     // objects flipping PBR<->Toon as the camera moved.
     int       shadingModel = 0;
+    // The pose this item is drawn in (ROADMAP M3.2f), null for a static or
+    // unposed item. Part of the run key by IDENTITY: two fighters sharing one
+    // Model must never instance-collapse into one draw with one palette.
+    const SkinnedPose* pose = nullptr;
 };
 
 // Tag component: add to an entity to skip it from shadow maps.
@@ -256,6 +262,19 @@ namespace MyCoreEngine {
         // Non-owning; set each frame by the forward pass (same vertex shader as
         // the color pass so gl_Position matches bit-for-bit under GL_EQUAL).
         void  SetDepthPrepassShader(Shader* s) { depthPrepassShader_ = s; }
+        // Non-owning, set each frame by the passes that build them (ROADMAP
+        // M3.2e): the SKINNED variants of the forward colour program, its
+        // depth prepass, the CSM depth program and the transparent forward
+        // program. The draw paths route skinned items to them (M3.2f); a null
+        // means the variant failed to compile and skinned items fall back to
+        // the static program in their rest pose.
+        void  SetSkinnedShaders(Shader* color, Shader* prepass) { skinnedShader_ = color; skinnedPrepassShader_ = prepass; }
+        void  SetSkinnedShadowShader(Shader* s) { skinnedShadowShader_ = s; }
+        void  SetSkinnedTransparentShader(Shader* s) { skinnedTransparentShader_ = s; }
+        Shader* SkinnedShader() const { return skinnedShader_; }
+        Shader* SkinnedPrepassShader() const { return skinnedPrepassShader_; }
+        Shader* SkinnedShadowShader() const { return skinnedShadowShader_; }
+        Shader* SkinnedTransparentShader() const { return skinnedTransparentShader_; }
 
         // True if the SHADOW FOOTPRINT of any caster whose transform changed
         // this frame overlaps the camera view-depth range [zNear, zFar].
@@ -456,6 +475,10 @@ namespace MyCoreEngine {
          // with heavy fragment cost + bad depth ordering.
          bool depthPrepassEnabled_ = false;
          Shader* depthPrepassShader_ = nullptr; // non-owning (forward pass owns it)
+         Shader* skinnedShader_            = nullptr; // non-owning (forward pass owns it), M3.2e
+         Shader* skinnedPrepassShader_     = nullptr; // non-owning (forward pass owns it)
+         Shader* skinnedShadowShader_      = nullptr; // non-owning (CSM pass owns it)
+         Shader* skinnedTransparentShader_ = nullptr; // non-owning (transparent pass owns it)
 
          // Per-frame scratch: instanced-run table + gathered instance matrices
          // (single buffer upload per frame; per-run map/unmap cycles were the
@@ -468,8 +491,13 @@ namespace MyCoreEngine {
              std::size_t count;
              std::size_t matOffset; // index into instanceMats_
              int alphaMode = 0;     // homogeneous within a run (0 Opaque, 1 Mask)
+             const SkinnedPose* pose = nullptr; // a posed run is one item, drawn skinned (M3.2f)
          };
          std::vector<DrawRun> runs_;
+         // The one palette buffer every skinned draw uploads into, created on
+         // first use on the main thread (a Scene can be built headless).
+         std::unique_ptr<SkinPaletteUBO> palette_;
+         void ensurePalette_();
          std::vector<glm::mat4> instanceMats_;
          // per-frame scratch for the selected punctual lights (reused so the
          // light upload does not allocate every frame)

@@ -6,6 +6,11 @@
 #define UNIT_TEST 1
 #include "../src/render/passes/ShadowCSMPass.h"
 #include <algorithm>
+#include <cmath>
+#include <filesystem>
+#include <memory>
+#include <string>
+#include <vector>
 #include "../src/render/passes/ForwardOpaquePass.h"
 #include "../src/render/passes/TonemapPass.h"
 #include "Engine.h"
@@ -861,4 +866,116 @@ TEST_F(GLFixture, ForceUpdateRebuildsEveryCascadeEvenWithNothingMoving) {
         << "forceUpdate rebuilt only " << pass.getDebugSnapshot().lastUpdatedCount
         << " of 4 cascades with the camera still -- a scene swap would keep "
            "rendering the departed scene\'s shadows";
+}
+
+
+// ============================================================================
+// M3.2g: the orthographic camera through the real forward pass
+// ============================================================================
+//
+// The renderer, the culling frustum and the pass share one projection. Under
+// an orthographic camera a unit quad must cover exactly the pixels the ortho
+// matrix predicts, and the SAME pixels when it is moved twenty units away --
+// the signature a perspective projection cannot fake.
+
+namespace {
+
+std::string orthoModelFixturesDir() {
+    namespace fs = std::filesystem;
+    fs::path here = fs::current_path();
+    for (int i = 0; i < 8; ++i) {
+        const fs::path candidate = here / "tests" / "fixtures" / "models";
+        if (fs::exists(candidate / "uv_quad.gltf")) return candidate.string();
+        if (!here.has_parent_path() || here.parent_path() == here) break;
+        here = here.parent_path();
+    }
+    return "tests/fixtures/models";
+}
+
+// Lit pixels (RGB sum above a floor) of the 64x64 HDR target, as a bitmap.
+std::vector<bool> litMask(const PassContext& ctx) {
+    std::vector<float> buf(64u * 64u * 4u);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, ctx.hdrFBO);
+    glReadPixels(0, 0, 64, 64, GL_RGBA, GL_FLOAT, buf.data());
+    std::vector<bool> lit(64u * 64u);
+    for (std::size_t i = 0; i < lit.size(); ++i)
+        lit[i] = (buf[i * 4] + buf[i * 4 + 1] + buf[i * 4 + 2]) > 0.005f;
+    return lit;
+}
+
+} // namespace
+
+struct OrthoCamera : GLFixture {};
+
+TEST_F(OrthoCamera, AUnitQuadCoversThePredictedPixels) {
+    // uv_quad.gltf is a unit quad in the XZ plane facing +Y; a 90 degree turn
+    // about X stands it up facing +Z, toward a camera on the +Z axis.
+    auto quad = std::make_shared<Model>(orthoModelFixturesDir() + "/uv_quad.gltf");
+    ASSERT_EQ(quad->Meshes().size(), 1u);
+    Scene scene;
+    Entity e = scene.createEntity();
+    Transform t{};
+    t.position = { 1.0f, 0.5f, 0.0f };
+    t.rotation = { 90.f, 0.f, 0.f };
+    t.dirty = true;
+    e.addComponent<Transform>(t);
+    e.addComponent<ModelComponent>(ModelComponent{ quad });
+    e.addComponent<AABB>(generateAABB(*quad));
+    scene.UpdateTransforms();
+
+    Shader forward("Exported/Shaders/vertex.glsl", "Exported/Shaders/frag.glsl");
+    ASSERT_TRUE(forward.isValid());
+    PassContext ctx{};
+    GLFixture::makeHDR(ctx);
+    ctx.csm.enabled = false;
+    ctx.csm.cascades = 0;
+    ctx.sunDir = glm::normalize(glm::vec3(0.f, -0.3f, -1.f));
+
+    // 8 px per unit: half-height 4 over 64 rows. The quad's edges land on
+    // pixel boundaries, so there is no half-covered pixel to argue about.
+    Camera cam;
+    cam.Position = { 0.f, 0.f, 5.f };
+    cam.Front = { 0.f, 0.f, -1.f };
+    cam.Projection = CameraProjection::Orthographic;
+    cam.OrthoHalfHeight = 4.0f;
+    cam.NearClip = 0.1f;
+    cam.FarClip = 100.f;
+    FrameParams fp{};
+    fp.view = cam.GetViewMatrix();
+    fp.proj = cam.GetProjectionMatrix(1.0f);
+    fp.viewportW = 64;
+    fp.viewportH = 64;
+
+    ForwardOpaquePass fwd(forward);
+    fwd.setup(ctx);
+    ASSERT_TRUE(fwd.execute(ctx, scene, cam, fp));
+    EXPECT_EQ(scene.GetRenderStats().culled, 0u) << "the ortho frustum culled a quad in the middle of the view";
+
+    // Predict the covered pixel rectangle from the ortho matrix itself.
+    const glm::vec4 vp(0, 0, 64, 64);
+    const glm::vec3 lo = glm::project(glm::vec3(0.5f, 0.0f, 0.0f), fp.view, fp.proj, vp);
+    const glm::vec3 hi = glm::project(glm::vec3(1.5f, 1.0f, 0.0f), fp.view, fp.proj, vp);
+    const int x0 = (int)std::lround(lo.x), x1 = (int)std::lround(hi.x);
+    const int y0 = (int)std::lround(lo.y), y1 = (int)std::lround(hi.y);
+    ASSERT_EQ(x1 - x0, 8) << "8 px per unit was the premise";
+    ASSERT_EQ(y1 - y0, 8);
+
+    const std::vector<bool> near = litMask(ctx);
+    int inside = 0, outside = 0;
+    for (int y = 0; y < 64; ++y)
+        for (int x = 0; x < 64; ++x) {
+            const bool in = (x >= x0 && x < x1 && y >= y0 && y < y1);
+            if (near[(std::size_t)y * 64 + x]) (in ? inside : outside)++;
+        }
+    EXPECT_EQ(inside, 64) << "the quad does not fill its predicted 8x8 rectangle";
+    EXPECT_EQ(outside, 0) << "lit pixels outside the predicted rectangle: the drawn projection is not the predicted one";
+
+    // Twenty units further away it covers exactly the same pixels.
+    scene.registry.get<Transform>((entt::entity)e).position.z = -20.f;
+    scene.registry.get<Transform>((entt::entity)e).dirty = true;
+    scene.UpdateTransforms();
+    ASSERT_TRUE(fwd.execute(ctx, scene, cam, fp));
+    EXPECT_EQ(scene.GetRenderStats().culled, 0u);
+    const std::vector<bool> far = litMask(ctx);
+    EXPECT_EQ(near, far) << "an orthographic image must not shrink with distance";
 }

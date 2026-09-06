@@ -45,6 +45,7 @@ add_library(CseGame STATIC
     src/WitnessCursor.cpp   # THE witness cursor; the five copies died for it (M1.3g)
     src/ComboSearch.cpp     # verdicts by execution on the real kernel (ADR-013)
     src/Catalogue.cpp       # the cooker recording: verdicts + verified replays + graph.dot (M1.6)
+    src/PoseSelect.cpp      # which clip, which frame -- kinds and integers from GameState (M3.4a)
 )
 
 target_include_directories(CseGame

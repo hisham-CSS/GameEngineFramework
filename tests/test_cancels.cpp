@@ -870,8 +870,10 @@ TEST(CancelBridge, TheLossTableCountsWhatTheProjectionActuallyCost) {
     // authors a counter bonus, so `bites` above is unmoved); -> 36 when
     // M1.3(d) carried air_hitstun and the launch (zero and zero for her: no
     // transcription authors a nonzero air number and none authors a launch);
-    // -> 37 when (d2) carried on_hit (zero: nothing transcribed arms a wall).
-    EXPECT_EQ(37u, r.losses.size())
+    // -> 37 when (d2) carried on_hit (zero: nothing transcribed arms a wall);
+    // -> 38 when M3.0b carried blockstun (zero for her: her converted file
+    // authors no blockstun_ticks, and the row is the proof somebody looked).
+    EXPECT_EQ(38u, r.losses.size())
         << "the loss table grew or shrank. That is fine, and it has to be "
            "recorded here, because the point of the table is that somebody "
            "counted.";

@@ -1,6 +1,6 @@
 # Cat Splat Engine — Manual
 
-Verified: 2026-08-17 @ e2f08bd
+Verified: 2026-09-02 @ 3d8c055
 
 A C++17 / OpenGL 3.3 game engine with an editor, a standalone player, a headless
 asset cooker, and one title — a deterministic rollback fighting game — under
@@ -46,6 +46,7 @@ Four documents outside this manual answer questions it deliberately does not:
 | [Post-processing & Quality Tiers](post-processing.md) | Bloom, ink outline, colour grade, vignette, FXAA, and the Low/Med/High tiers |
 | [In-game UI & the 2D layer](ui.md) | `.cxml` markup, `.cstyle` stylesheets, flexbox, events, data binding, hot reload, and `Renderer2D` for 2D games |
 | [Assets](assets.md) | Model and texture loading, async requests, import settings, the cooker |
+| [The Art Pipeline](art-pipeline.md) | Blender as the authoring tool, the pinned glTF export and its sidecar, the clip contract, the MCP server's place, and the clips gate |
 | [Performance](performance.md) | Measuring frames, reading the stats panel, and what actually costs time |
 
 ## Design principles

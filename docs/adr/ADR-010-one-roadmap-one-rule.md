@@ -1,6 +1,8 @@
 # ADR-010 — One roadmap, one rule
 
-**Status.** Accepted 2026-08-17 · **Implemented** — ROADMAP M0.1 through M0.6.
+**Status.** Accepted 2026-08-17 · **Implemented** — ROADMAP M0.1 through M0.6 ·
+§9 item 5 exercised 2026-09-02: M2 and M3 swapped by
+[ADR-020](ADR-020-the-bounded-lift.md).
 `docs/` is six living documents, `adr/`, `manual/` and `archive/`; every living
 document carries a `Verified:` stamp; and `scripts/check_docs.py` is a
 **required** CI step reporting zero findings, down from 78 on its first run.

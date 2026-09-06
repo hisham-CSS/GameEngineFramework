@@ -1,0 +1,1712 @@
+{
+ "asset": {
+  "version": "2.0",
+  "generator": "tests/fixtures/models/make_fixtures.py"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "nodes": [
+    128,
+    129
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "name": "joint_128",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ]
+  },
+  {
+   "name": "joint_127",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    0
+   ]
+  },
+  {
+   "name": "joint_126",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    1
+   ]
+  },
+  {
+   "name": "joint_125",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    2
+   ]
+  },
+  {
+   "name": "joint_124",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    3
+   ]
+  },
+  {
+   "name": "joint_123",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    4
+   ]
+  },
+  {
+   "name": "joint_122",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    5
+   ]
+  },
+  {
+   "name": "joint_121",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    6
+   ]
+  },
+  {
+   "name": "joint_120",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    7
+   ]
+  },
+  {
+   "name": "joint_119",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    8
+   ]
+  },
+  {
+   "name": "joint_118",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    9
+   ]
+  },
+  {
+   "name": "joint_117",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    10
+   ]
+  },
+  {
+   "name": "joint_116",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    11
+   ]
+  },
+  {
+   "name": "joint_115",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    12
+   ]
+  },
+  {
+   "name": "joint_114",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    13
+   ]
+  },
+  {
+   "name": "joint_113",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    14
+   ]
+  },
+  {
+   "name": "joint_112",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    15
+   ]
+  },
+  {
+   "name": "joint_111",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    16
+   ]
+  },
+  {
+   "name": "joint_110",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    17
+   ]
+  },
+  {
+   "name": "joint_109",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    18
+   ]
+  },
+  {
+   "name": "joint_108",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    19
+   ]
+  },
+  {
+   "name": "joint_107",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    20
+   ]
+  },
+  {
+   "name": "joint_106",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    21
+   ]
+  },
+  {
+   "name": "joint_105",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    22
+   ]
+  },
+  {
+   "name": "joint_104",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    23
+   ]
+  },
+  {
+   "name": "joint_103",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    24
+   ]
+  },
+  {
+   "name": "joint_102",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    25
+   ]
+  },
+  {
+   "name": "joint_101",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    26
+   ]
+  },
+  {
+   "name": "joint_100",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    27
+   ]
+  },
+  {
+   "name": "joint_099",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    28
+   ]
+  },
+  {
+   "name": "joint_098",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    29
+   ]
+  },
+  {
+   "name": "joint_097",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    30
+   ]
+  },
+  {
+   "name": "joint_096",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    31
+   ]
+  },
+  {
+   "name": "joint_095",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    32
+   ]
+  },
+  {
+   "name": "joint_094",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    33
+   ]
+  },
+  {
+   "name": "joint_093",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    34
+   ]
+  },
+  {
+   "name": "joint_092",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    35
+   ]
+  },
+  {
+   "name": "joint_091",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    36
+   ]
+  },
+  {
+   "name": "joint_090",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    37
+   ]
+  },
+  {
+   "name": "joint_089",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    38
+   ]
+  },
+  {
+   "name": "joint_088",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    39
+   ]
+  },
+  {
+   "name": "joint_087",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    40
+   ]
+  },
+  {
+   "name": "joint_086",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    41
+   ]
+  },
+  {
+   "name": "joint_085",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    42
+   ]
+  },
+  {
+   "name": "joint_084",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    43
+   ]
+  },
+  {
+   "name": "joint_083",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    44
+   ]
+  },
+  {
+   "name": "joint_082",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    45
+   ]
+  },
+  {
+   "name": "joint_081",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    46
+   ]
+  },
+  {
+   "name": "joint_080",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    47
+   ]
+  },
+  {
+   "name": "joint_079",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    48
+   ]
+  },
+  {
+   "name": "joint_078",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    49
+   ]
+  },
+  {
+   "name": "joint_077",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    50
+   ]
+  },
+  {
+   "name": "joint_076",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    51
+   ]
+  },
+  {
+   "name": "joint_075",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    52
+   ]
+  },
+  {
+   "name": "joint_074",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    53
+   ]
+  },
+  {
+   "name": "joint_073",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    54
+   ]
+  },
+  {
+   "name": "joint_072",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    55
+   ]
+  },
+  {
+   "name": "joint_071",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    56
+   ]
+  },
+  {
+   "name": "joint_070",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    57
+   ]
+  },
+  {
+   "name": "joint_069",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    58
+   ]
+  },
+  {
+   "name": "joint_068",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    59
+   ]
+  },
+  {
+   "name": "joint_067",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    60
+   ]
+  },
+  {
+   "name": "joint_066",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    61
+   ]
+  },
+  {
+   "name": "joint_065",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    62
+   ]
+  },
+  {
+   "name": "joint_064",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    63
+   ]
+  },
+  {
+   "name": "joint_063",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    64
+   ]
+  },
+  {
+   "name": "joint_062",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    65
+   ]
+  },
+  {
+   "name": "joint_061",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    66
+   ]
+  },
+  {
+   "name": "joint_060",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    67
+   ]
+  },
+  {
+   "name": "joint_059",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    68
+   ]
+  },
+  {
+   "name": "joint_058",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    69
+   ]
+  },
+  {
+   "name": "joint_057",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    70
+   ]
+  },
+  {
+   "name": "joint_056",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    71
+   ]
+  },
+  {
+   "name": "joint_055",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    72
+   ]
+  },
+  {
+   "name": "joint_054",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    73
+   ]
+  },
+  {
+   "name": "joint_053",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    74
+   ]
+  },
+  {
+   "name": "joint_052",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    75
+   ]
+  },
+  {
+   "name": "joint_051",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    76
+   ]
+  },
+  {
+   "name": "joint_050",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    77
+   ]
+  },
+  {
+   "name": "joint_049",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    78
+   ]
+  },
+  {
+   "name": "joint_048",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    79
+   ]
+  },
+  {
+   "name": "joint_047",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    80
+   ]
+  },
+  {
+   "name": "joint_046",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    81
+   ]
+  },
+  {
+   "name": "joint_045",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    82
+   ]
+  },
+  {
+   "name": "joint_044",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    83
+   ]
+  },
+  {
+   "name": "joint_043",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    84
+   ]
+  },
+  {
+   "name": "joint_042",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    85
+   ]
+  },
+  {
+   "name": "joint_041",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    86
+   ]
+  },
+  {
+   "name": "joint_040",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    87
+   ]
+  },
+  {
+   "name": "joint_039",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    88
+   ]
+  },
+  {
+   "name": "joint_038",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    89
+   ]
+  },
+  {
+   "name": "joint_037",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    90
+   ]
+  },
+  {
+   "name": "joint_036",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    91
+   ]
+  },
+  {
+   "name": "joint_035",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    92
+   ]
+  },
+  {
+   "name": "joint_034",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    93
+   ]
+  },
+  {
+   "name": "joint_033",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    94
+   ]
+  },
+  {
+   "name": "joint_032",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    95
+   ]
+  },
+  {
+   "name": "joint_031",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    96
+   ]
+  },
+  {
+   "name": "joint_030",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    97
+   ]
+  },
+  {
+   "name": "joint_029",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    98
+   ]
+  },
+  {
+   "name": "joint_028",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    99
+   ]
+  },
+  {
+   "name": "joint_027",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    100
+   ]
+  },
+  {
+   "name": "joint_026",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    101
+   ]
+  },
+  {
+   "name": "joint_025",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    102
+   ]
+  },
+  {
+   "name": "joint_024",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    103
+   ]
+  },
+  {
+   "name": "joint_023",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    104
+   ]
+  },
+  {
+   "name": "joint_022",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    105
+   ]
+  },
+  {
+   "name": "joint_021",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    106
+   ]
+  },
+  {
+   "name": "joint_020",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    107
+   ]
+  },
+  {
+   "name": "joint_019",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    108
+   ]
+  },
+  {
+   "name": "joint_018",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    109
+   ]
+  },
+  {
+   "name": "joint_017",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    110
+   ]
+  },
+  {
+   "name": "joint_016",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    111
+   ]
+  },
+  {
+   "name": "joint_015",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    112
+   ]
+  },
+  {
+   "name": "joint_014",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    113
+   ]
+  },
+  {
+   "name": "joint_013",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    114
+   ]
+  },
+  {
+   "name": "joint_012",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    115
+   ]
+  },
+  {
+   "name": "joint_011",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    116
+   ]
+  },
+  {
+   "name": "joint_010",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    117
+   ]
+  },
+  {
+   "name": "joint_009",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    118
+   ]
+  },
+  {
+   "name": "joint_008",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    119
+   ]
+  },
+  {
+   "name": "joint_007",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    120
+   ]
+  },
+  {
+   "name": "joint_006",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    121
+   ]
+  },
+  {
+   "name": "joint_005",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    122
+   ]
+  },
+  {
+   "name": "joint_004",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    123
+   ]
+  },
+  {
+   "name": "joint_003",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    124
+   ]
+  },
+  {
+   "name": "joint_002",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    125
+   ]
+  },
+  {
+   "name": "joint_001",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    126
+   ]
+  },
+  {
+   "name": "joint_000",
+   "translation": [
+    0.0,
+    0.01,
+    0.0
+   ],
+   "children": [
+    127
+   ]
+  },
+  {
+   "name": "Tri",
+   "mesh": 0,
+   "skin": 0
+  }
+ ],
+ "meshes": [
+  {
+   "name": "Tri",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1,
+      "TEXCOORD_0": 2,
+      "JOINTS_0": 3,
+      "WEIGHTS_0": 4
+     },
+     "indices": 5,
+     "material": 0,
+     "mode": 4
+    }
+   ]
+  }
+ ],
+ "materials": [
+  {
+   "name": "chain",
+   "pbrMetallicRoughness": {
+    "baseColorFactor": [
+     1,
+     1,
+     1,
+     1
+    ],
+    "metallicFactor": 0.0,
+    "roughnessFactor": 1.0
+   }
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5126,
+   "count": 3,
+   "type": "VEC3",
+   "min": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "max": [
+    0.1,
+    0.1,
+    0.0
+   ]
+  },
+  {
+   "bufferView": 1,
+   "componentType": 5126,
+   "count": 3,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 2,
+   "componentType": 5126,
+   "count": 3,
+   "type": "VEC2"
+  },
+  {
+   "bufferView": 3,
+   "componentType": 5121,
+   "count": 3,
+   "type": "VEC4"
+  },
+  {
+   "bufferView": 4,
+   "componentType": 5126,
+   "count": 3,
+   "type": "VEC4"
+  },
+  {
+   "bufferView": 5,
+   "componentType": 5123,
+   "count": 3,
+   "type": "SCALAR"
+  },
+  {
+   "bufferView": 6,
+   "componentType": 5126,
+   "count": 129,
+   "type": "MAT4"
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteOffset": 0,
+   "byteLength": 36,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 36,
+   "byteLength": 36,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 72,
+   "byteLength": 24,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 96,
+   "byteLength": 12,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 108,
+   "byteLength": 48,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 156,
+   "byteLength": 8,
+   "target": 34963
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 164,
+   "byteLength": 8256
+  }
+ ],
+ "buffers": [
+  {
+   "byteLength": 8420,
+   "uri": "data:application/octet-stream;base64,AAAAAAAAAAAAAAAAzczMPQAAAAAAAAAAAAAAAM3MzD0AAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAABAAIAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8="
+  }
+ ],
+ "skins": [
+  {
+   "joints": [
+    128,
+    127,
+    126,
+    125,
+    124,
+    123,
+    122,
+    121,
+    120,
+    119,
+    118,
+    117,
+    116,
+    115,
+    114,
+    113,
+    112,
+    111,
+    110,
+    109,
+    108,
+    107,
+    106,
+    105,
+    104,
+    103,
+    102,
+    101,
+    100,
+    99,
+    98,
+    97,
+    96,
+    95,
+    94,
+    93,
+    92,
+    91,
+    90,
+    89,
+    88,
+    87,
+    86,
+    85,
+    84,
+    83,
+    82,
+    81,
+    80,
+    79,
+    78,
+    77,
+    76,
+    75,
+    74,
+    73,
+    72,
+    71,
+    70,
+    69,
+    68,
+    67,
+    66,
+    65,
+    64,
+    63,
+    62,
+    61,
+    60,
+    59,
+    58,
+    57,
+    56,
+    55,
+    54,
+    53,
+    52,
+    51,
+    50,
+    49,
+    48,
+    47,
+    46,
+    45,
+    44,
+    43,
+    42,
+    41,
+    40,
+    39,
+    38,
+    37,
+    36,
+    35,
+    34,
+    33,
+    32,
+    31,
+    30,
+    29,
+    28,
+    27,
+    26,
+    25,
+    24,
+    23,
+    22,
+    21,
+    20,
+    19,
+    18,
+    17,
+    16,
+    15,
+    14,
+    13,
+    12,
+    11,
+    10,
+    9,
+    8,
+    7,
+    6,
+    5,
+    4,
+    3,
+    2,
+    1,
+    0
+   ],
+   "inverseBindMatrices": 6,
+   "skeleton": 128
+  }
+ ]
+}

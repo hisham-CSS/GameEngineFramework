@@ -1,10 +1,10 @@
 # The Fighting-Game Core
 
-Verified: 2026-09-01 @ 59fd462
+Verified: 2026-09-02 @ 1d51d9e
 
 Cat Splat Engine is being built toward a deterministic, rollback-capable fighting game. That work does not live in `Engine/`. It is a **title** — `Games/UntitledFighter/` — and the engine does not depend on any of it. The link direction is a configure-time error, not a convention.
 
-Six libraries, and the order of this table is the dependency order:
+Seven libraries, and the order of this table is the dependency order:
 
 | Piece | Directory | Links | What it does |
 |---|---|---|---|
@@ -12,7 +12,8 @@ Six libraries, and the order of this table is the dependency order:
 | **`CseData`** | `Games/UntitledFighter/Data/` | nlohmann_json, comboprover | Loads a character file; projects it into the combo prover; bridges it into the kernel. |
 | **`CseGame`** | `Games/UntitledFighter/Game/` | `CseKernel`, `CseData` — and nothing else, by an exact whitelist | The headless game layer: the session, tick-indexed input sources, the replay format and its verifier, and the live combo judge. No GL, no window, so its claims are testable without a context. |
 | **`CseNet`** | `Net/` | GekkoNet (`PRIVATE`) | The rollback session seam. General-purpose, so it sits outside the title. |
-| **`UntitledFighterModes`** | `Games/UntitledFighter/Modes/` | `Engine`, `CseGame` | The game modes the Player and the editor's Game view both run: training mode, the box overlay, the HUD. |
+| **`UntitledFighterPresentation`** | `Games/UntitledFighter/Presentation/` | `CseGame` — and nothing else, by an exact whitelist | The GL-free half of the picture — today the stateless cycle phases. Headless, so DETERMINISM P4 stays a test. |
+| **`UntitledFighterModes`** | `Games/UntitledFighter/Modes/` | `Engine`, `CseGame`, `UntitledFighterPresentation` | The game modes the Player and the editor's Game view both run: training mode, the box overlay, the HUD. |
 | **`UntitledFighterEditor`** | `Games/UntitledFighter/Editor/` | `CseData`, ImGui | The Combo Prover panel — the decision procedure's verdict in front of a designer. |
 
 This page explains how to use them. It is not the design rationale — that lives in [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md) (decisions D1–D9) and in the [ADRs](../adr/README.md), and this page links to them rather than restating them.
@@ -155,7 +156,7 @@ The genre's movement rules, each landed 2026-08-20/30 with the test that owns it
 - **Knockdown.** A downed fighter cannot act, cannot be hit (`InvulnerableTo` answers before the move lookup, because a downed fighter has no move), and **is lying down** — the kernel's own `Hurtbox` returns the standing box tipped over, floor edge at zero, so the state reads in silhouette and not just in the overlay's colour. OTG will arrive as an authored per-move field, not a loosening. `P2Knockdown.*`.
 - **Crouching.** The body is the authored `crouch_height_px` (34 px against `fighter_a`'s 60) at the standing width; a move's own `hurtboxOverride` outranks the posture, because the move is the more specific statement; a character authoring nothing keeps one body. One ordering fact worth knowing: a crouching move cannot start on the exact tick of landing, because `crouching` is computed before the landing clamp. `P2Crouch.*`, `P2Movement.ACrouchingMoveCannotStartOnTheTickOfLanding`.
 
-The training keys: punches on **U/I/O**, kicks on **J/K/L** (the arcade rows read off a keyboard), **V** toggles corner/midscreen, **R** resets, and the floor's checkerboard is a ruler — 20 px squares, a heavier line every reach unit (100 px), so an authored `reach: 0.42` is four squares and a bit, counted off the floor.
+The training keys: punches on **U/I/O**, kicks on **J/K/L** (the arcade rows read off a keyboard), **V** toggles corner/midscreen, **R** resets, **B** cycles the overlay (boxes over mesh, boxes over translucent mesh, mesh only — M3.4e), and the floor's checkerboard is a ruler — 20 px squares, a heavier line every reach unit (100 px), so an authored `reach: 0.42` is four squares and a bit, counted off the floor.
 
 ### Boxes
 
@@ -324,8 +325,8 @@ LoadReport    report;                                   // CharacterData.h:338
 
 if (!LoadCharacterFile("Exported/Characters", "fighter_a.json",  // as staged, next to the exe
                        options, character, report)) {   // CharacterData.h:349
-    // report.error is non-empty; report.rule is "A01".."A08" when a load
-    // assertion is what refused it.
+    // report.error is non-empty; report.rule names the load assertion ("A01",
+    // "A21") when one is what refused it, and is empty for an ordinary check.
     log(report.error);
     return;
 }
@@ -356,6 +357,10 @@ These are ADR-001's assertions, and they run at load because load time is where 
 | **A06** | `CharacterData.cpp:393` | A multi-hit move whose last *unconditional* hit changes the hitstun, with no `engine.hits_projection_caveat` naming the direction of the error | Only unconditional records count as sequels. Kung Fu Girl's chop registers its second HitDef only when the first **whiffed**, so the two can never both land — a draft of this check without the exclusion fired on it. |
 | **A07** | `CharacterData.cpp:351` | `engine.hits[]` ticks that do not strictly increase | Out-of-order hits make "the first hit" ambiguous. |
 | **A08** | `CharacterData.cpp:431` | `engine.motion[]` ticks that do not strictly increase, or a non-integer velocity | Two keyframes on one tick means the result depends on which the loader applied last; a float velocity is a float in the simulation. |
+| **A21** | `checkAnim3d` in `CharacterData.cpp` | With `engine.anim3d.model` authored: a move whose clip (its id, or `engine.anim3d.clip`) is missing from the model's `<stem>.clips.json`, or has any length but `startup + active + recovery` (each clamped at zero) | Blender frame *k* is move frame *k* ([ADR-019](../adr/ADR-019-placeholders-through-blender.md) D2), so a clip one frame short shows the wrong pose on the last active frame and nothing downstream can tell. The message names the move, the clip, expected and actual, and shows the sum. `scripts/check_clips.py` spells the same sum from the glTF itself. |
+| **A22** | `checkAnim3d` in `CharacterData.cpp` | A presentation model whose sidecar lacks any of the fourteen reserved cycles (`idle` … `win`, `kReservedCycleNames`) | A missing cycle is a pose the selector will ask for and the artist never keyed; refusing at load names it instead of showing a rest pose mid-match. `test_pose_select` pins the list against `PoseKindName`. |
+
+A09–A20 are the schema-v3 assertions (invincibility, boxes, motion keys); their register is `x-load-assertions` in `Games/UntitledFighter/Assets/Characters/schema.v2.json`, which is the one place every rule id is listed. A21 and A22 are off by default: a character with no `engine.anim3d.model` checks neither, and the model itself is never opened by the loader — only its sidecar, read with nlohmann and contained against `LoadOptions::contentRoot` like every authored path (`CharacterData.PresentationModelIsOptionalAndSandboxed`). An unknown key under `engine.anim3d` at either level is an ordinary load error naming the key (`CharacterData.AnAnim3dKeyOutsideTheContractIsALoadErrorNamingTheKey`).
 
 The corresponding tests are in `tests/test_character_data.cpp` — `:320` for the A01 case that fabricated an infinite, `:393` for A02, `:273` and `:300` for A03's two halves.
 
@@ -534,7 +539,7 @@ Exactly one conversion happens here, because D8 says a quantization happens once
 
 | Quantity | Conversion |
 |---|---|
-| Frame data (startup / active / recovery / hitstun) | **Identity.** Schema v2 authors ticks at 60 Hz already. |
+| Frame data (startup / active / recovery / hitstun / blockstun / hitstop) | **Identity.** Schema v2 authors ticks at 60 Hz already. Blockstun crosses since M3.0b, which found it authored on every move, applied by the kernel, and carried by nothing (`BlockstunIsCarriedAndCountedInTheLedger`). |
 | Distances | **Identity.** The loader already produced sub-units. |
 | Damage | **hundredths → points**, rounded half away from zero, matching D2's `scaleBy`. Exact for every character in the tree (and the counter-hit `damage_bonus` crosses through the same rule, proven by authoring it equal to a move's damage and asserting the two kernel fields agree). |
 | Motion keys | **One sign flip**: the file's MUGEN-provenance Y-down velocities become the kernel's +Y-up at load, sorted by tick (`TheAuthoredMotionKeysCrossWithTheirOneSignFlip`); `pos_add` teleports are not carried and get their own KernelOmits row. The *new* fields (`engine.movement`, `launch`) author +Y-up directly and cross with no flip. |
@@ -753,9 +758,63 @@ before it is written.
 
 ---
 
+### `PoseSelect` — the pose is a kind and an integer
+
+`SelectPose(const MatchData&, const GameState&, slot)`
+(`Games/UntitledFighter/Game/include/cse/game/PoseSelect.h`) decides which clip a
+fighter wears and at which frame, from the state alone, and returns kinds and
+integers — `{kind, moveSlot, frame, remaining, tick, posXSub, posYSub, mirror,
+visible}` — never a clip name, never a float. The mode maps `(kind, moveSlot)`
+to a clip; the selector never learns that clips exist. It is the second reader
+of the decision `FightView::PhaseOf` makes for the box colours, placed in the
+library held to the sim's arithmetic rules; since ROADMAP M3.4c `PhaseOf` reads
+`SelectPose` for the knockdown-over-stun ordering, so the decision has one home.
+
+The precedence is the kernel's own, and each step names the kernel fact behind
+it: an inactive slot is `None`; `knockdown` outranks stun; `hitstun` reads as
+air or standing by `AirborneNow` and there is deliberately **no crouching hit
+reaction**, because `StepPhysics` clears `crouching` on the first unfrozen tick a
+fighter cannot act; `blockstun` reads crouching while `guard == kGuardLow`, which
+the kernel recomputes from held input on every unfrozen tick — release Down
+mid-blockstun and the pose stands up with the guard — and, on a frozen tick,
+where the kernel zeroes `guard` without reading the pad, from the preserved
+`crouching` byte instead, so a crouch-blocked hit does not flicker inside its
+own hitstop; a described `moveId` is `Move` at `frame == moveFrame` exactly, so
+hitstop freezes the pose for free and a move start is never a frame late; `Ko`
+and `Win` dress only a fighter doing **nothing** after `roundState` leaves
+`kRoundFighting` — `Win` on a KO'd opposing team or on a time-out with strictly
+more team health, summed as `stepRound` sums it — because the training host
+keeps simulating past a KO and a winner who walks must be posed by the walk;
+then air by the sign of `velY`, crouch, walk by the sign of `velX` against
+`facing`, idle. Countdown kinds carry `remaining` so a clip is indexed **from
+the end** (`frame = N − remaining`), the only pure function of a ticks-remaining
+counter that lands a getup on counter 0 whatever the authored length.
+
+What is pinned, headless, against the shipped `fighter_a`
+(`tests/test_pose_select.cpp`): a `Restore` followed by a re-run reproduces every
+pose byte for byte; the frame is `moveFrame` from 0 on the move's first tick;
+hitstop freezes both fighters' poses; the precedence, the released guard and the
+acting-after-KO cases; and asking never changes the state's bytes or its
+checksum. The GL-free composition layer above it — cycle phases
+(`cse::presentation::CycleFrame`, floor-mod so half a stage of negative `posX`
+never yields a negative frame), the clip table (`FighterClips`, M3.4b) and the
+matrices, camera and look (`FightPresentation`, M3.4c, next section) — is
+`UntitledFighterPresentation` under `Games/UntitledFighter/Presentation/`, which
+links `CseGame`, glm and nlohmann and nothing else by configure-time assertion.
+
+### The reconciler — the 3D presentation (M3.4c)
+
+When a character authors `engine.anim3d.model`, the training mode wears it. Two
+libraries share the work and the split is the point ([ADR-019](../adr/ADR-019-placeholders-through-blender.md) D9):
+
+- **`cse::presentation`** (`Games/UntitledFighter/Presentation/`, GL-free; links `CseGame`, glm and nlohmann, nothing else) does the arithmetic. `ComposeFrame(data, state, clips, look, stageHalfWidthSub, previousCentrePx, viewportW, viewportH)` runs `SelectPose` for each slot, looks the pose up in the `FighterClips` table, picks the clip frame (`ClipFrameFor`: the move frame for a move; `frames − remaining`, clamped at zero, for the countdown cycles so they land on their last frame as the counter reaches zero; the tick for a cycle; `posX / walkSpeed` for the walk), and builds the model matrix `translate(posX/256, posY/256, slotZ) × yaw(180° when facing == 1)` — a rotation with determinant +1, never a negative scale. It also frames the camera (`FightCameraFraming`: the 200 px half-width, 34 px deadzone, 42 px height and wall clamp that used to live in `FightView.cpp`) and derives the orthographic half-height the scene camera needs so that the scene camera and the 2D box overlay project a fighter's origin to the same pixel within half a pixel. It reads its inputs and writes only the result (`FightPresentation.ReconcilingAFrameLeavesTheGameStateBytesUntouched`).
+- **`FightScene`** (`Games/UntitledFighter/Modes/src/FightScene.h`) owns the entities: two fighters with `ModelComponent`, `SkinnedPose`, `Transform`, `AABB` and a per-slot toon `MaterialOverrides` tint, and an orthographic `CameraComponent` whose priority is the look's or one above the highest enabled host camera, whichever is higher, so it outranks every camera in the host scene (`FightPresentation.TheFightCameraOutranksEveryCameraInTheHostScene`). Every frame the mode writes the composition into them in `Update` — before the host's `UpdateTransforms` and camera director run, so nothing is a frame late — and the palette is `SamplePalette`'s bytes at the selected frame (`FightPresentation.ThePaletteBytesEqualSamplePaletteAtTheSelectedFrame`). No clip means the rest pose. The entities are destroyed on teardown and on `Exit`, and rebuilt if a scene swap cleared the registry.
+
+The committed look is `Games/UntitledFighter/Assets/UntitledFighter/fight_look.json` (staged to `Exported/UntitledFighter/`), applied on adopt to both suns (the scene's shading sun and the renderer's shadow sun), exposure, IBL, the outline and the shadow range, and restored when the mode leaves. Its numbers are in world pixels and must satisfy ADR-019 D5: shadow distance ≥ camera distance + room depth, far plane past the back wall, near plane in front of the fighters (`FightPresentation.TheBackWallIsInsideTheShadowRange` proves the committed file; an unknown key is refused by name like the character file). With a model on screen the 2D backdrop and floor are not drawn; the kernel's Hurtbox outline, the ActiveHitbox and the origin stay on top, because judging the fist against the box is what the pass is for. **B** cycles three overlay modes (`cse::presentation::OverlayMode`, M3.4e): boxes over the mesh (default), boxes over a translucent mesh — the per-slot materials switch to the renderer's Blend alpha mode at 35 % opacity so the box edge reads through the limb — and mesh only. The 2D ruler draws only with the boxes on and no model on screen, because the room's grid is the ruler (`FightPresentation.OverlayModeCyclesThreeStatesAndStartsWithBoxes`). `PhaseOf` now reads `SelectPose` for the knockdown-over-stun ordering and adds only the frame split, so that decision has one home.
+
 ## The modes: training, frame step, HUD
 
-`Games/UntitledFighter/Modes/` is the title's presentation, and it is a
+`Games/UntitledFighter/Modes/` is the title's drawing layer, and it is a
 `MyCoreEngine::IGameMode` — so the **shipped Player and the editor's Game view
 enter the same object**, which is the "Play == Player" property in one sentence.
 `RegisterTitleGameModes` is the seam: the engine never names a title, the title

@@ -56,6 +56,7 @@
 namespace MyCoreEngine {
 
     class Application;
+    class AssetManager;
     class Font;
     class Renderer2D;
     class Scene;
@@ -86,6 +87,13 @@ namespace MyCoreEngine {
         // it is expected to go through a sandbox check first
         // (docs/MAINTENANCE.md).
         std::string contentRoot = "Exported";
+
+        // The host's asset cache (ROADMAP M3.4b, ADR-019 D9), so a mode can load
+        // a presentation model through the same cache and reload door every
+        // other model uses instead of owning a second loader. May be null -- a
+        // host with no renderer has none -- and a mode must then draw nothing
+        // 3D rather than crash.
+        AssetManager* assets = nullptr;
     };
 
     // One thing the host can be in.

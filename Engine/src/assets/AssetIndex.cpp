@@ -19,7 +19,11 @@ namespace {
                                             const std::string& name) {
         using Kind = MyCoreEngine::AssetIndex::Kind;
         const std::string ext = lowerExt(p);
-        if (ext == ".obj") return Kind::Model;
+        // glTF joined OBJ in ROADMAP M3.2a: it is the interchange the art
+        // pipeline exports (ADR-019 D1), and a model the index does not
+        // classify cannot be spawned from the Assets panel or validated by
+        // the cooker, however well Model::Decode would read it by hand.
+        if (ext == ".obj" || ext == ".gltf" || ext == ".glb") return Kind::Model;
         if (ext == ".json" && name != "project.json") return Kind::SceneJson;
         if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".hdr" ||
             ext == ".tga" || ext == ".bmp") return Kind::Texture;

@@ -1,3 +1,11 @@
 # Shell scripts must stay LF-terminated or they won't run on Linux
 # (a CRLF shebang line makes the kernel fail to find the interpreter).
 *.sh text eol=lf
+
+# Model fixtures and exported art: glTF text is JSON (LF), the rest is bytes a
+# checkout must never re-encode (ROADMAP M3.2a, ADR-019 D1).
+*.gltf text eol=lf
+*.glb  binary
+*.bin  binary
+*.png  binary
+*.hdr  binary

@@ -121,6 +121,13 @@ jobs:
         # escape for the deliberately absent.
         run: python scripts/check_docs.py
 
+      - name: The clips gate — exported animations carry the frame counts the data says
+        # ROADMAP M3.3a / ADR-019 D2. Reads the committed Blender-exported paddle
+        # (tests/fixtures/models/paddle_blender.gltf) with the standard library
+        # and first proves the detector refuses a count/span disagreement. CI
+        # has no Blender and never needs one: the witness is the committed file.
+        run: python scripts/check_clips.py --self-test
+
   windows:
     name: Windows · build + test
     runs-on: windows-2022

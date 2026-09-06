@@ -59,6 +59,8 @@ namespace MyCoreEngine {
         out.fovDeg = glm::clamp(cc.fovDeg, 1.f, 179.f);
         out.nearClip = cc.nearClip > 1e-3f ? cc.nearClip : 1e-3f;
         out.farClip = std::max(cc.farClip, MinFarClipFor(out.nearClip));
+        out.projection = cc.projection;
+        out.orthoHalfHeight = std::max(cc.orthoHalfHeight, 1e-3f); // zero divides in glm::ortho
         return true;
     }
 
@@ -77,6 +79,8 @@ namespace MyCoreEngine {
         cam.Zoom = p.fovDeg;
         cam.NearClip = p.nearClip;
         cam.FarClip = p.farClip;
+        cam.Projection = p.projection;
+        cam.OrthoHalfHeight = p.orthoHalfHeight;
     }
 
     bool CameraDirector::Update(entt::registry& reg, float dt, Camera& cam)
@@ -124,6 +128,12 @@ namespace MyCoreEngine {
             out.fovDeg = glm::mix(fromPose_.fovDeg, target.fovDeg, s);
             out.nearClip = glm::mix(fromPose_.nearClip, target.nearClip, s);
             out.farClip = glm::mix(fromPose_.farClip, target.farClip, s);
+            // A projection mode is discrete (M3.2g): the outgoing mode holds
+            // until the midpoint and the incoming one from there, while the
+            // fov and the half-height each blend on their own -- so whichever
+            // mode is live lands on its own target without a pop.
+            out.orthoHalfHeight = glm::mix(fromPose_.orthoHalfHeight, target.orthoHalfHeight, s);
+            out.projection = (s < 0.5f) ? fromPose_.projection : target.projection;
         }
 
         lastOutput_ = out;

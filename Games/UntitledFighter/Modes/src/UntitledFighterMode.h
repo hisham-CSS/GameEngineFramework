@@ -84,6 +84,11 @@
 #include "cse/game/FightSession.h"
 #include "cse/game/InputSource.h"
 
+#include "cse/presentation/FighterClips.h"
+#include "cse/presentation/FightPresentation.h"
+
+#include "FightScene.h"
+
 #include "cse/kernel/GameState.h"
 
 #include <cstdint>
@@ -185,6 +190,10 @@ private:
 
     void applyStagePosition_();
     bool         stageMidscreen_   = false;
+    // Which overlay the author is looking through (M3.4e): boxes over the
+    // mesh, boxes over a translucent mesh, or the mesh alone. Presentation
+    // state of the author's choice -- it changes what is drawn, never a tick.
+    cse::presentation::OverlayMode overlay_ = cse::presentation::kDefaultOverlayMode;
     std::int32_t bodyHalfWidthSub_ = 0;
 
     void resetMatch_();
@@ -309,6 +318,40 @@ private:
     // save that fixes a broken file is noticed and revives the honest-error
     // screen -- previously only C could, and C advances to the NEXT character.
     cse::data::CharacterFileWatch reloadWatch_;
+    // The presentation model's own two watches (ROADMAP M3.4b): the glTF and
+    // its `<stem>.clips.json`, bound in adoptPrepared_ when the character
+    // authors engine.anim3d.model and polled beside reloadWatch_, so a
+    // re-export lands like a frame-data edit -- through the same load, the
+    // same A21/A22, and the same keep-last-good + HUD line when it disagrees.
+    cse::data::CharacterFileWatch modelWatch_;
+    cse::data::CharacterFileWatch sidecarWatch_;
+    // Which clip each (kind, move slot) wears -- bound BY MOVE ID in
+    // adoptPrepared_, beside the binding table and for the same reason: a
+    // reload that renumbers slots must not hand one move another's clip.
+    cse::presentation::FighterClips clips_;
+
+    // --- the 3D presentation (ROADMAP M3.4c) --------------------------------
+    //
+    // On when the character authors engine.anim3d.model and the model loaded;
+    // off, and every frame draws the 2D placeholders as before, otherwise.
+    // The scene owns the entities; scene3d_ owns their handles and re-creates
+    // them if a scene swap took them away. look_ is the committed
+    // fight_look.json (or its defaults, with a note); lookSnapshot_ is what it
+    // overwrote on the host, put back on teardown and Exit.
+    void reconcile_();
+    void loadLook_();
+    void applyLook_();
+    void createScene3d_();
+    void destroyScene3d_();
+    FightScene                       scene3d_;
+    std::shared_ptr<MyCoreEngine::Model> model_;
+    cse::presentation::FightLook     look_{};
+    LookSnapshot                     lookSnapshot_{};
+    std::string                      presentationNote_;   // why the 3D pass is off, for the HUD
+    // The last viewport Draw was handed: the camera's aspect for the NEXT
+    // frame's composition, which runs in Update, before this frame's Draw.
+    int viewportW_ = 1280;
+    int viewportH_ = 720;
     // A latching sequencing failure. Fatal to the match rather than to the
     // process: LatchedInputSource::Latch returning false means the input log
     // would have a hole in it, and its header says a caller that gets false back

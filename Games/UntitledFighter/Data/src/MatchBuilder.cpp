@@ -104,7 +104,7 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
     std::int32_t stanced = 0, withEffect = 0, withGuard = 0, withPushback = 0;
     std::int32_t withHitCondition = 0, noReach = 0, withReach = 0;
     std::int32_t withHits = 0, withMotion = 0, withEscapeHatch = 0;
-    std::int32_t offMid = 0, withHitstop = 0, withPosAdd = 0;
+    std::int32_t offMid = 0, withHitstop = 0, withPosAdd = 0, withBlockstun = 0;
     std::int32_t withCornerPush = 0, withCounter = 0;
     std::int32_t withAirHitstun = 0, withLaunch = 0, withOnHit = 0;
 
@@ -118,6 +118,7 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
         if (!m.guard.empty())               ++withGuard;
         if (m.pushbackSub != 0)             ++withPushback;
         if (m.hitstopTicks != 0)            ++withHitstop;
+        if (m.blockstunTicks != 0)          ++withBlockstun;
         if (m.counterHitstunBonus != 0 || m.counterDamageBonusHundredths != 0)
             ++withCounter;
         if (m.airHitstunTicks > 0)          ++withAirHitstun;
@@ -347,6 +348,18 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
             "visible to a masher: the freeze shifts re-press phase against a "
             "one-tick link, which is what the one_frame_link variants zero it "
             "for. Saturated at the uint16 slot.");
+
+    addLoss(report, "move.blockstun", BuildLossDirection::Exact, withBlockstun,
+            "What a BLOCK costs the defender, carried whole into "
+            "MoveDef::blockstun (ROADMAP M3.0b) and applied by ResolveHits' "
+            "blocked arm, which the kernel has run since M1.3(a). Found by "
+            "M3.4a's pose test: the schema authored it on every fighter_a move, "
+            "the kernel applied the slot, and nothing carried the one into the "
+            "other -- every block gave zero blockstun and this table had no row "
+            "to say so. Not a hit, so the prover's projection is unmoved: "
+            "ProverAdapter never reads it, and a blocked hit is not a link in "
+            "any combo it certifies. Negative is refused at build like hitstun; "
+            "saturated at the int16 slot.");
 
     addLoss(report, "move.stance", BuildLossDirection::Exact, stanced,
             "What the fighter must be in to START the move, mapped by name into "
@@ -972,6 +985,12 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
             report.error = where + ": negative hitstun (" + num(src.hitstun) + ").";
             return false;
         }
+        if (src.blockstunTicks < 0) {
+            report.error = where + ": negative blockstun (" + num(src.blockstunTicks) +
+                           "). ResolveHits clamps a negative to zero, but a file that "
+                           "authors one is saying something it does not mean.";
+            return false;
+        }
         if (src.damageHundredths < 0) {
             report.error = where + ": negative damage (" + num(src.damageHundredths) +
                            " hundredths). ResolveHits clamps a negative to zero so "
@@ -1089,6 +1108,19 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
             if (freeze < 0) freeze = 0;
             if (freeze > kMaxFreeze) freeze = kMaxFreeze;
             m.hitstop = static_cast<std::uint16_t>(freeze);
+        }
+
+        // BLOCKSTUN, CARRIED WHOLE (ROADMAP M3.0b). The slot has existed since
+        // the kernel grew a guard (M1.3(a)) and ResolveHits has applied it on
+        // every blocked hit since -- to a value nothing ever filled. Identity,
+        // like hitstun; the negative was refused above; saturated at the int16
+        // slot for the reason pushback is (Combat.cpp clamps again at
+        // kMaxStunTicks when it applies).
+        {
+            constexpr std::int32_t kMaxBlockstun = 32767;
+            std::int32_t stun = src.blockstunTicks;
+            if (stun > kMaxBlockstun) stun = kMaxBlockstun;
+            m.blockstun = static_cast<std::int16_t>(stun);
         }
 
         // KNOCKDOWN, from engine.reaction, saturated at its unsigned 16-bit

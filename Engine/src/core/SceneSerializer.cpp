@@ -166,6 +166,9 @@ namespace MyCoreEngine {
                     { "farClip",  cam->farClip },
                     { "priority", cam->priority },
                     { "enabled",  cam->enabled },
+                    // appended M3.2g; a reader that predates them ignores them
+                    { "projection",      static_cast<int>(cam->projection) },
+                    { "orthoHalfHeight", cam->orthoHalfHeight },
                 };
             }
             if (auto* lc = reg.try_get<LightComponent>(e)) {
@@ -593,6 +596,13 @@ namespace MyCoreEngine {
                                        MinFarClipFor(cam.nearClip));
                 cam.priority = jc.value("priority", cam.priority);
                 cam.enabled = jc.value("enabled", cam.enabled);
+                // appended M3.2g: absent from every file saved before, so the
+                // struct default -- perspective -- is what those load as; an
+                // unknown mode number reads as perspective too, never garbage
+                const int pm = jc.value("projection", static_cast<int>(cam.projection));
+                cam.projection = (pm == static_cast<int>(CameraProjection::Orthographic))
+                                     ? CameraProjection::Orthographic : CameraProjection::Perspective;
+                cam.orthoHalfHeight = std::max(jc.value("orthoHalfHeight", cam.orthoHalfHeight), 1e-3f);
                 // legacy (pre camera-director): "primary": true marked the
                 // rendered camera — map it to a priority bump. Later
                 // primaries get HIGHER priority: the old selection iterated

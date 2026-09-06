@@ -250,3 +250,374 @@ TEST_F(ModelDecodeTest, ConcurrentTexturedGridDecodesAreIdentical) {
     std::error_code ec;
     std::filesystem::remove_all("decode_hl", ec);
 }
+
+// ============================================================================
+// glTF enters the static model path (ROADMAP M3.2a; ADR-019 D1)
+// ============================================================================
+//
+// Two things a Blender export does that OBJ never did, each pinned on a
+// committed fixture that tests/fixtures/models/make_fixtures.py writes with the
+// standard library alone (no Blender, no GPU, nothing an artist's machine has to
+// provide): meshes sit under TRANSFORMED nodes, and UVs are authored with the
+// origin at the image's top-left. The first used to be silently ignored -- the
+// vertices were copied verbatim and every part of a hierarchy landed at the
+// origin; the second is the one where "fix" it and you break it: Assimp's glTF2
+// importer already flips V on import, aiProcess_FlipUVs flips it again, and the
+// OBJ importer flips once through the same flag, so BOTH formats arrive in one
+// convention. The second test exists so nobody "corrects" one flip and ships
+// upside-down textures for one format.
+#include <cmath>
+#include <string>
+
+namespace {
+
+std::string modelFixturesDir() {
+    namespace fs = std::filesystem;
+    fs::path here = fs::current_path();
+    for (int i = 0; i < 8; ++i) {
+        // Committed fixtures, deliberately NOT staged next to an executable:
+        // they are test evidence, not content. Walking up keeps this runnable
+        // from a build tree or a shell.
+        const fs::path candidate = here / "tests" / "fixtures" / "models";
+        if (fs::exists(candidate / "child_offset.gltf")) return candidate.string();
+        if (!here.has_parent_path() || here.parent_path() == here) break;
+        here = here.parent_path();
+    }
+    return "tests/fixtures/models";
+}
+
+const Vertex* findAt(const std::vector<Vertex>& vs, float x, float y, float z) {
+    for (const Vertex& v : vs)
+        if (std::fabs(v.Position.x - x) < 1e-4f && std::fabs(v.Position.y - y) < 1e-4f &&
+            std::fabs(v.Position.z - z) < 1e-4f)
+            return &v;
+    return nullptr;
+}
+
+} // namespace
+
+TEST(ModelDecodeGltf, AChildNodesTransformLandsItsVerticesInWorldSpace) {
+    const ModelCPUData cpu = Model::Decode(modelFixturesDir() + "/child_offset.gltf");
+    ASSERT_TRUE(cpu.valid) << "child_offset.gltf did not decode from " << modelFixturesDir();
+    ASSERT_EQ(cpu.meshes.size(), 1u);
+    const std::vector<Vertex>& vs = cpu.meshes[0].vertices;
+    ASSERT_EQ(vs.size(), 4u) << "JoinIdenticalVertices should leave the quad its four corners";
+
+    // Authored at +-0.5 under a node translated (10, 0, 0) and scaled 2: the
+    // corners must land at x in {9, 11}, z in {-1, 1}, y = 0.
+    for (float x : { 9.f, 11.f })
+        for (float z : { -1.f, 1.f })
+            EXPECT_NE(findAt(vs, x, 0.f, z), nullptr)
+                << "no vertex at (" << x << ", 0, " << z
+                << "): the node's transform did not reach the vertices";
+    for (const Vertex& v : vs) {
+        EXPECT_NEAR(v.Normal.y, 1.f, 1e-4f)
+            << "a translate plus a uniform scale must leave the normal +Y";
+        EXPECT_NEAR(glm::length(v.Normal), 1.f, 1e-4f) << "the baked normal is not unit";
+    }
+
+    // Assimp's glTF2 importer prepends a default material of its own, so the
+    // authored one is found by NAME -- which is the whole point of carrying it
+    // -- and the mesh must point at that one, not at the importer's default.
+    ASSERT_GE(cpu.materials.size(), 1u);
+    int authored = -1;
+    for (size_t i = 0; i < cpu.materials.size(); ++i)
+        if (cpu.materials[i].name == "grid_heavy") authored = (int)i;
+    ASSERT_NE(authored, -1) << "no material named grid_heavy survived Decode; the authored "
+                               "name was lost (materials: " << cpu.materials.size() << ")";
+    EXPECT_EQ(cpu.meshes[0].materialIndex, authored)
+        << "the quad is bound to material " << cpu.meshes[0].materialIndex
+        << " but the authored material is " << authored;
+}
+
+TEST(ModelDecodeGltf, AGltfAndAnObjOfTheSameQuadSampleTheSameTexel) {
+    const ModelCPUData g = Model::Decode(modelFixturesDir() + "/uv_quad.gltf");
+    const ModelCPUData o = Model::Decode(modelFixturesDir() + "/uv_quad.obj");
+    ASSERT_TRUE(g.valid) << "uv_quad.gltf did not decode";
+    ASSERT_TRUE(o.valid) << "uv_quad.obj did not decode";
+    ASSERT_EQ(g.meshes.size(), 1u);
+    ASSERT_EQ(o.meshes.size(), 1u);
+    ASSERT_EQ(g.meshes[0].vertices.size(), 4u);
+    ASSERT_EQ(o.meshes[0].vertices.size(), 4u);
+
+    int matched = 0;
+    for (const Vertex& gv : g.meshes[0].vertices) {
+        const Vertex* ov = findAt(o.meshes[0].vertices, gv.Position.x, gv.Position.y, gv.Position.z);
+        ASSERT_NE(ov, nullptr) << "the OBJ has no vertex at the glTF corner ("
+                               << gv.Position.x << ", " << gv.Position.z << ")";
+        EXPECT_NEAR(gv.TexCoords.x, ov->TexCoords.x, 1e-5f)
+            << "u differs at (" << gv.Position.x << ", " << gv.Position.z << ")";
+        EXPECT_NEAR(gv.TexCoords.y, ov->TexCoords.y, 1e-5f)
+            << "v differs at (" << gv.Position.x << ", " << gv.Position.z
+            << "): the importers' flips and aiProcess_FlipUVs no longer cancel into "
+               "one convention, and one format's textures are upside down";
+        ++matched;
+    }
+    EXPECT_EQ(matched, 4);
+
+    // The convention itself, so a change cannot flip BOTH and pass: the
+    // far-left corner carries the image's TOP-left texel, and the decoded v
+    // there is 0 -- top-left origin, against the rows stbi flips on load.
+    const Vertex* farLeft = findAt(g.meshes[0].vertices, -0.5f, 0.f, -0.5f);
+    ASSERT_NE(farLeft, nullptr);
+    EXPECT_NEAR(farLeft->TexCoords.x, 0.f, 1e-5f);
+    EXPECT_NEAR(farLeft->TexCoords.y, 0.f, 1e-5f)
+        << "the far-left corner must decode to v = 0; the renderer's convention moved";
+}
+
+// ============================================================================
+// Skeleton and skin weights (ROADMAP M3.2b; ADR-019 D1/D2)
+// ============================================================================
+//
+// Skinning is the one renderer feature the showcase freeze admits, and this is
+// its CPU half: one Skeleton per model from the node tree (parent-first), and
+// per-vertex joints/weights BESIDE the vertices so the static Vertex, the LOD
+// stride and every shipped OBJ stay byte for byte what they were.
+
+namespace {
+
+const Vertex* firstAtY(const std::vector<Vertex>& vs, float y) {
+    for (const Vertex& v : vs)
+        if (std::fabs(v.Position.y - y) < 1e-4f) return &v;
+    return nullptr;
+}
+
+std::size_t indexOf(const std::vector<Vertex>& vs, const Vertex* v) {
+    return static_cast<std::size_t>(v - vs.data());
+}
+
+} // namespace
+
+TEST(ModelDecodeSkin, TwoBoneStripYieldsTwoNamedJointsWithNormalisedWeights) {
+    const ModelCPUData cpu = Model::Decode(modelFixturesDir() + "/two_bone_strip.gltf");
+    ASSERT_TRUE(cpu.valid) << "two_bone_strip.gltf did not decode: " << cpu.importError;
+
+    ASSERT_EQ(cpu.skeleton.joints.size(), 2u) << "the strip binds to exactly root and tip";
+    EXPECT_EQ(cpu.skeleton.joints[0].name, "root");
+    EXPECT_EQ(cpu.skeleton.joints[0].parent, -1);
+    EXPECT_EQ(cpu.skeleton.joints[1].name, "tip");
+    EXPECT_EQ(cpu.skeleton.joints[1].parent, 0) << "tip's parent is root";
+    EXPECT_TRUE(cpu.skeleton.ParentsPrecedeChildren());
+    EXPECT_EQ(cpu.skeleton.Find("tip"), 1);
+    EXPECT_EQ(cpu.skeleton.Find("nobody"), -1);
+    // tip sits one unit above root: its local bind translates by +1 in y, and
+    // its inverse bind undoes exactly that.
+    EXPECT_NEAR(cpu.skeleton.joints[1].localBind[3][1], 1.0f, 1e-5f)
+        << "tip's local bind pose lost its (0, 1, 0) translation";
+    EXPECT_NEAR(cpu.skeleton.joints[1].inverseBind[3][1], -1.0f, 1e-5f)
+        << "tip's inverse bind matrix is not the inverse of its bind pose";
+
+    ASSERT_EQ(cpu.meshes.size(), 1u);
+    const auto& m = cpu.meshes[0];
+    ASSERT_FALSE(m.skin.Empty()) << "a mesh with bones decoded with no skin stream";
+    ASSERT_EQ(m.skin.joints.size(), m.vertices.size());
+    ASSERT_EQ(m.skin.weights.size(), m.vertices.size());
+    for (std::size_t i = 0; i < m.vertices.size(); ++i) {
+        const glm::vec4& w = m.skin.weights[i];
+        EXPECT_NEAR(w.x + w.y + w.z + w.w, 1.0f, 1e-5f)
+            << "vertex " << i << "'s weights do not sum to one";
+        for (int s = 0; s < 4; ++s)
+            EXPECT_LT(m.skin.joints[i][s], 2) << "vertex " << i << " names a joint that does not exist";
+    }
+    // The bottom row is root's alone, the top row tip's alone, and the middle
+    // row -- authored 0.3 / 0.3 -- is half and half after normalisation.
+    const Vertex* bottom = firstAtY(m.vertices, 0.f);
+    const Vertex* middle = firstAtY(m.vertices, 1.f);
+    const Vertex* top    = firstAtY(m.vertices, 2.f);
+    ASSERT_NE(bottom, nullptr); ASSERT_NE(middle, nullptr); ASSERT_NE(top, nullptr);
+    {
+        const glm::ivec4& j = m.skin.joints[indexOf(m.vertices, bottom)];
+        const glm::vec4&  w = m.skin.weights[indexOf(m.vertices, bottom)];
+        EXPECT_EQ(j.x, 0); EXPECT_NEAR(w.x, 1.f, 1e-5f);
+    }
+    {
+        const glm::ivec4& j = m.skin.joints[indexOf(m.vertices, top)];
+        const glm::vec4&  w = m.skin.weights[indexOf(m.vertices, top)];
+        EXPECT_EQ(j.x, 1) << "the top row must bind to tip";
+        EXPECT_NEAR(w.x, 1.f, 1e-5f);
+    }
+    {
+        const glm::vec4& w = m.skin.weights[indexOf(m.vertices, middle)];
+        float wRoot = 0.f, wTip = 0.f;
+        const glm::ivec4& j = m.skin.joints[indexOf(m.vertices, middle)];
+        for (int s = 0; s < 4; ++s) {
+            if (w[s] == 0.f) continue;
+            if (j[s] == 0) wRoot += w[s]; else if (j[s] == 1) wTip += w[s];
+        }
+        EXPECT_NEAR(wRoot, 0.5f, 1e-5f) << "0.3/0.3 authored must normalise to 0.5/0.5";
+        EXPECT_NEAR(wTip,  0.5f, 1e-5f);
+    }
+}
+
+TEST(ModelDecodeSkin, TwoMeshesSharingOneSkinShareOneSkeleton) {
+    const ModelCPUData cpu = Model::Decode(modelFixturesDir() + "/two_meshes_one_skin.gltf");
+    ASSERT_TRUE(cpu.valid) << cpu.importError;
+    ASSERT_EQ(cpu.meshes.size(), 2u);
+    ASSERT_EQ(cpu.skeleton.joints.size(), 2u)
+        << "two meshes on one skin must yield ONE skeleton, not one per mesh's aiBone list";
+    for (const auto& m : cpu.meshes) {
+        ASSERT_FALSE(m.skin.Empty());
+        const Vertex* top = firstAtY(m.vertices, 2.f);
+        ASSERT_NE(top, nullptr);
+        EXPECT_EQ(m.skin.joints[indexOf(m.vertices, top)].x, 1)
+            << "both meshes must name tip by the same index";
+    }
+}
+
+TEST(ModelDecodeSkin, AnObjDecodeCarriesNoSkeletonAndItsVertexBytesAreUnchanged) {
+    static_assert(sizeof(Vertex) == 14 * sizeof(float),
+                  "the static Vertex grew: skinning must live BESIDE it, not inside it "
+                  "(every shipped OBJ and the LOD stride depend on this)");
+    const ModelCPUData cpu = Model::Decode(modelFixturesDir() + "/uv_quad.obj");
+    ASSERT_TRUE(cpu.valid);
+    EXPECT_TRUE(cpu.skeleton.Empty()) << "an OBJ has no bones and must carry no skeleton";
+    EXPECT_TRUE(cpu.importError.empty());
+    for (const auto& m : cpu.meshes)
+        EXPECT_TRUE(m.skin.Empty()) << "an unskinned mesh must carry no skin stream";
+}
+
+TEST(ModelDecodeSkin, ARigOverThePaletteCapIsRefusedNamingTheCount) {
+    const ModelCPUData cpu = Model::Decode(modelFixturesDir() + "/too_many_joints.gltf");
+    EXPECT_FALSE(cpu.valid) << "a 129-joint rig must be refused, never truncated";
+    EXPECT_NE(cpu.importError.find("129"), std::string::npos)
+        << "the refusal must name the count; it says: " << cpu.importError;
+    EXPECT_NE(cpu.importError.find("128"), std::string::npos)
+        << "the refusal must name the cap; it says: " << cpu.importError;
+    EXPECT_TRUE(cpu.skeleton.Empty());
+}
+
+// ============================================================================
+// Clips on the 60 Hz grid, integer frames only (ROADMAP M3.2c; ADR-019 D2)
+// ============================================================================
+//
+// Sample k IS key k. The decoder asserts the grid so a clip exported at the
+// wrong rate, or with Optimize Animation Size left on, is refused at import
+// naming the clip and the key -- never shown a frame late.
+
+TEST(ModelDecodeClips, AClipAuthoredAtFourteenFramesDecodesToFourteenFrames) {
+    const ModelCPUData cpu = Model::Decode(modelFixturesDir() + "/two_bone_strip.gltf");
+    ASSERT_TRUE(cpu.valid) << cpu.importError;
+    ASSERT_EQ(cpu.clips.clips.size(), 2u) << "the strip carries 'fourteen' and 'held'";
+
+    const Clip* fourteen = cpu.clips.Find("fourteen");
+    ASSERT_NE(fourteen, nullptr);
+    EXPECT_EQ(fourteen->frames, 14u) << "14 keys on the grid are 14 frames, no more, no fewer";
+    EXPECT_EQ(fourteen->joints, 2u);
+    EXPECT_EQ(fourteen->local.size(), 14u * 2u);
+
+    const Clip* held = cpu.clips.Find("held");
+    ASSERT_NE(held, nullptr);
+    EXPECT_EQ(held->frames, 5u)
+        << "five identical keys are five frames: a held pose is not collapsed into one";
+    for (std::uint32_t k = 1; k < held->frames; ++k)
+        EXPECT_EQ(held->LocalAt(k, 1), held->LocalAt(0, 1))
+            << "held frame " << k << " differs from frame 0";
+
+    // Frame k of 'fourteen' rotates tip by 5k degrees about X: frames differ,
+    // and the first is the rest orientation.
+    EXPECT_NE(fourteen->LocalAt(1, 1), fourteen->LocalAt(0, 1));
+    EXPECT_NE(fourteen->LocalAt(13, 1), fourteen->LocalAt(12, 1));
+    EXPECT_EQ(cpu.clips.Find("nobody"), nullptr);
+}
+
+TEST(ModelDecodeClips, ARotationOnlyJointIsConstantNotRefused) {
+    const ModelCPUData cpu = Model::Decode(modelFixturesDir() + "/two_bone_strip.gltf");
+    ASSERT_TRUE(cpu.valid) << "a joint with a rotation channel and no position/scale channel must decode: "
+                           << cpu.importError;
+    const Clip* fourteen = cpu.clips.Find("fourteen");
+    ASSERT_NE(fourteen, nullptr);
+    // root has NO channel: it wears its bind pose in every frame.
+    for (std::uint32_t k = 0; k < fourteen->frames; ++k)
+        EXPECT_EQ(fourteen->LocalAt(k, 0), cpu.skeleton.joints[0].localBind)
+            << "root, which the clip never animates, left its bind pose at frame " << k;
+    // tip's translation stays (0, 1, 0) on every frame -- the single synthesised
+    // position key is a constant -- while its rotation changes.
+    for (std::uint32_t k = 0; k < fourteen->frames; ++k) {
+        const glm::mat4& m = fourteen->LocalAt(k, 1);
+        EXPECT_NEAR(m[3][0], 0.f, 1e-5f);
+        EXPECT_NEAR(m[3][1], 1.f, 1e-5f) << "tip's constant translation moved at frame " << k;
+        EXPECT_NEAR(m[3][2], 0.f, 1e-5f);
+    }
+}
+
+TEST(ModelDecodeClips, AClipWhoseKeysAreOffTheSixtyHertzGridIsRefusedNamingTheClipAndTheKey) {
+    const ModelCPUData cpu = Model::Decode(modelFixturesDir() + "/off_grid.gltf");
+    EXPECT_FALSE(cpu.valid) << "a key at 1/50 s is off the 60 Hz grid and must be refused";
+    EXPECT_NE(cpu.importError.find("offgrid"), std::string::npos)
+        << "the refusal must name the clip; it says: " << cpu.importError;
+    EXPECT_NE(cpu.importError.find("key 1"), std::string::npos)
+        << "the refusal must name the key; it says: " << cpu.importError;
+    EXPECT_TRUE(cpu.clips.Empty());
+}
+
+TEST(ModelDecodeClips, AClipCarriesNoTimeOnlyFrames) {
+    // The compile-time half of "the sampler has no clock": the frame count is
+    // an integer, and the fixture's clips read back as integers that agree
+    // with the file's key counts. A Clip with a duration in seconds could not
+    // pass the second half without the first.
+    static_assert(std::is_same_v<decltype(Clip::frames), std::uint32_t>, "Clip::frames is an integer");
+    static_assert(!std::is_floating_point_v<decltype(Clip::frames)>, "no seconds in a Clip");
+    const ModelCPUData cpu = Model::Decode(modelFixturesDir() + "/two_bone_strip.gltf");
+    ASSERT_TRUE(cpu.valid);
+    for (const Clip& c : cpu.clips.clips)
+        EXPECT_EQ(c.local.size(), static_cast<std::size_t>(c.frames) * c.joints)
+            << "clip " << c.name << " does not hold exactly frames x joints transforms";
+}
+
+// ============================================================================
+// Pose bounds (ROADMAP M3.2d): the box culling reads for a skinned entity
+// ============================================================================
+//
+// Skinned by hand, every vertex of every frame of every clip must lie inside
+// the bounds Decode computed from swept per-joint boxes -- the property the
+// frustum cull will rely on so a posed limb outside the rest AABB still draws.
+TEST(ModelDecodeSkin, TheSkinnedBoundsContainEveryVertexOfEveryClipFrame) {
+    const ModelCPUData cpu = Model::Decode(modelFixturesDir() + "/two_bone_strip.gltf");
+    ASSERT_TRUE(cpu.valid) << cpu.importError;
+    ASSERT_TRUE(cpu.poseBounds.valid) << "a skinned model must carry pose bounds";
+    ASSERT_FALSE(cpu.clips.Empty());
+
+    const std::size_t n = cpu.skeleton.joints.size();
+    std::vector<glm::mat4> palette(n);
+    int checked = 0;
+    auto check = [&](const char* clipName, std::uint32_t frame) {
+        for (const auto& m : cpu.meshes) {
+            if (m.skin.Empty()) continue;
+            for (std::size_t v = 0; v < m.vertices.size(); ++v) {
+                glm::vec4 p(0.f);
+                for (int s = 0; s < 4; ++s) {
+                    const float w = m.skin.weights[v][s];
+                    if (w <= 0.f) continue;
+                    p += w * (palette[m.skin.joints[v][s]] * glm::vec4(m.vertices[v].Position, 1.f));
+                }
+                for (int axis = 0; axis < 3; ++axis) {
+                    EXPECT_GE(p[axis], cpu.poseBounds.min[axis] - 1e-4f)
+                        << clipName << " frame " << frame << " vertex " << v << " axis " << axis << " below the bounds";
+                    EXPECT_LE(p[axis], cpu.poseBounds.max[axis] + 1e-4f)
+                        << clipName << " frame " << frame << " vertex " << v << " axis " << axis << " above the bounds";
+                }
+                ++checked;
+            }
+        }
+    };
+    RestPalette(cpu.skeleton, palette.data());
+    check("rest", 0);
+    for (const Clip& c : cpu.clips.clips)
+        for (std::uint32_t k = 0; k < c.frames; ++k) {
+            SamplePalette(cpu.skeleton, c, k, palette.data());
+            check(c.name.c_str(), k);
+        }
+    EXPECT_GT(checked, 0);
+
+    // And the bounds are not simply enormous: 'fourteen' swings tip by at most
+    // 65 degrees about X from a 2-unit-tall strip, so nothing reaches past 3
+    // units from the origin on any axis.
+    for (int axis = 0; axis < 3; ++axis) {
+        EXPECT_GT(cpu.poseBounds.min[axis], -3.f);
+        EXPECT_LT(cpu.poseBounds.max[axis], 3.f);
+    }
+    // An unskinned model carries none.
+    const ModelCPUData obj = Model::Decode(modelFixturesDir() + "/uv_quad.obj");
+    ASSERT_TRUE(obj.valid);
+    EXPECT_FALSE(obj.poseBounds.valid);
+}

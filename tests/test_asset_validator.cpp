@@ -173,3 +173,32 @@ TEST_F(AssetValidatorTest, NoAcceptedLodWarnsOnDisconnectedObj) {
     EXPECT_EQ(countIssues(report2, AssetValidationIssue::Level::Warn, "shared.obj"), 0)
         << "a clean shared-vertex grid must simplify — LOD import regressed?";
 }
+
+// A rig over the skinning palette cap is an ERR line naming the count, not a
+// silent truncation and not a bare "failed to import" (ROADMAP M3.2b).
+TEST_F(AssetValidatorTest, RefusesARigOverThePaletteCap) {
+    fs::path fixtures;
+    {
+        fs::path here = fs::current_path();
+        for (int i = 0; i < 8; ++i) {
+            const fs::path candidate = here / "tests" / "fixtures" / "models";
+            if (fs::exists(candidate / "too_many_joints.gltf")) { fixtures = candidate; break; }
+            if (!here.has_parent_path() || here.parent_path() == here) break;
+            here = here.parent_path();
+        }
+    }
+    ASSERT_FALSE(fixtures.empty()) << "tests/fixtures/models/too_many_joints.gltf not found above " << fs::current_path();
+    fs::create_directories(fs::path(kRoot) / "Model");
+    fs::copy_file(fixtures / "too_many_joints.gltf", fs::path(kRoot) / "Model" / "too_many_joints.gltf",
+                  fs::copy_options::overwrite_existing);
+
+    JobSystem jobs(2);
+    const auto report = ValidateAssetTree(kRoot, jobs);
+    EXPECT_EQ(countIssues(report, AssetValidationIssue::Level::Err, "too_many_joints.gltf"), 1);
+    bool named = false;
+    for (const auto& i : report.issues)
+        if (i.path.find("too_many_joints.gltf") != std::string::npos &&
+            i.message.find("129") != std::string::npos && i.message.find("128") != std::string::npos)
+            named = true;
+    EXPECT_TRUE(named) << "the ERR line must name the joint count and the cap";
+}

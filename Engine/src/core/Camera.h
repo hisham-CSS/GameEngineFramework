@@ -13,6 +13,10 @@ enum Camera_Movement {
     RIGHT
 };
 
+// How a camera projects (ROADMAP M3.2g, ADR-019 D4). Int-backed on purpose:
+// CameraComponent serialises it as a number appended to the camera block.
+enum class CameraProjection : int { Perspective = 0, Orthographic = 1 };
+
 class ENGINE_API Camera {
 public:
     // Defaults
@@ -47,6 +51,15 @@ public:
     float NearClip = NEAR_DEFAULT;
     float FarClip = FAR_DEFAULT;
 
+    // Projection (M3.2g). Perspective reads Zoom as the vertical FOV.
+    // Orthographic shows exactly +-OrthoHalfHeight world units from the view
+    // centre to the top and bottom edge (half-width = half-height * aspect)
+    // and does not shrink with distance; the fight camera is one, so the box
+    // overlay and the fist agree off the z = 0 plane. Both modes keep the
+    // clip planes. Synced from CameraComponent like the lens.
+    CameraProjection Projection = CameraProjection::Perspective;
+    float OrthoHalfHeight = 10.0f; // > 0
+
     // Constructors
     Camera(glm::vec3 position = { 0.0f, 0.0f, 0.0f },
         glm::vec3 up = { 0.0f, 1.0f, 0.0f },
@@ -59,6 +72,12 @@ public:
 
     // API
     glm::mat4 GetViewMatrix() const;
+    // The projection this camera renders, culls and fits its shadows with --
+    // ONE builder, so the renderer, the culling frustum and the CSM slice fit
+    // cannot disagree about the mode. ProjectionFor takes its own clip planes
+    // for the per-cascade slice.
+    glm::mat4 GetProjectionMatrix(float aspect) const { return ProjectionFor(aspect, NearClip, FarClip); }
+    glm::mat4 ProjectionFor(float aspect, float zNear, float zFar) const;
     void ProcessKeyboard(Camera_Movement direction, float deltaTime);
     void ProcessMouseMovement(float xoffset, float yoffset, bool constrainPitch = true);
     void ProcessMouseScroll(float yoffset);

@@ -30,6 +30,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -886,4 +887,206 @@ TEST(InputBuffer, TheWindowIsCarriedAbsentIsZeroAndPast255IsRefusedByName) {
 
     doc["input_buffer_frames"] = -1;
     EXPECT_FALSE(loadDoc(doc, "negative.json", c, r));
+}
+
+// ---------------------------------------------------------------------------
+// engine.anim3d -- the presentation model and its clip sidecar (ROADMAP M3.4b,
+// ADR-019 D2). Off by default: a character with no engine.anim3d.model checks
+// nothing. With one, the loader reads `<stem>.clips.json` beside the model
+// through the same containment gate as every authored path and asserts A21
+// (every move's clip is exactly startup + active + recovery frames) and A22
+// (every reserved cycle is present). The model itself is never opened here.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// A content root under the CURRENT DIRECTORY (an absolute temp path would be
+// correctly refused by PathIsContained), holding one sidecar and nothing else:
+// the loader does not open the model, so the model need not exist.
+struct Anim3dRoot {
+    const std::string root = "anim3d_test_root";
+    const std::string modelRel = "models/kfg.gltf";
+    std::filesystem::path sidecarPath() const {
+        return std::filesystem::path(root) / "models" / "kfg.clips.json";
+    }
+    Anim3dRoot() {
+        std::filesystem::create_directories(std::filesystem::path(root) / "models");
+    }
+    ~Anim3dRoot() {
+        std::error_code ec;
+        std::filesystem::remove_all(root, ec);
+    }
+    void writeSidecar(const json& clips) const {
+        std::ofstream out(sidecarPath(), std::ios::binary);
+        out << clips.dump(1);
+    }
+    LoadOptions options() const {
+        LoadOptions o = phase0Options();
+        o.contentRoot = root;
+        return o;
+    }
+};
+
+// The per-component clamp check_clips.py and A21 share: a negative component
+// counts as zero, so the sidecar and the loader agree about a malformed move.
+int clipFramesFor(const json& move) {
+    auto part = [&](const char* k) { return move.contains(k) ? std::max(move[k].get<int>(), 0) : 0; };
+    return part("startup") + part("active") + part("recovery");
+}
+
+// A sidecar that satisfies A21 and A22 for `doc`: every move's clip at its
+// duration (honouring a per-move engine.anim3d.clip override) and every
+// reserved cycle with a small arbitrary length.
+json fullSidecarFor(const json& doc) {
+    json clips = json::object();
+    for (const json& m : doc["moves"]) {
+        std::string name = m["id"].get<std::string>();
+        if (m.contains("engine") && m["engine"].is_object() && m["engine"].contains("anim3d") &&
+            m["engine"]["anim3d"].contains("clip"))
+            name = m["engine"]["anim3d"]["clip"].get<std::string>();
+        clips[name] = clipFramesFor(m);
+    }
+    for (const char* cycle : kReservedCycleNames) clips[cycle] = 8;
+    return clips;
+}
+
+json docWithModel(const Anim3dRoot& root) {
+    json doc = shippedDoc("kung_fu_girl.json");
+    doc["engine"]["anim3d"] = { { "model", root.modelRel } };
+    return doc;
+}
+
+} // namespace
+
+TEST(CharacterData, PresentationModelIsOptionalAndSandboxed) {
+    Anim3dRoot root;
+
+    // Absent: the file loads exactly as before, and nothing about clips is known.
+    {
+        CharacterData c; LoadReport r;
+        ASSERT_TRUE(loadDoc(shippedDoc("kung_fu_girl.json"), "kung_fu_girl.json", c, r, root.options())) << r.error;
+        EXPECT_TRUE(c.anim3dModel.empty());
+        EXPECT_TRUE(c.anim3dClips.empty());
+        for (const Move& m : c.moves) EXPECT_TRUE(m.anim3dClip.empty());
+    }
+    // Present and honest: the model path and the sidecar's table come through.
+    {
+        json doc = docWithModel(root);
+        root.writeSidecar(fullSidecarFor(doc));
+        CharacterData c; LoadReport r;
+        ASSERT_TRUE(loadDoc(doc, "kung_fu_girl.json", c, r, root.options())) << r.error;
+        EXPECT_EQ(c.anim3dModel, root.modelRel);
+        EXPECT_EQ(c.anim3dClips.size(), fullSidecarFor(doc).size());
+    }
+    // Sandboxed: the model path goes through PathIsContained like every
+    // authored path, and a refusal names the field.
+    for (const char* hostile : { "../outside/kfg.gltf", "C:/anywhere/kfg.gltf", "/etc/kfg.gltf" }) {
+        json doc = docWithModel(root);
+        doc["engine"]["anim3d"]["model"] = hostile;
+        CharacterData c; LoadReport r;
+        EXPECT_FALSE(loadDoc(doc, "kung_fu_girl.json", c, r, root.options())) << hostile << " was accepted";
+        EXPECT_TRUE(mentions(r.error, "engine.anim3d.model")) << r.error;
+        EXPECT_TRUE(r.rule.empty()) << "a refused path is an ordinary error, not an assertion";
+    }
+    // A model with no sidecar beside it is a load error naming the sidecar.
+    {
+        json doc = docWithModel(root);
+        std::error_code ec;
+        std::filesystem::remove(root.sidecarPath(), ec);
+        CharacterData c; LoadReport r;
+        EXPECT_FALSE(loadDoc(doc, "kung_fu_girl.json", c, r, root.options()));
+        EXPECT_TRUE(mentions(r.error, "kfg.clips.json")) << r.error;
+    }
+    // A per-move clip with no character-level model would be inert data, and
+    // this loader does not keep inert data quietly.
+    {
+        json doc = shippedDoc("kung_fu_girl.json");
+        doc["moves"][0]["engine"]["anim3d"] = { { "clip", "somewhere" } };
+        CharacterData c; LoadReport r;
+        EXPECT_FALSE(loadDoc(doc, "kung_fu_girl.json", c, r, root.options()));
+        EXPECT_TRUE(mentions(r.error, "engine.anim3d.model")) << r.error;
+    }
+}
+
+TEST(CharacterData, AnAnim3dKeyOutsideTheContractIsALoadErrorNamingTheKey) {
+    Anim3dRoot root;
+    // character level: the contract is exactly {model}
+    {
+        json doc = docWithModel(root);
+        root.writeSidecar(fullSidecarFor(doc));
+        doc["engine"]["anim3d"]["modle"] = "typo.gltf";
+        CharacterData c; LoadReport r;
+        EXPECT_FALSE(loadDoc(doc, "kung_fu_girl.json", c, r, root.options()));
+        EXPECT_TRUE(mentions(r.error, "modle")) << r.error;
+        EXPECT_TRUE(mentions(r.error, "engine.anim3d")) << r.error;
+        EXPECT_TRUE(r.rule.empty()) << "a misplaced key is not a false statement about a move";
+    }
+    // move level: the contract is exactly {clip}
+    {
+        json doc = docWithModel(root);
+        const std::size_t slot = moveSlot(doc, "stand_lp");
+        doc["moves"][slot]["engine"]["anim3d"] = { { "clp", "stand_lp_alt" } };
+        root.writeSidecar(fullSidecarFor(doc));
+        CharacterData c; LoadReport r;
+        EXPECT_FALSE(loadDoc(doc, "kung_fu_girl.json", c, r, root.options()));
+        EXPECT_TRUE(mentions(r.error, "clp")) << r.error;
+        EXPECT_TRUE(mentions(r.error, "stand_lp")) << r.error;
+    }
+    // and the legal override is honoured: the clip is looked up under its name
+    {
+        json doc = docWithModel(root);
+        const std::size_t slot = moveSlot(doc, "stand_lp");
+        doc["moves"][slot]["engine"]["anim3d"] = { { "clip", "stand_lp_alt" } };
+        root.writeSidecar(fullSidecarFor(doc));
+        CharacterData c; LoadReport r;
+        ASSERT_TRUE(loadDoc(doc, "kung_fu_girl.json", c, r, root.options())) << r.error;
+        EXPECT_EQ(c.moves[c.FindMove("stand_lp")].anim3dClip, "stand_lp_alt");
+    }
+}
+
+TEST(CharacterData, AClipOneFrameShortOfItsMoveIsALoadErrorNamingMoveClipExpectedAndActual) {
+    Anim3dRoot root;
+    json doc = docWithModel(root);
+    const json& lp = doc["moves"][moveSlot(doc, "stand_lp")];
+    const int expected = clipFramesFor(lp);
+    ASSERT_GT(expected, 1);
+
+    json clips = fullSidecarFor(doc);
+    clips["stand_lp"] = expected - 1;
+    root.writeSidecar(clips);
+
+    CharacterData c; LoadReport r;
+    EXPECT_FALSE(loadDoc(doc, "kung_fu_girl.json", c, r, root.options()));
+    EXPECT_EQ(r.rule, "A21");
+    EXPECT_TRUE(mentions(r.error, "stand_lp")) << r.error;
+    EXPECT_TRUE(mentions(r.error, std::to_string(expected).c_str())) << r.error;
+    EXPECT_TRUE(mentions(r.error, std::to_string(expected - 1).c_str())) << r.error;
+    EXPECT_TRUE(mentions(r.error, "startup")) << "the message must show the arithmetic: " << r.error;
+
+    // a clip MISSING from the sidecar is the same assertion, naming the clip
+    clips = fullSidecarFor(doc);
+    clips.erase("stand_lp");
+    root.writeSidecar(clips);
+    EXPECT_FALSE(loadDoc(doc, "kung_fu_girl.json", c, r, root.options()));
+    EXPECT_EQ(r.rule, "A21");
+    EXPECT_TRUE(mentions(r.error, "stand_lp")) << r.error;
+
+    // the honest sidecar loads
+    root.writeSidecar(fullSidecarFor(doc));
+    EXPECT_TRUE(loadDoc(doc, "kung_fu_girl.json", c, r, root.options())) << r.error;
+}
+
+TEST(CharacterData, AMissingReservedCycleIsALoadErrorNamingIt) {
+    Anim3dRoot root;
+    json doc = docWithModel(root);
+    for (const char* cycle : kReservedCycleNames) {
+        json clips = fullSidecarFor(doc);
+        clips.erase(cycle);
+        root.writeSidecar(clips);
+        CharacterData c; LoadReport r;
+        EXPECT_FALSE(loadDoc(doc, "kung_fu_girl.json", c, r, root.options())) << cycle << " was not required";
+        EXPECT_EQ(r.rule, "A22") << cycle;
+        EXPECT_TRUE(mentions(r.error, cycle)) << r.error;
+    }
+    EXPECT_EQ(kReservedCycleNames.size(), 14u) << "ADR-019 D2 names fourteen reserved cycles";
 }

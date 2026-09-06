@@ -1,5 +1,6 @@
 ﻿// Engine/src/render/passes/ShadowCSMPass.cpp
 #include "ShadowCSMPass.h"
+#include "../SkinPalette.h"
 #include <glad/glad.h>
 #include <cfloat>
 #include <cmath>
@@ -23,6 +24,15 @@ void ShadowCSMPass::setup(PassContext& ctx) {
         depthProg_ = std::make_unique<Shader>(
             "Exported/Shaders/shadow_depth_vert.glsl",
             "Exported/Shaders/shadow_depth_frag.glsl");
+    }
+    if (!depthProgSkinned_) {
+        depthProgSkinned_ = std::make_unique<Shader>(
+            "Exported/Shaders/shadow_depth_vert.glsl",
+            "Exported/Shaders/shadow_depth_frag.glsl",
+            "#define SKINNED 1");
+        if (depthProgSkinned_->isValid())
+            depthProgSkinned_->bindUniformBlock(MyCoreEngine::SkinPaletteUBO::kBlockName,
+                                                MyCoreEngine::SkinPaletteUBO::kBinding);
     }
     ensureTargets_();
 }
@@ -184,11 +194,17 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
     const glm::vec3 sun = glm::normalize(ctx.sunDir);
     const float     aspect = (fp.viewportH > 0) ? float(fp.viewportW) / float(fp.viewportH) : 1.777f;
     const float     fovDeg = cam.Zoom;
+    const float     orthoHalfH = cam.OrthoHalfHeight;
+    const int       projMode = static_cast<int>(cam.Projection);
 
     const float sunDot = glm::clamp(glm::dot(sun, glm::normalize(lastSunDir_)), -1.f, 1.f);
     const float sunDeg = glm::degrees(std::acos(sunDot));
     const bool  aspectChanged = (std::abs(aspect - lastAspect_) > 1e-4f);
-    const bool  fovChanged = (std::abs(fovDeg - lastFovDeg_) > 1e-3f);
+    // the ortho half-height and the mode itself are lens state too (M3.2g):
+    // a half-height edit or a perspective->ortho blend moves every slice
+    const bool  fovChanged = (std::abs(fovDeg - lastFovDeg_) > 1e-3f) ||
+                             (std::abs(orthoHalfH - lastOrthoHalfHeight_) > 1e-4f) ||
+                             (projMode != lastProjection_);
     // lens clip planes move the split range itself (splits span [near,
     // min(maxShadowDistance, far)]) — runtime changes (inspector edits,
     // director blends) must refit even when the camera hasn't moved
@@ -199,6 +215,7 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
         rebuild_(cam, aspect); // splits depend on fov/clip planes/aspect/settings
         for (auto& v : cascadeValid_) v = false;
         lastSunDir_ = sun; lastAspect_ = aspect; lastFovDeg_ = fovDeg;
+        lastOrthoHalfHeight_ = orthoHalfH; lastProjection_ = projMode;
         lastNear_ = cam.NearClip; lastFar_ = cam.FarClip;
         shadowParamsDirty_ = false;
         forceFullUpdateOnce_ = false;
@@ -277,7 +294,9 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
         const int i = needIdx[k];
 
         // slice frustum corners (world)
-        glm::mat4 sliceProj = glm::perspective(glm::radians(cam.Zoom), aspect, splitZ_[i], splitZ_[i + 1]);
+        // perspective or orthographic slice (M3.2g): the same builder the
+        // renderer draws with, so the corners below are the pixels' corners
+        glm::mat4 sliceProj = cam.ProjectionFor(aspect, splitZ_[i], splitZ_[i + 1]);
         glm::mat4 invSliceVP = glm::inverse(sliceProj * V);
 
         const glm::vec3 ndc[8] = {
@@ -295,7 +314,7 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
         center *= 1.0f / 8.0f;
 
         // ----- stable fit: bounding SPHERE of the slice -----
-        // The radius depends only on FOV/aspect/split distances (the slice is
+        // The radius depends only on FOV (or ortho half-height)/aspect/split distances (the slice is
         // rigid geometry), NOT on camera position/orientation. A box fit to
         // the corners changes size as the camera turns, which resizes the
         // texel grid every update and makes snapping useless (shimmer).
@@ -424,6 +443,9 @@ bool ShadowCSMPass::execute(PassContext& ctx, Scene& scene, Camera& cam, const F
     };
 
     // Execute combined pass
+    // The skinned depth program, for the casters the Scene routes to it (M3.2f).
+    scene.SetSkinnedShadowShader(
+        (depthProgSkinned_ && depthProgSkinned_->isValid()) ? depthProgSkinned_.get() : nullptr);
     scene.RenderShadowsCombined(*depthProg_, params, preDraw);
 
     // you already have this overload: Scene::RenderDepthCascade(...). :contentReference[oaicite:0]{index=0}

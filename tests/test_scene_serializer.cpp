@@ -6,6 +6,9 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <functional>
+#include <iterator>
+#include <string>
 #include <vector>
 #include <nlohmann/json.hpp>
 
@@ -1464,4 +1467,108 @@ TEST(ProjectSettingsLoad, AMissingFileIsNotAnError) {
     EXPECT_TRUE(ps.Load("Exported/definitely_not_here_9e3f.json"))
         << "no settings file yet is the normal first-run case, not a failure";
     EXPECT_EQ(ps.startupScene, before);
+}
+
+// A SkinnedPose is DERIVED (ROADMAP M3.2f, ADR-019 D3): the fight mode writes
+// it from GameState every frame and the file must never carry one, or a saved
+// scene would ship a pose the simulation did not produce -- the second copy of
+// "where the fighter is" that D1 forbids.
+TEST(SceneSerializer, SkinnedPoseIsDerivedAndNeverSaved) {
+    const char* path = "test_scene_skinnedpose.json";
+
+    Scene a;
+    Entity e = a.createEntity();
+    e.addComponent<Name>(Name{ "Posed" });
+    e.addComponent<Transform>(Transform{});
+    SkinnedPose sp;
+    sp.palette.assign(2, glm::mat4(1.0f));
+    sp.valid = true;
+    a.registry.emplace<SkinnedPose>(e, std::move(sp));
+
+    AssetManager assets;
+    SceneSerializer save(a, assets);
+    ASSERT_TRUE(save.Save(path));
+
+    std::ifstream in(path);
+    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    EXPECT_EQ(text.find("skinnedPose"), std::string::npos) << "the file carries a pose";
+    EXPECT_EQ(text.find("palette"), std::string::npos) << "the file carries a palette";
+    EXPECT_NE(text.find("Posed"), std::string::npos) << "the entity itself must still be saved";
+
+    Scene b;
+    SceneSerializer load(b, assets);
+    ASSERT_TRUE(load.Load(path));
+    int posed = 0;
+    for (auto ent : b.registry.view<SkinnedPose>()) { (void)ent; ++posed; }
+    EXPECT_EQ(posed, 0) << "a loaded scene must carry no pose until the simulation writes one";
+    std::remove(path);
+}
+
+// M3.2g: the projection mode and half-height round-trip as APPENDED keys of
+// the camera block, and a file written before they existed loads as the
+// perspective camera it always was -- both default from the struct, so no
+// version bump and no shipped scene changes (Editor/src/Exported/scene.json,
+// the two menu.json).
+TEST(SceneSerializer, CameraProjectionRoundTripsAndDefaultsToPerspective) {
+    const char* path = "test_scene_camera_projection.json";
+
+    Scene a;
+    Entity cam = a.createEntity();
+    cam.addComponent<Name>(Name{ "Fight Camera" });
+    cam.addComponent<Transform>(Transform{});
+    CameraComponent cc;
+    cc.projection = CameraProjection::Orthographic;
+    cc.orthoHalfHeight = 21.f;
+    a.registry.emplace<CameraComponent>((entt::entity)cam, cc);
+
+    AssetManager assets;
+    SceneSerializer save(a, assets);
+    ASSERT_TRUE(save.Save(path));
+
+    {
+        Scene b;
+        SceneSerializer load(b, assets);
+        ASSERT_TRUE(load.Load(path));
+        int n = 0;
+        for (auto [e, c] : b.registry.view<CameraComponent>().each()) {
+            ++n;
+            EXPECT_EQ(c.projection, CameraProjection::Orthographic);
+            EXPECT_FLOAT_EQ(c.orthoHalfHeight, 21.f);
+        }
+        EXPECT_EQ(n, 1);
+    }
+
+    // Strip the two keys everywhere in the file: that is what a scene saved
+    // before M3.2g looks like. It must load as a perspective camera with the
+    // struct's default half-height, and nothing else about it may change.
+    {
+        nlohmann::json j;
+        { std::ifstream in(path); in >> j; }
+        int stripped = 0;
+        std::function<void(nlohmann::json&)> strip = [&](nlohmann::json& node) {
+            if (node.is_object()) {
+                stripped += static_cast<int>(node.erase("projection") + node.erase("orthoHalfHeight"));
+                for (auto& kv : node.items()) strip(kv.value());
+            }
+            else if (node.is_array()) {
+                for (auto& v : node) strip(v);
+            }
+        };
+        strip(j);
+        EXPECT_EQ(stripped, 2) << "the saved camera block must carry exactly the two new keys";
+        { std::ofstream out(path); out << j.dump(2); }
+    }
+    {
+        Scene c;
+        SceneSerializer load(c, assets);
+        ASSERT_TRUE(load.Load(path)) << "a pre-M3.2g file must still load";
+        int n = 0;
+        for (auto [e, cam2] : c.registry.view<CameraComponent>().each()) {
+            ++n;
+            EXPECT_EQ(cam2.projection, CameraProjection::Perspective);
+            EXPECT_FLOAT_EQ(cam2.orthoHalfHeight, CameraComponent{}.orthoHalfHeight);
+        }
+        EXPECT_EQ(n, 1);
+    }
+    std::remove(path);
 }

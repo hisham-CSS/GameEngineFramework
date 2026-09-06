@@ -216,3 +216,30 @@ TEST_F(AssetIndexTest, FindDistinguishesSiblingPrefixNames) {
     EXPECT_EQ(c->kind, AssetIndex::Kind::Model);
     EXPECT_NE(idx.find(std::string(kRoot) + "/Model/a.obj"), nullptr);
 }
+
+// glTF is a model to the index (ROADMAP M3.2a, ADR-019 D1): a format the index
+// does not classify cannot be spawned from the Assets panel or validated by the
+// cooker, however well Model::Decode reads it. FBX stays Other on purpose --
+// nothing in the pipeline exports it, and surfacing it would be a promise.
+TEST_F(AssetIndexTest, ClassifiesGltfAndGlbAsModels) {
+    touch(fs::path(kRoot) / "Model" / "b.gltf");
+    touch(fs::path(kRoot) / "Model" / "c.glb");
+    touch(fs::path(kRoot) / "Model" / "d.fbx");
+
+    AssetIndex idx(kRoot);
+    idx.tick(10.f);
+    const auto& root = idx.root();
+    ASSERT_FALSE(root.children.empty());
+    const auto& model = root.children[0];
+    ASSERT_EQ(model.name, "Model");
+    ASSERT_EQ(model.children.size(), 4u);
+    EXPECT_EQ(model.children[0].name, "a.obj");
+    EXPECT_EQ(model.children[0].kind, AssetIndex::Kind::Model);
+    EXPECT_EQ(model.children[1].name, "b.gltf");
+    EXPECT_EQ(model.children[1].kind, AssetIndex::Kind::Model) << ".gltf must be spawnable";
+    EXPECT_EQ(model.children[2].name, "c.glb");
+    EXPECT_EQ(model.children[2].kind, AssetIndex::Kind::Model) << ".glb must be spawnable";
+    EXPECT_EQ(model.children[3].name, "d.fbx");
+    EXPECT_EQ(model.children[3].kind, AssetIndex::Kind::Other)
+        << "FBX is deliberately not surfaced: nothing exports it";
+}
