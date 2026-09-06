@@ -1091,6 +1091,11 @@ mannequin and M3.5a's room are unblocked from that date.
   `ShippedClips.StunAndKnockdownClipsCoverTheLongestAuthoredCounters`,
   `ShippedClips.AWalkCycleAdvancesItsStrideInWholeTicks` (`N × walkSpeedPx ==
   stride px`); `ShippedClips.MatchTheFrameData` green after every batch.
+  Landed 2026-09-06: cd268bc (the kernel pin, positive), 97a8b6a (the fit,
+  counters and stride tests, the `crouch+kick` / `air+kick` classes, the
+  generated gait; every contact pose fits the kernel's body, no walk skates).
+  Open: the legibility batches -- the human at the viewport with
+  `make_move_clips.py -- --blend`, `draw_boxes.py`, `capture_pose.py`.
 
 - `[ ]` **M3.3d-2 `engine.hurtbox_sub` and `engine.airborne_from_tick` reach the
   kernel.** *(S, data)* Found by M3.3d's fit test (2026-09-06): the loader
