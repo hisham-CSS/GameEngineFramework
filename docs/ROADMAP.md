@@ -98,7 +98,7 @@ M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
 
 | In flight | Owner | Since |
 |---|---|---|
-| M3.3b The mannequin and its rig | Claude | 2026-09-06 |
+| M3.3c Every clip generated from the frame data; four made legible | Claude | 2026-09-06 |
 
 The openings wave is landed end to end: per-opening prover surface → (c) →
 (d) → (b3) — the golden re-record (b3) was expected to need DISSOLVED under
@@ -992,7 +992,7 @@ mannequin and M3.5a's room are unblocked from that date.
   `OrthoCamera.TheProjectionMapsHalfHeightToTheViewportEdge`; existing scene
   files load unchanged.
 
-- `[~]` **M3.3b The mannequin and its rig.** *(M)* `make_mannequin.py`:
+- `[x] 0a69f3a` **M3.3b The mannequin and its rig.** *(M)* `make_mannequin.py`:
   Rigify's *basic* human metarig (the full one's 160 deform bones exceed the
   128-joint palette) → `rigify.generate` → 33 deform bones kept, others
   removed; a proportioned primitive-built body, 60 units tall with feet at
@@ -1005,7 +1005,7 @@ mannequin and M3.5a's room are unblocked from that date.
   `PlaceholderRig.StandsSixtyPixelsTallAtRest`,
   `PlaceholderRig.MatchesItsRigManifestBoneForBone`.
 
-- `[ ]` **M3.3c Every clip generated from the frame data; four made
+- `[~]` **M3.3c Every clip generated from the frame data; four made
   legible.** *(M)* `make_move_clips.py` reads `fighter_a.json` and `poses.json`
   and keys one STEPPED pose per frame for every attack (anticipation, the
   contact pose held over the active window, recovery converging on idle) and
