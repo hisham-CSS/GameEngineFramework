@@ -28,6 +28,7 @@
 # something has leaked.
 
 add_library(CseNet STATIC
+    src/BlobExchange.cpp
     src/GekkoSession.cpp
     src/Handshake.cpp
     src/LoopbackTransport.cpp

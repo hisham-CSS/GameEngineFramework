@@ -46,6 +46,7 @@ add_library(CseGame STATIC
     src/ComboSearch.cpp     # verdicts by execution on the real kernel (ADR-013)
     src/Catalogue.cpp       # the cooker recording: verdicts + verified replays + graph.dot (M1.6)
     src/PoseSelect.cpp      # which clip, which frame -- kinds and integers from GameState (M3.4a)
+    src/Desync.cpp          # the first divergent field, named through the reflection table; the artifact (M2.3)
 )
 
 target_include_directories(CseGame

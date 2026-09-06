@@ -13,8 +13,10 @@
 //
 // Exit 0 with `checksum <hex> frame <n>` on stdout; nonzero and a reason on
 // stderr otherwise (a desync, a peer that never connected, a timeout).
+#include "cse/game/Desync.h"
 #include "cse/game/Replay.h"
 #include "cse/kernel/Simulate.h"
+#include "cse/net/BlobExchange.h"
 #include "cse/net/Handshake.h"
 #include "cse/net/ISession.h"
 #include "cse/net/UdpTransport.h"
@@ -57,9 +59,11 @@ int main(int argc, char** argv) {
     unsigned short port = 0;
     std::string peer;
     bool contentMismatch = false;
+    bool diverge = false;
     for (int i = 1; i < argc; ++i) {
         const std::string k = argv[i];
         if (k == "--content-mismatch") { contentMismatch = true; continue; }
+        if (k == "--diverge") { diverge = true; continue; }
         if (i + 1 >= argc) return fail("an argument without its value");
         if (k == "--slot")       slot  = std::atoi(argv[++i]);
         else if (k == "--port")  port  = static_cast<unsigned short>(std::atoi(argv[++i]));
@@ -112,9 +116,12 @@ int main(int argc, char** argv) {
 
     GameState live{};
     ResetMatch(live, 0xC0FFEEu);
+    cse::game::StateHistory history;
     std::map<int, std::uint32_t> checksumAfterFrame;   // frame f simulated -> checksum of the state after it
     int confirmedFrames = 0;
     int iteration = 0;
+    DesyncReport report{};
+    int abortGrace = -1;   // frames the session keeps pumping after our own detection, so the peer detects too
     const auto start = std::chrono::steady_clock::now();
     for (;;) {
         if (std::chrono::steady_clock::now() - start > std::chrono::seconds(60)) {
@@ -142,17 +149,53 @@ int main(int argc, char** argv) {
                 pair.p[0].bits = wire[0].bits;
                 pair.p[1].bits = wire[1].bits;
                 Simulate(live, pair);
+                // --diverge (ROADMAP M2.3): this kernel loses a point of health a frame from
+                // frame 100 on, so the two peers desync and both must name p[<slot>].health.
+                if (diverge && ev[i].frame >= 100) live.p[slot].health -= 1;
+                history.Push(live);
                 checksumAfterFrame[ev[i].frame] = Checksum(live);
                 if (!ev[i].rollingBack && !ev[i].runningAhead) confirmedFrames = ev[i].frame + 1;
                 break;
             }
             }
         }
-        DesyncReport report{};
-        if (session->PollDesync(&report)) {
-            std::fprintf(stderr, "online_peer: desync at frame %d (local %08x, remote %08x)\n",
-                         report.frame, report.localChecksum, report.remoteChecksum);
+        DesyncReport fresh{};
+        if (abortGrace < 0 && session->PollDesync(&fresh)) { report = fresh; abortGrace = 30; }
+        if (abortGrace > 0) --abortGrace;
+        if (abortGrace == 0) {
+            // THE ABORT (ROADMAP M2.3): the match is over. The session goes, the
+            // transport it used carries the two states at the reported frame,
+            // and the artifact names the tick and the first field they disagree
+            // about -- never a silent correction.
             DestroySession(session);
+            const std::uint32_t frame = static_cast<std::uint32_t>(report.frame);
+            const std::uint32_t tick  = frame + 1;   // the state the reported frame's advance produced (Desync.h)
+            const GameState* mine = history.Find(tick);
+            cse::game::Divergence d;
+            const cse::game::Divergence* named = nullptr;
+            if (mine != nullptr) {
+                BlobExchange exchange(*transport, peer, tick, reinterpret_cast<const std::uint8_t*>(mine), sizeof(GameState));
+                const auto xStart = std::chrono::steady_clock::now();
+                int graceLeft = 12;
+                while (graceLeft > 0 && std::chrono::steady_clock::now() - xStart < std::chrono::seconds(10)) {
+                    if (exchange.Pump()) --graceLeft;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(16));
+                }
+                if (exchange.Complete() && exchange.Theirs().size() == sizeof(GameState)) {
+                    GameState theirs{};
+                    std::memcpy(&theirs, exchange.Theirs().data(), sizeof(GameState));
+                    cse::game::FirstDivergence(*mine, theirs, &d);
+                    named = &d;
+                }
+            }
+            const std::string json = cse::game::DesyncArtifactJson(frame, report.localChecksum, report.remoteChecksum, report.remotePlayer, named);
+            std::string error;
+            const std::string path = "desync_slot" + std::to_string(slot) + ".json";
+            if (!cse::game::WriteDesyncArtifact(path, json, &error)) std::fprintf(stderr, "online_peer: %s\n", error.c_str());
+            const std::string what = named == nullptr ? std::string("the peer's state did not arrive")
+                : !named->found ? std::string("the two states at tick " + std::to_string(tick) + " are identical")
+                : "field " + named->field + " local " + std::to_string(named->local) + " remote " + std::to_string(named->remote);
+            std::fprintf(stderr, "online_peer: desync at frame %u: %s (artifact %s)\n", frame, what.c_str(), path.c_str());
             return 3;
         }
         if (confirmedFrames >= ticks) break;

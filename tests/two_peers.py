@@ -42,12 +42,29 @@ def mismatch_scenario(exe, ticks):
     print('two_peers: the content mismatch was refused by both peers, naming the hash -- OK')
 
 
+def diverge_scenario(exe, ticks):
+    """T6 over a real wire (ROADMAP M2.3): peer 1's kernel drifts from frame 100;
+    BOTH peers must stop, swap states and name p[1].health in their artifact."""
+    procs = launch(exe, ticks, extra=([], ['--diverge']))
+    for slot, p in enumerate(procs):
+        try:
+            out, err = p.communicate(timeout=90)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            raise SystemExit('two_peers: diverge scenario: peer %d did not finish' % slot)
+        print('peer %d (diverge): exit %d, %s' % (slot, p.returncode, err.strip() or out.strip()))
+        if p.returncode != 3 or 'field p[1].health' not in err:
+            raise SystemExit('two_peers: peer %d did not name the divergent field (exit %d): %s' % (slot, p.returncode, err.strip()))
+    print('two_peers: the drift was reported by both peers, each naming p[1].health -- OK')
+
+
 def main():
     if len(sys.argv) < 2:
         raise SystemExit(__doc__)
     exe = sys.argv[1]
     ticks = sys.argv[2] if len(sys.argv) > 2 else '300'
     mismatch_scenario(exe, ticks)
+    diverge_scenario(exe, ticks)
     procs = launch(exe, ticks)
     results = []
     for slot, p in enumerate(procs):

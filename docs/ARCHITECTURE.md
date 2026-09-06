@@ -62,7 +62,9 @@ authoring path, and two notions of "an entity" now exist, joined by a
 reconciler. The mitigation that inverts this cost is a reflection table over
 `GameState` (`{name, offset, type, count}`), which yields the Inspector view, the
 JSON serializer **and** the per-field desync log from one artifact — cheaper than
-the desync log alone. It is ROADMAP E6.
+the desync log alone. ROADMAP M2.3 built it (`cse/kernel/StateReflection.h`) with
+the desync log as its first consumer; the Inspector view and the serializer are
+still to come.
 
 **Revisit if.** A gameplay feature genuinely requires emergent rigid-body
 interaction inside combat — throwable physics objects whose contacts decide hits.

@@ -123,6 +123,13 @@ add_executable(test_handshake test_handshake.cpp)
 target_link_libraries(test_handshake PRIVATE CseGame CseData CseKernel CseNet nlohmann_json::nlohmann_json GTest::gtest_main)
 add_dependencies(test_handshake test_runtime_deps)
 add_test(NAME test_handshake COMMAND $<TARGET_FILE:test_handshake>)
+
+# A DESYNC, NAMED (ROADMAP M2.3; DETERMINISM S8, T6): the reflection table
+# covers every byte, the first divergent field is named, and two kernels that
+# drift apart end with an artifact naming the tick and the field.
+add_executable(test_desync test_desync.cpp)
+target_link_libraries(test_desync PRIVATE CseGame CseKernel CseNet GTest::gtest_main)
+add_test(NAME test_desync COMMAND $<TARGET_FILE:test_desync>)
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
   set(_two_peers_python "${Python3_EXECUTABLE}")
