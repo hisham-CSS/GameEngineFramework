@@ -98,7 +98,7 @@ M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
 
 | In flight | Owner | Since |
 |---|---|---|
-| M2.2 Handshake — hash the loaded POD arrays | Claude | 2026-09-06 |
+| — (next: M2.3 Desync = abort + artifact, naming the first divergent tick and field) | | |
 | M3.3d The remaining clips made legible (its machine half landed; the viewport batches wait on the human) | Claude / human | 2026-09-06 |
 | M3.3d The remaining clips made legible (its machine half landed; the viewport batches wait on the human) | Claude / human | 2026-09-06 |
 
@@ -811,7 +811,7 @@ Six WPs, all landed, gate required in CI. The decision is
   `Session.LossIsSurvivedByTheSessionsOwnRedundancy`,
   `Session.ADivergentPeerIsReportedAndNamed`, and `test_online_two_peers`
   (two processes over UDP on 127.0.0.1 agree at the same frame).
-- `[~]` **M2.2 Handshake** — hash the loaded POD arrays, never canonicalised text.
+- `[x] cbc634a` **M2.2 Handshake** — hash the loaded POD arrays, never canonicalised text.
   *(S)* `cse::net::Handshake` beside `ISession`: each peer offers what it loaded
   (`HashMatchData` over the built `MatchData`, the state and input sizes, the
   seed, the player count, its slot) on every pump over the session's own
