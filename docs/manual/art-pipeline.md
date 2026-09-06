@@ -20,7 +20,7 @@ inside the live hitbox for exactly the ticks the kernel says. The export script
 writes a sidecar `<stem>.clips.json` (`{clip: frames}`) that the character
 loader asserts against without Assimp — assertions A21 (every move's clip is
 exactly its duration) and A22 (every reserved cycle present), run whenever a
-character authors `engine.anim3d.model` ([fighting-core.md](fighting-core.md),
+character authors `engine.anim3d.model` (a path relative to the character file; [fighting-core.md](fighting-core.md),
 the load assertions); `scripts/check_clips.py` re-derives every count from the
 glTF itself. The mode watches the model and the sidecar like the character file,
 so a re-export lands as a hot reload and a disagreeing one keeps the last good

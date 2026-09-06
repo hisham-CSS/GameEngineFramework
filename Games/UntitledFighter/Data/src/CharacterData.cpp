@@ -894,11 +894,25 @@ bool checkAnim3d(Ctx& ctx, CharacterData& out) {
         return true;
     }
 
-    std::filesystem::path full;
-    if (!MyCoreEngine::PathIsContained(ctx.opt->contentRoot, out.anim3dModel, full))
+    // The authored spelling is gated FIRST -- a `..` is refused even where it
+    // would land back inside the root, because the sandbox rule is about the
+    // spelling, not the destination -- then the path is resolved from the
+    // character file's own directory (LoadOptions::fileDir, ROADMAP M3.3c: the
+    // way a glTF's URIs resolve from the glTF) and stored relative to the
+    // content root, which is the path the presentation asks the asset cache for.
+    std::filesystem::path probe;
+    if (!MyCoreEngine::PathIsContained(ctx.opt->contentRoot, out.anim3dModel, probe))
         return ctx.fail("engine.anim3d.model",
             "`" + out.anim3dModel + "` refused, because it is absolute, carries a drive/UNC "
             "root, or contains a `..` component that would escape the content root");
+    if (!ctx.opt->fileDir.empty())
+        out.anim3dModel = (std::filesystem::path(ctx.opt->fileDir) / out.anim3dModel)
+                              .lexically_normal().generic_string();
+    std::filesystem::path full;
+    if (!MyCoreEngine::PathIsContained(ctx.opt->contentRoot, out.anim3dModel, full))
+        return ctx.fail("engine.anim3d.model",
+            "`" + out.anim3dModel + "` refused: the character file's directory `" +
+            ctx.opt->fileDir + "` puts it outside the content root");
     std::filesystem::path sidecar = full;
     sidecar.replace_extension(".clips.json");
     const std::string sidecarName = sidecar.filename().string();
@@ -1968,6 +1982,22 @@ bool LoadCharacterJson(const std::string& sourceName,
 
 namespace {
 
+// The character file's directory relative to the content root, for
+// LoadOptions::fileDir (ROADMAP M3.3c). Lexical only -- nothing is touched --
+// and when the root was defaulted to baseDir this is simply relPath's directory
+// ("" for a bare file name). A caller who named a root that baseDir does not
+// sit under gets relPath's directory too, and the containment check on the
+// model path says so if that was wrong.
+std::string fileDirUnderRoot(const std::string& baseDir, const std::string& relPath,
+                             const std::string& contentRoot) {
+    namespace fs = std::filesystem;
+    const fs::path fileDir = fs::path(relPath).parent_path();
+    fs::path rel = (fs::path(baseDir) / fileDir).lexically_relative(fs::path(contentRoot));
+    if (rel.empty() || *rel.begin() == "..") rel = fileDir;
+    const std::string s = rel.lexically_normal().generic_string();
+    return s == "." ? std::string() : s;
+}
+
 // The one authored-file read: containment BEFORE the file is opened, every
 // time (docs/MAINTENANCE.md -- "anything from scene content goes through
 // PathIsContained before the file is opened. Absolute paths and `..` are
@@ -2024,10 +2054,12 @@ bool LoadCharacterFile(const std::string& baseDir,
 
     std::string text;
     if (!readAuthoredFile(baseDir, relPath, options, text, report)) return false;
-    // The file's own authored paths (engine.anim3d.model) resolve against the
-    // root the file was read from, unless the caller named another.
+    // The file's own authored paths (engine.anim3d.model) resolve from the
+    // file's directory and are contained against the root the file was read
+    // from, unless the caller named either.
     LoadOptions rooted = options;
     if (rooted.contentRoot.empty()) rooted.contentRoot = baseDir;
+    if (rooted.fileDir.empty()) rooted.fileDir = fileDirUnderRoot(baseDir, relPath, rooted.contentRoot);
     return LoadCharacterJson(relPath, text, rooted, out, report);
 }
 
@@ -2254,6 +2286,7 @@ bool LoadCharacterVariant(const std::string& baseDir,
     baseDoc.merge_patch(patch);
     LoadOptions rooted = options;
     if (rooted.contentRoot.empty()) rooted.contentRoot = baseDir;
+    if (rooted.fileDir.empty()) rooted.fileDir = fileDirUnderRoot(baseDir, baseRelPath, rooted.contentRoot);
     return LoadCharacterJson(baseRelPath + " + " + variantRelPath,
                              baseDoc.dump(), rooted, out, report);
 }

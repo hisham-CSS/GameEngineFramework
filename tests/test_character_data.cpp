@@ -1008,6 +1008,58 @@ TEST(CharacterData, PresentationModelIsOptionalAndSandboxed) {
     }
 }
 
+// The model path is authored RELATIVE TO THE CHARACTER FILE, the way a glTF's
+// own URIs are, and stored relative to the content root, the way the
+// presentation requests it (ROADMAP M3.3c). Fifteen test files load the shipped
+// characters with the characters directory as their root while the mode loads
+// them from the title's content root with `Characters/` in the relative path;
+// a path spelled for one root failed under the other, and the file's own
+// directory is the one fact both callers share.
+TEST(CharacterData, TheModelPathResolvesFromTheCharacterFilesDirectory) {
+    Anim3dRoot root;
+    const std::filesystem::path chars = std::filesystem::path(root.root) / "chars";
+    std::filesystem::create_directories(chars / "models");
+    json doc = docWithModel(root);                                  // model: "models/kfg.gltf"
+    {
+        std::ofstream out(chars / "models" / "kfg.clips.json", std::ios::binary);
+        out << fullSidecarFor(doc).dump(1);                         // beside the FILE, not the root
+    }
+    // From JSON text, the caller names the file's directory.
+    {
+        LoadOptions o = root.options();
+        o.fileDir = "chars";
+        CharacterData c; LoadReport r;
+        ASSERT_TRUE(loadDoc(doc, "chars/kfg_sub.json", c, r, o)) << r.error;
+        EXPECT_EQ(c.anim3dModel, "chars/models/kfg.gltf") << "stored relative to the content root";
+    }
+    // Without it the model resolves from the root, where this sidecar is not.
+    {
+        CharacterData c; LoadReport r;
+        EXPECT_FALSE(loadDoc(doc, "kfg_sub.json", c, r, root.options()));
+        EXPECT_TRUE(mentions(r.error, "kfg.clips.json")) << r.error;
+    }
+    // From a file, the loader fills it from the path it read.
+    {
+        std::ofstream out(chars / "kfg_sub.json", std::ios::binary);
+        out << doc.dump(1);
+    }
+    {
+        CharacterData c; LoadReport r;
+        ASSERT_TRUE(LoadCharacterFile(root.root, "chars/kfg_sub.json", phase0Options(), c, r)) << r.error;
+        EXPECT_EQ(c.anim3dModel, "chars/models/kfg.gltf");
+    }
+    // A `..` in the authored path is refused wherever the file sits, even one
+    // that would land back inside the root.
+    {
+        LoadOptions o = root.options();
+        o.fileDir = "chars";
+        doc["engine"]["anim3d"]["model"] = "../chars/models/kfg.gltf";
+        CharacterData c; LoadReport r;
+        EXPECT_FALSE(loadDoc(doc, "chars/kfg_sub.json", c, r, o));
+        EXPECT_TRUE(mentions(r.error, "engine.anim3d.model")) << r.error;
+    }
+}
+
 TEST(CharacterData, AnAnim3dKeyOutsideTheContractIsALoadErrorNamingTheKey) {
     Anim3dRoot root;
     // character level: the contract is exactly {model}

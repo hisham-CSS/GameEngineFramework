@@ -827,10 +827,13 @@ struct CharacterData {
     // calls it; a caller that assembled a character by hand must call it too.
     void RebuildIndices();
 
-    // The presentation model (ROADMAP M3.4b; ADR-019 D2 and D9), as authored
-    // under engine.anim3d.model and contained against LoadOptions::contentRoot:
-    // a glTF whose `<stem>.clips.json` sidecar this loader read and checked
-    // (A21, A22). Empty means the character has none and the fight draws its
+    // The presentation model (ROADMAP M3.4b; ADR-019 D2 and D9): authored under
+    // engine.anim3d.model RELATIVE TO THE CHARACTER FILE (the way a glTF's own
+    // URIs are), contained against LoadOptions::contentRoot, and stored here
+    // relative to that root -- the path the presentation requests from the
+    // asset cache (ROADMAP M3.3c; LoadOptions::fileDir says why). A glTF whose
+    // `<stem>.clips.json` sidecar this loader read and checked (A21, A22).
+    // Empty means the character has none and the fight draws its
     // 2D placeholders. anim3dClips is that sidecar as loaded -- every clip name
     // with the frame count the exporter wrote, sorted by name. Both are
     // presentation-only: never in MatchData, never under the hash.
@@ -955,6 +958,18 @@ struct LoadOptions {
     // needs nothing more; LoadCharacterJson callers that author a model say
     // where it lives.
     std::string contentRoot;
+
+    // The directory of the character file, relative to contentRoot: the file's
+    // authored paths (engine.anim3d.model) resolve FROM HERE and are then
+    // contained against contentRoot (ROADMAP M3.3c). Fifteen test files load
+    // the shipped characters with the characters directory as their root while
+    // the mode loads them from the title's content root with `Characters/` in
+    // the relative path; a model path spelled for one root failed under the
+    // other, and the file's own directory is the one fact both callers share.
+    // LoadCharacterFile and LoadCharacterVariant fill it from the path they
+    // read; a LoadCharacterJson caller that authors a model says where the file
+    // would live. Empty means the root itself.
+    std::string fileDir;
 };
 
 // The result of a load, as DATA. A rejected file is a normal outcome -- authored
