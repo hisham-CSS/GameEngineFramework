@@ -98,7 +98,7 @@ M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
 
 | In flight | Owner | Since |
 |---|---|---|
-| M2.5 VERSUS, and one presentation for three modes | Claude | 2026-09-06 |
+| — (next: M2.6 Play == Player, as a hash test) | | |
 | M3.3d The remaining clips made legible (its machine half landed; the viewport batches wait on the human) | Claude / human | 2026-09-06 |
 
 The openings wave is landed end to end: per-opening prover surface → (c) →
@@ -857,7 +857,7 @@ Six WPs, all landed, gate required in CI. The decision is
   `FightMode.PauseStepAndSlowMotionAreInertWhileASessionIsLive`,
   `FightMode.AFrameTheSessionDoesNotAdvanceRunsNoTickAndIsNotAnError`,
   `FrameGate.ALiveSessionOwnsTimeAndThePad`.
-- `[~]` **M2.5 VERSUS, and one presentation for three modes.** *(L)* Claude, 2026-09-06. Scoped
+- `[x] 8e908c9` **M2.5 VERSUS, and one presentation for three modes.** *(L)* Scoped
   2026-09-06 after M2.4, when every piece existed and none was wired into a
   host, and built the same day to [ADR-022](adr/ADR-022-versus-one-mode-three-sources.md),
   whose D2 the human answered first (the file-and-command-line lobby ships;
