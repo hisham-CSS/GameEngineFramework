@@ -836,7 +836,22 @@ Six WPs, all landed, gate required in CI. The decision is
   `Desync.TheFirstDivergentFieldIsNamed`,
   `Desync.TwoPeersAbortAndTheArtifactNamesTheTickAndField`, and
   `test_online_two_peers` writing both artifacts naming the field over UDP.
-- `[ ]` **M2.4 The session owns the tick count.**
+- `[ ]` **M2.4 The session owns the tick count.** *(M)* Scoped 2026-09-06 after
+  M2.3: `UntitledFighterMode::FixedTick` decides "whether a tick runs at all"
+  (pause, frame step, slow motion) and latches the pad before one `FightSession`
+  tick; with a live `ISession` that decision is the session's Advance events
+  (T1: zero this frame is legal, none dropped; T3: pause, time scale and scene
+  swap inert). The piece to build is a `SessionDriver` in the Modes library
+  (CseGame's link whitelist keeps CseNet out of it) that turns Save/Load/Advance
+  into `Snapshot`/`Restore`/`Tick(inputs)` with the session's packed inputs, and
+  a headless seam for the mode's pad read -- `readPad_` reads
+  `ctx_.app->input()` and no test constructs the mode today, so the tick-loop
+  rules have nowhere to be held until one exists. N5: no focus gating touches
+  `readPad_` (structural today, unproven); the rule's test rides on the same
+  seam. **Done when:** `SessionDriver.RunsExactlyTheTicksTheSessionAdvances`,
+  `SessionDriver.AFrameWithNoAdvanceRunsZeroTicksAndDropsNone`,
+  `TrainingMode.PauseAndTimeScaleAreInertWhileASessionIsLive`,
+  `TrainingMode.UiFocusNeverSuppressesThePadWhileASessionIsLive`.
 - `[ ]` **M2.5 VERSUS, and one presentation for three modes.**
 - `[ ]` **M2.6 Play == Player, as a hash test.**
 
