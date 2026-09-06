@@ -100,7 +100,6 @@ M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
 |---|---|---|
 | M2.5 VERSUS, and one presentation for three modes | Claude | 2026-09-06 |
 | M3.3d The remaining clips made legible (its machine half landed; the viewport batches wait on the human) | Claude / human | 2026-09-06 |
-| M3.3d The remaining clips made legible (its machine half landed; the viewport batches wait on the human) | Claude / human | 2026-09-06 |
 
 The openings wave is landed end to end: per-opening prover surface → (c) →
 (d) → (b3) — the golden re-record (b3) was expected to need DISSOLVED under
@@ -851,8 +850,8 @@ Six WPs, all landed, gate required in CI. The decision is
   suppression stand down through one pure function, `Engine/src/core/FrameGate.h`,
   read off `Application::setSessionLive` (T3, N5) — N5 is enforced where the
   suppression is decided, not by the mode reading around it, so the Editor's
-  Game-view focus rule stays for training and yields for a live match. Nothing
-  in the shipped hosts attaches a session yet (M2.5). **Done when:**
+  Game-view focus rule stays for training and yields for a live match. The
+  Versus intent attaches one from its lobby (M2.5). **Done when:**
   `SessionDriver.RunsExactlyTheTicksTheSessionAdvances`,
   `SessionDriver.AFrameWithNoAdvanceRunsZeroTicksAndDropsNone`,
   `FightMode.PauseStepAndSlowMotionAreInertWhileASessionIsLive`,
@@ -860,25 +859,66 @@ Six WPs, all landed, gate required in CI. The decision is
   `FrameGate.ALiveSessionOwnsTimeAndThePad`.
 - `[~]` **M2.5 VERSUS, and one presentation for three modes.** *(L)* Claude, 2026-09-06. Scoped
   2026-09-06 after M2.4, when every piece existed and none was wired into a
-  host. The shape is [ADR-022](adr/ADR-022-versus-one-mode-three-sources.md)
-  (Proposed): ONE `UntitledFighterMode` class registered three times with an
-  intent — Training, Replay, Versus — so the menu shows three verbs, both hosts
-  show the same three, and the presentation stays one (ADR-010 E3); Versus
-  enters a lobby the mode draws with its own HUD tools, takes slot, port and
-  peer from `UntitledFighter/versus.json` overridden by the `online_peer`
-  command-line vocabulary, runs the `Handshake` over a `UdpTransport`, attaches
-  the session on agreement (M2.4), keeps a `StateHistory` as a tick observer
-  and ends on a desync exactly as `tests/online_peer.cpp` does — grace frames,
-  `BlobExchange`, the artifact beside the executable, the first divergent field
-  on the HUD. Replay drives both slots from a `ReplayInputSource` and keeps
-  pause, step and slow motion, which nothing else is simulating. The human
-  answered ADR-022 D2 on 2026-09-06: the file-and-command-line lobby ships
-  first; in-game address entry is deferred. **Done when:**
+  host, and built the same day to [ADR-022](adr/ADR-022-versus-one-mode-three-sources.md),
+  whose D2 the human answered first (the file-and-command-line lobby ships;
+  in-game address entry is deferred). What is in the tree: ONE
+  `UntitledFighterMode` constructed with a `ModeIntent` — Training, Replay,
+  Versus — and registered three times, so the engine's menu shows three
+  `DisplayName`s, the title's front end types TRAINING / REPLAY / VERSUS on
+  slots 0/1/2, and one `FightHudModel` / one `DrawFightHud` serve all three
+  (the title word, the slot labels, the lobby block, the session and replay
+  chips and whether the training verdicts draw at all are fields the mode
+  fills). **Versus** reads `Games/UntitledFighter/Assets/UntitledFighter/versus.json`
+  (`cse::data::VersusConfig`, a closed key list refused by name) overridden by
+  `--slot/--port/--peer` — the Player now takes the scene as the first
+  argument not beginning with `--` and leaves every `--key value` pair on
+  `Application::commandLine()`, naming no key — forces the corner opening,
+  binds a `UdpTransport`, runs the `Handshake` and on Agreed attaches an
+  online session at tick 0 (`AttachSession` now `Begin`s the match
+  structurally, so frame F is tick F); the lobby is drawn instead of the
+  match, its sentences are the mode's or the transport's verbatim, and Ended
+  (refused, 30 s timeout, the peer gone silent past the session's disconnect
+  timeout — the mode ends the match when the connected-peer count has been 1
+  and falls to 0, naming the peer and the frame, because GekkoNet keeps
+  advancing the empty slot on neutral input — the owned session detached by
+  the host, desync) is sticky within the visit. A desync is the
+  mode's last act as `online_peer` does it: a `StateHistory` observer, 30
+  grace steps, detach and destroy, `BlobExchange` at frame + 1 on the raw
+  transport, the first divergent field on the HUD and in the banner, the
+  artifact `desync_slot<N>.json` beside the executable; the Versus HUD hides
+  the combo judge and Demonstrate rather than restoring watcher history.
+  **Replay** drives both slots from `ReplayInputSource`s over the committed
+  `Games/UntitledFighter/Assets/UntitledFighter/Replays/base.csrp` (MIT, its
+  `CREDITS.md` beside it), read against the mode's own build hash so a stale
+  file is a red test and an honest-error screen carrying the regenerate
+  command; a `ReplayVerifier` rides along, pause / step / slow motion still
+  work, `V`, `TAB` and hot reload are inert, the last tick pauses and `R`
+  restarts. The headless seams beside `SetInputMap`: `SetCommandLine`,
+  `SetTransport`, `SetPeerAddress`, `SetArtifactDirectory` and
+  `SetDisconnectTimeoutMs` (`SessionConfig::disconnectTimeoutMs`, a wall
+  clock GekkoNet keeps; added so the disconnect test holds the drop in ~100 ms
+  rather than the five seconds a player gets). `ISession.h`'s
+  "every 8 ticks" sentence was corrected while here: an online session
+  health-checks every confirmed frame. **Follow-up, not folded in:** the
+  shipped replay's hash is two hand-kept binding tables agreeing
+  (`UntitledFighterMode::MatchBuildOptions` and `Catalogue.cpp`'s
+  `normalBindings`); fold them into one `cse::data` default-bindings function
+  — until then the pin test below holds them equal. R7 (two people, one
+  match, over real UDP) is the human's: no test runs the mode across two
+  processes. **Done when:**
   `FightMode.ThreeRegistryEntriesShareOneModeAndOnePresentation`,
   `FightMode.VersusReachesLiveThroughTheHandshakeOverALoopback`,
+  `FightMode.ALobbyRefusalIsNamedAndTheMatchIsStillReady`,
+  `FightMode.APeerThatLeavesEndsTheMatchAndSaysSo`,
+  `FightMode.AttachSessionRefusesASlotItCannotPlayAndAReplay`,
+  `FightMode.ADesyncReportEndsTheMatchAndNamesTheFieldOnTheHud`,
   `FightMode.AReplayDrivesBothSlotsAndTheTrainingClockStillWorks`,
-  `FightMode.ADesyncReportEndsTheMatchAndNamesTheFieldOnTheHud`, and the
-  Player's install carrying `versus.json` beside `fight_look.json`.
+  `FightMode.AStaleReplayIsRefusedByNameWithTheRegenerateCommand`,
+  `FightMode.TheCatalogueAndTheModeBuildTheSameMatchData`,
+  `VersusConfig.ParsesTheCommittedFileAndRefusesAnUnknownKeyByName`,
+  `VersusConfig.CommandLineOverridesTheFileAndNamesABadFlag`, and
+  `Assets.VersusJsonShipsBesideFightLook` (the Player's install carries
+  `versus.json` beside `fight_look.json`).
 - `[ ]` **M2.6 Play == Player, as a hash test.**
 
 ## M3 — Skinned fighters, frame-indexed *(size L)* — placeholders through Blender
@@ -1282,6 +1322,15 @@ during recovery is correctly forgotten.
 | **Do** | Press **V** for midscreen. Hit the dummy and watch it slide; count the squares. Press **V** back to the corner and hit it there. Hold **Down** and look at its body. Walk into it. Walk it into a corner. Jump over it. Sweep it with `crouch_hk`. |
 | **Should** | Midscreen: every hit carries it back, further on heavies. Squares are 20 px and every fifth line is one **reach unit** — so a move authored `reach: 0.42` reaches four squares and a bit. Corner: it does not move, and the HUD says the verdict on screen is about *this* position. Crouching: the body is visibly shorter, 34 px against 60. Walking into it: blocked, and neither of you inside the other. Its **body** stops at the wall, not its middle. |
 | **Wrong if** | It slides in the corner (the clamp is not holding). A light knocks it as far as a heavy (pushback is not per-move). Crouching changes nothing. Or **Down+HK does not knock it down and turn the box blue** — `crouch_hk` is selectable since M1.3e (Down decides the variant), so a sweep that does nothing means the stance wire regressed. |
+
+### R7 — After M2.5: two people, one match
+
+| | |
+|---|---|
+| **Run** | Two copies of `PlayerDebug.exe` from the same binaries directory: one bare (`versus.json`: slot 0, port 47011, peer 127.0.0.1:47012), one as `PlayerDebug.exe --slot 1 --port 47012 --peer 127.0.0.1:47011`. VERSUS on both title screens. |
+| **Do** | Watch both lobbies say `waiting for ...` and then `LIVE against ...`. Walk, jump and hit from both windows for a few minutes. Press SPACE, `.`, R, C, V and TAB in one window. Then close one window (the window's close button, not Escape) and watch the other for a few seconds. Then restart the closed copy with `--slot 0` so both claim slot 0. Then edit one frame in `Exported/Characters/fighter_a.json` on ONE side only, restart that copy, and connect again. |
+| **Should** | The title line says VERSUS, the slot labels read YOU / PEER and swap between the two windows, the speaking chip reads NET, and the chips carry the session frame and peers 1. Once inputs settle, both windows show the same positions and health; no desync verdict appears during play. The match keys do nothing while LIVE; B still cycles the overlay. Within a few seconds of one window closing, the other says `the peer at <address> stopped answering and the session dropped it at frame N; the match stopped` on its lobby screen and the red banner, its frame counter holds, and the match keys stay inert. The double slot 0 is `refused:` naming `slot` with both values, on both screens, and neither match ticks behind it. The edited character is refused in the lobby by hash — never a desync a few ticks in. The combo judge, the loud line and Demonstrate are absent from the whole visit. |
+| **Wrong if** | Positions or health disagree between the windows and stay that way with both saying LIVE and no verdict (T4: the report must arrive and end BOTH matches, naming a field, with `desync_slot0.json` and `desync_slot1.json` beside the executable). A window keeps ticking behind WAITING or after ENDED. The window left open keeps ticking, saying LIVE with peers 0, after the other closed — the disconnect is a count that fell, not an event, and the mode must act on the fall. A verdict appears and the match keeps going, or R restarts it (T6). A lobby sentence is not one of the mode's, the loader's or the transport's own (ADR-022 D5). Leaving VERSUS leaves a socket bound: the next visit says the port is in use. |
 
 ### R8 — After M3.4c: the first swing, and it looks like a fighting game
 

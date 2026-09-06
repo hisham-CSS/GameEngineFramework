@@ -549,7 +549,9 @@ struct FighterSetup {
 // NOT hashed and not on the wire: it is an ARGUMENT to ResetMatch, and what
 // goes on the wire is the GameState it produces. Two peers must agree on the
 // setup, but they prove that by agreeing on the resulting state's checksum,
-// which they already exchange every 8 ticks.
+// which an online session already compares on every confirmed frame
+// (Net/include/cse/net/ISession.h; ADR-002 CHOICE C budgeted one exchange
+// per 8 ticks).
 struct MatchSetup {
     std::uint32_t seed;
 

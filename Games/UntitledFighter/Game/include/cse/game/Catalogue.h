@@ -29,6 +29,9 @@
 // which is a true sentence about that exhibit.
 #pragma once
 
+#include "cse/data/CharacterData.h"
+#include "cse/data/MatchBuilder.h"
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -68,5 +71,17 @@ bool CookCatalogue(const std::string& charactersDir,
                    const std::string& manifestRel,
                    const std::string& outDir,
                    CatalogueReport& report);
+
+// The binding table every row is cooked with before its own extras: the
+// arcade normals, (button x stance-prefix) on kInputLP..kInputHK, for the
+// moves the character has. Exposed for ONE reason -- the shipped base.csrp
+// (Games/UntitledFighter/Assets/UntitledFighter/Replays/) carries the hash of
+// a MatchData built with this table, and the title's Replay intent reads the
+// file against the hash of a MatchData built with ITS table
+// (UntitledFighterMode::MatchBuildOptions). MoveDef::button is in the hashed
+// bytes, so the two must agree row for row or the file is refused as
+// "character changed". FightMode.TheCatalogueAndTheModeBuildTheSameMatchData
+// holds them equal.
+cse::data::BuildOptions CatalogueNormalBindings(const cse::data::CharacterData& character);
 
 } // namespace cse::game

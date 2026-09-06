@@ -1,10 +1,14 @@
-// THE TRAINING ROOM AND THE LICENCE RULE (ROADMAP M3.5a; ADR-019 D5, D10).
+// THE TRAINING ROOM, THE LICENCE RULE AND THE SHIPPED CONFIG FILES (ROADMAP
+// M3.5a and M2.5; ADR-019 D5, D10; ADR-022 D2).
 //
 // The room is the kernel's stage, drawn: its floor spans exactly the width the
 // wall clamp allows (kStageHalfWidthSub), its heavy lines fall on the reach
 // unit the character file authors, and every model that ships carries a
 // CREDITS.md beside it. All of it read from the committed, staged bytes with
-// Model::Decode (GL-free); CI never runs Blender.
+// Model::Decode (GL-free); CI never runs Blender. The Assets suite also holds
+// the title's shipped config files: versus.json is staged beside
+// fight_look.json and neither is on the unshipped list
+// (Assets.VersusJsonShipsBesideFightLook).
 #include <gtest/gtest.h>
 
 #include "Engine.h"
@@ -57,6 +61,23 @@ json readJson(const fs::path& p) {
     json j = json::parse(in, nullptr, false);
     EXPECT_FALSE(j.is_discarded()) << p.string() << " is not valid JSON";
     return j;
+}
+
+// Player/unshipped_assets.txt as a set of content-root-relative paths: the ONE
+// list both install routes in Player/CMakeLists.txt read. Read here, by the
+// two tests that reason about what ships, through one function so they cannot
+// parse it two ways.
+std::set<std::string> unshippedAssets() {
+    std::set<std::string> unshipped;
+    std::ifstream in(repoRoot() / "Player" / "unshipped_assets.txt");
+    EXPECT_TRUE(in.good()) << "Player/unshipped_assets.txt not found above " << fs::current_path().string();
+    std::string line;
+    while (std::getline(in, line)) {
+        while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back();
+        if (line.empty() || line[0] == '#') continue;
+        unshipped.insert(line);
+    }
+    return unshipped;
 }
 
 const ModelCPUData::MeshData* meshOf(const ModelCPUData& cpu, const char* material) {
@@ -160,17 +181,7 @@ TEST(StageAsset, HeavyLinesFallOnReachUnits) {
 TEST(Assets, EveryModelHasALicenceBesideIt) {
     const fs::path exported = stagedExported();
     ASSERT_TRUE(fs::exists(exported / "Characters" / "fighter_a.json")) << exported.string() << " is not the staged tree";
-    std::set<std::string> unshipped;
-    {
-        std::ifstream in(repoRoot() / "Player" / "unshipped_assets.txt");
-        ASSERT_TRUE(in.good()) << "Player/unshipped_assets.txt not found above " << fs::current_path().string();
-        std::string line;
-        while (std::getline(in, line)) {
-            while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back();
-            if (line.empty() || line[0] == '#') continue;
-            unshipped.insert(line);
-        }
-    }
+    const std::set<std::string> unshipped = unshippedAssets();
     ASSERT_TRUE(unshipped.count("Model/backpack.obj")) << "the unlicensed sample backpack is not on the unshipped list";
 
     int checked = 0, skipped = 0;
@@ -189,4 +200,38 @@ TEST(Assets, EveryModelHasALicenceBesideIt) {
     EXPECT_GE(skipped, 1) << "the unshipped backpack was not in the staged tree to skip";
     EXPECT_TRUE(missing.empty()) << "model(s) shipping without a CREDITS.md beside them: " << [&] {
         std::string s; for (const auto& m : missing) s += m + " "; return s; }();
+}
+
+// ROADMAP M2.5, ADR-022 D2: the Versus lobby's slot, port and peer are authored
+// content, UntitledFighter/versus.json, and the Player's install carries it
+// beside fight_look.json. No test can enumerate an installed bundle
+// (test_bundle_validate.cpp checks .dll names only), so this proves the two
+// facts the install is a pure function of: the file is in the STAGED tree and
+// its path is not on the unshipped list. What this test reads is the TESTS'
+// staged Exported/ (tests/CMakeLists.txt's test_runtime_deps), which stands
+// in for the build/bin/<Config>/Exported that route 2 of Player/CMakeLists.txt
+// installs whole minus that list: both trees are produced by
+// cmake/stage_runtime_assets.cmake from the same ${CSE_ASSET_ROOTS}, so a
+// file in one is a file in the other. Staged and not unshipped IS installed.
+// fight_look.json is checked the same way so "beside" is a fact, not a word.
+TEST(Assets, VersusJsonShipsBesideFightLook) {
+    const fs::path dir = stagedExported() / "UntitledFighter";
+    ASSERT_TRUE(fs::exists(dir / "fight_look.json")) << dir.string() << " is not the staged title tree";
+    ASSERT_TRUE(fs::exists(dir / "versus.json"))
+        << "UntitledFighter/versus.json is not staged: commit it under "
+           "Games/UntitledFighter/Assets/UntitledFighter/ (a subdirectory of the title "
+           "root, which stage_runtime_assets.cmake mirrors on every build)";
+
+    const json versus = readJson(dir / "versus.json");
+    ASSERT_TRUE(versus.is_object());
+    ASSERT_TRUE(versus.contains("slot") && versus["slot"].is_number_integer()) << "versus.json has no integer `slot`";
+    ASSERT_TRUE(versus.contains("port") && versus["port"].is_number_integer()) << "versus.json has no integer `port`";
+    ASSERT_TRUE(versus.contains("peer") && versus["peer"].is_string())         << "versus.json has no string `peer`";
+    // The committed sample points at the loopback so two copies on one machine
+    // can be told apart by --slot/--port/--peer alone (ADR-022 D2).
+    EXPECT_EQ(versus["peer"].get<std::string>().rfind("127.0.0.1:", 0), 0u) << versus["peer"].get<std::string>();
+
+    const std::set<std::string> unshipped = unshippedAssets();
+    EXPECT_FALSE(unshipped.count("UntitledFighter/versus.json"))     << "versus.json is on the unshipped list; the lobby would ship without its config";
+    EXPECT_FALSE(unshipped.count("UntitledFighter/fight_look.json")) << "fight_look.json is on the unshipped list";
 }

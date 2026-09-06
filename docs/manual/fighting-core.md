@@ -1,6 +1,6 @@
 # The Fighting-Game Core
 
-Verified: 2026-09-06 @ b915679
+Verified: 2026-09-06 @ 8414a7b
 
 Cat Splat Engine is being built toward a deterministic, rollback-capable fighting game. That work does not live in `Engine/`. It is a **title** — `Games/UntitledFighter/` — and the engine does not depend on any of it. The link direction is a configure-time error, not a convention.
 
@@ -13,7 +13,7 @@ Seven libraries, and the order of this table is the dependency order:
 | **`CseGame`** | `Games/UntitledFighter/Game/` | `CseKernel`, `CseData` — and nothing else, by an exact whitelist | The headless game layer: the session, tick-indexed input sources, the replay format and its verifier, and the live combo judge. No GL, no window, so its claims are testable without a context. |
 | **`CseNet`** | `Net/` | GekkoNet (`PRIVATE`) | The rollback session seam. General-purpose, so it sits outside the title. |
 | **`UntitledFighterPresentation`** | `Games/UntitledFighter/Presentation/` | `CseGame` — and nothing else, by an exact whitelist | The GL-free half of the picture — today the stateless cycle phases. Headless, so DETERMINISM P4 stays a test. |
-| **`UntitledFighterModes`** | `Games/UntitledFighter/Modes/` | `Engine`, `CseGame`, `UntitledFighterPresentation` | The game modes the Player and the editor's Game view both run: training mode, the box overlay, the HUD. |
+| **`UntitledFighterModes`** | `Games/UntitledFighter/Modes/` | `Engine`, `CseGame`, `CseNet`, `UntitledFighterPresentation` | The one game mode the Player and the editor's Game view both run, registered three times by intent — training, replay, versus — plus the box overlay and the HUD the three share. |
 | **`UntitledFighterEditor`** | `Games/UntitledFighter/Editor/` | `CseData`, ImGui | The Combo Prover panel — the decision procedure's verdict in front of a designer. |
 
 This page explains how to use them. It is not the design rationale — that lives in [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md) (decisions D1–D9) and in the [ADRs](../adr/README.md), and this page links to them rather than restating them.
@@ -223,7 +223,7 @@ for (std::size_t t = from; t < to; ++t)
     Simulate(live, inputs[t], match);   // re-simulate
 ```
 
-`Checksum` (`Simulate.h:51`) is FNV-1a over the raw bytes — ADR-002 CHOICE C's desync checksum, exchanged every 8 ticks. Hashing the object representation is only sound because the struct has no padding holes and no pointers; `tests/test_kernel.cpp:53` asserts `sizeof`, `alignof` and trivial-copyability **before** any hash, so a padding change reports itself as a padding change rather than as an arithmetic divergence.
+`Checksum` (`Simulate.h:51`) is FNV-1a over the raw bytes — ADR-002 CHOICE C's desync checksum, which an online session compares on every confirmed frame (`ISession.h`). Hashing the object representation is only sound because the struct has no padding holes and no pointers; `tests/test_kernel.cpp:53` asserts `sizeof`, `alignof` and trivial-copyability **before** any hash, so a padding change reports itself as a padding change rather than as an arithmetic divergence.
 
 Properties the suite pins down, so you know what you may rely on:
 
@@ -339,8 +339,8 @@ for (const std::string& w : report.warnings) log(w);    // non-fatal
 
 Three untrusted-content rules apply to every load:
 
-- `relPath` goes through `MyCoreEngine::PathIsContained` **before** the file is opened (`Games/UntitledFighter/Data/src/CharacterData.cpp:1050`). Absolute paths, drive/UNC roots and any `..` component are refused lexically, before any filesystem access.
-- The file is refused above `LoadOptions::maxFileBytes` before it is read (`Games/UntitledFighter/Data/src/CharacterData.cpp:1063`). A 4 GB "character" costs nothing to author.
+- `relPath` goes through `MyCoreEngine::PathIsContained` **before** the file is opened (`readAuthoredFile` in `Games/UntitledFighter/Data/src/CharacterData.cpp`). Absolute paths, drive/UNC roots and any `..` component are refused lexically, before any filesystem access.
+- The file is refused above `LoadOptions::maxFileBytes` before it is read (`readAuthoredFile` again, after the containment check). A 4 GB "character" costs nothing to author.
 - The JSON is parsed with exceptions off, and every field is type-checked before it is read.
 
 ### The load assertions, and what each one prevents
@@ -581,7 +581,7 @@ cfg.inputBytesPerPlayer = sizeof(WireInput);
 cfg.stateBytes          = sizeof(cse::kernel::GameState);
 cfg.predictionWindow    = 8;                          // D4 budgets 8
 cfg.desyncDetection     = true;
-cfg.desyncCheckInterval = 8;                          // ADR-002 CHOICE C
+cfg.desyncCheckInterval = 8;                          // the stress session's cadence; online checks every confirmed frame (ISession.h)
 
 ISession* session = CreateGekkoLocalSession(cfg);     // ISession.h — null on failure
 
@@ -643,7 +643,7 @@ DestroySession(session);                              // ISession.h
 
 **A desync, named** (`Games/UntitledFighter/Game/include/cse/game/Desync.h`, ROADMAP M2.3). The session reports the frame whose advance produced the differing state and nothing more; the host holds its last frames in a `StateHistory`, keeps the session pumping a little longer so the other side detects too, then ends it and swaps the two states at tick frame + 1 through `cse::net::BlobExchange` on the same transport. `FirstDivergence` names the first field they disagree about through the kernel's reflection table (`cse/kernel/StateReflection.h`, whose `static_assert` is [DETERMINISM.md](../DETERMINISM.md) S8), and `DesyncArtifactJson` is the artifact: the frame, both checksums, the field, the offset and both values. A desync is never corrected ([DETERMINISM.md](../DETERMINISM.md) T6). `tests/test_desync.cpp` holds it between two kernels; `tests/two_peers.py` sees both peers write the artifact over UDP.
 
-**The session owns the tick count** (`Games/UntitledFighter/Modes/src/SessionDriver.h`, ROADMAP M2.4). `SessionDriver` turns the session's events into the fight's calls — Save is `Snapshot`, Load is `Restore`, Advance is `Tick(inputs)` with the wire's two bytes per player — and decides nothing: the kernel runs exactly as many ticks as the session advances, zero on a frame the peer has not answered and several when it rolls back ([DETERMINISM.md](../DETERMINISM.md) T1, T2). It lives in the Modes library because `CseGame`'s link whitelist keeps the session seam out of the simulation libraries. `UntitledFighterMode::AttachSession` puts the mode on it: from then until `DetachSession` the mode pumps once per fixed step and takes the tick count from the return; its pause, frame step, slow motion, reset, character swap, stage position, Demonstrate and hot reload are inert; and the Application's pause, time scale and pad suppression stand down through `Application::setSessionLive` and `Engine/src/core/FrameGate.h` (T3, N5). One input per session frame: the session ignores a re-offer for a frame it has not advanced (`ISession.h` rule 5), so the mode offers the pad — and spends its tap accumulator — only when `SessionDriver::AcceptsInput` says the frame will take it. The mode runs without a window through `SetInputMap`, which is how `tests/test_fight_mode.cpp` holds it; `tests/test_session_driver.cpp` holds the driver and `tests/test_frame_gate.cpp` the Application's half. Nothing in the shipped hosts attaches a session yet — VERSUS is ROADMAP M2.5.
+**The session owns the tick count** (`Games/UntitledFighter/Modes/src/SessionDriver.h`, ROADMAP M2.4). `SessionDriver` turns the session's events into the fight's calls — Save is `Snapshot`, Load is `Restore`, Advance is `Tick(inputs)` with the wire's two bytes per player — and decides nothing: the kernel runs exactly as many ticks as the session advances, zero on a frame the peer has not answered and several when it rolls back ([DETERMINISM.md](../DETERMINISM.md) T1, T2). It lives in the Modes library because `CseGame`'s link whitelist keeps the session seam out of the simulation libraries. `UntitledFighterMode::AttachSession` puts the mode on it: from then until `DetachSession` the mode pumps once per fixed step and takes the tick count from the return; its pause, frame step, slow motion, reset, character swap, stage position, Demonstrate and hot reload are inert; and the Application's pause, time scale and pad suppression stand down through `Application::setSessionLive` and `Engine/src/core/FrameGate.h` (T3, N5). One input per session frame: the session ignores a re-offer for a frame it has not advanced (`ISession.h` rule 5), so the mode offers the pad — and spends its tap accumulator — only when `SessionDriver::AcceptsInput` says the frame will take it. The mode runs without a window through `SetInputMap`, which is how `tests/test_fight_mode.cpp` holds it; `tests/test_session_driver.cpp` holds the driver and `tests/test_frame_gate.cpp` the Application's half. The Versus intent attaches one from its lobby (the modes section below, ROADMAP M2.5).
 
 ---
 
@@ -809,7 +809,8 @@ links `CseGame`, glm and nlohmann and nothing else by configure-time assertion.
 
 ### The reconciler — the 3D presentation (M3.4c)
 
-When a character authors `engine.anim3d.model`, the training mode wears it. Two
+When a character authors `engine.anim3d.model`, the mode wears it in every intent
+— Training, Replay, and Versus once LIVE; the lobby screen draws no fighter. Two
 libraries share the work and the split is the point ([ADR-019](../adr/ADR-019-placeholders-through-blender.md) D9):
 
 - **`cse::presentation`** (`Games/UntitledFighter/Presentation/`, GL-free; links `CseGame`, glm and nlohmann, nothing else) does the arithmetic. `ComposeFrame(data, state, clips, look, stageHalfWidthSub, previousCentrePx, viewportW, viewportH)` runs `SelectPose` for each slot, looks the pose up in the `FighterClips` table, picks the clip frame (`ClipFrameFor`: the move frame for a move; `frames − remaining`, clamped at zero, for the countdown cycles so they land on their last frame as the counter reaches zero; the tick for a cycle; `posX / walkSpeed` for the walk), and builds the model matrix `translate(posX/256, posY/256, slotZ) × yaw(180° when facing == 1)` — a rotation with determinant +1, never a negative scale. It also frames the camera (`FightCameraFraming`: the 200 px half-width, 34 px deadzone, 42 px height and wall clamp that used to live in `FightView.cpp`) and derives the orthographic half-height the scene camera needs so that the scene camera and the 2D box overlay project a fighter's origin to the same pixel within half a pixel. It reads its inputs and writes only the result (`FightPresentation.ReconcilingAFrameLeavesTheGameStateBytesUntouched`).
@@ -817,30 +818,157 @@ libraries share the work and the split is the point ([ADR-019](../adr/ADR-019-pl
 
 The committed look is `Games/UntitledFighter/Assets/UntitledFighter/fight_look.json` (staged to `Exported/UntitledFighter/`), applied on adopt to both suns (the scene's shading sun and the renderer's shadow sun), exposure, IBL, the outline and the shadow range, and restored when the mode leaves. Its numbers are in world pixels and must satisfy ADR-019 D5: shadow distance ≥ camera distance + room depth, far plane past the back wall, near plane in front of the fighters (`FightPresentation.TheBackWallIsInsideTheShadowRange` proves the committed file; an unknown key is refused by name like the character file). With a model on screen the 2D backdrop and floor are not drawn; the kernel's Hurtbox outline, the ActiveHitbox and the origin stay on top, because judging the fist against the box is what the pass is for. **B** cycles three overlay modes (`cse::presentation::OverlayMode`, M3.4e): boxes over the mesh (default), boxes over a translucent mesh — the per-slot materials switch to the renderer's Blend alpha mode at 35 % opacity so the box edge reads through the limb — and mesh only. The 2D ruler draws only with the boxes on and no model on screen, because the room's grid is the ruler (`FightPresentation.OverlayModeCyclesThreeStatesAndStartsWithBoxes`). `PhaseOf` now reads `SelectPose` for the knockdown-over-stun ordering and adds only the frame split, so that decision has one home.
 
-## The modes: training, frame step, HUD
+## The modes: three intents, one presentation
 
 `Games/UntitledFighter/Modes/` is the title's drawing layer, and it is a
 `MyCoreEngine::IGameMode` — so the **shipped Player and the editor's Game view
 enter the same object**, which is the "Play == Player" property in one sentence.
-`RegisterTitleGameModes` is the seam: the engine never names a title, the title
-pushes itself in.
+`RegisterTitleGameModes` (`Games/UntitledFighter/Modes/src/UntitledFighterModes.cpp`)
+is the seam: the engine never names a title, the title pushes itself in — and it
+pushes **one class three times** ([ADR-022](../adr/ADR-022-versus-one-mode-three-sources.md) D1).
+`UntitledFighterMode` is constructed with a `ModeIntent` — `Training`, `Replay`,
+`Versus` — and the intent decides where the second slot's bits come from and
+nothing else: a silent dummy, a replay file, or a peer over `CseNet`.
+Registration order is menu order: the engine's demo menu reads the three
+`DisplayName`s ("Untitled Fighting Game", "Replay", "Versus (online)") and the
+title's own front end (`Games/UntitledFighter/Assets/UntitledFighter/UI/menu.cxml`)
+types TRAINING, REPLAY and VERSUS wired to slots 0, 1 and 2.
+`FightMode.ThreeRegistryEntriesShareOneModeAndOnePresentation` pins the count,
+the order, and that all three enter headlessly into one `FightHudModel` drawn by
+one `DrawFightHud`: the word after the title (TRAINING / REPLAY / VERSUS) and the
+two slot labels (YOU / TRAINING DUMMY, P1 / P2, YOU / PEER) are fields the mode
+fills, not a second screen. The headless seams beside `SetInputMap` are
+`SetCommandLine`, `SetTransport`, `SetPeerAddress`, `SetArtifactDirectory` and
+`SetDisconnectTimeoutMs`, which is how `tests/test_fight_mode.cpp` enters every
+intent without a window, a socket, the working directory or a five-second wait.
 
-**Training mode** (`UntitledFighterMode`) loads a character, starts a
-`FightSession`, binds the local pad through a `LatchedInputSource`, and draws the
-box overlay (`FightView`) and the frame-data HUD (`FightHud`).
+**Training** (`ModeIntent::Training`) loads a character, starts a `FightSession`
+with the dummy in the corner, binds the local pad through a `LatchedInputSource`,
+and draws the box overlay (`FightView`) and the frame-data HUD (`FightHud`).
+Demonstrate, hot reload and the verdict panels are Training's; the other two
+intents are this fight re-sourced.
+
+**Replay** (`ModeIntent::Replay`; ADR-022 D3, D4) drives **both** slots from a
+`ReplayInputSource` over one committed file,
+`Games/UntitledFighter/Assets/UntitledFighter/Replays/base.csrp` (staged to
+`Exported/UntitledFighter/Replays/`, its licence in the `CREDITS.md` beside it;
+`C` cycles the table of shipped replays, one entry today). The file is read
+against the hash of the match the mode builds (`ReplayReadOptions::expectedMatchDataHash`),
+so a stale recording is the honest-error screen — `replay <file>: <the reader's
+reason> -- regenerate it: ...` with the catalogue command — and never a match
+played against different data ([DETERMINISM.md](../DETERMINISM.md) S9). The
+`MatchStart` is the file's (seed and both start positions, so `V` is inert), a
+`ReplayVerifier` rides along as an observer, and a checkpoint that disagrees
+stops the match with a red banner naming the tick and both checksums — never a
+correction. Pause, frame step and slow motion still work, because nothing else
+is simulating: the mode still decides whether to call `Tick()`. At the file's
+last tick the mode pauses itself — `replay over at tick N of M; R restarts it` —
+and `R` re-Begins from tick 0 on the same two sources. The speaking chip reads
+REPLAY (the source's own `Name()`), and the chips add `replay N / M`, the
+checkpoints compared and agreed, and `(resimulated)` off the session's own flag.
+`FightMode.AReplayDrivesBothSlotsAndTheTrainingClockStillWorks` holds all of it,
+including that the end state is byte-identical to a straight two-source
+`FightSession` over the same file (T5), and again after `R`. **The shipped
+file's hash is two hand-kept tables agreeing** — the catalogue's
+`normalBindings` (`Games/UntitledFighter/Game/src/Catalogue.cpp`, reachable as
+`CatalogueNormalBindings`) and the mode's `UntitledFighterMode::MatchBuildOptions`
+— pinned by `FightMode.TheCatalogueAndTheModeBuildTheSameMatchData`. Any
+frame-data edit to `fighter_a.json`, either binding table, or a kernel or
+`GameState` change makes `base.csrp` stale: from the binaries directory run
+`UntitledFighterCatalogue Exported/Characters <scratch dir>` and re-commit
+`<scratch dir>/base.csrp` in the same commit (the `CREDITS.md` beside it says
+the same, and the test's failure message carries the command).
+
+**Versus** (`ModeIntent::Versus`; ADR-022 D2, D5) enters a **lobby** the mode
+draws with the HUD's own tools instead of the match. Slot, port and peer come
+from `Games/UntitledFighter/Assets/UntitledFighter/versus.json` (staged beside
+`fight_look.json`; `cse::data::LoadVersusConfig` in
+`Games/UntitledFighter/Data/include/cse/data/VersusConfig.h`, a closed key list
+— `slot`, `port`, `peer` — refused by name like the character file), overridden
+by `--slot N --port P --peer ip:port` on the command line (`ApplyVersusOverrides`;
+a bad value names its flag; the Player leaves every `--key value` pair on
+`Application::commandLine()` — [scenes-and-shipping.md](scenes-and-shipping.md)).
+The mode forces the corner opening (both peers must `Begin` identical, and the
+offer carries no start position), loads the character, binds a `UdpTransport` on
+the port (IPv4 literals only) and runs the `Handshake` with an offer built from
+`HashMatchData` over the built data, the wire sizes, the seed and the slot. Every
+sentence on the lobby screen is the mode's, the loader's or the transport's,
+verbatim: `waiting for <peer> as slot N on port P (IPv4 literals only)`;
+`refused: <the handshake's reason>` — the first disagreeing field with both
+values, so two peers claiming slot 0 are told so by name; `the peer never
+offered: nothing from <peer> in 30 s` after 30 s of fixed steps; a character that
+did not load shows the loader's error and opens no socket. On `Agreed` the mode
+creates the online session and `AttachSession`s it — the attach `Begin`s the
+match at tick 0 structurally, so the session's frame F is the kernel's tick F —
+and says `LIVE against <peer> as slot N`; from then on the M2.4 rules apply (*The
+session owns the tick count*, above), the slot labels read YOU / PEER off the
+local slot, the speaking chip reads NET, and the chips add the session frame,
+connected peers, frames ahead and rollback ticks. A peer that stops answering
+ends the match too: the session drops it after its disconnect timeout
+(`SessionConfig::disconnectTimeoutMs`, a wall clock; the mode's
+`SetDisconnectTimeoutMs` shortens it, which is how the test below holds the drop
+in well under the default) and then keeps advancing with neutral inputs for the
+empty slot — so the mode watches the connected-peer count and, once it has been 1
+and falls to 0, detaches, destroys the session it owns and says `the peer at
+<peer> stopped answering and the session dropped it at frame N; the match
+stopped` on the lobby screen and the red banner, never a match ticking on alone
+under a HUD that says LIVE. Ended is sticky within the visit: after a refusal, a
+timeout, a peer that stopped answering, the host detaching the owned session or a
+desync verdict the local match does not tick and the match controls — reset,
+pause, step, slow motion, stage position, character swap, Demonstrate — are
+inert; `B` still cycles the overlay and Escape leaves. Hot reload never runs in Versus, because a landed edit would change the
+hash under a sent offer. `FightMode.VersusReachesLiveThroughTheHandshakeOverALoopback`
+(two Versus modes over one `LoopbackNetwork`) and
+`FightMode.ALobbyRefusalIsNamedAndTheMatchIsStillReady` hold the lobby;
+`FightMode.APeerThatLeavesEndsTheMatchAndSaysSo` holds the drop — of two LIVE
+modes one Exits, and the other ends its match and says so, on a timeout the test
+shortened through `SetDisconnectTimeoutMs`;
+`VersusConfig.ParsesTheCommittedFileAndRefusesAnUnknownKeyByName` and
+`VersusConfig.CommandLineOverridesTheFileAndNamesABadFlag` hold the file and the
+flags; `Assets.VersusJsonShipsBesideFightLook` holds that the Player's install
+carries the file. No test runs two processes over UDP through the mode — that is
+ROADMAP review point R7, the human's.
+
+**A desync is the match's last act** (ADR-022 D3; [DETERMINISM.md](../DETERMINISM.md) T4, T6).
+The mode keeps the last 128 states in a `StateHistory` tick observer — every
+tick, resimulated ones included, the opposite of the combo watcher. When the
+session reports a desync the mode does not stop at once: it says `desync
+reported at frame N; the match is lost and stops in <grace> steps, once the peer
+has the checksums to see it too` and keeps ticking under the session for that
+grace so the peer detects too; then it detaches, destroys the
+session it owns, and swaps the state at tick frame + 1 with the peer through
+`BlobExchange` on the raw transport. `FirstDivergence` names the first field; the
+verdict — `desync at frame N: field <path> local A remote B (artifact
+<dir>/desync_slot<slot>.json)` — is the lobby screen's sentence and the red THE
+MATCH STOPPED banner, and the artifact is `DesyncArtifactJson` written beside the
+executable (the hosts run from it), named by the local slot. Never a correction:
+after the verdict the match does not tick and the controls are inert. The combo
+judge, the loud line, Demonstrate and the corner note are hidden for the whole
+of a Versus visit (`FightHudModel::verdictPanels`): a rollback flips the watcher
+`Stale` for the rest of the match, and a panel that read STALE all evening would
+be a statement about the match rather than about the watcher.
+`FightMode.ADesyncReportEndsTheMatchAndNamesTheFieldOnTheHud` holds it: two
+modes, two online sessions over a loopback, one stage position different, both
+notes name `posX`, both ticks stop, both artifacts parse, and
+`Checksum(*StateAtDesync()) == LastDesync().localChecksum` on both sides.
 
 **Pause, slow motion and frame step cost about six lines between them**, and the
-reason is the session's design rather than cleverness: the mode decides how many
-times to call `Tick()`. Paused is "do not call it", slow motion is "call it every
-Nth step", frame step is "call it exactly once". Nothing about time is stored
-inside the simulation, so there is nothing to keep consistent.
+reason is the session's design rather than cleverness: with no online session
+attached, the mode decides how many times to call `Tick()`. Paused is "do not
+call it", slow motion is "call it every Nth step", frame step is "call it exactly
+once". Nothing about time is stored inside the simulation, so there is nothing
+to keep consistent.
 
-**Demonstrate** runs the prover's verdict. The mode asks for the analysis, hands
-the printed loop to `BuildDemonstration`, and swaps the attacker's input source
-for the resulting script through a `FallbackInputSource` — so when the
-demonstration ends, the pad takes over mid-match with no seam.
+**Demonstrate** (Training's: `TAB` is inert in Replay and while a session is
+live, and its panel is hidden in Versus) runs the prover's verdict. The mode asks
+for the analysis, hands the printed loop to `BuildDemonstration`, and swaps the
+attacker's input source for the resulting script through a
+`FallbackInputSource` — so when the demonstration ends, the pad takes over
+mid-match with no seam.
 
-**Hot reload** is the authoring loop ([ADR-016](../adr/ADR-016-a-reload-restarts-the-match.md)):
+**Hot reload** is the authoring loop ([ADR-016](../adr/ADR-016-a-reload-restarts-the-match.md)),
+and it is Training's alone — a replay plays one hash and a Versus offer has
+already sent one, so the poll does not run for either:
 the mode polls the loaded character file's (mtime, size) stamp every 0.25 s and
 a change **restarts the match with the freshly built data** — health, position
 and combo history do not survive, because after a frame-data edit they describe

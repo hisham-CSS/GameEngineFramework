@@ -36,8 +36,11 @@ namespace MyCoreEngine
 
 		// Command line captured by the entry point (Main.h): argv[0] is the
 		// program, argv[1..] the arguments. Portable replacement for Windows'
-		// __argc/__argv — the Player reads argv[1] as an optional startup-scene
-		// override, and it works the same on Linux where main() gets argc/argv.
+		// __argc/__argv — the Player reads the first argument that does not
+		// begin with `--` as an optional startup-scene override and leaves the
+		// `--key value` pairs here for a title's game mode to read (the host
+		// names no key), and it works the same on Linux where main() gets
+		// argc/argv.
 		void SetCommandLine(int argc, char** argv) {
 			commandLine_.clear();
 			commandLine_.reserve(argc > 0 ? static_cast<size_t>(argc) : 0);

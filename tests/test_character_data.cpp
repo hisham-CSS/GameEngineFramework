@@ -27,6 +27,7 @@
 
 #include "cse/data/CharacterData.h"
 #include "cse/data/MatchBuilder.h"
+#include "cse/data/VersusConfig.h"
 
 #include <nlohmann/json.hpp>
 
@@ -1141,4 +1142,177 @@ TEST(CharacterData, AMissingReservedCycleIsALoadErrorNamingIt) {
         EXPECT_TRUE(mentions(r.error, cycle)) << r.error;
     }
     EXPECT_EQ(kReservedCycleNames.size(), 14u) << "ADR-019 D2 names fourteen reserved cycles";
+}
+
+// ---------------------------------------------------------------------------
+// THE VERSUS LOBBY'S CONFIG (ROADMAP M2.5, ADR-022 D2)
+//
+// UntitledFighter/versus.json holds slot, port and peer; the command line's
+// --slot/--port/--peer (online_peer's vocabulary) override it. The parser lives
+// in this library because it opens an authored path by name (the sandbox and
+// the JSON dependency are here), so its tests live beside the loader's.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// The title's SOURCE asset root, found by walking up to the committed
+// versus.json. This target has no test_runtime_deps dependency, so the staged
+// copy is tests/test_stage_asset.cpp's to prove (Assets.VersusJsonShipsBeside-
+// FightLook); this proves the bytes in git. Empty when not found, and the test
+// ASSERTs on it, so it cannot pass vacuously.
+std::string titleAssetRoot() {
+    namespace fs = std::filesystem;
+    fs::path here = fs::current_path();
+    for (int i = 0; i < 8; ++i) {
+        const fs::path root = here / "Games" / "UntitledFighter" / "Assets";
+        if (fs::exists(root / "UntitledFighter" / "versus.json")) return root.string();
+        if (!here.has_parent_path() || here.parent_path() == here) break;
+        here = here.parent_path();
+    }
+    return {};
+}
+
+std::string slurp(const std::filesystem::path& p) {
+    std::ifstream in(p, std::ios::binary);
+    EXPECT_TRUE(in.good()) << "cannot open " << p.string();
+    return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+}
+
+} // namespace
+
+TEST(VersusConfig, ParsesTheCommittedFileAndRefusesAnUnknownKeyByName) {
+    const std::string root = titleAssetRoot();
+    ASSERT_FALSE(root.empty()) << "Games/UntitledFighter/Assets/UntitledFighter/versus.json not found above "
+                               << std::filesystem::current_path().string();
+
+    // The committed sample, through the same call and relative path the mode
+    // uses. ADR-022 D2: slot 0 on online_peer's port, pointing at the other
+    // slot on the loopback, so a second copy connects with just
+    // `--slot 1 --port 47012 --peer 127.0.0.1:47011`.
+    VersusConfig cfg;
+    std::string error;
+    ASSERT_TRUE(LoadVersusConfig(root, "UntitledFighter/versus.json", cfg, error)) << error;
+    EXPECT_EQ(cfg.slot, 0);
+    EXPECT_EQ(cfg.port, 47011);
+    EXPECT_EQ(cfg.peer, "127.0.0.1:47012");
+
+    // The same bytes, parsed and mutated one field at a time, exactly as the
+    // character tests do. `out` is written ONLY on success: a lobby that kept
+    // half a refused file would bind the right port for the wrong slot.
+    const std::string text = slurp(std::filesystem::path(root) / "UntitledFighter" / "versus.json");
+    const json doc = json::parse(text.begin(), text.end(), nullptr, false);
+    ASSERT_FALSE(doc.is_discarded());
+    VersusConfig untouched;
+    untouched.slot = 1; untouched.port = 9; untouched.peer = "untouched";
+    auto refuses = [&](const json& mutated, const char* fragment) {
+        VersusConfig out = untouched;
+        std::string e;
+        EXPECT_FALSE(ParseVersusConfig(mutated.dump(), out, e)) << "accepted: " << mutated.dump();
+        EXPECT_TRUE(mentions(e, fragment)) << "for " << mutated.dump() << " the error was: " << e;
+        EXPECT_EQ(out.slot, untouched.slot);
+        EXPECT_EQ(out.port, untouched.port);
+        EXPECT_EQ(out.peer, untouched.peer);
+    };
+
+    // an unknown key is refused BY NAME, with the legal names listed
+    { json m = doc; m["slto"] = m["slot"]; m.erase("slot"); refuses(m, "`slto` is not a field. The fields are: slot port peer"); }
+    // types, in the parser's own words
+    { json m = doc; m["slot"] = "0";   refuses(m, "`slot` is not an integer"); }
+    { json m = doc; m["port"] = 1.5;   refuses(m, "`port` is not an integer"); }
+    { json m = doc; m["peer"] = 7;     refuses(m, "`peer` is not a string"); }
+    // ranges
+    { json m = doc; m["slot"] = 2;     refuses(m, "`slot` must be 0 or 1"); }
+    { json m = doc; m["slot"] = -1;    refuses(m, "`slot` must be 0 or 1"); }
+    { json m = doc; m["port"] = 0;     refuses(m, "`port` must be 1..65535"); }
+    { json m = doc; m["port"] = 70000; refuses(m, "`port` must be 1..65535"); }
+    { json m = doc; m["peer"] = "";    refuses(m, "`peer` is empty"); }
+    // not an object at all
+    refuses(json::array({ 1, 2 }), "not a JSON object");
+    {
+        VersusConfig out = untouched;
+        std::string e;
+        EXPECT_FALSE(ParseVersusConfig("{ \"slot\": ", out, e));
+        EXPECT_TRUE(mentions(e, "not a JSON object")) << e;
+        EXPECT_EQ(out.peer, untouched.peer);
+    }
+
+    // an absent key keeps the default, so a one-line file is legal
+    {
+        VersusConfig out;
+        std::string e;
+        ASSERT_TRUE(ParseVersusConfig("{ \"slot\": 1 }", out, e)) << e;
+        EXPECT_EQ(out.slot, 1);
+        EXPECT_EQ(out.port, VersusConfig{}.port);
+        EXPECT_EQ(out.peer, VersusConfig{}.peer);
+    }
+
+    // the path goes through the sandbox BEFORE the file is opened, and a
+    // missing file is an error in the file's words, not the parser's
+    {
+        VersusConfig out = untouched;
+        std::string e;
+        EXPECT_FALSE(LoadVersusConfig(root, "../versus.json", out, e));
+        EXPECT_TRUE(mentions(e, "path: refused")) << e;
+        EXPECT_FALSE(LoadVersusConfig(root, "UntitledFighter/no_such_versus.json", out, e));
+        EXPECT_TRUE(mentions(e, "cannot be opened")) << e;
+        EXPECT_EQ(out.peer, untouched.peer);
+    }
+}
+
+TEST(VersusConfig, CommandLineOverridesTheFileAndNamesABadFlag) {
+    VersusConfig file;
+    file.slot = 0; file.port = 47011; file.peer = "127.0.0.1:47012";
+
+    // The Player's WHOLE command line, as Application::commandLine() hands it
+    // over: argv[0], the scene, and the lobby's three pairs. Only the pairs
+    // speak; the positional tokens are the host's and are skipped.
+    VersusConfig cfg = file;
+    std::string error;
+    ASSERT_TRUE(ApplyVersusOverrides({ "Player.exe", "Exported/scene.json",
+                                       "--slot", "1", "--port", "47012", "--peer", "127.0.0.1:47011" },
+                                     cfg, error)) << error;
+    EXPECT_EQ(cfg.slot, 1);
+    EXPECT_EQ(cfg.port, 47012);
+    EXPECT_EQ(cfg.peer, "127.0.0.1:47011");
+
+    // one override leaves the other two as the file had them
+    cfg = file;
+    ASSERT_TRUE(ApplyVersusOverrides({ "--slot", "1" }, cfg, error)) << error;
+    EXPECT_EQ(cfg.slot, 1);
+    EXPECT_EQ(cfg.port, file.port);
+    EXPECT_EQ(cfg.peer, file.peer);
+
+    // a `--key value` this layer does not know is skipped WITH its value --
+    // the Player's own grammar for finding the scene -- so a host flag or
+    // online_peer's --ticks cannot swallow the pair after it
+    cfg = file;
+    ASSERT_TRUE(ApplyVersusOverrides({ "--ticks", "300", "--slot", "1" }, cfg, error)) << error;
+    EXPECT_EQ(cfg.slot, 1);
+
+    // nothing to say: nothing changes, and no error
+    cfg = file;
+    ASSERT_TRUE(ApplyVersusOverrides({}, cfg, error));
+    EXPECT_TRUE(error.empty());
+    EXPECT_EQ(cfg.port, file.port);
+
+    // a bad value names its flag and changes NOTHING, not even the pairs
+    // parsed before it: std::atoi would have read `one` as slot 0 and `1x` as
+    // slot 1 without a word, which is a lobby connected the wrong way round.
+    auto refuses = [&](const std::vector<std::string>& args, const char* flag) {
+        VersusConfig out = file;
+        std::string e;
+        EXPECT_FALSE(ApplyVersusOverrides(args, out, e)) << "accepted a bad " << flag;
+        EXPECT_TRUE(mentions(e, flag)) << "the error does not name " << flag << ": " << e;
+        EXPECT_EQ(out.slot, file.slot);
+        EXPECT_EQ(out.port, file.port);
+        EXPECT_EQ(out.peer, file.peer);
+    };
+    refuses({ "--port", "47012", "--slot", "2" }, "--slot");
+    refuses({ "--slot", "one" },                 "--slot");
+    refuses({ "--slot", "1x" },                  "--slot");
+    refuses({ "--port", "0" },                   "--port");
+    refuses({ "--port", "70000" },               "--port");
+    refuses({ "--port", "47011.5" },             "--port");
+    refuses({ "--peer", "" },                    "--peer");
+    refuses({ "--slot", "1", "--peer" },         "--peer");   // a flag with no value
 }

@@ -303,7 +303,8 @@ public:
     // mark is correctly reported as resimulated. Restoring a state that was
     // produced by a DIFFERENT MatchData is undefined and is the caller's
     // problem -- the handshake (ARCHITECTURE.md 4.8) is what proves it did not
-    // happen, and re-checking it here every 8 ticks would be the wrong place.
+    // happen, and re-checking it here on every confirmed frame would be the
+    // wrong place.
     void Snapshot(cse::kernel::GameState& out) const;
     void Restore(const cse::kernel::GameState& in);
 

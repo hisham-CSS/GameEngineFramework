@@ -45,6 +45,14 @@ const char* searchName(ComboVerdict v) {
 // The arcade normals binding, the same (button x stance-prefix) rule the mode
 // ships and every exhibit test used -- restated here because the tests' copy
 // is a test fixture and a cooker cannot link a test.
+//
+// AND THE MODE'S COPY MUST MATCH IT (UntitledFighterMode::MatchBuildOptions):
+// the base row's .csrp ships as the title's replay and is read there against
+// the hash of the mode's own build, with MoveDef::button in the hashed bytes.
+// Two hand-kept tables, one test between them --
+// FightMode.TheCatalogueAndTheModeBuildTheSameMatchData -- until one function
+// owns both (ROADMAP M2.5's follow-up). The public name below is that
+// test's handle on this one.
 cse::data::BuildOptions normalBindings(const cse::data::CharacterData& c) {
     const char* kButtons[] = { "lp", "mp", "hp", "lk", "mk", "hk" };
     const std::uint16_t kBits[] = {
@@ -362,6 +370,10 @@ void cookEntry(const std::string& charactersDir,
 }
 
 } // namespace
+
+cse::data::BuildOptions CatalogueNormalBindings(const cse::data::CharacterData& character) {
+    return normalBindings(character);
+}
 
 bool CookCatalogue(const std::string& charactersDir,
                    const std::string& manifestRel,

@@ -393,10 +393,14 @@ target_link_libraries(test_session_driver PRIVATE UntitledFighterModes Engine Cs
 add_dependencies(test_session_driver test_runtime_deps)
 add_test(NAME test_session_driver COMMAND $<TARGET_FILE:test_session_driver>)
 
+# nlohmann is here for ONE reader (ROADMAP M2.5): the desync test parses the
+# artifact the mode wrote, because the artifact's contract is "a script can
+# read it", and a substring search over the text would pass a file no parser
+# accepts.
 add_executable(test_fight_mode test_fight_mode.cpp)
 target_include_directories(test_fight_mode PRIVATE ${_modes_src})
 target_compile_definitions(test_fight_mode PRIVATE GLFW_INCLUDE_NONE)
-target_link_libraries(test_fight_mode PRIVATE UntitledFighterModes Engine CseGame CseData CseKernel CseNet UntitledFighterPresentation GTest::gtest_main)
+target_link_libraries(test_fight_mode PRIVATE UntitledFighterModes Engine CseGame CseData CseKernel CseNet UntitledFighterPresentation nlohmann_json::nlohmann_json GTest::gtest_main)
 add_dependencies(test_fight_mode test_runtime_deps)
 add_test(NAME test_fight_mode COMMAND $<TARGET_FILE:test_fight_mode>)
 

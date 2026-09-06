@@ -2,7 +2,11 @@
 // Standalone player: boots the engine, loads the startup scene, and runs it
 // without any editor UI. Built twice: PlayerDebug.exe (console subsystem,
 // keeps the terminal for logs) and Player.exe (shipping, no console).
-// Usage: Player.exe [path/to/scene.json]   (overrides the project settings)
+// Usage: Player.exe [path/to/scene.json] [--key value ...]
+//   The scene is the first argument that does not begin with `--` (it
+//   overrides the project settings); every `--key value` pair is left on
+//   Application::commandLine() for whatever a linked title reads it for. This
+//   file names no key: which pairs exist is the title's business.
 //
 // A GENERAL HOST. Nothing in this file names a game, a fighter or a move, and
 // nothing may: this executable is what every title built on this engine ships
@@ -53,6 +57,25 @@ namespace {
     // way to turn a key code into a character — layouts, dead keys and IMEs all
     // live in glfwSetCharCallback.
     MyCoreEngine::ui::UIKeyboardState g_uiKeys;
+
+    // The scene on the command line: the FIRST argument that does not begin
+    // with `--`, where a `--key` takes the token after it as its value, known
+    // or not. Before this the Player read argv[1] as a scene unconditionally,
+    // so a title's own `--key value` pairs -- which ride the same argv through
+    // Application::commandLine() -- killed it at startup with "failed to load
+    // scene '--key'". Consuming the value of EVERY flag, not only the ones
+    // this file could name, is what keeps this general: a host that knew the
+    // title's keys would be a host that names a game, and a host that skipped
+    // only the flag would open the value token as a scene. Empty when there
+    // is none.
+    std::string sceneArgument(const std::vector<std::string>& args) {
+        for (std::size_t i = 1; i < args.size(); ++i) {   // [0] is the program
+            const std::string& a = args[i];
+            if (a.size() >= 2 && a[0] == '-' && a[1] == '-') { ++i; continue; }
+            return a;
+        }
+        return {};
+    }
 
     MyCoreEngine::ui::UIKey mapKey(int key) {
         using K = MyCoreEngine::ui::UIKey;
@@ -172,8 +195,10 @@ public:
 
         // ---- what this boots, in order --------------------------------------
         //
-        //   1. a scene named on the COMMAND LINE. It beats everything, including
-        //      a linked title, because somebody debugging a scene must not have
+        //   1. a scene named on the COMMAND LINE -- the first argument that does
+        //      not begin with `--` (sceneArgument, above; the `--key value`
+        //      pairs are a title's to read). It beats everything, including a
+        //      linked title, because somebody debugging a scene must not have
         //      to uninstall the game to open it. commandLine() is captured
         //      portably by Main.h (argv), so it works on Windows and Linux alike.
         //   2. the TITLE's front end, if one is linked.
@@ -193,8 +218,7 @@ public:
         // mentioned is the same failure as the staging step that silently kept a
         // stale scene: the file is visibly right and the running game disagrees
         // with it, with nothing anywhere to explain the gap.
-        std::string scenePath;
-        if (commandLine().size() > 1) scenePath = commandLine()[1];
+        std::string scenePath = sceneArgument(commandLine());
         const bool fromCommandLine = !scenePath.empty();
         if (scenePath.empty()) scenePath = titleFrontEnd;
         if (scenePath.empty()) scenePath = settings.startupScene;

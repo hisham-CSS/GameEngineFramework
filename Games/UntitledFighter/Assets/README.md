@@ -20,7 +20,18 @@ Characters/fighter_a/model/ the mannequin and its clips (M3.3b, M3.3c): fighter_
                             rig_manifest.json, rig_bones.json, CREDITS.md
 UntitledFighter/Stage/      the training room (M3.5a): training_room.gltf + .bin,
                             stage_dims.json (its kernel-pinned dimensions), CREDITS.md
+UntitledFighter/Replays/    the shipped replay (M2.5, ADR-022 D3): base.csrp, cooked by
+                            UntitledFighterCatalogue and re-cooked with any fighter_a,
+                            binding or kernel change (its CREDITS.md says how), + CREDITS.md
+UntitledFighter/fight_look.json  the 3D presentation (M3.4c): sun, camera, room depth,
+                            slot tints; the room and fighter depths are pinned to the
+                            floor mesh by StageAsset.TheFloorSpansExactlyTheKernelsStage
+                            (tests/test_stage_asset.cpp), the sun, camera and shadow
+                            numbers by FightPresentation.TheBackWallIsInsideTheShadowRange
+                            (tests/test_fight_presentation.cpp)
 UntitledFighter/menu.json   the front end the host boots
+UntitledFighter/versus.json the Versus lobby (M2.5, ADR-022 D2): slot, port, peer;
+                            overridden by --slot/--port/--peer on the command line
 UntitledFighter/UI/         its markup, stylesheet and art
 ```
 

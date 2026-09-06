@@ -302,11 +302,16 @@ console and shown under **Settings → Editor**, e.g. `Loaded startup scene: Exp
 cd out/build/x64-Release/build/bin/Release
 PlayerDebug.exe                       # console build — logs visible
 PlayerDebug.exe Exported/scene.json   # explicit scene
+PlayerDebug.exe --slot 1 --port 47012 --peer 127.0.0.1:47011   # no scene; the pairs are a title's
 Player.exe                            # shipping build — no console
 ```
 
 Scene selection in `Player/src/PlayerMain.cpp` is: **command line beats project settings beats
-default.** With no argument the player loads `Exported/project.json` and uses `startupScene`,
+default.** The scene is the first argument that does not begin with `--`; a `--key` consumes the
+value after it, and every such pair stays on `Application::commandLine()` for a linked title's
+mode to read (the fighter's Versus lobby takes `--slot`, `--port` and `--peer` —
+[fighting-core.md](fighting-core.md#the-modes-three-intents-one-presentation)). With no scene
+argument the player loads `Exported/project.json` and uses `startupScene`,
 whose default value is `Exported/scene.json` (`Engine/src/core/ProjectSettings.h`):
 
 ```c++
@@ -347,15 +352,18 @@ Authored assets live in the source tree at `Editor/src/Exported/`: a seed `scene
 root, plus static asset subdirectories — today `Env/` (HDRIs), `Fonts/`, `Icon/`, `Layouts/`,
 `Model/`, `Scripts/` (Lua), `Shaders/` and `UI/` (`.cxml` / `.cstyle` documents). They are
 copied to the runtime `Exported/` directory beside the
-executables by a single custom target, `runtime_assets`, defined in `Editor/CMakeLists.txt`:
+executables by a single custom target, `runtime_assets`, defined in the root `CMakeLists.txt`
+(`CSE_ASSET_ROOTS` is `Editor/src/Exported` plus a linked title's asset root; the quoting and
+`VERBATIM` are load-bearing, and the comment above the target says why):
 
 ```cmake
 add_custom_target(runtime_assets
   COMMAND ${CMAKE_COMMAND}
-    -DSRC=${CMAKE_CURRENT_SOURCE_DIR}/src/Exported
+    "-DROOTS=${CSE_ASSET_ROOTS}"
     -DDST=$<TARGET_FILE_DIR:Editor>/Exported
     -P ${CMAKE_SOURCE_DIR}/cmake/stage_runtime_assets.cmake
-  COMMENT "Staging runtime assets")
+  COMMENT "Staging runtime assets"
+  VERBATIM)
 ```
 
 `Editor`, `PlayerDebug`, `PlayerShipping`, and `AssetCooker` all `add_dependencies(... 

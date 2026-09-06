@@ -79,7 +79,7 @@ using cse::presentation::WorldPx;
 
 // --- What a fighter is doing, in the vocabulary the frame data is written in --
 
-// The six states a training mode colours by. Not an enum the kernel has -- it
+// The six states the box overlay colours by, in every intent. Not an enum the kernel has -- it
 // has no such field -- but every one of them is decided by a kernel field or by
 // a kernel function. PhaseOf below decides the frame split (startup / active /
 // spent / recovery); the ORDERING of knockdown over stun over move is the same

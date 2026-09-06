@@ -2,9 +2,11 @@
 
 #include "../src/core/PathSandbox.h"
 
+#include "cse/game/Replay.h"   // HashMatchData: the content hash the offer carries (A4)
 #include "cse/kernel/Combat.h"
 
 #include <cstddef>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -26,6 +28,51 @@ namespace {
     // have to move all four of those together, and nothing has asked for it.
     constexpr int kPlayerSlot = 0;
     constexpr int kDummySlot  = 1;
+    // The two of them: the session every match here is created with
+    // (SessionDriver::WireConfig) and the bound AttachSession holds a padSlot
+    // to. Not cse::kernel::kMaxFighters -- that is the state's capacity (8),
+    // and a pad offered to slot 2 of a two-player session is a keyboard
+    // offered to nobody.
+    constexpr int kMatchPlayers = 2;
+
+    // The word after the title on the HUD, per intent (ADR-022 D1). Here and
+    // not in FightHud.cpp because the HUD reads and never decides: the mode
+    // knows what it is, the screen says it.
+    const char* ModeWord(ModeIntent intent) {
+        switch (intent) {
+            case ModeIntent::Replay:   return "REPLAY";
+            case ModeIntent::Versus:   return "VERSUS";
+            case ModeIntent::Training: break;
+        }
+        return "TRAINING";
+    }
+
+    // The control strip's line, per intent, and in the mode's words for the
+    // same reason: the mode binds the keys and knows which are inert this
+    // visit, so the screen reads the sentence and never decides it. Versus
+    // lists the two keys a peer cannot feel; every other one restarts,
+    // pauses or re-sources the match, which is a desync under a peer
+    // (DETERMINISM.md T3), and readControls_ drops it. Replay runs the
+    // training clock (ADR-022 D4) but both slots are the file's, so its
+    // line keeps the clock keys and names the two that would re-source a
+    // recording (TAB, V) and the one that changes meaning (C: the next
+    // replay, not the next character).
+    const char* ModeControls(ModeIntent intent) {
+        switch (intent) {
+            case ModeIntent::Versus:
+                return "B overlay     ESC menu     --  pause, step, slow motion, reset, "
+                       "the character swap, the stage position and Demonstrate are inert "
+                       "while a peer runs the same match";
+            case ModeIntent::Replay:
+                return "SPACE pause     . step one tick     , slow motion     R restart the replay"
+                       "     C next replay     B overlay     ESC menu     --  TAB and V are inert: "
+                       "both slots are the recording's";
+            case ModeIntent::Training: break;
+        }
+        return "SPACE pause     . step one tick     , slow motion     R reset"
+               "     TAB demonstrate     C next character     V corner/midscreen"
+               "     B overlay     ESC menu";
+    }
 
     // --- The characters this mode can load -----------------------------------
     //
@@ -57,6 +104,57 @@ namespace {
     };
     constexpr int kCharacterCount =
         static_cast<int>(sizeof(kCharacters) / sizeof(kCharacters[0]));
+
+    // --- The replays this mode can play (ROADMAP M2.5; ADR-022 D3) ------------
+    //
+    // ONE, and it is the catalogue's own `base` row: fighter_a against itself,
+    // the verdict's combo performed from the corner bench, cooked by
+    // UntitledFighterCatalogue and committed under the title's asset root
+    // (Assets/UntitledFighter/Replays/, with its CREDITS.md). Same sandbox and
+    // same constant-today-config-tomorrow reasoning as kCharacters above.
+    //
+    // A REPLAY NAMES EXACTLY ONE MatchData BY HASH (DETERMINISM.md S9), and
+    // this mode reads the file against the hash of the match it just built --
+    // so the shipped file is stale the moment fighter_a's frame data, the
+    // binding table or the kernel changes, and the honest-error screen says so
+    // with the command below in the sentence. The test that decodes it
+    // (FightMode.AReplayDrivesBothSlotsAndTheTrainingClockStillWorks) goes red
+    // first, with the same command.
+    struct ShippedReplay {
+        const char* file;
+    };
+    const ShippedReplay kReplays[] = {
+        { "UntitledFighter/Replays/base.csrp" },
+    };
+    constexpr int kReplayCount =
+        static_cast<int>(sizeof(kReplays) / sizeof(kReplays[0]));
+    constexpr const char* kReplayRegenerate =
+        " -- regenerate it: from build/bin/<Config>/ run `UntitledFighterCatalogue "
+        "Exported/Characters <scratch dir>` and copy <scratch dir>/base.csrp to "
+        "Games/UntitledFighter/Assets/UntitledFighter/Replays/ (its CREDITS.md says the same)";
+
+    // The Versus lobby's file (ADR-022 D2), beside the title's menu and its
+    // look, resolved through the same sandbox as the characters. The command
+    // line overrides it (cse::data::ApplyVersusOverrides); the two peers on one
+    // machine differ by exactly those overrides.
+    constexpr const char* kVersusFile = "UntitledFighter/versus.json";
+
+    // How long the lobby waits for the peer's offer, in seconds of the host's
+    // fixed steps. tests/online_peer.cpp's wall-clock figure, kept so the two
+    // reference flows give up at the same moment.
+    constexpr float kLobbyTimeoutSeconds = 30.0f;
+
+    // --- The desync tail's clocks, in fixed steps (ROADMAP M2.5) --------------
+    //
+    // tests/online_peer.cpp's three numbers, kept so the two reference flows
+    // behave alike. The grace is how long the session keeps pumping after the
+    // report so the peer receives the checksums that let it detect too; the
+    // exchange grace is how many more pumps send our state after theirs has
+    // arrived (the peer may have begun its tail a whole grace later); the cap
+    // is when a peer that never answers stops holding the screen.
+    constexpr int           kDesyncGraceSteps   = 30;
+    constexpr int           kExchangeGraceSteps = 12;
+    constexpr std::uint32_t kExchangeCapSteps   = 600;
 
     // --- The binding table ---------------------------------------------------
     //
@@ -282,9 +380,28 @@ bool UntitledFighterMode::Enter(const MyCoreEngine::GameModeContext& ctx,
     // calling us regardless.
     //
     // `error` is therefore left empty and this returns true on every path.
+    //
+    // VERSUS OPENS IN THE CORNER, ALWAYS. The offer carries no start position
+    // (Handshake.h), so the two peers must Begin the identical MatchStart or
+    // the first checksum disagrees before anyone has pressed a key; [V] is
+    // inert for the whole visit (readControls_), so this is the one place the
+    // toggle could have leaked in from an earlier visit.
+    if (intent_ == ModeIntent::Versus) stageMidscreen_ = false;
     (void)startCharacter_(characterIndex_);
+    if (intent_ == ModeIntent::Versus) enterLobby_();
     error.clear();
     return true;
+}
+
+UntitledFighterMode::~UntitledFighterMode() {
+    // Not endVersus_: DetachSession tells ctx_.app, and a destructor that
+    // runs after the Application would dereference it. What this owes the
+    // process is the bridge slot and a GekkoNet static that no longer points
+    // at this object's Handshake; the host's flag is Exit's, which every host
+    // calls.
+    driver_.Unbind();
+    liveSession_ = nullptr;
+    dropNet_();
 }
 
 void UntitledFighterMode::Exit() {
@@ -294,8 +411,12 @@ void UntitledFighterMode::Exit() {
     //
     // The session first, while ctx_.app is still ours to tell: a mode that
     // left with the Application's session flag up would leave the host's
-    // pause dead for the next mode.
-    DetachSession();
+    // pause dead for the next mode. And the wire with it: a Versus visit
+    // owns its session, and the bridge slot it holds is freed here or never.
+    endVersus_();
+    versusNote_.clear();
+    versus_    = cse::data::VersusConfig{};
+    localSlot_ = kPlayerSlot;
     //
     // OBSERVERS AND SOURCES ARE DROPPED BEFORE THE OBJECTS THEY POINT AT. The
     // session BORROWS both (FightSession.h), and although nothing dereferences
@@ -308,6 +429,15 @@ void UntitledFighterMode::Exit() {
     playerSource_.reset();
     demo_.reset();
     watcher_.reset();
+    history_.reset();
+    // The replay's sources and verifier borrow replay_: they go first, it
+    // goes last (teardownMatch_ keeps the same order).
+    replaySrc_[0].reset();
+    replaySrc_[1].reset();
+    verifier_.reset();
+    replay_     = cse::game::ReplayData{};
+    replayOver_ = false;
+    replayNote_.clear();
 
     // The mode's own action names go with it. They live in the host's shared
     // InputMap, so leaving them bound would put "Fight.Attack1" on the J key for
@@ -337,7 +467,16 @@ void UntitledFighterMode::Exit() {
 // The options every match this mode starts is built with. One function rather
 // than a block inside the start path, because prepare and adopt both need the
 // SAME answer -- two assemblies would be two binding tables one edit apart.
-static cse::data::BuildOptions matchBuildOptions() {
+//
+// AND IT HAS A TWIN IT MUST AGREE WITH: Catalogue.cpp's normalBindings builds
+// the same six (button x stance) rows for the cook, and the shipped
+// base.csrp carries the hash of THAT build; this mode reads the file against
+// the hash of THIS one (loadReplay_). MoveDef::button is in the hashed bytes,
+// so a row moved here and not there is a replay refused as "character
+// changed" about a character nobody changed.
+// FightMode.TheCatalogueAndTheModeBuildTheSameMatchData holds the two equal
+// until one function owns both (ROADMAP M2.5's follow-up).
+cse::data::BuildOptions UntitledFighterMode::MatchBuildOptions() {
     cse::data::BuildOptions options{};
     // The documented defaults, PASSED BY NAME rather than left at zero. Omitting
     // them gets the same numbers plus a warning nobody would draw; naming them
@@ -416,7 +555,7 @@ bool UntitledFighterMode::prepareCharacter_(const std::string& file,
     }
 
     // --- build ---------------------------------------------------------------
-    const cse::data::BuildOptions options = matchBuildOptions();
+    const cse::data::BuildOptions options = MatchBuildOptions();
     // BOTH SIDES GET THE SAME TABLE. A mirror match is the setup in which nothing
     // that happens can be blamed on the two sides having different data, and the
     // dummy having the same bindings is what makes "the dummy never acted" a fact
@@ -447,6 +586,18 @@ void UntitledFighterMode::teardownMatch_() {
     playerSource_.reset();
     demo_.reset();
     watcher_.reset();
+    history_.reset();
+    // The replay's two sources and its verifier hold `const ReplayData*` into
+    // replay_ (Replay.h): both go BEFORE the data they borrow, or the reset
+    // of replay_ below would leave two dangling sources behind bindings the
+    // session has already dropped -- harmless today, a trap for the next
+    // line added between here and the adopt.
+    replaySrc_[0].reset();
+    replaySrc_[1].reset();
+    verifier_.reset();
+    replay_     = cse::game::ReplayData{};
+    replayOver_ = false;
+    replayNote_.clear();
 
     matchReady_    = false;
     analysisReady_ = false;
@@ -486,7 +637,14 @@ bool UntitledFighterMode::adoptPrepared_(cse::data::CharacterData&& character,
     character_ = std::move(character);
     build_     = std::move(build);
 
-    const cse::data::BuildOptions options = matchBuildOptions();
+    // THE REPLAY IS READ HERE, before the bindings, the look, the scene and
+    // the analysis are built for a match that may never begin: a refused file
+    // is the honest-error screen (setupError_), with nothing standing in the
+    // host's scene behind it. It needs build_ in place -- the read is against
+    // the hash of the data just built -- and nothing else below.
+    if (intent_ == ModeIntent::Replay && !loadReplay_()) return false;
+
+    const cse::data::BuildOptions options = MatchBuildOptions();
 
     // The binding table AS BUILT, which is not the same thing as the table asked
     // for: a move this character does not have got no slot (Find returns 0, its
@@ -597,6 +755,13 @@ bool UntitledFighterMode::adoptPrepared_(cse::data::CharacterData&& character,
     setup_             = cse::game::FightSetup{};
     setup_.data        = &build_.data;   // BORROWED for the session's whole life
     applyStagePosition_();
+    // A REPLAY OPENS WHERE IT WAS RECORDED, not where training would put the
+    // dummy: the file carries exactly FightSession's MatchStart (Replay.h),
+    // the recorder checkpoints tick 0 unconditionally, and a match begun from
+    // any other seed or position disagrees with the first checkpoint before a
+    // key is pressed. AFTER applyStagePosition_, which rewrites startPosX, and
+    // before Begin -- assigned earlier it would be overwritten; later, unused.
+    if (intent_ == ModeIntent::Replay) setup_.start = replay_.start;
 
     std::string beginError;
     if (!session_.Begin(setup_, beginError)) {
@@ -606,12 +771,53 @@ bool UntitledFighterMode::adoptPrepared_(cse::data::CharacterData&& character,
     }
 
     session_.AddObserver(watcher_.get());
-    local_.Reset(session_.CurrentTick());
-    bindPlayerSource_();
-    // Explicit, though it is also the default. "The dummy is fed neutral" is a
-    // decision about how this mode trains, and a decision made by omission is a
-    // decision nobody can find.
-    session_.SetInputSource(kDummySlot, nullptr);
+    // THE STATE HISTORY (ROADMAP M2.5), registered for every intent: the
+    // desync post-mortem needs the state at frame + 1 and a session can be
+    // attached to any intent. A FRESH ring with every match -- StateHistory
+    // has no Clear, and a ring that outlived the match would answer Find(t)
+    // with the old match's tick t until this one overwrote the slot. The
+    // table holds eight observers and this mode registers two, so the
+    // refusal cannot happen today; if it ever does, the tail says "no longer
+    // held" rather than dereferencing an observer nobody notifies.
+    history_ = std::make_unique<HistoryObserver>();
+    if (!session_.AddObserver(history_.get())) history_.reset();
+
+    if (intent_ == ModeIntent::Replay) {
+        // BOTH SLOTS FROM THE FILE (ADR-022 D3): one source per slot over the
+        // one ReplayData, the pattern every replay consumer in the tree uses
+        // (the catalogue's verify pass, test_catalogue.cpp). No pad, no
+        // dummy, no Fallback wrapper -- the HUD reads the bound source's own
+        // Name() for its chip. And the verifier BESIDE the watcher, comparing
+        // the file's checkpoints against the kernel as it runs today; its
+        // verdict is read every tick in replayTick_, and a verifier the table
+        // would not hold is refused out loud rather than left to read as "no
+        // divergence" -- a verifier that compared nothing must not pass for
+        // one that agreed with everything (Replay.h).
+        replaySrc_[0] = std::make_unique<cse::game::ReplayInputSource>(replay_, 0);
+        replaySrc_[1] = std::make_unique<cse::game::ReplayInputSource>(replay_, 1);
+        session_.SetInputSource(0, replaySrc_[0].get());
+        session_.SetInputSource(1, replaySrc_[1].get());
+        verifier_ = std::make_unique<cse::game::ReplayVerifier>(replay_);
+        if (!session_.AddObserver(verifier_.get())) {
+            setupError_ = "replay " + replayRel_ +
+                          ": no observer slot left for the verifier, so its checkpoints "
+                          "could not be checked; the match was not started";
+            session_.SetInputSource(0, nullptr);
+            session_.SetInputSource(1, nullptr);
+            replaySrc_[0].reset();
+            replaySrc_[1].reset();
+            verifier_.reset();
+            watcher_.reset();
+            return false;
+        }
+    } else {
+        local_.Reset(session_.CurrentTick());
+        bindPlayerSource_();
+        // Explicit, though it is also the default. "The dummy is fed neutral" is a
+        // decision about how this mode trains, and a decision made by omission is a
+        // decision nobody can find.
+        session_.SetInputSource(kDummySlot, nullptr);
+    }
 
     // The camera opens ON THE PAIR rather than holding a framing from a match
     // that no longer exists. Without this a restart, or the [V] toggle, would
@@ -700,7 +906,9 @@ void UntitledFighterMode::destroyScene3d_() {
 }
 
 void UntitledFighterMode::reconcile_() {
-    if (!matchReady_ || !scene3d_.Active() || !ctx_.scene) return;
+    // Not behind the lobby screen either: the mesh would stand in the scene
+    // under "waiting for the peer", a fight nobody has joined.
+    if (!matchReady_ || InLobby() || !scene3d_.Active() || !ctx_.scene) return;
     // A scene swap clears the registry under the mode (SceneSerializer::Load
     // -> ResetToDefaults) and takes the look with it: build both again.
     if (!scene3d_.Valid(*ctx_.scene)) {
@@ -827,8 +1035,24 @@ void UntitledFighterMode::resetMatch_() {
     // A pending tap was aimed at the match that just ended; delivered now it
     // would start a move on tick 0 of a match nobody pressed anything in.
     taps_.Clear();
-    bindPlayerSource_();
+    if (intent_ == ModeIntent::Replay) {
+        // THE TWO ReplayInputSources STAY BOUND -- Begin keeps sources
+        // (FightSession.h) and a rebind here would be a second place for the
+        // slot-to-source pairing to get out of step with the adopt. What
+        // restarts is what was MEASURED: the verifier's cursor and verdict,
+        // the end-of-file flag and its note, all about ticks the Begin above
+        // just put back to zero.
+        if (verifier_) verifier_->Reset();
+        replayOver_ = false;
+        replayNote_.clear();
+    } else {
+        bindPlayerSource_();
+    }
     if (watcher_) watcher_->Reset();
+    // And the history, for the reason the ring is fresh in adoptPrepared_:
+    // Begin put the tick index back to zero, and every state in the ring is
+    // about a match that no longer has those ticks.
+    if (history_) history_->history = cse::game::StateHistory{};
     // AND THE LATCHED MEASUREMENT, for the reason the demonstration goes: it
     // names an ABSOLUTE TICK, and Begin has just put the tick index back to zero.
     // Kept on screen it would be an answer about tick 431 of a match that no
@@ -844,12 +1068,119 @@ void UntitledFighterMode::resetMatch_() {
     refreshDemoNote_();
 }
 
+// --- The replay (ROADMAP M2.5; ADR-022 D3, D4) -------------------------------------
+
+bool UntitledFighterMode::loadReplay_() {
+    replayIndex_ = ((replayIndex_ % kReplayCount) + kReplayCount) % kReplayCount;
+    replayRel_   = kReplays[replayIndex_].file;
+    replay_      = cse::game::ReplayData{};
+
+    // AGAINST THE HASH OF THE MATCH JUST BUILT, never zero: zero skips the
+    // character-changed check with a warning (Replay.h), and a play path that
+    // skipped it would show a fight whose checkpoints disagree from tick 0
+    // and call the kernel the culprit.
+    cse::game::ReplayReadOptions options{};
+    options.expectedMatchDataHash = cse::game::HashMatchData(build_.data);
+    cse::game::ReplayReport report{};
+    if (!cse::game::ReadReplayFile(ctx_.contentRoot, replayRel_, options, replay_, report)) {
+        replay_     = cse::game::ReplayData{};
+        setupError_ = "replay " + replayRel_ + ": " + report.error + kReplayRegenerate;
+        return false;
+    }
+    // The cheap re-assertion at the point of use Replay.h asks for, in the
+    // reader's own sentence naming both ids and both hashes.
+    std::string mismatch;
+    if (!cse::game::ReplayMatchesData(replay_, build_.data, mismatch)) {
+        replay_     = cse::game::ReplayData{};
+        setupError_ = "replay " + replayRel_ + ": " + mismatch + kReplayRegenerate;
+        return false;
+    }
+    return true;
+}
+
+void UntitledFighterMode::replayTick_() {
+    // Nothing to latch: the file authors both slots, and Tick() asks the two
+    // bound sources At(CurrentTick()) itself. Past the file's end it would ask
+    // them forever and be fed NEUTRAL (FightSession.cpp), so the end is read
+    // right after the tick and the mode stops calling.
+    session_.Tick();
+    latchHitAdvantage_();
+
+    // THE VERIFIER'S VERDICT, EVERY TICK, AND IT STOPS THE MATCH. Inputs
+    // first: a mismatch there is this host's wiring, not the kernel's history,
+    // and Replay.h insists the two are not confused. A diverged checkpoint is
+    // the finding the file exists to make -- the simulation changed since it
+    // was recorded -- shown on the banner in those words, never corrected and
+    // never played past (ADR-022 D3; the network case is ADR-002 CHOICE C and
+    // the replay case is a regression against the past, but neither is a
+    // fight to keep showing).
+    const cse::game::ReplayDivergence& verdict = verifier_->Result();
+    if (verdict.inputMismatch) {
+        fatal_ = "replay " + replayRel_ + ": the bits fed to tick " +
+                 std::to_string(verdict.inputMismatchTick) +
+                 " were not the recording's -- a host wiring bug (the wrong source bound, "
+                 "or a tick index off by one), not a kernel change. The replay stopped.";
+        return;
+    }
+    if (verdict.diverged) {
+        fatal_ = "replay " + replayRel_ + " DIVERGED at checkpoint tick " +
+                 std::to_string(verdict.tick) + " (recorded checksum " +
+                 std::to_string(verdict.recordedChecksum) + ", live " +
+                 std::to_string(verdict.liveChecksum) + "; " +
+                 (verdict.hadPreviousAgreement
+                      ? "last agreeing checkpoint " + std::to_string(verdict.previousAgreeingTick)
+                      : std::string("no checkpoint agreed")) +
+                 "): the simulation changed since this file was recorded. The replay stopped "
+                 "and is not corrected; if the change was meant, re-cook the file" +
+                 kReplayRegenerate;
+        return;
+    }
+
+    replayOver_ = session_.CurrentTick() >= replaySrc_[0]->AuthoredEndTick();
+    if (replayOver_) {
+        // Paused, so the training clock's own gate is what holds the tick,
+        // and the step key cannot run one past the end (FixedTick returns on
+        // the flag before the gate is even asked). R restarts; C is the next
+        // file when there is one.
+        paused_       = true;
+        pendingSteps_ = 0;
+        replayNote_   = "replay over at tick " + std::to_string(session_.CurrentTick()) +
+                        " of " + std::to_string(replay_.TickCount()) + "; R restarts it" +
+                        (kReplayCount > 1 ? std::string(", C loads the next") : std::string());
+    }
+}
+
 // --- The live session (ROADMAP M2.4) ---------------------------------------------
 
 bool UntitledFighterMode::AttachSession(cse::net::ISession* session, int padSlot,
                                         std::uint8_t localSlots, std::string& error) {
     if (session == nullptr) {
         error = "no session to attach";
+        return false;
+    }
+    // REFUSED BEFORE ANY MEMBER IS WRITTEN, so a refused attach leaves the
+    // match exactly as it was -- the Begin below is a restart, and a restart
+    // for a session that never bound would be a tick index put back to zero
+    // for nothing. A replay's two slots are the file's (ADR-022 D3): a
+    // session bound over them would feed the kernel bits the recording did
+    // not author and the verifier would call the kernel the culprit. The pad
+    // slot must be one of the two and one this host supplies: the driver
+    // offers `pad` only to the slot that is both (SessionDriver::Frame), so
+    // either mistake is a keyboard offered to nobody and a match that runs on
+    // with a dead pad and nothing on screen saying so; `1u << padSlot` on a
+    // negative slot is undefined besides.
+    if (intent_ == ModeIntent::Replay) {
+        error = "a replay drives both slots from the file; no session attaches to it (ADR-022 D3)";
+        return false;
+    }
+    if (padSlot < 0 || padSlot >= kMatchPlayers) {
+        error = "padSlot " + std::to_string(padSlot) + " is not a slot of a two-player match";
+        return false;
+    }
+    if ((localSlots & static_cast<std::uint8_t>(1u << padSlot)) == 0) {
+        error = "localSlots mask " + std::to_string(static_cast<int>(localSlots)) +
+                " does not include padSlot " + std::to_string(padSlot) +
+                ", so the pad would be offered to no slot this host supplies";
         return false;
     }
     if (!matchReady_) {
@@ -861,8 +1192,31 @@ bool UntitledFighterMode::AttachSession(cse::net::ISession* session, int padSlot
         error = "the match has stopped: " + fatal_;
         return false;
     }
+
+    // A SESSION ATTACHES AT TICK 0, STRUCTURALLY. Begin again before the bind,
+    // so the session's frame F is the kernel's tick F on BOTH peers -- the
+    // Versus lobby needs the two matches to start equal (the offer carries no
+    // tick), and the desync post-mortem needs the state GekkoNet checksummed
+    // at frame F to be the one the history holds at tick F + 1. A convention
+    // ("the lobby resets first") would hold until the first caller that did
+    // not; putting it here makes it a property of attaching.
+    resetMatch_();
+    if (!matchReady_) {
+        error = "no running match to attach a session to: " + setupError_;
+        return false;
+    }
     liveSession_ = session;
+    localSlot_   = padSlot;
     driver_.Bind(session, &session_, localSlots, padSlot);
+    // A fresh session has no report: whatever the last one said is about a
+    // match the Begin above just replaced, and a grace left counting would
+    // begin a tail for it on the first pump.
+    abortGrace_ = -1;
+    mineHeld_   = false;
+    report_     = cse::net::DesyncReport{};
+    // And no peer has been counted yet: the drop this looks for is THIS
+    // session's, and a local one never counts any.
+    peakPeers_  = 0;
 
     // Whatever the training controls had decided is void from here: the
     // session decides. A press made before the peer existed must not fire on
@@ -881,6 +1235,23 @@ bool UntitledFighterMode::AttachSession(cse::net::ISession* session, int padSlot
 
 void UntitledFighterMode::DetachSession() {
     if (liveSession_ == nullptr) return;
+    // A session this mode created is the Versus lobby's, and a Versus match
+    // is a match with exactly one other copy: detached from it, there is no
+    // match to resume, only a fight the peer has left. So the visit ends here
+    // -- sticky, like a refusal -- rather than the local kernel ticking on
+    // under the pad with the training controls back, which is what a host's
+    // DetachSession on a LIVE Versus mode did before this branch existed.
+    if (ownedSession_ != nullptr) {
+        endSession_("the session was detached; the match stopped");
+        return;
+    }
+    // Borrowed: the owner decides what the session does next, and this mode
+    // is training again.
+    unbindSession_();
+}
+
+void UntitledFighterMode::unbindSession_() {
+    if (liveSession_ == nullptr) return;
     driver_.Unbind();
     liveSession_ = nullptr;
     if (ctx_.app) ctx_.app->setSessionLive(false);
@@ -894,11 +1265,377 @@ void UntitledFighterMode::DetachSession() {
     taps_.Clear();
 }
 
+void UntitledFighterMode::endSession_(const std::string& why) {
+    unbindSession_();
+    // Destroyed only if this mode created it -- a borrowed session is its
+    // owner's to free -- and the pointer nulled so no later path frees it
+    // twice. The handshake goes with it: the bridge held it only for the
+    // session (GekkoSession.cpp), and a Handshake pumped after this would
+    // drain a transport the desync exchange may be reading.
+    if (ownedSession_ != nullptr) {
+        cse::net::DestroySession(ownedSession_);
+        ownedSession_ = nullptr;
+    }
+    handshake_.reset();
+    versusNote_ = why;
+    lobby_      = Lobby::Ended;
+}
+
+// --- The Versus lobby (ROADMAP M2.5; ADR-022 D2, D5) -------------------------------
+//
+// tests/online_peer.cpp is the reference flow -- bind, offer, pump until Agreed
+// or Refused, create the session ON the handshake, keep pumping for the grace
+// -- spread over fixed steps instead of a loop with a sleep in it, because a
+// mode is called and never calls. Every text a player reads off the lobby is
+// the failing layer's own sentence (D5): the transport's bind error, the
+// handshake's refusal with both values, the loader's refusal of versus.json.
+// This file adds "waiting for", "refused:", and "LIVE against", and nothing
+// it would have to have guessed.
+
+void UntitledFighterMode::enterLobby_() {
+    lobby_      = Lobby::Ended;   // until the offer is on the wire
+    lobbySteps_ = 0;
+    versusNote_.clear();
+    // 30 s at the HOST's fixed rate, so a 30 Hz host waits as long as a 144 Hz
+    // one. Headless there is no host and the rate is the kernel's nominal 60.
+    const float hz     = ctx_.app ? ctx_.app->fixedTimestepHz() : 60.0f;
+    lobbyTimeoutSteps_ = static_cast<std::uint32_t>(kLobbyTimeoutSeconds * hz);
+
+    // --- who we are and who we call -------------------------------------------
+    versus_ = cse::data::VersusConfig{};
+    std::string error;
+    if (!cse::data::LoadVersusConfig(ctx_.contentRoot, kVersusFile, versus_, error) ||
+        !cse::data::ApplyVersusOverrides(lobbyArgs_(), versus_, error)) {
+        versusNote_ = error;
+        return;
+    }
+    peerAddress_ = versus_.peer;
+    localSlot_   = versus_.slot;
+
+    // --- the match the offer describes --------------------------------------
+    //
+    // No match, no offer: an offer built from an empty MatchData would carry
+    // a real-looking hash, and the peer would be refused for "content hash"
+    // when the truth is that OUR character did not load. The loader's own
+    // sentence is the lobby's verdict, and no socket is opened for it.
+    if (!matchReady_) {
+        versusNote_ = setupError_;
+        return;
+    }
+
+    // --- the wire ------------------------------------------------------------
+    if (transport_ == nullptr) {
+        udp_ = cse::net::UdpTransport::Bind(versus_.port, &error);
+        if (!udp_) {
+            versusNote_ = error;   // "bind(47011) failed: 10048" -- the socket's words
+            return;
+        }
+    }
+
+    // --- the offer -----------------------------------------------------------
+    //
+    // The sizes come from the SAME WireConfig the session will be created with
+    // (goLive_), never from constants: an offer that agreed on sizes the driver
+    // did not use would pass the lobby and hit SessionDriver::Fatal on the
+    // first Save.
+    const cse::net::SessionConfig cfg = SessionDriver::WireConfig(kMatchPlayers);
+    cse::net::HandshakeOffer offer{};
+    offer.contentHash = cse::game::HashMatchData(build_.data);
+    offer.stateBytes  = cfg.stateBytes;
+    offer.inputBytes  = cfg.inputBytesPerPlayer;
+    offer.seed        = setup_.start.seed;
+    offer.playerCount = cfg.playerCount;
+    offer.slot        = static_cast<std::uint8_t>(versus_.slot);
+    handshake_ = std::make_unique<cse::net::Handshake>(*wire_(), peerAddress_, offer);
+
+    lobby_      = Lobby::Handshaking;
+    versusNote_ = "waiting for " + peerAddress_ + " as slot " + std::to_string(versus_.slot) +
+                  " on port " + std::to_string(versus_.port) + " (IPv4 literals only)";
+}
+
+void UntitledFighterMode::lobbyStep_() {
+    // Ended waits for Escape; Exchanging is the desync tail's step.
+    if (lobby_ == Lobby::Exchanging) {
+        exchangeStep_();
+        return;
+    }
+    if (lobby_ != Lobby::Handshaking || !handshake_) return;
+    ++lobbySteps_;
+    const cse::net::HandshakeResult& result = handshake_->Pump();
+    switch (result.state) {
+        case cse::net::HandshakeState::Waiting:
+            if (lobbySteps_ >= lobbyTimeoutSteps_) {
+                // The Handshake has no timeout of its own; this is the one
+                // online_peer keeps on a wall clock. The peer's silence has
+                // several causes the transport cannot tell apart -- not
+                // running, a wrong address, a non-literal one UdpTransport
+                // silently dropped -- so the sentence names the address.
+                versusNote_ = "the peer never offered: nothing from " + peerAddress_ +
+                              " in " + std::to_string(static_cast<int>(kLobbyTimeoutSeconds)) +
+                              " s (IPv4 literals only; is the other copy running with --slot " +
+                              std::to_string(1 - versus_.slot) + "?)";
+                lobby_ = Lobby::Ended;
+            }
+            return;
+        case cse::net::HandshakeState::Refused:
+            // The first disagreeing field with both values, in the
+            // handshake's words (A5). A refused handshake sends nothing more,
+            // so the peer learns of it from its own comparison, not from us.
+            versusNote_ = "refused: " + result.reason;
+            lobby_      = Lobby::Ended;
+            return;
+        case cse::net::HandshakeState::Agreed:
+            goLive_();
+            return;
+    }
+}
+
+void UntitledFighterMode::goLive_() {
+    // The session's peers by slot, the local one empty (ISession.h), on the
+    // SAME config the offer quoted its sizes from.
+    cse::net::SessionConfig cfg = SessionDriver::WireConfig(kMatchPlayers);
+    cfg.localDelay    = 2;
+    // The silence the session tolerates before it drops the peer and
+    // pollDisconnect_ ends the match: the library's default unless the host
+    // shortened it (SetDisconnectTimeoutMs -- a test's ~100 ms).
+    cfg.disconnectTimeoutMs = disconnectTimeoutMs_;
+    cfg.peerAddresses = { versus_.slot == 0 ? std::string() : peerAddress_,
+                          versus_.slot == 1 ? std::string() : peerAddress_ };
+    // ON the handshake, which keeps peeling the peer's grace offers off and
+    // hands the session everything else (Handshake.h).
+    ownedSession_ = cse::net::CreateGekkoOnlineSession(cfg, handshake_.get());
+    if (ownedSession_ == nullptr) {
+        // Null for a handful of reasons the factory does not distinguish; the
+        // one a running title can hit is the bridge: four online sessions per
+        // process, each held until DestroySession.
+        versusNote_ = "the online session could not be created: no bridge slot free "
+                      "(four per process) or a malformed session config";
+        lobby_ = Lobby::Ended;
+        return;
+    }
+    std::string error;
+    if (!AttachSession(ownedSession_, versus_.slot, static_cast<std::uint8_t>(1u << versus_.slot),
+                       error)) {
+        // A session nothing attached is a bridge slot leaked; destroyed
+        // here, and the pointer nulled so no later path frees it twice.
+        cse::net::DestroySession(ownedSession_);
+        ownedSession_ = nullptr;
+        versusNote_   = error;
+        lobby_        = Lobby::Ended;
+        return;
+    }
+    lobby_      = Lobby::Live;
+    versusNote_ = "LIVE against " + peerAddress_ + " as slot " + std::to_string(versus_.slot);
+}
+
+void UntitledFighterMode::endVersus_() {
+    // The bare unbind: dropNet_ destroys the owned session itself, and the
+    // Ended that DetachSession would write here is a state Exit clears one
+    // line later.
+    unbindSession_();
+    dropNet_();
+}
+
+void UntitledFighterMode::dropNet_() {
+    // The exchange first -- it holds a reference to the transport that goes
+    // last -- then session, then handshake, then socket: the bridge holds
+    // the Handshake until DestroySession, and the Handshake holds the
+    // transport. The report goes with the match it was about.
+    exchange_.reset();
+    abortGrace_ = -1;
+    mineHeld_   = false;
+    report_     = cse::net::DesyncReport{};
+    if (ownedSession_ != nullptr) {
+        cse::net::DestroySession(ownedSession_);
+        ownedSession_ = nullptr;
+    }
+    handshake_.reset();
+    udp_.reset();
+    lobby_      = Lobby::None;
+    lobbySteps_ = 0;
+}
+
+// --- The desync tail (ROADMAP M2.5; DETERMINISM.md T4, T6; ADR-002 CHOICE C) -----
+//
+// tests/online_peer.cpp's abort, which is a loop with a sleep in it, spread
+// over fixed steps: the grace, the exchange and its cap are all COUNTED, never
+// waited for, because a mode is called and never calls. From the first report
+// the match is LOST -- the only open question is which field -- but for the
+// grace it still runs under the session exactly as before: the pad is offered,
+// the kernel advances on the session's word, the HUD counts frames. That is
+// not indecision; it is what the peer needs. Its copy detects the desync from
+// OUR checksums (Desync.h), and a session destroyed on the report would leave
+// it finishing the match alone until GekkoNet's disconnect timeout, never told
+// why. When the grace runs out the tail detaches, swaps states, names the
+// field and stops.
+
+void UntitledFighterMode::pollDesync_() {
+    // Polled AFTER the pump, every live step. fatal_ is NOT written at the
+    // report: FixedTick returns before the pump while it is set, and a grace
+    // nobody pumps is no grace at all -- the peer never receives the
+    // checksum that lets it detect, and finishes the match alone after the
+    // disconnect timeout (Desync.h, seen over UDP).
+    cse::net::DesyncReport fresh{};
+    if (abortGrace_ < 0 && liveSession_->PollDesync(&fresh)) {
+        report_     = fresh;
+        abortGrace_ = kDesyncGraceSteps;
+        versusNote_ = "desync reported at frame " + std::to_string(report_.frame) +
+                      "; the match is lost and stops in " + std::to_string(kDesyncGraceSteps) +
+                      " steps, once the peer has the checksums to see it too";
+    }
+    if (abortGrace_ > 0) --abortGrace_;
+    if (abortGrace_ == 0) beginDesyncTail_();
+}
+
+void UntitledFighterMode::pollDisconnect_() {
+    const int peers = liveSession_->ConnectedPeers();
+    if (peers > peakPeers_) peakPeers_ = peers;
+    // Not during a desync's grace: that match is already ending, on the tail's
+    // clock, and the peer that detected first may have gone quiet exactly
+    // because its own tail destroyed its session.
+    if (peakPeers_ < 1 || peers > 0 || abortGrace_ >= 0) return;
+    // The frame is read before the unbind resets the driver. The sentence
+    // names what the player can act on -- WHO stopped answering and the frame
+    // the session gave up at -- and no duration: the silence the session
+    // tolerates is SessionConfig::disconnectTimeoutMs (a test's ~100 ms, a
+    // player's five seconds), and a number here would be one no test asserts
+    // (STYLE.md). The peer is named as the wire spells it; a borrowed session
+    // whose owner never said (SetPeerAddress) gets "the peer", not an empty
+    // address.
+    const std::string who = peerAddress_.empty() ? std::string("the peer")
+                                                 : "the peer at " + peerAddress_;
+    const std::string why = who + " stopped answering and the session dropped it at frame " +
+                            std::to_string(driver_.CurrentFrame()) + "; the match stopped";
+    endSession_(why);
+    // The same sentence on the banner, as finishDesync_ does: THE MATCH
+    // STOPPED is the one place this mode says a match will not tick again.
+    fatal_ = why;
+}
+
+void UntitledFighterMode::beginDesyncTail_() {
+    abortGrace_ = -1;
+    const std::uint32_t frame = static_cast<std::uint32_t>(report_.frame);
+    // THE FRAME IS NOT THE TICK (Desync.h): the session reports the frame
+    // whose ADVANCE produced the differing state, so the state to compare is
+    // the one after it. Copied out NOW, while the ring is exactly as the
+    // last pump left it: the exchange spans many steps and the slot is
+    // overwritten 128 ticks on.
+    const std::uint32_t tick = frame + 1;
+    const cse::kernel::GameState* mine =
+        history_ ? history_->history.Find(tick) : nullptr;
+    mineHeld_ = mine != nullptr;
+    if (mineHeld_) mineAtDesync_ = *mine;
+
+    // The session goes: detached from the driver, destroyed if this mode
+    // created it, left to its owner if a host lent it (a borrowed session is
+    // the owner's to free). With it goes the handshake pump -- the live
+    // branch is never reached again -- so from here the raw transport's
+    // packets are the exchange's and nothing else drains them.
+    unbindSession_();
+    if (ownedSession_ != nullptr) {
+        cse::net::DestroySession(ownedSession_);
+        ownedSession_ = nullptr;
+    }
+    handshake_.reset();
+
+    cse::net::ITransport* wire = wire_();
+    if (mineHeld_ && wire != nullptr && !peerAddress_.empty()) {
+        exchange_ = std::make_unique<cse::net::BlobExchange>(
+            *wire, peerAddress_, tick,
+            reinterpret_cast<const std::uint8_t*>(&mineAtDesync_),
+            static_cast<std::uint32_t>(sizeof(cse::kernel::GameState)));
+        exchangeSteps_ = 0;
+        exchangeGrace_ = kExchangeGraceSteps;
+        lobby_         = Lobby::Exchanging;
+        versusNote_    = "desync reported at frame " + std::to_string(frame) +
+                         "; exchanging the two states at tick " + std::to_string(tick) +
+                         " with " + peerAddress_;
+        return;
+    }
+    // Nothing to exchange, or nothing to exchange on: the verdict is written
+    // from what is here, and says which of the two it was.
+    finishDesync_();
+}
+
+void UntitledFighterMode::exchangeStep_() {
+    ++exchangeSteps_;
+    // Pump returns true once the peer's blob is whole; the sends go on for
+    // kExchangeGraceSteps more for the peer's sake -- it may have begun its
+    // own tail up to a whole grace after ours, and our chunks before that
+    // were drained by its still-live session.
+    if (exchange_->Pump()) --exchangeGrace_;
+    if (exchangeGrace_ <= 0 || exchangeSteps_ >= kExchangeCapSteps) finishDesync_();
+}
+
+void UntitledFighterMode::finishDesync_() {
+    const std::uint32_t frame = static_cast<std::uint32_t>(report_.frame);
+    const std::uint32_t tick  = frame + 1;
+
+    // The verdict, in the order the evidence can run out: our own state, a
+    // wire to the peer, the peer's state, a difference at all (identical
+    // bytes under disagreeing checksums is a finding about the checksum, not
+    // the kernel), and finally the field.
+    cse::game::Divergence        divergence{};
+    const cse::game::Divergence* named = nullptr;
+    std::string                  what;
+    if (!mineHeld_) {
+        what = "this side no longer held tick " + std::to_string(tick) + " (the history keeps " +
+               std::to_string(cse::game::StateHistory::kCapacity) + " ticks)";
+    } else if (!exchange_) {
+        what = peerAddress_.empty() ? std::string("no peer address to exchange states with")
+                                    : std::string("no transport to exchange states on");
+    } else if (!exchange_->Complete() ||
+               exchange_->Theirs().size() != sizeof(cse::kernel::GameState)) {
+        what = "the peer's state did not arrive in " + std::to_string(exchangeSteps_) + " steps";
+    } else {
+        cse::kernel::GameState theirs{};
+        std::memcpy(&theirs, exchange_->Theirs().data(), sizeof(cse::kernel::GameState));
+        cse::game::FirstDivergence(mineAtDesync_, theirs, &divergence);
+        named = &divergence;
+        what  = divergence.found
+                    ? "field " + divergence.field + " local " + std::to_string(divergence.local) +
+                          " remote " + std::to_string(divergence.remote)
+                    : "the two states at tick " + std::to_string(tick) + " are byte-identical";
+    }
+
+    // The artifact is the library's (one flat object a script reads), named
+    // after the slot THIS keyboard played so two peers on one machine never
+    // write the same file, in the directory the host chose -- "." is beside
+    // the executable, because both hosts run from its directory.
+    const std::string json = cse::game::DesyncArtifactJson(
+        frame, report_.localChecksum, report_.remoteChecksum, report_.remotePlayer, named);
+    const std::string file = "desync_slot" + std::to_string(localSlot_) + ".json";
+    const std::string path = artifactDir_.empty() || artifactDir_ == "."
+                                 ? file
+                                 : (std::filesystem::path(artifactDir_) / file).generic_string();
+    std::string writeError;
+    const bool  written = cse::game::WriteDesyncArtifact(path, json, &writeError);
+
+    versusNote_ = "desync at frame " + std::to_string(frame) + ": " + what +
+                  (written ? " (artifact " + path + ")"
+                           : " (artifact not written: " + writeError + ")");
+    // The same sentence on the banner: THE MATCH STOPPED is the one place
+    // this mode says a match will not tick again, and this is such a match.
+    // Ended keeps it so -- FixedTick returns and the training keys are inert
+    // until Escape (readControls_).
+    fatal_ = versusNote_;
+    exchange_.reset();
+    lobby_ = Lobby::Ended;
+}
+
 // --- Input ---------------------------------------------------------------------
 
 MyCoreEngine::InputMap* UntitledFighterMode::input_() const {
     if (inputOverride_) return inputOverride_;
     return ctx_.app ? &ctx_.app->input() : nullptr;
+}
+
+std::vector<std::string> UntitledFighterMode::lobbyArgs_() const {
+    if (commandLineSet_) return commandLine_;
+    // The Application's argv, whole: the Player has already taken its scene off
+    // it and left the `--key value` pairs in place (PlayerMain.cpp), and a
+    // null app is a headless test, which reads no command line at all.
+    return ctx_.app ? ctx_.app->commandLine() : std::vector<std::string>{};
 }
 
 void UntitledFighterMode::bindActions_() {
@@ -1000,7 +1737,13 @@ void UntitledFighterMode::readControls_() {
     // peer is running the same match -- each of them is a desync, so each is
     // inert. The presses are dropped rather than queued (clearPressLatches, as
     // for a stopped match below), so nothing fires when the session detaches.
-    if (SessionLive()) {
+    //
+    // AND WHILE THE LOBBY IS UP (ROADMAP M2.5), for the same reason one step
+    // earlier: the match behind the lobby screen is the one the offer on the
+    // wire describes, and a reset, a swap or a stage change would make it a
+    // match the peer never agreed to. An ENDED lobby stays inert too -- a
+    // refusal is not a training screen with a red line on it; Escape leaves.
+    if (SessionLive() || InLobby()) {
         if (map.consumePressed(kActOverlay))
             overlay_ = cse::presentation::NextOverlayMode(overlay_);
         return;
@@ -1024,8 +1767,18 @@ void UntitledFighterMode::readControls_() {
     // is a hitch and is deliberate: it happens because a key was pressed, which
     // is a moment a player understands, and hiding it behind a loading state
     // would be a state machine bought with nothing.
+    //
+    // IN A REPLAY, C IS THE NEXT FILE, not the next character: a replay names
+    // its character by hash, so the character swap could only make the file
+    // refuse. The same adopt path runs (startCharacter_ re-reads the replay
+    // for the character it stands on), so one file is a restart from disk.
     if (map.consumePressed(kActSwap)) {
-        (void)startCharacter_(characterIndex_ + 1);
+        if (intent_ == ModeIntent::Replay) {
+            ++replayIndex_;
+            (void)startCharacter_(characterIndex_);
+        } else {
+            (void)startCharacter_(characterIndex_ + 1);
+        }
         return;
     }
 
@@ -1035,7 +1788,12 @@ void UntitledFighterMode::readControls_() {
     // live match would be presentation writing state the simulation did not
     // produce, which is the one thing ADR-011 forbids outright; going through
     // the same path R does keeps every tick something the session produced.
-    if (map.consumePressed(kActStage)) {
+    //
+    // INERT IN A REPLAY, and not consumed (the latch is dropped at the end of
+    // the frame like any other press nobody took): the opening position is
+    // the file's, and a restart from anywhere else disagrees with the first
+    // checkpoint before a key is pressed.
+    if (intent_ != ModeIntent::Replay && map.consumePressed(kActStage)) {
         stageMidscreen_ = !stageMidscreen_;
         applyStagePosition_();
         resetMatch_();
@@ -1067,7 +1825,11 @@ void UntitledFighterMode::readControls_() {
     // which the player asked a stopped match to do something, and it is what
     // happens by construction: InputMap::clearPressLatches drops any latch
     // nothing consumed, so returning without consuming IS dropping.
-    if (!matchReady_ || !fatal_.empty()) return;
+    //
+    // A replay played to its end is such a match: FixedTick runs nothing past
+    // the last authored tick, so SPACE here would only turn the chip from
+    // PAUSED to "running" beside the word OVER. R (above) restarts it.
+    if (!matchReady_ || !fatal_.empty() || replayOver_) return;
 
     if (map.consumePressed(kActPause)) {
         paused_      = !paused_;
@@ -1084,7 +1846,10 @@ void UntitledFighterMode::readControls_() {
         slowCounter_ = 0;
         paused_      = false;
     }
-    if (map.consumePressed(kActDemo)) startDemonstration_();
+    // Not in a replay: a demonstration is a ScriptedInputSource put in front
+    // of the player's slot, and in a replay that slot is the file's. The note
+    // on screen says so (refreshDemoNote_) rather than the key going dead.
+    if (intent_ != ModeIntent::Replay && map.consumePressed(kActDemo)) startDemonstration_();
 }
 
 // --- The tool-assisted player ---------------------------------------------------
@@ -1097,6 +1862,17 @@ bool UntitledFighterMode::demoArmed_() const {
 
 void UntitledFighterMode::refreshDemoNote_() {
     if (!matchReady_) { demoNote_.clear(); return; }
+
+    // THE REPLAY'S HONEST BRANCH, before the analysis is consulted: TAB is
+    // inert here whatever the verdict says, because both slots are the
+    // recording's, and a dead key with no sentence is the failure every other
+    // branch of this function exists to prevent.
+    if (intent_ == ModeIntent::Replay) {
+        demoNote_ = "Demonstrate is inert in a replay: both slots are the recording's, and a "
+                    "rehearsal put in front of one would make the file's own checkpoints "
+                    "disagree with the fight on screen. R restarts the file from tick 0.";
+        return;
+    }
 
     if (demoArmed_()) {
         demoNote_ = "performs the loop the decision procedure printed out of "
@@ -1286,7 +2062,35 @@ void UntitledFighterMode::FixedTick(float dt) {
     // Not while a session is live: a landed edit is a restart, and a restart
     // under a peer is a desync (T3). The edit lands when the session detaches,
     // because the stamps still differ then.
-    if (!SessionLive()) pollHotReload_(dt);
+    //
+    // And NEVER for Versus: the offer on the wire carries the hash of the
+    // data this match was built from (A4), and an edit landing behind the
+    // lobby screen would rebuild the data under an offer the peer may already
+    // have agreed to -- a lobby that said "same content" about content we no
+    // longer hold. The authoring loop is training's.
+    //
+    // Nor behind an ended lobby of ANY intent: a desync's verdict ends the
+    // match for the visit, and an edit landing under it would rebuild a
+    // match behind a screen that says the match is over.
+    //
+    // Nor for Replay: the file names the data it was recorded against by
+    // hash, so a landed edit would rebuild data the file must refuse and
+    // turn the fight on screen into a CharacterChanged sentence mid-play.
+    // The authoring loop is training's; a stale replay is the cook's to
+    // re-run.
+    if (!SessionLive() && !InLobby() && intent_ == ModeIntent::Training) pollHotReload_(dt);
+
+    // --- the lobby (ROADMAP M2.5) ----------------------------------------------
+    //
+    // The local match does not tick behind the lobby screen -- not while the
+    // handshake is in flight and not after it ended. A tick here would be a
+    // tick the peer never ran, and an ended lobby is not a training screen.
+    // The pump is one step of the handshake; Agreed attaches the session and
+    // the NEXT step takes the live branch below.
+    if (InLobby()) {
+        lobbyStep_();
+        return;
+    }
 
     if (!matchReady_ || !fatal_.empty()) return;
 
@@ -1294,7 +2098,11 @@ void UntitledFighterMode::FixedTick(float dt) {
     // held for the next tick that runs. After the match check on purpose --
     // a press aimed at no match should not fire on the first tick of the next
     // one (resetMatch_ clears taps_ for the same reason).
-    notePadPresses_();
+    //
+    // Not in a replay: no tick reads the pad there, so a tap noted here would
+    // sit in the accumulator for the visit and be spent into the first
+    // training-intent tick of a later one -- a press nobody made.
+    if (intent_ != ModeIntent::Replay) notePadPresses_();
 
     // --- a live session decides (ROADMAP M2.4; DETERMINISM.md T1, T2, T3) ------
     //
@@ -1310,6 +2118,12 @@ void UntitledFighterMode::FixedTick(float dt) {
     // as on the training path: spent before the record is written; the record
     // is the session's input ring rather than local_.
     if (SessionLive()) {
+        // The handshake's grace resends (Handshake.h): the last offer of a
+        // two-way exchange can be lost, so a peer that agreed keeps saying so
+        // for a while, beside the session that was created on it. Only while
+        // the lobby is LIVE -- the desync tail stops this pump, because a
+        // pumped Handshake drains the raw transport the state exchange reads.
+        if (handshake_ && lobby_ == Lobby::Live) handshake_->Pump();
         cse::kernel::Input padIn = readPad_();
         if (driver_.AcceptsInput()) padIn.bits = taps_.Spend(padIn.bits);
         const int ran = driver_.Frame(padIn);
@@ -1322,14 +2136,32 @@ void UntitledFighterMode::FixedTick(float dt) {
             return;
         }
         if (ran > 0) latchHitAdvantage_();
+        // The report, the grace, and -- when the grace runs out -- the tail
+        // that ends the match (ROADMAP M2.5). After the pump, so it sees this
+        // step's report; it can detach the session, and the next step takes
+        // the lobby gate above.
+        pollDesync_();
+        // And the peer's silence, which GekkoNet reports as a count that
+        // went 1 -> 0 and then keeps advancing past (peakPeers_). Guarded:
+        // the tail may just have detached.
+        if (SessionLive()) pollDisconnect_();
         return;
     }
 
-    // --- whether a tick runs at all (training) ---------------------------------
+    // --- whether a tick runs at all (training and replay) ---------------------
     //
     // This is the whole of pause, slow motion and frame step. FightSession owns
     // no clock, so all three are decided here and none of them is visible to the
     // simulation: the same ticks run, in the same order, with the same inputs.
+    //
+    // A replay past its last authored tick runs NOTHING, whatever the keys
+    // say: SPACE or `.` would otherwise run a tick both slots answer with
+    // NEUTRAL, a fight nobody recorded (replayTick_ paused the mode when it
+    // set the flag; this is the half that survives an unpause). R clears it.
+    if (replayOver_) {
+        pendingSteps_ = 0;
+        return;
+    }
     bool run = false;
     if (pendingSteps_ > 0) {
         --pendingSteps_;
@@ -1341,6 +2173,16 @@ void UntitledFighterMode::FixedTick(float dt) {
         }
     }
     if (!run) return;
+
+    // --- a replay drives both slots (ROADMAP M2.5; ADR-022 D3, D4) ------------
+    //
+    // The training clock above, and none of the latch below: the file is the
+    // input log, already written, for both slots. The session asks the two
+    // bound ReplayInputSources itself.
+    if (intent_ == ModeIntent::Replay) {
+        replayTick_();
+        return;
+    }
 
     // --- LATCH, THEN TICK -----------------------------------------------------
     //
@@ -1458,10 +2300,11 @@ void UntitledFighterMode::Update(float dt) {
 
 // --- Drawing --------------------------------------------------------------------
 
-FightHudModel UntitledFighterMode::hudModel_() const {
+FightHudModel UntitledFighterMode::HudModel() const {
     FightHudModel model{};
 
     model.matchReady = matchReady_;
+    model.modeWord   = ModeWord(intent_);
     model.character  = &character_;
     model.analysis   = analysisReady_ ? &analysis_ : nullptr;
     model.watcher    = watcher_.get();
@@ -1480,13 +2323,77 @@ FightHudModel UntitledFighterMode::hudModel_() const {
     model.hostHz      = ctx_.app ? ctx_.app->fixedTimestepHz() : 0.0f;
     model.paused      = paused_;
     model.slowDivisor = slowDivisor_;
-    model.playerSlot  = kPlayerSlot;
-    model.demoArmed   = demoArmed_();
+    // THE SLOT THIS KEYBOARD PLAYS, which is kPlayerSlot in training and
+    // versus.json's slot in Versus (AttachSession's padSlot, either way). The
+    // analysis, the judge and the latched advantage still speak of kPlayerSlot
+    // -- one attacker, the training dummy's opponent -- so on a slot-1 host
+    // "your fighter" is the fighter you drive while the verdicts are about
+    // p[0]; the Versus HUD hides the judge for that reason (ROADMAP M2.5).
+    model.playerSlot  = localSlot_;
+    // The second slot is a TRAINING DUMMY only in training. In versus it is a
+    // peer's fighter and in a replay both slots are recorded players; a HUD
+    // that typed the training words would be reporting a mode it is not in.
+    // Keyed on playerSlot rather than on kPlayerSlot so that the day the local
+    // side plays slot 1 the labels move with it.
+    switch (intent_) {
+        case ModeIntent::Replay:
+            model.slotLabel[0] = "P1";
+            model.slotLabel[1] = "P2";
+            break;
+        case ModeIntent::Versus:
+            model.slotLabel[model.playerSlot]     = "YOU";
+            model.slotLabel[1 - model.playerSlot] = "PEER";
+            break;
+        case ModeIntent::Training:
+            model.slotLabel[model.playerSlot]     = "YOU";
+            model.slotLabel[1 - model.playerSlot] = "TRAINING DUMMY";
+            break;
+    }
+    // Never armed in a replay: the key is inert there (readControls_) and the
+    // panel must not promise what the key will not do.
+    model.demoArmed   = intent_ != ModeIntent::Replay && demoArmed_();
     model.stageMidscreen = stageMidscreen_;
     // BY VALUE, and it is the only field here that is a measurement rather than a
     // reading. See FightHudModel::hitAdvantage and latchHitAdvantage_.
     model.hitAdvantage = hitAdvantage_;
     model.stageHalfWidthSub = stageHalfWidthSub_;
+
+    // The lobby (ROADMAP M2.5): the screen instead of the match while the
+    // handshake is in flight or ended; the one sentence about the wire in
+    // every state, including LIVE, so the test that reads it and the screen
+    // that draws it read one string.
+    model.lobby          = InLobby();
+    model.lobbyEnded     = lobby_ == Lobby::Ended;
+    model.sessionNote    = &versusNote_;
+    model.peer           = &peerAddress_;
+    model.port           = versus_.port;
+    model.connectedPeers = liveSession_ != nullptr ? liveSession_->ConnectedPeers() : 0;
+    // The session's own numbers, read off the driver and the session (ADR-022
+    // D4): the frame it is on, how far ahead of the peer GekkoNet says we
+    // run, and the ticks its rollbacks re-ran. Zero for a training match.
+    model.sessionLive   = liveSession_ != nullptr;
+    model.sessionFrame  = driver_.CurrentFrame();
+    model.framesAhead   = liveSession_ != nullptr ? liveSession_->FramesAhead() : 0;
+    model.rollbackTicks = driver_.Counts().rollbackTicks;
+    // TRAINING'S VERDICTS ARE HIDDEN IN VERSUS. The judge watches p[0] as the
+    // one attacker against a silent dummy; the peer's fighter is neither,
+    // R and TAB are inert (T3), and the first rollback flips the watcher
+    // Stale for the rest of the match (ComboWatcher.h). A judge about a
+    // fight nobody is judging is a second answer, so the mode says "none".
+    model.verdictPanels = intent_ != ModeIntent::Versus;
+    model.controls      = ModeControls(intent_);
+
+    // The replay (ADR-022 D4): where the file stands, whether it is over,
+    // what the verifier has compared and agreed, and whether the last tick
+    // re-ran -- each a member read or a count the observer kept, never a
+    // second tally here.
+    model.replay                    = intent_ == ModeIntent::Replay;
+    model.replayTicks               = replay_.TickCount();
+    model.replayOver                = replayOver_;
+    model.replayNote                = &replayNote_;
+    model.replayCheckpointsCompared = verifier_ ? verifier_->CheckpointsCompared() : 0u;
+    model.replayCheckpointsAgreed   = verifier_ ? verifier_->CheckpointsAgreed() : 0u;
+    model.lastTickResimulated       = history_ ? history_->lastResimulated : false;
 
     if (matchReady_) {
         model.state    = &session_.State();
@@ -1504,10 +2411,26 @@ FightHudModel UntitledFighterMode::hudModel_() const {
         // need a mutable member written from a const method -- so a HUD that
         // wants DEMO or YOU asks Active(tick), which is pure and answers for any
         // tick including ones that have not run.
-        if (playerSource_) {
+        //
+        // UNLESS A SESSION IS LIVE. Then the driver hands the kernel both
+        // slots' bits straight from the session (SessionDriver.h) and the
+        // latched log is not written at all, so playerSource_->Active would
+        // answer YOU or DEMO about ticks it never authored. One word, and it
+        // is the truthful one.
+        //
+        // AND WITH NO FALLBACK BOUND -- a replay -- the word is whatever source
+        // the session holds for the slot, in that source's own Name()
+        // ("REPLAY", ReplayInputSource): read off the binding, so the chip
+        // cannot say REPLAY about a slot something else is feeding.
+        if (liveSession_ != nullptr) {
+            model.speaking = "NET";
+        } else if (playerSource_) {
             const cse::game::IInputSource* const active =
                 playerSource_->Active(model.tick);
             model.speaking = active != nullptr ? active->Name() : nullptr;
+        } else if (const cse::game::IInputSource* const bound =
+                       session_.InputSourceFor(kPlayerSlot)) {
+            model.speaking = bound->Name();
         }
         // Gated on demoInFlight_() rather than on its own comparison, so the chip
         // that says how much script is left and the key that refuses a second
@@ -1526,7 +2449,10 @@ void UntitledFighterMode::Draw(MyCoreEngine::Renderer2D& r2d, int widthPx,
 
     viewportW_ = widthPx;
     viewportH_ = heightPx;
-    const bool scene3d = matchReady_ && scene3d_.Active() && ctx_.scene && scene3d_.Valid(*ctx_.scene);
+    // The fight is drawn only when it is the screen: not behind the lobby,
+    // whose match nobody has joined yet (or ever will, if it ended).
+    const bool fight   = matchReady_ && !InLobby();
+    const bool scene3d = fight && scene3d_.Active() && ctx_.scene && scene3d_.Valid(*ctx_.scene);
 
     // Opaque, full screen. This mode owns the screen (OwnsScreen), and the 3D
     // pass still ran over whatever scene the host had loaded, so without this the
@@ -1538,7 +2464,7 @@ void UntitledFighterMode::Draw(MyCoreEngine::Renderer2D& r2d, int widthPx,
                      { static_cast<float>(widthPx), static_cast<float>(heightPx) },
                      kBackdrop, 0);
 
-    if (matchReady_) {
+    if (fight) {
         // --- THE WORLD PASS, BRACKETED BY HAND ------------------------------
         //
         // UIPass hands this callback a Renderer2D already in SCREEN mode
@@ -1574,7 +2500,7 @@ void UntitledFighterMode::Draw(MyCoreEngine::Renderer2D& r2d, int widthPx,
     // happened".
     if (!ctx_.font) return;
 
-    DrawFightHud(r2d, *ctx_.font, widthPx, heightPx, hudModel_());
+    DrawFightHud(r2d, *ctx_.font, widthPx, heightPx, HudModel());
 }
 
 } // namespace untitledfighter

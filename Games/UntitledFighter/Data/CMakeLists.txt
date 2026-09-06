@@ -33,6 +33,11 @@ add_library(CseData STATIC
     # argument: it opens a path by name, and this library owns the sandbox and
     # (privately) the JSON dependency both halves need.
     src/AuthoringTelemetry.cpp
+    # The Versus lobby's versus.json reader and its --slot/--port/--peer
+    # overrides (ROADMAP M2.5, ADR-022 D2). Same argument again: it opens a
+    # path by name, and this library owns the sandbox and (privately) the JSON
+    # dependency. The mode that reads it links nothing that exposes nlohmann.
+    src/VersusConfig.cpp
     # Compiled in rather than linked. Character files are authored content and
     # docs/MAINTENANCE.md admits no exceptions: an authored path goes through
     # PathIsContained before anything opens it. The alternative to compiling this

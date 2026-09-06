@@ -100,10 +100,19 @@ The Game panel does not only render the scene's cameras. A title can register
 enters the same mode object the shipped Player does — which is the "Play ==
 Player" property stated as a mechanism rather than a hope.
 
-For this repository that means the fighting game's **training mode** runs inside
-the editor: box overlay, frame-data HUD, pause, slow motion and frame step. How
+For this repository that means the fighting game's one mode, in its three
+intents — **training**, **replay** and **versus** — is the object the editor
+enters: box overlay, frame-data HUD, pause, slow motion and frame step; the
+shipped replay on both slots; and the Versus lobby, the same object the Player
+enters, which the tests take to LIVE over a loopback
+(`FightMode.VersusReachesLiveThroughTheHandshakeOverALoopback`). A live online
+match through the editor is review point R7's
+([ROADMAP](../ROADMAP.md#r7--after-m25-two-people-one-match)) — no test enters
+the mode through the editor host. The mode reads its slot, port and peer from
+`Application::commandLine()`, which `Main.h` fills for every host, so pass
+`--slot`/`--port`/`--peer` to the editor executable or edit `versus.json`. How
 it works, and why frame step costs about six lines, is on the
-[fighting-core page](fighting-core.md#the-modes-training-frame-step-hud).
+[fighting-core page](fighting-core.md#the-modes-three-intents-one-presentation).
 
 ---
 

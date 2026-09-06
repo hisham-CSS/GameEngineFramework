@@ -55,7 +55,7 @@
 # sits on top of it.
 #
 # ---------------------------------------------------------------------------
-# WHY THE TRAINING MODE IS THREE PAIRS AND NOT ONE
+# WHY THE MODE IS THREE PAIRS AND NOT ONE
 # ---------------------------------------------------------------------------
 # The mode owns the SESSION -- when a tick runs, where the bits come from, what
 # Demonstrate does. FightView owns the PICTURE and FightHud owns the NUMBERS, and

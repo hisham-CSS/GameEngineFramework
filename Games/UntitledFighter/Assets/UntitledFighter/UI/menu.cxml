@@ -22,8 +22,8 @@
   menu.json has an entity carrying a UIDocumentComponent that points at it, and
   the host boots that scene because MyCoreEngine::TitleFrontEndScene() — the
   seam in Engine/src/core/TitleFrontEnd.h, defined in
-  ../../../Player/src/TitleFrontEnd.cpp — names it. The engine declares; the
-  game answers.
+  Games/UntitledFighter/FrontEnd/src/TitleFrontEnd.cpp — names it. The engine
+  declares; the game answers.
 
   ===========================================================================
   THE VERBS ARE THE ENGINE'S; THE WORDS ARE THE GAME'S
@@ -138,48 +138,42 @@
 
              THIS FILE HAS NO SUCH PROBLEM. It is the title's own front end, in
              the title's own directory, next to the title's own modes. It knows
-             it has a training mode because the same title wrote
-             ../../../Player/src/UntitledFighterModes.cpp. Asking a registry at
-             runtime whether the mode exists is indirection that buys nothing:
-             the answer is decided at compile time by a file three directories
-             away that this one is shipped alongside.
+             which modes exist because the same title registers them, in
+             Games/UntitledFighter/Modes/src/UntitledFighterModes.cpp. Asking a
+             registry at runtime whether a mode exists is indirection that buys
+             nothing: the answer is decided at compile time by a file this one
+             is shipped alongside.
 
-             And it cost something real. The verb was bound `if="menuMode0"`,
-             the flag did not reach the document, and the menu drew NO PLAYABLE
-             MODES IN THIS BUILD on a build that contained the mode -- with the
-             registry holding it, both hooks set and the flag true in the data
-             source. A typed button cannot fail that way, because there is no
-             wire to come loose.
+             And the indirection cost something real. The one verb this file
+             had was bound `if="menuMode0"`, the flag did not reach the
+             document, and the menu drew NO PLAYABLE MODES IN THIS BUILD on a
+             build that contained the mode -- with the registry holding it, both
+             hooks set and the flag true in the data source. A typed button
+             cannot fail that way, because there is no wire to come loose.
 
-             What stays bound is the ACTION. `menuEnterMode0` is the host's job:
-             it enters the mode, reports a refusal on the status line, and is the
-             one part of this that genuinely belongs to the engine.
+             What stays bound is the ACTION. `menuEnterModeN` is the host's job:
+             it enters the mode in registry slot N, reports a refusal on the
+             status line, and is the one part of this that genuinely belongs to
+             the engine.
 
-             THE COUPLING TO KEEP IN MIND: slot 0 is the FIRST mode registered,
-             and registration order is menu order (GameMode.h). Both halves are
-             the title's, so if a mode is ever registered BEFORE training, this
-             line is what changes with it. That is a one-line edit in a file the
-             same author owns, which is a better trade than a runtime lookup
+             THE COUPLING TO KEEP IN MIND: slot N is the Nth mode REGISTERED,
+             and registration order is menu order (GameMode.h). The three verbs
+             below are the three registrations in UntitledFighterModes.cpp in
+             its order -- Training, Replay, Versus -- and they are ONE CLASS
+             constructed with three intents (ADR-022), which is why three verbs
+             cost three lines here and nothing anywhere else. Reorder the
+             registrations and these three on-click slots move with them; the
+             registry test pins the order
+             (FightMode.ThreeRegistryEntriesShareOneModeAndOnePresentation).
+             Both halves are the title's, so that is a three-line edit in files
+             the same author owns, which is a better trade than a runtime lookup
              that can silently answer "no". -->
         <Button name="training" class="verb"
                 text="TRAINING" on-click="menuEnterMode0"/>
-
-        <!-- REPLAY and VERSUS ARE NOT HERE, AND THAT IS THE SAME DECISION.
-             They are named in UntitledFighterModes.cpp as planned and
-             deliberately not stubbed, because a menu entry that enters an empty
-             screen is worse than one that is absent.
-
-             This file used to carry three bound slots waiting for them, plus a
-             label for the case where nothing was registered at all. All four
-             elements existed to render something that does not exist, and the
-             empty-state label is what the author actually saw on a build that
-             HAD the mode -- a screen that read NO PLAYABLE MODES IN THIS BUILD
-             because a flag did not arrive.
-
-             So they are gone. The day REPLAY is built, this file gains a line
-             that says REPLAY, typed, next to the line that says TRAINING. That
-             is a smaller edit than the comment explaining why it was not
-             needed, and it cannot render the wrong thing in the meantime. -->
+        <Button name="replay" class="verb"
+                text="REPLAY" on-click="menuEnterMode1"/>
+        <Button name="versus" class="verb"
+                text="VERSUS" on-click="menuEnterMode2"/>
 
         <Element class="verb-rule"/>
 

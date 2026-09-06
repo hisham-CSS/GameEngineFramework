@@ -145,9 +145,11 @@ TEST(KernelRollback, EightTickRewindIsExactAtEveryDepth) {
 }
 
 TEST(KernelRollback, ChecksumDetectsASingleBitOfDivergence) {
-    // ADR-002 CHOICE C: exchange a 4-byte checksum every 8 ticks, and on
-    // mismatch STOP the match and name the frame. That is only useful if the
-    // checksum actually notices a minimal difference.
+    // ADR-002 CHOICE C: exchange a 4-byte checksum -- an online session
+    // compares it on every confirmed frame (Net/include/cse/net/ISession.h);
+    // CHOICE C budgeted one exchange per 8 ticks -- and on mismatch STOP the
+    // match and name the frame. That is only useful if the checksum actually
+    // notices a minimal difference.
     GameState a{};
     ResetMatch(a, 99u);
     GameState b = a;

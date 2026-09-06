@@ -94,9 +94,11 @@ MatchSetup DefaultMatchSetup(std::uint32_t seed);
 // the default and the general path cannot drift apart.
 void ResetMatch(GameState& state, std::uint32_t seed);
 
-// FNV-1a over the raw bytes. This is the desync checksum from
-// ADR-002 CHOICE C -- exchanged every 8 ticks, and on mismatch the match STOPS
-// and names the frame rather than silently resyncing.
+// FNV-1a over the raw bytes. This is the desync checksum from ADR-002
+// CHOICE C: an online session compares it on every confirmed frame
+// (Net/include/cse/net/ISession.h; CHOICE C budgeted one exchange per 8
+// ticks), and on mismatch the match STOPS and names the frame rather than
+// silently resyncing.
 //
 // Hashing raw bytes is only sound because GameState has no padding holes with
 // indeterminate values (Fighter::pad_ is explicit) and no pointers. The static

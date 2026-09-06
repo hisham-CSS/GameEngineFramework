@@ -185,10 +185,15 @@
 // is real state that would need its own rollback correctness argument, in an
 // object whose entire job is to tell a human something true. A verdict shown to
 // a playtester that is silently about a timeline that no longer happened is
-// worse than no verdict. Training mode is offline and never rolls back; replay
-// playback runs forward from tick 0 and never rolls back; so nothing this module
-// ships today is affected, and the day a netplay HUD wants one, `Stale()` is
-// where the conversation starts.
+// worse than no verdict. Training is offline and never rolls back; replay
+// playback runs forward from tick 0 and never rolls back; VERSUS rolls back as a
+// matter of course, and ROADMAP M2.5 decided what its HUD does about that: it
+// HIDES the judge for the whole match (FightHudModel::verdictPanels in
+// Games/UntitledFighter/Modes/src/FightHud.h) rather than restoring watcher
+// history -- a panel that read STALE all evening would be a statement about the
+// match rather than about this object. So nothing shipped shows a stale verdict,
+// and the day a netplay HUD wants a LIVE one, `Stale()` is still where the
+// conversation starts.
 //
 // "AFTER IT HAS JUDGED A TICK" IS LOAD-BEARING, because a rollback window is many
 // ticks long and Reset() is documented as the thing to call inside one. A

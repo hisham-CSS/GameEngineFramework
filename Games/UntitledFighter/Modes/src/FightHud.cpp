@@ -388,8 +388,10 @@ namespace {
         Pen pen(r2d, font, x + kPadPx, y + kPadPx, w - kPadPx * 2.0f, ink);
 
         const bool isPlayer = slot == model.playerSlot;
+        // The heading's word is the mode's (FightHudModel::slotLabel): the
+        // dummy is a TRAINING DUMMY only while the intent is training.
         pen.heading(std::string("P") + std::to_string(slot + 1) + "  " +
-                        (isPlayer ? "YOU" : "TRAINING DUMMY"),
+                        model.slotLabel[slot],
                     SlotColour(slot));
 
         const Phase phase = PhaseOf(*model.data, *model.state, static_cast<std::uint8_t>(slot));
@@ -646,8 +648,10 @@ namespace {
         if (watcher == nullptr) {
             pen.line("no judge: there is no match to judge.", kDimCol);
         } else if (watcher->Stale()) {
-            // Training mode never rolls back, so this is a real surprise and is
-            // reported as one rather than hidden behind an empty panel.
+            // Training and Replay never roll back, and Versus -- which does --
+            // hides this panel for the whole visit (FightHudModel::verdictPanels),
+            // so this is a real surprise and is reported as one rather than
+            // hidden behind an empty panel.
             pen.line("STALE -- a re-simulated tick invalidated this object's "
                      "history, so it stopped reporting rather than describe a "
                      "timeline that no longer happened. R clears it.", kAlarmCol);
@@ -870,11 +874,14 @@ namespace {
             }
         }
 
-        // --- what the training controls do ------------------------------------
-        pen.line("SPACE pause     . step one tick     , slow motion     R reset"
-                 "     TAB demonstrate     C next character     V corner/midscreen"
-                 "     B overlay     ESC menu",
-                 kDimCol);
+        // --- what the controls do, in the mode's words ------------------------
+        //
+        // The mode binds the keys and knows which are inert this visit -- a
+        // peer makes most of them a desync (DETERMINISM.md T3) -- so the line
+        // is its (FightHudModel::controls), not a literal here that would list
+        // R and TAB over a match they cannot touch.
+        if (model.controls != nullptr && model.controls[0] != '\0')
+            pen.line(model.controls, kDimCol);
 
         // WHERE THE FIGHTERS ARE STANDING, and what it costs, because the
         // verdict drawn above them is corner-only by construction.
@@ -883,16 +890,23 @@ namespace {
         // midscreen they do not, and saying so is the whole point: a player who
         // moves the dummy out to watch knockback has to know that the TERMINATING
         // above their head stopped applying when they pressed V.
-        if (model.stageMidscreen)
-            pen.line("MIDSCREEN -- knockback and spacing are visible here, and the "
-                     "verdict above is a CORNER verdict that does not describe "
-                     "this position. [V] returns to the corner.",
-                     kWarnCol);
-        else
-            pen.line("CORNER -- the position every verdict on this screen is "
-                     "about. Knockback has nowhere to carry the dummy here; "
-                     "[V] moves out to midscreen to watch it.",
-                     kDimCol);
+        //
+        // Only beside the verdicts it is about (FightHudModel::verdictPanels):
+        // in Versus the judge is hidden and [V] is inert, so a line about
+        // which position the verdict describes would describe a verdict that
+        // is not on screen and offer a key that does nothing.
+        if (model.verdictPanels) {
+            if (model.stageMidscreen)
+                pen.line("MIDSCREEN -- knockback and spacing are visible here, and the "
+                         "verdict above is a CORNER verdict that does not describe "
+                         "this position. [V] returns to the corner.",
+                         kWarnCol);
+            else
+                pen.line("CORNER -- the position every verdict on this screen is "
+                         "about. Knockback has nowhere to carry the dummy here; "
+                         "[V] moves out to midscreen to watch it.",
+                         kDimCol);
+        }
 
         // --- what the colours mean --------------------------------------------
         //
@@ -936,6 +950,27 @@ namespace {
         }
 
         return pen.y() - y - kRowGapPx;
+    }
+
+    // --- The match has stopped -------------------------------------------------
+    //
+    // A latching failure is fatal to the input log (LatchedInputSource::Latch),
+    // a session's refusal to the match (SessionDriver::Fatal), a desync to the
+    // whole visit (ROADMAP M2.5) -- each takes the middle of the screen rather
+    // than a corner of it, and each is drawn from the SAME sentence the mode
+    // wrote (FightHudModel::fatal). One function for the match screen and the
+    // lobby screen both, because a desync's verdict ends on the latter (the
+    // session is gone and the lobby is ENDED), and a banner one screen owned
+    // would vanish with that screen.
+    void stoppedBanner(MyCoreEngine::Renderer2D& r2d, const MyCoreEngine::Font& font,
+                       float H, float full, const FightHudModel& model) {
+        if (model.fatal == nullptr || model.fatal->empty()) return;
+        const float y = H * 0.4f;
+        Pen pen(r2d, font, kMarginPx + kPadPx, y + kPadPx, full - kPadPx * 2.0f);
+        pen.line("THE MATCH STOPPED", kLoudEdge, kBannerScale);
+        pen.line(*model.fatal, kValueCol, kSmallScale);
+        panel(r2d, kMarginPx, y, full, pen.y() - y + kPadPx - kRowGapPx, kLoudFill,
+              kLoudEdge);
     }
 
 } // namespace
@@ -1097,7 +1132,10 @@ void DrawFightHud(MyCoreEngine::Renderer2D& r2d, const MyCoreEngine::Font& font,
     const float full = W - kMarginPx * 2.0f;
 
     Pen top(r2d, font, kMarginPx, kMarginPx, full);
-    top.line("UNTITLED FIGHTING GAME  --  TRAINING", kTitleCol, kTitleScale);
+    // The word after the title is read off the model like everything else on
+    // this screen: TRAINING, REPLAY or VERSUS is the mode's to say.
+    top.line(std::string("UNTITLED FIGHTING GAME  --  ") + model.modeWord,
+             kTitleCol, kTitleScale);
 
     // One line of everything the HOST is doing, as distinct from everything the
     // simulation is doing. TICK moves only if a tick ran; CHECKSUM moves only if
@@ -1119,6 +1157,27 @@ void DrawFightHud(MyCoreEngine::Renderer2D& r2d, const MyCoreEngine::Font& font,
         if (model.demoRemaining > 0)
             chips += " (" + std::to_string(model.demoRemaining) +
                      " scripted tick(s) left)";
+        // The session's numbers while one is attached (ADR-022 D4), read off
+        // the driver and the session: which frame it is on, how many peers
+        // GekkoNet has synced with, its pacing hint (positive = ahead of the
+        // peer), and the ticks its rollbacks re-ran.
+        if (model.sessionLive) {
+            chips += "    session frame " + std::to_string(model.sessionFrame);
+            chips += "    peers " + std::to_string(model.connectedPeers);
+            chips += "    ahead " + signedTicks(model.framesAhead);
+            chips += "    rollback ticks " + std::to_string(model.rollbackTicks);
+        }
+        // The replay's numbers (ADR-022 D4): where the file stands, the
+        // verifier's agreed/compared pair, whether the tick that just ran
+        // was a re-simulation, and OVER once the mode stopped at the end.
+        if (model.replay) {
+            chips += "    replay " + std::to_string(model.tick) + " / " +
+                     std::to_string(model.replayTicks);
+            chips += "    checkpoints " + std::to_string(model.replayCheckpointsAgreed) + "/" +
+                     std::to_string(model.replayCheckpointsCompared) + " agree";
+            if (model.lastTickResimulated) chips += "    (resimulated)";
+            if (model.replayOver) chips += "    OVER";
+        }
 
         // The GAP between the two BODIES, from cse::kernel::Hurtbox -- the same
         // placement ResolveHits tests with, so this is the distance that decides
@@ -1161,6 +1220,59 @@ void DrawFightHud(MyCoreEngine::Renderer2D& r2d, const MyCoreEngine::Font& font,
         top.line("3D presentation: " + *model.presentationNote, kWarnCol);
     if (model.overlayMode != nullptr)
         top.line(std::string("overlay: ") + model.overlayMode + "   [B] cycles", kDimCol);
+    // The mode's one sentence about the wire (FightHudModel::sessionNote),
+    // under the chips on the match screen: "LIVE against ..." while the
+    // session runs, a desync's progress after. The lobby screen below draws
+    // the same string in its own colours, so not both.
+    if (!model.lobby && model.sessionNote != nullptr && !model.sessionNote->empty())
+        top.line("session: " + *model.sessionNote, kDimCol);
+    // The replay's one sentence (FightHudModel::replayNote): the file has
+    // been played out, and what brings it back. A divergence is not here --
+    // it is the banner, through `fatal`, because it stops the match.
+    if (model.replay && model.replayNote != nullptr && !model.replayNote->empty())
+        top.line("replay: " + *model.replayNote, kValueCol);
+
+    // --- the lobby: the screen INSTEAD of the match (ROADMAP M2.5) -----------
+    //
+    // In the shape of the NOT STARTED block below, and before it: the match
+    // behind a lobby is built (the offer names its content), and drawing its
+    // panels here would show a fight nobody has joined -- or, after a refusal,
+    // one nobody ever will. A desync's verdict ends here too: the session is
+    // gone, the lobby is ENDED, and the match must not be drawn as if it
+    // could tick again. Every sentence is the model's: the lobby's own wait,
+    // or a transport's or handshake's verdict verbatim (ADR-022 D5); the
+    // colour is the model's flag, not a reading of the sentence.
+    if (model.lobby) {
+        Pen pen(r2d, font, kMarginPx, top.y() + 14.0f, full);
+        pen.row("lobby", model.lobbyEnded ? "ENDED" : "WAITING",
+                model.lobbyEnded ? kAlarmCol : kWarnCol);
+        if (model.sessionNote != nullptr && !model.sessionNote->empty())
+            pen.line(*model.sessionNote, model.lobbyEnded ? kAlarmCol : kValueCol,
+                     kBodyScale);
+        pen.gap(8.0f);
+        pen.row("slot", std::to_string(model.playerSlot));
+        pen.row("port", std::to_string(model.port));
+        pen.row("peer", model.peer != nullptr ? *model.peer : std::string("-"));
+        pen.gap(8.0f);
+        pen.line("UntitledFighter/versus.json sets these three; --slot N --port P "
+                 "--peer ip:port on the command line override it (IPv4 literals only).",
+                 kDimCol);
+        // A lobby that ended because the character did not load says so in the
+        // loader's words above; this row keeps the two screens' vocabulary one.
+        if (!model.matchReady) pen.row("match", "NOT STARTED", kAlarmCol);
+        pen.gap(8.0f);
+        pen.line("mode fixed ticks " + std::to_string(model.modeTicks) +
+                     "   --  this counter moves while the lobby waits, so a host "
+                     "that is not calling this mode looks different from a peer "
+                     "that is not answering.",
+                 kDimCol);
+        pen.gap(8.0f);
+        pen.line("ESC / BACK  return to the menu", kDimCol);
+        // A desync's verdict stopped the match: the same banner the match
+        // screen shows, over this screen, because this is the screen it ends on.
+        stoppedBanner(r2d, font, H, full, model);
+        return;
+    }
 
     // --- nothing loaded: say what broke, and stop ----------------------------
     if (!model.matchReady || model.state == nullptr || model.data == nullptr) {
@@ -1175,7 +1287,11 @@ void DrawFightHud(MyCoreEngine::Renderer2D& r2d, const MyCoreEngine::Font& font,
                      "that did not load.",
                  kDimCol);
         pen.gap(8.0f);
-        pen.line("ESC / BACK  return to the menu        C  next character",
+        // C swaps the thing that did not load: the character in Training, the
+        // file in Replay. Versus never reaches this block -- a load failure there
+        // ends the lobby above, which prints the same NOT STARTED row.
+        pen.line(std::string("ESC / BACK  return to the menu        C  next ") +
+                     (model.replay ? "replay" : "character"),
                  kDimCol);
         return;
     }
@@ -1183,8 +1299,11 @@ void DrawFightHud(MyCoreEngine::Renderer2D& r2d, const MyCoreEngine::Font& font,
     float columnTop = top.y() + 10.0f;
 
     // --- the loud line, above everything -------------------------------------
+    //
+    // One of the training verdicts (FightHudModel::verdictPanels): it reads
+    // the judge, and the judge is hidden where it is not judging.
     {
-        const Loud loud = loudLine(model);
+        const Loud loud = model.verdictPanels ? loudLine(model) : Loud{};
         if (loud.show) {
             Pen pen(r2d, font, kMarginPx + kPadPx, columnTop + kPadPx,
                     full - kPadPx * 2.0f);
@@ -1212,17 +1331,21 @@ void DrawFightHud(MyCoreEngine::Renderer2D& r2d, const MyCoreEngine::Font& font,
 
     const float columnBottom = stripY - kGutterPx;
 
-    // --- left column: you, then the dummy ------------------------------------
+    // --- left column: you, then the other slot -------------------------------
     //
     // In that order because the player's panel is the one being read. See
     // fighterPanel for why the dummy's is shorter, and bottomStrip for where the
-    // binding table went.
+    // binding table went. The panels are NAMED by the model's slot labels, so a
+    // dropped-panel warning says YOU / TRAINING DUMMY, YOU / PEER or P1 / P2 in
+    // the intent's own words rather than calling a peer "the dummy".
     {
         Column left(r2d, font, kMarginPx, columnTop, kLeftW, columnBottom);
-        left.Add("your fighter", [&](float x, float y, float w, bool ink) {
+        left.Add(model.slotLabel[model.playerSlot],
+                 [&](float x, float y, float w, bool ink) {
             return fighterPanel(r2d, font, x, y, w, model, model.playerSlot, ink);
         });
-        left.Add("the dummy", [&](float x, float y, float w, bool ink) {
+        left.Add(model.slotLabel[1 - model.playerSlot],
+                 [&](float x, float y, float w, bool ink) {
             return fighterPanel(r2d, font, x, y, w, model, 1 - model.playerSlot,
                                 ink);
         });
@@ -1241,25 +1364,21 @@ void DrawFightHud(MyCoreEngine::Renderer2D& r2d, const MyCoreEngine::Font& font,
         right.Add("the analysis", [&](float x, float y, float w, bool ink) {
             return analysisPanel(r2d, font, x, y, w, model, ink);
         });
-        right.Add("the combo judge", [&](float x, float y, float w, bool ink) {
-            return comboPanel(r2d, font, x, y, w, model, ink);
-        });
-        right.Add("demonstrate", [&](float x, float y, float w, bool ink) {
-            return demoPanel(r2d, font, x, y, w, model, ink);
-        });
+        // The judge and Demonstrate are training's verdicts and go where the
+        // mode says they mean nothing (FightHudModel::verdictPanels); the
+        // analysis stays, because it is about the character, not the match.
+        if (model.verdictPanels) {
+            right.Add("the combo judge", [&](float x, float y, float w, bool ink) {
+                return comboPanel(r2d, font, x, y, w, model, ink);
+            });
+            right.Add("demonstrate", [&](float x, float y, float w, bool ink) {
+                return demoPanel(r2d, font, x, y, w, model, ink);
+            });
+        }
         right.Finish();
     }
 
-    // A latching failure is fatal to the input log, so it takes the middle of the
-    // screen rather than a corner of it. See LatchedInputSource::Latch.
-    if (model.fatal != nullptr && !model.fatal->empty()) {
-        const float y = H * 0.4f;
-        Pen pen(r2d, font, kMarginPx + kPadPx, y + kPadPx, full - kPadPx * 2.0f);
-        pen.line("THE MATCH STOPPED", kLoudEdge, kBannerScale);
-        pen.line(*model.fatal, kValueCol, kSmallScale);
-        panel(r2d, kMarginPx, y, full, pen.y() - y + kPadPx - kRowGapPx, kLoudFill,
-              kLoudEdge);
-    }
+    stoppedBanner(r2d, font, H, full, model);
 }
 
 } // namespace untitledfighter

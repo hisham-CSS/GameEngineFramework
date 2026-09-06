@@ -431,7 +431,7 @@ Both backends are optional (`CSE_ENABLE_JOLT`, `CSE_ENABLE_PHYSX`, both `ON` by 
 
 ### Runtime assets
 
-A single `runtime_assets` custom target (defined in `Editor/CMakeLists.txt`) stages `Editor/src/Exported` into the shared output directory. `Editor`, `PlayerDebug`, `PlayerShipping`, and `AssetCooker` all depend on it.
+A single `runtime_assets` custom target (defined in the root `CMakeLists.txt`) stages every root in `CSE_ASSET_ROOTS` — `Editor/src/Exported` and a linked title's asset root — into the shared output directory. `Editor`, `PlayerDebug`, `PlayerShipping`, and `AssetCooker` all depend on it.
 
 **Important:** it is one shared target for a reason. Concurrent copies into the same directory race under Ninja (intermittent sharing violations), and a blind `copy_directory` clobbered editor-saved scenes with the checked-in copy on every build. The staging script (`cmake/stage_runtime_assets.cmake`) overwrites static assets but only *seeds* authored `.json` files.
 

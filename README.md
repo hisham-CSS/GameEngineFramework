@@ -76,7 +76,7 @@ GameEngineFramework/
 │       ├── Kernel/        #   reverse -- a configure-time boundary check enforces it.
 │       ├── Data/          # Kernel: integer POD state, pure Simulate(), links NOTHING
 │       ├── Game/          # Data: character files -> memory. Game: session, input
-│       ├── Modes/         #   sources, replay, combo judge. Modes: training mode.
+│       ├── Modes/         #   sources, replay, combo judge. Modes: one mode, 3 intents.
 │       ├── Editor/        # Editor: the Combo Prover panel, pushed in through a seam
 │       └── Assets/        # Assets: the shipped characters
 ├── ThirdParty/      # Vendored: GekkoNet as a pinned submodule, and comboprover.hpp
@@ -164,7 +164,7 @@ preset build (e.g. `out/build/x64-relwithdebinfo`), or `build` for the manual/Li
 above:
 
 - `<build>/build/bin/<Config>/Editor.exe`
-- `<build>/build/bin/<Config>/Player.exe [scene.json]` (defaults to `Exported/scene.json`)
+- `<build>/build/bin/<Config>/Player.exe [scene.json] [--key value ...]` (defaults to `Exported/scene.json`; the `--key value` pairs are a linked title's — the fighter's Versus lobby reads `--slot`, `--port` and `--peer`)
 - `<build>/build/bin/<Config>/AssetCooker.exe validate Exported`
 
 Tests: `ctest --preset x64-relwithdebinfo-tests` (or `ctest --test-dir <build>`, or run the

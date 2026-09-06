@@ -632,10 +632,12 @@ TEST(CombatRollback, EveryRewindDepthUpToTheBudgetIsExact) {
 }
 
 TEST(CombatRollback, TheChecksumNoticesAHitThatDidNotHappen) {
-    // ADR-002 CHOICE C exchanges this checksum every 8 ticks and STOPS the match
-    // on a mismatch. A hit is now part of the state, so it has to be part of the
-    // hash -- including the flag that records it, which is the field most likely
-    // to be forgotten because nothing on screen shows it.
+    // An online session compares this checksum on every confirmed frame
+    // (Net/include/cse/net/ISession.h; ADR-002 CHOICE C budgeted one exchange
+    // per 8 ticks) and STOPS the match on a mismatch. A hit is now part of the
+    // state, so it has to be part of the hash -- including the flag that
+    // records it, which is the field most likely to be forgotten because
+    // nothing on screen shows it.
     const MatchData data = makeMatchData();
     GameState a = openingAt(0, 40);
     for (int t = 0; t < 5; ++t) Simulate(a, inputs(kInputLP, 0), data);

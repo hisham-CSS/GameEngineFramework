@@ -277,6 +277,11 @@ ISession* CreateGekkoOnlineSession(const SessionConfig& cfg, ITransport* transpo
     // The adapter before the actors: a remote actor's first handshake packet
     // leaves the moment it is added (the online example's order).
     gekko_net_adapter_set(s, bridgeAdapter(bridge));
+    // Before the actors too, so the first remote actor is timed from the
+    // configured silence, not the library's default. 0 would mean "never";
+    // the config's comment forbids it, and the minimum of 1 ms keeps a caller
+    // who passed 0 from switching disconnection off by accident.
+    gekko_set_disconnect_timeout(s, cfg.disconnectTimeoutMs == 0u ? 1u : cfg.disconnectTimeoutMs);
 
     // Slot order, so the handle GekkoNet returns is the slot the caller will
     // name in AddLocalInput and read in the packed Advance inputs.

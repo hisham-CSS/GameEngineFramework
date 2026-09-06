@@ -62,7 +62,26 @@
 // and, structurally, it is a second representation of the state, which is the
 // thing this whole file is built not to have. The model is filled in and used
 // inside one call, so every pointer in it is alive for exactly as long as it is
-// read.
+// read. The one caller outside Draw is UntitledFighterMode::HudModel(), which
+// hands the same struct to tests so they can read the screen's words without
+// a GL context; the rule is the same there -- read it now, never across a
+// FixedTick or a Frame -- and is written at that declaration.
+//
+// ===========================================================================
+// THREE INTENTS, ONE SCREEN
+// ===========================================================================
+// Training, replay and versus are one mode (ADR-022 D1) and they are one HUD:
+// a single FightHudModel and a single DrawFightHud, and everything an intent
+// changes about the screen is a FIELD the mode fills -- the word after the
+// title (modeWord), the two slot labels (slotLabel), whether the training
+// verdicts are drawn at all (verdictPanels), the control strip (controls), the
+// lobby block that replaces the match (lobby, lobbyEnded, sessionNote, peer,
+// port), the session's numbers (sessionLive, sessionFrame, framesAhead,
+// rollbackTicks) and the replay's (replay, replayTicks, replayOver, the
+// checkpoint counts, replayNote). A second Draw for VERSUS would have been the
+// second copy of the screen this file exists not to have; the registry test
+// (FightMode.ThreeRegistryEntriesShareOneModeAndOnePresentation) pins the
+// arrangement by reading the same struct off all three intents.
 #pragma once
 
 #include "Engine.h"
@@ -327,6 +346,85 @@ struct FightHudModel {
     bool          paused       = false;
     int           slowDivisor  = 1;   // 1 = full speed, 2/4/8 = one tick in N
     int           playerSlot   = 0;
+
+    // Which of the three intents this screen is for (ADR-022 D1): the word
+    // after the title, and the heading of each slot's panel. THE MODE'S WORDS,
+    // not this file's. This file used to type TRAINING and TRAINING DUMMY,
+    // which was true of the one mode there was and is a lie about a peer or a
+    // recorded player -- and a HUD that decides what mode it is in is a second
+    // answer to a question the mode already answered. Empty rather than null
+    // by default so a model nobody filled draws a blank word, not a crash.
+    const char*   modeWord     = "";
+    const char*   slotLabel[2] = { "", "" };
+
+    // --- the Versus lobby (ROADMAP M2.5; ADR-022 D2, D5) ---------------------
+    //
+    // `lobby` is THE LOBBY SCREEN INSTEAD OF THE MATCH: the handshake is in
+    // flight, or it ended (refused, timed out, could not bind, or a desync's
+    // verdict is in) and the mode is waiting for Escape. The match is built
+    // behind it -- `matchReady` is
+    // true -- and must not be drawn: a fight on screen behind "waiting for the
+    // peer" is a match the peer never joined. `lobbyEnded` exists because the
+    // screen colours a verdict as an alarm and a wait as a wait, and must not
+    // parse the sentence to decide (the reloadFailed precedent).
+    //
+    // `sessionNote` is the mode's one sentence about the wire, in whichever
+    // layer's words wrote it: the lobby's "waiting for ...", the transport's
+    // or the handshake's own refusal text (D5: verbatim, never paraphrased),
+    // "LIVE against ..." once the session is attached. `peer` and `port` are
+    // versus.json's, after the command line's say; the slot is `playerSlot`,
+    // which the lobby sets from the same file.
+    bool               lobby          = false;
+    bool               lobbyEnded     = false;
+    const std::string* sessionNote    = nullptr;
+    const std::string* peer           = nullptr;
+    std::uint16_t      port           = 0;
+    // The live session's own count of connected peers (ISession::ConnectedPeers);
+    // 0 with no session. GekkoNet's sync, not the handshake's: it turns 1 well
+    // after the lobby says LIVE, which is why the screen shows it.
+    int                connectedPeers = 0;
+    // The session's own numbers while one is attached (ROADMAP M2.4, M2.5;
+    // ADR-022 D4): the driver's frame, GekkoNet's frames-ahead pacing hint
+    // (an int at the seam, ISession.h rule 3; positive = ahead of the peer),
+    // and the ticks its rollbacks re-ran. Read off the driver and the
+    // session, never counted here. `sessionLive` gates the chip, so this file
+    // never has to read `speaking` for "NET" to know.
+    bool               sessionLive    = false;
+    std::int32_t       sessionFrame   = 0;
+    int                framesAhead    = 0;
+    std::uint32_t      rollbackTicks  = 0;
+    // The readouts about TRAINING'S VERDICTS -- the combo judge, its loud
+    // line, Demonstrate, and the corner/midscreen note -- all of which assume
+    // one attacker, a silent dummy and the corner. False in Versus, where the
+    // second fighter is a peer's, R and TAB are inert, and the first rollback
+    // flips the watcher Stale for the rest of the match (ComboWatcher.h): the
+    // mode hides them rather than have this file draw a judge about a fight
+    // nobody is judging. THE MODE'S DECISION, read here.
+    bool               verdictPanels  = true;
+    // The control strip's line, in the mode's words: the mode binds the keys
+    // and knows which are inert this visit. Empty, not null, by default.
+    const char*        controls       = "";
+
+    // --- the replay (ROADMAP M2.5; ADR-022 D3, D4) ---------------------------
+    //
+    // `replay` gates the chip; `replayTicks` is the file's length, so the
+    // chip reads "tick N / M"; `replayOver` is the mode having stopped at the
+    // last authored tick (it paused itself; R restarts). The two checkpoint
+    // counts are the verifier's own -- shown as a pair because a verifier
+    // that compared nothing must not read as one that agreed with everything
+    // (Replay.h). `lastTickResimulated` is FightSession's own flag for the
+    // tick that just ran, kept by the mode's observer; it is the one thing
+    // about a rollback the screen shows in a replay, and it is not derived
+    // here from the two tick counters. `replayNote` is the mode's sentence
+    // about the file ("replay over at tick N; R restarts it"); a divergence
+    // goes to `fatal` instead and shows as the banner.
+    bool               replay                    = false;
+    std::uint32_t      replayTicks               = 0;
+    bool               replayOver                = false;
+    std::uint32_t      replayCheckpointsCompared = 0;
+    std::uint32_t      replayCheckpointsAgreed   = 0;
+    bool               lastTickResimulated       = false;
+    const std::string* replayNote                = nullptr;
 
     // Which source is speaking for the player's slot at `tick`, from
     // FallbackInputSource::Active(tick)->Name() -- the pure question the

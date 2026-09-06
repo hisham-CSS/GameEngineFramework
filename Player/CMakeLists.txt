@@ -38,7 +38,7 @@ if (MSVC)
 endif()
 
 # Runtime assets are staged by the shared runtime_assets target (defined in
-# Editor/CMakeLists.txt — the players share the same output directory). One
+# the root CMakeLists.txt — the players share the same output directory). One
 # writer, no copy races, and editor-authored files are never clobbered.
 add_dependencies(PlayerDebug runtime_assets)
 add_dependencies(PlayerShipping runtime_assets)

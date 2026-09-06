@@ -147,7 +147,15 @@ struct SessionConfig {
     // guessing further. ARCHITECTURE.md D4 budgets 8.
     std::uint8_t  predictionWindow      = 8;
     bool          desyncDetection       = true;
-    // Ticks between checksum exchanges. ADR-002 CHOICE C says every 8.
+    // The STRESS session's rollback distance: how far behind the present it
+    // re-simulates to hunt divergence (GekkoNet's check_distance). An ONLINE
+    // session does not read it -- it sends a checksum for EVERY confirmed
+    // frame and compares every one the peer sends (measured against
+    // GekkoNet's GameSession::SendSessionHealthCheck), so a desync is
+    // reported at the first confirmed frame that disagrees, which can be
+    // frame 0. ADR-002 CHOICE C budgeted an exchange every 8 ticks; the
+    // online cadence is finer than that budget, and this field does not
+    // change it.
     std::uint32_t desyncCheckInterval   = 8;
     // --- Online (ROADMAP M2.1) -------------------------------------------
     // One entry per player slot, in slot order; EMPTY means every player is
@@ -159,6 +167,15 @@ struct SessionConfig {
     // for fewer mispredictions (GekkoNet's local delay). The kernel never sees
     // it -- inputs arrive per frame as always, later.
     std::uint8_t  localDelay             = 2;
+    // Milliseconds of silence -- WALL CLOCK, measured by the session, not by
+    // frames -- before a peer that stopped sending is dropped and its slot is
+    // fed neutral input for the rest of the match (GekkoNet's disconnect
+    // timeout; the session keeps advancing after the drop, so the host that
+    // wants the match to END must watch ConnectedPeers, which the mode does).
+    // Never 0: GekkoNet reads 0 as "never disconnect anyone". A field rather
+    // than the library's constant so a test can hold the drop in well under
+    // the five seconds a player gets (ROADMAP M2.5).
+    std::uint32_t disconnectTimeoutMs    = 5000;
 };
 
 class ISession {
