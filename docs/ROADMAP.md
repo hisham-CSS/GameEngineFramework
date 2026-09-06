@@ -1014,11 +1014,13 @@ mannequin and M3.5a's room are unblocked from that date.
   and keys one STEPPED pose per frame for every attack (anticipation, the
   contact pose held over the active window, recovery converging on idle) and
   every reserved cycle at the contract's lengths; `capture_pose.py` writes
-  human-refined poses back; a bpy helper draws each move's authored boxes as
-  wire boxes at the contact frame so a screenshot shows fit, not opinion. Day
+  human-refined poses back; `draw_boxes.py` draws the kernel's boxes for a move
+  (MatchBuilder's body hurtbox and reach-derived hitbox; the file authors none
+  per move) as wire boxes at the contact frame so a screenshot shows fit, not
+  opinion. Day
   one is complete with three generic poses per attack; then `idle`,
   `walk_fwd`, `stand_lp`, `hitstun_stand` are made legible. **Done when:**
-  `ShippedClipsMatchTheFrameData` (every move's clip == `MoveDuration`;
+  `ShippedClips.MatchTheFrameData` (every move's clip == `MoveDuration`;
   knockdown == the largest `knockdownTicks`; every cycle present; root never
   translates), `ShippedClips.TheShippedModelAgreesWithItsSidecarClipForClip`,
   `ShippedClips.MutatingStandLpRecoveryMakesTheClipLengthCheckFire`, and

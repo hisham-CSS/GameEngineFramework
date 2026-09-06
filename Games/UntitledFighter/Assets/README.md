@@ -15,8 +15,9 @@ a title's content costs the same one line as composing its code.
 
 ```
 Characters/                 fighter_a.json, fighter_a_infinite.json, schema.v2.json
-Characters/fighter_a/model/ the mannequin (M3.3b): fighter_a.gltf + .bin, its clip
-                            sidecar, rig_manifest.json, rig_bones.json, CREDITS.md
+Characters/fighter_a/model/ the mannequin and its clips (M3.3b, M3.3c): fighter_a.gltf
+                            + .bin, the clip sidecar, poses.json (the pose library),
+                            rig_manifest.json, rig_bones.json, CREDITS.md
 UntitledFighter/menu.json   the front end the host boots
 UntitledFighter/UI/         its markup, stylesheet and art
 ```

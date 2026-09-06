@@ -4146,6 +4146,7 @@
   }
  ],
  "engine": {
+  "anim3d": { "model": "fighter_a/model/fighter_a.gltf" },
   "schema_version": 3,
   "schema_version_note": "RAISED FROM 2 TO 3 BY THE ANNOTATION PASS engine.stance_and_guard describes, and unlike v2's equivalent line this one carries information. Nothing in code keys off it -- CharacterData.cpp does not read it at all -- so it is a claim the author makes about themselves, and the claim is specific: this file has CONSIDERED stance precision and block height on every move, as opposed to simply not having either. That distinction is the only thing separating a v3 file from a v2 one that happens to validate. THE DOCUMENT IS STILL AT Editor/src/Exported/Characters/schema.v2.json: a JSON Schema's identity is its $id (character.v3.json), nothing in this repository resolves it by path, and the file's own first key says so.",
   "units": {

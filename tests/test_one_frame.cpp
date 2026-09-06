@@ -408,8 +408,13 @@ bool bringUp(const json& base, std::size_t probe, bool mutate, std::int32_t dela
     // rather than string surgery on the file text, for test_character_data.cpp's
     // reason: a test that edits JSON with find-and-replace stops testing what it
     // claims the moment somebody reformats the file.
+    // The document authors engine.anim3d.model (ROADMAP M3.3c), so a load from
+    // TEXT names the root its sidecar sits under; a load from the FILE fills
+    // that in itself (LoadOptions::contentRoot).
+    LoadOptions rooted = loadOptions();
+    rooted.contentRoot = charactersDir();
     LoadReport load{};
-    if (!LoadCharacterJson(kSubjectFile, doc.dump(), loadOptions(), out.character, load)) {
+    if (!LoadCharacterJson(kSubjectFile, doc.dump(), rooted, out.character, load)) {
         why = "the mutated document did not load. rule: " +
               (load.rule.empty() ? std::string("(none named)") : load.rule) +
               " error: " + load.error;

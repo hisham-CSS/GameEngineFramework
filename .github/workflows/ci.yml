@@ -128,6 +128,18 @@ jobs:
         # has no Blender and never needs one: the witness is the committed file.
         run: python scripts/check_clips.py --self-test
 
+      - name: The clips gate — the shipped fighter's clips match its frame data
+        # ROADMAP M3.3c / ADR-019 D2, enforcement (3): the committed model, its
+        # sidecar and fighter_a.json -- every count from the accessor AND the
+        # time span, the sidecar clip for clip, every move at startup + active +
+        # recovery. The C++ half (test_shipped_clips: MoveDuration, knockdown,
+        # the fourteen cycles, root motion) runs in the Windows job.
+        run: >
+          python scripts/check_clips.py
+          Games/UntitledFighter/Assets/Characters/fighter_a/model/fighter_a.gltf
+          --sidecar Games/UntitledFighter/Assets/Characters/fighter_a/model/fighter_a.clips.json
+          --character Games/UntitledFighter/Assets/Characters/fighter_a.json
+
   windows:
     name: Windows · build + test
     runs-on: windows-2022

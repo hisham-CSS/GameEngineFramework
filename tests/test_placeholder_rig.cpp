@@ -105,20 +105,28 @@ TEST(PlaceholderRig, StandsSixtyPixelsTallAtRest) {
     const auto dir = modelDir();
     const ModelCPUData cpu = Model::Decode((dir / "fighter_a.gltf").string());
     ASSERT_TRUE(cpu.valid) << cpu.importError;
-    float minY = 1e9f, maxY = -1e9f, minX = 1e9f, maxX = -1e9f;
-    std::size_t count = 0;
+    float minY = 1e9f, maxY = -1e9f, minZ = 1e9f, maxZ = -1e9f, feetX = 0.0f;
+    std::size_t count = 0, feet = 0;
     for (const auto& m : cpu.meshes)
         for (const auto& v : m.vertices) {
             minY = std::min(minY, v.Position.y); maxY = std::max(maxY, v.Position.y);
-            minX = std::min(minX, v.Position.x); maxX = std::max(maxX, v.Position.x);
+            minZ = std::min(minZ, v.Position.z); maxZ = std::max(maxZ, v.Position.z);
+            if (v.Position.y < 3.0f) { feetX += v.Position.x; ++feet; }
             ++count;
         }
     ASSERT_GT(count, 0u);
     EXPECT_NEAR(minY, 0.0f, 0.01f) << "the feet are not on the floor";
     EXPECT_NEAR(maxY, 60.0f, 0.01f) << "the crown is not at 60 units (fighter_a's height_px)";
-    // a body, not a pole: shoulders and feet give it width, symmetric about x = 0
-    EXPECT_GT(maxX - minX, 10.0f);
-    EXPECT_NEAR(maxX, -minX, 1.0f) << "the mannequin is not symmetric about its origin";
+    // A body, not a pole: the shoulders give it width across z -- left/right,
+    // because the fighter faces +X (ADR-019 D2; Fighter::facing == 0) -- and it
+    // is left/right symmetric about z = 0.
+    EXPECT_GT(maxZ - minZ, 10.0f);
+    EXPECT_NEAR(maxZ, -minZ, 1.0f) << "the mannequin is not left/right symmetric about its origin";
+    // And it FACES +X: everything under three units is feet, and feet point
+    // forward, so their centroid sits ahead of the ankles rather than on them
+    // (a body facing the camera has it on the ankles; one facing -X, behind).
+    ASSERT_GT(feet, 0u);
+    EXPECT_GT(feetX / static_cast<float>(feet), 1.0f) << "the feet do not point along +X";
     // The pose bounds are the CULLING box: per-joint rest boxes swept corner by
     // corner through every clip frame (M3.2d), conservative by design -- a
     // 1.5-degree breath widens them by a couple of units. They must contain
@@ -178,24 +186,30 @@ TEST(PlaceholderRig, MatchesItsRigManifestBoneForBone) {
         EXPECT_TRUE(bones["bones"].contains(need)) << "rig_bones.json lacks `" << need << "`";
 }
 
-// The sidecar is what the character loader will assert against (A21/A22) once
-// fighter_a.json names this model in M3.3c; today it must say exactly the one
-// clip the generator keyed, at exactly two frames, and the decoded clip agrees.
-TEST(PlaceholderRig, TheSidecarNamesTheOneIdleClipAtTwoFrames) {
+// The sidecar is what the character loader asserts against (A21/A22) now that
+// fighter_a.json names this model (M3.3c; tests/test_shipped_clips.cpp holds
+// the whole table to the frame data). This test keeps the rig's own claims:
+// the idle cycle the mannequin has carried since M3.3b is there, at a cycle's
+// length (>= 2, ADR-019 D2), the decoded clip agrees with the sidecar, and the
+// files ADR-019 wants beside a committed model -- CREDITS.md (D10) and the pose
+// library poses.json (D6) -- are beside it.
+TEST(PlaceholderRig, TheSidecarNamesIdleAndTheCreditsSitBesideIt) {
     const auto dir = modelDir();
     const json sidecar = readJson(dir / "fighter_a.clips.json");
     ASSERT_TRUE(sidecar.is_object());
-    EXPECT_EQ(sidecar.size(), 1u);
     ASSERT_TRUE(sidecar.contains("idle"));
-    EXPECT_EQ(sidecar["idle"].get<int>(), 2);
+    EXPECT_GE(sidecar["idle"].get<int>(), 2) << "a cycle is any length >= 2";
+    for (const auto& [name, frames] : sidecar.items())
+        EXPECT_GE(frames.get<int>(), 1) << "clip `" << name << "` has no frames";
 
     const ModelCPUData cpu = Model::Decode((dir / "fighter_a.gltf").string());
     ASSERT_TRUE(cpu.valid) << cpu.importError;
     const Clip* idle = cpu.clips.Find("idle");
     ASSERT_NE(idle, nullptr);
-    EXPECT_EQ(idle->frames, 2u);
+    EXPECT_EQ(idle->frames, sidecar["idle"].get<std::uint32_t>());
     EXPECT_EQ(idle->joints, cpu.skeleton.joints.size());
     EXPECT_TRUE(std::filesystem::exists(dir / "CREDITS.md")) << "ADR-019 D10: a CREDITS.md beside every committed model";
+    EXPECT_TRUE(std::filesystem::exists(dir / "poses.json")) << "ADR-019 D6: the pose library beside the model it poses";
 }
 
 // One tree. Rigify hangs every DEF- bone off its ORG- twin, and the twin's

@@ -1,6 +1,6 @@
 # The Art Pipeline
 
-Verified: 2026-09-06 @ 2ea38ba
+Verified: 2026-09-06 @ 0fcf621
 
 How a character or a stage gets from Blender into the engine, and the rules
 that keep the picture honest to the frame data. The decisions are
@@ -22,7 +22,11 @@ loader asserts against without Assimp — assertions A21 (every move's clip is
 exactly its duration) and A22 (every reserved cycle present), run whenever a
 character authors `engine.anim3d.model` (a path relative to the character file; [fighting-core.md](fighting-core.md),
 the load assertions); `scripts/check_clips.py` re-derives every count from the
-glTF itself. The mode watches the model and the sidecar like the character file,
+glTF itself, in CI against the shipped model and `fighter_a.json`; and
+`tests/test_shipped_clips.cpp` decodes the committed model and holds every
+move's clip to the kernel's `MoveDuration`, `knockdown` to the largest
+`knockdownTicks`, every reserved cycle present and the root still in the
+ground plane. The mode watches the model and the sidecar like the character file,
 so a re-export lands as a hot reload and a disagreeing one keeps the last good
 match with the loader's words on the HUD. Presentation holds no state: the pose on screen is
 a pure function of `GameState` ([fighting-core.md](fighting-core.md), `PoseSelect`;
@@ -115,12 +119,17 @@ needs one: every check reads committed exported bytes.
    weakest link.
 3. Author or refine; save the `.blend` before every `execute_blender_code`.
 4. Export through the script of record for the asset (`export_gltf.py`, or the
-   asset's own generator), never through the File menu. The mannequin's is
-   `make_mannequin.py` (ROADMAP M3.3b): it regenerates the skeleton from
-   Rigify's basic human metarig and is held to the committed
-   `rig_manifest.json`, so a run that would change the deform hierarchy stops
-   and says so — review that diff at the viewport before accepting it, and
-   `rig_bones.json` is where the pose library's semantic names live.
+   asset's own generator), never through the File menu. The fighter's is
+   `make_move_clips.py` (ROADMAP M3.3c): it builds the mannequin
+   (`make_mannequin.build_mannequin`, Rigify's basic human metarig, held to the
+   committed `rig_manifest.json` so a run that would change the deform
+   hierarchy stops and says so — review that diff at the viewport before
+   accepting it), keys every clip from `fighter_a.json` and `poses.json`, and
+   exports. `-- --blend <path>` saves the scene for a viewport session, where
+   `draw_boxes.py -- --move <id>` draws the kernel's boxes at the contact frame
+   and `capture_pose.py -- --pose <name> --clip <clip> --frame <n>` writes a
+   refined pose back into `poses.json`, whose `_axes` note says how a pose is
+   written (`rig_bones.json` holds the semantic names it uses).
 5. `python scripts/check_clips.py <exported.gltf> --sidecar <exported.clips.json>`.
 6. Commit the exported files with their `CREDITS.md`; the build restages them
    beside the executable (`cmake/stage_runtime_assets.cmake`).

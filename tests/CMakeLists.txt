@@ -337,6 +337,16 @@ target_link_libraries(test_press_delivery PRIVATE Engine CseGame CseData CseKern
 add_dependencies(test_press_delivery test_runtime_deps)
 add_test(NAME test_press_delivery COMMAND $<TARGET_FILE:test_press_delivery>)
 
+# SHIPPED CLIPS (ROADMAP M3.3c; ADR-019 D2) — the committed fighter_a model,
+# decoded headlessly (Model::Decode is GL-free), held to the frame data through
+# CharacterData + MatchBuilder + the kernel's MoveDuration: the second of D2's
+# four enforcements, the one that reads the glTF itself rather than the sidecar,
+# so it links Engine and the game libraries like test_press_delivery does.
+add_executable(test_shipped_clips test_shipped_clips.cpp)
+target_link_libraries(test_shipped_clips PRIVATE Engine CseData CseKernel GTest::gtest_main)
+add_dependencies(test_shipped_clips test_runtime_deps)
+add_test(NAME test_shipped_clips COMMAND $<TARGET_FILE:test_shipped_clips>)
+
 # BUILD SETTINGS — the scene list a Build assembles from, and the refusals that
 # keep a hand-edited or copied settings file from writing somewhere it should
 # not. Links Engine because BuildSettings lives there with the path sandbox it

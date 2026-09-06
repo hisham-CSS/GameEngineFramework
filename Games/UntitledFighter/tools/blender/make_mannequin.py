@@ -3,10 +3,17 @@
 ROADMAP M3.3b; ADR-019 D5 (1 Blender unit = 1 kernel pixel, feet at 0), D6 (a
 Rigify human metarig generated, non-deform bones removed, automatic weights
 capped at four, the deform set pinned by rig_manifest.json), D10 (MIT, a
-CREDITS.md beside the asset). Run headless from the repository root:
+CREDITS.md beside the asset).
+
+THE COMMITTED MODEL IS WRITTEN BY make_move_clips.py (ROADMAP M3.3c), which
+imports this module, calls build_mannequin() for the rig and the bound body,
+keys every clip from fighter_a.json and poses.json, and exports. Run alone,
+this script exports the rig with a 2-frame idle for inspection, and only where
+you point it -- it refuses to run without --out so it cannot overwrite the
+committed clips with none:
 
     blender --background --python Games/UntitledFighter/tools/blender/make_mannequin.py
-        [-- --out Games/UntitledFighter/Assets/Characters/fighter_a/model] [--height 60]
+        -- --out <some directory> [--height 60]
 
 It writes, beside each other:
 
@@ -54,6 +61,7 @@ looks like a Rigify bug and is not. Nothing is saved to the user's preferences
 in --background.
 """
 import json
+import math
 import os
 import sys
 
@@ -131,6 +139,13 @@ def build_metarig(height):
     s = height / (max(zs) - min(zs))
     meta.scale = (s, s, s)
     meta.location = (0.0, 0.0, -min(zs) * s)
+    # FACE +X. Rigify's metarig faces Blender's -Y; the fighter faces +X
+    # (ADR-019 D2: every clip is authored in place facing +X, Fighter::facing
+    # == 0, and FightPresentation yaws it 180 degrees for the other side). A
+    # +90-degree yaw about Z turns -Y onto +X; the exporter's +Y-up conversion
+    # keeps X as X. The cylinders hid the first export's facing (the body is
+    # left/right symmetric); a punch would not have.
+    meta.rotation_euler = (0.0, 0.0, math.radians(90.0))
     bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
     return meta
 
@@ -392,67 +407,88 @@ def write_rig_bones(rig, path):
         f.write('\n')
 
 
-def write_credits(path, version, deform_count, vertex_count, clips):
-    rows = '\n'.join('| `%s` | %d | `make_mannequin.py` (`key_idle`) | Hisham Ata |' % (n, c)
+def write_credits(path, version, deform_count, vertex_count, clips, sources, generator, poses_note):
+    """CREDITS.md per ADR-019 D10: author, licence, generator, Blender version, and
+    one row per clip naming where its poses came from (`sources[clip]`)."""
+    rows = '\n'.join('| `%s` | %d | %s | Hisham Ata |' % (n, c, sources.get(n, '`%s`' % generator))
                      for n, c in sorted(clips.items()))
     text = f"""# fighter_a placeholder model
 
-Project-authored placeholder (ROADMAP M3.3b) under the repository's
+Project-authored placeholder (ROADMAP M3.3b, M3.3c) under the repository's
 `LICENSE.txt` (**MIT**), per ADR-019 D10 (answered 2026-09-06).
 
 - **Author:** Hisham Ata, via the generator named below.
 - **Licence:** MIT (the repository's). Redistribution allowed: **yes**.
-- **Generator:** `Games/UntitledFighter/tools/blender/make_mannequin.py`, run headless.
+- **Generator:** `Games/UntitledFighter/tools/blender/{generator}`, run headless
+  (the rig and body come from `make_mannequin.py`; the clips are {poses_note}).
 - **Blender:** {version}. The skeleton is the deform set of Rigify's basic human
   metarig (`rigify`, bundled with Blender); output created with Blender is the
   creator's own work, per Blender's licence FAQ. No third-party asset is used or
   derived from.
-- **Skeleton:** {deform_count} deform bones, pinned by `rig_manifest.json`
-  (`common.enforce_rig_manifest` refuses an export that drifts). Semantic names
-  in `rig_bones.json`.
+- **Skeleton:** {deform_count} deform bones, one tree rooted at the hips, pinned by
+  `rig_manifest.json` (`common.enforce_rig_manifest` refuses an export that
+  drifts). Semantic names in `rig_bones.json`.
 - **Body:** {vertex_count} vertices of primitives along the bones, 60 units tall
-  with feet at y = 0 (1 unit = 1 kernel pixel), one flat material, no textures.
+  with feet at y = 0 (1 unit = 1 kernel pixel), facing +X, one flat material, no
+  textures.
 
 | Clip | Frames | Source | Author |
 |---|---|---|---|
 {rows}
 
 `fighter_a.clips.json` beside the model is the frame count per clip the
-character loader asserts against (A21/A22) once `fighter_a.json` names this
-model, which it does when every clip exists (ROADMAP M3.3c).
+character loader asserts against (A21/A22); `fighter_a.json` names this model
+under `engine.anim3d.model` (ROADMAP M3.3c).
 """
     with open(path, 'w', encoding='utf-8', newline='\n') as f:
         f.write(text)
 
 
-def main():
-    out, height = parse_args()
-    os.makedirs(out, exist_ok=True)
+def build_mannequin(height):
+    """A fresh scene holding the rig and its bound body: what make_move_clips.py
+    keys every clip onto, and what this script alone exports for inspection.
+    Returns (rig, body, influences per vertex)."""
     bpy.ops.wm.read_factory_settings(use_empty=True)
     enable_rigify()
     common.pin_scene()
-
     meta = build_metarig(height)
     rig = generate_deform_rig(meta)
     remove_rigify_leftovers(meta)
     body = build_body(rig, height)
     influences = bind(body, rig)
-    key_idle(rig)
+    return rig, body, influences
 
+
+def write_model_files(out, rig, body, influences, sources, generator, poses_note):
+    """rig_manifest.json (first run only), rig_bones.json, the export, CREDITS.md."""
     manifest = os.path.join(out, 'rig_manifest.json')
     if not os.path.exists(manifest):
         common.write_manifest(rig, manifest)
-        print('make_mannequin: wrote %s (first run; later runs are held to it)' % manifest)
+        print('%s: wrote %s (first run; later runs are held to it)' % (generator, manifest))
     write_rig_bones(rig, os.path.join(out, 'rig_bones.json'))
-
     gltf = os.path.join(out, 'fighter_a.gltf')
     version, clips = common.export(gltf, animated_obj=rig, manifest_path=manifest)
     write_credits(os.path.join(out, 'CREDITS.md'), version, len(rig.data.bones),
-                  len(body.data.vertices), clips)
+                  len(body.data.vertices), clips, sources, generator, poses_note)
     zs = [v.co.z for v in body.data.vertices]
-    print('make_mannequin: Blender %s wrote %s -- %d deform bones, %d vertices, height %.2f..%.2f, '
-          'max influences %d, clips %s' % (version, gltf, len(rig.data.bones), len(body.data.vertices),
-                                           min(zs), max(zs), max(influences), clips))
+    print('%s: Blender %s wrote %s -- %d deform bones, %d vertices, height %.2f..%.2f, '
+          'max influences %d, %d clip(s), %d frames'
+          % (generator, version, gltf, len(rig.data.bones), len(body.data.vertices),
+             min(zs), max(zs), max(influences), len(clips), sum(clips.values())))
+    return version, clips
+
+
+def main():
+    out, height = parse_args()
+    if '--out' not in sys.argv:
+        raise SystemExit('make_mannequin: --out is required. The committed model under %s is written by '
+                         'make_move_clips.py, which builds this mannequin and keys every clip; this script '
+                         'alone exports the rig with a 2-frame idle, for inspection.' % DEFAULT_OUT)
+    os.makedirs(out, exist_ok=True)
+    rig, body, influences = build_mannequin(height)
+    key_idle(rig)
+    write_model_files(out, rig, body, influences, {'idle': '`make_mannequin.py` (`key_idle`)'},
+                      'make_mannequin.py', 'the rig-only export: a 2-frame idle and nothing else')
 
 
 if __name__ == '__main__':
