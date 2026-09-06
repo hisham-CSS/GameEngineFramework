@@ -98,7 +98,7 @@ M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
 
 | In flight | Owner | Since |
 |---|---|---|
-| — (next: M2.5 VERSUS, scoped under ADR-022; its D2 waits on the human) | | |
+| M2.5 VERSUS, and one presentation for three modes | Claude | 2026-09-06 |
 | M3.3d The remaining clips made legible (its machine half landed; the viewport batches wait on the human) | Claude / human | 2026-09-06 |
 | M3.3d The remaining clips made legible (its machine half landed; the viewport batches wait on the human) | Claude / human | 2026-09-06 |
 
@@ -858,7 +858,7 @@ Six WPs, all landed, gate required in CI. The decision is
   `FightMode.PauseStepAndSlowMotionAreInertWhileASessionIsLive`,
   `FightMode.AFrameTheSessionDoesNotAdvanceRunsNoTickAndIsNotAnError`,
   `FrameGate.ALiveSessionOwnsTimeAndThePad`.
-- `[ ]` **M2.5 VERSUS, and one presentation for three modes.** *(L)* Scoped
+- `[~]` **M2.5 VERSUS, and one presentation for three modes.** *(L)* Claude, 2026-09-06. Scoped
   2026-09-06 after M2.4, when every piece existed and none was wired into a
   host. The shape is [ADR-022](adr/ADR-022-versus-one-mode-three-sources.md)
   (Proposed): ONE `UntitledFighterMode` class registered three times with an
@@ -871,11 +871,9 @@ Six WPs, all landed, gate required in CI. The decision is
   and ends on a desync exactly as `tests/online_peer.cpp` does — grace frames,
   `BlobExchange`, the artifact beside the executable, the first divergent field
   on the HUD. Replay drives both slots from a `ReplayInputSource` and keeps
-  pause, step and slow motion, which nothing else is simulating. **Needs the
-  human before it starts:** ADR-022 D2 — whether a peer address is typed
-  in-game from the first build (a title panel inside the shared menu, or a
-  field the mode draws), or the file-and-command-line lobby ships first; the
-  rest of the ADR is safe and reversible. **Done when:**
+  pause, step and slow motion, which nothing else is simulating. The human
+  answered ADR-022 D2 on 2026-09-06: the file-and-command-line lobby ships
+  first; in-game address entry is deferred. **Done when:**
   `FightMode.ThreeRegistryEntriesShareOneModeAndOnePresentation`,
   `FightMode.VersusReachesLiveThroughTheHandshakeOverALoopback`,
   `FightMode.AReplayDrivesBothSlotsAndTheTrainingClockStillWorks`,

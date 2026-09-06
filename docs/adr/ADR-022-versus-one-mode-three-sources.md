@@ -1,10 +1,9 @@
 # ADR-022 — VERSUS: one mode, three sources, and a lobby that reads a file before it reads a field
 
-**Status.** Proposed 2026-09-06 · recommended default **not yet enacted** — it
-is the shape ROADMAP M2.5 will be built to, and D2 (where a player types a peer
-address) is the human's to confirm or change before that build starts; the
-rest is safe and reversible and proceeds under CLAUDE.md's clause the moment
-M2.5 is taken.
+**Status.** Proposed 2026-09-06 · recommended default **enacted by the human
+2026-09-06** ("go with the default lobby"): D2 ships the file-and-command-line
+lobby first and defers in-game address entry; ROADMAP M2.5 is built to this
+shape.
 
 ## Context
 
