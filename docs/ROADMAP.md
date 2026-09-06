@@ -98,7 +98,7 @@ M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
 
 | In flight | Owner | Since |
 |---|---|---|
-| M2.4 The session owns the tick count | Claude | 2026-09-06 |
+| — (next: M2.5 VERSUS, scoped under ADR-022; its D2 waits on the human) | | |
 | M3.3d The remaining clips made legible (its machine half landed; the viewport batches wait on the human) | Claude / human | 2026-09-06 |
 | M3.3d The remaining clips made legible (its machine half landed; the viewport batches wait on the human) | Claude / human | 2026-09-06 |
 
@@ -836,7 +836,7 @@ Six WPs, all landed, gate required in CI. The decision is
   `Desync.TheFirstDivergentFieldIsNamed`,
   `Desync.TwoPeersAbortAndTheArtifactNamesTheTickAndField`, and
   `test_online_two_peers` writing both artifacts naming the field over UDP.
-- `[~]` **M2.4 The session owns the tick count.** *(M)* Claude, 2026-09-06.
+- `[x] dd0bc28` **M2.4 The session owns the tick count.** *(M)*
   `SessionDriver` (Modes library, because CseGame's link whitelist keeps CseNet
   out of the simulation libraries) turns Save/Load/Advance into
   `Snapshot`/`Restore`/`Tick(inputs)` and decides nothing: the kernel runs
@@ -858,7 +858,29 @@ Six WPs, all landed, gate required in CI. The decision is
   `FightMode.PauseStepAndSlowMotionAreInertWhileASessionIsLive`,
   `FightMode.AFrameTheSessionDoesNotAdvanceRunsNoTickAndIsNotAnError`,
   `FrameGate.ALiveSessionOwnsTimeAndThePad`.
-- `[ ]` **M2.5 VERSUS, and one presentation for three modes.**
+- `[ ]` **M2.5 VERSUS, and one presentation for three modes.** *(L)* Scoped
+  2026-09-06 after M2.4, when every piece existed and none was wired into a
+  host. The shape is [ADR-022](adr/ADR-022-versus-one-mode-three-sources.md)
+  (Proposed): ONE `UntitledFighterMode` class registered three times with an
+  intent — Training, Replay, Versus — so the menu shows three verbs, both hosts
+  show the same three, and the presentation stays one (ADR-010 E3); Versus
+  enters a lobby the mode draws with its own HUD tools, takes slot, port and
+  peer from `UntitledFighter/versus.json` overridden by the `online_peer`
+  command-line vocabulary, runs the `Handshake` over a `UdpTransport`, attaches
+  the session on agreement (M2.4), keeps a `StateHistory` as a tick observer
+  and ends on a desync exactly as `tests/online_peer.cpp` does — grace frames,
+  `BlobExchange`, the artifact beside the executable, the first divergent field
+  on the HUD. Replay drives both slots from a `ReplayInputSource` and keeps
+  pause, step and slow motion, which nothing else is simulating. **Needs the
+  human before it starts:** ADR-022 D2 — whether a peer address is typed
+  in-game from the first build (a title panel inside the shared menu, or a
+  field the mode draws), or the file-and-command-line lobby ships first; the
+  rest of the ADR is safe and reversible. **Done when:**
+  `FightMode.ThreeRegistryEntriesShareOneModeAndOnePresentation`,
+  `FightMode.VersusReachesLiveThroughTheHandshakeOverALoopback`,
+  `FightMode.AReplayDrivesBothSlotsAndTheTrainingClockStillWorks`,
+  `FightMode.ADesyncReportEndsTheMatchAndNamesTheFieldOnTheHud`, and the
+  Player's install carrying `versus.json` beside `fight_look.json`.
 - `[ ]` **M2.6 Play == Player, as a hash test.**
 
 ## M3 — Skinned fighters, frame-indexed *(size L)* — placeholders through Blender
