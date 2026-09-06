@@ -1,0 +1,136 @@
+{
+ "bones": [
+  {
+   "name": "DEF-spine",
+   "parent": null
+  },
+  {
+   "name": "DEF-spine.001",
+   "parent": "DEF-spine"
+  },
+  {
+   "name": "DEF-spine.002",
+   "parent": "DEF-spine.001"
+  },
+  {
+   "name": "DEF-spine.003",
+   "parent": "DEF-spine.002"
+  },
+  {
+   "name": "DEF-spine.004",
+   "parent": "DEF-spine.003"
+  },
+  {
+   "name": "DEF-spine.005",
+   "parent": "DEF-spine.004"
+  },
+  {
+   "name": "DEF-spine.006",
+   "parent": "DEF-spine.005"
+  },
+  {
+   "name": "DEF-pelvis.L",
+   "parent": null
+  },
+  {
+   "name": "DEF-pelvis.R",
+   "parent": null
+  },
+  {
+   "name": "DEF-thigh.L",
+   "parent": null
+  },
+  {
+   "name": "DEF-thigh.L.001",
+   "parent": "DEF-thigh.L"
+  },
+  {
+   "name": "DEF-shin.L",
+   "parent": "DEF-thigh.L.001"
+  },
+  {
+   "name": "DEF-shin.L.001",
+   "parent": "DEF-shin.L"
+  },
+  {
+   "name": "DEF-foot.L",
+   "parent": "DEF-shin.L.001"
+  },
+  {
+   "name": "DEF-toe.L",
+   "parent": "DEF-foot.L"
+  },
+  {
+   "name": "DEF-thigh.R",
+   "parent": null
+  },
+  {
+   "name": "DEF-thigh.R.001",
+   "parent": "DEF-thigh.R"
+  },
+  {
+   "name": "DEF-shin.R",
+   "parent": "DEF-thigh.R.001"
+  },
+  {
+   "name": "DEF-shin.R.001",
+   "parent": "DEF-shin.R"
+  },
+  {
+   "name": "DEF-foot.R",
+   "parent": "DEF-shin.R.001"
+  },
+  {
+   "name": "DEF-toe.R",
+   "parent": "DEF-foot.R"
+  },
+  {
+   "name": "DEF-shoulder.L",
+   "parent": null
+  },
+  {
+   "name": "DEF-upper_arm.L",
+   "parent": null
+  },
+  {
+   "name": "DEF-upper_arm.L.001",
+   "parent": "DEF-upper_arm.L"
+  },
+  {
+   "name": "DEF-forearm.L",
+   "parent": "DEF-upper_arm.L.001"
+  },
+  {
+   "name": "DEF-forearm.L.001",
+   "parent": "DEF-forearm.L"
+  },
+  {
+   "name": "DEF-hand.L",
+   "parent": "DEF-forearm.L.001"
+  },
+  {
+   "name": "DEF-shoulder.R",
+   "parent": null
+  },
+  {
+   "name": "DEF-upper_arm.R",
+   "parent": null
+  },
+  {
+   "name": "DEF-upper_arm.R.001",
+   "parent": "DEF-upper_arm.R"
+  },
+  {
+   "name": "DEF-forearm.R",
+   "parent": "DEF-upper_arm.R.001"
+  },
+  {
+   "name": "DEF-forearm.R.001",
+   "parent": "DEF-forearm.R"
+  },
+  {
+   "name": "DEF-hand.R",
+   "parent": "DEF-forearm.R.001"
+  }
+ ]
+}

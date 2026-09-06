@@ -370,6 +370,7 @@ engine_test(test_ortho_camera)     # M3.2g orthographic camera: projection, frus
 engine_test(test_asset_index)      # asset filesystem domain: scan/cache/find (pure CPU)
 engine_test(test_job_system)       # P4-3 thread pool + main-thread completion pump (pure CPU)
 engine_test(test_model_decode)     # P4-3 model decode stage (pure CPU — no GL by design)
+engine_test(test_placeholder_rig)  # M3.3b the committed mannequin: palette + influence caps, 60 units tall, bone-for-bone manifest (pure CPU)
 engine_test(test_clip_sampler)     # M3.2d frame-indexed sampler: same frame same bytes, clamp, rest identity (pure CPU)
 engine_test(test_skinned_draw)     # M3.2e skinned GPU path: skin VBO, uBones palette, SKINNED variants (GL, probe pixels)
 engine_test(test_asset_manager_async) # P4-3 async RequestModel: states/dedupe/cap (pure CPU)

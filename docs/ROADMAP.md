@@ -98,7 +98,7 @@ M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
 
 | In flight | Owner | Since |
 |---|---|---|
-| — (next: M3.3b, the mannequin — ADR-019 D10 answered 2026-09-06; M3.3c, M3.3d, M3.3e and M3.5a follow it, and M2.1 follows M3.5a under ADR-020) | | |
+| M3.3b The mannequin and its rig | Claude | 2026-09-06 |
 
 The openings wave is landed end to end: per-opening prover surface → (c) →
 (d) → (b3) — the golden re-record (b3) was expected to need DISSOLVED under
@@ -992,8 +992,9 @@ mannequin and M3.5a's room are unblocked from that date.
   `OrthoCamera.TheProjectionMapsHalfHeightToTheViewportEdge`; existing scene
   files load unchanged.
 
-- `[ ]` **M3.3b The mannequin and its rig.** *(M)* `make_mannequin.py`:
-  Rigify human metarig → `rigify.generate` → deform bones kept, others
+- `[~]` **M3.3b The mannequin and its rig.** *(M)* `make_mannequin.py`:
+  Rigify's *basic* human metarig (the full one's 160 deform bones exceed the
+  128-joint palette) → `rigify.generate` → 33 deform bones kept, others
   removed; a proportioned primitive-built body, 60 units tall with feet at
   `y = 0`, automatic weights, influences capped at 4 before export; semantic
   names in `rig_bones.json`; `rig_manifest.json` written and enforced by the

@@ -1,6 +1,6 @@
 # The Art Pipeline
 
-Verified: 2026-09-02 @ 3d8c055
+Verified: 2026-09-06 @ 2ea38ba
 
 How a character or a stage gets from Blender into the engine, and the rules
 that keep the picture honest to the frame data. The decisions are
@@ -115,7 +115,12 @@ needs one: every check reads committed exported bytes.
    weakest link.
 3. Author or refine; save the `.blend` before every `execute_blender_code`.
 4. Export through the script of record for the asset (`export_gltf.py`, or the
-   asset's own generator), never through the File menu.
+   asset's own generator), never through the File menu. The mannequin's is
+   `make_mannequin.py` (ROADMAP M3.3b): it regenerates the skeleton from
+   Rigify's basic human metarig and is held to the committed
+   `rig_manifest.json`, so a run that would change the deform hierarchy stops
+   and says so — review that diff at the viewport before accepting it, and
+   `rig_bones.json` is where the pose library's semantic names live.
 5. `python scripts/check_clips.py <exported.gltf> --sidecar <exported.clips.json>`.
 6. Commit the exported files with their `CREDITS.md`; the build restages them
    beside the executable (`cmake/stage_runtime_assets.cmake`).
