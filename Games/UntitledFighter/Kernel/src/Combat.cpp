@@ -49,9 +49,9 @@ bool defenderBlocks(const Fighter& def, const MoveDef& m) {
 // sign multiplier, and ADR-006 section 3.4 names this as precisely the place
 // somebody reaches for `pos * facing`.
 std::int32_t pushAwayFrom(const Fighter& atk, const Fighter& def,
-                          std::int16_t amount) {
+                          std::int32_t amount) {
     if (amount == 0) return 0;
-    const std::int32_t v = static_cast<std::int32_t>(amount);
+    const std::int32_t v = amount;
 
     if (def.posX < atk.posX) return -v;
     if (def.posX > atk.posX) return  v;
@@ -790,15 +790,39 @@ void ResolveHits(GameState& state, const MatchData& data) {
             continue;
         }
 
-        std::int32_t stun = m->hitstun;
+        // COUNTER HIT (ROADMAP M1.3(c), the first mechanic under ADR-015's
+        // per-opening vocabulary): the defender was caught STARTING a move --
+        // moveFrame still inside the startup of the move it committed to --
+        // and this move authors a price for that. STARTUP ONLY, deliberately:
+        // active is a trade (charging it as a counter would hand both sides a
+        // bonus for the same instant) and recovery is a punish, already its
+        // own reward. Both bonuses are per-move fields, off by default -- a
+        // zero is every move authored before the field existed, so the
+        // unpatched MatchData hash does not move. The bonus lands on the BASE
+        // stun and the decay rule then applies to the sum: one composition,
+        // stated here, rather than two rules that meet in an unstated order.
+        const FighterData& dd = data.p[d];
+        const bool counter =
+            def.moveId > 0 && def.moveId < dd.moveCount &&
+            def.moveFrame < dd.moves[def.moveId].startup;
+
+        // The base stun is chosen by the DEFENDER'S AIR STATE (M1.3(d)): an
+        // airborne defender takes the move's authored air number -- what makes
+        // a juggle last -- falling back to the ground number where the file
+        // authors none, so a character that says nothing plays as before. The
+        // counter bonus then lands on whichever base applied: one composition,
+        // air-or-ground first, counter second, decay over the sum.
+        std::int32_t stun = (def.airborne != 0 && m->airHitstun != 0)
+                                ? m->airHitstun
+                                : m->hitstun;
         if (stun < 0) stun = 0;
+        if (counter && m->counterHitstunBonus > 0) stun += m->counterHitstunBonus;
 
         // HITSTUN DECAY, and it reads def.comboHits BEFORE this hit increments it
         // -- so the first hit of a combo decays by nothing, which is the only
         // reading under which "the third hit stuns less than the first" is what
         // the sentence means. The rule belongs to the DEFENDER, because it
         // describes how much stun this body suffers.
-        const FighterData& dd = data.p[d];
         if (dd.hitstunDecayStep > 0) {
             stun -= dd.hitstunDecayStep * static_cast<std::int32_t>(def.comboHits);
             if (stun < dd.hitstunDecayFloor) stun = dd.hitstunDecayFloor;
@@ -817,6 +841,9 @@ void ResolveHits(GameState& state, const MatchData& data) {
         // having exactly one documented quantization.
         std::int32_t dmg = m->damage;
         if (dmg < 0) dmg = 0;          // a negative damage value does not heal
+        // The counter's damage half, added to the base BEFORE scaling so the
+        // bonus prorates exactly as the hit it rides on does.
+        if (counter && m->counterDamageBonus > 0) dmg += m->counterDamageBonus;
         dmg = (dmg * static_cast<std::int32_t>(def.scaling)) / kScalingFull;
         def.health = def.health > dmg ? def.health - dmg : 0;
 
@@ -866,6 +893,32 @@ void ResolveHits(GameState& state, const MatchData& data) {
             if (def.posX <= -lim || def.posX >= lim)
                 atk.pushX += pushAwayFrom(def, atk, m->cornerPushHit);
         }
+
+        // THE LAUNCH (M1.3(d)): a clean hit whose move authors an upward
+        // launch takes the defender off the ground with the authored
+        // velocity. The X component is pointed AWAY from the attacker by the
+        // same position rule pushback uses -- the file authors a magnitude,
+        // never a direction, for MirrorBox's reason. It writes VELOCITY, not
+        // pushX: the defender is now a ballistic body and StepPhysics owns
+        // the arc from here (gravity down, the wall clamp, landing clearing
+        // `airborne`) exactly as it owns a jump. Zero is every move authored
+        // before the field. The loader refuses a non-positive vel_y_sub, so
+        // `> 0` here is the kernel declining to depend on that.
+        if (m->launchVelYSub > 0) {
+            def.airborne  = 1;
+            def.crouching = 0;
+            def.reaction  = kReactionLaunched;   // StepPhysics clears on landing
+            def.velY      = m->launchVelYSub;
+            if (m->launchVelXSub != 0)
+                def.velX = pushAwayFrom(atk, def, m->launchVelXSub);
+        }
+
+        // WALL BOUNCE ARMED (M1.3(d2)), after the launch so it wins the byte:
+        // armed implies launched (the arc-keep rule reads any nonzero
+        // reaction), and StepPhysics' wall clamp fires and SPENDS it -- one
+        // arming hit, one bounce, and the return arc is an ordinary launch.
+        if (m->onHitReaction == kOnHitWallBounce)
+            def.reaction = kReactionWallBounceArmed;
     }
 
     // --- INTERRUPT ----------------------------------------------------------

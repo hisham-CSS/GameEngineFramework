@@ -1,6 +1,6 @@
 # ROADMAP — the one place status lives
 
-Verified: 2026-08-21 @ db8dd1a
+Verified: 2026-09-01 @ 59fd462
 
 This is the **only** roadmap. `README.md` carries one paragraph and a link;
 `docs/manual/` never lists gaps; ADRs record why, not what is next. If a fact
@@ -17,8 +17,8 @@ the *published* prover on the *shipped* files inside a working editor. The
 engine's job is to make that proof **visible and convincing**: every verdict the
 prover prints must be demonstrable in the running game, frame-perfectly, by a
 tool-assisted player, as a replay anyone can watch — and the **same fighter,
-loaded with different frame data, must show different infinites** (microwalk,
-jump cancels, wall bounces, counter-hit links, meter loops), because every
+loaded with different frame data, must show different verdicts** (the cooked
+thirteen-row catalogue; NORTHSTAR names the exhibits), because every
 mechanic is an opt-in field on a move, never a rule in the kernel
 ([ADR-011](adr/ADR-011-mechanics-are-fields.md)). Visuals are a pure function of
 frame data; return-to-idle tails are always cancelable. Everything is provable
@@ -34,7 +34,7 @@ The paper's claim has four load-bearing parts. This is what each rests on today.
 | The claim needs | Evidence in CI today | What is missing |
 |---|---|---|
 | **A deterministic simulation** | `tests/test_kernel.cpp` T1/T2; `tests/test_determinism_crossplat.cpp` T3, re-checked by gcc 13 on the Linux leg | Nothing. This one is done and has been re-goldened three times for stated reasons. |
-| **The prover reads the shipped files** | `tests/test_character_data.cpp` load assertions; the editor's Combo Prover panel | Nothing structural. `counter_hit` is absent from the schema entirely — see the qualifier below. |
+| **The prover reads the shipped files** | `tests/test_character_data.cpp` load assertions; the editor's Combo Prover panel | Nothing structural. `counter_hit` and the air numbers are authored, simulated and answered per opening since the openings wave (ADR-015); what remains is the cooker's executed pair, still singular neutral-corner until a bench can produce the other openings. |
 | **Every verdict is demonstrable as a replay** | `tests/test_ground_truth.cpp` executes the prover's own printed witness; since M1.3e the demonstration presses directions, establishes stances and performs its turns across jumps; since M1.3g one `WitnessCursor` performs every witness in the repository | Only one character's witness is executed. |
 | **The game is the file** | `MatchBuilder`'s loss ledger, checked move-by-move in `tests/test_match_bridge.cpp`; stance and guard height carried since M1.3e (`EveryAuthoredNormalIsReachableThroughItsButtonAndStance`); juggle since M1.1f, hitstop since M1.3i | Priority, chip and scaling are still authored and dropped. |
 
@@ -67,12 +67,17 @@ Models` is the sentence as a test. The authored infinite is FOUND the same
 way: `fighter_a_infinite` comes back INFINITE with a witness the test replays
 (`tests/test_combo_search.cpp`). 2026-08-31.
 
-**And one qualifier the write-up does not yet carry.** `counter_hit` appears zero
-times in `schema.v2.json`. The model reads one `hitstun` per move, so a
-TERMINATING verdict says nothing about the same string opened with a counter hit,
-and `air_hitstun_ticks` — authored on every move and differing from ground
-hitstun on all of them — has the same shape. Three ways out are in M1.3(c); none
-is chosen, because it changes what the tool claims.
+**And the qualifier landed as a vocabulary.** Since the openings wave
+([ADR-015](adr/ADR-015-what-a-verdict-claims-about-hitstun.md) Accepted,
+option 3, enacted 2026-09-01) **the tool answers one verdict per opening** —
+neutral, counter, air — with the legacy surface staying the neutral answer
+verbatim. The re-derived pair, per the tests: the base pair stands at **model
+21 / executed 7**; the **counter opening** charges the authored bonus (on the
+`counter_hit` exhibit it revives one dead cancel, 88 → 89 usable, and holds
+the 21 bound); the **air opening** reads each move's authored
+`air_hitstun_ticks`, simulated since (d); and the **jump_cancel** exhibit's
+executed worst case is **13** against the model's held 21 — the bound
+stretched from the other side, through an edge the model prices dead.
 
 **The shortest credible path to the claim**, reordered 2026-08-21 under
 [ADR-012](adr/ADR-012-the-tick-is-a-pipeline.md) after complexity itself became
@@ -81,19 +86,22 @@ pure stages — golden held), **M1.3e** (posture follows the move + the stance
 wire — the third measurement above), **M1.3g** (ONE `WitnessCursor`, five
 copies deleted) and **M1.4a + M1.4** (`ComboSearch` runs the real kernel,
 section 3's parallel model is deleted, and the paper's pair — model 21 /
-executed 7 — is printed by CI). Next: **M1.6**, the showcase. Everything else
-is done or serves it.
+executed 7 — is printed by CI). The showcase (**M1.6**) closed 2026-09-01 at
+thirteen rows; the consolidation (**M1.9**) closed the wave; next is **M2**.
 
 ## Now
 
 | In flight | Owner | Since |
 |---|---|---|
-| M1.6 — the showcase; slices 1–8 landed (8 = the cooker recording + base row) | Claude | 2026-08-31 |
-| M1.3 — mechanics pass 1; (a) (b1) (b2) landed; (c)+(d) blocked on ADR-015 (human) | Claude | 2026-08-31 |
+| — | | |
 
-M1.6 stays open only on the variants blocked on M1.3(b3)/ADR-015 (jump-
-cancel, kara, counter-hit, wallbounce). M1.1e landed inside its slice 5 —
-the buffer pair is a catalogue row.
+The openings wave is landed end to end: per-opening prover surface → (c) →
+(d) → (b3) — the golden re-record (b3) was expected to need DISSOLVED under
+ADR-018's opt-in design, so no re-record review was ever pending — then the
+four exhibits with the cursor/search jump teaching, then M1.9 (the
+consolidation). M1.3, M1.6 and M1.9 are closed above; M1.1e landed inside
+slice 5 — the buffer pair is a catalogue row. What remains in M1 is
+human-gated only: the R6 second look at thirteen rows, and PR #7's merge.
 
 One at a time. The next unblocked WP is always the top `[ ]` in milestone
 order — which, under the 2026-08-21 reorder, is the sequence named above.
@@ -410,8 +418,11 @@ Six WPs, all landed, gate required in CI. The decision is
   graph's performable count equals what the kernel produces: zero unescapable,
   measured on both sides.
 
-- `[~]` **M1.3 Mechanics, pass 1 — the ones the showcase needs.** *(M–L)* Claude,
-  2026-08-31, sliced (a) first: the contact mask is the smallest of the four,
+- `[x]` **M1.3 Mechanics, pass 1 — the ones the showcase needs.** *(M–L)* Claude,
+  2026-08-31 → 2026-09-01, all six letters landed: (a) `b9b2978` · (b1)
+  `975e529` · (b2) `a70ee00` · (b3) `2e50e1a` (per ADR-018) · (c) `c92901d`
+  (with the (c-pre) surface `c7e007f`) · (d) `2f25e71` + `73ed46d`.
+  Sliced (a) first: the contact mask is the smallest of the four,
   and (c) counter-hit is entered only behind its own ADR — the entry itself
   says the choice changes what the tool claims. Each
   with [ADR-011](adr/ADR-011-mechanics-are-fields.md)'s five parts:
@@ -469,23 +480,91 @@ Six WPs, all landed, gate required in CI. The decision is
   genuinely move — the file honoured — and nothing measured shifted (no
   test binds them); ledger 31 → 32 rows, `move.engine.motion` KernelOmits →
   Exact.
-  **Step (b3) last:** jump-as-move, the hard-coded jump deleted, jump cancels
-  retargeted, the golden re-recorded. Commitment is already the KERNEL
-  DEFAULT (`P2Commitment.*`) and the jump already BALLISTIC
+  **Step (b3) LANDED, per [ADR-018](adr/ADR-018-the-jump-move-is-opt-in.md)
+  (the amendment to ADR-014's frozen plan): the jump move is OPT-IN, and the
+  hard-coded jump is demoted — not deleted — to the unauthored fallback**,
+  the walk-speed doctrine. `FighterData::jumpMoveSlot` (tail-appended, the
+  binding bound to exactly Up; two refused by name) gates off the level jump,
+  so the Up press reaches StepAttack grounded and the jump starts on its
+  EDGE: held Up does not re-jump on landing, the double jump refuses itself
+  through StanceAllows, prejump is the move's own startup frames, the
+  launching key with no authored X takes the direction held on the takeoff
+  tick, and a jump cancel is an ordinary on-hit edge into the jump move.
+  **The golden re-record DISSOLVED**: the crossplat script's kNoMoves authors
+  no jump move, so its Up bits keep their recorded meaning and the
+  cross-toolchain evidence survives — the fallback it pins still exists and
+  is still the path it exercises. Base fighter_a does not opt in (hash, arc
+  counts, census all stand); the jump-cancel/kara variant is where the jump
+  move first bites, with the cursor/search taught alongside it
+  (`P3Movement.AJumpIsAMoveAndAJumpCancelIsAnEdge`,
+  `TheUpBoundMoveBecomesTheJumpSlotAndTwoAreRefused`). Commitment is already
+  the KERNEL DEFAULT (`P2Commitment.*`) and the jump already BALLISTIC
   (`P2Ballistic.*`);
   (c) **counter-hit** — per-move `counter_hit {hitstun_bonus, damage_bonus}`.
   **This is a soundness qualifier on every verdict, not just a mechanic** — see
-  § Where this stands. Three ways out: qualify the verdict ("TERMINATING under
-  neutral hit"), take the worst case over hit types, or one verdict per hit type.
-  **Not chosen; it changes what the tool claims — now written as
-  [ADR-015](adr/ADR-015-what-a-verdict-claims-about-hitstun.md) (Proposed,
-  recommended default: qualification) and BLOCKED on the human accepting it.
-  (d) shares the block: `air_hitstun_ticks` has the same one-model-number,
-  two-game-numbers shape, and the launcher is what makes it reachable. The
-  MoveDef bytes for both are already reserved (b2), zeroed and unread.**
+  § Where this stands. **UNBLOCKED 2026-09-01:
+  [ADR-015](adr/ADR-015-what-a-verdict-claims-about-hitstun.md) Accepted,
+  option 3 — one verdict per opening** ("the most robust; each hit qualified
+  appropriately rather than swallowed"). Enactment order is the ADR's, and
+  **(c-pre) — the per-opening surface — is LANDED**: `ProverOpening`
+  {neutral, counter, air}, a full `ProverResult` per opening with the
+  top-level fields staying the neutral mirror verbatim (every legacy assert
+  passes unchanged), counter identical-by-construction until (c) authors the
+  bonus (`ACounterOpeningWithNothingAuthoredIsIdenticalToNeutral`), air
+  reading the file's own `air_hitstun_ticks` today — provably divergent on a
+  synthetic (ground-dead, air-alive self-cancel:
+  `AnAirOpeningReadsTheAuthoredAirHitstunAndUnauthoredFallsBackToNeutral`) —
+  and the panel, `DescribeVerdict` and the telemetry record all speaking the
+  vocabulary. The cooker's pair stays singular (neutral-corner, named) until
+  the executed side can produce the other openings.
+  **(c) itself LANDED**: `engine.reaction.counter_hit { hitstun_bonus,
+  damage_bonus }` (negative refused; damage through the one hundredths rule),
+  carried whole into the (b2)-reserved MoveDef pair, ledger row
+  `move.counter_hit` (34 rows now), and ResolveHits charges both when the
+  defender is caught MID-STARTUP — startup only, a trade is a trade, a punish
+  is its own reward; bonus on the base stun, decay applies to the sum; damage
+  bonus added before scaling so it prorates with its hit. The COUNTER
+  opening's model verdict now charges the authored bonus — on every hit of
+  that opening's search, first hit in the game, the Permissive direction, in
+  the opening's own loss row (`counter bonus charged per hit`). Off by
+  default everywhere: unpatched characters hash as before, the crossplat
+  golden untouched (`P3Reactions.CounterHitAddsTheAuthoredStun`,
+  `ACounterOpeningChargesTheAuthoredBonusAndNamesItsChargeRule`,
+  `TheAuthoredCounterBonusCrossesAndNegativeIsRefused`).
+  Next: (d) reactions land and the air opening's executed half becomes real.
+  The launch MoveDef bytes stay reserved (b2), zeroed and unread; the paper's
+  measured pair is re-derived per opening.
   (d) **wall bounce / wall splat / launch vector** as per-hit `on_hit` reactions
-  using the fields M1.1a reserved. `air_hitstun_ticks` is already loaded and
-  waiting for a launcher to put someone in the air.
+  using the fields M1.1a reserved. **(d1) LANDED — the launcher and the air
+  number:** `engine.reaction.launch {vel_x_sub, vel_y_sub}` (+Y up, X a
+  magnitude the kernel points away from the attacker; non-positive Y refused —
+  a launch that does not rise is a knockdown, already authorable) takes the
+  defender off the ground, `Fighter::reaction` marks the launched body so the
+  airborne-stun rule keeps ITS arc while an un-launched air hit still drops
+  straight — the first draft kept both and the crossplat golden caught it,
+  ticks 1000..2000, exactly its job — and `air_hitstun_ticks`, loaded-and-
+  thrown-away since the reaction block landed, is carried into the SECOND
+  batched MoveDef growth (284 → 288, tail-appended: (b2)'s reservation missed
+  it) and charged by ResolveHits as the base stun against an airborne
+  defender. Ledger 34 → 36 (`move.air_hitstun` ×22 on fighter_a,
+  `move.launch` ×0); the air opening's model rows split its
+  whole-string charge by direction, alarming where air < ground
+  (`ALauncherPutsTheDefenderInTheAirAndAirHitstunTakesOver`,
+  `TheAuthoredAirHitstunCrossesOnEveryMoveThatAuthorsIt`).
+  **(d2) LANDED — the wall gives the body back:**
+  `engine.reaction.on_hit: "wall_bounce"` arms the defender
+  (`Fighter::reaction`, armed-implies-launched so the arc survives stun) and
+  StepPhysics' wall clamp fires and SPENDS it — velocity reversed whole, the
+  spend recorded in `Fighter::bounces` (cleared on landing), the return arc an
+  ordinary launch, a second wall inert without a fresh arming hit. The loop
+  bound is the juggle budget's, not a bounce constant a file cannot set.
+  `wall_splat` is enumerated in the schema and REFUSED at load until it is
+  simulated — a key that loads and does nothing is the coin-flip trap. Ledger
+  36 → 37 (`move.on_hit` ×0 everywhere shipped; the wallbounce showcase
+  variant is where it first bites)
+  (`AWallBounceReturnsTheDefenderIntoRange`,
+  `WallBounceCrossesAndWallSplatIsRefusedByName`). **(d) is CLOSED**; M1.3's
+  remaining letter is (b3).
   Everything defaults off; `fighter_a` unpatched must hash as before.
   **Done when:** `P3Cancels.AKaraCancelFiresOnWhiffInsideItsWindow`,
   `P3Movement.AJumpIsAMoveAndAJumpCancelIsAnEdge`,
@@ -537,20 +616,20 @@ Six WPs, all landed, gate required in CI. The decision is
 
 - `[x]` `68f0747` **M1.5 Character hot reload.** *(S–M)* Claude, 2026-08-31. A frame-data
   edit lands in a running match; NORTHSTAR property (c)'s last clause. The
-  semantics are ADR-016: the training mode polls the loaded character file's
-  (mtime, size) stamp and a change RESTARTS the match with the freshly built
-  data — never a live swap under the session, which would break the replay
-  hash, `Restore`'s same-data contract and the high-water/`resimulated` signal.
-  A broken edit keeps the last good match running and says so on the HUD.
+  rule is DETERMINISM.md T8 (never a swap under a live session), the authoring
+  loop is the manual's hot-reload section, and ADR-016 is the decision record.
   **Done when:** a test proves an edited character file is noticed and lands in
   a running `FightSession` while a broken edit keeps the last good data
   (`AFrameDataEditLandsInARunningMatchAndABrokenEditKeepsTheLastGoodData`,
   tests/test_character_hotreload.cpp).
 
-- `[~]` **M1.6 The showcase: one fighter, many patches, a replay per verdict.**
-  *(M)* Claude, 2026-08-31. Variants under
-  `Games/UntitledFighter/Assets/Characters/fighter_a/variants/`; the eleven
-  patches and what each shows are ADR-011 §4. (The cursor-copies finding this
+- `[x]` **M1.6 The showcase: one fighter, many patches, a replay per verdict.**
+  *(M)* Claude, 2026-08-31 → 2026-09-01; slices 1–8 through `60de3b5`, the
+  openings-wave machinery `a386c9c`, the four exhibits `9137599` — thirteen
+  rows, all cooked, every caption pinned. Variants under
+  `Games/UntitledFighter/Assets/Characters/fighter_a/variants/`; the rows,
+  captions and bindings are `variants/catalogue.json` (ADR-011 §4 was the
+  original plan). (The cursor-copies finding this
   entry used to carry landed early as M1.3g.)
   **Slice 1 landed — the mechanism and the first two exhibits.**
   `LoadCharacterVariant` (CseData): a required one-line `description`, RFC 7386
@@ -657,19 +736,28 @@ Six WPs, all landed, gate required in CI. The decision is
   learned movement macros (its entry validation predated them — and its
   stall DIAGNOSTICS dereferenced a macro as a move, a crash the first full
   cook found).
-  **Still open:** `jump-cancel`, `kara` blocked on M1.3(b3)/the kara
-  close-frame note; `counter-hit`, `wallbounce` blocked on ADR-015.
+  **The four openings-wave exhibits LANDED — the catalogue is 13 rows, all
+  cooked, exit 0:** `counter_hit` (the per-opening verdict at work: neutral
+  pair stands at base, the COUNTER opening revives one dead cancel — 88
+  usable → 89 — and carries the damage bonus while the 21-hit bound holds);
+  `wallbounce` (the measured NULL: the corner grants for free what the
+  bounce exists to return, so the pair stands at 7/7 and the caption states
+  the mechanic's midscreen scope instead of growing bench numbers);
+  `jump_cancel` (the wave's headline: the model prices the hk→jump edge
+  dead — jump's hitstun is 0 — and the GAME walks through it, executed
+  worst case 7 → 13, the bound held from the other side at nearly twice
+  the distance); `kara` (whiff edge honoured by the kernel, honestly
+  invisible to BOTH instruments — the model drops whiff by doctrine, the
+  search asks one connect at a time — and the caption says the shared gap
+  out loud). Exhibit tests pin every number
+  (`VariantExhibits.ACounterOpening…`/`AJumpCancel…`/`AWallBounce…`/`AKara…`).
 
 - `[x]` `e3a1d45` **M1.7 Authoring telemetry.** *(S)* Claude, 2026-08-31. What the author
   actually needed to know, recorded while authoring rather than reconstructed
-  after. The contract is ADR-017 (which restores the Done-when the `9c4dbd1`
-  rewrite dropped): the Combo Prover panel appends **one JSON line per real
-  analysis run** — wall time, file read, character, nonce-free content hash,
-  changed-since-last, move/cancel counts, resource ranges, `explored`, run ms
-  with the resource-check ms kept as its own field, verdict — to
-  `telemetry/prover_runs.jsonl` beside the content root, through a sandboxed
-  append-only writer/reader pair in CseData. **Done when:** the log grows by
-  one line per append and a test parses it back
+  after — one JSON line per real prover run. The line contract and sink live
+  in the manual's Combo Prover section; ADR-017 (which restored the Done-when
+  the `9c4dbd1` rewrite dropped) is the decision record. **Done when:** the
+  log grows by one line per append and a test parses it back
   (`TheLogGrowsByOneAppendAndRoundTripsItsFields`,
   tests/test_prover_telemetry.cpp); the panel's run site is the mirror.
 
@@ -687,6 +775,19 @@ Six WPs, all landed, gate required in CI. The decision is
     CLOSED 17-key set, unlike the annotation-tolerant `engine` namespace, so
     an unknown move-patch key is now a load error naming the key and listing
     what exists (`AMovePatchKeyTheLoaderDoesNotReadIsRefusedByName`).
+
+- `[x]` `1868fa3` **M1.9 One home per current rule.** *(S–M)* Asked for by the human,
+  2026-09-01: "consolidate documentation so it isn't so spread out over
+  different ADRs." The ADRs stay frozen — they are why-records and the house
+  rules forbid rewriting them — so the consolidation is the five-line rule
+  enforced in the other direction: every rule that is CURRENTLY in force must
+  have its one statement in a living doc (fighting-core.md for the title's
+  mechanics and tools, DETERMINISM.md for the invariants, ARCHITECTURE.md for
+  the seams), with the ADR cited only as the decision's history. Runs LAST in
+  the openings wave, so the consolidated pages state the post-wave truth once
+  rather than twice. **Done when:** a sweep of ADR-011..018's operative rules
+  finds each stated in exactly one living doc (link, not restatement,
+  everywhere else), and `check_docs.py` stays green.
 
 ## M2 — Two people, one match *(size L)* — ARCHITECTURE Phase 4
 
@@ -772,6 +873,13 @@ honestly labelled) · R5 after M1.5 (the authoring loop) · **R6 after M1.6 — 
 showcase, the one to judge the project on** · R7 after M2.5 (two people, one
 match) · R8 after M3.4/M3.5 (it looks like a fighting game) · R9 after M4.1 (the
 reel).
+
+**R5 and R6 reviewed 2026-09-01: "behaving as expected."** The authoring loop
+(edit lands mid-match, broken save keeps the last good match, pause survives)
+and the cooked showcase (then nine rows, the three deliberate verdict
+disagreements) both passed the human's play session with nothing reported
+wrong. R6's second look is now due: the catalogue stands at thirteen rows
+since `9137599`, with the four openings-wave exhibits cooked and captioned.
 
 ## Not scheduled, on purpose
 

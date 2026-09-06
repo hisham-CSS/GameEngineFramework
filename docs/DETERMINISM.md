@@ -1,6 +1,6 @@
 # The determinism contract
 
-Verified: 2026-08-18 @ ef05046
+Verified: 2026-09-01 @ 59fd462
 
 Every rule the simulation, the build and the authored data must obey, and — for
 each one — what stops it being broken. This is the only home for these rules;
@@ -54,11 +54,11 @@ presentation, and its only determinism obligation is §7.
 | S2 | No pointer, reference, virtual, `std::string`, `std::vector`, `std::map`, `std::function`, or any type carrying an address | static_assert (partial) + review | S1 rejects every one of those except a **raw pointer**, which is trivially copyable and would pass. Raw pointers are review-only |
 | S3 | No padding: byte-wise hashing is only valid over a struct with a unique object representation | static_assert | `static_assert(std::has_unique_object_representations_v<GameState>)` in `GameState.h`. Deleting an explicit `padN_` member fails the build with the sentence naming the fix |
 | S4 | Every array is fixed-capacity with an explicit count; no unbounded growth | structural + test | `kMaxFighters`, `kMaxTeams` in `Games/UntitledFighter/Kernel/include/cse/kernel/GameState.h`; `kMaxMovesPerFighter`, `kMaxCancelsPerFighter`, `kMaxInvulnWindows` in `Games/UntitledFighter/Kernel/include/cse/kernel/Combat.h`; `KernelLayout.StateIsSmallEnoughToSnapshotEveryTick` |
-| S5 | Capacities and the code that indexes them move together | static_assert | `kMaxFighters == 8` is tied to `Fighter::alreadyHitBits`' eight bits in `GameState.h`; `sizeof(MoveDef) == 128` and `sizeof(CancelEdge) == 16` in `Combat.h` |
+| S5 | Capacities and the code that indexes them move together | static_assert | `kMaxFighters == 8` is tied to `Fighter::alreadyHitBits`' eight bits in `GameState.h`; the `sizeof(MoveDef)` and `sizeof(CancelEdge)` asserts in `Combat.h` (written as old-size-plus-named-growths, so they ask "did padding appear", not "is this the number I last wrote down") |
 | S6 | Every integer field is explicitly sized (`std::int32_t`, never `int`) | review | — |
 | S7 | No `float` or `double` in `GameState` or anything `Simulate` calls | CI | `scripts/check_determinism_flags.py`'s `KERNEL_FORBIDDEN`, over `KERNEL_GLOBS` |
 | S8 | Every field added to `GameState` is added to the reflection table in the same commit | **not yet** | there is no reflection table. ROADMAP E6 / M2.3 builds it and owns this rule |
-| S9 | `GameState` is a wire contract: changes are batched into one planned expansion, re-goldened once, reviewed once | review | `tests/test_determinism_crossplat.cpp` holds the golden hash; the process is [ADR-005](adr/ADR-005-playable-priority.md) §3 |
+| S9 | `GameState` **and the built `MatchData`/`MoveDef`** are wire contracts (the connect handshake and every replay's `matchDataHash` hash the loaded arrays): changes batch into one planned expansion — reserving zeroed, unread bytes for undecided mechanics — re-goldened or re-hashed once, reviewed once | review + static_assert | `tests/test_determinism_crossplat.cpp` holds the golden hash; the `MoveDef`/`FighterData` size asserts in `Combat.h` and `Replay.h` record each batched growth; the process is [ADR-005](adr/ADR-005-playable-priority.md) §3, staged for movement by ADR-014 |
 
 ### `Simulate` (K)
 
@@ -71,7 +71,7 @@ presentation, and its only determinism obligation is §7.
 | K5 | Never iterates an associative container. Dense arrays indexed by slot, always | CI | as K4 — `<map>` and `<unordered_map>` are off the allowlist |
 | K6 | Game time is `GameState::tick`. No wall clock, no frame time, no delta time | CI + test | `<chrono>` in K3; K1's test would catch a static counter |
 | K7 | Never branches on a pointer value, an address, `sizeof`, or an EnTT handle | structural + review | EnTT is unreachable (K2); the rest is review |
-| K8 | One rounding rule for scaling, applied identically everywhere: round half **away from zero**, never `>>` for division | test + review | `SubUnitArithmetic.IntegerDivisionTruncatesTowardZeroForBothSigns`, `.RoundingTowardMinusInfinityWouldBreakTheMirror`, `.WalkingLeftAndRightAreExactMirrorsThroughSimulate`. The rule is written inline in `Games/UntitledFighter/Data/src/MatchBuilder.cpp`; ROADMAP M1.8 makes it one `constexpr scaleBy` helper |
+| K8 | One rounding rule for scaling, applied identically everywhere: round half **away from zero**, never `>>` for division | test + review | `SubUnitArithmetic.IntegerDivisionTruncatesTowardZeroForBothSigns`, `.RoundingTowardMinusInfinityWouldBreakTheMirror`, `.WalkingLeftAndRightAreExactMirrorsThroughSimulate`. The rule is written inline in `Games/UntitledFighter/Data/src/MatchBuilder.cpp` (a `constexpr scaleBy` helper remains an open small thing for a future housekeeping pass — M1.8 closed with other items) |
 | K9 | 1 pixel = 256 sub-units, 60 ticks per second; positions, velocities and boxes are `int32` sub-units | test | `SubUnitArithmetic.OnePixelIsExactlyTwoHundredAndFiftySixSubUnits`; `kSubUnitsPerPixel` and `kTicksPerSecond` in `GameState.h` |
 | K10 | Signed overflow is impossible by range analysis, or goes through a checked helper | review | positions are clamped to stage limits; nothing asserts the bound |
 | K11 | Nothing leaves the simulation from inside a tick — no sound, no particle, no print, no camera shake. Effects are events in the state, drained by phase | **not yet** | the ring is **reserved**: `Event ev[kMaxEventsPerTick]` and `evCount` are in `GameState` as of M1.1a, and nothing writes them. `Simulate` still has no `Phase` parameter; M3.1 fills and drains |
@@ -106,6 +106,8 @@ presentation, and its only determinism obligation is §7.
 | T5 | Snapshot → restore → re-simulate is byte-identical at every rollback depth | test | `KernelRollback.ResimulatingFromASnapshotReproducesTheStraightRun`, `.EightTickRewindIsExactAtEveryDepth`, `Session.SurvivesHundredsOfRealRollbacks` |
 | T6 | A desync is reported and the match stops. It is never silently corrected | review | `ISession::PollDesync`; there is no correction path to disable |
 | T7 | A full input or snapshot ring **stalls**. It never drops a tick and never truncates | structural | GekkoNet owns both rings ([ADR-003](adr/ADR-003-gekkonet-spike.md)); we do not implement one, which is why we cannot get this wrong |
+| T8 | A live session's `MatchData` never changes: `FightSetup::data` is borrowed for the session's whole life, and `Restore` against state produced by *different* data is undefined. A frame-data edit lands as a **full restart** through `Begin` with freshly built data, never a swap | test | `FightSession.h` states the borrow and the UB; `tests/test_character_hotreload.cpp` (`AFrameDataEditLandsInARunningMatchAndABrokenEditKeepsTheLastGoodData`) pins the restart discipline; decided by [ADR-016](adr/ADR-016-a-reload-restarts-the-match.md) |
+| T9 | A recording names exactly one `MatchData`: a replay file never spans a frame-data edit, so a hot-reloading host re-Begins its recorder at the reload (new `HashMatchData`, fresh input log) — the pre-edit recording is finished or discarded, never continued | **not yet** | the training mode records nothing; ROADMAP M2.x owns enforcement when a recording host exists. The CSRP header's single `matchDataHash` (`Replay.h`) is the structural half |
 
 ### The build (B)
 
@@ -183,7 +185,7 @@ well-meaning commit from stopping being free.
 | P1 | Asset load order never reaches the simulation | structural + review | physics bodies are built from authored collider components (`Engine/src/physics/PhysicsWorld.cpp`), never from a loaded mesh's AABB, so what a model importer did last cannot change a body |
 | P2 | The physics components carry no runtime handles | review | `Engine/src/physics/PhysicsComponents.h` — which is exactly the property a POD snapshot needs, and the reason to keep it |
 | P3 | Worker threads never touch GL, the EnTT registry or ImGui; `onComplete` runs on the main thread | review | `Engine/src/core/JobSystem.h`, written up in [STYLE.md](STYLE.md#threading). It is a threading rule that also keeps rendering from feeding the simulation |
-| P4 | Pose is a pure function of `(moveId, moveFrame, posX, posY, facing, stance, the stun fields, tick)`. A return-to-idle tail is presentation only, is interrupted the tick the simulation acts, and can never delay a move, move a box or hold a fighter in place | **not yet** | there is no pose yet — the box overlay is all that draws a fighter. [ADR-011](adr/ADR-011-mechanics-are-fields.md) decision 6 is the rule; ROADMAP M3.2–M3.4 build it and own the acceptance tests |
+| P4 | Pose is a pure function of `(moveId, moveFrame, posX, posY, facing, stance, the stun fields, tick)`. A return-to-idle tail is presentation only, is interrupted the tick the simulation acts, and can never delay a move, move a box or hold a fighter in place; a presentation-side blend out of a tail is **bounded** (default 4 frames) and subject to the same three nevers | **not yet** | there is no pose yet — the box overlay is all that draws a fighter. [ADR-011](adr/ADR-011-mechanics-are-fields.md) decision 6 is the rule; ROADMAP M3.2–M3.4 build it and own the acceptance tests |
 
 ## 6. Changing a rule
 

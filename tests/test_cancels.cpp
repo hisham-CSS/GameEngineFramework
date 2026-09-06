@@ -865,8 +865,13 @@ TEST(CancelBridge, TheLossTableCountsWhatTheProjectionActuallyCost) {
     // none and keeps the placeholder arc); -> 32 when M1.3(b2) carried the
     // motion keys and split the uncarried pos_add teleports into their own
     // row (zero for her on both); -> 33 when the microwalk slice carried
-    // corner push (zero once more: her converted file authors none).
-    EXPECT_EQ(33u, r.losses.size())
+    // corner push (zero once more: her converted file authors none); -> 34
+    // when M1.3(c) carried counter_hit (zero yet again: no MUGEN transcription
+    // authors a counter bonus, so `bites` above is unmoved); -> 36 when
+    // M1.3(d) carried air_hitstun and the launch (zero and zero for her: no
+    // transcription authors a nonzero air number and none authors a launch);
+    // -> 37 when (d2) carried on_hit (zero: nothing transcribed arms a wall).
+    EXPECT_EQ(37u, r.losses.size())
         << "the loss table grew or shrank. That is fine, and it has to be "
            "recorded here, because the point of the table is that somebody "
            "counted.";

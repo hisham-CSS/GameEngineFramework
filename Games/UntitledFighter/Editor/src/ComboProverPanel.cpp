@@ -34,6 +34,8 @@ using cse::data::Move;
 using cse::data::MoveIndex;
 using cse::data::ProjectionLoss;
 using cse::data::ProverDeadCancel;
+using cse::data::ProverOpeningName;
+using cse::data::ProverResult;
 using cse::data::ProverStatus;
 using cse::data::RankingAbsence;
 using cse::data::ResourceAmount;
@@ -367,6 +369,13 @@ void ComboProverPanel::runIfStale_(const CharacterData& character) {
     line.gapMs    = lastGapMs_;
     line.verdict  = resultOk_ ? ProverStatusName(result_.status)
                               : "analysis-failed";
+    // The other openings' verdicts (ADR-015 option 3): counter at [1], air at
+    // [2], as AnalyseCharacter orders them. Empty on a failed run, which the
+    // record's header documents as "not asked".
+    if (resultOk_ && result_.openings.size() > 2) {
+        line.verdictCounter = ProverStatusName(result_.openings[1].status);
+        line.verdictAir     = ProverStatusName(result_.openings[2].status);
+    }
 
     std::string appendError;
     if (cse::data::AppendProverRun(".", "telemetry/prover_runs.jsonl", line,
@@ -703,6 +712,32 @@ void ComboProverPanel::drawVerdict_(const CharacterData& character,
         break;
     }
     if (!result_.reason.empty()) ImGui::TextWrapped("%s", result_.reason.c_str());
+
+    // One verdict per opening (ADR-015 option 3). The banner above and every
+    // section below answer the NEUTRAL opening -- the top-level result is its
+    // mirror -- and these lines are where the other openings get their say.
+    // A counter line that differs is the authored M1.3(c) bonus talking
+    // (charged on every hit of that opening's search; the game grants it on
+    // the opening hit only, and the opening's own loss row says so); an air
+    // line that differs is the file's authored air numbers, and the
+    // projection table below still says what the kernel carries of them.
+    if (result_.openings.size() > 1) {
+        ImGui::Spacing();
+        for (const ProverResult& o : result_.openings) {
+            const ImVec4& colour = o.status == ProverStatus::Infinite ? kBad
+                                 : o.status == ProverStatus::Unknown  ? kWarn
+                                 : o.soundnessAlarm                   ? kWarn
+                                                                      : kGood;
+            if (o.status == ProverStatus::Terminating)
+                ImGui::TextColored(colour, "under a %s opening: %s -- worst case %d hits",
+                                   ProverOpeningName(o.opening),
+                                   ProverStatusName(o.status), o.maxHits);
+            else
+                ImGui::TextColored(colour, "under a %s opening: %s",
+                                   ProverOpeningName(o.opening),
+                                   ProverStatusName(o.status));
+        }
+    }
 
     if (result_.status == ProverStatus::Infinite) {
         ImGui::Spacing();

@@ -494,13 +494,15 @@ second format, which is the whole of contribution #9's claim to be an
 
 **The projection is lossy and one-directional, and every loss needs a written
 soundness argument.** Timing, damage, resource effects and guards map directly.
-Cancels map directly except that contact is one bit in the prover's model, so
-block-only and whiff-only edges over-approximate. Stance, reach, pushback, walk
-speed and gap actions are **dropped entirely** — which is what makes the verdict
-corner-only, and is why a midscreen microwalk loop is invisible to it. The
-loss ledger in `Games/UntitledFighter/Data/src/MatchBuilder.cpp` names each
-dropped field and the direction of the resulting error, and the editor panel
-shows it beside the verdict.
+Cancels map directly except that the model keeps only `{hit, always}` edges and
+**drops block-only and whiff-only ones** — a KERNEL-honoured whiff edge (the
+kara) is an edge the model's graph skips, named in the loss rows and exhibited
+by the catalogue's kara row. Stance, reach, pushback, walk speed and gap
+actions are **dropped entirely** — which is what makes the verdict corner-only,
+and is why a midscreen microwalk loop is invisible to it. The loss ledger in
+`Games/UntitledFighter/Data/src/MatchBuilder.cpp` names each dropped field and
+the direction of the resulting error, and the editor panel shows it beside the
+verdict.
 
 **Resource ceilings are absent from the prover's model, and that is the safe
 direction.** The C++ model has no ceiling anywhere, so it searches a state space
@@ -515,23 +517,24 @@ build-wide contract: the vector is positional, nothing in either implementation
 names a resource, and reordering one file silently compares meter against juggle
 points. That one is asserted at load.
 
-**What the panel must say, and what it must not.** Three states, not two:
-`INFINITE` with the loop printed as a move sequence; `TERMINATING` with maximum
-hits, frames and damage, showing the ranking certificate **when available** and
-saying plainly when it is not — any character that builds meter on hit gets
-`TERMINATING` with no certificate, which is the common case, not the exception;
-and `UNRESOLVED`, which is a budget statement rather than an error. The panel must
-also name where the fighters are standing: Phase 0 ran every character twice and
-**the verdict differs** between corner and midscreen. Worse for the midscreen
-half, pushback is not derivable from MUGEN at all, so every midscreen run rests
-on an estimated constant and a ±20% error in it flips one of three verdicts.
-Corner verdicts do not depend on the estimate and are the ones to trust. The
-things a designer uses daily — dead cancels, unreachable moves, the settling
-index — are free, always shown, and land before anyone cares about the theorem.
+**The panel is where the research surfaces**, and what it must say — the three
+verdict states with `UNRESOLVED` a budget statement never an error, the stage
+named beside the verdict, and since ADR-015 one verdict **per opening** — has
+its one full statement in [the manual's verdict section](manual/fighting-core.md);
+this section keeps only the seam-level fact: Phase 0 ran every character twice
+and **the verdict differs** between corner and midscreen, midscreen rests on an
+estimated pushback constant a ±20% error in which flips one of three verdicts,
+so corner verdicts are the ones to trust.
 
 **What the paper harvests, and the one item no offline tool can produce.** A fit
 measurement (what fraction of a real character's moves need an escape hatch: 1.7%
-in Phase 0). A latency distribution over real authoring. Found-bug evidence —
+in Phase 0). A latency distribution over real authoring — recorded since M1.7 to
+`telemetry/prover_runs.jsonl`, one line per prover run, with two honest limits:
+anything harvested from that log spans only from 2026-09-01, when recording
+began (how authoring behaved before the tool is not measurable from it), and
+the recorded verdict is float-computed, so a harvest **buckets lines by
+machine** — pooled lines can show verdict flips that are toolchain artifacts.
+Found-bug evidence —
 dead cancels and unreachable moves in genuinely authored content. The soundness
 note on the projection, which is the first written account of what an executable
 fighting game contains that a decidable model does not. And **ground-truth

@@ -323,3 +323,68 @@ TEST(ComboSearchVerdicts, AWalkedWitnessReplaysAndItsFirstHitLands) {
         << "the walked witness, replayed from the same opening, never landed "
            "its first hit -- the demonstration and the search have parted.";
 }
+
+// THE SEARCH REACHES THE AIR THROUGH AN AUTHORED JUMP MOVE (M1.3(b3),
+// ADR-018). For a character that opts in, the witness cursor holds no Up (a
+// held Up would buffer jump presses) and the level fallback is gated off --
+// so the ONLY route to an aerial is searching the jump move itself, as
+// movement: it connects nothing and succeeds by completing at the first
+// airborne actionable tick, where the aerial can be asked. Without the
+// teaching, every jump branch is pruned as a failed ask and the search
+// reports TERMINATING with the air game unexplored -- the direction that
+// hides infinites.
+TEST(ComboSearchJump, TheSearchReachesTheAirThroughAnAuthoredJumpMove) {
+    auto data = std::make_unique<cse::kernel::MatchData>();
+    for (int i = 0; i < 2; ++i) {
+        cse::kernel::FighterData& d = data->p[i];
+        d.hurtbox   = { px(-10), 0, px(10), px(60) };
+        d.maxHealth = 1000;
+        d.juggleMax = 4;
+        d.moveCount = 3;
+
+        // Slot 1: an AERIAL, unreachable from the ground by stance.
+        cse::kernel::MoveDef& air = d.moves[1];
+        air.startup = 2;
+        air.active  = 3;
+        air.recovery = 4;
+        air.damage  = 50;
+        air.hitstun = 10;
+        air.stance  = cse::kernel::kStanceAir;
+        air.button  = cse::kernel::kInputMP;
+        // Swings DOWNWARD far enough to catch a grounded body from low in
+        // the arc.
+        air.hitbox  = { px(-5), px(-70), px(45), px(10) };
+
+        // Slot 2: the jump move -- prejump 4, one launching key, no X.
+        cse::kernel::MoveDef& jump = d.moves[2];
+        jump.startup  = 4;
+        jump.recovery = 2;
+        jump.button   = cse::kernel::kInputUp;
+        jump.stance   = cse::kernel::kStanceStanding;
+        jump.motion[0].fromTick = 4;
+        jump.motion[0].velYSub  = 2000;
+        jump.motionCount = 1;
+
+        d.jumpMoveSlot = 2;
+    }
+
+    ComboSearchRequest req{};
+    req.data         = data.get();
+    req.attackerSlot = 0;
+    cse::kernel::ResetMatch(req.from, 0x1D7u);
+    req.from.p[0].posX = kP0X;
+    req.from.p[1].posX = kP1X;
+
+    const ComboSearchResult r = RunComboSearch(req);
+    EXPECT_GE(r.maxHits, 1)
+        << "nothing ever connected: the air was never reached. " << r.note;
+    bool usedJump = false, usedAir = false;
+    for (const std::uint16_t s : r.longestString) {
+        if (s == 2) usedJump = true;
+        if (s == 1) usedAir  = true;
+    }
+    EXPECT_TRUE(usedJump)
+        << "the longest string never performed the jump move";
+    EXPECT_TRUE(usedAir)
+        << "the longest string never performed the aerial";
+}

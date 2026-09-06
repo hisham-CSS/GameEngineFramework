@@ -1,0 +1,36 @@
+{
+  "description": "The jump cancel as an ordinary edge, and the executed worst case nearly doubles through a door the model prices as dead (M1.3(b3), ADR-018). The patch APPENDS the opt-in jump move -- prejump 4, one upward key at fighter_a's own cited-but-unread 1280 impulse, bound to exactly Up so the built-in level jump gates off -- and one on-hit edge stand_hk -> jump at the family's delay 5, now literal frames instead of a delay glossary entry. The MODEL keeps its bound (TERMINATING, worst 21): the hk->jump edge is in its graph, but jump's hitstun is 0, so everything beyond it is priced dead. The GAME walks through the door: stand_hk, cancel into the jump, ride the arc, chain the aerials the stance now permits, land, continue -- the executed worst case goes 7 -> 13, found by a search whose jump entry is movement wearing a move's shape (it connects nothing and succeeds by completing at the first airborne actionable tick). The bound held from the other side, at nearly twice the distance.",
+  "patch": {
+    "moves_append": [
+      {
+        "id": "jump",
+        "startup": 4,
+        "active": 1,
+        "recovery": 2,
+        "hitstun": 0,
+        "damage": 0.0,
+        "stance": "standing",
+        "engine": {
+          "motion": [
+            {
+              "tick": 4,
+              "vel_x_sub": 0,
+              "vel_y_sub": -1280
+            }
+          ]
+        }
+      }
+    ],
+    "cancels": {
+      "append": [
+        {
+          "from": "stand_hk",
+          "to": "jump",
+          "delay": 5,
+          "on": "hit",
+          "certain": true
+        }
+      ]
+    }
+  }
+}

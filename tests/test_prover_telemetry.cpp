@@ -41,6 +41,8 @@ ProverRunRecord sampleRecord() {
     r.runMs            = 12.375;
     r.gapMs            = 11.5;
     r.verdict          = "terminating";
+    r.verdictCounter   = "terminating";
+    r.verdictAir       = "infinite";
     return r;
 }
 
@@ -97,6 +99,9 @@ TEST_F(ProverTelemetryTest, TheLogGrowsByOneAppendAndRoundTripsItsFields) {
     EXPECT_DOUBLE_EQ(a.gapMs, 11.5)
         << "the resource-check cost must stay its OWN field (ADR-017)";
     EXPECT_EQ(a.verdict, "terminating");
+    EXPECT_EQ(a.verdictCounter, "terminating")
+        << "the per-opening verdicts (ADR-015) did not round-trip";
+    EXPECT_EQ(a.verdictAir, "infinite");
 
     EXPECT_EQ(back[1].changedSinceLast, false);
     EXPECT_EQ(back[1].verdict, "infinite");

@@ -284,6 +284,15 @@ const char* ProverStatusName(ProverStatus status) {
     return "UNRESOLVED";
 }
 
+const char* ProverOpeningName(ProverOpening opening) {
+    switch (opening) {
+        case ProverOpening::Neutral: return "neutral";
+        case ProverOpening::Counter: return "counter";
+        case ProverOpening::Air:     return "air";
+    }
+    return "neutral";
+}
+
 const char* RankingAbsenceName(RankingAbsence absence) {
     switch (absence) {
         case RankingAbsence::Present:                 return "present";
@@ -308,13 +317,50 @@ const char* LossDirectionName(LossDirection direction) {
 // The analysis
 // ---------------------------------------------------------------------------
 
-bool AnalyseCharacter(const CharacterData&  character,
-                      const ProverOptions&  options,
-                      ProverResult&         out,
-                      ProverReport&         report) {
+namespace {
+
+// THE ONE PLACE AN OPENING TOUCHES THE PROJECTION (ADR-015 option 3). The
+// model reads one hitstun per move; the opening decides which authored number
+// that is, and everything downstream -- the settling index, the usable-edge
+// graph, the dead-cancel lists, the verdict -- moves with it.
+std::int32_t hitstunForOpening(const Move& m, ProverOpening opening) {
+    switch (opening) {
+        case ProverOpening::Neutral:
+            return m.hitstun;
+        case ProverOpening::Counter:
+            // The authored M1.3(c) bonus, charged on EVERY hit of this
+            // opening's search -- the game grants it on the opening hit only,
+            // which is the Permissive direction and is named in this
+            // opening's own loss row. A character that authors no bonus
+            // restates neutral exactly
+            // (ProverOpenings.ACounterOpeningWithNothingAuthoredIsIdenticalToNeutral).
+            return m.hitstun +
+                   (m.counterHitstunBonus > 0 ? m.counterHitstunBonus : 0);
+        case ProverOpening::Air:
+            // The file's own air number, falling back to ground where none is
+            // authored (zero is the loaded default; a move with no air number
+            // stuns airborne defenders exactly as it stuns grounded ones,
+            // which is ADR-011's off-by-default at the model layer).
+            return m.airHitstunTicks != 0 ? m.airHitstunTicks : m.hitstun;
+    }
+    return m.hitstun;
+}
+
+} // namespace
+
+// The single-opening analysis -- the whole pipeline from validation through
+// the loss table, exactly as it ran when there was only one opening to ask
+// about. Static because the public AnalyseCharacter below runs it once per
+// opening; the ONLY line that reads `opening` is the projection's hitstun.
+static bool analyseForOpening(const CharacterData&  character,
+                              const ProverOptions&  options,
+                              ProverOpening         opening,
+                              ProverResult&         out,
+                              ProverReport&         report) {
     out    = ProverResult{};
     report = ProverReport{};
 
+    out.opening   = opening;
     out.fileStage = character.stage;
     out.stage     = ProverStage::Corner;
 
@@ -394,8 +440,17 @@ bool AnalyseCharacter(const CharacterData&  character,
         pm.startup  = m.startup;
         pm.active   = m.active;
         pm.recovery = m.recovery;
-        pm.hitstun  = m.hitstun;
-        pm.damage   = static_cast<float>(m.damageHundredths) / 100.0f;
+        pm.hitstun  = hitstunForOpening(m, opening);
+        // The counter's damage half rides the same uniform charge as its stun
+        // half (and only inflates maxDamage reporting -- no verdict turns on
+        // damage).
+        pm.damage   = static_cast<float>(
+                          m.damageHundredths +
+                          (opening == ProverOpening::Counter &&
+                                   m.counterDamageBonusHundredths > 0
+                               ? m.counterDamageBonusHundredths
+                               : 0)) /
+                      100.0f;
         pm.effect   = dense(m.effect, resCount, indicesOk);
         pm.guard    = dense(m.guard,  resCount, indicesOk);
         c.moves.push_back(std::move(pm));
@@ -531,11 +586,15 @@ bool AnalyseCharacter(const CharacterData&  character,
         for (std::size_t hitIndex = 0; hitIndex < character.decay.tablePermille.size(); ++hitIndex) {
             const std::int64_t permille = character.decay.tablePermille[hitIndex];
             for (const Move& m : character.moves) {
+                // The bases THIS opening's verdict used, not the neutral ones:
+                // an air run whose faithfulness check quoted ground hitstun
+                // would be checking numbers its own search never touched.
+                const std::int32_t base = hitstunForOpening(m, opening);
                 const std::int64_t exact =
                     std::max<std::int64_t>(character.decay.floor,
-                                           (static_cast<std::int64_t>(m.hitstun) * permille) / 1000);
+                                           (static_cast<std::int64_t>(base) * permille) / 1000);
                 const std::int64_t viaFloat =
-                    c.decay.hitstun(m.hitstun, static_cast<int>(hitIndex));
+                    c.decay.hitstun(base, static_cast<int>(hitIndex));
                 if (viaFloat < exact) ++decayUnfaithfulLow;
                 if (viaFloat > exact) ++decayUnfaithfulHigh;
             }
@@ -854,6 +913,92 @@ bool AnalyseCharacter(const CharacterData&  character,
     addLoss(out, "decay.table float multiply", LossDirection::Permissive, decayUnfaithfulHigh,
             "the same check, in the direction that hands the attacker a frame they do not have");
 
+    // The counter opening's own charge rule (M1.3(c)). The game grants the
+    // bonus on the OPENING hit only; this opening's search charges it on every
+    // hit, because first-hit-only state does not exist in Config and the exact
+    // encoding (delay-reduced opener edges behind a spend-once resource) is
+    // deferred until a verdict actually turns on it. Permissive: the model can
+    // invent an infinite the counter-opened game does not have and cannot hide
+    // one, so a TERMINATING under this opening still holds in the game.
+    if (opening == ProverOpening::Counter) {
+        std::int32_t counterCharged = 0;
+        for (const Move& m : character.moves)
+            if (m.counterHitstunBonus > 0 || m.counterDamageBonusHundredths > 0)
+                ++counterCharged;
+        addLoss(out, "counter bonus charged per hit", LossDirection::Permissive,
+                counterCharged,
+                "every hit of this opening's search carries the counter bonus; the "
+                "game grants it on the opening hit only. The count is the moves "
+                "authoring a bonus: zero means this opening restates neutral and "
+                "the loss cannot bite");
+    }
+
+    // The air opening's own charge rule (M1.3(d)). This opening substitutes
+    // the air number for the WHOLE string; the game charges it only while the
+    // defender is actually airborne, and a juggled body that LANDS mid-string
+    // reverts to ground numbers. Which way that errs depends on which number
+    // is bigger, so the two directions are counted separately -- the same
+    // split the decay float check uses -- and a move whose air stun is
+    // SHORTER than its ground stun makes this opening's TERMINATING silent
+    // about grounded tails: CONSERVATIVE, and the alarm goes up.
+    if (opening == ProverOpening::Air) {
+        std::int32_t airLonger = 0, airShorter = 0;
+        for (const Move& m : character.moves) {
+            if (m.airHitstunTicks <= 0) continue;
+            if (m.airHitstunTicks > m.hitstun) ++airLonger;
+            if (m.airHitstunTicks < m.hitstun) ++airShorter;
+        }
+        addLoss(out, "air number charged for the whole string",
+                LossDirection::Permissive, airLonger,
+                "moves whose air stun EXCEEDS their ground stun: charging air "
+                "everywhere over-permits the grounded tail after a landing, which "
+                "can invent an infinite and cannot hide one");
+        addLoss(out, "air number charged for the whole string",
+                LossDirection::Conservative, airShorter,
+                "SOUNDNESS BUG IF NONZERO for this opening: moves whose air stun "
+                "is SHORTER than their ground stun. A defender who lands "
+                "mid-string reverts to the longer ground number, so the game has "
+                "links after a landing that this opening's graph is missing");
+    }
+
+    return true;
+}
+
+// The public entry: ONE FULL ANALYSIS PER OPENING (ADR-015, accepted
+// 2026-09-01, option 3). Neutral runs first, straight into the caller's own
+// slots -- the top-level result IS the neutral opening, so every call site
+// written against the single-verdict surface keeps reading the bytes it
+// always read -- and its report is THE report: the other two runs repeat the
+// same structural checks over the same character and would only duplicate
+// the warnings.
+bool AnalyseCharacter(const CharacterData&  character,
+                      const ProverOptions&  options,
+                      ProverResult&         out,
+                      ProverReport&         report) {
+    if (!analyseForOpening(character, options, ProverOpening::Neutral, out, report))
+        return false;
+
+    // Copied BEFORE anything lands in out.openings, so the neutral element
+    // cannot alias the vector it is being pushed into.
+    ProverResult neutralCopy = out;
+
+    out.openings.reserve(kProverOpeningCount);
+    out.openings.push_back(std::move(neutralCopy));
+
+    for (ProverOpening opening : { ProverOpening::Counter, ProverOpening::Air }) {
+        ProverResult sub{};
+        ProverReport scratch{};   // same character, same checks, same words
+        if (!analyseForOpening(character, options, opening, sub, scratch)) {
+            // Structurally unreachable today -- the failure paths validate
+            // indices and counts the neutral run already passed -- but a
+            // future transform could change that, and a half-answered result
+            // must be refused loudly rather than returned with a hole in it.
+            out    = ProverResult{};
+            report = scratch;
+            return false;
+        }
+        out.openings.push_back(std::move(sub));
+    }
     return true;
 }
 
@@ -936,6 +1081,37 @@ std::string DescribeVerdict(const CharacterData& character, const ProverResult& 
         if (loss.count == 0) continue;
         out += "\n  lost: " + loss.field + " x" + toString(loss.count) + " -- " +
                LossDirectionName(loss.direction);
+    }
+
+    // One verdict per opening (ADR-015 option 3), APPENDED so every sentence
+    // above keeps its exact spelling -- tests and bug reports quote this text.
+    // Empty on a result that predates openings or never ran, and that absence
+    // is worth a reader noticing, so nothing is printed in that case.
+    if (!result.openings.empty()) {
+        out += "\n  by opening (every line above answers the neutral one):";
+        for (const ProverResult& o : result.openings) {
+            switch (o.opening) {
+                case ProverOpening::Neutral: out += "\n    under a NEUTRAL opening: ";  break;
+                case ProverOpening::Counter: out += "\n    under a COUNTER opening: "; break;
+                case ProverOpening::Air:     out += "\n    under an AIR opening: ";    break;
+            }
+            out += ProverStatusName(o.status);
+            if (o.status == ProverStatus::Terminating)
+                out += " -- worst case " + toString(o.maxHits) + " hits";
+            if (o.opening == ProverOpening::Counter) {
+                bool anyBonus = false;
+                for (const Move& m : character.moves)
+                    if (m.counterHitstunBonus > 0 ||
+                        m.counterDamageBonusHundredths > 0) { anyBonus = true; break; }
+                out += anyBonus
+                           ? " (bonus charged on every hit of this opening; "
+                             "the game grants it on the opening hit only)"
+                           : " (no counter_hit authored; identical to neutral)";
+            }
+            if (o.opening == ProverOpening::Air)
+                out += " (the file's authored air_hitstun numbers; the loss "
+                       "ledger says what the kernel carries)";
+        }
     }
 
     out += "\n";

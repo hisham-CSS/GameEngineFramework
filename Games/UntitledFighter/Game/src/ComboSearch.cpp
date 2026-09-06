@@ -86,6 +86,16 @@ MacroOutcome performMacro(const ComboSearchRequest& req, const GameState& from,
     WitnessCursor::State cur{};
 
     const bool isMovement = WitnessCursor::IsMacro(slot);
+    // THE JUMP MOVE IS MOVEMENT WEARING A MOVE'S SHAPE (ADR-018): it connects
+    // nothing, so judging it by `connected` would prune every airborne branch
+    // and the search would report TERMINATING with the air game unexplored --
+    // the direction that hides infinites. It succeeds the way a walk does, by
+    // COMPLETING with the string rules intact, and the state it hands back is
+    // the first airborne actionable tick: exactly where an aerial can be
+    // asked from.
+    const bool isJumpMove =
+        !isMovement && fighter.jumpMoveSlot != 0 &&
+        static_cast<std::int32_t>(slot) == fighter.jumpMoveSlot;
     bool moveWasRunning = false;
 
     GameState s = from;
@@ -113,6 +123,16 @@ MacroOutcome performMacro(const ComboSearchRequest& req, const GameState& from,
             if (sr.advanced) {
                 out.state = s;
                 out.moved = true;
+                return out;
+            }
+            continue;
+        }
+
+        if (isJumpMove) {
+            if (sr.advanced) moveWasRunning = true;
+            if (moveWasRunning && s.p[atk].moveId != slot) {
+                out.state = s;
+                out.moved = true;   // repositioned; no hit scored
                 return out;
             }
             continue;
@@ -297,11 +317,19 @@ ComboSearchResult RunComboSearch(const ComboSearchRequest& req) {
             const std::uint16_t slot = ordered[ci];
             if (r.ticksUsed >= req.maxTicks) { budgetHit = true; break; }
             const bool isMovement = WitnessCursor::IsMacro(slot);
+            // The jump move spends the SAME movement allowance a walk does
+            // (ADR-018): it repositions and scores nothing, and an unbudgeted
+            // jump vocabulary would multiply the state space the caps exist
+            // to keep affordable. In the approach it is the jump-in; in a
+            // string it is the jump cancel's other half.
+            const bool isJumpEntry =
+                !isMovement && fighter.jumpMoveSlot != 0 &&
+                static_cast<std::int32_t>(slot) == fighter.jumpMoveSlot;
 
             // The string is live once a HIT has landed -- movement macros in
             // the path do not open one (ADR-013 decision 6).
             const bool stringLive = node.hits > 0;
-            if (isMovement &&
+            if ((isMovement || isJumpEntry) &&
                 (stringLive ? node.stringMovementUsed >= kMaxLinkMovement
                             : node.movementUsed >= kMaxApproachMovement))
                 continue;
@@ -387,12 +415,12 @@ ComboSearchResult RunComboSearch(const ComboSearchRequest& req) {
             child.moves.push_back(slot);
             child.hits  = hits;
             child.movementUsed = node.movementUsed +
-                                 ((isMovement && !stringLive) ? 1 : 0);
+                                 (((isMovement || isJumpEntry) && !stringLive) ? 1 : 0);
             // Per LINK: a connect opens a fresh two-entry walking allowance.
             child.stringMovementUsed =
                 mo.connected ? 0
                              : node.stringMovementUsed +
-                                   ((isMovement && stringLive) ? 1 : 0);
+                                   (((isMovement || isJumpEntry) && stringLive) ? 1 : 0);
             stack.push_back(std::move(child));
         }
         if (budgetHit) break;

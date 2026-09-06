@@ -54,7 +54,14 @@ struct ProverRunRecord {
     bool          capped   = false;      // the search hit its limit
     double        runMs = 0.0;           // the analysis alone
     double        gapMs = 0.0;           // the resource check, SEPARATE (above)
-    std::string   verdict;               // ProverStatusName, or "analysis-failed"
+    std::string   verdict;               // the NEUTRAL opening's ProverStatusName,
+                                         // or "analysis-failed"
+    // The other two openings' verdicts (ADR-015 option 3), EMPTY on lines
+    // written before openings existed and on failed runs -- the reader
+    // defaults them, so old logs parse unchanged and a harvest can tell
+    // "answered identically" from "not asked yet".
+    std::string   verdictCounter;
+    std::string   verdictAir;
 };
 
 // Appends `record` as one JSON line to baseDir/relPath. The path goes through

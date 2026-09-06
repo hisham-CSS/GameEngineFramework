@@ -966,6 +966,15 @@ TEST(MatchBridgeLosses, EveryDropIsCountedAgainstKungFuGirlsActualFile) {
         // that somebody looked: her converted file authors no impact freeze,
         // so M1.3i's carried hitstop leaves every move of hers at 0.
         { "move.hitstop",              0, BuildLossDirection::Exact         },
+        // Zero again: her converted file authors no counter_hit (M1.3(c)'s
+        // carry), and the zero records that somebody looked.
+        { "move.counter_hit",          0, BuildLossDirection::Exact         },
+        // Both zero for Kung Fu Girl (M1.3(d)'s carries): her converted file
+        // authors air_hitstun_ticks nowhere nonzero -- fighter_a is the one
+        // that authors it on all 22 moves -- and no launch anywhere.
+        { "move.air_hitstun",          0, BuildLossDirection::Exact         },
+        { "move.launch",               0, BuildLossDirection::Exact         },
+        { "move.on_hit",               0, BuildLossDirection::Exact         },
         // Exact since ROADMAP M1.3e wired both into MoveDef and StanceAllows.
         // Kung Fu Girl authors a stance on all 25 moves and no blocked_as at
         // all -- the zero-count row records that somebody looked.
@@ -1713,4 +1722,201 @@ TEST(MatchBridgeMechanics, TheAuthoredMotionKeysCrossWithTheirOneSignFlip) {
         findLoss(build.report[0], "move.engine.motion (pos_add)");
     ASSERT_NE(posAdd, nullptr);
     EXPECT_EQ(posAdd->count, 0) << "fighter_a authors no teleport keys";
+}
+
+// COUNTER HIT crosses the bridge whole (ROADMAP M1.3(c), ADR-015 enacted).
+// The stun bonus in ticks; the damage bonus through the SAME hundredths rule
+// as the damage it rides on -- authored equal to the move's own damage below,
+// so the equality of the two kernel fields IS the proof the conversion is the
+// same one, with no unit re-derived by hand.
+TEST(MatchBridgeMechanics, TheAuthoredCounterBonusCrossesAndNegativeIsRefused) {
+    const char* kCounter =
+        R"({"name":"c","stage":"corner","walk_speed":0.5,)"
+        R"("resources":[{"name":"meter","initial":0,"floor":0},)"
+        R"({"name":"juggle","initial":4,"floor":0}],)"
+        R"("scaling":[],"decay":{"kind":"none"},)"
+        R"("moves":[{"id":"jab","startup":3,"active":2,"recovery":4,)"
+        R"("hitstun":8,"damage":10.0,"stance":"standing",)"
+        R"("engine":{"reaction":{"counter_hit":)"
+        R"({"hitstun_bonus":6,"damage_bonus":10.0}}}}],"cancels":[]})";
+
+    CharacterData c{};
+    LoadReport lr{};
+    ASSERT_TRUE(LoadCharacterJson("counter.json", kCounter, loadOptions(), c, lr))
+        << lr.error;
+    ASSERT_EQ(c.moves.size(), 1u);
+    EXPECT_EQ(c.moves[0].counterHitstunBonus, 6);
+    EXPECT_EQ(c.moves[0].counterDamageBonusHundredths, 1000);
+
+    BuildOptions options{};
+    options.bindings = { { "jab", cse::kernel::kInputLP } };
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build))
+        << build.report[0].error;
+    const std::uint16_t slot = build.moves[0].Find("jab");
+    ASSERT_NE(slot, 0u);
+    const cse::kernel::MoveDef& m = build.data.p[0].moves[slot];
+    EXPECT_EQ(m.counterHitstunBonus, 6);
+    EXPECT_EQ(m.counterDamageBonus, m.damage)
+        << "damage_bonus authored equal to damage crossed through a DIFFERENT "
+           "conversion";
+
+    // The ledger row: the zero-count row on an unauthored character is the
+    // proof the check ran; the count here is the proof it counted.
+    const BuildLoss* row = findLoss(build.report[0], "move.counter_hit");
+    ASSERT_NE(row, nullptr) << "no move.counter_hit ledger row";
+    EXPECT_EQ(row->count, 1);
+    EXPECT_EQ(row->direction, cse::data::BuildLossDirection::Exact);
+
+    // Negative is refused by name: a counter that REDUCES the price is not a
+    // counter.
+    const char* kNegative =
+        R"({"name":"c","stage":"corner","walk_speed":0.5,)"
+        R"("resources":[{"name":"meter","initial":0,"floor":0},)"
+        R"({"name":"juggle","initial":4,"floor":0}],)"
+        R"("scaling":[],"decay":{"kind":"none"},)"
+        R"("moves":[{"id":"jab","startup":3,"active":2,"recovery":4,)"
+        R"("hitstun":8,"damage":10.0,"stance":"standing",)"
+        R"("engine":{"reaction":{"counter_hit":{"hitstun_bonus":-1}}}}],)"
+        R"("cancels":[]})";
+    CharacterData neg{};
+    EXPECT_FALSE(LoadCharacterJson("negative.json", kNegative, loadOptions(), neg, lr));
+    EXPECT_NE(lr.error.find("counter_hit"), std::string::npos) << lr.error;
+}
+
+// AIR HITSTUN crosses on every move that authors it (ROADMAP M1.3(d)) -- on
+// fighter_a that is ALL 22, the number the file has carried unread since it
+// was written. The launch rows records zero: no shipped move launches yet;
+// the showcase variant is where the field first bites.
+TEST(MatchBridgeMechanics, TheAuthoredAirHitstunCrossesOnEveryMoveThatAuthorsIt) {
+    CharacterData c{};
+    LoadReport report{};
+    ASSERT_TRUE(LoadCharacterFile(ownCharactersDir(), "fighter_a.json",
+                                  loadOptions(), c, report))
+        << report.error;
+
+    BuildOptions options{};
+    options.bindings = { { "stand_lp", cse::kernel::kInputLP } };
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build))
+        << build.report[0].error;
+
+    const BuildLoss* air = findLoss(build.report[0], "move.air_hitstun");
+    ASSERT_NE(air, nullptr);
+    EXPECT_EQ(air->count, 22)
+        << "fighter_a authors air_hitstun_ticks on every move; the carry "
+           "counted differently";
+    const BuildLoss* launch = findLoss(build.report[0], "move.launch");
+    ASSERT_NE(launch, nullptr);
+    EXPECT_EQ(launch->count, 0) << "no shipped move authors a launch yet";
+
+    // One concrete number, not just a census: stand_lp's own air value
+    // reaches its kernel slot.
+    const cse::data::MoveIndex lp = c.FindMove("stand_lp");
+    ASSERT_NE(lp, cse::data::kInvalidMove);
+    ASSERT_GT(c.moves[lp].airHitstunTicks, 0);
+    const std::uint16_t slot = build.moves[0].Find("stand_lp");
+    ASSERT_NE(slot, 0u);
+    EXPECT_EQ(build.data.p[0].moves[slot].airHitstun, c.moves[lp].airHitstunTicks);
+}
+
+// ON_HIT crosses, and the enumerated-but-unsimulated value is REFUSED rather
+// than accepted-and-ignored (ROADMAP M1.3(d2)) -- a key that loads and does
+// nothing is the one_frame_link coin-flip again, and silence is never a
+// default.
+TEST(MatchBridgeMechanics, WallBounceCrossesAndWallSplatIsRefusedByName) {
+    const char* kBounce =
+        R"({"name":"b","stage":"corner","walk_speed":0.5,)"
+        R"("resources":[{"name":"meter","initial":0,"floor":0},)"
+        R"({"name":"juggle","initial":4,"floor":0}],)"
+        R"("scaling":[],"decay":{"kind":"none"},)"
+        R"("moves":[{"id":"jab","startup":3,"active":2,"recovery":4,)"
+        R"("hitstun":8,"damage":10.0,"stance":"standing",)"
+        R"("engine":{"reaction":{"launch":{"vel_x_sub":500,"vel_y_sub":2000},)"
+        R"("on_hit":"wall_bounce"}}}],"cancels":[]})";
+
+    CharacterData c{};
+    LoadReport lr{};
+    ASSERT_TRUE(LoadCharacterJson("bounce.json", kBounce, loadOptions(), c, lr))
+        << lr.error;
+    EXPECT_EQ(c.moves[0].onHitReaction, 1);
+    EXPECT_EQ(c.moves[0].launchVelXSub, 500);
+    EXPECT_EQ(c.moves[0].launchVelYSub, 2000);
+
+    BuildOptions options{};
+    options.bindings = { { "jab", cse::kernel::kInputLP } };
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build))
+        << build.report[0].error;
+    const std::uint16_t slot = build.moves[0].Find("jab");
+    ASSERT_NE(slot, 0u);
+    EXPECT_EQ(build.data.p[0].moves[slot].onHitReaction, cse::kernel::kOnHitWallBounce);
+    EXPECT_EQ(build.data.p[0].moves[slot].launchVelYSub, 2000);
+    const BuildLoss* row = findLoss(build.report[0], "move.on_hit");
+    ASSERT_NE(row, nullptr);
+    EXPECT_EQ(row->count, 1);
+
+    const char* kSplat =
+        R"({"name":"s","stage":"corner","walk_speed":0.5,)"
+        R"("resources":[{"name":"meter","initial":0,"floor":0},)"
+        R"({"name":"juggle","initial":4,"floor":0}],)"
+        R"("scaling":[],"decay":{"kind":"none"},)"
+        R"("moves":[{"id":"jab","startup":3,"active":2,"recovery":4,)"
+        R"("hitstun":8,"damage":10.0,"stance":"standing",)"
+        R"("engine":{"reaction":{"on_hit":"wall_splat"}}}],"cancels":[]})";
+    CharacterData s{};
+    EXPECT_FALSE(LoadCharacterJson("splat.json", kSplat, loadOptions(), s, lr))
+        << "wall_splat loaded as a silent no-op";
+    EXPECT_NE(lr.error.find("wall_splat"), std::string::npos) << lr.error;
+}
+
+// THE JUMP MOVE IS A BINDING FACT (M1.3(b3), ADR-018): the slot bound to
+// exactly Up becomes FighterData::jumpMoveSlot, which gates off the kernel's
+// built-in level jump for that character; a second Up-bound move is refused
+// by name, because the button scan would race them. A chord that merely
+// includes Up stays an attack.
+TEST(MatchBridgeMechanics, TheUpBoundMoveBecomesTheJumpSlotAndTwoAreRefused) {
+    const char* kJumper =
+        R"({"name":"j","stage":"corner","walk_speed":0.5,)"
+        R"("resources":[{"name":"meter","initial":0,"floor":0},)"
+        R"({"name":"juggle","initial":4,"floor":0}],)"
+        R"("scaling":[],"decay":{"kind":"none"},)"
+        R"("moves":[{"id":"jab","startup":3,"active":2,"recovery":4,)"
+        R"("hitstun":8,"damage":10.0,"stance":"standing"},)"
+        R"({"id":"jump","startup":4,"active":0,"recovery":2,)"
+        R"("hitstun":0,"damage":0.0,"stance":"standing"}],"cancels":[]})";
+
+    CharacterData c{};
+    LoadReport lr{};
+    ASSERT_TRUE(LoadCharacterJson("jumper.json", kJumper, loadOptions(), c, lr))
+        << lr.error;
+
+    BuildOptions options{};
+    options.bindings = { { "jab",  cse::kernel::kInputLP },
+                        { "jump", cse::kernel::kInputUp } };
+    MatchBuild build{};
+    ASSERT_TRUE(BuildMatchData(c, options, c, options, build))
+        << build.report[0].error;
+    const std::uint16_t slot = build.moves[0].Find("jump");
+    ASSERT_NE(slot, 0u);
+    EXPECT_EQ(build.data.p[0].jumpMoveSlot, static_cast<std::int32_t>(slot))
+        << "the Up binding did not become the jump slot";
+
+    // No Up binding, no jump slot: the fallback jump stays on.
+    BuildOptions plain{};
+    plain.bindings = { { "jab", cse::kernel::kInputLP } };
+    MatchBuild plainBuild{};
+    ASSERT_TRUE(BuildMatchData(c, plain, c, plain, plainBuild))
+        << plainBuild.report[0].error;
+    EXPECT_EQ(plainBuild.data.p[0].jumpMoveSlot, 0);
+
+    // Two moves bound to exactly Up: refused, naming both.
+    BuildOptions twice{};
+    twice.bindings = { { "jab",  cse::kernel::kInputUp },
+                       { "jump", cse::kernel::kInputUp } };
+    MatchBuild twiceBuild{};
+    EXPECT_FALSE(BuildMatchData(c, twice, c, twice, twiceBuild))
+        << "two Up-bound moves built; the button scan will race them";
+    EXPECT_NE(twiceBuild.report[0].error.find("jump"), std::string::npos)
+        << twiceBuild.report[0].error;
 }

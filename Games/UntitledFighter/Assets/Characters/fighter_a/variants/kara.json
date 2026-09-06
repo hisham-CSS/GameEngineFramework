@@ -1,0 +1,26 @@
+{
+  "description": "The kara, honoured by the kernel and honestly invisible to both instruments (M1.3(a)'s whiff edges, exhibited). stand_lp's cancel window closes at [0, 2] and gains a WHIFF edge into special_dash_punch at delay 0: miss the jab on purpose, cancel inside two ticks, and the dash punch's 1.35 reach and 72 px of travel arrive off a 0.42-reach poke's startup -- the genre's range steal, running in the kernel (P3Cancels pins whiff-anchored cancels directly). The pair stands exactly at base -- TERMINATING / TERMINATING, worst 7 -- because NEITHER instrument speaks whiff: the model collapses {hit, always} and drops whiff edges by doctrine (the cancel.on ledger row), and the search asks moves one CONNECT at a time, so a deliberately whiffed source is a closed branch, never a kara. Two green verdicts over a mechanic both proofs skip is exactly the situation the ledger exists to name, and this row says it out loud rather than letting the agreement imply coverage.",
+  "patch": {
+    "moves": {
+      "stand_lp": {
+        "engine": {
+          "cancel_window_ticks": [
+            0,
+            2
+          ]
+        }
+      }
+    },
+    "cancels": {
+      "append": [
+        {
+          "from": "stand_lp",
+          "to": "special_dash_punch",
+          "delay": 0,
+          "on": "whiff",
+          "certain": true
+        }
+      ]
+    }
+  }
+}

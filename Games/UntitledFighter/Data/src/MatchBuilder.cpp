@@ -105,7 +105,8 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
     std::int32_t withHitCondition = 0, noReach = 0, withReach = 0;
     std::int32_t withHits = 0, withMotion = 0, withEscapeHatch = 0;
     std::int32_t offMid = 0, withHitstop = 0, withPosAdd = 0;
-    std::int32_t withCornerPush = 0;
+    std::int32_t withCornerPush = 0, withCounter = 0;
+    std::int32_t withAirHitstun = 0, withLaunch = 0, withOnHit = 0;
 
     for (const Move& m : c.moves) {
         if (m.cornerPushSub != 0) ++withCornerPush;
@@ -117,6 +118,11 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
         if (!m.guard.empty())               ++withGuard;
         if (m.pushbackSub != 0)             ++withPushback;
         if (m.hitstopTicks != 0)            ++withHitstop;
+        if (m.counterHitstunBonus != 0 || m.counterDamageBonusHundredths != 0)
+            ++withCounter;
+        if (m.airHitstunTicks > 0)          ++withAirHitstun;
+        if (m.launchVelYSub > 0)            ++withLaunch;
+        if (m.onHitReaction != 0)           ++withOnHit;
         if (!m.hitConditionProse.empty())   ++withHitCondition;
         if (m.reachSub == kNoReach)         ++noReach; else ++withReach;
         if (!m.hits.empty())                ++withHits;
@@ -291,6 +297,45 @@ void recordLosses(const CharacterData& c, const CancelStats& cancels,
             "field first bites. The MODEL has no corner in its vocabulary at "
             "all; its midscreen/corner split is a stage choice, not a rule "
             "per hit.");
+
+    addLoss(report, "move.counter_hit", BuildLossDirection::Exact, withCounter,
+            "engine.reaction.counter_hit {hitstun_bonus, damage_bonus}, carried "
+            "whole into MoveDef::counterHitstunBonus/counterDamageBonus (ROADMAP "
+            "M1.3(c)): ResolveHits adds both when the defender is caught "
+            "MID-STARTUP -- startup only; a trade is a trade and a punish is its "
+            "own reward. The MODEL charges the bonus per OPENING (ADR-015 option "
+            "3): its counter verdict charges every hit, first hit in the game, "
+            "which is the Permissive direction and is named in the prover's own "
+            "loss table rather than here.");
+
+    addLoss(report, "move.air_hitstun", BuildLossDirection::Exact, withAirHitstun,
+            "engine.reaction.air_hitstun_ticks, carried whole into "
+            "MoveDef::airHitstun (ROADMAP M1.3(d)): ResolveHits charges it as "
+            "the BASE stun against an AIRBORNE defender, falling back to the "
+            "ground number where the file authors none. It was loaded and "
+            "thrown away from the day the reaction block landed; the launcher "
+            "is what made it reachable. fighter_a authors it on all 22 moves; "
+            "no MUGEN transcription authors a nonzero value.");
+
+    addLoss(report, "move.launch", BuildLossDirection::Exact, withLaunch,
+            "engine.reaction.launch {vel_x_sub, vel_y_sub}, carried whole "
+            "(ROADMAP M1.3(d)): a clean hit takes the defender off the ground "
+            "with the authored velocity, X pointed away from the attacker by "
+            "the kernel's position rule, the arc then owned by StepPhysics "
+            "like a jump -- and kept through stun (Fighter::reaction marks a "
+            "launched body; an UN-launched air hit still drops straight, the "
+            "behaviour the crossplat golden pins). The MODEL has no defender "
+            "position at all; the air OPENING is where the file's air numbers "
+            "reach a verdict.");
+
+    addLoss(report, "move.on_hit", BuildLossDirection::Exact, withOnHit,
+            "engine.reaction.on_hit, carried whole into MoveDef::onHitReaction "
+            "(ROADMAP M1.3(d2)): wall_bounce arms the defender and StepPhysics' "
+            "wall clamp fires and spends it -- one arming hit, one bounce, the "
+            "return arc an ordinary launch. The corner MODEL needs no range, so "
+            "a bounce that returns the defender into range moves nothing it can "
+            "see; the executed search plays it for real. wall_splat is refused "
+            "at load until it is simulated.");
 
     addLoss(report, "move.hitstop", BuildLossDirection::Exact, withHitstop,
             "Impact freeze on hit, carried whole into MoveDef::hitstop (ROADMAP "
@@ -1006,6 +1051,31 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
             m.cornerPushHit = static_cast<std::int16_t>(recoil);
         }
 
+        // COUNTER HIT (ROADMAP M1.3(c)), carried whole: the stun bonus in
+        // ticks, the damage bonus through the SAME hundredths-to-points rule
+        // as the damage it rides on -- one documented quantization, applied
+        // identically, so a bonus of 0.5 loses its half-point exactly where
+        // a damage of 0.5 does.
+        m.counterHitstunBonus = src.counterHitstunBonus;
+        m.counterDamageBonus  = damagePointsFromHundredths(src.counterDamageBonusHundredths);
+
+        // AIR HITSTUN AND THE LAUNCH (ROADMAP M1.3(d)), carried whole. The
+        // air number was loaded-and-uncarried from the day the reaction block
+        // landed -- the D8 gap ADR-015's air opening reads the file about --
+        // and the launcher is what makes it REACHABLE: ResolveHits reads the
+        // air number only off an airborne defender, and nothing put one there
+        // until launch crossed. Negative air stun clamps to zero (a negative
+        // means "no stun" at the schema level and the kernel's fallback wants
+        // zero as its sentinel); the loader already refused a non-positive
+        // launch Y and a negative launch X.
+        m.airHitstun    = src.airHitstunTicks > 0 ? src.airHitstunTicks : 0;
+        m.launchVelXSub = src.launchVelXSub;
+        m.launchVelYSub = src.launchVelYSub;
+        // The on_hit reaction id, byte-sized on the wire; the loader admits
+        // only values the kernel simulates, so the cast cannot truncate a
+        // meaning.
+        m.onHitReaction = static_cast<std::uint8_t>(src.onHitReaction);
+
         // HITSTOP, CARRIED WHOLE (ROADMAP M1.3i). It was held back from M1.3d
         // for a measured reason -- the freeze moves every frame-exact count in
         // the old hand-derived sweep -- and that objection died when M1.4 made
@@ -1189,6 +1259,25 @@ bool BuildFighterData(const CharacterData& character, const BuildOptions& option
 
     out.moveCount = static_cast<std::int32_t>(moveCount) + 1;   // slot 0 included
     moves.moveCount = out.moveCount;
+
+    // THE JUMP MOVE (M1.3(b3), ADR-018): the slot whose button is EXACTLY the
+    // Up bit -- a chord that merely includes Up (a flash-kick input, say) is
+    // an attack that wants Up held, not the character's jump. Nonzero gates
+    // off the kernel's built-in level jump for this fighter, so the Up press
+    // starts this move on its EDGE. Two such moves would race the button
+    // scan, so a second one is refused by name rather than shadow-resolved.
+    out.jumpMoveSlot = 0;
+    for (std::int32_t i = 1; i < out.moveCount; ++i) {
+        if (out.moves[i].button != cse::kernel::kInputUp) continue;
+        if (out.jumpMoveSlot != 0) {
+            report.error = "two moves are bound to exactly Up (`" +
+                           moves.idByMoveId[out.jumpMoveSlot] + "` and `" +
+                           moves.idByMoveId[i] + "`): a character has ONE jump "
+                           "move, because the button scan would race them";
+            return false;
+        }
+        out.jumpMoveSlot = i;
+    }
 
     std::sort(moves.byId.begin(), moves.byId.end(),
               [](const std::pair<std::string, std::uint16_t>& a,

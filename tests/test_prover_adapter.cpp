@@ -782,3 +782,184 @@ TEST(ProverAdapter, EveryVerdictNamesTheStageItAnswered) {
         EXPECT_TRUE(warned) << file;
     }
 }
+
+// ---------------------------------------------------------------------------
+// One verdict per opening (ADR-015, accepted 2026-09-01, option 3)
+// ---------------------------------------------------------------------------
+//
+// The model reads one hitstun per move, and which number that IS depends on
+// how the string opened: neutral/grounded reads `hitstun`, counter will read
+// the (c) bonus once it is authorable, and air reads `air_hitstun_ticks` --
+// which every shipped move already authors, differently from ground on all of
+// them. Option 3 makes the tool answer each opening instead of collapsing
+// them. The legacy single-result surface stays the NEUTRAL opening verbatim,
+// so every assertion above this section still pins the same bytes it always
+// pinned.
+
+TEST(ProverOpenings, EveryAnalysisAnswersThreeOpeningsAndTheLegacySurfaceIsTheNeutralMirror) {
+    CharacterData character{};
+    ProverResult  result{};
+    analyseShipped("kung_fu_girl.json", character, result);
+    ASSERT_FALSE(::testing::Test::HasFatalFailure());
+
+    ASSERT_EQ(result.openings.size(), 3u)
+        << "the analysis did not answer per opening";
+    EXPECT_EQ(result.openings[0].opening, ProverOpening::Neutral);
+    EXPECT_EQ(result.openings[1].opening, ProverOpening::Counter);
+    EXPECT_EQ(result.openings[2].opening, ProverOpening::Air);
+
+    // The mirror: the top-level fields ARE openings[0], so the ~thirty call
+    // sites written against the single-verdict surface keep reading the
+    // neutral answer without knowing anything changed.
+    const ProverResult& neutral = result.openings[0];
+    EXPECT_EQ(neutral.status, result.status);
+    EXPECT_EQ(neutral.maxHits, result.maxHits);
+    EXPECT_EQ(neutral.settlingIndex, result.settlingIndex);
+    EXPECT_EQ(neutral.usableCancels, result.usableCancels);
+    EXPECT_EQ(neutral.loop, result.loop);
+    EXPECT_EQ(neutral.prefix, result.prefix);
+    EXPECT_TRUE(neutral.openings.empty())
+        << "a nested opening carried its own openings; the recursion must stop "
+           "at one level";
+}
+
+TEST(ProverOpenings, ACounterOpeningWithNothingAuthoredIsIdenticalToNeutral) {
+    // Until M1.3(c) makes `counter_hit` authorable, no file carries a bonus,
+    // so the counter opening must restate neutral EXACTLY -- any drift here
+    // means the counter transform invented semantics nobody authored. This
+    // test is EXTENDED (not deleted) when (c) lands: the identity then holds
+    // only for characters that author no bonus.
+    for (const char* file : { "kung_fu_girl.json", "kung_fu_man.json",
+                              "aof2_strength_training.json" }) {
+        CharacterData character{};
+        ProverResult  result{};
+        analyseShipped(file, character, result);
+        ASSERT_FALSE(::testing::Test::HasFatalFailure());
+        ASSERT_EQ(result.openings.size(), 3u) << file;
+
+        const ProverResult& neutral = result.openings[0];
+        const ProverResult& counter = result.openings[1];
+        EXPECT_EQ(counter.status, neutral.status) << file;
+        EXPECT_EQ(counter.maxHits, neutral.maxHits) << file;
+        EXPECT_EQ(counter.settlingIndex, neutral.settlingIndex) << file;
+        EXPECT_EQ(counter.usableCancels, neutral.usableCancels) << file;
+        EXPECT_EQ(counter.loop, neutral.loop) << file;
+        EXPECT_EQ(counter.hasRanking, neutral.hasRanking) << file;
+    }
+}
+
+// The air opening reads the file's own air numbers -- TODAY, because the field
+// is loaded today; the KERNEL not yet simulating it is the ledger's news, not
+// a reason for the model to misquote the file. The synthetic makes the two
+// verdicts provably different: the self-cancel is dead under ground hitstun
+// (advantage 4-2=2 < startup 3) and alive under air hitstun (18 >= 3), so the
+// same file is TERMINATING opened on the ground and INFINITE opened in the
+// air. A character that authors NO air numbers falls back to ground hitstun
+// and the openings collapse -- ADR-011's off-by-default, at the model layer.
+TEST(ProverOpenings, AnAirOpeningReadsTheAuthoredAirHitstunAndUnauthoredFallsBackToNeutral) {
+    CharacterData c{};
+    c.id   = "synthetic_air_opening";
+    c.name = "Air Opening";
+    c.resources.push_back(resource("meter", 0, false, 0));
+    c.resources.push_back(resource("juggle", 0, false, 0));
+    Move jab = move("jab", 3, 4);
+    jab.airHitstunTicks = 20;
+    c.moves.push_back(jab);
+    c.cancels.push_back(cancel(0, 0, 2));
+    c.starters.push_back(0);
+    c.RebuildIndices();
+
+    ProverResult result{};
+    ProverReport report{};
+    ASSERT_TRUE(AnalyseCharacter(c, ProverOptions{}, result, report)) << report.error;
+    ASSERT_EQ(result.openings.size(), 3u);
+
+    EXPECT_EQ(result.openings[0].status, ProverStatus::Terminating)
+        << "the ground link (2 frames of advantage vs 3 of startup) connected";
+    EXPECT_EQ(result.openings[2].status, ProverStatus::Infinite)
+        << "the air opening did not read the authored air_hitstun_ticks";
+
+    // And the opening names its own charge rule (M1.3(d)): air is charged for
+    // the WHOLE string while the game reverts to ground on a landing. Here
+    // air (20) exceeds ground (4), so the direction is Permissive, count 1,
+    // and the Conservative row -- air shorter than ground, the one that would
+    // raise the alarm -- is present with count 0: the check ran and found
+    // nothing, which is different from nobody looking.
+    const ProjectionLoss* airLonger =
+        findLoss(result.openings[2], "air number charged for the whole string",
+                 LossDirection::Permissive);
+    ASSERT_NE(airLonger, nullptr);
+    EXPECT_EQ(airLonger->count, 1);
+    const ProjectionLoss* airShorter =
+        findLoss(result.openings[2], "air number charged for the whole string",
+                 LossDirection::Conservative);
+    ASSERT_NE(airShorter, nullptr);
+    EXPECT_EQ(airShorter->count, 0);
+    EXPECT_FALSE(result.openings[2].soundnessAlarm)
+        << "a zero-count conservative row raised the alarm";
+
+    // Silence: no air numbers, no divergence.
+    CharacterData silent = c;
+    silent.moves[0].airHitstunTicks = 0;
+    silent.RebuildIndices();
+    ProverResult silentResult{};
+    ASSERT_TRUE(AnalyseCharacter(silent, ProverOptions{}, silentResult, report))
+        << report.error;
+    ASSERT_EQ(silentResult.openings.size(), 3u);
+    EXPECT_EQ(silentResult.openings[2].status, silentResult.openings[0].status)
+        << "a character that authors no air hitstun grew an air-specific verdict";
+    EXPECT_EQ(silentResult.openings[2].maxHits, silentResult.openings[0].maxHits);
+}
+
+TEST(ProverOpenings, DescribeVerdictNamesEachOpening) {
+    CharacterData character{};
+    ProverResult  result{};
+    analyseShipped("kung_fu_girl.json", character, result);
+    ASSERT_FALSE(::testing::Test::HasFatalFailure());
+
+    const std::string described = DescribeVerdict(character, result);
+    EXPECT_NE(described.find("under a NEUTRAL opening"), std::string::npos)
+        << described.substr(0, 400);
+    EXPECT_NE(described.find("under a COUNTER opening"), std::string::npos);
+    EXPECT_NE(described.find("under an AIR opening"), std::string::npos);
+}
+
+// M1.3(c) enacted: the counter opening charges the authored bonus, and its
+// loss table names HOW it charges (every hit here, opening hit only in the
+// game -- Permissive). The synthetic is the air-opening one's shape with the
+// divergence moved to the counter field: the self-cancel is dead at base
+// hitstun and alive once the bonus lands.
+TEST(ProverOpenings, ACounterOpeningChargesTheAuthoredBonusAndNamesItsChargeRule) {
+    CharacterData c{};
+    c.id   = "synthetic_counter_opening";
+    c.name = "Counter Opening";
+    c.resources.push_back(resource("meter", 0, false, 0));
+    c.resources.push_back(resource("juggle", 0, false, 0));
+    Move jab = move("jab", 3, 4);
+    jab.counterHitstunBonus = 16;   // 4+16=20 -> advantage 18 >= startup 3
+    c.moves.push_back(jab);
+    c.cancels.push_back(cancel(0, 0, 2));
+    c.starters.push_back(0);
+    c.RebuildIndices();
+
+    ProverResult result{};
+    ProverReport report{};
+    ASSERT_TRUE(AnalyseCharacter(c, ProverOptions{}, result, report)) << report.error;
+    ASSERT_EQ(result.openings.size(), 3u);
+
+    EXPECT_EQ(result.openings[0].status, ProverStatus::Terminating)
+        << "the base link (advantage 2 < startup 3) connected without the bonus";
+    EXPECT_EQ(result.openings[1].status, ProverStatus::Infinite)
+        << "the counter opening did not charge the authored bonus";
+
+    const ProjectionLoss* charge =
+        findLoss(result.openings[1], "counter bonus charged per hit",
+                 LossDirection::Permissive);
+    ASSERT_NE(charge, nullptr)
+        << "the counter opening does not name its every-hit charge rule";
+    EXPECT_EQ(charge->count, 1);
+    EXPECT_EQ(findLoss(result, "counter bonus charged per hit",
+                       LossDirection::Permissive),
+              nullptr)
+        << "the neutral opening grew the counter opening's loss row";
+}
