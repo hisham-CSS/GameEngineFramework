@@ -26,7 +26,10 @@ glTF itself, in CI against the shipped model and `fighter_a.json`; and
 `tests/test_shipped_clips.cpp` decodes the committed model and holds every
 move's clip to the kernel's `MoveDuration`, `knockdown` to the largest
 `knockdownTicks`, every reserved cycle present and the root still in the
-ground plane. The mode watches the model and the sidecar like the character file,
+ground plane; it also skins the mesh at each move's first active frame and
+holds the contact pose inside the body the kernel can hit (+2 px), and holds
+the walk cycles to a planted foot that slides back exactly the kernel's walk
+speed per frame, so nothing skates (ROADMAP M3.3d). The mode watches the model and the sidecar like the character file,
 so a re-export lands as a hot reload and a disagreeing one keeps the last good
 match with the loader's words on the HUD. Presentation holds no state: the pose on screen is
 a pure function of `GameState` ([fighting-core.md](fighting-core.md), `PoseSelect`;

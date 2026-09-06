@@ -129,14 +129,15 @@ TEST(PlaceholderRig, StandsSixtyPixelsTallAtRest) {
     EXPECT_GT(feetX / static_cast<float>(feet), 1.0f) << "the feet do not point along +X";
     // The pose bounds are the CULLING box: per-joint rest boxes swept corner by
     // corner through every clip frame (M3.2d), conservative by design -- a
-    // 1.5-degree breath widens them by a couple of units. They must contain
-    // the rest body and stay within a body's margin of it; they are not the
-    // height claim, the vertices above are.
+    // lying knockdown turns the torso's box on its side and its corners reach
+    // a dozen units under the floor. They must contain the rest body and stay
+    // within a body height of it; they are not the height claim, the vertices
+    // above are.
     ASSERT_TRUE(cpu.poseBounds.valid);
     EXPECT_LE(cpu.poseBounds.min.y, 0.001f) << "the culling box does not reach the feet";
     EXPECT_GE(cpu.poseBounds.max.y, 59.999f) << "the culling box does not reach the crown";
-    EXPECT_GT(cpu.poseBounds.min.y, -10.0f) << "the culling box is absurdly loose below the floor";
-    EXPECT_LT(cpu.poseBounds.max.y, 70.0f) << "the culling box is absurdly loose above the crown";
+    EXPECT_GT(cpu.poseBounds.min.y, -60.0f) << "the culling box is more than a body below the floor";
+    EXPECT_LT(cpu.poseBounds.max.y, 120.0f) << "the culling box is more than a body above the crown";
 }
 
 // The seam: rig_manifest.json is the deform hierarchy the exporter was held to

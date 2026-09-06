@@ -14,7 +14,7 @@
  "crouch_lp": 14,
  "crouch_mk": 27,
  "crouch_mp": 24,
- "crouch_walk": 16,
+ "crouch_walk": 12,
  "hitstun_air": 36,
  "hitstun_stand": 32,
  "idle": 48,
@@ -32,7 +32,7 @@
  "stand_mk": 25,
  "stand_mp": 23,
  "super_beam": 54,
- "walk_back": 32,
- "walk_fwd": 32,
+ "walk_back": 12,
+ "walk_fwd": 12,
  "win": 2
 }

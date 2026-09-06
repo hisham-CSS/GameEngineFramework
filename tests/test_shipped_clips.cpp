@@ -21,6 +21,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -72,10 +73,17 @@ ModelCPUData decodeShipped(const CharacterData& c) {
     return cpu;
 }
 
-// MatchBuilder's MoveDefs for the character, keyed by move id: the kernel's view
-// of the frame data, so MoveDuration is the kernel's arithmetic and not this
-// file's re-derivation of it.
-std::map<std::string, cse::kernel::MoveDef> kernelMoves(const CharacterData& c) {
+// MatchBuilder's view of the character -- the kernel's MoveDefs keyed by move
+// id and the body boxes it built -- so MoveDuration, the counters and the
+// hurtbox a pose must fit are the kernel's numbers and not this file's
+// re-derivation of them. The body is the mode's (MatchBuilder.h's defaults).
+struct KernelView {
+    cse::data::MatchBuild build{};
+    std::map<std::string, cse::kernel::MoveDef> moves;
+    const cse::kernel::FighterData& body() const { return build.data.p[0]; }
+};
+
+KernelView kernelView(const CharacterData& c) {
     cse::data::BuildOptions options{};
     options.body.halfWidthSub = cse::data::kDefaultBodyHalfWidthSub;
     options.body.heightSub    = cse::data::kDefaultBodyHeightSub;
@@ -85,22 +93,65 @@ std::map<std::string, cse::kernel::MoveDef> kernelMoves(const CharacterData& c) 
         b.button = static_cast<std::uint16_t>(options.bindings.size() + 1);
         options.bindings.push_back(b);
     }
-    cse::data::MatchBuild build{};
-    std::map<std::string, cse::kernel::MoveDef> out;
-    if (!cse::data::BuildMatchData(c, options, c, options, build)) {
+    KernelView view;
+    if (!cse::data::BuildMatchData(c, options, c, options, view.build)) {
         ADD_FAILURE() << "the mirror match did not build";
-        return out;
+        return view;
     }
     for (const cse::data::Move& mv : c.moves) {
-        const std::uint16_t slot = build.moves[0].Find(mv.id);
+        const std::uint16_t slot = view.build.moves[0].Find(mv.id);
         if (slot == 0) { ADD_FAILURE() << mv.id << " got no kernel slot"; continue; }
-        out[mv.id] = build.data.p[0].moves[slot];
+        view.moves[mv.id] = view.build.data.p[0].moves[slot];
     }
-    return out;
+    return view;
+}
+
+// The top of the body the kernel lets a move be hit in, in pixels: the move's
+// own hurtboxOverride when it authors one, else the crouch body for a
+// crouching move, else the standing body -- Combat.cpp's HurtboxOf order.
+float hurtboxTopPx(const cse::kernel::MoveDef& def, const cse::kernel::FighterData& body) {
+    const cse::kernel::Box& box =
+        cse::kernel::BoxIsValid(def.hurtboxOverride) ? def.hurtboxOverride
+        : (def.stance == cse::kernel::kStanceCrouching && cse::kernel::BoxIsValid(body.crouchHurtbox))
+            ? body.crouchHurtbox
+            : body.hurtbox;
+    return static_cast<float>(box.y1) / static_cast<float>(cse::kernel::kSubUnitsPerPixel);
+}
+
+// The highest skinned vertex of the model at one frame of one clip: the mesh
+// skinned on the CPU with the same palette the renderer uploads.
+float skinnedTopPx(const ModelCPUData& cpu, const Clip& clip, std::uint32_t frame) {
+    std::vector<glm::mat4> palette(cpu.skeleton.joints.size());
+    SamplePalette(cpu.skeleton, clip, frame, palette.data());
+    float top = -1e9f;
+    for (const auto& mesh : cpu.meshes) {
+        if (mesh.skin.Empty()) continue;
+        for (std::size_t i = 0; i < mesh.vertices.size(); ++i) {
+            const glm::vec4 p(mesh.vertices[i].Position, 1.0f);
+            glm::vec4 skinned(0.0f);
+            for (int k = 0; k < 4; ++k) {
+                const float w = mesh.skin.weights[i][k];
+                if (w > 0.0f) skinned += w * (palette[static_cast<std::size_t>(mesh.skin.joints[i][k])] * p);
+            }
+            top = std::max(top, skinned.y);
+        }
+    }
+    return top;
 }
 
 const char* clipNameOf(const cse::data::Move& mv) {
     return mv.anim3dClip.empty() ? mv.id.c_str() : mv.anim3dClip.c_str();
+}
+
+// A file beside the model (rig_bones.json, the semantic names the poses use).
+json readJsonBeside(const CharacterData& c, const char* name) {
+    const std::filesystem::path p =
+        (std::filesystem::path(charactersDir()) / c.anim3dModel).parent_path() / name;
+    std::ifstream in(p, std::ios::binary);
+    EXPECT_TRUE(in.good()) << "cannot open " << p.string();
+    json j = json::parse(in, nullptr, false);
+    EXPECT_FALSE(j.is_discarded()) << p.string() << " is not valid JSON";
+    return j;
 }
 
 } // namespace
@@ -116,21 +167,18 @@ TEST(ShippedClips, MatchTheFrameData) {
     loadShipped(c);
     const ModelCPUData cpu = decodeShipped(c);
     ASSERT_TRUE(cpu.valid);
-    const auto defs = kernelMoves(c);
-    ASSERT_EQ(defs.size(), c.moves.size());
+    const KernelView kv = kernelView(c);
+    ASSERT_EQ(kv.moves.size(), c.moves.size());
 
-    int largestKnockdown = 0, largestHitstun = 0, largestAirHitstun = 0, largestBlockstun = 0;
+    int largestKnockdown = 0;
     for (const cse::data::Move& mv : c.moves) {
-        const cse::kernel::MoveDef& def = defs.at(mv.id);
+        const cse::kernel::MoveDef& def = kv.moves.at(mv.id);
         const Clip* clip = cpu.clips.Find(clipNameOf(mv));
         ASSERT_NE(clip, nullptr) << "move `" << mv.id << "` has no clip `" << clipNameOf(mv) << "`";
         EXPECT_EQ(static_cast<std::int32_t>(clip->frames), cse::kernel::MoveDuration(def))
             << "move `" << mv.id << "`: clip `" << clipNameOf(mv) << "` has " << clip->frames
             << " frames, MoveDuration is " << cse::kernel::MoveDuration(def);
-        largestKnockdown  = std::max(largestKnockdown, static_cast<int>(def.knockdownTicks));
-        largestHitstun    = std::max(largestHitstun, static_cast<int>(def.hitstun));
-        largestAirHitstun = std::max(largestAirHitstun, static_cast<int>(def.airHitstun));
-        largestBlockstun  = std::max(largestBlockstun, static_cast<int>(def.blockstun));
+        largestKnockdown = std::max(largestKnockdown, static_cast<int>(def.knockdownTicks));
     }
     ASSERT_GT(largestKnockdown, 0) << "no move knocks down; the knockdown rule has nothing to hold";
 
@@ -139,11 +187,8 @@ TEST(ShippedClips, MatchTheFrameData) {
         ASSERT_NE(clip, nullptr) << "reserved cycle `" << cycle << "` is not a clip of the model";
         EXPECT_GE(clip->frames, 2u) << cycle << ": a cycle is any length >= 2";
     }
-    EXPECT_EQ(static_cast<int>(cpu.clips.Find("knockdown")->frames), largestKnockdown);
-    EXPECT_GE(static_cast<int>(cpu.clips.Find("hitstun_stand")->frames), largestHitstun);
-    EXPECT_GE(static_cast<int>(cpu.clips.Find("hitstun_air")->frames), largestAirHitstun);
-    EXPECT_GE(static_cast<int>(cpu.clips.Find("blockstun_stand")->frames), largestBlockstun);
-    EXPECT_GE(static_cast<int>(cpu.clips.Find("blockstun_crouch")->frames), largestBlockstun);
+    EXPECT_EQ(static_cast<int>(cpu.clips.Find("knockdown")->frames), largestKnockdown)
+        << "knockdown is indexed from the end and must land its getup on counter 0";
 
     // Root motion: the one joint without a parent holds its ground-plane
     // position on every frame of every clip. Vertical motion (a crouch, a fall)
@@ -221,4 +266,136 @@ TEST(ShippedClips, MutatingStandLpRecoveryMakesTheClipLengthCheckFire) {
     std::ifstream again(file, std::ios::binary);
     const json pristine = json::parse(again, nullptr, false);
     EXPECT_TRUE(cse::data::LoadCharacterJson("fighter_a.json", pristine.dump(), o, ok, rr)) << rr.error;
+}
+
+// The countdown cycles are indexed FROM THE END (frame = N - remaining, clamped
+// at 0; FightPresentation::ClipFrameFor), so a cycle shorter than the longest
+// counter it answers would spend its first ticks clamped on frame 0 and the
+// reaction would start late. hitstun_stand covers the largest hitstun,
+// hitstun_air the largest airHitstun, both blockstun cycles the largest
+// blockstun, knockdown the largest knockdownTicks -- the kernel's MoveDefs,
+// read the way the kernel reads them (ROADMAP M3.3d).
+TEST(ShippedClips, StunAndKnockdownClipsCoverTheLongestAuthoredCounters) {
+    CharacterData c;
+    loadShipped(c);
+    const ModelCPUData cpu = decodeShipped(c);
+    ASSERT_TRUE(cpu.valid);
+    const KernelView kv = kernelView(c);
+    int hitstun = 0, airHitstun = 0, blockstun = 0, knockdown = 0;
+    for (const auto& [id, def] : kv.moves) {
+        hitstun    = std::max(hitstun, static_cast<int>(def.hitstun));
+        airHitstun = std::max(airHitstun, static_cast<int>(def.airHitstun));
+        blockstun  = std::max(blockstun, static_cast<int>(def.blockstun));
+        knockdown  = std::max(knockdown, static_cast<int>(def.knockdownTicks));
+    }
+    ASSERT_GT(hitstun, 0); ASSERT_GT(airHitstun, 0); ASSERT_GT(blockstun, 0); ASSERT_GT(knockdown, 0);
+    const auto frames = [&](const char* name) {
+        const Clip* clip = cpu.clips.Find(name);
+        return clip ? static_cast<int>(clip->frames) : -1;
+    };
+    EXPECT_GE(frames("hitstun_stand"), hitstun)   << "the largest hitstun is " << hitstun;
+    EXPECT_GE(frames("hitstun_air"), airHitstun)  << "the largest airHitstun is " << airHitstun;
+    EXPECT_GE(frames("blockstun_stand"), blockstun)  << "the largest blockstun is " << blockstun;
+    EXPECT_GE(frames("blockstun_crouch"), blockstun) << "the largest blockstun is " << blockstun;
+    EXPECT_GE(frames("knockdown"), knockdown)     << "the largest knockdownTicks is " << knockdown;
+}
+
+// The walk cycles are indexed by posX at the kernel's walk speed -- one frame
+// per walkSpeedSub of travel, forward or back (WalkCycleFrame) -- so the only
+// clip that does not skate is one whose planted foot slides back exactly that
+// far per frame: N x walkSpeedPx is the stride, in whole pixels, and each foot
+// is planted for half the cycle. Measured on the exported joints (SampleWorld),
+// for walk_fwd, walk_back and crouch_walk (ROADMAP M3.3d).
+TEST(ShippedClips, AWalkCycleAdvancesItsStrideInWholeTicks) {
+    CharacterData c;
+    loadShipped(c);
+    const ModelCPUData cpu = decodeShipped(c);
+    ASSERT_TRUE(cpu.valid);
+    const KernelView kv = kernelView(c);
+    const std::int32_t speedSub = kv.body().walkSpeedSub;
+    ASSERT_GT(speedSub, 0);
+    const float v = static_cast<float>(speedSub) / static_cast<float>(cse::kernel::kSubUnitsPerPixel);
+
+    const json bones = readJsonBeside(c, "rig_bones.json");
+    for (const char* cycle : { "walk_fwd", "walk_back", "crouch_walk" }) {
+        const Clip* clip = cpu.clips.Find(cycle);
+        ASSERT_NE(clip, nullptr) << cycle;
+        const std::uint32_t n = clip->frames;
+        ASSERT_GE(n, 4u) << cycle;
+        EXPECT_EQ((static_cast<std::int64_t>(n) * speedSub) % cse::kernel::kSubUnitsPerPixel, 0)
+            << cycle << ": " << n << " frames at " << speedSub << " sub-units is not a whole number of pixels";
+        std::vector<glm::mat4> world(cpu.skeleton.joints.size());
+        for (const char* side : { "l_foot", "r_foot" }) {
+            const int joint = cpu.skeleton.Find(bones["bones"][side].get<std::string>());
+            ASSERT_GE(joint, 0) << side;
+            std::vector<float> x(n), y(n);
+            for (std::uint32_t f = 0; f < n; ++f) {
+                SampleWorld(cpu.skeleton, *clip, f, world.data());
+                x[f] = world[static_cast<std::size_t>(joint)][3].x;
+                y[f] = world[static_cast<std::size_t>(joint)][3].y;
+            }
+            // The longest cyclic run of "slid back exactly v" frames is the
+            // stance; it must last half the cycle, planted (no height change).
+            std::uint32_t best = 0;
+            for (std::uint32_t start = 0; start < n; ++start) {
+                std::uint32_t run = 0;
+                for (std::uint32_t k = 0; k < n; ++k) {
+                    const std::uint32_t a = (start + k) % n, b = (start + k + 1) % n;
+                    if (std::abs((x[b] - x[a]) + v) > 0.05f || std::abs(y[b] - y[a]) > 0.05f) break;
+                    ++run;
+                }
+                best = std::max(best, run);
+            }
+            // n/2 stance frames give n/2 - 1 slides; the swing's first sample
+            // sits on the same line (lift 0 at takeoff), so one more is allowed.
+            EXPECT_GE(best, n / 2 - 1) << cycle << " " << side << ": the planted foot slides back " << v
+                                         << " px on " << best + 1 << " consecutive frames, less than the half cycle of " << n / 2;
+            EXPECT_LE(best, n / 2) << cycle << " " << side << ": the foot never swings";
+            const float range = *std::max_element(x.begin(), x.end()) - *std::min_element(x.begin(), x.end());
+            EXPECT_NEAR(range, static_cast<float>(n / 2) * v, 0.1f)
+                << cycle << " " << side << ": the step is " << range << " px, N/2 x speed is " << (n / 2) * v;
+        }
+    }
+}
+
+// ADR-019 D2: the contact pose sits inside the live hitbox for exactly the
+// active ticks -- and inside the BODY the kernel says can be hit. The kernel's
+// hurtbox for a move (Combat.cpp) is the move's own hurtboxOverride when it
+// authors one (fighter_a: crouch_mk 26 px, crouch_hp 36 px, crouch_hk 20 px),
+// else the crouch body for a crouching move, else the standing body; a pose
+// taller than that is a head a low attack passes through while the picture
+// says it connects. The mesh is skinned on the CPU at the first active frame
+// with the palette the renderer uploads, and its highest vertex must sit
+// within 2 px of the box's top (ROADMAP M3.3d's bar).
+TEST(ShippedClips, AContactPoseFitsItsMovesAuthoredHurtboxHeight) {
+    CharacterData c;
+    loadShipped(c);
+    const ModelCPUData cpu = decodeShipped(c);
+    ASSERT_TRUE(cpu.valid);
+    const KernelView kv = kernelView(c);
+    int authoredInFile = 0, carriedByKernel = 0;
+    for (const cse::data::Move& mv : c.moves) {
+        const cse::kernel::MoveDef& def = kv.moves.at(mv.id);
+        const Clip* clip = cpu.clips.Find(clipNameOf(mv));
+        ASSERT_NE(clip, nullptr) << mv.id;
+        if (mv.hurtboxOverride.y1 > mv.hurtboxOverride.y0) ++authoredInFile;
+        if (cse::kernel::BoxIsValid(def.hurtboxOverride)) ++carriedByKernel;
+        const std::uint32_t contact = static_cast<std::uint32_t>(std::max(def.startup, 0));
+        ASSERT_LT(contact, clip->frames) << mv.id << ": the first active frame is past the clip";
+        const float top   = skinnedTopPx(cpu, *clip, contact);
+        const float limit = hurtboxTopPx(def, kv.body());
+        EXPECT_LE(top, limit + 2.0f)
+            << "move `" << mv.id << "`: the contact pose reaches " << top << " px, the body the kernel can hit ends at "
+            << limit << " px" << (cse::kernel::BoxIsValid(def.hurtboxOverride) ? " (the move's own hurtbox)" : "");
+    }
+    // The file authors a hurtbox on three moves (crouch_mk 26 px, crouch_hp 36,
+    // crouch_hk 20), the loader parses them, and MatchBuilder carries NONE into
+    // MoveDef::hurtboxOverride -- every crouching move is hit in the 34 px
+    // crouch body, and that body is what the poses above were held to. Pinned
+    // here so the day the builder wires them (ROADMAP: the M3.3d finding), this
+    // test fails on purpose and the three contact poses are re-fitted to 26,
+    // 36 and 20.
+    EXPECT_EQ(authoredInFile, 3) << "fighter_a authors a hurtbox on three moves; the file changed under this test";
+    EXPECT_EQ(carriedByKernel, 0) << "MatchBuilder now carries a move's hurtbox into the kernel: re-fit the crouching "
+                                     "contact poses to their authored heights and update this pin";
 }

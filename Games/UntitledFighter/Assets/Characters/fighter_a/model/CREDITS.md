@@ -20,22 +20,22 @@ Project-authored placeholder (ROADMAP M3.3b, M3.3c) under the repository's
 
 | Clip | Frames | Source | Author |
 |---|---|---|---|
-| `air_hk` | 32 | `make_move_clips.py`: 9+3+20 frames from `fighter_a.json`, poses `kick_windup` / `kick_contact` / `kick_recover` | Hisham Ata |
+| `air_hk` | 32 | `make_move_clips.py`: 9+3+20 frames from `fighter_a.json`, poses `air_kick_windup` / `air_kick_contact` / `air_kick_recover` | Hisham Ata |
 | `air_hp` | 30 | `make_move_clips.py`: 8+4+18 frames from `fighter_a.json`, poses `air_windup` / `air_contact` / `air_recover` | Hisham Ata |
-| `air_lk` | 20 | `make_move_clips.py`: 5+4+11 frames from `fighter_a.json`, poses `kick_windup` / `kick_contact` / `kick_recover` | Hisham Ata |
+| `air_lk` | 20 | `make_move_clips.py`: 5+4+11 frames from `fighter_a.json`, poses `air_kick_windup` / `air_kick_contact` / `air_kick_recover` | Hisham Ata |
 | `air_lp` | 19 | `make_move_clips.py`: 4+3+12 frames from `fighter_a.json`, poses `air_windup` / `air_contact` / `air_recover` | Hisham Ata |
-| `air_mk` | 25 | `make_move_clips.py`: 7+4+14 frames from `fighter_a.json`, poses `kick_windup` / `kick_contact` / `kick_recover` | Hisham Ata |
+| `air_mk` | 25 | `make_move_clips.py`: 7+4+14 frames from `fighter_a.json`, poses `air_kick_windup` / `air_kick_contact` / `air_kick_recover` | Hisham Ata |
 | `air_mp` | 22 | `make_move_clips.py`: 6+4+12 frames from `fighter_a.json`, poses `air_windup` / `air_contact` / `air_recover` | Hisham Ata |
 | `blockstun_crouch` | 26 | `make_move_clips.py`: cycle, 26 frame(s) (max_blockstun), poses `guard_crouch` / `guard_crouch` / `crouch` | Hisham Ata |
 | `blockstun_stand` | 26 | `make_move_clips.py`: cycle, 26 frame(s) (max_blockstun), poses `guard_stand` / `guard_stand` / `idle_a` | Hisham Ata |
-| `crouch_hk` | 39 | `make_move_clips.py`: 10+3+26 frames from `fighter_a.json`, poses `kick_windup` / `kick_contact` / `kick_recover` | Hisham Ata |
+| `crouch_hk` | 39 | `make_move_clips.py`: 10+3+26 frames from `fighter_a.json`, poses `crouch_kick_windup` / `crouch_kick_contact` / `crouch_kick_recover` | Hisham Ata |
 | `crouch_hp` | 34 | `make_move_clips.py`: 8+4+22 frames from `fighter_a.json`, poses `crouch_windup` / `crouch_contact` / `crouch_recover` | Hisham Ata |
 | `crouch_idle` | 2 | `make_move_clips.py`: cycle, 2 frame(s) (2), poses `crouch` | Hisham Ata |
-| `crouch_lk` | 16 | `make_move_clips.py`: 4+3+9 frames from `fighter_a.json`, poses `kick_windup` / `kick_contact` / `kick_recover` | Hisham Ata |
+| `crouch_lk` | 16 | `make_move_clips.py`: 4+3+9 frames from `fighter_a.json`, poses `crouch_kick_windup` / `crouch_kick_contact` / `crouch_kick_recover` | Hisham Ata |
 | `crouch_lp` | 14 | `make_move_clips.py`: 3+2+9 frames from `fighter_a.json`, poses `crouch_windup` / `crouch_contact` / `crouch_recover` | Hisham Ata |
-| `crouch_mk` | 27 | `make_move_clips.py`: 7+4+16 frames from `fighter_a.json`, poses `kick_windup` / `kick_contact` / `kick_recover` | Hisham Ata |
+| `crouch_mk` | 27 | `make_move_clips.py`: 7+4+16 frames from `fighter_a.json`, poses `crouch_kick_windup` / `crouch_kick_contact` / `crouch_kick_recover` | Hisham Ata |
 | `crouch_mp` | 24 | `make_move_clips.py`: 6+3+15 frames from `fighter_a.json`, poses `crouch_windup` / `crouch_contact` / `crouch_recover` | Hisham Ata |
-| `crouch_walk` | 16 | `make_move_clips.py`: cycle, 16 frame(s) (16), poses `crouch_step_a` / `crouch_step_b` | Hisham Ata |
+| `crouch_walk` | 12 | `make_move_clips.py`: cycle, 12 frame(s) (12), poses `crouch`, legs: a gait at 3 px per frame (the kernel's walk speed), stride 36 px | Hisham Ata |
 | `hitstun_air` | 36 | `make_move_clips.py`: cycle, 36 frame(s) (max_air_hitstun), poses `flinch_air` | Hisham Ata |
 | `hitstun_stand` | 32 | `make_move_clips.py`: cycle, 32 frame(s) (max_hitstun), poses `flinch_stand` / `flinch_stand` / `idle_a` | Hisham Ata |
 | `idle` | 48 | `make_move_clips.py`: cycle, 48 frame(s) (48), poses `idle_a` / `idle_b` | Hisham Ata |
@@ -53,8 +53,8 @@ Project-authored placeholder (ROADMAP M3.3b, M3.3c) under the repository's
 | `stand_mk` | 25 | `make_move_clips.py`: 7+3+15 frames from `fighter_a.json`, poses `kick_windup` / `kick_contact` / `kick_recover` | Hisham Ata |
 | `stand_mp` | 23 | `make_move_clips.py`: 6+3+14 frames from `fighter_a.json`, poses `punch_windup` / `punch_contact` / `punch_recover` | Hisham Ata |
 | `super_beam` | 54 | `make_move_clips.py`: 8+2+44 frames from `fighter_a.json`, poses `super_windup` / `super_contact` / `super_recover` | Hisham Ata |
-| `walk_back` | 32 | `make_move_clips.py`: cycle, 32 frame(s) (32), poses `walk_contact_r` / `walk_pass_l` / `walk_contact_l` / `walk_pass_r` | Hisham Ata |
-| `walk_fwd` | 32 | `make_move_clips.py`: cycle, 32 frame(s) (32), poses `walk_contact_l` / `walk_pass_l` / `walk_contact_r` / `walk_pass_r` | Hisham Ata |
+| `walk_back` | 12 | `make_move_clips.py`: cycle, 12 frame(s) (12), poses `walk_base`, legs: a gait at 3 px per frame (the kernel's walk speed), stride 36 px | Hisham Ata |
+| `walk_fwd` | 12 | `make_move_clips.py`: cycle, 12 frame(s) (12), poses `walk_base`, legs: a gait at 3 px per frame (the kernel's walk speed), stride 36 px | Hisham Ata |
 | `win` | 2 | `make_move_clips.py`: cycle, 2 frame(s) (2), poses `win` | Hisham Ata |
 
 `fighter_a.clips.json` beside the model is the frame count per clip the

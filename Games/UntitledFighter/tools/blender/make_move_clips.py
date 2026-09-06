@@ -145,6 +145,106 @@ def counters(character):
     }
 
 
+def walk_speed_px(character):
+    """The speed the presentation indexes every walk cycle by: the kernel's
+    FighterData::walkSpeedSub (FightPresentation::ClipFrameFor), which
+    MatchBuilder takes from the character's walk speed -- engine.constants.
+    walk_fwd_sub in sub-units, or walk_speed in reach units. One frame per
+    that many pixels of posX, forward or back, so a planted foot must slide
+    back exactly this far per frame for the picture not to skate."""
+    constants = (character.get('engine') or {}).get('constants') or {}
+    if constants.get('walk_fwd_sub'):
+        return float(constants['walk_fwd_sub']) / 256.0
+    units = (character.get('engine') or {}).get('units') or {}
+    return float(character['walk_speed']) * float(units.get('pixels_per_reach_unit', 100))
+
+
+# --- the walk: a gait the kernel's speed can index -------------------------
+
+def leg_geometry(rig, bones):
+    """Per side: the hip joint at rest, thigh and shin lengths (both Rigify
+    segments), and the ankle's rest height, all in armature space."""
+    geo = {}
+    for side in ('l', 'r'):
+        thigh, thigh2 = rig.data.bones[bones['%s_thigh' % side]], rig.data.bones[bones['%s_thigh_lower' % side]]
+        shin, shin2 = rig.data.bones[bones['%s_shin' % side]], rig.data.bones[bones['%s_shin_lower' % side]]
+        geo[side] = {'hip': thigh.head_local.copy(), 'a': thigh.length + thigh2.length,
+                     'b': shin.length + shin2.length, 'ankle_z': shin2.tail_local.z}
+    return geo
+
+
+def two_bone_ik(hip, ankle, a, b):
+    """Thigh and shin directions that put the ankle on its target, knee forward
+    (+X), solved in the leg's sagittal plane; an out-of-reach target is
+    brought to the leg's length along the same line."""
+    dx, dz = ankle.x - hip.x, ankle.z - hip.z
+    d = math.hypot(dx, dz)
+    d = min(max(d, abs(a - b) + 1e-3), a + b - 1e-3)
+    theta = math.atan2(dx, -dz)                                   # from straight down, toward +X
+    alpha = math.acos((a * a + d * d - b * b) / (2.0 * a * d))    # at the hip, thigh off the hip-ankle line
+    t = theta + alpha
+    thigh = Vector((math.sin(t), 0.0, -math.cos(t)))
+    knee = hip + thigh * a
+    reach = hip + Vector((math.sin(theta), 0.0, -math.cos(theta))) * d
+    shin = (reach - knee).normalized()
+    return thigh, shin
+
+
+def aim_rotation(frame, W_parent, target):
+    """Q (parent frame) pointing `frame`'s bone along the world direction `target`."""
+    return frame.d.rotation_difference(W_parent.inverted() @ target).normalized()
+
+
+def walk_gait(bases_per_frame, spec, frames, geo, v):
+    """Overwrite the legs of every frame with a gait at v px per frame: each
+    foot planted for half the cycle, sliding back exactly v per frame, then
+    swinging forward along a lifted arc; the two feet half a cycle apart. The
+    hips, torso and arms stay what the keys blended. Indexed by posX at v per
+    frame (WalkCycleFrame), a planted foot holds its place in the world; played
+    backward -- posX falling -- the same clip plants the same foot, so one gait
+    serves walk_fwd and walk_back."""
+    n = len(bases_per_frame)
+    if n % 2:
+        raise SystemExit('make_move_clips: a walk cycle needs an even frame count, not %d' % n)
+    half = n // 2
+    stride = half * v
+    lift = float(spec.get('lift', 3.0))
+    hips = frames['hips']
+    Rq_hips = hips.R.to_quaternion()
+    out = []
+    for f, bases in enumerate(bases_per_frame):
+        bases = dict(bases)
+        q_hips, loc = bases['hips']
+        W_hips = (Rq_hips @ q_hips @ Rq_hips.inverted()).normalized()
+        offset = (hips.R @ loc) if loc is not None else Vector((0.0, 0.0, 0.0))
+        for side, phase in (('l', 0), ('r', half)):
+            g = geo[side]
+            k = (f + phase) % n
+            if k < half:
+                x, z = stride / 2.0 - v * k, g['ankle_z']
+            else:
+                s = (k - half) / float(half)
+                x, z = -stride / 2.0 + stride * s, g['ankle_z'] + lift * math.sin(math.pi * s)
+            hip_rest = g['hip']
+            root = frames['hips'].head
+            hip = root + (W_hips @ (hip_rest - root)) + offset
+            thigh_dir, shin_dir = two_bone_ik(hip, Vector((x, hip.y, z)), g['a'], g['b'])
+            thigh, shin, foot = frames['%s_thigh' % side], frames['%s_shin' % side], frames['%s_foot' % side]
+            q_thigh = aim_rotation(thigh, W_hips, thigh_dir)
+            W_thigh = (W_hips @ q_thigh).normalized()
+            q_shin = aim_rotation(shin, W_thigh, shin_dir)
+            W_shin = (W_thigh @ q_shin).normalized()
+            q_foot = aim_rotation(foot, W_shin, foot.d)          # the foot stays level, as at rest
+            for semantic, frame, q in (('%s_thigh' % side, thigh, q_thigh), ('%s_shin' % side, shin, q_shin),
+                                       ('%s_foot' % side, foot, q_foot)):
+                Rq = frame.R.to_quaternion()
+                bases[semantic] = ((Rq.inverted() @ q @ Rq).normalized(), None)
+            for lower in ('%s_thigh_lower' % side, '%s_shin_lower' % side, '%s_toe' % side):
+                bases[lower] = (IDENTITY.copy(), None)          # segments and toes follow their chain
+        out.append(bases)
+    return out
+
+
 # --- the pose library --------------------------------------------------------
 
 def resolve_pose(name, library, seen=()):
@@ -179,10 +279,10 @@ def resolve_pose(name, library, seen=()):
 
 
 class RestFrame:
-    """One bone at rest: its rotation R and direction d in armature space, its
-    parent's semantic name, and the sign that mirrors azimuth and twist for r_."""
-    def __init__(self, R, d, parent, outward):
-        self.R, self.d, self.parent, self.outward = R, d, parent, outward
+    """One bone at rest: its rotation R, direction d and head in armature space,
+    its parent's semantic name, and the sign that mirrors azimuth and twist for r_."""
+    def __init__(self, R, d, head, parent, outward):
+        self.R, self.d, self.head, self.parent, self.outward = R, d, head, parent, outward
 
 
 def rest_frames(rig, bones):
@@ -198,7 +298,7 @@ def rest_frames(rig, bones):
         parent = by_deform.get(b.parent.name) if b.parent is not None else None
         if b.parent is not None and parent is None:
             raise SystemExit('make_move_clips: %r hangs off %r, which has no semantic name' % (deform, b.parent.name))
-        frames[semantic] = RestFrame(R, d, parent, -1.0 if semantic.startswith('r_') else 1.0)
+        frames[semantic] = RestFrame(R, d, b.head_local.copy(), parent, -1.0 if semantic.startswith('r_') else 1.0)
     order = []
     def visit(s):
         if s in order:
@@ -354,12 +454,19 @@ def cycle_frames(spec, library_bases, counts, name):
 
 
 def poses_for_move(move, moves_spec):
+    """`_default`, then `by_tag` entries in TAG_ORDER, then `by_tag` entries that
+    name several tags joined by `+` (all present; `crouch+kick` for a sweep,
+    which is neither a standing roundhouse nor a crouching punch), then the
+    move's own entry. Later wins."""
     chosen = dict(moves_spec.get('_default', {}))
     tags = set((move.get('engine') or {}).get('tags') or [])
     by_tag = moves_spec.get('by_tag', {})
     for tag in TAG_ORDER:
         if tag in tags and tag in by_tag:
             chosen.update(by_tag[tag])
+    for key, poses in sorted(by_tag.items()):
+        if '+' in key and all(t in tags for t in key.split('+')):
+            chosen.update(poses)
     chosen.update(moves_spec.get(move['id'], {}))
     missing = [p for p in PHASES if p not in chosen]
     if missing:
@@ -417,12 +524,19 @@ def main():
                          % (max(int(move.get('startup') or 0), 0), max(int(move.get('active') or 0), 0),
                             max(int(move.get('recovery') or 0), 0), chosen['anticipation'], chosen['contact'],
                             chosen['recovery']))
+    geo = leg_geometry(rig, bones)
+    speed = walk_speed_px(character)
     for cycle in RESERVED_CYCLES:
         spec = cycles_spec[cycle]
-        n = key_clip(rig, bones, cycle, cycle_frames(spec, library_bases, counts, cycle))
+        per_frame = cycle_frames(spec, library_bases, counts, cycle)
+        if 'walk' in spec:
+            per_frame = walk_gait(per_frame, spec['walk'], frames, geo, speed)
+        n = key_clip(rig, bones, cycle, per_frame)
         length = spec['frames'] if isinstance(spec['frames'], str) else str(spec['frames'])
-        sources[cycle] = ('`make_move_clips.py`: cycle, %s frame(s) (%s), poses %s'
-                         % (n, length, ' / '.join('`%s`' % k[1] for k in spec['keys'])))
+        gait = (', legs: a gait at %.4g px per frame (the kernel\'s walk speed), stride %.4g px'
+                % (speed, n * speed)) if 'walk' in spec else ''
+        sources[cycle] = ('`make_move_clips.py`: cycle, %s frame(s) (%s), poses %s%s'
+                         % (n, length, ' / '.join('`%s`' % k[1] for k in spec['keys']), gait))
     if opts['blend']:
         bpy.ops.wm.save_as_mainfile(filepath=os.path.abspath(opts['blend']))
         print('make_move_clips: saved the scene to %s (rig, body, one NLA track per clip)' % opts['blend'])

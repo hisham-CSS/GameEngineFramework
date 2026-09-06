@@ -1,6 +1,6 @@
 {
  "_note": "The pose library of the placeholder fighter (ROADMAP M3.3c; ADR-019 D2, D6). make_move_clips.py reads this file and fighter_a.json and keys one stepped pose per frame for every attack and every reserved cycle; capture_pose.py writes a pose refined at the viewport back here. Bone keys are the semantic names of rig_bones.json, never a Rigify name.",
- "_axes": "A bone's value is [elevation, azimuth, twist] in degrees: WHERE THE BONE POINTS in the world. Elevation is above the horizontal plane (90 straight up, -90 straight down); azimuth is from the opponent (+X, 0) toward the bone's own side (an l_ or center bone: the fighter's left; an r_ bone: its right), so a mirrored pose is the same numbers and 180 is away from the opponent; twist is about the bone's own axis, relative to the parent's, counter-clockwise looking down the bone, mirrored for r_ bones. A bone left out follows its parent. A captured pose is {\"q\": [w, x, y, z]}, the rotation in the parent's posed frame that capture_pose.py reads back. `hips_drop` lowers the root by that many pixels; the root never moves in the ground plane (D2). `base` starts from another pose; `mirror_of` swaps left and right. At rest: torso and head point up, thighs and shins down, feet forward and a little down, shoulders and arms sideways (Rigify's A-pose).",
+ "_axes": "A bone's value is [elevation, azimuth, twist] in degrees: WHERE THE BONE POINTS in the world. Elevation is above the horizontal plane (90 straight up, -90 straight down); azimuth is from the opponent (+X, 0) toward the bone's own side (an l_ or center bone: the fighter's left; an r_ bone: its right), so a mirrored pose is the same numbers and 180 is away from the opponent; twist is about the bone's own axis, relative to the parent's, counter-clockwise looking down the bone, mirrored for r_ bones. A bone left out follows its parent. A captured pose is {\"q\": [w, x, y, z]}, the rotation in the parent's posed frame that capture_pose.py reads back. `hips_drop` lowers the root by that many pixels; the root never moves in the ground plane (D2). `base` starts from another pose; `mirror_of` swaps left and right. At rest: torso and head point up, thighs and shins down, feet forward and a little down, shoulders and arms sideways (Rigify's A-pose). A cycle with a `walk` entry gets its legs from the generator's gait at the kernel's walk speed (make_move_clips.walk_gait); its keys pose the rest of the body.",
  "poses": {
   "rest": {},
   "idle_a": {
@@ -30,47 +30,17 @@
    "l_upper_arm": [-58, 25, 0],
    "r_upper_arm": [-56, 20, 0]
   },
-  "walk_contact_l": {
-   "base": "idle_a",
-   "chest": [86, 0, -14],
-   "l_thigh": [-65, 0, 0],
-   "l_shin": [-80, 0, 0],
-   "l_foot": [-5, 0, 0],
-   "r_thigh": [-70, 180, 0],
-   "r_shin": [-60, 180, 0],
-   "r_foot": [-40, 0, 0],
-   "l_upper_arm": [-62, 25, 0],
-   "r_upper_arm": [-55, 20, 0],
-   "hips_drop": 2.5
-  },
-  "walk_pass_l": {
-   "base": "idle_a",
-   "hips_drop": 1.5,
-   "chest": [86, 0, -20],
-   "l_thigh": [-85, 0, 0],
-   "l_shin": [-65, 180, 0],
-   "l_foot": [-30, 0, 0],
-   "r_thigh": [-88, 0, 0],
-   "r_shin": [-88, 0, 0],
-   "r_foot": [-18, 0, 0]
-  },
-  "walk_contact_r": {
-   "mirror_of": "walk_contact_l"
-  },
-  "walk_pass_r": {
-   "mirror_of": "walk_pass_l"
-  },
   "crouch": {
    "hips": [90, 0, -25],
-   "hips_drop": 20,
-   "spine": [76, 0, 0],
-   "chest": [72, 0, -8],
-   "head": [80, 0, 22],
-   "l_thigh": [-20, 0, 0],
-   "l_shin": [-28, 180, 0],
+   "hips_drop": 24,
+   "spine": [66, 0, 0],
+   "chest": [58, 0, -8],
+   "head": [64, 0, 22],
+   "l_thigh": [-12, 0, 0],
+   "l_shin": [-16, 180, 0],
    "l_foot": [0, 0, 0],
-   "r_thigh": [-25, 0, 0],
-   "r_shin": [-28, 180, 0],
+   "r_thigh": [-18, 0, 0],
+   "r_shin": [-16, 180, 0],
    "r_foot": [0, 0, 0],
    "l_upper_arm": [-55, 25, 0],
    "l_forearm": [25, 10, 0],
@@ -78,20 +48,6 @@
    "r_upper_arm": [-50, 20, 0],
    "r_forearm": [30, 8, 0],
    "r_wrist": [30, 8, 0]
-  },
-  "crouch_step_a": {
-   "base": "crouch",
-   "l_thigh": [-15, 0, 0],
-   "r_thigh": [-30, 0, 0],
-   "l_shin": [-32, 180, 0],
-   "r_shin": [-18, 180, 0]
-  },
-  "crouch_step_b": {
-   "base": "crouch",
-   "l_thigh": [-30, 0, 0],
-   "r_thigh": [-15, 0, 0],
-   "l_shin": [-18, 180, 0],
-   "r_shin": [-32, 180, 0]
   },
   "jump_rise": {
    "hips": [90, 0, -25],
@@ -235,10 +191,10 @@
   "crouch_contact": {
    "base": "crouch",
    "hips": [90, 0, -8],
-   "chest": [74, 0, 10],
-   "r_upper_arm": [-20, 0, 0],
-   "r_forearm": [-18, 0, 0],
-   "r_wrist": [-18, 0, 0]
+   "chest": [60, 0, 10],
+   "r_upper_arm": [-16, 0, 0],
+   "r_forearm": [-14, 0, 0],
+   "r_wrist": [-14, 0, 0]
   },
   "crouch_recover": {
    "base": "crouch",
@@ -417,6 +373,66 @@
    "l_shin": [-90, 0, 0],
    "r_thigh": [-86, 10, 0],
    "r_shin": [-90, 0, 0]
+  },
+  "crouch_kick_windup": {
+   "base": "crouch",
+   "hips": [90, 0, -34],
+   "r_thigh": [-30, 180, 0],
+   "r_shin": [-30, 180, 0],
+   "r_foot": [-60, 0, 0]
+  },
+  "crouch_kick_contact": {
+   "base": "crouch",
+   "hips": [90, 0, -6],
+   "hips_drop": 26,
+   "spine": [60, 0, 0],
+   "chest": [52, 0, 6],
+   "head": [58, 0, 10],
+   "r_thigh": [-4, 0, 0],
+   "r_shin": [-2, 0, 0],
+   "r_foot": [-8, 0, 0],
+   "l_thigh": [-10, 0, 0],
+   "l_shin": [-30, 180, 0],
+   "l_foot": [0, 0, 0],
+   "l_upper_arm": [-50, 30, 0],
+   "l_forearm": [-40, 20, 0],
+   "l_wrist": [-40, 20, 0]
+  },
+  "crouch_kick_recover": {
+   "base": "crouch",
+   "hips": [90, 0, -20],
+   "r_thigh": [-18, 0, 0],
+   "r_shin": [-24, 180, 0]
+  },
+  "air_kick_windup": {
+   "base": "jump_rise",
+   "hips": [90, 0, -34],
+   "r_thigh": [-20, 0, 0],
+   "r_shin": [-85, 180, 0]
+  },
+  "air_kick_contact": {
+   "base": "jump_rise",
+   "hips": [90, 0, -6],
+   "spine": [80, 180, 0],
+   "chest": [78, 180, 6],
+   "r_thigh": [-15, 0, 0],
+   "r_shin": [-20, 0, 0],
+   "r_foot": [-30, 0, 0],
+   "l_thigh": [-40, 0, 0],
+   "l_shin": [-80, 180, 0]
+  },
+  "air_kick_recover": {
+   "base": "jump_fall",
+   "hips": [90, 0, -18],
+   "r_thigh": [-50, 0, 0],
+   "r_shin": [-75, 180, 0]
+  },
+  "walk_base": {
+   "base": "idle_a",
+   "hips_drop": 4,
+   "chest": [86, 0, -14],
+   "l_upper_arm": [-62, 25, 0],
+   "r_upper_arm": [-55, 20, 0]
   }
  },
  "cycles": {
@@ -426,23 +442,32 @@
    "keys": [[0, "idle_a"], [24, "idle_b"]]
   },
   "walk_fwd": {
-   "frames": 32,
+   "frames": 12,
    "loop": true,
-   "keys": [[0, "walk_contact_l"], [8, "walk_pass_l"], [16, "walk_contact_r"], [24, "walk_pass_r"]]
+   "walk": {
+    "lift": 3
+   },
+   "keys": [[0, "walk_base"]]
   },
   "walk_back": {
-   "frames": 32,
+   "frames": 12,
    "loop": true,
-   "keys": [[0, "walk_contact_r"], [8, "walk_pass_l"], [16, "walk_contact_l"], [24, "walk_pass_r"]]
+   "walk": {
+    "lift": 3
+   },
+   "keys": [[0, "walk_base"]]
   },
   "crouch_idle": {
    "frames": 2,
    "keys": [[0, "crouch"]]
   },
   "crouch_walk": {
-   "frames": 16,
+   "frames": 12,
    "loop": true,
-   "keys": [[0, "crouch_step_a"], [8, "crouch_step_b"]]
+   "walk": {
+    "lift": 2
+   },
+   "keys": [[0, "crouch"]]
   },
   "jump_rise": {
    "frames": 2,
@@ -512,6 +537,16 @@
     "anticipation": "super_windup",
     "contact": "super_contact",
     "recovery": "super_recover"
+   },
+   "crouch+kick": {
+    "anticipation": "crouch_kick_windup",
+    "contact": "crouch_kick_contact",
+    "recovery": "crouch_kick_recover"
+   },
+   "air+kick": {
+    "anticipation": "air_kick_windup",
+    "contact": "air_kick_contact",
+    "recovery": "air_kick_recover"
    }
   },
   "stand_lp": {

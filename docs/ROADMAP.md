@@ -1084,11 +1084,27 @@ mannequin and M3.5a's room are unblocked from that date.
   within 2 px; silhouette distinct at 200 px half-width. **Done when:**
   `Kernel.AMotionKeyOwnsVelocityAndSuspendsGravityUntilTheNextKeyOrTheMoveEnds`
   (or its negation),
-  `ShippedClips.AContactPoseFitsItsMovesAuthoredHurtboxHeight` (`crouch_mk`
-  26 px, `crouch_hk` 20 px, `crouch_hp` 36 px, +2 px),
+  `ShippedClips.AContactPoseFitsItsMovesAuthoredHurtboxHeight` (the body the
+  KERNEL can hit, +2 px: the 34 px crouch body for every crouching move today,
+  because the file's `crouch_mk` 26 px, `crouch_hk` 20 px, `crouch_hp` 36 px
+  stop at the loader -- see the finding below; the test pins that too),
   `ShippedClips.StunAndKnockdownClipsCoverTheLongestAuthoredCounters`,
   `ShippedClips.AWalkCycleAdvancesItsStrideInWholeTicks` (`N × walkSpeedPx ==
   stride px`); `ShippedClips.MatchTheFrameData` green after every batch.
+
+- `[ ]` **M3.3d-2 `engine.hurtbox_sub` and `engine.airborne_from_tick` reach the
+  kernel.** *(S, data)* Found by M3.3d's fit test (2026-09-06): the loader
+  parses both schema-v3 fields into `Move::hurtboxOverride` and
+  `Move::airborneFromTick` and MatchBuilder copies neither into `MoveDef`, so
+  the kernel plays every crouching move in the 34 px crouch body and no
+  grounded move ever counts as airborne -- the two headline behaviours of that
+  schema revision (`CharacterData.h`, the two-fields paragraph) are
+  documentation. A MatchData change, so the crossplat golden may move where a
+  crouching move was hit in the script: re-golden once, review once, per
+  CLAUDE.md. **Done when:** `MatchBuilder.CarriesAMovesHurtboxAndAirborneTick`,
+  a loss-ledger row for each, and
+  `ShippedClips.AContactPoseFitsItsMovesAuthoredHurtboxHeight` re-fitted to 26,
+  20 and 36 px (its pin on `carriedByKernel == 0` is what fails first).
 
 - `[ ]` **M3.3e The modeled shoto body.** *(L — human hours)* Gated by
   [ADR-020](adr/ADR-020-the-bounded-lift.md) clause (ii) and started after
