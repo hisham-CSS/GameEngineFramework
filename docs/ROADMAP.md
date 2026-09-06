@@ -98,7 +98,7 @@ M3.4a, under [ADR-020](adr/ADR-020-the-bounded-lift.md) (accepted
 
 | In flight | Owner | Since |
 |---|---|---|
-| — (next: M2.6 Play == Player, as a hash test) | | |
+| M2.6 Play == Player, as a hash test | Claude | 2026-09-06 |
 | M3.3d The remaining clips made legible (its machine half landed; the viewport batches wait on the human) | Claude / human | 2026-09-06 |
 
 The openings wave is landed end to end: per-opening prover surface → (c) →
@@ -919,7 +919,28 @@ Six WPs, all landed, gate required in CI. The decision is
   `VersusConfig.CommandLineOverridesTheFileAndNamesABadFlag`, and
   `Assets.VersusJsonShipsBesideFightLook` (the Player's install carries
   `versus.json` beside `fight_look.json`).
-- `[ ]` **M2.6 Play == Player, as a hash test.**
+- `[~]` **M2.6 Play == Player, as a hash test.** *(M)* Claude, 2026-09-06. Scoped
+  the same day under [ADR-023](adr/ADR-023-one-game-mode-host.md): the ten
+  blocks both executables write for a mode -- the `GameModeContext` factory,
+  the two tick hooks, the title registration, the menu's enter hook, the
+  owns-screen draw branch, the exit drain, the capture term and the `Leave`
+  after the loop -- become ONE engine unit, `GameModeHost` in the engine's core,
+  written against a narrow hook sink because `Application` opens a window and
+  the test must not; both hosts call it and keep only what genuinely differs
+  (the Editor's Play refusal and extra Leaves, where each drains). Neither
+  executable can be driven by a test (no argument enters a mode; the Editor
+  parses none; the window is real), so "Play == Player" is held where it is
+  true by construction: the unit, built twice with the Player's and the
+  Editor's parameters (gameplay gated off then Play with a clock reset, the pad
+  following focus through `GateFrame`, pause, a fractional time scale), runs
+  the committed replay through the real mode to the same checksum at every
+  equal tick and to the file's end. A structural gate keeps the duplication
+  from returning. The two real executables with their real pads are review
+  point R9's. **Done when:**
+  `GameModeHost.ThePlayerAndTheEditorWiringsRunTheSameMatchToTheSameBytes`,
+  `GameModeHost.EnterIsRefusedWhenTheHostSaysNoAndADrainedExitLeaves`, and
+  the host-setup gate script green in CI (each host names the unit
+  once and owns none of its lines).
 
 ## M3 — Skinned fighters, frame-indexed *(size L)* — placeholders through Blender
 
